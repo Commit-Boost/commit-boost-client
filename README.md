@@ -2,12 +2,13 @@
 ### Note
 - Commit-Boost is still in alpha development, all APIs are subject to change
 - The code is unaudited and NOT ready for production
+- Orginally proposed on ETH Research, read more [here](https://ethresear.ch/t/based-proposer-commitments-ethereum-s-marketplace-for-proposer-commitments/19517)
 
 ## Background:
 
-Nearly half a decade ago, Flashboys 2.0 2 was published highlighting how arbitrage bots were challenging the promise of blockchains. On the back of this, some of the authors and community members started a research collective to provide solutions to tackle these challenges. In the end, these efforts created a product more broadly known as MEV-boost 1.
+Nearly half a decade ago, Flashboys 2.0 2 was published highlighting how arbitrage bots were challenging the promise of blockchains. On the back of this, some of the authors and community members started a research collective to provide solutions to tackle these challenges. In the end, these efforts created a product more broadly known as MEV-boost.
 
-MEV-boost is a middleware that allows the proposer to make a wholesale commitment that outsources block building to a sophisticated actor called a block builder. In return, these block builders pack a block to earn the highest fee for the proposer. Today, over 90% of blocks 2 are built with proposer commitments.
+MEV-boost is a middleware that allows the proposer to make a wholesale commitment that outsources block building to a sophisticated actor called a block builder. In return, these block builders pack a block to earn the highest fee for the proposer. Today, over 90% of blocks are built with proposer commitments.
 
 ## Proposer Commitments:
 
@@ -35,7 +36,6 @@ To help address this we started an open source community effort called "Commit-B
 - Open source public good that is backwards compatible to help standardize the communication mechanism for the last mile of proposers’ commitments. 
 - The goal is to develop and then sustain a standard software that will limit fragmentation, reduce complexity for core devs, and decrease risks for proposers making commitments–but, still allow for open innovation / not limiting designs developed by proposer commitment protocols
 - Specifically, Commit-Boost is a new Ethereum validator sidecar focused on standardizing the last mile of communication between validators and third parties. It has been designed with modularity at its core, with the goal of supporting a broad range of different use cases and protocols.
-- Read more [here](https://ethresear.ch/t/based-proposer-commitments-ethereum-s-marketplace-for-proposer-commitments/19517)
 
 ## Goals
 - **Open Source**: Developed in the open and under open-source licensing 
@@ -65,7 +65,6 @@ By default, Commit-Boost will start a [MEV-boost](https://github.com/flashbots/m
 - [MEV boost](https://github.com/flashbots/mev-boost)
 - [Reth](https://github.com/paradigmxyz/reth)
 - [Lighthouse](https://github.com/sigp/lighthouse)
-
 
 ## License
 MIT + Apache-2.0
