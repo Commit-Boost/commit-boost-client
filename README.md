@@ -24,7 +24,8 @@ With Commit-Boost you can:
 - Subscribe to BuilderApi events and trigger arbitrary pipelines (`examples/alert_hook.rs`)
 
 ### High-level architecture
-By default, Commit-Boost will start a [MEV-boost](https://github.com/flashbots/mev-boost) compatible service. If any commit module is registered, then a signing manager is also started. The signing manager abstracts away the different signing methods amd keystores.
+By default, Commit-Boost will start a [MEV-boost](https://github.com/flashbots/mev-boost) compatible service. If any commit module is registered, then a signing manager is also started. The signing manager abstracts away the different signing methods and keystores.
+
 ![architecture](docs/architecture.png)
 
 ## Roadmap
@@ -33,6 +34,10 @@ By default, Commit-Boost will start a [MEV-boost](https://github.com/flashbots/m
 - [ ] Increased modularity of services, including in-process monitoring and extensive configurability
 
 ## Acknowledgements
-- MEV boost
-- Reth
-- Lighthouse
+- [MEV boost](https://github.com/flashbots/mev-boost)
+- [Reth](https://github.com/paradigmxyz/reth)
+- [Lighthouse](https://github.com/sigp/lighthouse)
+
+
+## License
+MIT + Apache-2.0
