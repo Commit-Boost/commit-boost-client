@@ -3,6 +3,34 @@
 - Commit-Boost is still in alpha development, all APIs are subject to change
 - The code is unaudited and NOT ready for production
 
+## Background:
+
+Nearly half a decade ago, Flashboys 2.0 2 was published highlighting how arbitrage bots were challenging the promise of blockchains. On the back of this, some of the authors and community members started a research collective to provide solutions to tackle these challenges. In the end, these efforts created a product more broadly known as MEV-boost 1.
+
+MEV-boost is a middleware that allows the proposer to make a wholesale commitment that outsources block building to a sophisticated actor called a block builder. In return, these block builders pack a block to earn the highest fee for the proposer. Today, over 90% of blocks 2 are built with proposer commitments.
+
+## Proposer Commitments:
+
+On the back of a few developments and some research by the EF, the concept of proposer commitments has begun to be more commonly discussed spurring the question; could proposers make commitments that would unlock a significant design space for Ethereum? And, could this be a mechanism to allow validators “…to provide input into block production, even when they decide to delegate building.” In the last year, multiple proposals have come forward that rely on or could greatly benefit from proposer commitments, some examples include:
+
+- Inclusion lists: Proposer commitment where part of the block / a set of transactions will be included / can’t be censored or removed by a third party, including the proposer
+- Preconf: Proposer commitment to in advance, guarantee inclusion of data / certain transaction or group of transactions in a block
+- Partial block auctions: Proposer commitment to auction off the top-of-block and the rest-of-block
+- Blockspace / blob futures: Proposer commitment to sell part of their block now, but deliver that part of the block in the future
+
+The proposals range in complexity but are underpinned by the same simple idea–a proposer’s commitment to do something with or for a third party. We also note that proposers may not need to make commitments at this level of granularity (i.e., continue to use wholesale block auctions). However, we believe this is an avenue worth exploring as it may help preserve things like chain neutrality “by allowing them to provide input into block production, even when they decide to delegate building” and if they choose, give some autonomy back to the proposer.
+
+## Challenge:
+
+On the surface, this all seems great and is an incredibly exciting development. But, in the undercurrents, we are potentially on a perilous path if we can’t agree on a standard of how proposers register and make / receive commitments. We see multiple risks including, but not limited to:
+
+- Increased fragmentation: While diversity of standards can create unlock more innovation, multiple standards (particularly in the last mile of communication) could compromise the security integrity of the entire Ethereum network through fragmentation of how proposer commitment protocols speak to proposers (i.e., proposers may need to make client adjustments for each variation of proposer commitments)
+- Development complexity: If there is no standard, teams may more commonly make client adjustments to opt into proposer commitments. This could exponentially inflate the burden on core developers tasked with executing / testing major network upgrades increasing risks for the network around hard forks
+- Limited transparency: With multiple software and standards, transparency around what proposers are opting into as well as bugs and taking quick actions may be challenging when something does go wrong
+These risks are likely to only increase as more and more proposer commitments get proposed and adopted. We also note that longer-term there are potential ideas to enshrine various mechanisms helping to reduce these risks.
+
+To help address this we started an open source community effort called "Commit-Boost". 
+
 ## What is Commit-Boost?
 - Open source public good that is backwards compatible to help standardize the communication mechanism for the last mile of proposers’ commitments. 
 - The goal is to develop and then sustain a standard software that will limit fragmentation, reduce complexity for core devs, and decrease risks for proposers making commitments–but, still allow for open innovation / not limiting designs developed by proposer commitment protocols
