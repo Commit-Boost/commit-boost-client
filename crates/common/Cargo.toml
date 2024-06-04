@@ -1,0 +1,18 @@
+[package]
+name = "cb-common"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+alloy-primitives.workspace = true
+alloy-rpc-types-beacon.workspace = true
+
+serde.workspace = true
+url.workspace = true
+
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

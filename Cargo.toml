@@ -1,0 +1,72 @@
+[workspace]
+members = [
+    "bin/commit-boost",
+
+    "crates/cli",
+    "crates/common",
+    "crates/crypto",
+    "crates/pbs",
+
+    "tests",
+    "examples",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.0.1"
+rust-version = "1.76"
+edition = "2021"
+
+[workspace.dependencies]
+cb-cli = { path = "crates/cli" }
+cb-common = { path = "crates/common" }
+cb-crypto = { path = "crates/crypto" }
+cb-pbs = { path = "crates/pbs" }
+
+# ethereum
+ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus", rev = "cf3c404043230559660810bc0c9d6d5a8498d819" }
+alloy-primitives = { version = "0.7.4", features = ["ssz"] }
+alloy-rpc-types-beacon = { git = "https://github.com/alloy-rs/alloy", rev = "64feb9bc51c8021ea08535694c44de84222f474e" }
+
+ethereum_ssz = "0.5"
+ethereum_ssz_derive = "0.5.3"
+ssz_types = "0.5"
+ethereum_serde_utils = "0.5.2"
+ethereum-types = "0.14.1"
+
+# networking
+axum = "0.7.5"
+axum-extra = { version = "0.9.3", features = ["typed-header"] }
+reqwest = "0.12.4"
+headers = "0.4.0"
+
+# async
+tokio = { version = "1.37.0", features = ["full"] }
+futures = "0.3.30"
+async-trait = "0.1.80"
+
+# serialization
+toml = "0.8.13"
+serde = { version = "1.0.202", features = ["derive"] }
+serde_json = "1.0.117"
+
+# logging
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
+
+# sync
+dashmap = "5.5.3"
+
+# crypto
+blst = "0.3.11"
+tree_hash = "0.5"
+tree_hash_derive = "0.5"
+
+# misc
+clap = { version = "4.5.4", features = ["derive", "env"] }
+thiserror = "1.0.61"
+eyre = "0.6.12"
+url = "2.5.0"
+uuid = { version = "1.8.0", features = ["v4", "fast-rng", "serde"] }
+typenum = "1.17.0"
+rand = "0.8.5"

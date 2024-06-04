@@ -1,0 +1,35 @@
+[package]
+name = "cb-tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+cb-pbs.workspace = true
+cb-common.workspace = true
+cb-crypto.workspace = true
+cb-cli.workspace = true
+
+tokio.workspace = true
+
+axum.workspace = true
+
+alloy-primitives.workspace = true
+alloy-rpc-types-beacon.workspace = true
+
+blst.workspace = true
+toml.workspace = true
+serde_json.workspace = true
+
+reqwest.workspace = true
+
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+tree_hash.workspace = true
+tree_hash_derive.workspace = true
+
+eyre.workspace = true
+
+[dev-dependencies]
+httpc-test = "0.1.9"
