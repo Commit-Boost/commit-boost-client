@@ -3,6 +3,7 @@
 - Commit-Boost is still in alpha development, all APIs are subject to change
 - The code is unaudited and NOT ready for production
 - Orginally proposed on ETH Research, read more [here](https://ethresear.ch/t/based-proposer-commitments-ethereum-s-marketplace-for-proposer-commitments/19517)
+- The efforts behind Commit-Boost will be from the broader community with core contributors / coordinators sitting in a not-for-profit type entity with a single focus: help develop and sustain this software
 
 ## Background:
 
