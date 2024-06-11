@@ -12,15 +12,13 @@ use crate::types::Chain;
 
 const MAINNET_GENESIS_TIME_SECONDS: u64 = 1606824023;
 const HOLESKY_GENESIS_TIME_SECONDS: u64 = 1695902400;
+const RHEA_GENESIS_TIME_SECONDS: u64 = 1695902400;
 
 const SECONDS_PER_SLOT: u64 = 12;
 const MILLIS_PER_SECOND: u64 = 1_000;
 
 pub fn timestamp_of_slot_start_millis(slot: u64, chain: Chain) -> u64 {
-    let seconds_since_genesis = match chain {
-        Chain::Mainnet => MAINNET_GENESIS_TIME_SECONDS,
-        Chain::Holesky => HOLESKY_GENESIS_TIME_SECONDS,
-    } + slot * SECONDS_PER_SLOT;
+    let seconds_since_genesis = chain.genesis_time_sec() + slot * SECONDS_PER_SLOT;
 
     seconds_since_genesis * MILLIS_PER_SECOND
 }
