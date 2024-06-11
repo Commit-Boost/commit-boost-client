@@ -31,7 +31,7 @@ pub async fn handle_submit_block<S: BuilderApiState, T: BuilderApi<S>>(
     state.publish_event(BuilderEvent::SubmitBlockRequest(Box::new(signed_blinded_block.clone())));
 
     let (curr_slot, slot_uuid) = state.get_slot_and_uuid();
-    info!(%req_id, ua=?user_agent, slot, %slot_uuid, ms_into_slot=now.saturating_sub(slot_start_ms), %block_hash, method = "submit_block");
+    info!(method = "submit_block", %req_id, ua=?user_agent, slot, %slot_uuid, ms_into_slot=now.saturating_sub(slot_start_ms), %block_hash);
 
     if curr_slot != signed_blinded_block.message.slot {
         warn!(%req_id, expected = curr_slot, got = slot, "blinded beacon slot mismatch")

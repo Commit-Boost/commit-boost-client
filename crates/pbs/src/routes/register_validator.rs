@@ -19,7 +19,7 @@ pub async fn handle_register_validator<S: BuilderApiState, T: BuilderApi<S>>(
     Json(registrations): Json<Vec<ValidatorRegistration>>,
 ) -> Result<impl IntoResponse, PbsClientError> {
     let req_id = Uuid::new_v4();
-    info!(%req_id, ua=?user_agent, num_registrations=registrations.len(), method = "register_validator");
+    info!(method = "register_validator", %req_id, ua=?user_agent, num_registrations=registrations.len());
 
     state.publish_event(BuilderEvent::RegisterValidatorRequest(registrations.clone()));
 

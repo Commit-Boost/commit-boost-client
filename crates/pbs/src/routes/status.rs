@@ -14,7 +14,7 @@ pub async fn handle_get_status<S: BuilderApiState, T: BuilderApi<S>>(
     State(state): State<BuilderState<S>>,
 ) -> Result<impl IntoResponse, PbsClientError> {
     let req_id = Uuid::new_v4();
-    info!(method = "get_status", relay_check = state.config.relay_check, method = "get_status");
+    info!(method = "get_status", relay_check = state.config.relay_check);
 
     state.publish_event(BuilderEvent::GetStatusEvent);
 

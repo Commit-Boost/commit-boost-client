@@ -27,7 +27,7 @@ pub async fn handle_get_header<S: BuilderApiState, T: BuilderApi<S>>(
 
     state.publish_event(BuilderEvent::GetHeaderRequest(params));
 
-    info!(%req_id, ua=?user_agent, slot=params.slot, parent_hash=%params.parent_hash, validator_pubkey=%params.pubkey, ms_into_slot=now.saturating_sub(slot_start_ms), method = "get_header");
+    info!(method = "get_header", %req_id, ua=?user_agent, slot=params.slot, parent_hash=%params.parent_hash, validator_pubkey=%params.pubkey, ms_into_slot=now.saturating_sub(slot_start_ms));
 
     match T::get_header(params, state.clone()).await {
         Ok(res) => {
