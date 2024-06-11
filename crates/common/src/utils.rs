@@ -108,5 +108,21 @@ pub fn initialize_tracing_log() {
         Level::INFO
     };
 
-    tracing_subscriber::fmt().with_max_level(level).with_target(false).init();
+    tracing_subscriber::fmt()
+        .compact()
+        .with_max_level(level)
+        .with_target(false)
+        .with_file(true)
+        .init();
+}
+
+pub fn print_logo() {
+    println!(
+        r#"   ______                          _ __     ____                   __ 
+  / ____/___  ____ ___  ____ ___  (_) /_   / __ )____  ____  _____/ /_
+ / /   / __ \/ __ `__ \/ __ `__ \/ / __/  / __  / __ \/ __ \/ ___/ __/
+/ /___/ /_/ / / / / / / / / / / / / /_   / /_/ / /_/ / /_/ (__  ) /_  
+\____/\____/_/ /_/ /_/_/ /_/ /_/_/\__/  /_____/\____/\____/____/\__/  
+                                                                      "#
+    )
 }

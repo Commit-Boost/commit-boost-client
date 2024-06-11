@@ -10,3 +10,8 @@ pub const SUBMIT_BLOCK_PATH: &str = "/blinded_blocks";
 pub const HEADER_KEY_SLOT_UUID: &str = "X-MEVBoost-SlotID";
 pub const HEADER_KEY_VERSION: &str = "X-MEVBoost-Version"; // do we need to use this
 pub const HEADER_START_TIME_UNIX_MS: &str = "X-MEVBoost-StartTimeUnixMS";
+
+pub const COMMIT_BOOST_API: &str = "/commit-boost/v1";
+pub const SIGN_REQUEST_PATH: &str = "/signer/sign";
+pub const PUBKEYS_PATH: &str = "/signer/pubkeys";
+pub const BUILDER_EVENTS_PATH: &str = "/events";

@@ -7,11 +7,14 @@ rust-version.workspace = true
 [dependencies]
 cb-common.workspace = true
 
+alloy-primitives.workspace = true
 alloy-rpc-types-beacon.workspace = true
 
 serde.workspace = true
 ethereum_ssz.workspace = true
 ethereum_ssz_derive.workspace = true
+
+axum.workspace = true
 
 # crypto
 blst.workspace = true
@@ -24,3 +27,4 @@ tokio.workspace = true
 eyre.workspace = true
 
 tracing.workspace = true
+uuid.workspace = true

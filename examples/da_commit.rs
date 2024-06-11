@@ -1,54 +1,95 @@
-//! Example on how to spin up a commit service to request arbitrary signatures from the proposer
-
 use std::time::Duration;
 
-use alloy_rpc_types_beacon::BlsPublicKey;
-use cb_cli::runner::{Runner, SignRequestSender};
-use cb_common::utils::initialize_tracing_log;
+use alloy_rpc_types_beacon::{BlsPublicKey, BlsSignature};
+use cb_common::{
+    config::{load_module_config, ModuleConfig},
+    pbs::{COMMIT_BOOST_API, PUBKEYS_PATH, SIGN_REQUEST_PATH},
+    utils::initialize_tracing_log,
+};
 use cb_crypto::types::SignRequest;
-use cb_pbs::{BuilderState, DefaultBuilderApi};
-use clap::Parser;
+use serde::Deserialize;
 use tokio::time::sleep;
+use tracing::{error, info};
 use tree_hash_derive::TreeHash;
 
-// This is what the proposer will sign, it needs to derive TreeHash (i.e. it needs to be encoded as
-// SSZ). The proposer will the hash root of the message in the builder domain
 #[derive(TreeHash)]
 struct Datagram {
     data: u64,
 }
 
-const COMMIT_ID: &str = "DA_SERVICE";
+struct DaCommitService {
+    config: ModuleConfig<ExtraConfig>,
+    url: String,
+}
 
-/// The entrypoint of the commit service is an async function/closure.
-/// With the `SignRequestSender` channel you can send arbitrary signature request to the
-/// SigningService. Each `SignRequests` needs to specify:
-/// - an service ID (this will be used for telemetry purposes)
-/// - the validator pubkey for which the request needs to be signed
-/// - the message to be signed
-async fn run_da_commit_service(
-    tx: SignRequestSender,
-    pubkeys: Vec<BlsPublicKey>,
-) -> eyre::Result<()> {
-    let mut data = 0;
-    let validator_pubkey = pubkeys[0];
+#[derive(Debug, Deserialize)]
+struct ExtraConfig {
+    sleep_secs: u64,
+}
 
-    loop {
-        let msg = Datagram { data };
+impl DaCommitService {
+    pub async fn run(self) {
+        let pubkeys = self.get_pubkeys().await;
 
-        let (request, sign_rx) = SignRequest::new(COMMIT_ID, validator_pubkey, msg);
+        let pubkey = pubkeys[0];
 
-        tx.send(request).expect("failed sending request");
+        info!("Registered validator {pubkey}");
 
-        match sign_rx.await {
-            Ok(Ok(sig)) => println!("Signed data blob: {sig}"),
-            Ok(Err(err)) => eprintln!("Sign error: {err:?}"),
-            Err(err) => eprintln!("Sign manager is down: {err:?}"),
+        let mut data = 0;
+
+        loop {
+            self.send_request(data, pubkey).await;
+            sleep(Duration::from_secs(self.config.extra.sleep_secs)).await;
+            data += 1;
+        }
+    }
+
+    pub async fn get_pubkeys(&self) -> Vec<BlsPublicKey> {
+        let url = format!("{}{COMMIT_BOOST_API}{PUBKEYS_PATH}", self.url);
+        let response = reqwest::Client::new().get(url).send().await.expect("failed to get request");
+
+        let status = response.status();
+        let response_bytes = response.bytes().await.expect("failed to get bytes");
+
+        if !status.is_success() {
+            let err = String::from_utf8_lossy(&response_bytes).into_owned();
+            error!(err, ?status, "failed to get signature");
+            std::process::exit(1);
         }
 
-        data += 1;
+        let pubkeys: Vec<BlsPublicKey> =
+            serde_json::from_slice(&response_bytes).expect("failed deser");
 
-        sleep(Duration::from_secs(1)).await;
+        pubkeys
+    }
+
+    pub async fn send_request(&self, data: u64, pubkey: BlsPublicKey) {
+        let datagram = Datagram { data };
+
+        let request = SignRequest::builder(&self.config.id, pubkey).with_msg(&datagram);
+
+        let url = format!("{}{COMMIT_BOOST_API}{SIGN_REQUEST_PATH}", self.url);
+
+        let response = reqwest::Client::new()
+            .post(url)
+            .json(&request)
+            .send()
+            .await
+            .expect("failed to get request");
+
+        let status = response.status();
+        let response_bytes = response.bytes().await.expect("failed to get bytes");
+
+        if !status.is_success() {
+            let err = String::from_utf8_lossy(&response_bytes).into_owned();
+            error!(err, "failed to get signature");
+            return;
+        }
+
+        let signature: BlsSignature =
+            serde_json::from_slice(&response_bytes).expect("failed deser");
+
+        info!("Proposer commitment: {}", pretty_print_sig(signature))
     }
 }
 
@@ -56,15 +97,16 @@ async fn run_da_commit_service(
 async fn main() {
     initialize_tracing_log();
 
-    let (chain, config) = cb_cli::Args::parse().to_config();
+    let config = load_module_config::<ExtraConfig>();
 
-    let state = BuilderState::new(chain, config);
-    let mut runner = Runner::<(), DefaultBuilderApi>::new(state);
+    info!(module_id = config.config.id, "Starting module");
 
-    runner.add_commitment(COMMIT_ID, run_da_commit_service);
+    let service =
+        DaCommitService { config: config.config, url: format!("http://{}", config.sign_address) };
 
-    if let Err(err) = runner.run().await {
-        eprintln!("Error: {err}");
-        std::process::exit(1)
-    };
+    service.run().await
+}
+
+fn pretty_print_sig(sig: BlsSignature) -> String {
+    format!("{}..", &sig.to_string()[..16])
 }

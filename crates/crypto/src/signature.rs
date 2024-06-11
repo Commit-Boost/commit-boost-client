@@ -9,10 +9,7 @@ use ssz_derive::{Decode, Encode};
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
-use crate::{
-    types::ObjectTreeHash,
-    utils::{alloy_pubkey_to_blst, alloy_sig_to_blst},
-};
+use crate::utils::{alloy_pubkey_to_blst, alloy_sig_to_blst};
 
 pub fn random_secret() -> SecretKey {
     let mut rng = rand::thread_rng();
@@ -48,8 +45,7 @@ struct SigningData {
     signing_domain: [u8; 32],
 }
 
-pub fn compute_signing_root(msg: &impl ObjectTreeHash, signing_domain: [u8; 32]) -> [u8; 32] {
-    let object_root = msg.tree_hash().0;
+pub fn compute_signing_root(object_root: [u8; 32], signing_domain: [u8; 32]) -> [u8; 32] {
     let signing_data = SigningData { object_root, signing_domain };
     signing_data.tree_hash_root().0
 }
@@ -103,7 +99,7 @@ pub fn verify_signed_builder_message<T: TreeHash>(
         Chain::Holesky => HOLESKY_BUILDER_DOMAIN,
     };
 
-    let signing_root = compute_signing_root(msg, domain);
+    let signing_root = compute_signing_root(msg.tree_hash_root().0, domain);
 
     verify_signature(pubkey, &signing_root, signature)
 }
@@ -111,14 +107,28 @@ pub fn verify_signed_builder_message<T: TreeHash>(
 pub fn sign_builder_message(
     chain: Chain,
     secret_key: &SecretKey,
-    msg: &impl ObjectTreeHash,
+    msg: &impl TreeHash,
 ) -> BlsSignature {
     let domain = match chain {
         Chain::Mainnet => MAINNET_BUILDER_DOMAIN,
         Chain::Holesky => HOLESKY_BUILDER_DOMAIN,
     };
 
-    let signing_root = compute_signing_root(msg, domain);
+    let signing_root = compute_signing_root(msg.tree_hash_root().0, domain);
+    sign_message(secret_key, &signing_root)
+}
+
+pub fn sign_builder_root(
+    chain: Chain,
+    secret_key: &SecretKey,
+    object_root: [u8; 32],
+) -> BlsSignature {
+    let domain = match chain {
+        Chain::Mainnet => MAINNET_BUILDER_DOMAIN,
+        Chain::Holesky => HOLESKY_BUILDER_DOMAIN,
+    };
+
+    let signing_root = compute_signing_root(object_root, domain);
     sign_message(secret_key, &signing_root)
 }
 

@@ -17,12 +17,12 @@ impl PbsService {
         //     PbsService::relay_check(&config.relays).await;
         // }
 
-        let socket = state.config.address;
+        let address = state.config.address;
         let app = create_app_router::<S, T>(state);
 
-        info!("Starting PBS service on {socket:?}");
+        info!(?address, "Starting PBS service");
 
-        let listener = TcpListener::bind(socket).await.expect("failed tcp binding");
+        let listener = TcpListener::bind(address).await.expect("failed tcp binding");
 
         if let Err(err) = axum::serve(listener, app).await {
             error!(?err, "Pbs server exited")

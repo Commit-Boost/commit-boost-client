@@ -20,6 +20,7 @@ use cb_common::{
 };
 use cb_crypto::manager::Signer;
 use cb_pbs::{GetHeaderParams, GetHeaderReponse, SubmitBlindedBlockResponse};
+use tree_hash::TreeHash;
 
 pub struct MockRelayState {
     pub chain: Chain,
@@ -82,7 +83,8 @@ async fn handle_get_header(
     response.data.message.header.block_hash.0[0] = 1;
     response.data.message.set_value(U256::from(10));
     response.data.message.pubkey = state.signer.pubkey();
-    response.data.signature = state.signer.sign(state.chain, &response.data.message).await;
+    response.data.signature =
+        state.signer.sign(state.chain, &response.data.message.tree_hash_root().0).await;
 
     (StatusCode::OK, axum::Json(response)).into_response()
 }

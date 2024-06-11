@@ -1,35 +1,84 @@
-use alloy_rpc_types_beacon::BlsPublicKey;
-use tokio::sync::mpsc;
-use tracing::error;
+use std::sync::Arc;
 
-use crate::{manager::SigningManager, types::SignRequest};
+use axum::{
+    extract::State,
+    http::StatusCode,
+    response::IntoResponse,
+    routing::{get, post},
+    Json,
+};
+use cb_common::{
+    config::SignerConfig,
+    pbs::{COMMIT_BOOST_API, PUBKEYS_PATH, SIGN_REQUEST_PATH},
+    types::Chain,
+};
+use tokio::net::TcpListener;
+use tracing::{error, info};
+use uuid::Uuid;
 
-pub struct SigningService {
-    manager: SigningManager,
-    sig_req_rx: mpsc::UnboundedReceiver<SignRequest>,
+use crate::{
+    error::SignError,
+    manager::{Signer, SigningManager},
+    types::SignRequest,
+};
+
+pub struct SigningService;
+
+#[derive(Clone)]
+struct SigningState {
+    manager: Arc<SigningManager>,
 }
 
+// TODO: JWT per id
+
 impl SigningService {
-    pub fn new(manager: SigningManager, sig_req_rx: mpsc::UnboundedReceiver<SignRequest>) -> Self {
-        Self { manager, sig_req_rx }
-    }
+    pub async fn run(chain: Chain, config: SignerConfig) {
+        let address = config.address;
 
-    pub async fn pubkey(&self) -> Vec<BlsPublicKey> {
-        self.manager.consensus_pubkeys()
-    }
+        // TODO: get this from config and setup
+        let signer = Signer::new_random();
+        let mut manager = SigningManager::new(chain);
+        manager.add_consensus_signer(signer);
 
-    pub async fn run(mut self) {
-        while let Some(req) = self.sig_req_rx.recv().await {
-            let maybe_sig = if req.is_proxy {
-                self.manager.sign_proxy(&req.pubkey, &req.msg).await
-            } else {
-                self.manager.sign_consensus(&req.pubkey, &req.msg).await
-            };
+        let state = SigningState { manager: manager.into() };
 
-            // ignore error if client dropped
-            let _ = req.ans.send(maybe_sig.map_err(|err| err.into()));
+        let signer_routes = axum::Router::new()
+            .route(SIGN_REQUEST_PATH, post(handle_sign_request))
+            .route(PUBKEYS_PATH, get(handle_get_pubkeys))
+            .with_state(state);
+
+        let app = axum::Router::new().nest(COMMIT_BOOST_API, signer_routes);
+
+        info!(?address, "Starting signing service");
+
+        let listener = TcpListener::bind(address).await.expect("failed tcp binding");
+
+        if let Err(err) = axum::serve(listener, app).await {
+            error!(?err, "Signing server exited")
         }
-
-        error!("Exiting signing service")
     }
+}
+
+async fn handle_sign_request(
+    State(state): State<SigningState>,
+    Json(request): Json<SignRequest>,
+) -> Result<impl IntoResponse, SignError> {
+    let req_id = Uuid::new_v4();
+
+    info!(module_id=?request.id, ?req_id, "New signature request");
+
+    let sig = if request.is_proxy {
+        state.manager.sign_proxy(&request.pubkey, &request.object_root).await
+    } else {
+        state.manager.sign_consensus(&request.pubkey, &request.object_root).await
+    }?;
+
+    Ok((StatusCode::OK, Json(sig)).into_response())
+}
+
+async fn handle_get_pubkeys(
+    State(state): State<SigningState>,
+) -> Result<impl IntoResponse, SignError> {
+    let pubkeys = state.manager.consensus_pubkeys();
+    Ok((StatusCode::OK, Json(pubkeys)).into_response())
 }

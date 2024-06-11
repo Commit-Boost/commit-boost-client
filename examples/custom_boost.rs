@@ -11,10 +11,9 @@ use axum::{
     routing::get,
     Router,
 };
-use cb_cli::runner::Runner;
-use cb_common::utils::initialize_tracing_log;
-use cb_pbs::{BuilderApi, BuilderApiState, BuilderState};
-use clap::Parser;
+use cb_common::{config::load_pbs_config, utils::initialize_tracing_log};
+use cb_pbs::{BuilderApi, BuilderApiState, BuilderState, PbsService};
+use tracing::info;
 
 // You can provide extra state to the Pbs server by implementing the `BuilderApiState` trait
 #[derive(Debug, Default, Clone)]
@@ -37,6 +36,7 @@ struct MyBuilderApi;
 #[async_trait]
 impl BuilderApi<StatusCounter> for MyBuilderApi {
     async fn get_status(state: BuilderState<StatusCounter>) -> eyre::Result<()> {
+        info!("THIS IS A CUSTOM LOG");
         state.data.inc();
         Ok(())
     }
@@ -54,13 +54,11 @@ async fn handle_stats(State(state): State<BuilderState<StatusCounter>>) -> Respo
 async fn main() {
     initialize_tracing_log();
 
-    let (chain, config) = cb_cli::Args::parse().to_config();
+    let (chain, config) = load_pbs_config();
+
+    info!("Starting custom pbs module");
 
     let state = BuilderState::new(chain, config);
-    let runner = Runner::<StatusCounter, MyBuilderApi>::new(state);
 
-    if let Err(err) = runner.run().await {
-        eprintln!("Error: {err}");
-        std::process::exit(1)
-    };
+    PbsService::run::<StatusCounter, MyBuilderApi>(state).await;
 }

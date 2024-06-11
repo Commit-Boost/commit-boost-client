@@ -14,14 +14,14 @@ pub async fn handle_get_status<S: BuilderApiState, T: BuilderApi<S>>(
     State(state): State<BuilderState<S>>,
 ) -> Result<impl IntoResponse, PbsClientError> {
     let req_id = Uuid::new_v4();
-    info!(%req_id, relay_check = state.config.relay_check, method = "get_status");
+    info!(method = "get_status", relay_check = state.config.relay_check, method = "get_status");
 
     state.publish_event(BuilderEvent::GetStatusEvent);
 
     match T::get_status(state.clone()).await {
         Ok(_) => {
             state.publish_event(BuilderEvent::GetStatusResponse);
-            info!(%req_id, event = "relay_check", "relay check successful");
+            info!(%req_id, "relay check successful");
             Ok(StatusCode::OK)
         }
         Err(err) => {

@@ -3,11 +3,12 @@ use std::collections::HashMap;
 use alloy_rpc_types_beacon::{BlsPublicKey, BlsSignature};
 use blst::min_pk::SecretKey;
 use cb_common::types::Chain;
+use tree_hash::TreeHash;
 
 use crate::{
     error::SignError,
     signature::{random_secret, sign_builder_message},
-    types::{ObjectTreeHash, ProxyDelegation, SignedProxyDelegation},
+    types::{ProxyDelegation, SignedProxyDelegation},
     utils::blst_pubkey_to_alloy,
 };
 
@@ -31,9 +32,9 @@ impl Signer {
         }
     }
 
-    pub async fn sign(&self, chain: Chain, msg: &impl ObjectTreeHash) -> BlsSignature {
+    pub async fn sign(&self, chain: Chain, object_root: &[u8; 32]) -> BlsSignature {
         match self {
-            Signer::Plain(sk) => sign_builder_message(chain, sk, msg),
+            Signer::Plain(sk) => sign_builder_message(chain, sk, object_root),
         }
     }
 }
@@ -77,7 +78,7 @@ impl SigningManager {
         let signer = Signer::new_random();
 
         let message = ProxyDelegation { delegator, proxy: signer.pubkey() };
-        let signature = self.sign_consensus(&delegator, &message).await?;
+        let signature = self.sign_consensus(&delegator, &message.tree_hash_root().0).await?;
         let signed_delegation: SignedProxyDelegation = SignedProxyDelegation { signature, message };
         let proxy_signer = ProxySigner { signer, delegation: signed_delegation };
 
@@ -90,7 +91,7 @@ impl SigningManager {
     pub async fn sign_consensus(
         &self,
         pubkey: &BlsPublicKey,
-        msg: &impl ObjectTreeHash,
+        msg: &[u8; 32],
     ) -> Result<BlsSignature, SignError> {
         let signer =
             self.consensus_signers.get(pubkey).ok_or(SignError::UnknownConsensusSigner(*pubkey))?;
@@ -102,7 +103,7 @@ impl SigningManager {
     pub async fn sign_proxy(
         &self,
         pubkey: &BlsPublicKey,
-        msg: &impl ObjectTreeHash,
+        msg: &[u8; 32],
     ) -> Result<BlsSignature, SignError> {
         let proxy = self.proxy_signers.get(pubkey).ok_or(SignError::UnknownProxySigner(*pubkey))?;
         let signature = proxy.signer.sign(self.chain, msg).await;

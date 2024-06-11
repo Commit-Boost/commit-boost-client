@@ -3,12 +3,9 @@ use std::{collections::HashSet, future::Future, marker::PhantomData};
 use alloy_rpc_types_beacon::BlsPublicKey;
 use cb_crypto::{
     manager::{Signer, SigningManager},
-    service::SigningService,
     types::SignRequest,
 };
-use cb_pbs::{
-    BuilderApi, BuilderApiState, BuilderEvent, BuilderState, DefaultBuilderApi, PbsService,
-};
+use cb_pbs::{BuilderApi, BuilderApiState, BuilderEvent, BuilderState, DefaultBuilderApi};
 use tokio::sync::{
     broadcast,
     mpsc::{self, unbounded_channel, UnboundedSender},
@@ -23,13 +20,13 @@ pub struct Runner<S: BuilderApiState = (), T: BuilderApi<S> = DefaultBuilderApi>
     sign_manager: SigningManager,
 
     notif_tx: SignRequestSender,
-    notif_rx: mpsc::UnboundedReceiver<SignRequest>,
+
     _marker: PhantomData<T>,
 }
 
 impl<S: BuilderApiState, T: BuilderApi<S>> Runner<S, T> {
     pub fn new(state: BuilderState<S>) -> Self {
-        let (notif_tx, notif_rx) = unbounded_channel();
+        let (notif_tx, _) = unbounded_channel();
 
         // TODO: move this in run + spawn only if needed
         let mut sign_manager = SigningManager::new(state.chain);
@@ -41,7 +38,7 @@ impl<S: BuilderApiState, T: BuilderApi<S>> Runner<S, T> {
             hooks_ids: HashSet::new(),
             sign_manager,
             notif_tx,
-            notif_rx,
+
             _marker: PhantomData,
         }
     }
@@ -78,18 +75,18 @@ impl<S: BuilderApiState, T: BuilderApi<S>> Runner<S, T> {
         tokio::spawn(hook(self.state.subscribe_events()));
     }
 
-    pub async fn run(self) -> eyre::Result<()> {
-        // start signature service
-        if !self.commit_ids.is_empty() {
-            let sign_service = SigningService::new(self.sign_manager, self.notif_rx);
-            tokio::spawn(sign_service.run());
-        }
+    // pub async fn run(self) -> eyre::Result<()> {
+    //     // start signature service
+    //     if !self.commit_ids.is_empty() {
+    //         let sign_service = SigningService::new(self.sign_manager, self.notif_rx);
+    //         tokio::spawn(sign_service.run());
+    //     }
 
-        // TODO: start commitments and hooks here
+    //     // TODO: start commitments and hooks here
 
-        // start boost service
-        PbsService::run::<S, T>(self.state).await;
+    //     // start boost service
+    //     PbsService::run::<S, T>(self.state).await;
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 }

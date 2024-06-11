@@ -18,7 +18,7 @@ impl BuilderApiState for () {}
 pub type BuilderEventReceiver = broadcast::Receiver<BuilderEvent>;
 
 #[derive(Debug, Clone)]
-pub struct BuilderState<S: BuilderApiState> {
+pub struct BuilderState<S: BuilderApiState = ()> {
     pub chain: Chain,
     /// Config data for the Pbs service
     pub config: Arc<BuilderConfig>,

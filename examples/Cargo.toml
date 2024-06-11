@@ -12,32 +12,27 @@ cb-crypto.workspace = true
 
 alloy-rpc-types-beacon.workspace = true
 
-tree_hash.workspace = true
-tree_hash_derive.workspace = true
-
+reqwest.workspace = true
 tokio.workspace = true
 async-trait.workspace = true
-
 axum.workspace = true
 
+tree_hash.workspace = true
+tree_hash_derive.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 
 tracing.workspace = true
-tracing-subscriber.workspace = true
-
-clap.workspace = true
-
 eyre.workspace = true
 
-
-[[example]]
+[[bin]]
 name = "da_commit"
 path = "da_commit.rs"
 
-[[example]]
-name = "alert_hook"
-path = "alert_hook.rs"
+# [[example]]
+# name = "alert_hook"
+# path = "alert_hook.rs"
 
-[[example]]
+[[bin]]
 name = "custom_boost"
 path = "custom_boost.rs"
