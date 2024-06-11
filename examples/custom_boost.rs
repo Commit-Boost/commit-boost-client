@@ -36,7 +36,8 @@ struct MyBuilderApi;
 #[async_trait]
 impl BuilderApi<StatusCounter> for MyBuilderApi {
     async fn get_status(state: BuilderState<StatusCounter>) -> eyre::Result<()> {
-        info!("THIS IS A CUSTOM LOG");
+        let count = state.data.0.load(Ordering::Relaxed);
+        info!("THIS IS A CUSTOM LOG. Count: {count}");
         state.data.inc();
         Ok(())
     }
