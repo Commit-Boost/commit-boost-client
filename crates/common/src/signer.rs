@@ -1,11 +1,7 @@
 use alloy_rpc_types_beacon::{BlsPublicKey, BlsSignature};
 use blst::min_pk::SecretKey;
 
-use crate::{
-    signature::{random_secret, sign_builder_message},
-    types::Chain,
-    utils::blst_pubkey_to_alloy,
-};
+use crate::{ObjectTreeHash, signature::{random_secret, sign_builder_message}, types::Chain, utils::blst_pubkey_to_alloy};
 
 pub enum Signer {
     Plain(SecretKey),
@@ -30,6 +26,15 @@ impl Signer {
     pub async fn sign(&self, chain: Chain, object_root: &[u8; 32]) -> BlsSignature {
         match self {
             Signer::Plain(sk) => sign_builder_message(chain, sk, object_root),
+        }
+    }
+
+    pub async fn sign_msg(&self, chain: Chain, msg: &impl ObjectTreeHash) -> BlsSignature {
+        match self {
+            Signer::Plain(sk) => {
+                let object_root = msg.tree_hash();
+                sign_builder_message(chain, sk, &object_root.0)
+            },
         }
     }
 }
