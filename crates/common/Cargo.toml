@@ -9,11 +9,16 @@ alloy-primitives.workspace = true
 alloy-rpc-types-beacon.workspace = true
 
 serde.workspace = true
+serde_json.workspace = true
 url.workspace = true
+ethereum_ssz.workspace = true
+ethereum_ssz_derive.workspace = true
 
 tracing.workspace = true
 tracing-subscriber.workspace = true
 toml.workspace = true
 
-[dev-dependencies]
-serde_json.workspace = true
+blst.workspace = true
+tree_hash.workspace = true
+tree_hash_derive.workspace = true
+rand.workspace = true

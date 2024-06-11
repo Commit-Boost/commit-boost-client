@@ -1,12 +1,10 @@
 use alloy_rpc_types_beacon::{BlsPublicKey, BlsSignature};
 use blst::BLST_ERROR;
-use cb_common::types::Chain;
+use cb_common::{signature::verify_signed_builder_message, types::Chain};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
-
-use crate::signature::verify_signed_builder_message;
 
 // TODO: might need to adapt the SignedProxyDelegation so that it goes through web3 signer
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Encode, Decode, TreeHash)]

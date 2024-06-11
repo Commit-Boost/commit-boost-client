@@ -69,21 +69,25 @@ impl Args {
             Command::Start { config: config_path } => {
                 let config = CommitBoostConfig::from_file(&config_path);
 
-                // this mocks the commit boost client starting containers, processes etc
-                let mut child_handles = Vec::with_capacity(config.modules.len());
+                if let Some(modules) = config.modules {
+                    let signer_config = config.signer.expect("missing signer config with modules");
 
-                for module in config.modules {
-                    let child = std::process::Command::new(module.path)
-                        .env(MODULE_ID_ENV, module.id)
-                        .env(CONFIG_PATH_ENV, &config_path)
-                        .spawn()
-                        .expect("failed to start process");
+                    // this mocks the commit boost client starting containers, processes etc
+                    let mut child_handles = Vec::with_capacity(modules.len());
 
-                    child_handles.push(child);
+                    for module in modules {
+                        let child = std::process::Command::new(module.path)
+                            .env(MODULE_ID_ENV, module.id)
+                            .env(CONFIG_PATH_ENV, &config_path)
+                            .spawn()
+                            .expect("failed to start process");
+
+                        child_handles.push(child);
+                    }
+
+                    // start signing server
+                    tokio::spawn(SigningService::run(config.chain, signer_config));
                 }
-
-                // start signing server
-                tokio::spawn(SigningService::run(config.chain, config.signer));
 
                 // start pbs server
                 if let Some(pbs_path) = config.pbs.path {

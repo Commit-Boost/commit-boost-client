@@ -5,10 +5,10 @@ use alloy_rpc_types_beacon::BlsPublicKey;
 use cb_common::{
     config::BuilderConfig,
     pbs::{RelayEntry, HEADER_KEY_SLOT_UUID, HEADER_START_TIME_UNIX_MS},
+    signature::verify_signed_builder_message,
     types::Chain,
     utils::{utcnow_ms, wei_to_eth},
 };
-use cb_crypto::signature::verify_signed_builder_message;
 use futures::future::join_all;
 use tracing::{debug, error};
 use uuid::Uuid;
@@ -167,8 +167,7 @@ mod tests {
     use alloy_primitives::{B256, U256};
     use alloy_rpc_types_beacon::BlsPublicKey;
     use blst::min_pk;
-    use cb_common::{pbs::RelayEntry, types::Chain};
-    use cb_crypto::signature::sign_builder_message;
+    use cb_common::{pbs::RelayEntry, signature::sign_builder_message, types::Chain};
 
     use super::validate_header;
     use crate::{

@@ -13,6 +13,8 @@ min_bid_eth = 0.0
 
 [signer]
 address = "127.0.0.1:33950"
+[signer.loader]
+key_path = "keys.example.json"
 
 [[modules]]
 id = "DA_COMMIT"

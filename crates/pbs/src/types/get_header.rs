@@ -61,8 +61,7 @@ impl ExecutionPayloadHeaderMessage {
 #[cfg(test)]
 mod tests {
     use alloy_primitives::U256;
-    use cb_common::types::Chain;
-    use cb_crypto::signature::verify_signed_builder_message;
+    use cb_common::{signature::verify_signed_builder_message, types::Chain};
 
     use super::GetHeaderReponse;
 

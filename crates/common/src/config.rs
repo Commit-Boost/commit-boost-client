@@ -1,10 +1,13 @@
 use std::net::SocketAddr;
 
 use alloy_primitives::U256;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{
+    de::{self, DeserializeOwned},
+    Deserialize, Deserializer, Serialize,
+};
 
 use super::utils::as_eth_str;
-use crate::{pbs::RelayEntry, types::Chain};
+use crate::{pbs::RelayEntry, signer::Signer, types::Chain};
 
 pub const CONFIG_PATH_ENV: &str = "COMMIT_BOOST_CONFIG";
 pub const MODULE_ID_ENV: &str = "COMMIT_BOOST_MODULE_ID";
@@ -13,8 +16,8 @@ pub const MODULE_ID_ENV: &str = "COMMIT_BOOST_MODULE_ID";
 pub struct CommitBoostConfig {
     pub chain: Chain,
     pub pbs: BuilderConfig,
-    pub modules: Vec<ModuleConfig>,
-    pub signer: SignerConfig,
+    pub modules: Option<Vec<ModuleConfig>>,
+    pub signer: Option<SignerConfig>,
 }
 
 fn load_from_file<T: DeserializeOwned>(path: &str) -> T {
@@ -43,6 +46,34 @@ impl CommitBoostConfig {
 pub struct SignerConfig {
     /// Where to start signing server
     pub address: SocketAddr,
+
+    pub loader: SignerLoader,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SignerLoader {
+    /// Plain text, do not use in prod
+    File { key_path: String },
+}
+
+impl SignerLoader {
+    pub fn load_keys(self) -> Vec<Signer> {
+        match self {
+            SignerLoader::File { key_path: path } => {
+                let file =
+                    std::fs::read_to_string(path).expect(&format!("Unable to find keys file"));
+
+                let keys: Vec<FileKey> = serde_json::from_str(&file).unwrap();
+
+                keys.into_iter().map(|k| Signer::new_from_bytes(&k.secret_key)).collect()
+            }
+        }
+    }
+}
+
+pub struct FileKey {
+    pub secret_key: [u8; 32],
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -139,5 +170,41 @@ pub fn load_module_config<T: DeserializeOwned>() -> StartModuleConfig<T> {
         chain: config.chain,
         config: module_config,
         sign_address: config.signer.address,
+    }
+}
+
+impl<'de> Deserialize<'de> for FileKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let s =
+            alloy_primitives::hex::decode(s.trim_start_matches("0x")).map_err(de::Error::custom)?;
+        let bytes: [u8; 32] = s.try_into().map_err(|_| de::Error::custom("wrong lenght"))?;
+
+        Ok(FileKey { secret_key: bytes })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::FileKey;
+
+    #[test]
+    fn test_decode() {
+        let s = [
+            0, 136, 227, 100, 165, 57, 106, 129, 181, 15, 235, 189, 200, 120, 70, 99, 251, 144,
+            137, 181, 230, 124, 189, 193, 115, 153, 26, 0, 197, 135, 103, 63,
+        ];
+
+        let d = r#"[
+    "0088e364a5396a81b50febbdc8784663fb9089b5e67cbdc173991a00c587673f",
+    "0088e364a5396a81b50febbdc8784663fb9089b5e67cbdc173991a00c587673f"
+]"#;
+        let decoded: Vec<FileKey> = serde_json::from_str(d).unwrap();
+
+        assert_eq!(decoded[0].secret_key, s)
     }
 }

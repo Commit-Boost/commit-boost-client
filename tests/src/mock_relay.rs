@@ -16,9 +16,9 @@ use cb_common::{
         BULDER_API_PATH, GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH,
         SUBMIT_BLOCK_PATH,
     },
+    signer::Signer,
     types::Chain,
 };
-use cb_crypto::manager::Signer;
 use cb_pbs::{GetHeaderParams, GetHeaderReponse, SubmitBlindedBlockResponse};
 use tree_hash::TreeHash;
 

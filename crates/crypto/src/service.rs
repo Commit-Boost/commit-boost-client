@@ -16,11 +16,7 @@ use tokio::net::TcpListener;
 use tracing::{error, info};
 use uuid::Uuid;
 
-use crate::{
-    error::SignError,
-    manager::{Signer, SigningManager},
-    types::SignRequest,
-};
+use crate::{error::SignError, manager::SigningManager, types::SignRequest};
 
 pub struct SigningService;
 
@@ -35,10 +31,12 @@ impl SigningService {
     pub async fn run(chain: Chain, config: SignerConfig) {
         let address = config.address;
 
-        // TODO: get this from config and setup
-        let signer = Signer::new_random();
         let mut manager = SigningManager::new(chain);
-        manager.add_consensus_signer(signer);
+
+        // TODO: load proxy keys
+        for signer in config.loader.load_keys() {
+            manager.add_consensus_signer(signer);
+        }
 
         let state = SigningState { manager: manager.into() };
 

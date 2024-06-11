@@ -3,13 +3,15 @@ use blst::{
     min_pk::{PublicKey, SecretKey, Signature},
     BLST_ERROR,
 };
-use cb_common::types::Chain;
 use rand::RngCore;
 use ssz_derive::{Decode, Encode};
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
-use crate::utils::{alloy_pubkey_to_blst, alloy_sig_to_blst};
+use crate::{
+    types::Chain,
+    utils::{alloy_pubkey_to_blst, alloy_sig_to_blst},
+};
 
 pub fn random_secret() -> SecretKey {
     let mut rng = rand::thread_rng();
@@ -134,10 +136,12 @@ pub fn sign_builder_root(
 
 #[cfg(test)]
 mod tests {
-    use cb_common::types::Chain;
 
     use super::compute_builder_domain;
-    use crate::signature::{HOLESKY_BUILDER_DOMAIN, MAINNET_BUILDER_DOMAIN};
+    use crate::{
+        signature::{HOLESKY_BUILDER_DOMAIN, MAINNET_BUILDER_DOMAIN},
+        types::Chain,
+    };
 
     #[test]
     fn test_builder_domains() {
