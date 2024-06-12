@@ -43,12 +43,12 @@ async fn handle_404() -> StatusCode {
 
 // TODO: remove
 async fn log_all_responses<B: std::fmt::Debug>(response: Response<B>) -> Response<B> {
-    debug!("SENDING RESPONSE: {response:?}");
+    debug!("RECEIVED RESPONSE: {response:?}");
     response
 }
 
 // TODO: remove
 async fn log_all_requests<B: std::fmt::Debug>(request: Request<B>) -> Request<B> {
-    debug!("RECEIVED REQUEST: {request:?}");
+    debug!("SENDING REQUEST: {request:?}");
     request
 }
