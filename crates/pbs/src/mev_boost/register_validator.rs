@@ -53,7 +53,7 @@ async fn send_register_validator(
     let res = client
         .post(url)
         .header(HEADER_START_TIME_UNIX_MS, utcnow_ms())
-        .body(serde_json::to_string(&registrations)?)
+        .json(&registrations)
         .send()
         .await?;
 
