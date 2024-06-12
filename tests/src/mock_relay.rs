@@ -4,6 +4,7 @@ use std::sync::{
 };
 
 use alloy_primitives::U256;
+use alloy_rpc_types_beacon::relay::ValidatorRegistration;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -20,6 +21,7 @@ use cb_common::{
     types::Chain,
 };
 use cb_pbs::{GetHeaderParams, GetHeaderReponse, SubmitBlindedBlockResponse};
+use tracing::debug;
 use tree_hash::TreeHash;
 
 pub struct MockRelayState {
@@ -94,8 +96,12 @@ async fn handle_get_status(State(state): State<Arc<MockRelayState>>) -> impl Int
     StatusCode::OK
 }
 
-async fn handle_register_validator(State(state): State<Arc<MockRelayState>>) -> impl IntoResponse {
+async fn handle_register_validator(
+    State(state): State<Arc<MockRelayState>>,
+    Json(validators): Json<Vec<ValidatorRegistration>>,
+) -> impl IntoResponse {
     state.received_register_validator.fetch_add(1, Ordering::Relaxed);
+    debug!("Received {} registrations", validators.len());
     StatusCode::OK
 }
 
