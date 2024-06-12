@@ -3,7 +3,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use alloy_primitives::U256;
+use alloy_primitives::{Address, keccak256, U256};
 use alloy_rpc_types_beacon::{BlsPublicKey, BlsSignature};
 use blst::min_pk::{PublicKey, Signature};
 use tracing::Level;
@@ -136,3 +136,12 @@ pub fn alloy_sig_to_blst(signature: &BlsSignature) -> Result<Signature, blst::BL
 pub fn blst_pubkey_to_alloy(pubkey: &PublicKey) -> BlsPublicKey {
     BlsPublicKey::from_slice(&pubkey.to_bytes())
 }
+
+/// 1) Hash the public key bytes using Keccak256.
+/// 2) The Ethereum address is the last 20 bytes of the hash.
+pub fn bls_public_key_to_address(public_key: &PublicKey) -> Address {
+    let public_key_bytes = public_key.to_bytes();
+    let public_key_hash = keccak256(&public_key_bytes);
+    Address::from_slice(&public_key_hash[12..])
+}
+
