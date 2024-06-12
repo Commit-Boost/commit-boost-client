@@ -54,6 +54,7 @@ async fn send_submit_block(
         .post(url)
         // .header(HEADER_KEY_SLOT_UUID, slot_uuid.to_string())
         .header(HEADER_START_TIME_UNIX_MS, utcnow_ms())
+        .header("Content-Type", "application/json")
         .json(&signed_blinded_block) // can probably serialize once and pass from above
         .send()
         .await?;
