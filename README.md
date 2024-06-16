@@ -4,7 +4,13 @@
 - The code is unaudited and are from being / NOT ready for production
 - Orginally proposed on ETH Research, read more [here](https://ethresear.ch/t/based-proposer-commitments-ethereum-s-marketplace-for-proposer-commitments/19517)
 - First presentation to the community can be found [here](https://www.youtube.com/watch?v=jrm4ZUoj9xY&list=PLJqWcTqh_zKHDFarAcF29QfdMlUpReZrR&index=11)
+- Second presentation at zuBerlin can be found [here](https://streameth.org/zuberlin/watch?session=66681afef9b8e98b1ec95fdd)
+- zuBerlin Devnet notion can be found [here](https://twisty-wednesday-4be.notion.site/ZuBerlin-Preconfs-Devnet-b693047f41e7407cadac0170a6711dea)
 - The efforts behind Commit-Boost will be from the broader community with core contributors / coordinators sitting in a not-for-profit type entity with a single focus: help develop and sustain this software
+
+## Contributors:
+- Gattaca
+- Limechain
 
 ## Background:
 
