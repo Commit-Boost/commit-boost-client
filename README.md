@@ -11,6 +11,7 @@
 ## Contributors:
 - Gattaca
 - Limechain
+- EigenLayer
 
 ## Background:
 
