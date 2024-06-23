@@ -9,9 +9,7 @@
 - The efforts behind Commit-Boost will be from the broader community with core contributors / coordinators sitting in a not-for-profit type entity with a single focus: help develop and sustain this software
 
 ## Contributors:
-- Gattaca
-- Limechain
-- EigenLayer
+- Daniel, Drew, George, George, Kubi, Kydo, Lorenzo ... Many more coming
 
 ## Background:
 
