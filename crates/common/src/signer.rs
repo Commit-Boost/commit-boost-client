@@ -1,9 +1,12 @@
-use alloy_primitives::Address;
 use alloy_rpc_types_beacon::{BlsPublicKey, BlsSignature};
 use blst::min_pk::SecretKey;
+use tree_hash::TreeHash;
 
-use crate::{ObjectTreeHash, signature::{random_secret, sign_builder_message}, types::Chain, utils::blst_pubkey_to_alloy};
-use crate::utils::bls_public_key_to_address;
+use crate::{
+    signature::{random_secret, sign_builder_message},
+    types::Chain,
+    utils::blst_pubkey_to_alloy,
+};
 
 #[derive(Clone)]
 pub enum Signer {
@@ -26,24 +29,18 @@ impl Signer {
         }
     }
 
-    pub fn address(&self) -> Address {
-        match self {
-            Signer::Plain(secret) => bls_public_key_to_address(&secret.sk_to_pk()),
-        }
-    }
-
     pub async fn sign(&self, chain: Chain, object_root: &[u8; 32]) -> BlsSignature {
         match self {
             Signer::Plain(sk) => sign_builder_message(chain, sk, object_root),
         }
     }
 
-    pub async fn sign_msg(&self, chain: Chain, msg: &impl ObjectTreeHash) -> BlsSignature {
+    pub async fn sign_msg(&self, chain: Chain, msg: &impl TreeHash) -> BlsSignature {
         match self {
             Signer::Plain(sk) => {
-                let object_root = msg.tree_hash();
+                let object_root = msg.tree_hash_root();
                 sign_builder_message(chain, sk, &object_root.0)
-            },
+            }
         }
     }
 }
