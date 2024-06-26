@@ -8,6 +8,7 @@ use axum::{
     Json,
 };
 use cb_common::{
+    commit::request::SignRequest,
     config::SignerConfig,
     pbs::{COMMIT_BOOST_API, PUBKEYS_PATH, SIGN_REQUEST_PATH},
     types::Chain,
@@ -16,7 +17,7 @@ use tokio::net::TcpListener;
 use tracing::{error, info};
 use uuid::Uuid;
 
-use crate::{error::SignError, manager::SigningManager, types::SignRequest};
+use crate::{error::SignError, manager::SigningManager};
 
 pub struct SigningService;
 

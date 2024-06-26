@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 
 use alloy_rpc_types_beacon::{BlsPublicKey, BlsSignature};
-use cb_common::{signer::Signer, types::Chain};
+use cb_common::{
+    commit::request::{ProxyDelegation, SignedProxyDelegation},
+    signer::Signer,
+    types::Chain,
+};
 use tree_hash::TreeHash;
 
-use crate::{
-    error::SignError,
-    types::{ProxyDelegation, SignedProxyDelegation},
-};
+use crate::error::SignError;
 
 // For extra safety and to avoid risking signing malicious messages, use a proxy setup:
 // proposer creates a new ephemeral keypair which will be used to sign commit messages,

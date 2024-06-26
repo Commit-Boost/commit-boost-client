@@ -2,11 +2,11 @@ use std::time::Duration;
 
 use alloy_rpc_types_beacon::{BlsPublicKey, BlsSignature};
 use cb_common::{
+    commit::request::SignRequest,
     config::{load_module_config, ModuleConfig},
     pbs::{COMMIT_BOOST_API, PUBKEYS_PATH, SIGN_REQUEST_PATH},
     utils::initialize_tracing_log,
 };
-use cb_crypto::types::SignRequest;
 use serde::Deserialize;
 use tokio::time::sleep;
 use tracing::{error, info};
