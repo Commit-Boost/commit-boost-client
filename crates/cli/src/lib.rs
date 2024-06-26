@@ -7,17 +7,14 @@ use cb_common::{
 use cb_crypto::service::SigningService;
 use cb_pbs::{BuilderState, DefaultBuilderApi, PbsService};
 use clap::{Parser, Subcommand};
-use metering::MetricsCollector;
-use tokio::time::{sleep, Duration};
+use metering::{MetricsCollector, DockerMetricsCollector};
+use std::sync::Arc;
 
 #[derive(Parser, Debug)]
 #[command(version, about)]
 pub struct Args {
     #[command(subcommand)]
-    pub cmd: Command,
-    // /// Start with Holesky spec
-    // #[arg(long, global = true)]
-    // pub holesky: bool,
+    pub cmd: Command
 }
 
 #[derive(Debug, Subcommand)]
@@ -28,45 +25,20 @@ pub enum Command {
     },
 }
 
+async fn metrics_collector_task(collector: Arc<dyn MetricsCollector>, addr: &'static str) {
+    collector.collect_metrics().await;
+    collector.serve_metrics(addr).await;
+}
+
 impl Args {
     pub async fn run(self) -> eyre::Result<()> {
         print_logo();
 
         match self.cmd {
             Command::Start { config: config_path } => {
-                // Initialize the MetricsCollector
-                let collector = MetricsCollector::new();
-
-                // Start gathering system metrics
-                tokio::spawn({
-                    let collector = collector.clone();
-                    async move {
-                        loop {
-                            collector.gather_system_metrics().await;
-                            sleep(Duration::from_secs(5)).await;
-                        }
-                    }
-                });
-
-                // Simulate external actors reporting custom metrics
-                //TODO: move to custom "module"
-                tokio::spawn({
-                    let collector = collector.clone();
-                    async move {
-                        collector.report_custom_metric("service_status".to_string(), "running".to_string()).await;
-                        collector.report_custom_metric("active_users".to_string(), "42".to_string()).await;
-                    }
-                });
-
-                // Start the metrics server to expose metrics
-                tokio::spawn({
-                    async move {
-                        collector.serve_metrics("0.0.0.0:8080").await;
-                    }
-                });
 
                 let config = CommitBoostConfig::from_file(&config_path);
-
+                
                 if let Some(modules) = config.modules {
                     let signer_config = config.signer.expect("missing signer config with modules");
 
@@ -82,6 +54,20 @@ impl Args {
 
                         child_handles.push(child);
                     }
+
+                    // start monitoring tasks for spawned modules
+                    // TODO: this needs to integrate with docker module instantiation
+                    let docker_collector = Arc::new(DockerMetricsCollector::new(vec![
+                        "container_id_1".to_string(),
+                        "container_id_2".to_string(),
+                        "container_id_3".to_string(),
+                    ]).await);
+                    tokio::spawn(metrics_collector_task(docker_collector.clone(), "0.0.0.0:3030"));
+                    
+                    //NOTE: if you start a new monitoring collector you need to specify a different port for the underlying server to server requests at
+                    // let sysinfo_collector = SysinfoMetricsCollector::new(12345).await; // Replace 12345 with the actual PID you want to monitor
+                    // tokio::spawn(metrics_collector_task(&sysinfo_collector, "0.0.0.0:3031""));
+
 
                     // start signing server
                     tokio::spawn(SigningService::run(config.chain, signer_config));

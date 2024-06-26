@@ -10,8 +10,6 @@ services:
       - "8080:8080"
     networks:
       - monitoring
-    environment:
-      - CONFIG_PATH_ENV=config.example.toml  # Set the actual path to your config
 
   prometheus:
     build:

@@ -1,130 +1,186 @@
-use serde::{Serialize, Deserialize};
-use sysinfo::{System, SystemExt, DiskExt, ProcessorExt};
-use std::collections::HashMap;
-use tokio::sync::RwLock;
+use async_trait::async_trait;
+use bollard::{Docker, container::StatsOptions};
+use futures_util::stream::TryStreamExt;
+use opentelemetry::{global, Context, KeyValue};
+use opentelemetry_prometheus::exporter;
+use prometheus::{Encoder, TextEncoder, Registry};
+use std::net::SocketAddr;
 use std::sync::Arc;
-use prometheus::{Encoder, TextEncoder, Registry, Gauge, opts};
-use hyper::{Body, Response, Server, Request, Method};
-use hyper::service::{make_service_fn, service_fn};
-use std::convert::Infallible;
+use sysinfo::{Pid, ProcessExt, System, SystemExt};
+use tokio::sync::RwLock;
+use warp::Filter;
 
+#[async_trait]
+pub trait MetricsCollector: Send + Sync {
+    async fn collect_metrics(&self);
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct SystemMetrics {
-    pub cpu_usage: f32,
-    pub ram_usage: u64,
-    pub disk_usage: u64,
+    async fn serve_metrics(&self, addr: &str) {
+        let registry = self.get_registry().clone();
+        let routes = warp::path("metrics").map(move || {
+            let encoder = TextEncoder::new();
+            let metric_families = registry.gather();
+            let mut buffer = Vec::new();
+            encoder.encode(&metric_families, &mut buffer).unwrap();
+            warp::http::Response::builder()
+                .header("Content-Type", encoder.format_type())
+                .body(String::from_utf8(buffer).unwrap())
+        });
+
+        let addr: SocketAddr = addr.parse().expect("Invalid address");
+        warp::serve(routes).run(addr).await;
+    }
+
+    fn get_registry(&self) -> &Registry;
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct CustomMetric {
-    pub name: String,
-    pub value: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Metrics {
-    pub system_metrics: SystemMetrics,
-    pub custom_metrics: Vec<CustomMetric>,
-}
-
-pub struct MetricsCollector {
-    system: Arc<RwLock<System>>,
-    custom_metrics: Arc<RwLock<HashMap<String, String>>>,
-    cpu_usage_gauge: Gauge,
-    ram_usage_gauge: Gauge,
-    disk_usage_gauge: Gauge,
+#[derive(Clone)]
+pub struct DockerMetricsCollector {
+    docker: Arc<Docker>,
+    container_ids: Vec<String>,
+    cpu_usage: opentelemetry::metrics::ObservableGauge<f64>,
+    memory_usage: opentelemetry::metrics::ObservableGauge<u64>,
     registry: Registry,
 }
 
-impl MetricsCollector {
-    pub fn new() -> Self {
-        let registry = Registry::new();
+#[async_trait]
+impl MetricsCollector for DockerMetricsCollector {
+    async fn collect_metrics(&self) {
+        // Collect Docker metrics for each container
+        for container_id in &self.container_ids {
+            self.collect_docker_metrics(container_id.clone()).await;
+        }
+    }
 
-        let cpu_usage_gauge = Gauge::with_opts(opts!("cpu_usage", "CPU usage percentage")).unwrap();
-        let ram_usage_gauge = Gauge::with_opts(opts!("ram_usage", "RAM usage in bytes")).unwrap();
-        let disk_usage_gauge = Gauge::with_opts(opts!("disk_usage", "Disk usage in bytes")).unwrap();
+    fn get_registry(&self) -> &Registry {
+        &self.registry
+    }
+}
 
-        registry.register(Box::new(cpu_usage_gauge.clone())).unwrap();
-        registry.register(Box::new(ram_usage_gauge.clone())).unwrap();
-        registry.register(Box::new(disk_usage_gauge.clone())).unwrap();
+impl DockerMetricsCollector {
+    pub async fn new(container_ids: Vec<String>) -> Self {
+        // Initialize Docker client
+        let docker = Docker::connect_with_local_defaults().expect("Failed to connect to Docker");
 
-        Self {
-            system: Arc::new(RwLock::new(System::new_all())),
-            custom_metrics: Arc::new(RwLock::new(HashMap::new())),
-            cpu_usage_gauge,
-            ram_usage_gauge,
-            disk_usage_gauge,
+        // Create a new Prometheus registry
+        let registry = Registry::new_custom(Some("docker_metrics".to_string()), None).unwrap();
+
+        // Configure OpenTelemetry to use this registry
+        let _exporter = exporter()
+            .with_registry(registry.clone())
+            .init();
+
+        let meter = global::meter("docker_metrics");
+
+        // Define example metrics
+        let cpu_usage = meter.f64_observable_gauge("cpu_usage").init();
+        let memory_usage = meter.u64_observable_gauge("memory_usage").init();
+
+        DockerMetricsCollector {
+            docker: Arc::new(docker),
+            container_ids,
+            cpu_usage,
+            memory_usage,
             registry,
         }
     }
 
-    pub async fn gather_system_metrics(&self) {
-        let mut system = self.system.write().await;
-        system.refresh_all();
+    async fn collect_docker_metrics(&self, container_id: String) {
+        let docker = self.docker.clone();
+        let cpu_usage = self.cpu_usage.clone();
+        let memory_usage = self.memory_usage.clone();
+        let cx = Context::current();
 
-        let cpu_usage = system.global_processor_info().cpu_usage();
-        let ram_usage = system.used_memory() as f64;
-        let disk_usage: u64 = system.disks().iter().map(|d| d.total_space() - d.available_space()).sum();
+        tokio::spawn(async move {
+            let stats_stream = docker
+                .stats(&container_id, Some(StatsOptions { stream: true, one_shot: false }))
+                .map_ok(|stat| {
+                    let cpu_delta = stat.cpu_stats.cpu_usage.total_usage - stat.precpu_stats.cpu_usage.total_usage;
+                    let system_cpu_delta = stat.cpu_stats.system_cpu_usage.unwrap() - stat.precpu_stats.system_cpu_usage.unwrap_or_default();
+                    let number_cpus = stat.cpu_stats.online_cpus.unwrap();
+                    let cpu_stats = (cpu_delta as f64 / system_cpu_delta as f64) * number_cpus as f64 * 100.0;
 
-        self.cpu_usage_gauge.set(cpu_usage.into());
-        self.ram_usage_gauge.set(ram_usage);
-        self.disk_usage_gauge.set(disk_usage as f64);
-    }
+                    let used_memory = stat.memory_stats.usage.unwrap();
 
-    pub async fn report_custom_metric(&self, name: String, value: String) {
-        let mut custom_metrics = self.custom_metrics.write().await;
-        custom_metrics.insert(name.clone(), value.clone());
-    }
+                    // Collect the docker stats into our OpenTelemetry metrics
+                    cpu_usage.observe(&cx, cpu_stats, &[KeyValue::new("container_id", container_id.clone())]);
+                    memory_usage.observe(&cx, used_memory, &[KeyValue::new("container_id", container_id.clone())]);
+                })
+                .try_collect::<Vec<_>>()
+                .await;
 
-    pub async fn export_metrics(&self, _req: Request<Body>) -> Result<Response<Body>, Infallible> {
-        let encoder = TextEncoder::new();
-
-        let metric_families = self.registry.gather();
-        let mut buffer = Vec::new();
-        encoder.encode(&metric_families, &mut buffer).unwrap();
-
-        let response = Response::builder()
-            .header("Content-Type", encoder.format_type())
-            .body(Body::from(buffer))
-            .unwrap();
-
-        Ok(response)
-    }
-
-    pub async fn serve_metrics(&self, addr: &str) {
-        let make_svc = make_service_fn(|_conn| {
-            let collector = self.clone();
-            async {
-                Ok::<_, Infallible>(service_fn(move |req: Request<Body>| {
-                    let collector = collector.clone();
-                    async move {
-                        match (req.method(), req.uri().path()) {
-                            (&Method::GET, "/metrics") => collector.export_metrics(req).await,
-                            _ => Ok(Response::new(Body::from("Not Found"))),
-                        }
-                    }
-                }))
+            if let Err(e) = stats_stream {
+                eprintln!("Error collecting stats for container {}: {:?}", container_id, e)
             }
         });
-
-        let addr = addr.parse().unwrap();
-        let server = Server::bind(&addr).serve(make_svc);
-        if let Err(e) = server.await {
-            eprintln!("server error: {}", e);
-        }
     }
 }
 
-impl Clone for MetricsCollector {
-    fn clone(&self) -> Self {
-        Self {
-            system: self.system.clone(),
-            custom_metrics: self.custom_metrics.clone(),
-            cpu_usage_gauge: self.cpu_usage_gauge.clone(),
-            ram_usage_gauge: self.ram_usage_gauge.clone(),
-            disk_usage_gauge: self.disk_usage_gauge.clone(),
-            registry: self.registry.clone(),
+#[derive(Clone)]
+pub struct SysinfoMetricsCollector {
+    system: Arc<RwLock<System>>,
+    cpu_usage: opentelemetry::metrics::ObservableGauge<f64>,
+    memory_usage: opentelemetry::metrics::ObservableGauge<u64>,
+    registry: Registry,
+    pid: Pid,
+}
+
+#[async_trait]
+impl MetricsCollector for SysinfoMetricsCollector {
+    async fn collect_metrics(&self) {
+        let system = self.system.clone();
+        let cpu_usage = self.cpu_usage.clone();
+        let memory_usage = self.memory_usage.clone();
+        let pid = self.pid;
+        let cx = Context::current();
+
+        tokio::spawn(async move {
+            loop {
+                let mut system = system.write().await;
+                system.refresh_process(pid);
+
+                if let Some(process) = system.process(pid) {
+                    let cpu_stats = process.cpu_usage();
+                    let used_memory = process.memory();
+
+                    // Collect the process stats into our OpenTelemetry metrics
+                    cpu_usage.observe(&cx, cpu_stats as f64, &[KeyValue::new("pid", pid.to_string())]);
+                    memory_usage.observe(&cx, used_memory, &[KeyValue::new("pid", pid.to_string())]);
+                } else {
+                    eprintln!("Process with PID {} not found", pid);
+                }
+
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            }
+        });
+    }
+
+    fn get_registry(&self) -> &Registry {
+        &self.registry
+    }
+}
+
+impl SysinfoMetricsCollector {
+    pub async fn new(pid: Pid) -> Self {
+        // Create a new Prometheus registry
+        let registry = Registry::new_custom(Some("sysinfo_metrics".to_string()), None).unwrap();
+
+        // Configure OpenTelemetry to use this registry
+        let _exporter = exporter()
+            .with_registry(registry.clone())
+            .init();
+
+        let meter = global::meter("sysinfo_metrics");
+
+        // Define example metrics
+        let cpu_usage = meter.f64_observable_gauge("cpu_usage").init();
+        let memory_usage = meter.u64_observable_gauge("memory_usage").init();
+
+        SysinfoMetricsCollector {
+            system: Arc::new(RwLock::new(System::new_all())),
+            cpu_usage,
+            memory_usage,
+            registry,
+            pid,
         }
     }
 }
