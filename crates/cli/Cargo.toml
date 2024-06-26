@@ -23,3 +23,6 @@ eyre.workspace = true
 
 tree_hash.workspace = true
 tree_hash_derive.workspace = true
+
+# custom metering crate 
+metering = { path = "../../crates/metering" }

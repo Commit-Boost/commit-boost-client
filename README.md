@@ -1,4 +1,7 @@
 # Commit-Boost
+
+## Dependencies
+
 ### Note
 - THIS IS JUST A PROOF OF CONCEPT TO ILLUSTRATE DESIGN PRINCIPLES, THERE ARE STILL COUNTLESS DECISIONS AND ASSUMPTION ON THE DESIGN THAT NEED TO BE MADE
 - The code is unaudited and are from being / NOT ready for production

@@ -1,0 +1,40 @@
+version: '3'
+
+services:
+  commit-boost:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    platform: linux/amd64
+    ports:
+      - "8080:8080"
+    networks:
+      - monitoring
+    environment:
+      - CONFIG_PATH_ENV=config.example.toml  # Set the actual path to your config
+
+  prometheus:
+    build:
+      context: .
+      dockerfile: Dockerfile.prometheus
+    platform: linux/amd64
+    ports:
+      - "9090:9090"
+    networks:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:latest
+    platform: linux/amd64
+    ports:
+      - "3000:3000"
+    networks:
+      - monitoring
+    depends_on:
+      - prometheus
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+
+networks:
+  monitoring:
+    driver: bridge
