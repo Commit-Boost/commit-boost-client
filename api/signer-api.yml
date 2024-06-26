@@ -1,8 +1,8 @@
 openapi: "3.0.2"
 info:
-  title: Signer Module API
+  title: Signer API
   version: "0.1.0"
-  description: API that allows modules to request generic signatures from validators
+  description: API that allows commit modules to request generic signatures from validators
 tags:
   - name: Signer
 paths:
