@@ -17,6 +17,11 @@ address = "127.0.0.1:33950"
 key_path = "keys.example.json"
 
 [[modules]]
-id = "DA_COMMIT"
+id = "DA_COMMIT_RAW"
 path = "target/debug/da_commit"
+sleep_secs = 5
+
+[[modules]]
+id = "DA_COMMIT"
+docker_image="da_commit"
 sleep_secs = 5
