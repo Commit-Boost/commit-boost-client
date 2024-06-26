@@ -1,4 +1,5 @@
 use std::process::Stdio;
+use std::env;
 
 use cb_common::{
     config::{CommitBoostConfig, CONFIG_PATH_ENV, MODULE_ID_ENV},
@@ -7,8 +8,8 @@ use cb_common::{
 use cb_crypto::service::SigningService;
 use cb_pbs::{BuilderState, DefaultBuilderApi, PbsService};
 use clap::{Parser, Subcommand};
-use metering::{MetricsCollector, DockerMetricsCollector};
-use std::sync::Arc;
+use cb_metrics::docker_metrics_collector::DockerMetricsCollector;
+
 
 #[derive(Parser, Debug)]
 #[command(version, about)]
@@ -23,11 +24,6 @@ pub enum Command {
         /// Path to config file
         config: String,
     },
-}
-
-async fn metrics_collector_task(collector: Arc<dyn MetricsCollector>, addr: &'static str) {
-    collector.collect_metrics().await;
-    collector.serve_metrics(addr).await;
 }
 
 impl Args {
@@ -57,17 +53,13 @@ impl Args {
 
                     // start monitoring tasks for spawned modules
                     // TODO: this needs to integrate with docker module instantiation
-                    let docker_collector = Arc::new(DockerMetricsCollector::new(vec![
-                        "container_id_1".to_string(),
-                        "container_id_2".to_string(),
-                        "container_id_3".to_string(),
-                    ]).await);
-                    tokio::spawn(metrics_collector_task(docker_collector.clone(), "0.0.0.0:3030"));
-                    
-                    //NOTE: if you start a new monitoring collector you need to specify a different port for the underlying server to server requests at
-                    // let sysinfo_collector = SysinfoMetricsCollector::new(12345).await; // Replace 12345 with the actual PID you want to monitor
-                    // tokio::spawn(metrics_collector_task(&sysinfo_collector, "0.0.0.0:3031""));
-
+                    let container_id = env::var("MOCK_CONTAINER_ID").expect("MOCK_CONTAINER_ID not set");
+                    let metrics_config = config.metrics.expect("missing metrics config");
+                    tokio::spawn(async move {
+                        DockerMetricsCollector::new(vec![
+                            container_id
+                        ], metrics_config.address, metrics_config.jwt_path).await
+                    });   
 
                     // start signing server
                     tokio::spawn(SigningService::run(config.chain, signer_config));

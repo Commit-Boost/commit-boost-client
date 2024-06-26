@@ -7,6 +7,7 @@ use cb_common::{
     utils::initialize_tracing_log,
 };
 use cb_crypto::types::SignRequest;
+use cb_metrics::sdk::{register_custom_metric, update_custom_metric};
 use serde::Deserialize;
 use tokio::time::sleep;
 use tracing::{error, info};
@@ -27,6 +28,7 @@ struct ExtraConfig {
     sleep_secs: u64,
 }
 
+
 impl DaCommitService {
     pub async fn run(self) {
         let pubkeys = self.get_pubkeys().await;
@@ -39,10 +41,16 @@ impl DaCommitService {
 
         loop {
             self.send_request(data, pubkey).await;
+    
+            update_custom_metric("custom_metric", 42.0, vec![("label_key".to_string(), "label_value".to_string())])
+            .await
+            .expect("Failed to update custom metric");
+
             sleep(Duration::from_secs(self.config.extra.sleep_secs)).await;
             data += 1;
         }
     }
+
 
     pub async fn get_pubkeys(&self) -> Vec<BlsPublicKey> {
         let url = format!("{}{COMMIT_BOOST_API}{PUBKEYS_PATH}", self.url);
@@ -98,6 +106,8 @@ async fn main() {
     initialize_tracing_log();
 
     let config = load_module_config::<ExtraConfig>();
+    
+    let metric = register_custom_metric("custom_metric", "A custom metric for demonstration").await;
 
     info!(module_id = config.config.id, "Starting module");
 

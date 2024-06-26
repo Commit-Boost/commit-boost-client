@@ -16,7 +16,11 @@ address = "127.0.0.1:33950"
 [signer.loader]
 key_path = "keys.example.json"
 
-[[modules]]
-id = "DA_COMMIT"
-path = "target/debug/da_commit"
-sleep_secs = 5
+[metrics]
+address = "127.0.0.1:3030"
+jwt_path = "metrics_jwt.txt"
+
+# [[modules]]
+# id = "DA_COMMIT"
+# path = "target/debug/da_commit"
+# sleep_secs = 5

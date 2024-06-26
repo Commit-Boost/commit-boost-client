@@ -29,8 +29,9 @@ COPY --from=builder /usr/src/app/target/release/commit-boost /usr/local/bin/comm
 # Copy the configuration file
 COPY ./config.example.toml /etc/commit-boost/config.toml
 COPY ./keys.example.json ./keys.example.json
-# Expose the port
-EXPOSE 8080
+
+# Expose the necessary ports for metrics
+EXPOSE 3030
 
 # Set the entrypoint with the 'start' subcommand and the correct config path
 ENTRYPOINT ["commit-boost", "start", "/etc/commit-boost/config.toml"]

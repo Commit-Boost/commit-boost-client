@@ -18,6 +18,7 @@ pub struct CommitBoostConfig {
     pub pbs: BuilderConfig,
     pub modules: Option<Vec<ModuleConfig>>,
     pub signer: Option<SignerConfig>,
+    pub metrics: Option<MetricsConfig>,
 }
 
 fn load_from_file<T: DeserializeOwned>(path: &str) -> T {
@@ -48,6 +49,14 @@ pub struct SignerConfig {
     pub address: SocketAddr,
 
     pub loader: SignerLoader,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MetricsConfig {
+    /// Where to start metrics server
+    pub address: SocketAddr,
+
+    pub jwt_path: String
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -147,6 +156,7 @@ pub fn load_module_config<T: DeserializeOwned>() -> StartModuleConfig<T> {
     struct StubConfig<U> {
         chain: Chain,
         signer: SignerConfig,
+
         modules: Vec<CustomModule<U>>,
     }
 
