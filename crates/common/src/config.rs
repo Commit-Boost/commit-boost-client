@@ -113,55 +113,11 @@ const fn default_u256() -> U256 {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub enum ModuleSource {
-    #[serde(rename = "path")]
-    Path(String),
-    #[serde(rename = "docker_image")]
-    DockerImageId(String),
-}
-
-#[derive(Debug, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct ModuleConfig<T = ()> {
     pub id: String,
-    #[serde(flatten)]
-    pub source: ModuleSource,
+    pub docker_image: String,
     #[serde(flatten)]
     pub extra: T,
-}
-
-impl<'de, T> Deserialize<'de> for ModuleConfig<T>
-where
-    T: Deserialize<'de>,
-{
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        struct InnerModuleConfig<T> {
-            id: String,
-            path: Option<String>,
-            docker_image: Option<String>,
-            #[serde(flatten)]
-            extra: T,
-        }
-
-        let inner = InnerModuleConfig::deserialize(deserializer)?;
-
-        let source = match (inner.path, inner.docker_image) {
-            (Some(path), None) => ModuleSource::Path(path),
-            (None, Some(docker_image)) => ModuleSource::DockerImageId(docker_image),
-            (Some(_), Some(_)) => return Err(de::Error::custom("Cannot have both `path` and `docker_image`")),
-            (None, None) => return Err(de::Error::custom("Must have either `path` or `docker_image`")),
-        };
-
-        Ok(ModuleConfig {
-            id: inner.id,
-            source,
-            extra: inner.extra,
-        })
-    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
