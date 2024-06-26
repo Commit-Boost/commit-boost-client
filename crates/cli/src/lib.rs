@@ -69,24 +69,38 @@ impl Args {
             Command::Start { config: config_path } => {
                 let config = CommitBoostConfig::from_file(&config_path);
 
+                // Initialize Docker client
+                let docker = bollard::Docker::connect_with_local_defaults().expect("Failed to connect to Docker");
+
                 if let Some(modules) = config.modules {
                     let signer_config = config.signer.expect("missing signer config with modules");
-
-                    // this mocks the commit boost client starting containers, processes etc
-                    let mut child_handles = Vec::with_capacity(modules.len());
-
-                    for module in modules {
-                        let child = std::process::Command::new(module.path)
-                            .env(MODULE_ID_ENV, module.id)
-                            .env(CONFIG_PATH_ENV, &config_path)
-                            .spawn()
-                            .expect("failed to start process");
-
-                        child_handles.push(child);
-                    }
-
                     // start signing server
                     tokio::spawn(SigningService::run(config.chain, signer_config));
+
+                    for module in modules {
+                        let config = bollard::container::Config {
+                            image: Some(module.docker_image.clone()),
+                            host_config: Some(bollard::secret::HostConfig {
+                                binds: {
+                                    let full_config_path = std::fs::canonicalize(&config_path).unwrap().to_string_lossy().to_string();
+                                    Some(vec![format!("{}:{}", full_config_path, "/config.toml")])
+                                },
+                                network_mode: Some(String::from("host")), // Use the host network
+                                ..Default::default()
+                            }),
+                            env: Some(vec![
+                                format!("{}={}", MODULE_ID_ENV, module.id),
+                                format!("{}={}", CONFIG_PATH_ENV, "/config.toml"),
+                            ]),
+                            ..Default::default()
+                        };
+
+                        let container = docker.create_container::<&str, String>(None, config).await?;
+                        let container_id = container.id;
+                        docker.start_container::<String>(&container_id, None).await?;
+
+                        println!("Started container: {} from image {}", container_id, module.docker_image);
+                    }
                 }
 
                 // start pbs server

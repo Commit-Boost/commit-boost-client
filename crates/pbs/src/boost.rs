@@ -14,7 +14,7 @@ use crate::{
 #[async_trait]
 pub trait BuilderApi<S: BuilderApiState>: 'static {
     /// Use to extend the BuilderApi
-    fn routes() -> Option<Router<BuilderState<S>>> {
+    fn extra_routes() -> Option<Router<BuilderState<S>>> {
         None
     }
 

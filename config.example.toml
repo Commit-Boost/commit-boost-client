@@ -18,5 +18,5 @@ key_path = "keys.example.json"
 
 [[modules]]
 id = "DA_COMMIT"
-path = "target/debug/da_commit"
+docker_image="da_commit"
 sleep_secs = 5
