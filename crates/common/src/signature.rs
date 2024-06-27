@@ -9,10 +9,10 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
+    constants::{APPLICATION_BUILDER_DOMAIN, GENESIS_VALIDATORS_ROOT},
     types::Chain,
     utils::{alloy_pubkey_to_blst, alloy_sig_to_blst},
 };
-use crate::constants::{APPLICATION_BUILDER_DOMAIN, GENESIS_VALIDATORS_ROOT};
 
 pub fn random_secret() -> SecretKey {
     let mut rng = rand::thread_rng();
@@ -109,9 +109,7 @@ pub fn sign_builder_root(
 mod tests {
 
     use super::compute_builder_domain;
-    use crate::{
-        types::Chain,
-    };
+    use crate::types::Chain;
 
     #[test]
     fn test_builder_domains() {

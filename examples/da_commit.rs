@@ -41,7 +41,7 @@ impl DaCommitService {
 
         loop {
             self.send_request(data, pubkey).await;
-    
+
             update_custom_metric("custom_metric", 42.0, vec![("label_key".to_string(), "label_value".to_string())])
             .await
             .expect("Failed to update custom metric");
@@ -106,8 +106,8 @@ async fn main() {
     initialize_tracing_log();
 
     let config = load_module_config::<ExtraConfig>();
-    
-    let metric = register_custom_metric("custom_metric", "A custom metric for demonstration").await;
+
+    register_custom_metric("custom_metric", "A custom metric for demonstration").await.expect("Failed to register custom metric.");
 
     info!(module_id = config.config.id, "Starting module");
 

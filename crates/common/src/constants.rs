@@ -24,3 +24,10 @@ pub const RHEA_BUILDER_DOMAIN: [u8; 32] = [
     175, 23, 32, 193, 32, 45, 59, 149, 248, 78,
 ];
 pub const RHEA_GENESIS_TIME_SECONDS: u64 = 1718117531;
+
+// HELDER
+pub const HELDER_FORK_VERSION: [u8; 4] = [50, 13, 27, 36]; // deneb
+pub const HELDER_BUILDER_DOMAIN: [u8; 32] = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+];
+pub const HELDER_GENESIS_TIME_SECONDS: u64 = 1718967660;

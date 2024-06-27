@@ -51,7 +51,7 @@ pub struct SignerConfig {
     pub loader: SignerLoader,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MetricsConfig {
     /// Where to start metrics server
     pub address: SocketAddr,
@@ -124,7 +124,7 @@ const fn default_u256() -> U256 {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ModuleConfig<T = ()> {
     pub id: String,
-    pub path: String,
+    pub docker_image: String,
     #[serde(flatten)]
     pub extra: T,
 }

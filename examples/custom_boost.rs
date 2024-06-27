@@ -42,7 +42,7 @@ impl BuilderApi<StatusCounter> for MyBuilderApi {
         Ok(())
     }
 
-    fn routes() -> Option<Router<BuilderState<StatusCounter>>> {
+    fn extra_routes() -> Option<Router<BuilderState<StatusCounter>>> {
         let router = Router::new().route("/custom/stats", get(handle_stats));
         Some(router)
     }

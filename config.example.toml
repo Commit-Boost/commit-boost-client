@@ -24,3 +24,8 @@ jwt_path = "metrics_jwt.txt"
 # id = "DA_COMMIT"
 # path = "target/debug/da_commit"
 # sleep_secs = 5
+
+[[modules]]
+id = "DA_COMMIT"
+docker_image="da_commit"
+sleep_secs = 5
