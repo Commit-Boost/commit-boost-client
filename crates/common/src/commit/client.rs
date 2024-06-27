@@ -1,3 +1,5 @@
+use std::{net::SocketAddr, sync::Arc};
+
 use alloy_rpc_types_beacon::{BlsPublicKey, BlsSignature};
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use serde::{Deserialize, Serialize};
@@ -15,15 +17,17 @@ pub struct GetPubkeysResponse {
 }
 
 /// Client used by commit modules to request signatures via the Signer API
+#[derive(Debug, Clone)]
 pub struct SignerClient {
     /// Url endpoint of the Signer Module
-    url: String,
+    url: Arc<str>,
     client: reqwest::Client,
 }
 
 impl SignerClient {
     /// Create a new SignerClient
-    pub fn new(url: String, jwt: &str) -> Result<Self, SignerClientError> {
+    pub fn new(signer_address: SocketAddr, jwt: &str) -> Result<Self, SignerClientError> {
+        let url = format!("http://{}", signer_address);
         let mut headers = HeaderMap::new();
 
         let mut auth_value = HeaderValue::from_str(&format!("Bearer {}", jwt))?;
@@ -32,7 +36,7 @@ impl SignerClient {
 
         let client = reqwest::ClientBuilder::new().default_headers(headers).build()?;
 
-        Ok(Self { url, client })
+        Ok(Self { url: url.into(), client })
     }
 
     /// Request a list of validator pubkeys for which signatures can be requested.

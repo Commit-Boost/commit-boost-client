@@ -67,8 +67,7 @@ async fn main() {
     // TODO: pass this via the module config
     let jwt = "my_jwt_token";
 
-    let client = SignerClient::new(format!("http://{}", config.sign_address), jwt)
-        .expect("failed to create client");
+    let client = SignerClient::new(config.sign_address, jwt).expect("failed to create client");
     let service = DaCommitService { config: config.config, signer_client: client };
 
     if let Err(err) = service.run().await {

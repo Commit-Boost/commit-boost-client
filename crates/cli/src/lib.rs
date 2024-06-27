@@ -69,9 +69,12 @@ impl Args {
             Command::Start { config: config_path } => {
                 let config = CommitBoostConfig::from_file(&config_path);
 
-                if let Some(modules) = config.modules {
-                    let signer_config = config.signer.expect("missing signer config with modules");
+                // TODO: fix with config
+                let pbs_jwt = "MY_PBS_TOKEN";
+                let signer_config = config.signer.expect("missing signer config with modules");
+                let signer_address = signer_config.address;
 
+                if let Some(modules) = config.modules {
                     // this mocks the commit boost client starting containers, processes etc
                     let mut child_handles = Vec::with_capacity(modules.len());
 
@@ -104,7 +107,8 @@ impl Args {
                         eprintln!("Process failed with status: {}", cmd.status);
                     }
                 } else {
-                    let state = BuilderState::<()>::new(config.chain, config.pbs);
+                    let state =
+                        BuilderState::<()>::new(config.chain, config.pbs, signer_address, pbs_jwt);
                     PbsService::run::<(), DefaultBuilderApi>(state).await;
                 }
             }

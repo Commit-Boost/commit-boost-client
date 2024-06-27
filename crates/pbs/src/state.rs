@@ -1,11 +1,14 @@
 use std::{
     collections::HashSet,
+    net::SocketAddr,
     sync::{Arc, Mutex},
 };
 
 use alloy_primitives::B256;
 use alloy_rpc_types_beacon::BlsPublicKey;
-use cb_common::{config::BuilderConfig, pbs::RelayEntry, types::Chain};
+use cb_common::{
+    commit::client::SignerClient, config::BuilderConfig, pbs::RelayEntry, types::Chain,
+};
 use dashmap::DashMap;
 use tokio::sync::broadcast;
 use uuid::Uuid;
@@ -22,6 +25,9 @@ pub struct BuilderState<S: BuilderApiState = ()> {
     pub chain: Chain,
     /// Config data for the Pbs service
     pub config: Arc<BuilderConfig>,
+    /// Signer client to request signatures
+    /// TODO: consider making this optional. It shouldn't be needed for vanilla MEV boost
+    pub signer_client: SignerClient,
     /// Opaque extra data for library use
     pub data: S,
     /// Pubsliher to push net events
@@ -36,12 +42,15 @@ impl<S> BuilderState<S>
 where
     S: BuilderApiState,
 {
-    pub fn new(chain: Chain, config: BuilderConfig) -> Self {
+    pub fn new(chain: Chain, config: BuilderConfig, signer_address: SocketAddr, jwt: &str) -> Self {
         let (tx, _) = broadcast::channel(10);
+        let client =
+            SignerClient::new(signer_address, jwt).expect("failed to create signer client");
 
         Self {
             chain,
             current_slot_info: Arc::new(Mutex::new((0, Uuid::default()))),
+            signer_client: client,
             data: S::default(),
             event_publisher: tx,
             config: Arc::new(config),

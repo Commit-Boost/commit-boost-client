@@ -59,7 +59,11 @@ async fn main() {
 
     info!("Starting custom pbs module");
 
-    let state = BuilderState::new(chain, config);
+    // TODO: pass these via config
+    let jwt = "my_jwt_token";
+    let address = "0.0.0.0:18550".parse().unwrap();
+
+    let state = BuilderState::new(chain, config, address, jwt);
 
     PbsService::run::<StatusCounter, MyBuilderApi>(state).await;
 }
