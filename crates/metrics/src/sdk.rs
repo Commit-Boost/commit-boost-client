@@ -1,8 +1,8 @@
-use dotenv::dotenv;
+use cb_common::config::JWT_TOKEN_ENV;
+use cb_common::config::METRICS_SERVER_URL;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::env;
-use std::fs;
 
 #[derive(Deserialize, Serialize)]
 struct RegisterMetricRequest {
@@ -18,11 +18,8 @@ struct UpdateMetricRequest {
 }
 
 pub async fn register_custom_metric(name: &str, description: &str) -> Result<(), reqwest::Error> {
-    dotenv().ok();
-    let server_url = env::var("SERVER_URL").expect("SERVER_URL must be set");
-
-    let jwt_file_path = env::var("JWT_FILE_PATH").expect("JWT_TOKEN must be set");
-    let jwt_token = fs::read_to_string(jwt_file_path).expect("Failed to read JWT token file");
+    let server_url = env::var(METRICS_SERVER_URL).expect(&format!("{METRICS_SERVER_URL} is not set"));
+    let jwt_token = env::var(JWT_TOKEN_ENV).expect(&format!("{JWT_TOKEN_ENV} must be set"));
 
     let client = Client::new();
     let req = RegisterMetricRequest {
@@ -30,7 +27,7 @@ pub async fn register_custom_metric(name: &str, description: &str) -> Result<(),
         description: description.to_string(),
     };
 
-    client.post(format!("{}/register_custom_metric", server_url))
+    client.post(format!("http://{}/register_custom_metric", server_url))
         .header("Authorization", format!("Bearer {}", jwt_token))
         .json(&req)
         .send()
@@ -41,11 +38,8 @@ pub async fn register_custom_metric(name: &str, description: &str) -> Result<(),
 }
 
 pub async fn update_custom_metric(name: &str, value: f64, labels: Vec<(String, String)>) -> Result<(), reqwest::Error> {
-    dotenv().ok();
-    let server_url = env::var("SERVER_URL").expect("SERVER_URL must be set");
-    
-    let jwt_file_path = env::var("JWT_FILE_PATH").expect("JWT_TOKEN must be set");
-    let jwt_token = fs::read_to_string(jwt_file_path).expect("Failed to read JWT token file");
+    let server_url = env::var(METRICS_SERVER_URL).expect(&format!("{METRICS_SERVER_URL} is not set"));
+    let jwt_token = env::var(JWT_TOKEN_ENV).expect(&format!("{JWT_TOKEN_ENV} must be set"));
 
     let client = Client::new();
     let req = UpdateMetricRequest {
@@ -54,7 +48,7 @@ pub async fn update_custom_metric(name: &str, value: f64, labels: Vec<(String, S
         labels,
     };
 
-    client.post(format!("{}/update_custom_metric", server_url))
+    client.post(format!("http://{}/update_custom_metric", server_url))
         .header("Authorization", format!("Bearer {}", jwt_token))
         .json(&req)
         .send()

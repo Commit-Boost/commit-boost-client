@@ -11,6 +11,8 @@ use crate::{pbs::RelayEntry, signer::Signer, types::Chain};
 
 pub const CONFIG_PATH_ENV: &str = "COMMIT_BOOST_CONFIG";
 pub const MODULE_ID_ENV: &str = "COMMIT_BOOST_MODULE_ID";
+pub const JWT_TOKEN_ENV: &str = "JWT_TOKEN";
+pub const METRICS_SERVER_URL: &str = "METRICS_SERVER_URL";
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CommitBoostConfig {

@@ -1,15 +1,13 @@
 use bollard::{container::StatsOptions, Docker};
 use futures_util::stream::TryStreamExt;
 use opentelemetry::{global, KeyValue};
-use opentelemetry::metrics::{ObservableGauge};
+use opentelemetry::metrics::ObservableGauge;
 use prometheus::{Encoder, TextEncoder, Registry};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::task;
-use tokio::time;
 use warp::{Filter, Reply};
 
 #[derive(Clone)]
@@ -39,6 +37,21 @@ impl DockerMetricsCollector {
     pub async fn new(container_ids: Vec<String>, addr: SocketAddr, jwt_file_path: String) -> Arc<Self> {
         let docker = Docker::connect_with_local_defaults().expect("Failed to connect to Docker");
         let registry = Registry::new_custom(Some("docker_metrics".to_string()), None).unwrap();
+        // Configure OpenTelemetry to use this registry
+        let exporter = opentelemetry_prometheus::exporter()
+            .with_registry(registry.clone())
+            .build()
+            .expect("failed to build exporter");
+
+        let provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
+            .with_reader(exporter)
+            .build();
+
+        // NOTE:
+        //  This line is crucial, since below we are using global::meter() to create meters (on custom meter registration)
+        //  The current approach here might not be optimal, some deeper understanding of OpenTelemetry's philosophy is needed
+        global::set_meter_provider(provider.clone());
+
         // let _exporter = exporter().with_registry(registry.clone()).init();
         let meter = global::meter("docker_metrics");
         let cpu_usage = meter
@@ -68,11 +81,7 @@ impl DockerMetricsCollector {
 
         let collector_clone_for_metrics = collector.clone();
         task::spawn(async move {
-            let mut interval = time::interval(Duration::from_secs(5));
-            loop {
-                interval.tick().await;
-                collector_clone_for_metrics.collect_metrics().await;
-            }
+            collector_clone_for_metrics.collect_metrics().await;
         });
 
         collector
@@ -93,11 +102,14 @@ impl DockerMetricsCollector {
             let stats_stream = docker
                 .stats(&container_id, Some(StatsOptions { stream: true, one_shot: false }))
                 .map_ok(|stat| {
-                    let cpu_delta = stat.cpu_stats.cpu_usage.total_usage - stat.precpu_stats.cpu_usage.total_usage;
-                    let system_cpu_delta = stat.cpu_stats.system_cpu_usage.unwrap() - stat.precpu_stats.system_cpu_usage.unwrap_or_default();
-                    let number_cpus = stat.cpu_stats.online_cpus.unwrap();
-                    let cpu_stats = (cpu_delta as f64 / system_cpu_delta as f64) * number_cpus as f64 * 100.0;
-                    let used_memory = stat.memory_stats.usage.unwrap();
+                    // //TODO:
+                    // //  Those crash since they're really reliant on implicit proper sequence of initialization
+                    // //  I've replaced them with a direct 0 to avoid craches, but we must investigate how proper calculations must happen here.
+                    // let cpu_delta = stat.cpu_stats.cpu_usage.total_usage - stat.precpu_stats.cpu_usage.total_usage;
+                    // let system_cpu_delta = stat.cpu_stats.system_cpu_usage.unwrap() - stat.precpu_stats.system_cpu_usage.unwrap_or_default();
+                    // let number_cpus = stat.cpu_stats.online_cpus.unwrap();
+                    let cpu_stats = 0f64; //(cpu_delta as f64 / system_cpu_delta as f64) * number_cpus as f64 * 100.0;
+                    let used_memory = stat.memory_stats.usage.unwrap_or_default();
 
                     cpu_usage.observe(cpu_stats, &[KeyValue::new("container_id", container_id.clone())]);
                     memory_usage.observe(used_memory, &[KeyValue::new("container_id", container_id.clone())]);
@@ -117,11 +129,10 @@ impl DockerMetricsCollector {
             move || {
                 let encoder = TextEncoder::new();
                 let metric_families = self_clone.registry.gather();
-                let mut buffer = Vec::new();
-                encoder.encode(&metric_families, &mut buffer).unwrap();
+                let buffer = encoder.encode_to_string(&metric_families).unwrap();
                 warp::http::Response::builder()
                     .header("Content-Type", encoder.format_type())
-                    .body(String::from_utf8(buffer).unwrap())
+                    .body(buffer)
             }
         });
 
@@ -192,6 +203,7 @@ impl DockerMetricsCollector {
 
 
     fn validate_token(&self, token: String) -> bool {
-        token.trim() == self.jwt_token.trim()
+        // TODO: Parsing should probably not happen here (too late)
+        token.trim().replace("Bearer ", "") == self.jwt_token.trim()
     }
 }
