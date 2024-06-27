@@ -6,7 +6,7 @@ info:
 tags:
   - name: Signer
 paths:
-  /signer/v1/pubkeys:
+  /signer/v1/get_pubkeys:
     get:
       summary: Get a list of public keys for which signatures may be requested
       tags:

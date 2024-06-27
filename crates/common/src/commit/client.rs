@@ -2,7 +2,11 @@ use alloy_rpc_types_beacon::{BlsPublicKey, BlsSignature};
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use serde::{Deserialize, Serialize};
 
-use super::{error::SignerClientError, request::SignRequest};
+use super::{
+    constants::{GET_PUBKEYS_PATH, REQUEST_SIGNATURE_PATH},
+    error::SignerClientError,
+    request::SignRequest,
+};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GetPubkeysResponse {
@@ -10,10 +14,7 @@ pub struct GetPubkeysResponse {
     pub proxy: Vec<BlsPublicKey>,
 }
 
-const GET_PUBKEYS_PATH: &str = "/signer/v1/pubkeys";
-const REQUEST_SIGNATURE_PATH: &str = "/signer/v1/request_signature";
-
-/// Client used by commit modules to request signatures via the Signer API to the Signer Module
+/// Client used by commit modules to request signatures via the Signer API
 pub struct SignerClient {
     /// Url endpoint of the Signer Module
     url: String,
@@ -55,7 +56,7 @@ impl SignerClient {
         Ok(parsed_response)
     }
 
-    /// Send a signature request to the Signer Module
+    /// Send a signature request
     pub async fn request_signature(
         &self,
         request: &SignRequest,

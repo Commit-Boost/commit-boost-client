@@ -2,11 +2,11 @@ use std::time::Duration;
 
 use alloy_rpc_types_beacon::{BlsPublicKey, BlsSignature};
 use cb_common::{
-    commit::request::SignRequest,
+    commit::{client::SignerClient, request::SignRequest},
     config::{load_module_config, ModuleConfig},
-    pbs::{COMMIT_BOOST_API, PUBKEYS_PATH, SIGN_REQUEST_PATH},
     utils::initialize_tracing_log,
 };
+use eyre::OptionExt;
 use serde::Deserialize;
 use tokio::time::sleep;
 use tracing::{error, info};
@@ -19,7 +19,7 @@ struct Datagram {
 
 struct DaCommitService {
     config: ModuleConfig<ExtraConfig>,
-    url: String,
+    signer_client: SignerClient,
 }
 
 #[derive(Debug, Deserialize)]
@@ -28,68 +28,31 @@ struct ExtraConfig {
 }
 
 impl DaCommitService {
-    pub async fn run(self) {
-        let pubkeys = self.get_pubkeys().await;
+    pub async fn run(self) -> eyre::Result<()> {
+        let pubkeys = self.signer_client.get_pubkeys().await?;
+        info!(consensus = pubkeys.consensus.len(), proxy = pubkeys.proxy.len(), "Received pubkeys");
 
-        let pubkey = pubkeys[0];
-
+        let pubkey = pubkeys.consensus.first().ok_or_eyre("no key available")?;
         info!("Registered validator {pubkey}");
 
         let mut data = 0;
 
         loop {
-            self.send_request(data, pubkey).await;
+            self.send_request(data, *pubkey).await?;
             sleep(Duration::from_secs(self.config.extra.sleep_secs)).await;
             data += 1;
         }
     }
 
-    pub async fn get_pubkeys(&self) -> Vec<BlsPublicKey> {
-        let url = format!("{}{COMMIT_BOOST_API}{PUBKEYS_PATH}", self.url);
-        let response = reqwest::Client::new().get(url).send().await.expect("failed to get request");
-
-        let status = response.status();
-        let response_bytes = response.bytes().await.expect("failed to get bytes");
-
-        if !status.is_success() {
-            let err = String::from_utf8_lossy(&response_bytes).into_owned();
-            error!(err, ?status, "failed to get signature");
-            std::process::exit(1);
-        }
-
-        let pubkeys: Vec<BlsPublicKey> =
-            serde_json::from_slice(&response_bytes).expect("failed deser");
-
-        pubkeys
-    }
-
-    pub async fn send_request(&self, data: u64, pubkey: BlsPublicKey) {
+    pub async fn send_request(&self, data: u64, pubkey: BlsPublicKey) -> eyre::Result<()> {
         let datagram = Datagram { data };
-
         let request = SignRequest::builder(&self.config.id, pubkey).with_msg(&datagram);
 
-        let url = format!("{}{COMMIT_BOOST_API}{SIGN_REQUEST_PATH}", self.url);
+        let signature = self.signer_client.request_signature(&request).await?;
 
-        let response = reqwest::Client::new()
-            .post(url)
-            .json(&request)
-            .send()
-            .await
-            .expect("failed to get request");
+        info!("Proposer commitment: {}", pretty_print_sig(signature));
 
-        let status = response.status();
-        let response_bytes = response.bytes().await.expect("failed to get bytes");
-
-        if !status.is_success() {
-            let err = String::from_utf8_lossy(&response_bytes).into_owned();
-            error!(err, "failed to get signature");
-            return;
-        }
-
-        let signature: BlsSignature =
-            serde_json::from_slice(&response_bytes).expect("failed deser");
-
-        info!("Proposer commitment: {}", pretty_print_sig(signature))
+        Ok(())
     }
 }
 
@@ -101,10 +64,16 @@ async fn main() {
 
     info!(module_id = config.config.id, "Starting module");
 
-    let service =
-        DaCommitService { config: config.config, url: format!("http://{}", config.sign_address) };
+    // TODO: pass this via the module config
+    let jwt = "my_jwt_token";
 
-    service.run().await
+    let client = SignerClient::new(format!("http://{}", config.sign_address), jwt)
+        .expect("failed to create client");
+    let service = DaCommitService { config: config.config, signer_client: client };
+
+    if let Err(err) = service.run().await {
+        error!(?err, "Service failed");
+    }
 }
 
 fn pretty_print_sig(sig: BlsSignature) -> String {

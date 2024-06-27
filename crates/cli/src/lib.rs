@@ -1,4 +1,4 @@
-use std::process::Stdio;
+use std::{collections::HashMap, process::Stdio};
 
 use cb_common::{
     config::{CommitBoostConfig, CONFIG_PATH_ENV, MODULE_ID_ENV},
@@ -86,7 +86,9 @@ impl Args {
                     }
 
                     // start signing server
-                    tokio::spawn(SigningService::run(config.chain, signer_config));
+                    // TODO: generate jwt for each module id
+                    let jwts = HashMap::new();
+                    tokio::spawn(SigningService::run(config.chain, signer_config, jwts));
                 }
 
                 // start pbs server

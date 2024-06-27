@@ -47,6 +47,7 @@ pub struct SignerConfig {
     /// Where to start signing server
     pub address: SocketAddr,
 
+    /// Which keys to load
     pub loader: SignerLoader,
 }
 
