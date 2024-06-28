@@ -1,0 +1,138 @@
+openapi: "3.0.2"
+info:
+  title: Signer API
+  version: "0.1.0"
+  description: API that allows commit modules to request generic signatures from validators
+tags:
+  - name: Signer
+paths:
+  /signer/v1/get_pubkeys:
+    get:
+      summary: Get a list of public keys for which signatures may be requested
+      tags:
+        - Signer
+      responses:
+        "200":
+          description: A list of Bls pubkeys
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  consensus:
+                    description: Consensus validator pubkeys
+                    type: array
+                    items:
+                      type: string
+                      format: hex
+                      pattern: "^0x[a-fA-F0-9]{96}$"
+                      example: "0xa3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989"
+                  proxy:
+                    description: Proxy validator pubkeys
+                    type: array
+                    items:
+                      type: string
+                      format: hex
+                      pattern: "^0x[a-fA-F0-9]{96}$"
+                      example: "0xa3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989"
+
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                properties:
+                  code:
+                    type: number
+                    example: 500
+                  message:
+                    type: string
+                    example: "Internal error"
+
+  /signer/v1/request_signature:
+    post:
+      summary: Send a signature request
+      tags:
+        - Signer
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  description: The module ID
+                  type: string
+                  example: "MY_MODULE_ID"
+                pubkey:
+                  description: BLS public key of validator
+                  type: string
+                  format: hex
+                  pattern: "^0x[a-fA-F0-9]{96}$"
+                  example: "0xa3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989"
+                is_proxy:
+                  description: Whether the request is for a proxy pubkey
+                  type: boolean
+                  example: false
+                object_root:
+                  description: The root of the object to be signed
+                  type: string
+                  format: hex
+                  pattern: "^0x[a-fA-F0-9]{64}$"
+                  example: "0x3e9f4a78b5c21d64f0b8e3d9a7f5c02b4d1e67a3c8f29b5d6e4a3b1c8f72e6d9"
+      responses:
+        "200":
+          description: Successs
+          content:
+            application/json:
+              schema:
+                type: string
+                description: The validator signature
+                format: hex
+                pattern: "^0x[a-fA-F0-9]{192}$"
+                example: "0xa3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989a3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989"
+        "404":
+          description: Unknown value (pubkey, module id)
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                properties:
+                  code:
+                    type: number
+                    example: 404
+                  message:
+                    type: string
+                    example: "Unknown pubkey"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                properties:
+                  code:
+                    type: number
+                    example: 500
+                  message:
+                    type: string
+                    example: "Internal error"
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

@@ -1,4 +1,4 @@
-use std::process::Stdio;
+use std::{collections::HashMap, process::Stdio};
 
 use cb_common::{
     config::{CommitBoostConfig, CONFIG_PATH_ENV, MODULE_ID_ENV},
@@ -68,21 +68,31 @@ impl Args {
         match self.cmd {
             Command::Start { config: config_path } => {
                 let config = CommitBoostConfig::from_file(&config_path);
+                let signer_config = config.signer.expect("missing signer config with modules");
+
+                // start signing server
+                // TODO: generate jwt for each module id
+                let pbs_jwt = "MY_PBS_TOKEN";
+                let jwts = HashMap::from([("PBS_DEFAULT".into(), pbs_jwt.into())]);
+                let signer_address = signer_config.address;
 
                 // Initialize Docker client
-                let docker = bollard::Docker::connect_with_local_defaults().expect("Failed to connect to Docker");
+                let docker = bollard::Docker::connect_with_local_defaults()
+                    .expect("Failed to connect to Docker");
 
                 if let Some(modules) = config.modules {
-                    let signer_config = config.signer.expect("missing signer config with modules");
                     // start signing server
-                    tokio::spawn(SigningService::run(config.chain, signer_config));
+                    tokio::spawn(SigningService::run(config.chain, signer_config, jwts));
 
                     for module in modules {
                         let config = bollard::container::Config {
                             image: Some(module.docker_image.clone()),
                             host_config: Some(bollard::secret::HostConfig {
                                 binds: {
-                                    let full_config_path = std::fs::canonicalize(&config_path).unwrap().to_string_lossy().to_string();
+                                    let full_config_path = std::fs::canonicalize(&config_path)
+                                        .unwrap()
+                                        .to_string_lossy()
+                                        .to_string();
                                     Some(vec![format!("{}:{}", full_config_path, "/config.toml")])
                                 },
                                 network_mode: Some(String::from("host")), // Use the host network
@@ -95,11 +105,15 @@ impl Args {
                             ..Default::default()
                         };
 
-                        let container = docker.create_container::<&str, String>(None, config).await?;
+                        let container =
+                            docker.create_container::<&str, String>(None, config).await?;
                         let container_id = container.id;
                         docker.start_container::<String>(&container_id, None).await?;
 
-                        println!("Started container: {} from image {}", container_id, module.docker_image);
+                        println!(
+                            "Started container: {} from image {}",
+                            container_id, module.docker_image
+                        );
                     }
                 }
 
@@ -116,7 +130,8 @@ impl Args {
                         eprintln!("Process failed with status: {}", cmd.status);
                     }
                 } else {
-                    let state = BuilderState::<()>::new(config.chain, config.pbs);
+                    let state =
+                        BuilderState::<()>::new(config.chain, config.pbs, signer_address, pbs_jwt);
                     PbsService::run::<(), DefaultBuilderApi>(state).await;
                 }
             }

@@ -35,7 +35,7 @@ ethereum_serde_utils = "0.5.2"
 ethereum-types = "0.14.1"
 
 # networking
-axum = "0.7.5"
+axum = { version = "0.7.5", features = ["macros"] }
 axum-extra = { version = "0.9.3", features = ["typed-header"] }
 reqwest = { version = "0.12.4", features = ["json"] }
 headers = "0.4.0"

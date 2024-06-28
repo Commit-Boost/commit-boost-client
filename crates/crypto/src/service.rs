@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use axum::{
     extract::State,
@@ -7,29 +7,42 @@ use axum::{
     routing::{get, post},
     Json,
 };
+use axum_extra::TypedHeader;
 use cb_common::{
+    commit::{
+        client::GetPubkeysResponse,
+        constants::{GET_PUBKEYS_PATH, REQUEST_SIGNATURE_PATH},
+        request::SignRequest,
+    },
     config::SignerConfig,
-    pbs::{COMMIT_BOOST_API, PUBKEYS_PATH, SIGN_REQUEST_PATH},
     types::Chain,
 };
+use headers::{authorization::Bearer, Authorization};
 use tokio::net::TcpListener;
-use tracing::{error, info};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-use crate::{error::SignError, manager::SigningManager, types::SignRequest};
+use crate::{error::SignerModuleError, manager::SigningManager};
 
+/// Implements the Signer API and provides a service for signing requests
 pub struct SigningService;
 
 #[derive(Clone)]
 struct SigningState {
+    /// Mananger handling different signing methods
     manager: Arc<SigningManager>,
+    /// Map of module ids to JWTs. This also acts as registry of all modules running
+    jwts: HashMap<String, String>,
 }
 
-// TODO: JWT per id
-
 impl SigningService {
-    pub async fn run(chain: Chain, config: SignerConfig) {
-        let address = config.address;
+    pub async fn run(chain: Chain, config: SignerConfig, jwts: HashMap<String, String>) {
+        if jwts.is_empty() {
+            warn!("Signing service was started but no module is registered. Exiting");
+            return;
+        } else {
+            info!(modules =? jwts.keys(), address =?config.address, "Starting signing service");
+        }
 
         let mut manager = SigningManager::new(chain);
 
@@ -38,18 +51,14 @@ impl SigningService {
             manager.add_consensus_signer(signer);
         }
 
-        let state = SigningState { manager: manager.into() };
+        let state = SigningState { manager: manager.into(), jwts };
 
-        let signer_routes = axum::Router::new()
-            .route(SIGN_REQUEST_PATH, post(handle_sign_request))
-            .route(PUBKEYS_PATH, get(handle_get_pubkeys))
+        let app = axum::Router::new()
+            .route(REQUEST_SIGNATURE_PATH, post(handle_request_signature))
+            .route(GET_PUBKEYS_PATH, get(handle_get_pubkeys))
             .with_state(state);
 
-        let app = axum::Router::new().nest(COMMIT_BOOST_API, signer_routes);
-
-        info!(?address, "Starting signing service");
-
-        let listener = TcpListener::bind(address).await.expect("failed tcp binding");
+        let listener = TcpListener::bind(config.address).await.expect("failed tcp binding");
 
         if let Err(err) = axum::serve(listener, app).await {
             error!(?err, "Signing server exited")
@@ -57,13 +66,41 @@ impl SigningService {
     }
 }
 
-async fn handle_sign_request(
+/// Implements get_pubkeys from the Signer API
+async fn handle_get_pubkeys(
     State(state): State<SigningState>,
-    Json(request): Json<SignRequest>,
-) -> Result<impl IntoResponse, SignError> {
+) -> Result<impl IntoResponse, SignerModuleError> {
     let req_id = Uuid::new_v4();
 
-    info!(module_id=?request.id, ?req_id, "New signature request");
+    debug!(event = "get_pubkeys", ?req_id, "New request");
+
+    let consensus = state.manager.consensus_pubkeys();
+    let proxy = state.manager.proxy_pubkeys();
+
+    let res = GetPubkeysResponse { consensus, proxy };
+
+    Ok((StatusCode::OK, Json(res)).into_response())
+}
+
+/// Implements request_signature from the Signer API
+async fn handle_request_signature(
+    TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
+    State(state): State<SigningState>,
+    Json(request): Json<SignRequest>,
+) -> Result<impl IntoResponse, SignerModuleError> {
+    let req_id = Uuid::new_v4();
+
+    if let Some(jwt) = state.jwts.get(&request.id) {
+        if !auth.token().contains(jwt) {
+            warn!(module_id=?request.id, ?req_id, "Unauthorized request. Was the module started correctly?");
+            return Err(SignerModuleError::Unauthorized);
+        }
+    } else {
+        warn!(module_id=?request.id, ?req_id, "Unknown module id. Was the module started correctly?");
+        return Err(SignerModuleError::UnknownModuleId(request.id));
+    }
+
+    debug!(event = "request_signature", module_id=?request.id, ?req_id, "New request");
 
     let sig = if request.is_proxy {
         state.manager.sign_proxy(&request.pubkey, &request.object_root).await
@@ -72,11 +109,4 @@ async fn handle_sign_request(
     }?;
 
     Ok((StatusCode::OK, Json(sig)).into_response())
-}
-
-async fn handle_get_pubkeys(
-    State(state): State<SigningState>,
-) -> Result<impl IntoResponse, SignError> {
-    let pubkeys = state.manager.consensus_pubkeys();
-    Ok((StatusCode::OK, Json(pubkeys)).into_response())
 }
