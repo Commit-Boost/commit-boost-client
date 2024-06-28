@@ -1,6 +1,23 @@
-version: '3.7'
+version: '3'
 
 services:
+  commit-boost:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    platform: linux/amd64
+    ports:
+      - "13030:13030"
+    # NOTE:
+    #  Mount the local machine's docker socket file to the container, so that CB can start sibling containers (the modules)
+    #  on the same docker engine using its API
+    volumes:
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+    networks:
+      - monitoring
+
   prometheus:
     build:
       context: .
@@ -8,16 +25,21 @@ services:
     platform: linux/amd64
     ports:
       - "9090:9090"
-    network_mode: "host"
-    restart: unless-stopped
+    networks:
+      - monitoring
 
   grafana:
     image: grafana/grafana:latest
     platform: linux/amd64
     ports:
       - "3000:3000"
-    network_mode: "host"
-    restart: unless-stopped
+    networks:
+      - monitoring
+    depends_on:
+      - prometheus
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
-      - GF_USERS_ALLOW_SIGN_UP=false
+
+networks:
+  monitoring:
+    driver: bridge
