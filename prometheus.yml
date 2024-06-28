@@ -2,6 +2,6 @@ global:
   scrape_interval: 15s
 
 scrape_configs:
-  - job_name: 'rust_metrics'
+  - job_name: 'example'
     static_configs:
-      - targets: ['commit-boost:8080']
+      - targets: ['localhost:13030']  # Accessing a service running on the host

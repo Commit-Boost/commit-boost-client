@@ -1,17 +1,6 @@
-version: '3'
+version: '3.7'
 
 services:
-  commit-boost:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    platform: linux/amd64
-    ports:
-      - "3030:3030"
-      - "3031:3031"
-    networks:
-      - monitoring
-
   prometheus:
     build:
       context: .
@@ -19,21 +8,16 @@ services:
     platform: linux/amd64
     ports:
       - "9090:9090"
-    networks:
-      - monitoring
+    network_mode: "host"
+    restart: unless-stopped
 
   grafana:
     image: grafana/grafana:latest
     platform: linux/amd64
     ports:
       - "3000:3000"
-    networks:
-      - monitoring
-    depends_on:
-      - prometheus
+    network_mode: "host"
+    restart: unless-stopped
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
-
-networks:
-  monitoring:
-    driver: bridge
+      - GF_USERS_ALLOW_SIGN_UP=false
