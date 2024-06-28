@@ -4,4 +4,5 @@ global:
 scrape_configs:
   - job_name: 'rust_metrics'
     static_configs:
-      - targets: ['commit-boost:13030']
+      # Target the htpp server provided by the native CB app (not yet dockerized, that's why we need `host.docker.internal`)
+      - targets: ['host.docker.internal:13030']

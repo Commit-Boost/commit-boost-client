@@ -52,8 +52,7 @@ impl Args {
                                         format!("{}:{}", full_config_path, "/config.toml"),
                                     ])
                                 },
-                                // network_mode: Some(String::from("host")), // Use the host network
-                                network_mode: Some(String::from("monitoring")), // Use our custom `monitoring` network
+                                network_mode: Some(String::from("host")), // Use the host network
                                 ..Default::default()
                             }),
                             env: {
