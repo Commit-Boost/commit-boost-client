@@ -25,7 +25,7 @@ pub fn create_app_router<S: BuilderApiState, T: BuilderApi<S>>(state: BuilderSta
 
     let builder_api = Router::new().nest(BULDER_API_PATH, builder_routes);
 
-    let app = if let Some(extra_routes) = T::routes() {
+    let app = if let Some(extra_routes) = T::extra_routes() {
         builder_api.merge(extra_routes)
     } else {
         builder_api

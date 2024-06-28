@@ -116,7 +116,7 @@ const fn default_u256() -> U256 {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ModuleConfig<T = ()> {
     pub id: String,
-    pub path: String,
+    pub docker_image: String,
     #[serde(flatten)]
     pub extra: T,
 }
