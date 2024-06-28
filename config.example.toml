@@ -18,7 +18,6 @@ key_path = "keys.example.json"
 
 [metrics]
 address = "127.0.0.1:13030"
-jwt_path = "metrics_jwt.txt"
 
 # [[modules]]
 # id = "DA_COMMIT"

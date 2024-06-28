@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 
 use alloy_rpc_types_beacon::{BlsPublicKey, BlsSignature};
-use cb_common::{signer::Signer, types::Chain};
+use cb_common::{
+    commit::request::{ProxyDelegation, SignedProxyDelegation},
+    signer::Signer,
+    types::Chain,
+};
 use tree_hash::TreeHash;
 
-use crate::{
-    error::SignError,
-    types::{ProxyDelegation, SignedProxyDelegation},
-};
+use crate::error::SignerModuleError;
 
 // For extra safety and to avoid risking signing malicious messages, use a proxy setup:
 // proposer creates a new ephemeral keypair which will be used to sign commit messages,
@@ -44,7 +45,7 @@ impl SigningManager {
     pub async fn create_proxy(
         &mut self,
         delegator: BlsPublicKey,
-    ) -> Result<SignedProxyDelegation, SignError> {
+    ) -> Result<SignedProxyDelegation, SignerModuleError> {
         let signer = Signer::new_random();
 
         let message = ProxyDelegation { delegator, proxy: signer.pubkey() };
@@ -62,9 +63,11 @@ impl SigningManager {
         &self,
         pubkey: &BlsPublicKey,
         msg: &[u8; 32],
-    ) -> Result<BlsSignature, SignError> {
-        let signer =
-            self.consensus_signers.get(pubkey).ok_or(SignError::UnknownConsensusSigner(*pubkey))?;
+    ) -> Result<BlsSignature, SignerModuleError> {
+        let signer = self
+            .consensus_signers
+            .get(pubkey)
+            .ok_or(SignerModuleError::UnknownConsensusSigner(*pubkey))?;
         let signature = signer.sign(self.chain, msg).await;
 
         Ok(signature)
@@ -74,8 +77,9 @@ impl SigningManager {
         &self,
         pubkey: &BlsPublicKey,
         msg: &[u8; 32],
-    ) -> Result<BlsSignature, SignError> {
-        let proxy = self.proxy_signers.get(pubkey).ok_or(SignError::UnknownProxySigner(*pubkey))?;
+    ) -> Result<BlsSignature, SignerModuleError> {
+        let proxy =
+            self.proxy_signers.get(pubkey).ok_or(SignerModuleError::UnknownProxySigner(*pubkey))?;
         let signature = proxy.signer.sign(self.chain, msg).await;
 
         Ok(signature)
@@ -104,11 +108,11 @@ impl SigningManager {
     pub fn get_delegation(
         &self,
         proxy_pubkey: &BlsPublicKey,
-    ) -> Result<SignedProxyDelegation, SignError> {
+    ) -> Result<SignedProxyDelegation, SignerModuleError> {
         let signer = self
             .proxy_signers
             .get(proxy_pubkey)
-            .ok_or(SignError::UnknownProxySigner(*proxy_pubkey))?;
+            .ok_or(SignerModuleError::UnknownProxySigner(*proxy_pubkey))?;
         Ok(signer.delegation)
     }
 }

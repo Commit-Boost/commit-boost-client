@@ -1,4 +1,4 @@
-use cb_common::config::JWT_TOKEN_ENV;
+use cb_common::config::JWT_ENV;
 use cb_common::config::METRICS_SERVER_URL;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -19,7 +19,7 @@ struct UpdateMetricRequest {
 
 pub async fn register_custom_metric(name: &str, description: &str) -> Result<(), reqwest::Error> {
     let server_url = env::var(METRICS_SERVER_URL).expect(&format!("{METRICS_SERVER_URL} is not set"));
-    let jwt_token = env::var(JWT_TOKEN_ENV).expect(&format!("{JWT_TOKEN_ENV} must be set"));
+    let jwt_token = env::var(JWT_ENV).expect(&format!("{JWT_ENV} must be set"));
 
     let client = Client::new();
     let req = RegisterMetricRequest {
@@ -39,7 +39,7 @@ pub async fn register_custom_metric(name: &str, description: &str) -> Result<(),
 
 pub async fn update_custom_metric(name: &str, value: f64, labels: Vec<(String, String)>) -> Result<(), reqwest::Error> {
     let server_url = env::var(METRICS_SERVER_URL).expect(&format!("{METRICS_SERVER_URL} is not set"));
-    let jwt_token = env::var(JWT_TOKEN_ENV).expect(&format!("{JWT_TOKEN_ENV} must be set"));
+    let jwt_token = env::var(JWT_ENV).expect(&format!("{JWT_ENV} must be set"));
 
     let client = Client::new();
     let req = UpdateMetricRequest {

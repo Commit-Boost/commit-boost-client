@@ -15,7 +15,8 @@ ethereum_ssz.workspace = true
 ethereum_ssz_derive.workspace = true
 
 axum.workspace = true
-
+axum-extra.workspace = true
+headers.workspace = true
 # crypto
 blst.workspace = true
 tree_hash.workspace = true

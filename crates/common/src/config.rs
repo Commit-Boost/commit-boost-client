@@ -11,7 +11,7 @@ use crate::{pbs::RelayEntry, signer::Signer, types::Chain};
 
 pub const CONFIG_PATH_ENV: &str = "COMMIT_BOOST_CONFIG";
 pub const MODULE_ID_ENV: &str = "COMMIT_BOOST_MODULE_ID";
-pub const JWT_TOKEN_ENV: &str = "JWT_TOKEN";
+pub const JWT_ENV: &str = "JWT_TOKEN";
 pub const METRICS_SERVER_URL: &str = "METRICS_SERVER_URL";
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -45,11 +45,12 @@ impl CommitBoostConfig {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SignerConfig {
     /// Where to start signing server
     pub address: SocketAddr,
 
+    /// Which keys to load
     pub loader: SignerLoader,
 }
 
@@ -57,11 +58,9 @@ pub struct SignerConfig {
 pub struct MetricsConfig {
     /// Where to start metrics server
     pub address: SocketAddr,
-
-    pub jwt_path: String
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(untagged)]
 pub enum SignerLoader {
     /// Plain text, do not use in prod

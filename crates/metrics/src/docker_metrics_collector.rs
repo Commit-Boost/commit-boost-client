@@ -34,7 +34,7 @@ struct UpdateMetricRequest {
 }
 
 impl DockerMetricsCollector {
-    pub async fn new(container_ids: Vec<String>, addr: SocketAddr, jwt_file_path: String) -> Arc<Self> {
+    pub async fn new(container_ids: Vec<String>, addr: SocketAddr, jwt_token: String) -> Arc<Self> {
         let docker = Docker::connect_with_local_defaults().expect("Failed to connect to Docker");
         let registry = Registry::new_custom(Some("docker_metrics".to_string()), None).unwrap();
         // Configure OpenTelemetry to use this registry
@@ -62,7 +62,6 @@ impl DockerMetricsCollector {
             .u64_observable_gauge("memory_usage")
             .with_description("Memory Usage")
             .init();
-        let jwt_token = fs::read_to_string(jwt_file_path).expect("Failed to read JWT token file");
 
         let collector = Arc::new(Self {
             docker: Arc::new(docker),
