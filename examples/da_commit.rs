@@ -3,10 +3,11 @@ use std::time::Duration;
 use alloy_rpc_types_beacon::{BlsPublicKey, BlsSignature};
 use cb_common::{
     commit::{client::SignerClient, request::SignRequest},
-    config::{load_module_config, ModuleConfig},
+    config::{load_module_config, ModuleConfig, JWT_ENV},
     utils::initialize_tracing_log,
 };
 use eyre::OptionExt;
+use cb_metrics::sdk::{register_custom_metric, update_custom_metric};
 use serde::Deserialize;
 use tokio::time::sleep;
 use tracing::{error, info};
@@ -39,10 +40,16 @@ impl DaCommitService {
 
         loop {
             self.send_request(data, *pubkey).await?;
+
+            update_custom_metric("custom_metric", 42.0, vec![("label_key".to_string(), "label_value".to_string())])
+            .await
+            .expect("Failed to update custom metric");
+
             sleep(Duration::from_secs(self.config.extra.sleep_secs)).await;
             data += 1;
         }
     }
+
 
     pub async fn send_request(&self, data: u64, pubkey: BlsPublicKey) -> eyre::Result<()> {
         let datagram = Datagram { data };
@@ -62,10 +69,12 @@ async fn main() {
 
     let config = load_module_config::<ExtraConfig>();
 
+    register_custom_metric("custom_metric", "A custom metric for demonstration").await.expect("Failed to register custom metric.");
+
     info!(module_id = config.config.id, "Starting module");
 
     // TODO: pass this via the module config
-    let jwt = "my_jwt_token";
+    let jwt = &std::env::var(JWT_ENV).expect(&format!("{JWT_ENV} not set"));
 
     let client = SignerClient::new(config.sign_address, jwt).expect("failed to create client");
     let service = DaCommitService { config: config.config, signer_client: client };

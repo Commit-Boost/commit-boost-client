@@ -1,60 +1,24 @@
-use std::{collections::HashMap, process::Stdio};
+use std::{collections::HashMap, iter, process::Stdio};
 
 use cb_common::{
-    config::{CommitBoostConfig, CONFIG_PATH_ENV, MODULE_ID_ENV},
-    utils::print_logo,
+    config::{CommitBoostConfig, CONFIG_PATH_ENV, JWT_ENV, METRICS_SERVER_URL, MODULE_ID_ENV}, pbs::DEFAULT_PBS_JWT_KEY, utils::print_logo
 };
 use cb_crypto::service::SigningService;
 use cb_pbs::{BuilderState, DefaultBuilderApi, PbsService};
 use clap::{Parser, Subcommand};
+use cb_metrics::docker_metrics_collector::DockerMetricsCollector;
+use std::iter::Iterator;
+
 
 #[derive(Parser, Debug)]
 #[command(version, about)]
 pub struct Args {
     #[command(subcommand)]
-    pub cmd: Command,
-    // /// Start with Holesky spec
-    // #[arg(long, global = true)]
-    // pub holesky: bool,
+    pub cmd: Command
 }
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    // /// Start pbs module, signing server and commit modules
-    // Start {
-    //     /// Address to start for boost server on
-    //     #[arg(short, long, default_value = "127.0.0.1:18550", env = "BOOST_LISTEN_ADDR")]
-    //     pbs_address: SocketAddr,
-    //     /// Add a single relay (can be repeated or comma separated). Format is
-    // scheme://pubkey@host     #[arg(short, long, visible_alias = "relays", env = "RELAYS",
-    // num_args = 1.., required = true, value_delimiter = ',')]     relay: Vec<String>,
-    //     #[arg(long)]
-    //     pbs: Option<String>,
-    //     /// Check relay status on startup and getStatus calls
-    //     #[arg(long, env = "RELAY_STARTUP_CHECK")]
-    //     relay_check: bool,
-    //     /// Timeout in ms for calling getHeader to relays
-    //     #[arg(long, default_value_t = 950, env = "RELAY_TIMEOUT_MS_GETHEADER")]
-    //     timeout_get_header_ms: u64,
-    //     /// Timeout in ms for calling getPayload to relays
-    //     #[arg(long, default_value_t = 4000, env = "RELAY_TIMEOUT_MS_GETPAYLOAD")]
-    //     timeout_get_payload_ms: u64,
-    //     /// Timeout in ms for calling registerValidator to relays
-    //     #[arg(long, default_value_t = 3000, env = "RELAY_TIMEOUT_MS_REGVAL")]
-    //     timeout_register_validator_ms: u64,
-    //     /// Skip signature verification for relay headers
-    //     #[arg(long)]
-    //     skip_sigverify: bool,
-    //     /// Minimum bid to accept from relays in ETH
-    //     #[arg(long, default_value_t = 0.0, env = "MIN_BID_ETH")]
-    //     min_bid_eth: f64,
-    //     /// Address where to start the service on
-    //     #[arg(long, default_value = "127.0.0.1:33950", env = SIGNER_LISTEN_ADDR)]
-    //     sign_address: SocketAddr,
-    //     /// Path to executable
-    //     #[arg(short, long, num_args = 1.., required = true, value_delimiter = ',')]
-    //     module: Vec<String>,
-    // },
     Start {
         /// Path to config file
         config: String,
@@ -67,53 +31,78 @@ impl Args {
 
         match self.cmd {
             Command::Start { config: config_path } => {
+
                 let config = CommitBoostConfig::from_file(&config_path);
                 let signer_config = config.signer.expect("missing signer config with modules");
+                let metrics_config = config.metrics.clone().expect("missing metrics config");
 
-                // start signing server
-                // TODO: generate jwt for each module id
+                // TODO: Actually generate this token
                 let pbs_jwt = "MY_PBS_TOKEN";
-                let jwts = HashMap::from([("PBS_DEFAULT".into(), pbs_jwt.into())]);
-                let signer_address = signer_config.address;
+                const MODULE_JWT: &str = "JWT_FIXME";
 
                 // Initialize Docker client
                 let docker = bollard::Docker::connect_with_local_defaults()
                     .expect("Failed to connect to Docker");
 
                 if let Some(modules) = config.modules {
+                    let jwts: HashMap<String, String> = iter::once((DEFAULT_PBS_JWT_KEY.into(), pbs_jwt.into()))
+                        .chain(modules.iter().map(|module|
+                            // TODO: Generate token instead of hard-coding it. Think about persisting it across the project.
+                            (
+                                module.id.clone(),
+                                MODULE_JWT.into()
+                                // format!("JWT_{}", module.id)
+                            )))
+                        .collect();
+
                     // start signing server
-                    tokio::spawn(SigningService::run(config.chain, signer_config, jwts));
+                    tokio::spawn(SigningService::run(config.chain, signer_config.clone(), jwts.clone()));
 
                     for module in modules {
-                        let config = bollard::container::Config {
+                        let container_config = bollard::container::Config {
                             image: Some(module.docker_image.clone()),
                             host_config: Some(bollard::secret::HostConfig {
                                 binds: {
-                                    let full_config_path = std::fs::canonicalize(&config_path)
-                                        .unwrap()
-                                        .to_string_lossy()
-                                        .to_string();
-                                    Some(vec![format!("{}:{}", full_config_path, "/config.toml")])
+                                    let full_config_path = std::fs::canonicalize(&config_path).unwrap().to_string_lossy().to_string();
+                                    Some(vec![
+                                        format!("{}:{}", full_config_path, "/config.toml"),
+                                    ])
                                 },
                                 network_mode: Some(String::from("host")), // Use the host network
                                 ..Default::default()
                             }),
-                            env: Some(vec![
-                                format!("{}={}", MODULE_ID_ENV, module.id),
-                                format!("{}={}", CONFIG_PATH_ENV, "/config.toml"),
-                            ]),
+                            env: {
+
+                                let metrics_server_url = metrics_config.address;
+
+                                Some(vec![
+                                    format!("{}={}", MODULE_ID_ENV, module.id),
+                                    format!("{}={}", CONFIG_PATH_ENV, "/config.toml"),
+                                    format!("{}={}", JWT_ENV, jwts.get(&module.id).unwrap()),
+                                    format!("{}={}", METRICS_SERVER_URL, metrics_server_url),
+                                ])
+                            },
                             ..Default::default()
                         };
 
-                        let container =
-                            docker.create_container::<&str, String>(None, config).await?;
+                        let container = docker.create_container::<&str, String>(None, container_config).await?;
                         let container_id = container.id;
-                        docker.start_container::<String>(&container_id, None).await?;
 
-                        println!(
-                            "Started container: {} from image {}",
-                            container_id, module.docker_image
-                        );
+                        // start monitoring tasks for spawned modules
+                        let metrics_config = metrics_config.clone();
+                        let cid = container_id.clone();
+                        tokio::spawn(async move {
+                            DockerMetricsCollector::new(
+                                vec![
+                                    cid
+                                ],
+                                metrics_config.address.clone(),
+                                // FIXME: The entire DockerMetricsCollector currently works with a single JWT; need to migrate to per-module JWT.
+                                MODULE_JWT.to_string()).await
+                        });
+
+                        docker.start_container::<String>(&container_id, None).await?;
+                        println!("Started container: {} from image {}", container_id, module.docker_image);
                     }
                 }
 
@@ -121,6 +110,7 @@ impl Args {
                 if let Some(pbs_path) = config.pbs.path {
                     let cmd = std::process::Command::new(pbs_path)
                         .env(CONFIG_PATH_ENV, &config_path)
+                        .env(JWT_ENV, pbs_jwt)
                         .stdout(Stdio::inherit())
                         .stderr(Stdio::inherit())
                         .output()
@@ -130,6 +120,7 @@ impl Args {
                         eprintln!("Process failed with status: {}", cmd.status);
                     }
                 } else {
+                    let signer_address = signer_config.address;
                     let state =
                         BuilderState::<()>::new(config.chain, config.pbs, signer_address, pbs_jwt);
                     PbsService::run::<(), DefaultBuilderApi>(state).await;
@@ -140,13 +131,3 @@ impl Args {
         Ok(())
     }
 }
-
-// fn deser_relay_vec(relays: Vec<String>) -> Vec<RelayEntry> {
-//     relays
-//         .into_iter()
-//         .map(|s| {
-//             serde_json::from_str::<RelayEntry>(&format!("\"{}\"", s.trim()))
-//                 .expect("invalid relay format, should be scheme://pubkey@host")
-//         })
-//         .collect()
-// }

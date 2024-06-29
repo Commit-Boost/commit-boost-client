@@ -12,3 +12,5 @@ pub const HEADER_KEY_VERSION: &str = "X-MEVBoost-Version"; // do we need to use 
 pub const HEADER_START_TIME_UNIX_MS: &str = "X-MEVBoost-StartTimeUnixMS";
 
 pub const BUILDER_EVENTS_PATH: &str = "/events";
+
+pub const DEFAULT_PBS_JWT_KEY: &str = "DEFAULT_PBS";

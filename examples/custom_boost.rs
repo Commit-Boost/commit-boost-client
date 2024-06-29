@@ -11,7 +11,7 @@ use axum::{
     routing::get,
     Router,
 };
-use cb_common::{config::load_pbs_config, utils::initialize_tracing_log};
+use cb_common::{config::{load_module_config, load_pbs_config, CommitBoostConfig, JWT_ENV}, utils::initialize_tracing_log};
 use cb_pbs::{BuilderApi, BuilderApiState, BuilderState, PbsService};
 use tracing::info;
 
@@ -59,11 +59,13 @@ async fn main() {
 
     info!("Starting custom pbs module");
 
-    // TODO: pass these via config
-    let jwt = "my_jwt_token";
-    let address = "0.0.0.0:18550".parse().unwrap();
+    let jwt = std::env::var(JWT_ENV).expect(&format!("{JWT_ENV} not set"));
+    let address = CommitBoostConfig::from_env_path()
+        .signer
+        .expect("Signer config missing")
+        .address;
 
-    let state = BuilderState::new(chain, config, address, jwt);
+    let state = BuilderState::new(chain, config, address, &jwt);
 
     PbsService::run::<StatusCounter, MyBuilderApi>(state).await;
 }

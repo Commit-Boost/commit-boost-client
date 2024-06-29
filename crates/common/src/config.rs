@@ -11,6 +11,8 @@ use crate::{pbs::RelayEntry, signer::Signer, types::Chain};
 
 pub const CONFIG_PATH_ENV: &str = "COMMIT_BOOST_CONFIG";
 pub const MODULE_ID_ENV: &str = "COMMIT_BOOST_MODULE_ID";
+pub const JWT_ENV: &str = "JWT_TOKEN";
+pub const METRICS_SERVER_URL: &str = "METRICS_SERVER_URL";
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CommitBoostConfig {
@@ -18,6 +20,7 @@ pub struct CommitBoostConfig {
     pub pbs: BuilderConfig,
     pub modules: Option<Vec<ModuleConfig>>,
     pub signer: Option<SignerConfig>,
+    pub metrics: Option<MetricsConfig>,
 }
 
 fn load_from_file<T: DeserializeOwned>(path: &str) -> T {
@@ -42,7 +45,7 @@ impl CommitBoostConfig {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SignerConfig {
     /// Where to start signing server
     pub address: SocketAddr,
@@ -51,7 +54,13 @@ pub struct SignerConfig {
     pub loader: SignerLoader,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct MetricsConfig {
+    /// Where to start metrics server
+    pub address: SocketAddr,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(untagged)]
 pub enum SignerLoader {
     /// Plain text, do not use in prod
@@ -148,6 +157,7 @@ pub fn load_module_config<T: DeserializeOwned>() -> StartModuleConfig<T> {
     struct StubConfig<U> {
         chain: Chain,
         signer: SignerConfig,
+
         modules: Vec<CustomModule<U>>,
     }
 

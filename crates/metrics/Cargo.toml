@@ -1,0 +1,20 @@
+[package]
+name = "cb-metrics"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+
+[dependencies]
+cb-common.workspace = true
+
+async-trait = "0.1.51"
+bollard = "0.16.1"
+futures-util = "0.3.15"
+opentelemetry = "0.23.0"
+opentelemetry-prometheus = "0.16"
+opentelemetry_sdk = "0.23.0"
+prometheus = "0.13"
+serde = { version = "1.0", features = ["derive"] }
+tokio = { version = "1.5.0", features = ["full"] }
+warp = "0.3.0"
+reqwest = { version = "0.11.0", features = ["json"] }

@@ -2,7 +2,7 @@ chain = "Holesky"
 
 [pbs]
 # path = "target/debug/custom_boost"
-address = "127.0.0.1:18551"
+address = "commit-boost:18551"
 relays = []
 relay_check = true
 timeout_get_header_ms = 950
@@ -12,12 +12,13 @@ skip_sigverify = true
 min_bid_eth = 0.0
 
 [signer]
-address = "127.0.0.1:33951"
+address = "commit-boost:33951"
 [signer.loader]
 key_path = "keys.example.json"
 
 [metrics]
-address = "127.0.0.1:13030"
+address = "commit-boost:13030"
+jwt_path = "metrics_jwt.txt"
 
 # [[modules]]
 # id = "DA_COMMIT"

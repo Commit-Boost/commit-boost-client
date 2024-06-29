@@ -6,9 +6,10 @@ members = [
     "crates/common",
     "crates/crypto",
     "crates/pbs",
+    "crates/metrics",
 
     "tests",
-    "examples",
+    "examples"
 ]
 resolver = "2"
 
@@ -22,6 +23,7 @@ cb-cli = { path = "crates/cli" }
 cb-common = { path = "crates/common" }
 cb-crypto = { path = "crates/crypto" }
 cb-pbs = { path = "crates/pbs" }
+cb-metrics = { path = "crates/metrics" }
 
 # ethereum
 ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus", rev = "cf3c404043230559660810bc0c9d6d5a8498d819" }
