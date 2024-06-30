@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use alloy_primitives::{B256, U256};
 use alloy_rpc_types_beacon::BlsPublicKey;
 use cb_common::{
-    config::BuilderConfig,
+    config::PbsConfig,
     pbs::{RelayEntry, HEADER_KEY_SLOT_UUID, HEADER_START_TIME_UNIX_MS},
     signature::verify_signed_builder_message,
     types::Chain,
@@ -66,7 +66,7 @@ async fn send_get_header(
     validator_pubkey: BlsPublicKey,
     relay: RelayEntry,
     chain: Chain,
-    config: Arc<BuilderConfig>,
+    config: Arc<PbsConfig>,
 ) -> Result<Option<GetHeaderReponse>, PbsError> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_millis(config.timeout_get_header_ms))

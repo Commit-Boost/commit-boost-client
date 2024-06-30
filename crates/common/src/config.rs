@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::{collections::HashMap, net::SocketAddr};
 
 use alloy_primitives::U256;
 use serde::{
@@ -9,15 +9,23 @@ use serde::{
 use super::utils::as_eth_str;
 use crate::{pbs::RelayEntry, signer::Signer, types::Chain};
 
-pub const CONFIG_PATH_ENV: &str = "COMMIT_BOOST_CONFIG";
-pub const MODULE_ID_ENV: &str = "COMMIT_BOOST_MODULE_ID";
-pub const JWT_ENV: &str = "JWT_TOKEN";
+pub const MODULE_ID_ENV: &str = "CB_MODULE_ID";
+pub const MODULE_JWT_ENV: &str = "CB_MODULE_JWT";
 pub const METRICS_SERVER_URL: &str = "METRICS_SERVER_URL";
+
+pub const CB_CONFIG_ENV: &str = "CB_CONFIG";
+pub const CB_CONFIG_NAME: &str = "/cb-config.toml";
+
+pub const SIGNER_LOADER_ENV: &str = "CB_SIGNER_LOADER_FILE";
+pub const SIGNER_LOADER_NAME: &str = "/keys.json";
+
+pub const JWTS_ENV: &str = "CB_JWTS";
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CommitBoostConfig {
+    // TODO: generalize this with a spec file
     pub chain: Chain,
-    pub pbs: BuilderConfig,
+    pub pbs: PbsConfig,
     pub modules: Option<Vec<ModuleConfig>>,
     pub signer: Option<SignerConfig>,
     pub metrics: Option<MetricsConfig>,
@@ -29,10 +37,15 @@ fn load_from_file<T: DeserializeOwned>(path: &str) -> T {
     toml::from_str(&config_file).unwrap()
 }
 
-fn load_from_env<T: DeserializeOwned>() -> T {
-    let path = std::env::var(CONFIG_PATH_ENV).expect(&format!("{CONFIG_PATH_ENV} is not set"));
-
+fn load_from_env<T: DeserializeOwned>(env: &str) -> T {
+    let path = std::env::var(env).expect(&format!("{env} is not set"));
     load_from_file(&path)
+}
+
+/// Loads a map of module id -> jwt token from a json env
+pub fn load_jwts() -> HashMap<String, String> {
+    let jwts = std::env::var(JWTS_ENV).expect(&format!("{JWTS_ENV} is not set"));
+    serde_json::from_str(&jwts).expect(&format!("Failed to parse jwts: {jwts}"))
 }
 
 impl CommitBoostConfig {
@@ -41,7 +54,7 @@ impl CommitBoostConfig {
     }
 
     pub fn from_env_path() -> Self {
-        load_from_env()
+        load_from_env(CB_CONFIG_ENV)
     }
 }
 
@@ -52,6 +65,13 @@ pub struct SignerConfig {
 
     /// Which keys to load
     pub loader: SignerLoader,
+}
+
+impl SignerConfig {
+    pub fn load_from_env() -> (Chain, Self) {
+        let config = CommitBoostConfig::from_env_path();
+        (config.chain, config.signer.expect("Signer config is missing"))
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -69,8 +89,15 @@ pub enum SignerLoader {
 
 impl SignerLoader {
     pub fn load_keys(self) -> Vec<Signer> {
+        // TODO: add flag to support also native loader
+        self.load_from_env()
+    }
+
+    pub fn load_from_env(self) -> Vec<Signer> {
         match self {
-            SignerLoader::File { key_path: path } => {
+            SignerLoader::File { .. } => {
+                let path = std::env::var(SIGNER_LOADER_ENV)
+                    .expect(&format!("{SIGNER_LOADER_ENV} is not set"));
                 let file =
                     std::fs::read_to_string(path).expect(&format!("Unable to find keys file"));
 
@@ -86,9 +113,18 @@ pub struct FileKey {
     pub secret_key: [u8; 32],
 }
 
+/// What a commit module needs to call the Signer API
+pub struct CommitSignerConfig {
+    /// Address of the signer service
+    pub address: SocketAddr,
+    /// JWT token to authenticate
+    pub jwt: String,
+}
+
+// TODO: handle docker image override and other custom fields (like custom modules)
 #[derive(Debug, Deserialize, Serialize)]
-pub struct BuilderConfig {
-    /// Path to override PBS module
+pub struct PbsConfig {
+    /// Path to docker image
     pub path: Option<String>,
     /// Which port to open listen
     pub address: SocketAddr,
@@ -138,7 +174,7 @@ pub struct StartModuleConfig<T = ()> {
 }
 
 // TODO: load with custom data like module
-pub fn load_pbs_config() -> (Chain, BuilderConfig) {
+pub fn load_pbs_config() -> (Chain, PbsConfig) {
     let config = CommitBoostConfig::from_env_path();
     (config.chain, config.pbs)
 }
@@ -161,7 +197,7 @@ pub fn load_module_config<T: DeserializeOwned>() -> StartModuleConfig<T> {
         modules: Vec<CustomModule<U>>,
     }
 
-    let config: StubConfig<T> = load_from_env();
+    let config: StubConfig<T> = load_from_env(CB_CONFIG_ENV);
 
     let matches: Vec<ModuleConfig<T>> = config
         .modules

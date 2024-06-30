@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use cb_common::{
-    config::BuilderConfig,
+    config::PbsConfig,
     pbs::{RelayEntry, HEADER_START_TIME_UNIX_MS},
     utils::utcnow_ms,
 };
@@ -42,7 +42,7 @@ pub async fn submit_block<S: BuilderApiState>(
 async fn send_submit_block(
     relay: RelayEntry,
     signed_blinded_block: SignedBlindedBeaconBlock,
-    config: Arc<BuilderConfig>,
+    config: Arc<PbsConfig>,
 ) -> Result<SubmitBlindedBlockResponse, PbsError> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_millis(config.timeout_get_payload_ms))

@@ -2,7 +2,7 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use alloy_primitives::U256;
 use alloy_rpc_types_beacon::BlsPublicKey;
-use cb_common::{config::BuilderConfig, pbs::RelayEntry, signer::Signer, types::Chain};
+use cb_common::{config::PbsConfig, pbs::RelayEntry, signer::Signer, types::Chain};
 use cb_pbs::{BuilderState, DefaultBuilderApi, PbsService};
 use cb_tests::{
     mock_relay::{mock_relay_app_router, MockRelayState},
@@ -38,7 +38,7 @@ async fn test_get_header() {
     let mock_state = Arc::new(MockRelayState::new(chain, signer, 0));
     tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 1));
 
-    let config = BuilderConfig {
+    let config = PbsConfig {
         path: Some("".into()),
         address: format!("0.0.0.0:{port}").parse().unwrap(),
         relays: vec![mock_relay],
@@ -80,7 +80,7 @@ async fn test_get_status() {
     tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 1));
     tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 2));
 
-    let config = BuilderConfig {
+    let config = PbsConfig {
         path: Some("".into()),
         address: format!("0.0.0.0:{port}").parse().unwrap(),
         relays,
@@ -118,7 +118,7 @@ async fn test_register_validators() {
     let mock_state = Arc::new(MockRelayState::new(chain, signer, 0));
     tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 1));
 
-    let config = BuilderConfig {
+    let config = PbsConfig {
         path: Some("".into()),
         address: format!("0.0.0.0:{port}").parse().unwrap(),
         relays,
@@ -156,7 +156,7 @@ async fn test_submit_block() {
     let mock_state = Arc::new(MockRelayState::new(chain, signer, 0));
     tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 1));
 
-    let config = BuilderConfig {
+    let config = PbsConfig {
         path: Some("".into()),
         address: format!("0.0.0.0:{port}").parse().unwrap(),
         relays,

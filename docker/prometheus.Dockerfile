@@ -1,7 +1,7 @@
 FROM prom/prometheus:latest
 
 # Copy the Prometheus configuration file
-COPY prometheus.yml /etc/prometheus/prometheus.yml
+COPY ./docker/prometheus.yml /etc/prometheus/prometheus.yml
 
 # Expose the port for Prometheus
 EXPOSE 9090

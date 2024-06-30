@@ -26,17 +26,18 @@ pub struct SignerClient {
 
 impl SignerClient {
     /// Create a new SignerClient
-    pub fn new(signer_address: SocketAddr, jwt: &str) -> Result<Self, SignerClientError> {
+    pub fn new(signer_address: SocketAddr, jwt: &str) -> Self {
         let url = format!("http://{}", signer_address);
         let mut headers = HeaderMap::new();
 
-        let mut auth_value = HeaderValue::from_str(&format!("Bearer {}", jwt))?;
+        let mut auth_value =
+            HeaderValue::from_str(&format!("Bearer {}", jwt)).expect("invalid jwt");
         auth_value.set_sensitive(true);
         headers.insert(AUTHORIZATION, auth_value);
 
-        let client = reqwest::ClientBuilder::new().default_headers(headers).build()?;
+        let client = reqwest::ClientBuilder::new().default_headers(headers).build().unwrap();
 
-        Ok(Self { url: url.into(), client })
+        Self { url: url.into(), client }
     }
 
     /// Request a list of validator pubkeys for which signatures can be requested.

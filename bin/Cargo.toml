@@ -8,7 +8,7 @@ rust-version.workspace = true
 cb-cli.workspace = true
 cb-common.workspace = true
 cb-pbs.workspace = true
-
+cb-crypto.workspace = true
 
 tokio.workspace = true
 async-trait.workspace = true
@@ -19,3 +19,16 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 
 clap.workspace = true
+
+
+[[bin]]
+name = "commit-boost"
+path = "commit_boost.rs"
+
+[[bin]]
+name = "default-pbs"
+path = "default_pbs.rs"
+
+[[bin]]
+name = "signer-module"
+path = "signer_module.rs"

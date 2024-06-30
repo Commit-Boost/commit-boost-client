@@ -1,13 +1,15 @@
 use std::{
     collections::HashSet,
-    net::SocketAddr,
     sync::{Arc, Mutex},
 };
 
 use alloy_primitives::B256;
 use alloy_rpc_types_beacon::BlsPublicKey;
 use cb_common::{
-    commit::client::SignerClient, config::BuilderConfig, pbs::RelayEntry, types::Chain,
+    commit::client::SignerClient,
+    config::{CommitSignerConfig, PbsConfig},
+    pbs::RelayEntry,
+    types::Chain,
 };
 use dashmap::DashMap;
 use tokio::sync::broadcast;
@@ -24,10 +26,9 @@ pub type BuilderEventReceiver = broadcast::Receiver<BuilderEvent>;
 pub struct BuilderState<S: BuilderApiState = ()> {
     pub chain: Chain,
     /// Config data for the Pbs service
-    pub config: Arc<BuilderConfig>,
+    pub config: Arc<PbsConfig>,
     /// Signer client to request signatures
-    /// TODO: consider making this optional. It shouldn't be needed for vanilla MEV boost
-    pub signer_client: SignerClient,
+    pub signer_client: Option<SignerClient>,
     /// Opaque extra data for library use
     pub data: S,
     /// Pubsliher to push net events
@@ -42,15 +43,32 @@ impl<S> BuilderState<S>
 where
     S: BuilderApiState,
 {
-    pub fn new(chain: Chain, config: BuilderConfig, signer_address: SocketAddr, jwt: &str) -> Self {
+    pub fn new(chain: Chain, config: PbsConfig) -> Self {
         let (tx, _) = broadcast::channel(10);
-        let client =
-            SignerClient::new(signer_address, jwt).expect("failed to create signer client");
 
         Self {
             chain,
             current_slot_info: Arc::new(Mutex::new((0, Uuid::default()))),
-            signer_client: client,
+            signer_client: None,
+            data: S::default(),
+            event_publisher: tx,
+            config: Arc::new(config),
+            bid_cache: Arc::new(DashMap::new()),
+        }
+    }
+
+    pub fn new_with_signer(
+        chain: Chain,
+        config: PbsConfig,
+        signer_config: CommitSignerConfig,
+    ) -> Self {
+        let (tx, _) = broadcast::channel(10);
+        let client = SignerClient::new(signer_config.address, &signer_config.jwt);
+
+        Self {
+            chain,
+            current_slot_info: Arc::new(Mutex::new((0, Uuid::default()))),
+            signer_client: Some(client),
             data: S::default(),
             event_publisher: tx,
             config: Arc::new(config),

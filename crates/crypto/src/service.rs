@@ -41,7 +41,7 @@ impl SigningService {
             warn!("Signing service was started but no module is registered. Exiting");
             return;
         } else {
-            info!(modules =? jwts.keys(), address =?config.address, "Starting signing service");
+            info!(modules =? jwts.keys(), address =? config.address, "Starting signing service");
         }
 
         let mut manager = SigningManager::new(chain);

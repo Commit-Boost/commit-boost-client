@@ -1,5 +1,5 @@
 [package]
-name = "examples"
+name = "da_commit"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -25,15 +25,3 @@ serde_json.workspace = true
 
 tracing.workspace = true
 eyre.workspace = true
-
-[[bin]]
-name = "da_commit"
-path = "da_commit.rs"
-
-# [[example]]
-# name = "alert_hook"
-# path = "alert_hook.rs"
-
-[[bin]]
-name = "custom_boost"
-path = "custom_boost.rs"

@@ -16,6 +16,7 @@ alloy-rpc-types-beacon.workspace = true
 tokio.workspace = true
 
 serde_json.workspace = true
+serde_yaml.workspace = true
 
 tracing.workspace = true
 clap.workspace = true
@@ -25,4 +26,7 @@ eyre.workspace = true
 tree_hash.workspace = true
 tree_hash_derive.workspace = true
 
-bollard = "0.16.1"
+bollard.workspace = true
+docker-compose-types.workspace = true
+dotenvy.workspace = true
+indexmap.workspace = true

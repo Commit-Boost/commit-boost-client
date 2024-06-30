@@ -15,7 +15,13 @@ async fn main() {
     let args = cb_cli::Args::parse();
 
     match args.cmd {
-        cb_cli::Command::Start { config } => {
+        cb_cli::Command::Init { .. } => {
+            unreachable!()
+        }
+        cb_cli::Command::Start { .. } => {
+            unreachable!()
+        }
+        cb_cli::Command::Start2 { config } => {
             let config = CommitBoostConfig::from_file(&config);
 
             let mock_validator = MockValidator::new(config.pbs.address);

@@ -1,3 +1,0 @@
-[submodule "da-commit-dockerized"]
-	path = da-commit-dockerized
-	url = https://github.com/LimeChain/da-commit-dockerized.git

@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "bin/commit-boost",
+    "bin",
 
     "crates/cli",
     "crates/common",
@@ -9,7 +9,7 @@ members = [
     "crates/metrics",
 
     "tests",
-    "examples"
+    "examples/da_commit",
 ]
 resolver = "2"
 
@@ -51,6 +51,7 @@ async-trait = "0.1.80"
 toml = "0.8.13"
 serde = { version = "1.0.202", features = ["derive"] }
 serde_json = "1.0.117"
+serde_yaml = "0.9.33"
 
 # logging
 tracing = "0.1.40"
@@ -64,6 +65,10 @@ blst = "0.3.11"
 tree_hash = "0.5"
 tree_hash_derive = "0.5"
 
+# docker
+docker-compose-types = "0.12.0"
+bollard = "0.16.1"
+
 # misc
 clap = { version = "4.5.4", features = ["derive", "env"] }
 thiserror = "1.0.61"
@@ -72,3 +77,5 @@ url = "2.5.0"
 uuid = { version = "1.8.0", features = ["v4", "fast-rng", "serde"] }
 typenum = "1.17.0"
 rand = "0.8.5"
+dotenvy = "0.15.7"
+indexmap = "2.2.6"

@@ -1,12 +1,10 @@
+use std::{net::SocketAddr, sync::Arc};
+
 use bollard::{container::StatsOptions, Docker};
 use futures_util::stream::TryStreamExt;
-use opentelemetry::{global, KeyValue};
-use opentelemetry::metrics::ObservableGauge;
-use prometheus::{Encoder, TextEncoder, Registry};
+use opentelemetry::{global, metrics::ObservableGauge, KeyValue};
+use prometheus::{Encoder, Registry, TextEncoder};
 use serde::{Deserialize, Serialize};
-use std::fs;
-use std::net::SocketAddr;
-use std::sync::Arc;
 use tokio::task;
 use warp::{Filter, Reply};
 
@@ -43,25 +41,21 @@ impl DockerMetricsCollector {
             .build()
             .expect("failed to build exporter");
 
-        let provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
-            .with_reader(exporter)
-            .build();
+        let provider =
+            opentelemetry_sdk::metrics::SdkMeterProvider::builder().with_reader(exporter).build();
 
         // NOTE:
-        //  This line is crucial, since below we are using global::meter() to create meters (on custom meter registration)
-        //  The current approach here might not be optimal, some deeper understanding of OpenTelemetry's philosophy is needed
+        //  This line is crucial, since below we are using global::meter() to create meters (on
+        // custom meter registration)  The current approach here might not be optimal, some
+        // deeper understanding of OpenTelemetry's philosophy is needed
         global::set_meter_provider(provider.clone());
 
         // let _exporter = exporter().with_registry(registry.clone()).init();
         let meter = global::meter("docker_metrics");
-        let cpu_usage = meter
-            .f64_observable_gauge("cpu_usage")
-            .with_description("CPU Usage")
-            .init();
-        let memory_usage = meter
-            .u64_observable_gauge("memory_usage")
-            .with_description("Memory Usage")
-            .init();
+        let cpu_usage =
+            meter.f64_observable_gauge("cpu_usage").with_description("CPU Usage").init();
+        let memory_usage =
+            meter.u64_observable_gauge("memory_usage").with_description("Memory Usage").init();
 
         let collector = Arc::new(Self {
             docker: Arc::new(docker),
@@ -102,16 +96,24 @@ impl DockerMetricsCollector {
                 .stats(&container_id, Some(StatsOptions { stream: true, one_shot: false }))
                 .map_ok(|stat| {
                     // //TODO:
-                    // //  Those crash since they're really reliant on implicit proper sequence of initialization
-                    // //  I've replaced them with a direct 0 to avoid craches, but we must investigate how proper calculations must happen here.
-                    // let cpu_delta = stat.cpu_stats.cpu_usage.total_usage - stat.precpu_stats.cpu_usage.total_usage;
-                    // let system_cpu_delta = stat.cpu_stats.system_cpu_usage.unwrap() - stat.precpu_stats.system_cpu_usage.unwrap_or_default();
+                    // //  Those crash since they're really reliant on implicit proper sequence of
+                    // initialization //  I've replaced them with a direct 0 to
+                    // avoid craches, but we must investigate how proper calculations must happen
+                    // here. let cpu_delta =
+                    // stat.cpu_stats.cpu_usage.total_usage -
+                    // stat.precpu_stats.cpu_usage.total_usage;
+                    // let system_cpu_delta = stat.cpu_stats.system_cpu_usage.unwrap() -
+                    // stat.precpu_stats.system_cpu_usage.unwrap_or_default();
                     // let number_cpus = stat.cpu_stats.online_cpus.unwrap();
                     let cpu_stats = 0f64; //(cpu_delta as f64 / system_cpu_delta as f64) * number_cpus as f64 * 100.0;
                     let used_memory = stat.memory_stats.usage.unwrap_or_default();
 
-                    cpu_usage.observe(cpu_stats, &[KeyValue::new("container_id", container_id.clone())]);
-                    memory_usage.observe(used_memory, &[KeyValue::new("container_id", container_id.clone())]);
+                    cpu_usage
+                        .observe(cpu_stats, &[KeyValue::new("container_id", container_id.clone())]);
+                    memory_usage.observe(used_memory, &[KeyValue::new(
+                        "container_id",
+                        container_id.clone(),
+                    )]);
                 })
                 .try_collect::<Vec<_>>()
                 .await;
@@ -159,9 +161,7 @@ impl DockerMetricsCollector {
                 }
             });
 
-        let routes = metrics_route
-            .or(register_metric_route)
-            .or(update_metric_route);
+        let routes = metrics_route.or(register_metric_route).or(update_metric_route);
 
         let addr: SocketAddr = addr.parse().expect("Invalid address");
         warp::serve(routes).run(addr).await;
@@ -176,18 +176,32 @@ impl DockerMetricsCollector {
         gauge.observe(value, labels);
     }
 
-    async fn handle_register_custom_metric(&self, req: RegisterMetricRequest, auth: String) -> Result<impl Reply, warp::Rejection> {
+    async fn handle_register_custom_metric(
+        &self,
+        req: RegisterMetricRequest,
+        auth: String,
+    ) -> Result<impl Reply, warp::Rejection> {
         if !self.validate_token(auth) {
-            return Ok(warp::reply::with_status("Unauthorized", warp::http::StatusCode::UNAUTHORIZED));
+            return Ok(warp::reply::with_status(
+                "Unauthorized",
+                warp::http::StatusCode::UNAUTHORIZED,
+            ));
         }
 
         self.register_custom_gauge(req.name, req.description);
         Ok(warp::reply::with_status("Metric registered", warp::http::StatusCode::OK))
     }
 
-    async fn handle_update_custom_metric(&self, req: UpdateMetricRequest, auth: String) -> Result<impl Reply, warp::Rejection> {
+    async fn handle_update_custom_metric(
+        &self,
+        req: UpdateMetricRequest,
+        auth: String,
+    ) -> Result<impl Reply, warp::Rejection> {
         if !self.validate_token(auth) {
-            return Ok(warp::reply::with_status("Unauthorized", warp::http::StatusCode::UNAUTHORIZED));
+            return Ok(warp::reply::with_status(
+                "Unauthorized",
+                warp::http::StatusCode::UNAUTHORIZED,
+            ));
         }
 
         let gauge = self.register_custom_gauge(req.name, "".to_string()); // Assuming the gauge is already registered
@@ -199,7 +213,6 @@ impl DockerMetricsCollector {
         self.update_custom_gauge(&gauge, req.value, &labels);
         Ok(warp::reply::with_status("Metric updated", warp::http::StatusCode::OK))
     }
-
 
     fn validate_token(&self, token: String) -> bool {
         // TODO: Parsing should probably not happen here (too late)

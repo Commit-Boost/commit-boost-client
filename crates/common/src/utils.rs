@@ -6,6 +6,7 @@ use std::{
 use alloy_primitives::U256;
 use alloy_rpc_types_beacon::{BlsPublicKey, BlsSignature};
 use blst::min_pk::{PublicKey, Signature};
+use rand::{distributions::Alphanumeric, Rng};
 use tracing::Level;
 
 use crate::types::Chain;
@@ -135,4 +136,9 @@ pub fn alloy_sig_to_blst(signature: &BlsSignature) -> Result<Signature, blst::BL
 
 pub fn blst_pubkey_to_alloy(pubkey: &PublicKey) -> BlsPublicKey {
     BlsPublicKey::from_slice(&pubkey.to_bytes())
+}
+
+/// Generates a random string
+pub fn random_jwt() -> String {
+    rand::thread_rng().sample_iter(&Alphanumeric).take(32).map(char::from).collect()
 }
