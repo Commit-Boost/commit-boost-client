@@ -115,5 +115,7 @@ mod tests {
     fn test_builder_domains() {
         assert_eq!(compute_builder_domain(Chain::Mainnet), Chain::Mainnet.builder_domain());
         assert_eq!(compute_builder_domain(Chain::Holesky), Chain::Holesky.builder_domain());
+        assert_eq!(compute_builder_domain(Chain::Rhea), Chain::Rhea.builder_domain());
+        assert_eq!(compute_builder_domain(Chain::Helder), Chain::Helder.builder_domain());
     }
 }
