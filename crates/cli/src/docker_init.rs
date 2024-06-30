@@ -9,8 +9,8 @@ use cb_common::{
     utils::random_jwt,
 };
 use docker_compose_types::{
-    Compose, DependsOnOptions, Environment, LoggingParameters, MapOrEmpty, NetworkSettings,
-    Networks, Ports, Service, Services, SingleValue, Volumes,
+    Compose, DependsOnOptions, Environment, MapOrEmpty, NetworkSettings, Networks, Ports, Service,
+    Services, SingleValue, Volumes,
 };
 use indexmap::IndexMap;
 use serde::Serialize;
@@ -208,7 +208,6 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> eyre::Resu
         networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
         depends_on: DependsOnOptions::Simple(vec!["cb_prometheus".to_owned()]),
         environment: Environment::List(vec!["GF_SECURITY_ADMIN_PASSWORD=admin".to_owned()]),
-        logging: Some(LoggingParameters { driver: Some("none".to_owned()), options: None }),
         ..Service::default()
     };
 
