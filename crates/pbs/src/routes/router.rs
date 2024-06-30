@@ -13,10 +13,10 @@ use tracing::debug;
 use super::{handle_get_header, handle_get_status, handle_register_validator, handle_submit_block};
 use crate::{
     boost::BuilderApi,
-    state::{BuilderApiState, BuilderState},
+    state::{BuilderApiState, PbsState},
 };
 
-pub fn create_app_router<S: BuilderApiState, T: BuilderApi<S>>(state: BuilderState<S>) -> Router {
+pub fn create_app_router<S: BuilderApiState, T: BuilderApi<S>>(state: PbsState<S>) -> Router {
     let builder_routes = Router::new()
         .route(GET_HEADER_PATH, get(handle_get_header::<S, T>))
         .route(GET_STATUS_PATH, get(handle_get_status::<S, T>))

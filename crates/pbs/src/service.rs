@@ -4,7 +4,7 @@ use tracing::{error, info};
 use crate::{
     boost::BuilderApi,
     routes::create_app_router,
-    state::{BuilderApiState, BuilderState},
+    state::{BuilderApiState, PbsState},
 };
 
 pub struct PbsService;
@@ -12,12 +12,12 @@ pub struct PbsService;
 // TODO: add ServerMaxHeaderBytes
 
 impl PbsService {
-    pub async fn run<S: BuilderApiState, T: BuilderApi<S>>(state: BuilderState<S>) {
+    pub async fn run<S: BuilderApiState, T: BuilderApi<S>>(state: PbsState<S>) {
         // if config.relay_check {
         //     PbsService::relay_check(&config.relays).await;
         // }
 
-        let address = state.config.address;
+        let address = state.config.pbs_config.address;
         let app = create_app_router::<S, T>(state);
 
         info!(?address, "Starting PBS service");

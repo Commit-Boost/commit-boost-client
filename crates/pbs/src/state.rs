@@ -5,12 +5,7 @@ use std::{
 
 use alloy_primitives::B256;
 use alloy_rpc_types_beacon::BlsPublicKey;
-use cb_common::{
-    commit::client::SignerClient,
-    config::{CommitSignerConfig, PbsConfig},
-    pbs::RelayEntry,
-    types::Chain,
-};
+use cb_common::{config::PbsModuleConfig, pbs::RelayEntry};
 use dashmap::DashMap;
 use tokio::sync::broadcast;
 use uuid::Uuid;
@@ -22,13 +17,13 @@ impl BuilderApiState for () {}
 
 pub type BuilderEventReceiver = broadcast::Receiver<BuilderEvent>;
 
+/// State for the Pbs module. It can be extended in two ways:
+/// - By adding extra configs to be loaded at startup
+/// - By adding extra data to the state
 #[derive(Debug, Clone)]
-pub struct BuilderState<S: BuilderApiState = ()> {
-    pub chain: Chain,
+pub struct PbsState<U, S: BuilderApiState = ()> {
     /// Config data for the Pbs service
-    pub config: Arc<PbsConfig>,
-    /// Signer client to request signatures
-    pub signer_client: Option<SignerClient>,
+    pub config: Arc<PbsModuleConfig<U>>,
     /// Opaque extra data for library use
     pub data: S,
     /// Pubsliher to push net events
@@ -39,36 +34,15 @@ pub struct BuilderState<S: BuilderApiState = ()> {
     bid_cache: Arc<DashMap<u64, Vec<GetHeaderReponse>>>,
 }
 
-impl<S> BuilderState<S>
+impl<U, S> PbsState<U, S>
 where
     S: BuilderApiState,
 {
-    pub fn new(chain: Chain, config: PbsConfig) -> Self {
+    pub fn new(config: PbsModuleConfig<U>) -> Self {
         let (tx, _) = broadcast::channel(10);
 
         Self {
-            chain,
             current_slot_info: Arc::new(Mutex::new((0, Uuid::default()))),
-            signer_client: None,
-            data: S::default(),
-            event_publisher: tx,
-            config: Arc::new(config),
-            bid_cache: Arc::new(DashMap::new()),
-        }
-    }
-
-    pub fn new_with_signer(
-        chain: Chain,
-        config: PbsConfig,
-        signer_config: CommitSignerConfig,
-    ) -> Self {
-        let (tx, _) = broadcast::channel(10);
-        let client = SignerClient::new(signer_config.address, &signer_config.jwt);
-
-        Self {
-            chain,
-            current_slot_info: Arc::new(Mutex::new((0, Uuid::default()))),
-            signer_client: Some(client),
             data: S::default(),
             event_publisher: tx,
             config: Arc::new(config),
@@ -106,7 +80,7 @@ where
     }
 
     pub fn relays(&self) -> Vec<RelayEntry> {
-        self.config.relays.clone()
+        self.config.pbs_config.relays.clone()
     }
 
     /// Add some bids to the cache, the bids are all assumed to be for the provided slot

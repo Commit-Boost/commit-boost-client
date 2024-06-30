@@ -12,18 +12,18 @@ use uuid::Uuid;
 use crate::{
     boost::BuilderApi,
     error::PbsClientError,
-    state::{BuilderApiState, BuilderState},
+    state::{BuilderApiState, PbsState},
     BuilderEvent, GetHeaderParams,
 };
 
 pub async fn handle_get_header<S: BuilderApiState, T: BuilderApi<S>>(
-    State(state): State<BuilderState<S>>,
+    State(state): State<PbsState<S>>,
     user_agent: Option<TypedHeader<UserAgent>>,
     Path(params): Path<GetHeaderParams>,
 ) -> Result<impl IntoResponse, PbsClientError> {
     let req_id = Uuid::new_v4();
     let now = utcnow_ms();
-    let slot_start_ms = timestamp_of_slot_start_millis(params.slot, state.chain);
+    let slot_start_ms = timestamp_of_slot_start_millis(params.slot, state.config.chain);
 
     state.publish_event(BuilderEvent::GetHeaderRequest(params));
 

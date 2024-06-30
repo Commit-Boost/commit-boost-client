@@ -10,14 +10,14 @@ use tracing::error;
 
 use crate::{
     error::PbsError,
-    state::{BuilderApiState, BuilderState},
+    state::{BuilderApiState, PbsState},
 };
 
 /// Implements https://ethereum.github.io/builder-specs/#/Builder/registerValidator
 /// Returns 200 if at least one relay returns 200, else 503
 pub async fn register_validator<S: BuilderApiState>(
     registrations: Vec<ValidatorRegistration>,
-    pbs_state: BuilderState<S>,
+    pbs_state: PbsState<S>,
 ) -> eyre::Result<()> {
     let relays = pbs_state.relays();
     let mut handles = Vec::with_capacity(relays.len());
@@ -26,7 +26,7 @@ pub async fn register_validator<S: BuilderApiState>(
         handles.push(send_register_validator(
             relay.clone(),
             registrations.clone(),
-            pbs_state.config.timeout_register_validator_ms,
+            pbs_state.config.pbs_config.timeout_register_validator_ms,
         ));
     }
 

@@ -1,7 +1,6 @@
 chain = "Holesky"
 
 [pbs]
-# path = "target/debug/custom_boost"
 address = "127.0.0.1:18550"
 relays = []
 relay_check = true
@@ -19,6 +18,7 @@ key_path = "keys.example.json"
 [metrics]
 address = "127.0.0.1:3030"
 jwt_path = "metrics_jwt.txt"
+config = "./docker/prometheus.yml"
 
 [[modules]]
 id = "DA_COMMIT"

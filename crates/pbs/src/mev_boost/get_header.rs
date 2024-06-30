@@ -15,13 +15,13 @@ use uuid::Uuid;
 
 use crate::{
     error::{PbsError, ValidationError},
-    state::{BuilderApiState, BuilderState},
+    state::{BuilderApiState, PbsState},
     types::{SignedExecutionPayloadHeader, EMPTY_TX_ROOT_HASH},
     GetHeaderParams, GetHeaderReponse,
 };
 
 pub async fn get_header<S: BuilderApiState>(
-    state: BuilderState<S>,
+    state: PbsState<S>,
     params: GetHeaderParams,
 ) -> eyre::Result<Option<GetHeaderReponse>> {
     let GetHeaderParams { slot, parent_hash, pubkey: validator_pubkey } = params;
@@ -32,14 +32,17 @@ pub async fn get_header<S: BuilderApiState>(
     let mut handles = Vec::with_capacity(relays.len());
 
     for relay in relays.iter() {
+        // FIXME
+        let pbs_config = Arc::new(state.config.pbs_config.clone());
+
         handles.push(send_get_header(
             slot_uuid,
             slot,
             parent_hash,
             validator_pubkey,
             relay.clone(),
-            state.chain,
-            state.config.clone(),
+            state.config.chain,
+            pbs_config,
         ));
     }
 

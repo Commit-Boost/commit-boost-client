@@ -7,34 +7,34 @@ use axum::Router;
 
 use crate::{
     mev_boost,
-    state::{BuilderApiState, BuilderState},
+    state::{BuilderApiState, PbsState},
     GetHeaderParams, GetHeaderReponse, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
 };
 
 #[async_trait]
 pub trait BuilderApi<S: BuilderApiState>: 'static {
     /// Use to extend the BuilderApi
-    fn extra_routes() -> Option<Router<BuilderState<S>>> {
+    fn extra_routes() -> Option<Router<PbsState<S>>> {
         None
     }
 
     /// https://ethereum.github.io/builder-specs/#/Builder/getHeader
     async fn get_header(
         params: GetHeaderParams,
-        state: BuilderState<S>,
+        state: PbsState<S>,
     ) -> eyre::Result<Option<GetHeaderReponse>> {
         mev_boost::get_header(state, params).await
     }
 
     /// https://ethereum.github.io/builder-specs/#/Builder/status
-    async fn get_status(state: BuilderState<S>) -> eyre::Result<()> {
+    async fn get_status(state: PbsState<S>) -> eyre::Result<()> {
         mev_boost::get_status(state).await
     }
 
     /// https://ethereum.github.io/builder-specs/#/Builder/submitBlindedBlock
     async fn submit_block(
         signed_blinded_block: SignedBlindedBeaconBlock,
-        state: BuilderState<S>,
+        state: PbsState<S>,
     ) -> eyre::Result<SubmitBlindedBlockResponse> {
         mev_boost::submit_block(signed_blinded_block, state).await
     }
@@ -42,7 +42,7 @@ pub trait BuilderApi<S: BuilderApiState>: 'static {
     /// https://ethereum.github.io/builder-specs/#/Builder/registerValidator
     async fn register_validator(
         registrations: Vec<ValidatorRegistration>,
-        state: BuilderState<S>,
+        state: PbsState<S>,
     ) -> eyre::Result<()> {
         mev_boost::register_validator(registrations, state).await
     }

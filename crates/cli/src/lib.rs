@@ -1,4 +1,4 @@
-use std::{collections::HashMap, iter, iter::Iterator, process::Stdio};
+use std::{collections::HashMap, iter, iter::Iterator};
 
 use cb_common::{
     config::{CommitBoostConfig, CB_CONFIG_ENV, METRICS_SERVER_URL, MODULE_ID_ENV, MODULE_JWT_ENV},
@@ -7,7 +7,6 @@ use cb_common::{
 };
 use cb_crypto::service::SigningService;
 use cb_metrics::docker_metrics_collector::DockerMetricsCollector;
-use cb_pbs::{BuilderState, DefaultBuilderApi, PbsService};
 use clap::{Parser, Subcommand};
 use docker_init::{CB_COMPOSE_FILE, CB_CONFIG_FILE, CB_ENV_FILE};
 use tracing::info;
@@ -157,22 +156,22 @@ impl Args {
                 }
 
                 // start pbs server
-                if let Some(pbs_path) = config.pbs.path {
-                    let cmd = std::process::Command::new(pbs_path)
-                        .env(CB_CONFIG_ENV, &config_path)
-                        .env(MODULE_JWT_ENV, pbs_jwt)
-                        .stdout(Stdio::inherit())
-                        .stderr(Stdio::inherit())
-                        .output()
-                        .expect("failed to start pbs module");
+                // if let Some(pbs_path) = config.pbs.path {
+                //     let cmd = std::process::Command::new(pbs_path)
+                //         .env(CB_CONFIG_ENV, &config_path)
+                //         .env(MODULE_JWT_ENV, pbs_jwt)
+                //         .stdout(Stdio::inherit())
+                //         .stderr(Stdio::inherit())
+                //         .output()
+                //         .expect("failed to start pbs module");
 
-                    if !cmd.status.success() {
-                        eprintln!("Process failed with status: {}", cmd.status);
-                    }
-                } else {
-                    let state = BuilderState::<()>::new(config.chain, config.pbs);
-                    PbsService::run::<(), DefaultBuilderApi>(state).await;
-                };
+                //     if !cmd.status.success() {
+                //         eprintln!("Process failed with status: {}", cmd.status);
+                //     }
+                // } else {
+                //     let state = PbsState::<()>::new(config.chain, config.pbs);
+                //     PbsService::run::<(), DefaultBuilderApi>(state).await;
+                // };
 
                 Ok(())
             }

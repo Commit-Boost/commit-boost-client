@@ -11,7 +11,7 @@ use super::utils::as_eth_str;
 use crate::{commit::client::SignerClient, pbs::RelayEntry, signer::Signer, types::Chain};
 
 pub const MODULE_ID_ENV: &str = "CB_MODULE_ID";
-pub const MODULE_JWT_ENV: &str = "CB_MODULE_JWT";
+pub const MODULE_JWT_ENV: &str = "CB_SIGNER_JWT";
 pub const METRICS_SERVER_URL: &str = "METRICS_SERVER_URL";
 
 pub const CB_CONFIG_ENV: &str = "CB_CONFIG";
@@ -22,11 +22,15 @@ pub const SIGNER_LOADER_NAME: &str = "/keys.json";
 
 pub const JWTS_ENV: &str = "CB_JWTS";
 
+// TODO: replace these with a proper image in the registry
+pub const PBS_DEFAULT_IMAGE: &str = "commitboost_pbs_default";
+pub const SIGNER_IMAGE: &str = "commitboost_signer";
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CommitBoostConfig {
     // TODO: generalize this with a spec file
     pub chain: Chain,
-    pub pbs: PbsConfig,
+    pub pbs: StaticPbsConfig,
     pub modules: Option<Vec<StaticModuleConfig>>,
     pub signer: Option<SignerConfig>,
     pub metrics: Option<MetricsConfig>,
@@ -38,7 +42,7 @@ fn load_from_file<T: DeserializeOwned>(path: &str) -> T {
     toml::from_str(&config_file).unwrap()
 }
 
-fn load_from_env<T: DeserializeOwned>(env: &str) -> T {
+fn load_file_from_env<T: DeserializeOwned>(env: &str) -> T {
     let path = std::env::var(env).expect(&format!("{env} is not set"));
     load_from_file(&path)
 }
@@ -55,13 +59,18 @@ impl CommitBoostConfig {
     }
 
     pub fn from_env_path() -> Self {
-        load_from_env(CB_CONFIG_ENV)
+        load_file_from_env(CB_CONFIG_ENV)
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SignerConfig {
+    /// Docker image of the module
+    #[serde(default = "default_signer")]
+    pub docker_image: String,
+
     /// Where to start signing server
+    // TODO: this is only needed because we're using host-mode
     pub address: SocketAddr,
 
     /// Which keys to load
@@ -75,10 +84,16 @@ impl SignerConfig {
     }
 }
 
+fn default_signer() -> String {
+    SIGNER_IMAGE.to_string()
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MetricsConfig {
     /// Where to start metrics server
     pub address: SocketAddr,
+    /// Path to prometheus config file
+    pub prometheus_config: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -114,22 +129,26 @@ pub struct FileKey {
     pub secret_key: [u8; 32],
 }
 
-/// What a commit module needs to call the Signer API
-pub struct CommitSignerConfig {
-    /// Address of the signer service
-    pub address: SocketAddr,
-    /// JWT token to authenticate
-    pub jwt: String,
+/// Static pbs config from config file
+#[derive(Debug, Deserialize, Serialize)]
+pub struct StaticPbsConfig {
+    /// Docker image of the module
+    #[serde(default = "default_pbs")]
+    pub docker_image: String,
+    /// Config of pbs module
+    #[serde(flatten)]
+    pub pbs_config: PbsConfig,
+    /// Whether to enable the signer client
+    #[serde(default = "default_bool::<false>")]
+    pub with_signer: bool,
 }
 
-// TODO: handle docker image override and other custom fields (like custom modules)
-#[derive(Debug, Deserialize, Serialize)]
+// TODO: add custom headers
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PbsConfig {
-    /// Path to docker image
-    pub path: Option<String>,
-    /// Which port to open listen
+    /// Port to receive BuilderAPI calls from CL
     pub address: SocketAddr,
-    /// Which relay to register/subscribe
+    /// Which relay to register/subscribe to
     pub relays: Vec<RelayEntry>,
     /// Whether to forward getStatus to relays or skip it
     pub relay_check: bool,
@@ -139,12 +158,24 @@ pub struct PbsConfig {
     pub timeout_get_payload_ms: u64,
     #[serde(default = "default_u64::<3000>")]
     pub timeout_register_validator_ms: u64,
-    // TODO: add custom headers
     /// Whether to skip the relay signature verification
     #[serde(default = "default_bool::<false>")]
     pub skip_sigverify: bool,
     #[serde(rename = "min_bid_eth", with = "as_eth_str", default = "default_u256")]
     pub min_bid_wei: U256,
+}
+
+/// Runtime config for the pbs module with support for custom extra config
+#[derive(Debug, Clone)]
+pub struct PbsModuleConfig<T = ()> {
+    /// Chain spec
+    pub chain: Chain,
+    /// Pbs default config
+    pub pbs_config: PbsConfig,
+    /// Signer client to call Signer API
+    pub signer_client: Option<SignerClient>,
+    /// Opaque module config
+    pub extra: T,
 }
 
 const fn default_u64<const U: u64>() -> u64 {
@@ -159,19 +190,64 @@ const fn default_u256() -> U256 {
     U256::ZERO
 }
 
-// TODO: load with custom data like module
-pub fn load_pbs_config() -> (Chain, PbsConfig) {
+fn default_pbs() -> String {
+    PBS_DEFAULT_IMAGE.to_string()
+}
+
+/// Loads the default pbs config, i.e. with no signer client or custom data
+pub fn load_pbs_config() -> eyre::Result<PbsModuleConfig<()>> {
     let config = CommitBoostConfig::from_env_path();
-    (config.chain, config.pbs)
+    Ok(PbsModuleConfig {
+        chain: config.chain,
+        pbs_config: config.pbs.pbs_config,
+        signer_client: None,
+        extra: (),
+    })
+}
+
+/// Loads a custom pbs config, i.e. with signer client and/or custom data
+pub fn load_pbs_custom_config<T: DeserializeOwned>() -> eyre::Result<PbsModuleConfig<T>> {
+    #[derive(Debug, Deserialize)]
+    struct CustomPbsConfig<U> {
+        #[serde(flatten)]
+        static_config: StaticPbsConfig,
+        #[serde(flatten)]
+        extra: U,
+    }
+
+    #[derive(Deserialize, Debug)]
+    struct StubConfig<U> {
+        chain: Chain,
+        signer: SignerConfig,
+        pbs: CustomPbsConfig<U>,
+    }
+
+    // load module config including the extra data (if any)
+    let cb_config: StubConfig<T> = load_file_from_env(CB_CONFIG_ENV);
+
+    let signer_client = if cb_config.pbs.static_config.with_signer {
+        // if custom pbs requires a signer client, load jwt
+        let module_jwt = load_env_var_infallible(MODULE_JWT_ENV);
+        Some(SignerClient::new(cb_config.signer.address, &module_jwt))
+    } else {
+        None
+    };
+
+    Ok(PbsModuleConfig {
+        chain: cb_config.chain,
+        pbs_config: cb_config.pbs.static_config.pbs_config,
+        signer_client,
+        extra: cb_config.pbs.extra,
+    })
 }
 
 /// Static module config from config file
 #[derive(Debug, Deserialize, Serialize)]
-pub struct StaticModuleConfig<T = ()> {
+pub struct StaticModuleConfig {
+    /// Unique id of the module
     pub id: String,
+    /// Docker image of the module
     pub docker_image: String,
-    #[serde(flatten)]
-    pub extra: T,
 }
 
 /// Runtime config to start a module
@@ -193,13 +269,21 @@ pub struct StartModuleConfig<T = ()> {
 /// - [MODULE_JWT_ENV] - the jwt token for the module
 // TODO: add metrics url here
 pub fn load_module_config<T: DeserializeOwned>() -> eyre::Result<StartModuleConfig<T>> {
-    let module_id = load_env_infallible(MODULE_ID_ENV);
-    let module_jwt = load_env_infallible(MODULE_JWT_ENV);
+    let module_id = load_env_var_infallible(MODULE_ID_ENV);
+    let module_jwt = load_env_var_infallible(MODULE_JWT_ENV);
+
+    #[derive(Debug, Deserialize)]
+    struct ThisModuleConfig<U> {
+        #[serde(flatten)]
+        static_config: StaticModuleConfig,
+        #[serde(flatten)]
+        extra: U,
+    }
 
     #[derive(Debug, Deserialize)]
     #[serde(untagged)]
     enum ThisModule<U> {
-        Target(StaticModuleConfig<U>),
+        Target(ThisModuleConfig<U>),
         Other,
     }
 
@@ -211,10 +295,10 @@ pub fn load_module_config<T: DeserializeOwned>() -> eyre::Result<StartModuleConf
     }
 
     // load module config including the extra data (if any)
-    let cb_config: StubConfig<T> = load_from_env(CB_CONFIG_ENV);
+    let cb_config: StubConfig<T> = load_file_from_env(CB_CONFIG_ENV);
 
     // find all matching modules config
-    let matches: Vec<StaticModuleConfig<T>> = cb_config
+    let matches: Vec<ThisModuleConfig<T>> = cb_config
         .modules
         .into_iter()
         .filter_map(|m| if let ThisModule::Target(config) = m { Some(config) } else { None })
@@ -225,13 +309,13 @@ pub fn load_module_config<T: DeserializeOwned>() -> eyre::Result<StartModuleConf
     } else {
         let module_config = matches
             .into_iter()
-            .find(|m| m.id == module_id)
+            .find(|m| m.static_config.id == module_id)
             .wrap_err(format!("failed to find module for {module_id}"))?;
 
         let signer_client = SignerClient::new(cb_config.signer.address, &module_jwt);
 
         Ok(StartModuleConfig {
-            id: module_config.id,
+            id: module_config.static_config.id,
             chain: cb_config.chain,
             signer_client,
             extra: module_config.extra,
@@ -254,7 +338,7 @@ impl<'de> Deserialize<'de> for FileKey {
 }
 
 // TODO: propagate errors
-fn load_env_infallible(env: &str) -> String {
+fn load_env_var_infallible(env: &str) -> String {
     std::env::var(env).expect(&format!("{env} is not set"))
 }
 

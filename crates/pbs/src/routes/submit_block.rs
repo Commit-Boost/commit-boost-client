@@ -8,7 +8,7 @@ use uuid::Uuid;
 use crate::{
     boost::BuilderApi,
     error::PbsClientError,
-    state::{BuilderApiState, BuilderState},
+    state::{BuilderApiState, PbsState},
     types::{SignedBlindedBeaconBlock, SubmitBlindedBlockResponse},
     BuilderEvent,
 };
@@ -18,7 +18,7 @@ use crate::{
 /// Implements https://ethereum.github.io/builder-specs/#/Builder/submitBlindedBlock
 /// Returns error if the corresponding is not delivered by any relay
 pub async fn handle_submit_block<S: BuilderApiState, T: BuilderApi<S>>(
-    State(state): State<BuilderState<S>>,
+    State(state): State<PbsState<S>>,
     user_agent: Option<TypedHeader<UserAgent>>,
     Json(signed_blinded_block): Json<SignedBlindedBeaconBlock>,
 ) -> Result<Json<SubmitBlindedBlockResponse>, PbsClientError> {
@@ -26,7 +26,7 @@ pub async fn handle_submit_block<S: BuilderApiState, T: BuilderApi<S>>(
     let now = utcnow_ms();
     let slot = signed_blinded_block.message.slot;
     let block_hash = signed_blinded_block.message.body.execution_payload_header.block_hash;
-    let slot_start_ms = timestamp_of_slot_start_millis(slot, state.chain);
+    let slot_start_ms = timestamp_of_slot_start_millis(slot, state.config.chain);
 
     state.publish_event(BuilderEvent::SubmitBlockRequest(Box::new(signed_blinded_block.clone())));
 

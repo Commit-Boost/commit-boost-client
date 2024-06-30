@@ -2,21 +2,16 @@ use std::{path::Path, vec};
 
 use cb_common::{
     config::{
-        CommitBoostConfig, SignerLoader, CB_CONFIG_ENV, CB_CONFIG_NAME, JWTS_ENV, MODULE_JWT_ENV,
-        SIGNER_LOADER_ENV, SIGNER_LOADER_NAME,
+        CommitBoostConfig, MetricsConfig, SignerLoader, CB_CONFIG_ENV, CB_CONFIG_NAME, JWTS_ENV,
+        MODULE_JWT_ENV, SIGNER_LOADER_ENV, SIGNER_LOADER_NAME,
     },
     utils::random_jwt,
 };
 use docker_compose_types::{
-    AdvancedBuildStep, BuildStep, Compose, DependsOnOptions, Environment, MapOrEmpty,
-    NetworkSettings, Networks, Ports, Service, Services, SingleValue, Volumes,
+    Compose, DependsOnOptions, Environment, MapOrEmpty, NetworkSettings, Networks, Ports, Service,
+    Services, SingleValue, Volumes,
 };
 use indexmap::IndexMap;
-
-// TODO: pass these via cli
-const DEFAULT_PBS_DOCKERFILE: &str = "./docker/pbs.Dockerfile";
-const DEFAULT_SIGNER_DOCKERFILE: &str = "./docker/signer.Dockerfile";
-const DEFAULT_PROMETHEUS_DOCKERFILE: &str = "./docker/prometheus.Dockerfile";
 
 pub(super) const CB_CONFIG_FILE: &str = "cb-config.toml";
 pub(super) const CB_COMPOSE_FILE: &str = "cb.docker-compose.yml";
@@ -42,18 +37,11 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> eyre::Resu
     // setup pbs service
     // TODO: support custom pbs images + signer with jwt
 
-    // Must be rebuilt, eventually this should be pulled by default from the registry
-    let build = AdvancedBuildStep {
-        context: ".".to_owned(),
-        dockerfile: Some(DEFAULT_PBS_DOCKERFILE.to_owned()),
-        ..AdvancedBuildStep::default()
-    };
-
     let pbs_envs = IndexMap::from([get_env_same(CB_CONFIG_ENV)]);
 
     let pbs_service = Service {
         container_name: Some("cb-pbs".to_owned()),
-        build_: Some(BuildStep::Advanced(build)),
+        image: Some(cb_config.pbs.docker_image),
         // TODO: namespace networks
         network_mode: Some("host".to_owned()),
         volumes: vec![config_volume.clone()],
@@ -99,13 +87,6 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> eyre::Resu
 
     // setup signer service
     if let Some(signer_config) = cb_config.signer {
-        // Must be rebuilt, eventually this should be pulled by default from the registry
-        let build = AdvancedBuildStep {
-            context: ".".to_owned(),
-            dockerfile: Some(DEFAULT_SIGNER_DOCKERFILE.to_owned()),
-            ..AdvancedBuildStep::default()
-        };
-
         // TODO: generalize this, different loaders may not need volumes but eg ports
         let signer_volume = match signer_config.loader {
             SignerLoader::File { key_path } => {
@@ -127,7 +108,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> eyre::Resu
 
         let signer_service = Service {
             container_name: Some("cb-signer".to_owned()),
-            build_: Some(BuildStep::Advanced(build)),
+            image: Some(signer_config.docker_image),
             // TODO: namespace networks, no need to expose any port outside
             network_mode: Some("host".to_owned()),
             volumes: vec![config_volume.clone(), signer_volume],
@@ -143,7 +124,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> eyre::Resu
     let mut compose = Compose::default();
 
     // TODO: make this configurable
-    if let Some(_) = cb_config.metrics {
+    if let Some(MetricsConfig { prometheus_config, .. }) = cb_config.metrics {
         let networks = Networks::Simple(vec!["monitoring".to_owned()]);
 
         compose.networks.0.insert(
@@ -154,15 +135,13 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> eyre::Resu
             }),
         );
 
-        let build = AdvancedBuildStep {
-            context: ".".to_owned(),
-            dockerfile: Some(DEFAULT_PROMETHEUS_DOCKERFILE.to_owned()),
-            ..AdvancedBuildStep::default()
-        };
+        let prom_volume =
+            Volumes::Simple(format!("{prometheus_config}:/etc/prometheus/prometheus.yml",));
 
         let prometheus_service = Service {
             container_name: Some("cb-prometheus".to_owned()),
-            build_: Some(BuildStep::Advanced(build)),
+            image: Some("prom/prometheus:latest".to_owned()),
+            volumes: vec![prom_volume],
             // Only in case we'd want to inspect this in the browser, otherwise not needed
             ports: Ports::Short(vec!["9090:9090".to_owned()]),
 

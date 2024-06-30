@@ -1,5 +1,5 @@
-use cb_common::{config::CommitBoostConfig, utils::initialize_tracing_log};
-use cb_pbs::{BuilderState, DefaultBuilderApi, PbsService};
+use cb_common::{config::load_pbs_config, utils::initialize_tracing_log};
+use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 
 #[tokio::main]
 async fn main() {
@@ -10,9 +10,9 @@ async fn main() {
 
     initialize_tracing_log();
 
-    // TODO: need only pbs config, extend similar to modules
-    let cb_config = CommitBoostConfig::from_env_path();
-    let state = BuilderState::<()>::new(cb_config.chain, cb_config.pbs);
+    // TODO: handle errors
+    let pbs_config = load_pbs_config().expect("failed to load pbs config");
+    let state = PbsState::<()>::new(pbs_config);
 
     PbsService::run::<(), DefaultBuilderApi>(state).await;
 }

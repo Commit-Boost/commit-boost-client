@@ -9,23 +9,22 @@ use futures::future::select_ok;
 
 use crate::{
     error::{PbsError, ValidationError},
-    state::{BuilderApiState, BuilderState},
+    state::{BuilderApiState, PbsState},
     types::{SignedBlindedBeaconBlock, SubmitBlindedBlockResponse},
 };
 
 pub async fn submit_block<S: BuilderApiState>(
     signed_blinded_block: SignedBlindedBeaconBlock,
-    pbs_state: BuilderState<S>,
+    pbs_state: PbsState<S>,
 ) -> eyre::Result<SubmitBlindedBlockResponse> {
     let relays = pbs_state.relays();
     let mut handles = Vec::with_capacity(relays.len());
 
     for relay in relays.iter() {
-        let handle = send_submit_block(
-            relay.clone(),
-            signed_blinded_block.clone(),
-            pbs_state.config.clone(),
-        );
+        // FIXME
+        let pbs_config = Arc::new(pbs_state.config.pbs_config.clone());
+
+        let handle = send_submit_block(relay.clone(), signed_blinded_block.clone(), pbs_config);
 
         handles.push(Box::pin(handle));
     }

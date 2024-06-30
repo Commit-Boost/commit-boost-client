@@ -10,7 +10,7 @@ mod types;
 
 pub use boost::*;
 pub use service::PbsService;
-pub use state::{BuilderApiState, BuilderEventReceiver, BuilderState};
+pub use state::{BuilderApiState, BuilderEventReceiver, PbsState};
 // FIXME only used in tests
 pub use types::{
     GetHeaderParams, GetHeaderReponse, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,

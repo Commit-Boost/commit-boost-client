@@ -6,15 +6,15 @@ use uuid::Uuid;
 use crate::{
     boost::BuilderApi,
     error::PbsClientError,
-    state::{BuilderApiState, BuilderState},
+    state::{BuilderApiState, PbsState},
     BuilderEvent,
 };
 
 pub async fn handle_get_status<S: BuilderApiState, T: BuilderApi<S>>(
-    State(state): State<BuilderState<S>>,
+    State(state): State<PbsState<S>>,
 ) -> Result<impl IntoResponse, PbsClientError> {
     let req_id = Uuid::new_v4();
-    info!(method = "get_status", relay_check = state.config.relay_check);
+    info!(method = "get_status", relay_check = state.config.pbs_config.relay_check);
 
     state.publish_event(BuilderEvent::GetStatusEvent);
 

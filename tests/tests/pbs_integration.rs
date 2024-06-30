@@ -3,7 +3,7 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 use alloy_primitives::U256;
 use alloy_rpc_types_beacon::BlsPublicKey;
 use cb_common::{config::PbsConfig, pbs::RelayEntry, signer::Signer, types::Chain};
-use cb_pbs::{BuilderState, DefaultBuilderApi, PbsService};
+use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
     mock_relay::{mock_relay_app_router, MockRelayState},
     mock_validator::MockValidator,
@@ -49,7 +49,7 @@ async fn test_get_header() {
         skip_sigverify: false,
         min_bid_wei: U256::ZERO,
     };
-    let state = BuilderState::new(chain, config);
+    let state = PbsState::new(chain, config);
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
     // leave some time to start servers
@@ -91,7 +91,7 @@ async fn test_get_status() {
         skip_sigverify: false,
         min_bid_wei: U256::ZERO,
     };
-    let state = BuilderState::new(chain, config);
+    let state = PbsState::new(chain, config);
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
     // leave some time to start servers
@@ -129,7 +129,7 @@ async fn test_register_validators() {
         skip_sigverify: false,
         min_bid_wei: U256::ZERO,
     };
-    let state = BuilderState::new(chain, config);
+    let state = PbsState::new(chain, config);
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
     // leave some time to start servers
@@ -167,7 +167,7 @@ async fn test_submit_block() {
         skip_sigverify: false,
         min_bid_wei: U256::ZERO,
     };
-    let state = BuilderState::new(chain, config);
+    let state = PbsState::new(chain, config);
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
     // leave some time to start servers

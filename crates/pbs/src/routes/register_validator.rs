@@ -9,12 +9,12 @@ use uuid::Uuid;
 use crate::{
     boost::BuilderApi,
     error::PbsClientError,
-    state::{BuilderApiState, BuilderState},
+    state::{BuilderApiState, PbsState},
     BuilderEvent,
 };
 
 pub async fn handle_register_validator<S: BuilderApiState, T: BuilderApi<S>>(
-    State(state): State<BuilderState<S>>,
+    State(state): State<PbsState<S>>,
     user_agent: Option<TypedHeader<UserAgent>>,
     Json(registrations): Json<Vec<ValidatorRegistration>>,
 ) -> Result<impl IntoResponse, PbsClientError> {

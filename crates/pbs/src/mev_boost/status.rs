@@ -5,11 +5,11 @@ use futures::future::select_ok;
 
 use crate::{
     error::PbsError,
-    state::{BuilderApiState, BuilderState},
+    state::{BuilderApiState, PbsState},
 };
 
-pub async fn get_status<S: BuilderApiState>(pbs_state: BuilderState<S>) -> eyre::Result<()> {
-    if !pbs_state.config.relay_check {
+pub async fn get_status<S: BuilderApiState>(pbs_state: PbsState<S>) -> eyre::Result<()> {
+    if !pbs_state.config.pbs_config.relay_check {
         Ok(())
     } else {
         let relays = pbs_state.relays();
