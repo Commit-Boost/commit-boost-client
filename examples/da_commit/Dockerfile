@@ -30,9 +30,5 @@ RUN apt-get update && apt-get install -y \
 # Copy the built binary from the builder stage
 COPY --from=builder /app/target/release/da_commit /usr/local/bin/da_commit
 
-# Copy the configuration file
-COPY ./config.dockerized.toml /etc/commit-boost/config.toml
-COPY ./keys.example.json ./keys.example.json
-
 # Set the entrypoint with the 'start' subcommand and the correct config path
 ENTRYPOINT ["/usr/local/bin/da_commit"]

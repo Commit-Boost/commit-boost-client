@@ -1,13 +1,14 @@
 use std::{collections::HashMap, net::SocketAddr};
 
 use alloy_primitives::U256;
+use eyre::{eyre, ContextCompat};
 use serde::{
     de::{self, DeserializeOwned},
     Deserialize, Deserializer, Serialize,
 };
 
 use super::utils::as_eth_str;
-use crate::{pbs::RelayEntry, signer::Signer, types::Chain};
+use crate::{commit::client::SignerClient, pbs::RelayEntry, signer::Signer, types::Chain};
 
 pub const MODULE_ID_ENV: &str = "CB_MODULE_ID";
 pub const MODULE_JWT_ENV: &str = "CB_MODULE_JWT";
@@ -26,7 +27,7 @@ pub struct CommitBoostConfig {
     // TODO: generalize this with a spec file
     pub chain: Chain,
     pub pbs: PbsConfig,
-    pub modules: Option<Vec<ModuleConfig>>,
+    pub modules: Option<Vec<StaticModuleConfig>>,
     pub signer: Option<SignerConfig>,
     pub metrics: Option<MetricsConfig>,
 }
@@ -158,34 +159,47 @@ const fn default_u256() -> U256 {
     U256::ZERO
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct ModuleConfig<T = ()> {
-    pub id: String,
-    pub docker_image: String,
-    #[serde(flatten)]
-    pub extra: T,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct StartModuleConfig<T = ()> {
-    pub chain: Chain,
-    pub sign_address: SocketAddr,
-    pub config: ModuleConfig<T>,
-}
-
 // TODO: load with custom data like module
 pub fn load_pbs_config() -> (Chain, PbsConfig) {
     let config = CommitBoostConfig::from_env_path();
     (config.chain, config.pbs)
 }
 
-pub fn load_module_config<T: DeserializeOwned>() -> StartModuleConfig<T> {
-    let id = std::env::var(MODULE_ID_ENV).expect(&format!("{MODULE_ID_ENV} is not set"));
+/// Static module config from config file
+#[derive(Debug, Deserialize, Serialize)]
+pub struct StaticModuleConfig<T = ()> {
+    pub id: String,
+    pub docker_image: String,
+    #[serde(flatten)]
+    pub extra: T,
+}
+
+/// Runtime config to start a module
+#[derive(Debug)]
+pub struct StartModuleConfig<T = ()> {
+    /// Unique id of the module
+    pub id: String,
+    /// Chain spec
+    pub chain: Chain,
+    /// Signer client to call Signer API
+    pub signer_client: SignerClient,
+    /// Opaque module config
+    pub extra: T,
+}
+
+/// Loads a module config from the environment and config file:
+/// - [MODULE_ID_ENV] - the id of the module to load
+/// - [CB_CONFIG_ENV] - the path to the config file
+/// - [MODULE_JWT_ENV] - the jwt token for the module
+// TODO: add metrics url here
+pub fn load_module_config<T: DeserializeOwned>() -> eyre::Result<StartModuleConfig<T>> {
+    let module_id = load_env_infallible(MODULE_ID_ENV);
+    let module_jwt = load_env_infallible(MODULE_JWT_ENV);
 
     #[derive(Debug, Deserialize)]
     #[serde(untagged)]
-    enum CustomModule<U> {
-        Target(ModuleConfig<U>),
+    enum ThisModule<U> {
+        Target(StaticModuleConfig<U>),
         Other,
     }
 
@@ -193,30 +207,35 @@ pub fn load_module_config<T: DeserializeOwned>() -> StartModuleConfig<T> {
     struct StubConfig<U> {
         chain: Chain,
         signer: SignerConfig,
-
-        modules: Vec<CustomModule<U>>,
+        modules: Vec<ThisModule<U>>,
     }
 
-    let config: StubConfig<T> = load_from_env(CB_CONFIG_ENV);
+    // load module config including the extra data (if any)
+    let cb_config: StubConfig<T> = load_from_env(CB_CONFIG_ENV);
 
-    let matches: Vec<ModuleConfig<T>> = config
+    // find all matching modules config
+    let matches: Vec<StaticModuleConfig<T>> = cb_config
         .modules
         .into_iter()
-        .filter_map(|m| if let CustomModule::Target(config) = m { Some(config) } else { None })
+        .filter_map(|m| if let ThisModule::Target(config) = m { Some(config) } else { None })
         .collect();
 
     if matches.is_empty() {
-        eprintln!("Failed to find matching config type");
-        std::process::exit(1);
-    }
+        Err(eyre!("Failed to find matching config type"))
+    } else {
+        let module_config = matches
+            .into_iter()
+            .find(|m| m.id == module_id)
+            .wrap_err(format!("failed to find module for {module_id}"))?;
 
-    let module_config =
-        matches.into_iter().find(|m| m.id == id).expect(&format!("failed to find module for {id}"));
+        let signer_client = SignerClient::new(cb_config.signer.address, &module_jwt);
 
-    StartModuleConfig {
-        chain: config.chain,
-        config: module_config,
-        sign_address: config.signer.address,
+        Ok(StartModuleConfig {
+            id: module_config.id,
+            chain: cb_config.chain,
+            signer_client,
+            extra: module_config.extra,
+        })
     }
 }
 
@@ -232,6 +251,11 @@ impl<'de> Deserialize<'de> for FileKey {
 
         Ok(FileKey { secret_key: bytes })
     }
+}
+
+// TODO: propagate errors
+fn load_env_infallible(env: &str) -> String {
+    std::env::var(env).expect(&format!("{env} is not set"))
 }
 
 #[cfg(test)]

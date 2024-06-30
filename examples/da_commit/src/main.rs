@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use alloy_rpc_types_beacon::{BlsPublicKey, BlsSignature};
 use cb_common::{
-    commit::{client::SignerClient, request::SignRequest},
-    config::{load_module_config, ModuleConfig, MODULE_JWT_ENV},
+    commit::request::SignRequest,
+    config::{load_module_config, StartModuleConfig},
     utils::initialize_tracing_log,
 };
 use cb_metrics::sdk::{register_custom_metric, update_custom_metric};
@@ -19,8 +19,7 @@ struct Datagram {
 }
 
 struct DaCommitService {
-    config: ModuleConfig<ExtraConfig>,
-    signer_client: SignerClient,
+    config: StartModuleConfig<ExtraConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -30,7 +29,7 @@ struct ExtraConfig {
 
 impl DaCommitService {
     pub async fn run(self) -> eyre::Result<()> {
-        let pubkeys = self.signer_client.get_pubkeys().await?;
+        let pubkeys = self.config.signer_client.get_pubkeys().await?;
         info!(consensus = pubkeys.consensus.len(), proxy = pubkeys.proxy.len(), "Received pubkeys");
 
         let pubkey = pubkeys.consensus.first().ok_or_eyre("no key available")?;
@@ -57,7 +56,7 @@ impl DaCommitService {
         let datagram = Datagram { data };
         let request = SignRequest::builder(&self.config.id, pubkey).with_msg(&datagram);
 
-        let signature = self.signer_client.request_signature(&request).await?;
+        let signature = self.config.signer_client.request_signature(&request).await?;
 
         info!("Proposer commitment: {}", pretty_print_sig(signature));
 
@@ -69,22 +68,27 @@ impl DaCommitService {
 async fn main() {
     initialize_tracing_log();
 
-    let config = load_module_config::<ExtraConfig>();
+    match load_module_config::<ExtraConfig>() {
+        Ok(config) => {
+            info!(
+                module_id = config.id,
+                sleep_secs = config.extra.sleep_secs,
+                "Starting module with custom data"
+            );
 
-    register_custom_metric("custom_metric", "A custom metric for demonstration")
-        .await
-        .expect("Failed to register custom metric.");
+            let service = DaCommitService { config };
 
-    info!(module_id = config.config.id, "Starting module");
+            register_custom_metric("custom_metric", "A custom metric for demonstration")
+                .await
+                .expect("Failed to register custom metric.");
 
-    // TODO: pass this via the module config
-    let jwt = &std::env::var(MODULE_JWT_ENV).expect(&format!("{MODULE_JWT_ENV} not set"));
-
-    let client = SignerClient::new(config.sign_address, jwt);
-    let service = DaCommitService { config: config.config, signer_client: client };
-
-    if let Err(err) = service.run().await {
-        error!(?err, "Service failed");
+            if let Err(err) = service.run().await {
+                error!(?err, "Service failed");
+            }
+        }
+        Err(err) => {
+            error!(?err, "Failed to load module config");
+        }
     }
 }
 
