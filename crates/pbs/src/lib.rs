@@ -2,6 +2,7 @@
 
 mod boost;
 mod error;
+mod metrics;
 mod mev_boost;
 mod routes;
 mod service;

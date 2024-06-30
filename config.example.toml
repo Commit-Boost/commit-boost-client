@@ -1,7 +1,7 @@
 chain = "Holesky"
 
 [pbs]
-address = "127.0.0.1:18550"
+port = 18550
 relays = []
 relay_check = true
 timeout_get_header_ms = 950
@@ -11,16 +11,13 @@ skip_sigverify = true
 min_bid_eth = 0.0
 
 [signer]
-address = "127.0.0.1:33950"
 [signer.loader]
 key_path = "keys.example.json"
 
 [metrics]
-address = "127.0.0.1:3030"
-jwt_path = "metrics_jwt.txt"
-config = "./docker/prometheus.yml"
+prometheus_config = "./docker/prometheus.yml"
 
 [[modules]]
 id = "DA_COMMIT"
-docker_image = "da_commit"
+docker_image = "test_da_commit"
 sleep_secs = 5

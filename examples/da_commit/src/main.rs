@@ -6,7 +6,7 @@ use cb_common::{
     config::{load_module_config, StartModuleConfig},
     utils::initialize_tracing_log,
 };
-use cb_metrics::sdk::{register_custom_metric, update_custom_metric};
+// use cb_metrics::sdk::{register_custom_metric, update_custom_metric};
 use eyre::OptionExt;
 use serde::Deserialize;
 use tokio::time::sleep;
@@ -40,12 +40,12 @@ impl DaCommitService {
         loop {
             self.send_request(data, *pubkey).await?;
 
-            update_custom_metric("custom_metric", 42.0, vec![(
-                "label_key".to_string(),
-                "label_value".to_string(),
-            )])
-            .await
-            .expect("Failed to update custom metric");
+            // update_custom_metric("custom_metric", 42.0, vec![(
+            //     "label_key".to_string(),
+            //     "label_value".to_string(),
+            // )])
+            // .await
+            // .expect("Failed to update custom metric");
 
             sleep(Duration::from_secs(self.config.extra.sleep_secs)).await;
             data += 1;
@@ -78,9 +78,9 @@ async fn main() {
 
             let service = DaCommitService { config };
 
-            register_custom_metric("custom_metric", "A custom metric for demonstration")
-                .await
-                .expect("Failed to register custom metric.");
+            // register_custom_metric("custom_metric", "A custom metric for demonstration")
+            //     .await
+            //     .expect("Failed to register custom metric.");
 
             if let Err(err) = service.run().await {
                 error!(?err, "Service failed");

@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::sync::Arc;
 
 use alloy_rpc_types_beacon::{BlsPublicKey, BlsSignature};
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
@@ -26,8 +26,8 @@ pub struct SignerClient {
 
 impl SignerClient {
     /// Create a new SignerClient
-    pub fn new(signer_address: SocketAddr, jwt: &str) -> Self {
-        let url = format!("http://{}", signer_address);
+    pub fn new(signer_server_address: String, jwt: &str) -> Self {
+        let url = format!("http://{}", signer_server_address);
         let mut headers = HeaderMap::new();
 
         let mut auth_value =

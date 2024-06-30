@@ -15,7 +15,7 @@ COPY ./tests ./tests
 COPY ./examples ./examples
 
 # Build the application
-RUN cargo build --release --bin signer-module
+RUN cargo build --bin signer-module
 
 # Use Ubuntu 22.04 for runtime to ensure OpenSSL 3.x is available
 FROM ubuntu:22.04
@@ -28,7 +28,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the built binary from the builder stage
-COPY --from=builder /app/target/release/signer-module /usr/local/bin/signer-module
+COPY --from=builder /app/target/debug/signer-module /usr/local/bin/signer-module
 
 # Start the server
 ENTRYPOINT ["/usr/local/bin/signer-module"]

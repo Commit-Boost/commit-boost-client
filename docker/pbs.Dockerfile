@@ -15,7 +15,7 @@ COPY ./tests ./tests
 COPY ./examples ./examples
 
 # Build the application
-RUN cargo build --release --bin default-pbs
+RUN cargo build --bin default-pbs
 
 # Use Ubuntu 22.04 for runtime to ensure OpenSSL 3.x is available
 FROM ubuntu:22.04
@@ -28,7 +28,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the built binary from the builder stage
-COPY --from=builder /app/target/release/default-pbs /usr/local/bin/default-pbs
+COPY --from=builder /app/target/debug/default-pbs /usr/local/bin/default-pbs
 
 # Start the server
 ENTRYPOINT ["/usr/local/bin/default-pbs"]

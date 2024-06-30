@@ -57,6 +57,9 @@ serde_yaml = "0.9.33"
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
 
+# metrics
+prometheus = "0.13.4"
+
 # sync
 dashmap = "5.5.3"
 
@@ -79,3 +82,4 @@ typenum = "1.17.0"
 rand = "0.8.5"
 dotenvy = "0.15.7"
 indexmap = "2.2.6"
+lazy_static = "1.5.0"

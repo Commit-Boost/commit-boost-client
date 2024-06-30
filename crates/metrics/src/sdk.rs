@@ -1,59 +1,86 @@
-use cb_common::config::MODULE_JWT_ENV;
-use cb_common::config::METRICS_SERVER_URL;
-use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use std::env;
+use std::net::SocketAddr;
 
-#[derive(Deserialize, Serialize)]
-struct RegisterMetricRequest {
-    name: String,
-    description: String,
+use axum::{
+    body::Body,
+    extract::State,
+    http::{header::CONTENT_TYPE, StatusCode},
+    response::{IntoResponse, Response},
+    routing::get,
+};
+use cb_common::config::ModuleMetricsConfig;
+use prometheus::{Encoder, Registry, TextEncoder};
+use tokio::net::TcpListener;
+use tracing::{debug, error, info};
+
+pub struct MetricsProvider {
+    config: ModuleMetricsConfig,
+    registry: Registry,
 }
 
-#[derive(Deserialize, Serialize)]
-struct UpdateMetricRequest {
-    name: String,
-    value: f64,
-    labels: Vec<(String, String)>,
+impl MetricsProvider {
+    pub fn new(config: ModuleMetricsConfig, registry: Registry) -> Self {
+        MetricsProvider { config, registry }
+    }
+
+    pub fn from_registry(registry: Registry) -> Self {
+        let config = ModuleMetricsConfig::load_from_env();
+        MetricsProvider { config, registry }
+    }
+
+    pub fn load_and_run(registry: Registry) {
+        let provider = MetricsProvider::from_registry(registry);
+        tokio::spawn(async move {
+            if let Err(err) = provider.run().await {
+                error!("Metrics server error: {:?}", err);
+            }
+        });
+    }
+
+    pub async fn run(self) -> eyre::Result<()> {
+        info!("Starting metrics server on port {}", self.config.server_port);
+
+        let router =
+            axum::Router::new().route("/metrics", get(handle_metrics)).with_state(self.registry);
+        let address = SocketAddr::from(([0, 0, 0, 0], self.config.server_port));
+        let listener = TcpListener::bind(&address).await?;
+
+        axum::serve(listener, router).await?;
+
+        Err(eyre::eyre!("Metrics server stopped"))
+    }
 }
 
-pub async fn register_custom_metric(name: &str, description: &str) -> Result<(), reqwest::Error> {
-    let server_url = env::var(METRICS_SERVER_URL).expect(&format!("{METRICS_SERVER_URL} is not set"));
-    let jwt_token = env::var(MODULE_JWT_ENV).expect(&format!("{MODULE_JWT_ENV} must be set"));
+async fn handle_metrics(State(registry): State<Registry>) -> Response {
+    debug!("Handling metrics request");
 
-    let client = Client::new();
-    let req = RegisterMetricRequest {
-        name: name.to_string(),
-        description: description.to_string(),
-    };
-
-    client.post(format!("http://{}/register_custom_metric", server_url))
-        .header("Authorization", format!("Bearer {}", jwt_token))
-        .json(&req)
-        .send()
-        .await?
-        .error_for_status()?;
-
-    Ok(())
+    match prepare_metrics(registry) {
+        Ok(response) => response,
+        Err(err) => {
+            error!("Failed to prepare metrics: {:?}", err);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
 }
 
-pub async fn update_custom_metric(name: &str, value: f64, labels: Vec<(String, String)>) -> Result<(), reqwest::Error> {
-    let server_url = env::var(METRICS_SERVER_URL).expect(&format!("{METRICS_SERVER_URL} is not set"));
-    let jwt_token = env::var(MODULE_JWT_ENV).expect(&format!("{MODULE_JWT_ENV} must be set"));
+fn prepare_metrics(registry: Registry) -> Result<Response, MetricsError> {
+    let encoder = TextEncoder::new();
+    let mut buffer = vec![];
+    let metrics = registry.gather();
 
-    let client = Client::new();
-    let req = UpdateMetricRequest {
-        name: name.to_string(),
-        value,
-        labels,
-    };
+    encoder.encode(&metrics, &mut buffer)?;
 
-    client.post(format!("http://{}/update_custom_metric", server_url))
-        .header("Authorization", format!("Bearer {}", jwt_token))
-        .json(&req)
-        .send()
-        .await?
-        .error_for_status()?;
+    Response::builder()
+        .status(200)
+        .header(CONTENT_TYPE, encoder.format_type())
+        .body(Body::from(buffer))
+        .map_err(MetricsError::FailedBody)
+}
 
-    Ok(())
+#[derive(Debug, thiserror::Error)]
+enum MetricsError {
+    #[error("failed encoding metrics {0}")]
+    FailedEncoding(#[from] prometheus::Error),
+
+    #[error("failed encoding body {0}")]
+    FailedBody(#[from] axum::http::Error),
 }

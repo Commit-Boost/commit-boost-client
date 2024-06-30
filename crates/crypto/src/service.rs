@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
 use axum::{
     extract::State,
@@ -14,8 +14,7 @@ use cb_common::{
         constants::{GET_PUBKEYS_PATH, REQUEST_SIGNATURE_PATH},
         request::SignRequest,
     },
-    config::SignerConfig,
-    types::Chain,
+    config::StartSignerConfig,
 };
 use headers::{authorization::Bearer, Authorization};
 use tokio::net::TcpListener;
@@ -36,29 +35,30 @@ struct SigningState {
 }
 
 impl SigningService {
-    pub async fn run(chain: Chain, config: SignerConfig, jwts: HashMap<String, String>) {
-        if jwts.is_empty() {
+    pub async fn run(config: StartSignerConfig) {
+        if config.jwts.is_empty() {
             warn!("Signing service was started but no module is registered. Exiting");
             return;
         } else {
-            info!(modules =? jwts.keys(), address =? config.address, "Starting signing service");
+            info!(modules =? config.jwts.keys(), port =? config.server_port, "Starting signing service");
         }
 
-        let mut manager = SigningManager::new(chain);
+        let mut manager = SigningManager::new(config.chain);
 
-        // TODO: load proxy keys
+        // TODO: load proxy keys, or pass already loaded?
         for signer in config.loader.load_keys() {
             manager.add_consensus_signer(signer);
         }
 
-        let state = SigningState { manager: manager.into(), jwts };
+        let state = SigningState { manager: manager.into(), jwts: config.jwts };
 
         let app = axum::Router::new()
             .route(REQUEST_SIGNATURE_PATH, post(handle_request_signature))
             .route(GET_PUBKEYS_PATH, get(handle_get_pubkeys))
             .with_state(state);
 
-        let listener = TcpListener::bind(config.address).await.expect("failed tcp binding");
+        let address = SocketAddr::from(([0, 0, 0, 0], config.server_port));
+        let listener = TcpListener::bind(address).await.expect("failed tcp binding");
 
         if let Err(err) = axum::serve(listener, app).await {
             error!(?err, "Signing server exited")

@@ -7,6 +7,7 @@ rust-version.workspace = true
 [dependencies]
 cb-common.workspace = true
 cb-crypto.workspace = true
+cb-metrics.workspace = true
 
 alloy-primitives.workspace = true
 alloy-rpc-types-beacon.workspace = true
@@ -42,6 +43,9 @@ tree_hash_derive.workspace = true
 eyre.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
+
+lazy_static.workspace = true
+prometheus.workspace = true
 
 [dev-dependencies]
 tracing-subscriber.workspace = true

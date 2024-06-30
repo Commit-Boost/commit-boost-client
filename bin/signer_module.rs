@@ -1,7 +1,4 @@
-use cb_common::{
-    config::{load_jwts, SignerConfig},
-    utils::initialize_tracing_log,
-};
+use cb_common::{config::StartSignerConfig, utils::initialize_tracing_log};
 use cb_crypto::service::SigningService;
 
 #[tokio::main]
@@ -13,8 +10,6 @@ async fn main() {
 
     initialize_tracing_log();
 
-    let jwts = load_jwts();
-    let (chain, config) = SignerConfig::load_from_env();
-
-    SigningService::run(chain, config, jwts).await;
+    let config = StartSignerConfig::load_from_env();
+    SigningService::run(config).await;
 }
