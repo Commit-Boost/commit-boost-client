@@ -18,9 +18,6 @@ pub struct PbsService;
 
 impl PbsService {
     pub async fn run<S: BuilderApiState, T: BuilderApi<S>>(state: PbsState<S>) {
-        register_default_metrics();
-        MetricsProvider::load_and_run(PBS_METRICS_REGISTRY.clone());
-
         // if state.pbs_config().relay_check {
         //     PbsService::relay_check(state.relays()).await;
         // }
@@ -39,6 +36,11 @@ impl PbsService {
 
     pub fn register_metric(c: Box<dyn Collector>) {
         PBS_METRICS_REGISTRY.register(c).expect("failed to register metric");
+    }
+
+    pub fn init_metrics() {
+        register_default_metrics();
+        MetricsProvider::load_and_run(PBS_METRICS_REGISTRY.clone());
     }
 
     // TODO: before starting, send a sanity check to relay

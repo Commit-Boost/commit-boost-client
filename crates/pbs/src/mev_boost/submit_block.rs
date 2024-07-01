@@ -17,6 +17,7 @@ use crate::{
     types::{SignedBlindedBeaconBlock, SubmitBlindedBlockResponse},
 };
 
+/// Implements https://ethereum.github.io/builder-specs/#/Builder/submitBlindedBlock
 pub async fn submit_block<S: BuilderApiState>(
     signed_blinded_block: SignedBlindedBeaconBlock,
     req_headers: HeaderMap,
@@ -39,28 +40,23 @@ pub async fn submit_block<S: BuilderApiState>(
     let ua = get_user_agent(&req_headers);
     send_headers
         .insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from_str(&utcnow_ms().to_string())?);
-
     if let Some(ua) = ua {
         send_headers.insert(USER_AGENT, HeaderValue::from_str(&ua)?);
     }
 
     let relays = state.relays();
     let mut handles = Vec::with_capacity(relays.len());
-
     for relay in relays.iter() {
-        let handle = send_submit_block(
+        handles.push(Box::pin(send_submit_block(
             send_headers.clone(),
             relay.clone(),
             &signed_blinded_block,
             state.config.pbs_config.clone(),
             state.relay_client(),
-        );
-
-        handles.push(Box::pin(handle));
+        )));
     }
 
     let results = select_ok(handles).await;
-
     match results {
         Ok((res, _)) => Ok(res),
         Err(err) => Err(err.into()),
@@ -78,7 +74,6 @@ async fn send_submit_block(
     let url = relay.submit_block_url();
 
     let timer = RELAY_RESPONSE_TIME.with_label_values(&["submit_block", &relay.id]).start_timer();
-
     let res = client
         .post(url)
         .timeout(Duration::from_millis(config.timeout_get_payload_ms))
@@ -86,14 +81,12 @@ async fn send_submit_block(
         .json(&signed_blinded_block)
         .send()
         .await?;
-
     timer.observe_duration();
 
     let status = res.status();
     RELAY_RESPONSES.with_label_values(&[&status.to_string(), "submit_block", &relay.id]).inc();
 
     let response_bytes = res.bytes().await?;
-
     if !status.is_success() {
         return Err(PbsError::RelayResponse {
             error_msg: String::from_utf8_lossy(&response_bytes).into_owned(),

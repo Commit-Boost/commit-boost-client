@@ -34,7 +34,6 @@ pub async fn register_validator<S: BuilderApiState>(
 
     let relays = state.relays();
     let mut handles = Vec::with_capacity(relays.len());
-
     for relay in relays {
         handles.push(send_register_validator(
             send_headers.clone(),
@@ -45,9 +44,8 @@ pub async fn register_validator<S: BuilderApiState>(
         ));
     }
 
-    // await for all so we avoid cancelling some pending registrations
+    // await for all so we avoid cancelling any pending registrations
     let results = join_all(handles).await;
-
     if results.iter().any(|res| res.is_ok()) {
         Ok(())
     } else {
@@ -66,7 +64,6 @@ async fn send_register_validator(
 
     let timer =
         RELAY_RESPONSE_TIME.with_label_values(&["register_validator", &relay.id]).start_timer();
-
     let res = client
         .post(url)
         .timeout(Duration::from_millis(timeout_ms))
@@ -74,16 +71,14 @@ async fn send_register_validator(
         .json(&registrations)
         .send()
         .await?;
+    timer.observe_duration();
 
     // TODO: send to relay monitor
-
-    timer.observe_duration();
 
     let status = res.status();
     RELAY_RESPONSES.with_label_values(&[&status.to_string(), "get_header", &relay.id]).inc();
 
     let response_bytes = res.bytes().await?;
-
     if !status.is_success() {
         let err = PbsError::RelayResponse {
             error_msg: String::from_utf8_lossy(&response_bytes).into_owned(),

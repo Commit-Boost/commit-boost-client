@@ -22,13 +22,14 @@ use crate::{
     GetHeaderParams, GetHeaderReponse,
 };
 
+/// Implements https://ethereum.github.io/builder-specs/#/Builder/getHeader
+/// Returns 200 if at least one relay returns 200, else 204
 pub async fn get_header<S: BuilderApiState>(
     params: GetHeaderParams,
     req_headers: HeaderMap,
     state: PbsState<S>,
 ) -> eyre::Result<Option<GetHeaderReponse>> {
     let GetHeaderParams { slot, parent_hash, pubkey: validator_pubkey } = params;
-
     let slot_uuid = state.get_or_update_slot_uuid(slot);
 
     // prepare headers
@@ -43,7 +44,6 @@ pub async fn get_header<S: BuilderApiState>(
 
     let relays = state.relays();
     let mut handles = Vec::with_capacity(relays.len());
-
     for relay in relays.iter() {
         handles.push(send_get_header(
             send_headers.clone(),
@@ -59,7 +59,6 @@ pub async fn get_header<S: BuilderApiState>(
 
     let results = join_all(handles).await;
     let mut relay_bids = Vec::with_capacity(relays.len());
-
     for (i, res) in results.into_iter().enumerate() {
         let relay_id = relays[i].id.clone();
 
@@ -86,21 +85,18 @@ async fn send_get_header(
     let url = relay.get_header_url(slot, parent_hash, validator_pubkey);
 
     let timer = RELAY_RESPONSE_TIME.with_label_values(&["get_header", &relay.id]).start_timer();
-
     let res = client
         .get(url)
         .timeout(Duration::from_millis(config.timeout_get_header_ms))
         .headers(headers)
         .send()
         .await?;
-
     timer.observe_duration();
 
     let status = res.status();
     RELAY_RESPONSES.with_label_values(&[&status.to_string(), "get_header", &relay.id]).inc();
 
     let response_bytes = res.bytes().await?;
-
     if !status.is_success() {
         return Err(PbsError::RelayResponse {
             error_msg: String::from_utf8_lossy(&response_bytes).into_owned(),
@@ -108,7 +104,13 @@ async fn send_get_header(
         });
     };
 
-    debug!(relay = relay.id, "received response {response_bytes:?}");
+    debug!(
+        method = "get_header",
+        relay = relay.id,
+        code = status.as_u16(),
+        response = ?response_bytes,
+        "received response"
+    );
 
     if status == StatusCode::NO_CONTENT {
         return Ok(None)

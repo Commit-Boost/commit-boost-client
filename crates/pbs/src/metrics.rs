@@ -19,11 +19,6 @@ lazy_static! {
             "endpoint", "relay_id"
         ])
         .unwrap();
-    pub static ref RELAY_WINNING_BLOCK: IntCounterVec = IntCounterVec::new(
-        opts!("relay_delivered_block", "Which relay delivered the winning block"),
-        &["relay_id"]
-    )
-    .unwrap();
 }
 
 // TODO: this can be done with the macros, need to fix the types

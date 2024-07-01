@@ -14,5 +14,6 @@ async fn main() {
     let pbs_config = load_pbs_config().expect("failed to load pbs config");
     let state = PbsState::<()>::new(pbs_config);
 
+    PbsService::init_metrics();
     PbsService::run::<(), DefaultBuilderApi>(state).await;
 }

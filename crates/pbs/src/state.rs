@@ -117,11 +117,11 @@ where
 
     /// Add some bids to the cache, the bids are all assumed to be for the provided slot
     /// Returns the bid with the max value
-    /// TODO: this doesnt handle cancellations
+    /// TODO: this doesnt handle cancellations if we call multiple times get_header
     pub fn add_bids(&self, slot: u64, bids: Vec<GetHeaderReponse>) -> Option<GetHeaderReponse> {
         let mut slot_entry = self.bid_cache.entry(slot).or_default();
         slot_entry.extend(bids);
-        slot_entry.iter().max_by_key(|b| b.data.message.value()).cloned()
+        slot_entry.iter().max_by_key(|bid| bid.value()).cloned()
     }
 
     /// Retrieves a list of relays pubkeys that delivered a given block hash

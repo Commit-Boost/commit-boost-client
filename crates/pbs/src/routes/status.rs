@@ -17,22 +17,21 @@ pub async fn handle_get_status<S: BuilderApiState, T: BuilderApi<S>>(
     State(state): State<PbsState<S>>,
 ) -> Result<impl IntoResponse, PbsClientError> {
     let req_id = Uuid::new_v4();
+    REQUESTS_RECEIVED.with_label_values(&["get_status"]).inc();
+    state.publish_event(BuilderEvent::GetStatusEvent);
+
     let ua = get_user_agent(&req_headers);
 
     info!(method = "get_status", ?ua, relay_check = state.config.pbs_config.relay_check);
 
-    REQUESTS_RECEIVED.with_label_values(&["get_status"]).inc();
-
-    state.publish_event(BuilderEvent::GetStatusEvent);
-
     match T::get_status(req_headers, state.clone()).await {
         Ok(_) => {
             state.publish_event(BuilderEvent::GetStatusResponse);
-            info!(%req_id, "relay check successful");
+            info!(method = "get_status", %req_id, "relay check successful");
             Ok(StatusCode::OK)
         }
         Err(err) => {
-            error!(%req_id, ?err, "all relays failed get_status");
+            error!(method = "get_status", %req_id, ?err, "all relays failed get_status");
             Err(PbsClientError::NoResponse)
         }
     }

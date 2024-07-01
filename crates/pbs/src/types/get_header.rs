@@ -30,6 +30,10 @@ impl GetHeaderReponse {
     pub fn pubkey(&self) -> BlsPublicKey {
         self.data.message.pubkey
     }
+
+    pub fn value(&self) -> U256 {
+        self.data.message.value()
+    }
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, Encode, Decode)]

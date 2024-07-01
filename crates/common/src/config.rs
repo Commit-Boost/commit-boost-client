@@ -168,7 +168,6 @@ pub struct StaticPbsConfig {
     pub with_signer: bool,
 }
 
-// TODO: add custom headers
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PbsConfig {
     /// Port to receive BuilderAPI calls from CL
