@@ -1,7 +1,9 @@
 # Commit-Boost
 
-## Dependencies
+### Note
+- The code is unaudited and NOT ready for production
 
+## Dependencies
 - Docker
 
 ## Usage
@@ -16,7 +18,7 @@ While in development you have to build them manually as Commit Boost will search
 
 Commit Boost also supports "Commit Modules", which are modules that leverage the Signer API to request signatures from the proposer. You can find an example [here](examples/da_commit). Commit Modules also need to be built as docker images and specified in the config file. You can build the local example by running [this script](scripts/build_local_module.sh).
 
-Note: that because Commit Boost leverages Docker, if you require `sudo` to interact with Docker, so will Commit Boost.
+Note: because Commit Boost currently uses Docker underneath, if you require `sudo` to interact with Docker, you will need `sudo` to launch some Commit Boost commands.
 
 ### Config
 The main config file is a `.toml` which specifies how modules should be built, and their configs. Full specifations are WIP. You can find an example [here](./config.example.toml)
@@ -31,7 +33,7 @@ Use this command to setup the Docker Compose file that will be used to run the s
 This will create three files:
 - `cb.docker-compose.yml`, used to start services
 - `.cb.env`, with local env variables to be loaded at runtime
-- `targets.json`, used by prometheus to dynamiccaly discover metrics servers
+- `targets.json`, used by prometheus to dynamically discover metrics servers
 
 #### Start
 Once the `init` is done, you can start Commit Boost with `start`. For example:
