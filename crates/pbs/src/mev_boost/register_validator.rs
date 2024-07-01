@@ -1,15 +1,18 @@
 use std::time::Duration;
 
 use alloy_rpc_types_beacon::relay::ValidatorRegistration;
+use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
     pbs::{RelayEntry, HEADER_START_TIME_UNIX_MS},
-    utils::utcnow_ms,
+    utils::{get_user_agent, utcnow_ms},
 };
 use futures::future::join_all;
+use reqwest::header::USER_AGENT;
 use tracing::error;
 
 use crate::{
     error::PbsError,
+    metrics::{RELAY_RESPONSES, RELAY_RESPONSE_TIME},
     state::{BuilderApiState, PbsState},
 };
 
@@ -17,16 +20,28 @@ use crate::{
 /// Returns 200 if at least one relay returns 200, else 503
 pub async fn register_validator<S: BuilderApiState>(
     registrations: Vec<ValidatorRegistration>,
-    pbs_state: PbsState<S>,
+    req_headers: HeaderMap,
+    state: PbsState<S>,
 ) -> eyre::Result<()> {
-    let relays = pbs_state.relays();
+    // prepare headers
+    let ua = get_user_agent(&req_headers);
+    let mut send_headers = HeaderMap::new();
+    send_headers
+        .insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from_str(&utcnow_ms().to_string())?);
+    if let Some(ua) = ua {
+        send_headers.insert(USER_AGENT, HeaderValue::from_str(&ua)?);
+    }
+
+    let relays = state.relays();
     let mut handles = Vec::with_capacity(relays.len());
 
     for relay in relays {
         handles.push(send_register_validator(
+            send_headers.clone(),
             relay.clone(),
             registrations.clone(),
-            pbs_state.config.pbs_config.timeout_register_validator_ms,
+            state.config.pbs_config.timeout_register_validator_ms,
+            state.relay_client(),
         ));
     }
 
@@ -36,31 +51,37 @@ pub async fn register_validator<S: BuilderApiState>(
     if results.iter().any(|res| res.is_ok()) {
         Ok(())
     } else {
-        // FIXME
-        Ok(())
+        Err(eyre::eyre!("No relay passed register_validator successfully"))
     }
 }
 
 async fn send_register_validator(
+    headers: HeaderMap,
     relay: RelayEntry,
     registrations: Vec<ValidatorRegistration>,
     timeout_ms: u64,
+    client: reqwest::Client,
 ) -> Result<(), PbsError> {
-    let client = reqwest::Client::builder().timeout(Duration::from_millis(timeout_ms)).build()?;
     let url = relay.register_validator_url();
 
-    // TODO: add user agent
+    let timer =
+        RELAY_RESPONSE_TIME.with_label_values(&["register_validator", &relay.id]).start_timer();
+
     let res = client
         .post(url)
-        .header("accept", "*/*")
-        .header(HEADER_START_TIME_UNIX_MS, utcnow_ms())
+        .timeout(Duration::from_millis(timeout_ms))
+        .headers(headers)
         .json(&registrations)
         .send()
         .await?;
 
     // TODO: send to relay monitor
 
+    timer.observe_duration();
+
     let status = res.status();
+    RELAY_RESPONSES.with_label_values(&[&status.to_string(), "get_header", &relay.id]).inc();
+
     let response_bytes = res.bytes().await?;
 
     if !status.is_success() {
@@ -69,6 +90,7 @@ async fn send_register_validator(
             code: status.as_u16(),
         };
 
+        // error here since we check if any success aboves
         error!(?err, relay_id = relay.id, event = "register_validator");
 
         return Err(err);

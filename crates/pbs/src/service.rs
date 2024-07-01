@@ -1,13 +1,13 @@
-use std::{net::SocketAddr, time::Duration};
+use std::net::SocketAddr;
 
 use cb_metrics::sdk::MetricsProvider;
 use prometheus::core::Collector;
-use tokio::{net::TcpListener, time::sleep};
+use tokio::net::TcpListener;
 use tracing::{error, info};
 
 use crate::{
     boost::BuilderApi,
-    metrics::{register_default_metrics, GET_HEADER_COUNTER, PBS_METRICS_REGISTRY},
+    metrics::{register_default_metrics, PBS_METRICS_REGISTRY},
     routes::create_app_router,
     state::{BuilderApiState, PbsState},
 };
@@ -18,21 +18,12 @@ pub struct PbsService;
 
 impl PbsService {
     pub async fn run<S: BuilderApiState, T: BuilderApi<S>>(state: PbsState<S>) {
-        // if config.relay_check {
-        //     PbsService::relay_check(&config.relays).await;
-        // }
-
         register_default_metrics();
-
-        // TODO: remove this
-        tokio::spawn(async move {
-            loop {
-                GET_HEADER_COUNTER.inc();
-                sleep(Duration::from_secs(2)).await;
-            }
-        });
-
         MetricsProvider::load_and_run(PBS_METRICS_REGISTRY.clone());
+
+        // if state.pbs_config().relay_check {
+        //     PbsService::relay_check(state.relays()).await;
+        // }
 
         let address = SocketAddr::from(([0, 0, 0, 0], state.config.pbs_config.port));
         let app = create_app_router::<S, T>(state);
@@ -50,7 +41,7 @@ impl PbsService {
         PBS_METRICS_REGISTRY.register(c).expect("failed to register metric");
     }
 
-    // // TODO: expand with check registration
+    // TODO: before starting, send a sanity check to relay
     // pub async fn relay_check(relays: &[RelayEntry]) {
     //     info!("Sending initial relay checks");
 

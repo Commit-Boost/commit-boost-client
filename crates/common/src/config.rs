@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use alloy_primitives::U256;
 use eyre::{eyre, ContextCompat};
@@ -105,6 +105,8 @@ impl StartSignerConfig {
 pub struct MetricsConfig {
     /// Path to prometheus config file
     pub prometheus_config: String,
+    /// Whether to start a grafana service
+    pub use_grafana: bool,
 }
 
 pub struct ModuleMetricsConfig {
@@ -184,8 +186,11 @@ pub struct PbsConfig {
     /// Whether to skip the relay signature verification
     #[serde(default = "default_bool::<false>")]
     pub skip_sigverify: bool,
+    /// Minimum bid that will be accepted from get_header
     #[serde(rename = "min_bid_eth", with = "as_eth_str", default = "default_u256")]
     pub min_bid_wei: U256,
+    /// Custom headers to send to relays
+    pub headers: Option<HashMap<String, String>>,
 }
 
 /// Runtime config for the pbs module with support for custom extra config
@@ -194,7 +199,7 @@ pub struct PbsModuleConfig<T = ()> {
     /// Chain spec
     pub chain: Chain,
     /// Pbs default config
-    pub pbs_config: PbsConfig,
+    pub pbs_config: Arc<PbsConfig>,
     /// Signer client to call Signer API
     pub signer_client: Option<SignerClient>,
     /// Opaque module config
@@ -222,7 +227,7 @@ pub fn load_pbs_config() -> eyre::Result<PbsModuleConfig<()>> {
     let config = CommitBoostConfig::from_env_path();
     Ok(PbsModuleConfig {
         chain: config.chain,
-        pbs_config: config.pbs.pbs_config,
+        pbs_config: Arc::new(config.pbs.pbs_config),
         signer_client: None,
         extra: (),
     })
@@ -258,7 +263,7 @@ pub fn load_pbs_custom_config<T: DeserializeOwned>() -> eyre::Result<PbsModuleCo
 
     Ok(PbsModuleConfig {
         chain: cb_config.chain,
-        pbs_config: cb_config.pbs.static_config.pbs_config,
+        pbs_config: Arc::new(cb_config.pbs.static_config.pbs_config),
         signer_client,
         extra: cb_config.pbs.extra,
     })

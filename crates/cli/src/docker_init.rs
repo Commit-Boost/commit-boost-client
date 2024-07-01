@@ -201,19 +201,21 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> eyre::Resu
 
     services.insert("cb_prometheus".to_owned(), Some(prometheus_service));
 
-    let grafana_service = Service {
-        container_name: Some("cb_grafana".to_owned()),
-        image: Some("grafana/grafana:latest".to_owned()),
-        ports: Ports::Short(vec!["3000:3000".to_owned()]),
-        networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
-        depends_on: DependsOnOptions::Simple(vec!["cb_prometheus".to_owned()]),
-        environment: Environment::List(vec!["GF_SECURITY_ADMIN_PASSWORD=admin".to_owned()]),
-        // TODO: re-enable logging here once we move away from docker logs
-        logging: Some(LoggingParameters { driver: Some("none".to_owned()), options: None }),
-        ..Service::default()
-    };
+    if cb_config.metrics.use_grafana {
+        let grafana_service = Service {
+            container_name: Some("cb_grafana".to_owned()),
+            image: Some("grafana/grafana:latest".to_owned()),
+            ports: Ports::Short(vec!["3000:3000".to_owned()]),
+            networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
+            depends_on: DependsOnOptions::Simple(vec!["cb_prometheus".to_owned()]),
+            environment: Environment::List(vec!["GF_SECURITY_ADMIN_PASSWORD=admin".to_owned()]),
+            // TODO: re-enable logging here once we move away from docker logs
+            logging: Some(LoggingParameters { driver: Some("none".to_owned()), options: None }),
+            ..Service::default()
+        };
 
-    services.insert("cb_grafana".to_owned(), Some(grafana_service));
+        services.insert("cb_grafana".to_owned(), Some(grafana_service));
+    }
 
     compose.services = Services(services);
 

@@ -35,7 +35,7 @@ impl SignerClient {
         auth_value.set_sensitive(true);
         headers.insert(AUTHORIZATION, auth_value);
 
-        let client = reqwest::ClientBuilder::new().default_headers(headers).build().unwrap();
+        let client = reqwest::Client::builder().default_headers(headers).build().unwrap();
 
         Self { url: url.into(), client }
     }

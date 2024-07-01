@@ -1,30 +1,60 @@
 use std::{sync::Arc, time::Duration};
 
+use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
     config::PbsConfig,
-    pbs::{RelayEntry, HEADER_START_TIME_UNIX_MS},
-    utils::utcnow_ms,
+    pbs::{RelayEntry, HEADER_SLOT_UUID_KEY, HEADER_START_TIME_UNIX_MS},
+    utils::{get_user_agent, utcnow_ms},
 };
 use futures::future::select_ok;
+use reqwest::header::USER_AGENT;
+use tracing::warn;
 
 use crate::{
     error::{PbsError, ValidationError},
+    metrics::{RELAY_RESPONSES, RELAY_RESPONSE_TIME},
     state::{BuilderApiState, PbsState},
     types::{SignedBlindedBeaconBlock, SubmitBlindedBlockResponse},
 };
 
 pub async fn submit_block<S: BuilderApiState>(
     signed_blinded_block: SignedBlindedBeaconBlock,
-    pbs_state: PbsState<S>,
+    req_headers: HeaderMap,
+    state: PbsState<S>,
 ) -> eyre::Result<SubmitBlindedBlockResponse> {
-    let relays = pbs_state.relays();
+    let (slot, slot_uuid) = state.get_slot_and_uuid();
+    let mut send_headers = HeaderMap::new();
+
+    if slot != signed_blinded_block.message.slot {
+        warn!(
+            expected = slot,
+            got = signed_blinded_block.message.slot,
+            "blinded beacon slot mismatch"
+        );
+    } else {
+        send_headers.insert(HEADER_SLOT_UUID_KEY, HeaderValue::from_str(&slot_uuid.to_string())?);
+    }
+
+    // prepare headers
+    let ua = get_user_agent(&req_headers);
+    send_headers
+        .insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from_str(&utcnow_ms().to_string())?);
+
+    if let Some(ua) = ua {
+        send_headers.insert(USER_AGENT, HeaderValue::from_str(&ua)?);
+    }
+
+    let relays = state.relays();
     let mut handles = Vec::with_capacity(relays.len());
 
     for relay in relays.iter() {
-        // FIXME
-        let pbs_config = Arc::new(pbs_state.config.pbs_config.clone());
-
-        let handle = send_submit_block(relay.clone(), signed_blinded_block.clone(), pbs_config);
+        let handle = send_submit_block(
+            send_headers.clone(),
+            relay.clone(),
+            &signed_blinded_block,
+            state.config.pbs_config.clone(),
+            state.relay_client(),
+        );
 
         handles.push(Box::pin(handle));
     }
@@ -39,26 +69,29 @@ pub async fn submit_block<S: BuilderApiState>(
 
 // submits blinded signed block and expects the execution payload + blobs bundle back
 async fn send_submit_block(
+    headers: HeaderMap,
     relay: RelayEntry,
-    signed_blinded_block: SignedBlindedBeaconBlock,
+    signed_blinded_block: &SignedBlindedBeaconBlock,
     config: Arc<PbsConfig>,
+    client: reqwest::Client,
 ) -> Result<SubmitBlindedBlockResponse, PbsError> {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_millis(config.timeout_get_payload_ms))
-        .build()?;
     let url = relay.submit_block_url();
 
-    // TODO: add user agent, pass headers
+    let timer = RELAY_RESPONSE_TIME.with_label_values(&["submit_block", &relay.id]).start_timer();
+
     let res = client
         .post(url)
-        // .header(HEADER_KEY_SLOT_UUID, slot_uuid.to_string())
-        .header(HEADER_START_TIME_UNIX_MS, utcnow_ms())
-        .header("accept", "*/*")
-        .json(&signed_blinded_block) // can probably serialize once and pass from above
+        .timeout(Duration::from_millis(config.timeout_get_payload_ms))
+        .headers(headers)
+        .json(&signed_blinded_block)
         .send()
         .await?;
 
+    timer.observe_duration();
+
     let status = res.status();
+    RELAY_RESPONSES.with_label_values(&[&status.to_string(), "submit_block", &relay.id]).inc();
+
     let response_bytes = res.bytes().await?;
 
     if !status.is_success() {

@@ -1,10 +1,9 @@
 use axum::{
     extract::{Path, State},
+    http::HeaderMap,
     response::IntoResponse,
 };
-use axum_extra::TypedHeader;
-use cb_common::utils::{timestamp_of_slot_start_millis, utcnow_ms};
-use headers::UserAgent;
+use cb_common::utils::{get_user_agent, timestamp_of_slot_start_millis, utcnow_ms};
 use reqwest::StatusCode;
 use tracing::{error, info};
 use uuid::Uuid;
@@ -12,24 +11,30 @@ use uuid::Uuid;
 use crate::{
     boost::BuilderApi,
     error::PbsClientError,
+    metrics::REQUESTS_RECEIVED,
     state::{BuilderApiState, PbsState},
     BuilderEvent, GetHeaderParams,
 };
 
 pub async fn handle_get_header<S: BuilderApiState, T: BuilderApi<S>>(
     State(state): State<PbsState<S>>,
-    user_agent: Option<TypedHeader<UserAgent>>,
+    req_headers: HeaderMap,
     Path(params): Path<GetHeaderParams>,
 ) -> Result<impl IntoResponse, PbsClientError> {
     let req_id = Uuid::new_v4();
+
     let now = utcnow_ms();
     let slot_start_ms = timestamp_of_slot_start_millis(params.slot, state.config.chain);
 
+    let ua = get_user_agent(&req_headers);
+
+    REQUESTS_RECEIVED.with_label_values(&["get_header"]).inc();
+
     state.publish_event(BuilderEvent::GetHeaderRequest(params));
 
-    info!(method = "get_header", %req_id, ua=?user_agent, slot=params.slot, parent_hash=%params.parent_hash, validator_pubkey=%params.pubkey, ms_into_slot=now.saturating_sub(slot_start_ms));
+    info!(method = "get_header", %req_id, ?ua, slot=params.slot, parent_hash=%params.parent_hash, validator_pubkey=%params.pubkey, ms_into_slot=now.saturating_sub(slot_start_ms));
 
-    match T::get_header(params, state.clone()).await {
+    match T::get_header(params, req_headers, state.clone()).await {
         Ok(res) => {
             state.publish_event(BuilderEvent::GetHeaderResponse(Box::new(res.clone())));
 
@@ -42,7 +47,7 @@ pub async fn handle_get_header<S: BuilderApiState, T: BuilderApi<S>>(
             }
         }
         Err(err) => {
-            error!(?err);
+            error!(?err, "failed to get header from relays");
             Err(PbsClientError::NoPayload)
         }
     }

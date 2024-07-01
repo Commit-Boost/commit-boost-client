@@ -7,6 +7,7 @@ use alloy_primitives::U256;
 use alloy_rpc_types_beacon::{BlsPublicKey, BlsSignature};
 use blst::min_pk::{PublicKey, Signature};
 use rand::{distributions::Alphanumeric, Rng};
+use reqwest::header::HeaderMap;
 use tracing::Level;
 
 use crate::types::Chain;
@@ -141,4 +142,11 @@ pub fn blst_pubkey_to_alloy(pubkey: &PublicKey) -> BlsPublicKey {
 /// Generates a random string
 pub fn random_jwt() -> String {
     rand::thread_rng().sample_iter(&Alphanumeric).take(32).map(char::from).collect()
+}
+
+/// Extracts the user agent from the request headers
+pub fn get_user_agent(req_headers: &HeaderMap) -> Option<String> {
+    req_headers
+        .get(reqwest::header::USER_AGENT)
+        .and_then(|ua| ua.to_str().ok().map(|s| s.to_string()))
 }

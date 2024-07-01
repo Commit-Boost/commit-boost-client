@@ -16,8 +16,6 @@ tokio.workspace = true
 futures.workspace = true
 
 axum.workspace = true
-axum-extra.workspace = true
-headers.workspace = true
 reqwest.workspace = true
 
 tracing.workspace = true

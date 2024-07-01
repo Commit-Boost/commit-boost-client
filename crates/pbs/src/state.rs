@@ -1,11 +1,16 @@
 use std::{
     collections::HashSet,
+    str::FromStr,
     sync::{Arc, Mutex},
 };
 
 use alloy_primitives::B256;
 use alloy_rpc_types_beacon::BlsPublicKey;
-use cb_common::{config::PbsModuleConfig, pbs::RelayEntry};
+use axum::http::{HeaderMap, HeaderName, HeaderValue};
+use cb_common::{
+    config::{PbsConfig, PbsModuleConfig},
+    pbs::{RelayEntry, HEADER_VERSION_KEY, HEAVER_VERSION_VALUE},
+};
 use dashmap::DashMap;
 use tokio::sync::broadcast;
 use uuid::Uuid;
@@ -26,7 +31,9 @@ pub struct PbsState<U, S: BuilderApiState = ()> {
     pub config: Arc<PbsModuleConfig<U>>,
     /// Opaque extra data for library use
     pub data: S,
-    /// Pubsliher to push net events
+    /// Relay client to reuse across requests
+    relay_client: reqwest::Client,
+    /// Pubsliher for builder events
     event_publisher: broadcast::Sender<BuilderEvent>,
     /// Info about the latest slot and its uuid
     current_slot_info: Arc<Mutex<(u64, Uuid)>>,
@@ -41,11 +48,29 @@ where
     pub fn new(config: PbsModuleConfig<U>) -> Self {
         let (tx, _) = broadcast::channel(10);
 
+        let mut headers = HeaderMap::new();
+        headers.insert(HEADER_VERSION_KEY, HeaderValue::from_static(HEAVER_VERSION_VALUE));
+
+        if let Some(custom_headers) = &config.pbs_config.headers {
+            for (key, value) in custom_headers.iter() {
+                headers.insert(
+                    HeaderName::from_str(key).expect("invalid header name"),
+                    HeaderValue::from_str(&value).expect("invalid header value"),
+                );
+            }
+        }
+
+        let relay_client = reqwest::Client::builder()
+            .default_headers(headers)
+            .build()
+            .expect("failed to build relay client");
+
         Self {
-            current_slot_info: Arc::new(Mutex::new((0, Uuid::default()))),
-            data: S::default(),
-            event_publisher: tx,
             config: Arc::new(config),
+            data: S::default(),
+            relay_client,
+            event_publisher: tx,
+            current_slot_info: Arc::new(Mutex::new((0, Uuid::default()))),
             bid_cache: Arc::new(DashMap::new()),
         }
     }
@@ -79,8 +104,15 @@ where
         *guard
     }
 
-    pub fn relays(&self) -> Vec<RelayEntry> {
-        self.config.pbs_config.relays.clone()
+    // Getters
+    pub fn pbs_config(&self) -> &PbsConfig {
+        &self.config.pbs_config
+    }
+    pub fn relays(&self) -> &[RelayEntry] {
+        &self.pbs_config().relays
+    }
+    pub fn relay_client(&self) -> reqwest::Client {
+        self.relay_client.clone()
     }
 
     /// Add some bids to the cache, the bids are all assumed to be for the provided slot

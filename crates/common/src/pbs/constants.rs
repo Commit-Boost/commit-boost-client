@@ -7,10 +7,10 @@ pub const SUBMIT_BLOCK_PATH: &str = "/blinded_blocks";
 
 // https://ethereum.github.io/builder-specs/#/Builder
 
-pub const HEADER_KEY_SLOT_UUID: &str = "X-MEVBoost-SlotID";
-pub const HEADER_KEY_VERSION: &str = "X-MEVBoost-Version"; // do we need to use this
+pub const HEADER_SLOT_UUID_KEY: &str = "X-MEVBoost-SlotID";
+pub const HEADER_VERSION_KEY: &str = "X-CommitBoost-Version";
+pub const HEAVER_VERSION_VALUE: &str = "0.1.0";
 pub const HEADER_START_TIME_UNIX_MS: &str = "X-MEVBoost-StartTimeUnixMS";
 
 pub const BUILDER_EVENTS_PATH: &str = "/events";
-
 pub const DEFAULT_PBS_JWT_KEY: &str = "DEFAULT_PBS";

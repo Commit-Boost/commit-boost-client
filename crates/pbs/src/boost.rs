@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use alloy_primitives::B256;
 use alloy_rpc_types_beacon::relay::ValidatorRegistration;
 use async_trait::async_trait;
-use axum::Router;
+use axum::{http::HeaderMap, Router};
 
 use crate::{
     mev_boost,
@@ -21,30 +21,33 @@ pub trait BuilderApi<S: BuilderApiState>: 'static {
     /// https://ethereum.github.io/builder-specs/#/Builder/getHeader
     async fn get_header(
         params: GetHeaderParams,
+        req_headers: HeaderMap,
         state: PbsState<S>,
     ) -> eyre::Result<Option<GetHeaderReponse>> {
-        mev_boost::get_header(state, params).await
+        mev_boost::get_header(params, req_headers, state).await
     }
 
     /// https://ethereum.github.io/builder-specs/#/Builder/status
-    async fn get_status(state: PbsState<S>) -> eyre::Result<()> {
-        mev_boost::get_status(state).await
+    async fn get_status(req_headers: HeaderMap, state: PbsState<S>) -> eyre::Result<()> {
+        mev_boost::get_status(req_headers, state).await
     }
 
     /// https://ethereum.github.io/builder-specs/#/Builder/submitBlindedBlock
     async fn submit_block(
         signed_blinded_block: SignedBlindedBeaconBlock,
+        req_headers: HeaderMap,
         state: PbsState<S>,
     ) -> eyre::Result<SubmitBlindedBlockResponse> {
-        mev_boost::submit_block(signed_blinded_block, state).await
+        mev_boost::submit_block(signed_blinded_block, req_headers, state).await
     }
 
     /// https://ethereum.github.io/builder-specs/#/Builder/registerValidator
     async fn register_validator(
         registrations: Vec<ValidatorRegistration>,
+        req_headers: HeaderMap,
         state: PbsState<S>,
     ) -> eyre::Result<()> {
-        mev_boost::register_validator(registrations, state).await
+        mev_boost::register_validator(registrations, req_headers, state).await
     }
 }
 

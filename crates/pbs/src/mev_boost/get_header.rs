@@ -2,47 +2,58 @@ use std::{sync::Arc, time::Duration};
 
 use alloy_primitives::{B256, U256};
 use alloy_rpc_types_beacon::BlsPublicKey;
+use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
     config::PbsConfig,
-    pbs::{RelayEntry, HEADER_KEY_SLOT_UUID, HEADER_START_TIME_UNIX_MS},
+    pbs::{RelayEntry, HEADER_SLOT_UUID_KEY, HEADER_START_TIME_UNIX_MS},
     signature::verify_signed_builder_message,
     types::Chain,
-    utils::{utcnow_ms, wei_to_eth},
+    utils::{get_user_agent, utcnow_ms, wei_to_eth},
 };
 use futures::future::join_all;
+use reqwest::{header::USER_AGENT, StatusCode};
 use tracing::{debug, error};
-use uuid::Uuid;
 
 use crate::{
     error::{PbsError, ValidationError},
+    metrics::{RELAY_RESPONSES, RELAY_RESPONSE_TIME},
     state::{BuilderApiState, PbsState},
     types::{SignedExecutionPayloadHeader, EMPTY_TX_ROOT_HASH},
     GetHeaderParams, GetHeaderReponse,
 };
 
 pub async fn get_header<S: BuilderApiState>(
-    state: PbsState<S>,
     params: GetHeaderParams,
+    req_headers: HeaderMap,
+    state: PbsState<S>,
 ) -> eyre::Result<Option<GetHeaderReponse>> {
     let GetHeaderParams { slot, parent_hash, pubkey: validator_pubkey } = params;
 
     let slot_uuid = state.get_or_update_slot_uuid(slot);
 
+    // prepare headers
+    let ua = get_user_agent(&req_headers);
+    let mut send_headers = HeaderMap::new();
+    send_headers.insert(HEADER_SLOT_UUID_KEY, HeaderValue::from_str(&slot_uuid.to_string())?);
+    send_headers
+        .insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from_str(&utcnow_ms().to_string())?);
+    if let Some(ua) = ua {
+        send_headers.insert(USER_AGENT, HeaderValue::from_str(&ua)?);
+    }
+
     let relays = state.relays();
     let mut handles = Vec::with_capacity(relays.len());
 
     for relay in relays.iter() {
-        // FIXME
-        let pbs_config = Arc::new(state.config.pbs_config.clone());
-
         handles.push(send_get_header(
-            slot_uuid,
+            send_headers.clone(),
             slot,
             parent_hash,
             validator_pubkey,
             relay.clone(),
             state.config.chain,
-            pbs_config,
+            state.config.pbs_config.clone(),
+            state.relay_client(),
         ));
     }
 
@@ -63,27 +74,31 @@ pub async fn get_header<S: BuilderApiState>(
 }
 
 async fn send_get_header(
-    slot_uuid: Uuid,
+    headers: HeaderMap,
     slot: u64,
     parent_hash: B256,
     validator_pubkey: BlsPublicKey,
     relay: RelayEntry,
     chain: Chain,
     config: Arc<PbsConfig>,
+    client: reqwest::Client,
 ) -> Result<Option<GetHeaderReponse>, PbsError> {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_millis(config.timeout_get_header_ms))
-        .build()?;
     let url = relay.get_header_url(slot, parent_hash, validator_pubkey);
+
+    let timer = RELAY_RESPONSE_TIME.with_label_values(&["get_header", &relay.id]).start_timer();
 
     let res = client
         .get(url)
-        .header(HEADER_KEY_SLOT_UUID, slot_uuid.to_string())
-        .header(HEADER_START_TIME_UNIX_MS, utcnow_ms())
+        .timeout(Duration::from_millis(config.timeout_get_header_ms))
+        .headers(headers)
         .send()
         .await?;
 
+    timer.observe_duration();
+
     let status = res.status();
+    RELAY_RESPONSES.with_label_values(&[&status.to_string(), "get_header", &relay.id]).inc();
+
     let response_bytes = res.bytes().await?;
 
     if !status.is_success() {
@@ -95,7 +110,7 @@ async fn send_get_header(
 
     debug!(relay = relay.id, "received response {response_bytes:?}");
 
-    if status.as_u16() == 204 {
+    if status == StatusCode::NO_CONTENT {
         return Ok(None)
     }
 

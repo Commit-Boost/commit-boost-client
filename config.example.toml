@@ -10,12 +10,16 @@ timeout_register_validator_ms = 3000
 skip_sigverify = true
 min_bid_eth = 0.0
 
+[headers]
+X-MyCustomHeader = "MyCustomValue"
+
 [signer]
 [signer.loader]
 key_path = "keys.example.json"
 
 [metrics]
 prometheus_config = "./docker/prometheus.yml"
+use_grafana = true
 
 [[modules]]
 id = "DA_COMMIT"

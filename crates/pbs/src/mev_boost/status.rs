@@ -1,22 +1,41 @@
 use std::time::Duration;
 
-use cb_common::pbs::RelayEntry;
+use axum::http::{HeaderMap, HeaderValue};
+use cb_common::{pbs::RelayEntry, utils::get_user_agent};
 use futures::future::select_ok;
+use reqwest::header::USER_AGENT;
 
 use crate::{
     error::PbsError,
+    metrics::{RELAY_RESPONSES, RELAY_RESPONSE_TIME},
     state::{BuilderApiState, PbsState},
 };
 
-pub async fn get_status<S: BuilderApiState>(pbs_state: PbsState<S>) -> eyre::Result<()> {
-    if !pbs_state.config.pbs_config.relay_check {
+pub async fn get_status<S: BuilderApiState>(
+    req_headers: HeaderMap,
+    state: PbsState<S>,
+) -> eyre::Result<()> {
+    // If no relay check, return early
+    if !state.config.pbs_config.relay_check {
         Ok(())
     } else {
-        let relays = pbs_state.relays();
+        // prepare headers
+        let ua = get_user_agent(&req_headers);
+        let mut send_headers = HeaderMap::new();
+        if let Some(ua) = ua {
+            send_headers.insert(USER_AGENT, HeaderValue::from_str(&ua)?);
+        }
+
+        // return ok if at least one relay returns 200
+        let relays = state.relays();
         let mut handles = Vec::with_capacity(relays.len());
 
         for relay in relays {
-            handles.push(Box::pin(send_relay_check(relay.clone())));
+            handles.push(Box::pin(send_relay_check(
+                send_headers.clone(),
+                relay.clone(),
+                state.relay_client(),
+            )));
         }
 
         let results = select_ok(handles).await;
@@ -28,13 +47,22 @@ pub async fn get_status<S: BuilderApiState>(pbs_state: PbsState<S>) -> eyre::Res
     }
 }
 
-async fn send_relay_check(relay: RelayEntry) -> Result<(), PbsError> {
-    let client = reqwest::Client::builder().timeout(Duration::from_secs(30)).build().unwrap();
+async fn send_relay_check(
+    headers: HeaderMap,
+    relay: RelayEntry,
+    client: reqwest::Client,
+) -> Result<(), PbsError> {
     let url = relay.get_status_url();
 
-    let res = client.get(url).send().await?;
+    let timer = RELAY_RESPONSE_TIME.with_label_values(&["get_status", &relay.id]).start_timer();
+
+    let res = client.get(url).timeout(Duration::from_secs(30)).headers(headers).send().await?;
+
+    timer.observe_duration();
 
     let status = res.status();
+    RELAY_RESPONSES.with_label_values(&[&status.to_string(), "get_status", &relay.id]).inc();
+
     let response_bytes = res.bytes().await?;
 
     if !status.is_success() {
