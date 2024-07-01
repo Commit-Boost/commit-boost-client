@@ -25,3 +25,5 @@ serde_json.workspace = true
 
 tracing.workspace = true
 eyre.workspace = true
+prometheus.workspace = true
+lazy_static.workspace = true
