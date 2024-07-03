@@ -221,6 +221,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> eyre::Resu
             networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
             depends_on: DependsOnOptions::Simple(vec!["cb_prometheus".to_owned()]),
             environment: Environment::List(vec!["GF_SECURITY_ADMIN_PASSWORD=admin".to_owned()]),
+            volumes: vec![Volumes::Simple("./grafana/dashboards:/etc/grafana/provisioning/dashboards".to_owned()), Volumes::Simple("./grafana/datasources:/etc/grafana/provisioning/datasources".to_owned())],
             // TODO: re-enable logging here once we move away from docker logs
             logging: Some(LoggingParameters { driver: Some("none".to_owned()), options: None }),
             ..Service::default()
