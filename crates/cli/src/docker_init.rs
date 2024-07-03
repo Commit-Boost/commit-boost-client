@@ -22,6 +22,7 @@ pub(super) const CB_CONFIG_FILE: &str = "cb-config.toml";
 pub(super) const CB_COMPOSE_FILE: &str = "cb.docker-compose.yml";
 pub(super) const CB_ENV_FILE: &str = ".cb.env";
 pub(super) const CB_TARGETS_FILE: &str = "targets.json"; // needs to match prometheus.yml
+pub(super) const PROMETHEUS_DATA_DIR: &str = "prometheus_data";
 
 const METRICS_NETWORK: &str = "monitoring_network";
 const SIGNER_NETWORK: &str = "signer_network";
@@ -253,10 +254,12 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     let targets_volume =
         Volumes::Simple(format!("./{}:/etc/prometheus/targets.json", CB_TARGETS_FILE));
 
+    let data_volume = Volumes::Simple(format!("./{}:/prometheus", PROMETHEUS_DATA_DIR));
+
     let prometheus_service = Service {
         container_name: Some("cb_prometheus".to_owned()),
         image: Some("prom/prometheus:latest".to_owned()),
-        volumes: vec![prom_volume, targets_volume],
+        volumes: vec![prom_volume, targets_volume, data_volume],
         // to inspect prometheus from localhost
         ports: Ports::Short(vec!["9090:9090".to_owned()]),
         networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
