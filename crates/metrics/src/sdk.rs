@@ -10,7 +10,7 @@ use axum::{
 use cb_common::config::ModuleMetricsConfig;
 use prometheus::{Encoder, Registry, TextEncoder};
 use tokio::net::TcpListener;
-use tracing::{debug, error, info};
+use tracing::{error, info, trace};
 
 pub struct MetricsProvider {
     config: ModuleMetricsConfig,
@@ -51,7 +51,7 @@ impl MetricsProvider {
 }
 
 async fn handle_metrics(State(registry): State<Registry>) -> Response {
-    debug!("Handling metrics request");
+    trace!("Handling metrics request");
 
     match prepare_metrics(registry) {
         Ok(response) => response,

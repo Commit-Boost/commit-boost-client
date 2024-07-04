@@ -2,10 +2,11 @@ use std::{path::Path, vec};
 
 use cb_common::{
     config::{
-        CommitBoostConfig, SignerLoader, CB_CONFIG_ENV, CB_CONFIG_NAME, JWTS_ENV,
-        METRICS_SERVER_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, SIGNER_LOADER_ENV, SIGNER_LOADER_NAME,
-        SIGNER_SERVER_ENV,
+        CommitBoostConfig, CB_CONFIG_ENV, CB_CONFIG_NAME, JWTS_ENV, METRICS_SERVER_ENV,
+        MODULE_ID_ENV, MODULE_JWT_ENV, SIGNER_DIR_KEYS, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS,
+        SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS, SIGNER_KEYS_ENV, SIGNER_SERVER_ENV,
     },
+    loader::SignerLoader,
     utils::random_jwt,
 };
 use docker_compose_types::{
@@ -123,27 +124,38 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> eyre::Resu
 
     // setup signer service
     if let Some(signer_config) = cb_config.signer {
-        // TODO: generalize this, different loaders may not need volumes but eg ports
-        let signer_volume = match signer_config.loader {
-            SignerLoader::File { key_path } => {
-                Volumes::Simple(format!("./{}:{}:ro", key_path, SIGNER_LOADER_NAME))
-            }
-        };
+        let mut volumes = vec![config_volume.clone()];
 
         targets.push(PrometheusTargetConfig {
             targets: vec![format!("cb_signer:{metrics_port}")],
             labels: PrometheusLabelsConfig { job: "signer".into() },
         });
 
-        let signer_envs = IndexMap::from([
+        let mut signer_envs = IndexMap::from([
             get_env_same(CB_CONFIG_ENV),
-            get_env_same(SIGNER_LOADER_ENV),
             get_env_same(JWTS_ENV),
             get_env_val(METRICS_SERVER_ENV, &metrics_port.to_string()),
             get_env_val(SIGNER_SERVER_ENV, &signer_port.to_string()),
         ]);
 
-        envs.insert(SIGNER_LOADER_ENV.into(), SIGNER_LOADER_NAME.into());
+        // TODO: generalize this, different loaders may not need volumes but eg ports
+        match signer_config.loader {
+            SignerLoader::File { key_path } => {
+                volumes.push(Volumes::Simple(format!("./{}:{}:ro", key_path, SIGNER_KEYS)));
+                let (k, v) = get_env_val(SIGNER_KEYS_ENV, SIGNER_KEYS);
+                signer_envs.insert(k, v);
+            }
+            SignerLoader::ValidatorsDir { keys_path, secrets_path } => {
+                volumes.push(Volumes::Simple(format!("{}:{}:ro", keys_path, SIGNER_DIR_KEYS)));
+                let (k, v) = get_env_val(SIGNER_DIR_KEYS_ENV, SIGNER_DIR_KEYS);
+                signer_envs.insert(k, v);
+
+                volumes
+                    .push(Volumes::Simple(format!("{}:{}:ro", secrets_path, SIGNER_DIR_SECRETS)));
+                let (k, v) = get_env_val(SIGNER_DIR_SECRETS_ENV, SIGNER_DIR_SECRETS);
+                signer_envs.insert(k, v);
+            }
+        };
 
         // write jwts to env
         let jwts_json = serde_json::to_string(&jwts).unwrap().clone();
@@ -153,7 +165,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> eyre::Resu
             container_name: Some("cb_signer".to_owned()),
             image: Some(signer_config.docker_image),
             networks: Networks::Simple(vec![METRICS_NETWORK.to_owned(), SIGNER_NETWORK.to_owned()]),
-            volumes: vec![config_volume.clone(), signer_volume],
+            volumes,
             environment: Environment::KvPair(signer_envs),
             ..Service::default()
         };
