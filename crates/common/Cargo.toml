@@ -27,3 +27,4 @@ reqwest.workspace = true
 thiserror.workspace = true
 
 eyre.workspace = true
+eth2_keystore.workspace = true

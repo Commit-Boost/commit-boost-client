@@ -67,6 +67,7 @@ dashmap = "5.5.3"
 blst = "0.3.11"
 tree_hash = "0.5"
 tree_hash_derive = "0.5"
+eth2_keystore = { git = "https://github.com/sigp/lighthouse", rev = "9e12c21f268c80a3f002ae0ca27477f9f512eb6f" }
 
 # docker
 docker-compose-types = "0.12.0"

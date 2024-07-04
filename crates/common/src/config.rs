@@ -2,13 +2,10 @@ use std::{collections::HashMap, sync::Arc};
 
 use alloy_primitives::U256;
 use eyre::{eyre, ContextCompat};
-use serde::{
-    de::{self, DeserializeOwned},
-    Deserialize, Deserializer, Serialize,
-};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use super::utils::as_eth_str;
-use crate::{commit::client::SignerClient, pbs::RelayEntry, signer::Signer, types::Chain};
+use crate::{commit::client::SignerClient, loader::SignerLoader, pbs::RelayEntry, types::Chain};
 
 pub const MODULE_ID_ENV: &str = "CB_MODULE_ID";
 pub const MODULE_JWT_ENV: &str = "CB_SIGNER_JWT";
@@ -18,8 +15,12 @@ pub const SIGNER_SERVER_ENV: &str = "SIGNER_SERVER";
 pub const CB_CONFIG_ENV: &str = "CB_CONFIG";
 pub const CB_CONFIG_NAME: &str = "/cb-config.toml";
 
-pub const SIGNER_LOADER_ENV: &str = "CB_SIGNER_LOADER_FILE";
-pub const SIGNER_LOADER_NAME: &str = "/keys.json";
+pub const SIGNER_KEYS_ENV: &str = "CB_SIGNER_FILE";
+pub const SIGNER_KEYS: &str = "/keys.json";
+pub const SIGNER_DIR_KEYS_ENV: &str = "SIGNER_LOADER_DIR_KEYS";
+pub const SIGNER_DIR_KEYS: &str = "/keys";
+pub const SIGNER_DIR_SECRETS_ENV: &str = "SIGNER_LOADER_DIR_SECRETS";
+pub const SIGNER_DIR_SECRETS: &str = "/secrets";
 
 pub const JWTS_ENV: &str = "CB_JWTS";
 
@@ -121,41 +122,8 @@ impl ModuleMetricsConfig {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(untagged)]
-pub enum SignerLoader {
-    /// Plain text, do not use in prod
-    File { key_path: String },
-}
-
-impl SignerLoader {
-    pub fn load_keys(self) -> Vec<Signer> {
-        // TODO: add flag to support also native loader
-        self.load_from_env()
-    }
-
-    pub fn load_from_env(self) -> Vec<Signer> {
-        match self {
-            SignerLoader::File { .. } => {
-                let path = std::env::var(SIGNER_LOADER_ENV)
-                    .expect(&format!("{SIGNER_LOADER_ENV} is not set"));
-                let file =
-                    std::fs::read_to_string(path).expect(&format!("Unable to find keys file"));
-
-                let keys: Vec<FileKey> = serde_json::from_str(&file).unwrap();
-
-                keys.into_iter().map(|k| Signer::new_from_bytes(&k.secret_key)).collect()
-            }
-        }
-    }
-}
-
-pub struct FileKey {
-    pub secret_key: [u8; 32],
-}
-
 /// Static pbs config from config file
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct StaticPbsConfig {
     /// Docker image of the module
     #[serde(default = "default_pbs")]
@@ -168,7 +136,7 @@ pub struct StaticPbsConfig {
     pub with_signer: bool,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct PbsConfig {
     /// Port to receive BuilderAPI calls from CL
     pub port: u16,
@@ -350,43 +318,7 @@ pub fn load_module_config<T: DeserializeOwned>() -> eyre::Result<StartModuleConf
     }
 }
 
-impl<'de> Deserialize<'de> for FileKey {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        let s =
-            alloy_primitives::hex::decode(s.trim_start_matches("0x")).map_err(de::Error::custom)?;
-        let bytes: [u8; 32] = s.try_into().map_err(|_| de::Error::custom("wrong lenght"))?;
-
-        Ok(FileKey { secret_key: bytes })
-    }
-}
-
 // TODO: propagate errors
-fn load_env_var_infallible(env: &str) -> String {
+pub fn load_env_var_infallible(env: &str) -> String {
     std::env::var(env).expect(&format!("{env} is not set"))
-}
-
-#[cfg(test)]
-mod tests {
-
-    use super::FileKey;
-
-    #[test]
-    fn test_decode() {
-        let s = [
-            0, 136, 227, 100, 165, 57, 106, 129, 181, 15, 235, 189, 200, 120, 70, 99, 251, 144,
-            137, 181, 230, 124, 189, 193, 115, 153, 26, 0, 197, 135, 103, 63,
-        ];
-
-        let d = r#"[
-    "0088e364a5396a81b50febbdc8784663fb9089b5e67cbdc173991a00c587673f",
-    "0088e364a5396a81b50febbdc8784663fb9089b5e67cbdc173991a00c587673f"
-]"#;
-        let decoded: Vec<FileKey> = serde_json::from_str(d).unwrap();
-
-        assert_eq!(decoded[0].secret_key, s)
-    }
 }

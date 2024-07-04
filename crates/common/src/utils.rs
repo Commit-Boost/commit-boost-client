@@ -109,7 +109,7 @@ pub fn initialize_tracing_log() {
     tracing_subscriber::fmt()
         .compact()
         .with_max_level(level)
-        .with_target(false)
+        .with_target(true)
         .with_file(true)
         .init();
 }

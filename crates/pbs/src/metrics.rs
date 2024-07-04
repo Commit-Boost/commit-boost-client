@@ -15,7 +15,7 @@ lazy_static! {
         ])
         .unwrap();
     pub static ref RELAY_RESPONSE_TIME: HistogramVec =
-        HistogramVec::new(histogram_opts!("relay_response_time_ms", "Relay response times"), &[
+        HistogramVec::new(histogram_opts!("relay_response_time", "Relay response times"), &[
             "endpoint", "relay_id"
         ])
         .unwrap();
