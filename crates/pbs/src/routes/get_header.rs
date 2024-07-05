@@ -29,23 +29,23 @@ pub async fn handle_get_header<S: BuilderApiState, T: BuilderApi<S>>(
     let slot_start_ms = timestamp_of_slot_start_millis(params.slot, state.config.chain);
     let ua = get_user_agent(&req_headers);
 
-    info!(method = "get_header", %req_id, ?ua, slot=params.slot, parent_hash=%params.parent_hash, validator_pubkey=%params.pubkey, ms_into_slot=now.saturating_sub(slot_start_ms));
+    info!(event = "get_header", %req_id, ?ua, slot=params.slot, parent_hash=%params.parent_hash, validator_pubkey=%params.pubkey, ms_into_slot=now.saturating_sub(slot_start_ms));
 
     match T::get_header(params, req_headers, state.clone()).await {
         Ok(res) => {
             state.publish_event(BuilderEvent::GetHeaderResponse(Box::new(res.clone())));
 
             if let Some(max_bid) = res {
-                info!(method="get_header", %req_id, block_hash =% max_bid.data.message.header.block_hash, "header available for slot");
+                info!(event ="get_header", %req_id, block_hash =% max_bid.data.message.header.block_hash, "header available for slot");
                 Ok((StatusCode::OK, axum::Json(max_bid)).into_response())
             } else {
                 // spec: return 204 if request is valid but no bid available
-                info!(method="get_header", %req_id, "no header available for slot");
+                info!(event = "get_header", %req_id, "no header available for slot");
                 Ok(StatusCode::NO_CONTENT.into_response())
             }
         }
         Err(err) => {
-            error!(method = "get_header", %req_id, ?err, "failed relay get_header");
+            error!(event = "get_header", %req_id, ?err, "failed relay get_header");
             Err(PbsClientError::NoPayload)
         }
     }

@@ -1,6 +1,7 @@
 pub mod commit;
 pub mod config;
 pub mod constants;
+pub mod loader;
 pub mod pbs;
 pub mod signature;
 pub mod signer;
