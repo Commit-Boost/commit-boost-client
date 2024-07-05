@@ -44,15 +44,7 @@ impl TreeHash for KzgCommitment {
 
 impl Display for KzgCommitment {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "0x")?;
-        for i in &self.0[0..2] {
-            write!(f, "{:02x}", i)?;
-        }
-        write!(f, "…")?;
-        for i in &self.0[BYTES_PER_COMMITMENT - 2..BYTES_PER_COMMITMENT] {
-            write!(f, "{:02x}", i)?;
-        }
-        Ok(())
+        write!(f, "{}", serde_utils::hex::encode(self.0))
     }
 }
 
@@ -61,7 +53,7 @@ impl Serialize for KzgCommitment {
     where
         S: Serializer,
     {
-        serializer.serialize_str(&format!("{:?}", self))
+        serializer.serialize_str(&self.to_string())
     }
 }
 
