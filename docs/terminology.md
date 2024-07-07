@@ -1,0 +1,9 @@
+- Proposer: entity with the right to propose the next block
+- Commitment: a constraint or condition that the proposer choses and agrees to via a signature
+- Proxy Keys: provides signature to commitment representing the proposer
+- Extensions: product features that are built extending vanilla MEV-boost
+- Key Manager: some proposers use key managers or remote signers as part of their proposer / validator duties
+- Consensus Client: for example, Lighthouse or Teku (see [here](https://ethereum.org/en/developers/docs/nodes-and-clients/) for more details)
+- Module: allows the proposer to make a commitment and includes some of the logic of the proposer commitment protocol
+- Signer Manager: helps modules get signatures for their commitments
+- System Manager: ties everything together, logging, metrics, etc.
