@@ -46,7 +46,7 @@ Once the `init` is done, you can start Commit Boost with `start`. For example:
 ./target/debug/commit-boost stop --docker cb.docker-compose.yml --env .cb.env
 ```
 
-### Logs
+#### Logs
 To listen to logs:
 ```shell
 ./target/debug/commit-boost stop --docker cb.docker-compose.yml --env .cb.env
