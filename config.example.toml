@@ -15,8 +15,9 @@ X-MyCustomHeader = "MyCustomValue"
 
 [signer]
 [signer.loader]
-keys_path = ""
-secrets_path = ""
+key_path = "./keys.example.json"
+# keys_path = ""
+# secrets_path = ""
 
 [metrics]
 prometheus_config = "./docker/prometheus.yml"
