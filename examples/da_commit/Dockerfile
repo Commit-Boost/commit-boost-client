@@ -1,34 +1,27 @@
-# Start from the latest Rust image for the build stage
-FROM rust:latest AS builder
-
-# Set the working directory
+FROM lukemathwalker/cargo-chef:latest-rust-1 AS chef
 WORKDIR /app
 
-# Copy the Cargo.toml and Cargo.lock files
-COPY ./Cargo.toml ./Cargo.toml
-COPY ./Cargo.lock ./Cargo.lock
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
 
-# Copy the source code
-COPY ./bin ./bin
-COPY ./crates ./crates
-COPY ./tests ./tests
-COPY ./examples ./examples
+FROM chef AS builder 
+COPY --from=planner /app/recipe.json recipe.json
 
-# Build the application
-RUN cargo build --bin da_commit
+RUN cargo chef cook --release --recipe-path recipe.json
 
-# Use Ubuntu 22.04 for runtime to ensure OpenSSL 3.x is available
-FROM ubuntu:22.04
+COPY . .
+RUN cargo build --release
 
-# Install OpenSSL and necessary libraries
-RUN apt-get update && apt-get install -y \
-    openssl \
-    ca-certificates \
-    libssl3 \
-    && rm -rf /var/lib/apt/lists/*
 
-# Copy the built binary from the builder stage
-COPY --from=builder /app/target/debug/da_commit /usr/local/bin/da_commit
+FROM ubuntu AS runtime
+WORKDIR /app
 
-# Set the entrypoint with the 'start' subcommand and the correct config path
+RUN apt-get update
+RUN apt-get install -y openssl ca-certificates libssl3 libssl-dev
+
+COPY --from=builder /app/target/release/da_commit /usr/local/bin
 ENTRYPOINT ["/usr/local/bin/da_commit"]
+
+
+

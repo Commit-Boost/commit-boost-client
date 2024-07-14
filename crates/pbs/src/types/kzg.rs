@@ -1,5 +1,5 @@
 use std::{
-    fmt::{self, Display, Formatter},
+    fmt::{self, Debug, Display, Formatter},
     str::FromStr,
     usize,
 };
@@ -12,7 +12,7 @@ use tree_hash::{PackedEncoding, TreeHash};
 use super::spec::EthSpec;
 
 pub const BYTES_PER_COMMITMENT: usize = 48;
-#[derive(Debug, Clone, Encode, Decode, Eq, PartialEq)]
+#[derive(Clone, Encode, Decode, Eq, PartialEq)]
 #[ssz(struct_behaviour = "transparent")]
 pub struct KzgCommitment(pub [u8; BYTES_PER_COMMITMENT]);
 pub type KzgCommitments<T> =
@@ -43,6 +43,12 @@ impl TreeHash for KzgCommitment {
 }
 
 impl Display for KzgCommitment {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", serde_utils::hex::encode(self.0))
+    }
+}
+
+impl Debug for KzgCommitment {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", serde_utils::hex::encode(self.0))
     }
