@@ -6,7 +6,7 @@
 cb-cli.workspace = true
 cb-common.workspace = true
 cb-pbs.workspace = true
-cb-crypto.workspace = true```
+cb-signer.workspace = true```
 4. Import the cb modules in your main.rs:
 ```use cb_common::{
     commit::request::SignRequest,

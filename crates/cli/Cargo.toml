@@ -7,8 +7,8 @@ rust-version.workspace = true
 [dependencies]
 cb-common.workspace = true
 cb-pbs.workspace = true
-cb-crypto.workspace = true
 cb-metrics.workspace = true
+cb-signer.workspace = true
 
 alloy.workspace = true
 

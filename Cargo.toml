@@ -4,7 +4,7 @@ members = [
 
     "crates/cli",
     "crates/common",
-    "crates/crypto",
+    "crates/signer",
     "crates/pbs",
     "crates/metrics",
 
@@ -19,17 +19,14 @@ rust-version = "1.76"
 edition = "2021"
 
 [workspace.dependencies]
-# workspace
 cb-cli = { path = "crates/cli" }
 cb-common = { path = "crates/common" }
-cb-crypto = { path = "crates/crypto" }
-cb-pbs = { path = "crates/pbs" }
 cb-metrics = { path = "crates/metrics" }
+cb-pbs = { path = "crates/pbs" }
+cb-signer = { path = "crates/signer" }
 
 # ethereum
-ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus", rev = "cf3c404043230559660810bc0c9d6d5a8498d819" }
 alloy = { version = "0.2.0", features = ["rpc-types-beacon"] }
-
 ethereum_ssz = "0.5"
 ethereum_ssz_derive = "0.5.3"
 ssz_types = "0.5"
@@ -42,10 +39,11 @@ axum-extra = { version = "0.9.3", features = ["typed-header"] }
 reqwest = { version = "0.12.4", features = ["json"] }
 headers = "0.4.0"
 
-# async
+# async / threads
 tokio = { version = "1.37.0", features = ["full"] }
 futures = "0.3.30"
 async-trait = "0.1.80"
+dashmap = "5.5.3"
 
 # serialization
 toml = "0.8.13"
@@ -53,15 +51,10 @@ serde = { version = "1.0.202", features = ["derive"] }
 serde_json = "1.0.117"
 serde_yaml = "0.9.33"
 
-# logging
+# telemetry
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
-
-# metrics
 prometheus = "0.13.4"
-
-# sync
-dashmap = "5.5.3"
 
 # crypto
 blst = "0.3.11"

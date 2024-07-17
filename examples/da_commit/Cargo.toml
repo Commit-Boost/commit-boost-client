@@ -7,15 +7,22 @@ rust-version.workspace = true
 [dependencies]
 commit-boost = { path = "../../bin" }
 
+# ethereum
 alloy.workspace = true
 
+# networking
 reqwest.workspace = true
+
+# async / threads
 tokio.workspace = true
 
-# tree_hash.workspace = true
+# serialization
 serde.workspace = true
 
+# telemetry
 tracing.workspace = true
-eyre.workspace = true
 prometheus.workspace = true
+
+# misc
+eyre.workspace = true
 lazy_static.workspace = true
