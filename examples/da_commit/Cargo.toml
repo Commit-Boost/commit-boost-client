@@ -5,25 +5,24 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-cb-cli.workspace = true
-cb-common.workspace = true
-cb-pbs.workspace = true
-cb-crypto.workspace = true
-cb-metrics.workspace = true
+commit-boost = { path = "../../bin" }
 
-alloy-rpc-types-beacon.workspace = true
+# ethereum
+alloy.workspace = true
 
+# networking
 reqwest.workspace = true
+
+# async / threads
 tokio.workspace = true
-async-trait.workspace = true
-axum.workspace = true
 
-tree_hash.workspace = true
-tree_hash_derive.workspace = true
+# serialization
 serde.workspace = true
-serde_json.workspace = true
 
+# telemetry
 tracing.workspace = true
-eyre.workspace = true
 prometheus.workspace = true
+
+# misc
+eyre.workspace = true
 lazy_static.workspace = true

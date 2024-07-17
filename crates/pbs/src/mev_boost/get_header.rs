@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
-use alloy_primitives::{B256, U256};
-use alloy_rpc_types_beacon::BlsPublicKey;
+use alloy::primitives::{B256, U256};
+use alloy::rpc::types::beacon::BlsPublicKey;
 use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
     config::PbsConfig,
@@ -184,8 +184,8 @@ fn validate_header(
 
 #[cfg(test)]
 mod tests {
-    use alloy_primitives::{B256, U256};
-    use alloy_rpc_types_beacon::BlsPublicKey;
+    use alloy::primitives::{B256, U256};
+    use alloy::rpc::types::beacon::BlsPublicKey;
     use blst::min_pk;
     use cb_common::{pbs::RelayEntry, signature::sign_builder_message, types::Chain};
 
@@ -204,7 +204,7 @@ mod tests {
         let min_bid = U256::ZERO;
 
         mock_header.message.header.transactions_root =
-            alloy_primitives::FixedBytes(EMPTY_TX_ROOT_HASH);
+            alloy::primitives::FixedBytes(EMPTY_TX_ROOT_HASH);
 
         assert_eq!(
             validate_header(&mock_header, chain, &mock_relay, parent_hash, false, min_bid),

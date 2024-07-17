@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use alloy_rpc_types_beacon::{BlsPublicKey, BlsSignature};
+use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
 use cb_common::{
     commit::request::{ProxyDelegation, SignedProxyDelegation},
     signer::Signer,

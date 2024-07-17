@@ -1,5 +1,5 @@
-use alloy_primitives::B256;
-use alloy_rpc_types_beacon::BlsSignature;
+use alloy::primitives::B256;
+use alloy::rpc::types::beacon::BlsSignature;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 
@@ -569,7 +569,7 @@ mod tests {
     #[test]
     // this is from the builder api spec, but with blobs fixed to deserialize correctly
     fn test_submit_blinded_block_response() {
-        let blob = alloy_primitives::hex::encode([1; 131072]);
+        let blob = alloy::primitives::hex::encode([1; 131072]);
         let data = format!(
             r#"{{
           "version": "deneb",

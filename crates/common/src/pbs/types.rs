@@ -1,5 +1,7 @@
-use alloy_primitives::{hex::FromHex, B256};
-use alloy_rpc_types_beacon::BlsPublicKey;
+use alloy::{
+    primitives::{hex::FromHex, B256},
+    rpc::types::beacon::BlsPublicKey,
+};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -66,8 +68,7 @@ impl<'de> Deserialize<'de> for RelayEntry {
 
 #[cfg(test)]
 mod tests {
-    use alloy_primitives::hex::FromHex;
-    use alloy_rpc_types_beacon::BlsPublicKey;
+    use alloy::{primitives::hex::FromHex, rpc::types::beacon::BlsPublicKey};
 
     use super::RelayEntry;
 

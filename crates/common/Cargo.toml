@@ -5,26 +5,31 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-alloy-primitives.workspace = true
-alloy-rpc-types-beacon.workspace = true
-
-serde.workspace = true
-serde_json.workspace = true
-url.workspace = true
+# ethereum
+alloy = { workspace = true, features = ["ssz"] }
 ethereum_ssz.workspace = true
 ethereum_ssz_derive.workspace = true
 
+# networking
+reqwest.workspace = true
+
+# serialization
+toml.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+# telemetry
 tracing.workspace = true
 tracing-subscriber.workspace = true
-toml.workspace = true
 
+# crypto
 blst.workspace = true
 tree_hash.workspace = true
 tree_hash_derive.workspace = true
-rand.workspace = true
-
-reqwest.workspace = true
-thiserror.workspace = true
-
-eyre.workspace = true
 eth2_keystore.workspace = true
+
+# misc
+thiserror.workspace = true
+eyre.workspace = true
+url.workspace = true
+rand.workspace = true

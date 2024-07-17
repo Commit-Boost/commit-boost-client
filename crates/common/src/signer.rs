@@ -1,4 +1,4 @@
-use alloy_rpc_types_beacon::{BlsPublicKey, BlsSignature};
+use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
 use blst::min_pk::SecretKey;
 use tree_hash::TreeHash;
 

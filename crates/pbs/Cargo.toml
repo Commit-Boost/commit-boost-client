@@ -6,44 +6,46 @@ rust-version.workspace = true
 
 [dependencies]
 cb-common.workspace = true
-cb-crypto.workspace = true
 cb-metrics.workspace = true
+cb-signer.workspace = true
 
-alloy-primitives.workspace = true
-alloy-rpc-types-beacon.workspace = true
-
-tokio.workspace = true
-futures.workspace = true
-
-axum.workspace = true
-reqwest.workspace = true
-
-tracing.workspace = true
-
-async-trait.workspace = true
-
-serde.workspace = true
-serde_json.workspace = true
+# ethereum
+alloy.workspace = true
 ethereum_ssz.workspace = true
 ethereum_ssz_derive.workspace = true
 ssz_types.workspace = true
-typenum.workspace = true
 ethereum_serde_utils.workspace = true
 ethereum-types.workspace = true
 
+# networking
+axum.workspace = true
+reqwest.workspace = true
+
+# async / threads
+tokio.workspace = true
+futures.workspace = true
+async-trait.workspace = true
 dashmap.workspace = true
+
+# serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# telemetry
+tracing.workspace = true
+prometheus.workspace = true
 
 # crypto
 blst.workspace = true
 tree_hash.workspace = true
 tree_hash_derive.workspace = true
 
-eyre.workspace = true
+# misc
 thiserror.workspace = true
+eyre.workspace = true
 uuid.workspace = true
-
+typenum.workspace = true
 lazy_static.workspace = true
-prometheus.workspace = true
 
 [dev-dependencies]
 tracing-subscriber.workspace = true

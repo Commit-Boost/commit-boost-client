@@ -1,5 +1,5 @@
-use alloy_primitives::{B256, U256};
-use alloy_rpc_types_beacon::BlsPublicKey;
+use alloy::primitives::{B256, U256};
+use alloy::rpc::types::beacon::BlsPublicKey;
 use axum::{http::StatusCode, response::IntoResponse};
 use thiserror::Error;
 

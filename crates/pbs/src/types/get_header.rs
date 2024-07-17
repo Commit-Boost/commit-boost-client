@@ -1,5 +1,5 @@
-use alloy_primitives::{B256, U256};
-use alloy_rpc_types_beacon::{BlsPublicKey, BlsSignature};
+use alloy::primitives::{B256, U256};
+use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
 use ethereum_types::U256 as EU256;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -64,7 +64,7 @@ impl ExecutionPayloadHeaderMessage {
 
 #[cfg(test)]
 mod tests {
-    use alloy_primitives::U256;
+    use alloy::primitives::U256;
     use cb_common::{signature::verify_signed_builder_message, types::Chain};
 
     use super::GetHeaderReponse;

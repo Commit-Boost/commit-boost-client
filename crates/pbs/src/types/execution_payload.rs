@@ -1,6 +1,6 @@
 use std::usize;
 
-use alloy_primitives::{Address, B256, U256};
+use alloy::primitives::{Address, B256, U256};
 use cb_common::utils::as_str;
 use ethereum_types::{Address as EAddress, U256 as EU256};
 use serde::{Deserialize, Serialize};

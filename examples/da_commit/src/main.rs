@@ -1,19 +1,13 @@
 use std::time::Duration;
 
-use alloy_rpc_types_beacon::{BlsPublicKey, BlsSignature};
-use cb_common::{
-    commit::request::SignRequest,
-    config::{load_module_config, StartModuleConfig},
-    utils::initialize_tracing_log,
-};
-use cb_metrics::sdk::MetricsProvider;
+use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
+use commit_boost::prelude::*;
 use eyre::OptionExt;
 use lazy_static::lazy_static;
 use prometheus::{IntCounter, Registry};
 use serde::Deserialize;
 use tokio::time::sleep;
 use tracing::{error, info};
-use tree_hash_derive::TreeHash;
 
 // You can define custom metrics and a custom registry for the business logic of your module. These
 // will be automatically scaped by the Prometheus server
