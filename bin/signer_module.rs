@@ -1,5 +1,5 @@
 use cb_common::{config::StartSignerConfig, utils::initialize_tracing_log};
-use cb_crypto::service::SigningService;
+use cb_signer::service::SigningService;
 
 #[tokio::main]
 async fn main() {
