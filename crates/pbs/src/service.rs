@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 
-use cb_metrics::sdk::MetricsProvider;
+use cb_metrics::provider::MetricsProvider;
 use prometheus::core::Collector;
 use tokio::net::TcpListener;
 use tracing::{error, info};

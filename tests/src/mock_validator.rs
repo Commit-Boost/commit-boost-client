@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 
-use alloy_primitives::B256;
-use alloy_rpc_types_beacon::{relay::ValidatorRegistration, BlsPublicKey};
+use alloy::primitives::B256;
+use alloy::rpc::types::beacon::{relay::ValidatorRegistration, BlsPublicKey};
 use cb_common::pbs::RelayEntry;
 use cb_pbs::{GetHeaderReponse, SignedBlindedBeaconBlock};
 use reqwest::Error;

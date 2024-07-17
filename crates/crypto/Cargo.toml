@@ -7,8 +7,7 @@ rust-version.workspace = true
 [dependencies]
 cb-common.workspace = true
 
-alloy-primitives.workspace = true
-alloy-rpc-types-beacon.workspace = true
+alloy.workspace = true
 
 serde.workspace = true
 ethereum_ssz.workspace = true

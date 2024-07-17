@@ -10,8 +10,7 @@ cb-pbs.workspace = true
 cb-crypto.workspace = true
 cb-metrics.workspace = true
 
-alloy-primitives.workspace = true
-alloy-rpc-types-beacon.workspace = true
+alloy.workspace = true
 
 tokio.workspace = true
 

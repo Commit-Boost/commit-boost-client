@@ -3,8 +3,8 @@ use std::sync::{
     Arc,
 };
 
-use alloy_primitives::U256;
-use alloy_rpc_types_beacon::relay::ValidatorRegistration;
+use alloy::primitives::U256;
+use alloy::rpc::types::beacon::relay::ValidatorRegistration;
 use axum::{
     extract::{Path, State},
     http::StatusCode,

@@ -1,6 +1,6 @@
 use std::fs;
 
-use alloy_rpc_types_beacon::relay::ValidatorRegistration;
+use alloy::rpc::types::beacon::relay::ValidatorRegistration;
 use cb_pbs::{SignedBlindedBeaconBlock, SubmitBlindedBlockResponse};
 #[test]
 fn test_registrations() {

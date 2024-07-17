@@ -23,7 +23,7 @@ let pubkeys = reqwest::get(url)
     .consensus;```
 Once you'd like to receive a signature to create a commitment, you'd create the request like so:
 ```use serde_json::json;
-use alloy_rpc_types_beacon::BlsSignature
+use alloy::rpc::types::beacon::BlsSignature
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignRequest {

@@ -1,4 +1,4 @@
-use alloy_rpc_types_beacon::relay::ValidatorRegistration;
+use alloy::rpc::types::beacon::relay::ValidatorRegistration;
 use axum::{extract::State, http::HeaderMap, response::IntoResponse, Json};
 use cb_common::utils::get_user_agent;
 use reqwest::StatusCode;

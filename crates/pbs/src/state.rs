@@ -4,8 +4,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use alloy_primitives::B256;
-use alloy_rpc_types_beacon::BlsPublicKey;
+use alloy::primitives::B256;
+use alloy::rpc::types::beacon::BlsPublicKey;
 use axum::http::{HeaderMap, HeaderName, HeaderValue};
 use cb_common::{
     config::{PbsConfig, PbsModuleConfig},

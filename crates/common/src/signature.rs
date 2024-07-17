@@ -1,4 +1,4 @@
-use alloy_rpc_types_beacon::{constants::BLS_DST_SIG, BlsPublicKey, BlsSignature};
+use alloy::rpc::types::beacon::{constants::BLS_DST_SIG, BlsPublicKey, BlsSignature};
 use blst::{
     min_pk::{PublicKey, SecretKey, Signature},
     BLST_ERROR,
