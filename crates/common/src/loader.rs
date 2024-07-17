@@ -1,7 +1,6 @@
 use std::fs;
 
-use alloy_primitives::hex::FromHex;
-use alloy_rpc_types_beacon::BlsPublicKey;
+use alloy::{primitives::hex::FromHex, rpc::types::beacon::BlsPublicKey};
 use eth2_keystore::Keystore;
 use eyre::eyre;
 use serde::{de, Deserialize, Deserializer, Serialize};
@@ -64,8 +63,8 @@ impl<'de> Deserialize<'de> for FileKey {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        let s =
-            alloy_primitives::hex::decode(s.trim_start_matches("0x")).map_err(de::Error::custom)?;
+        let s = alloy::primitives::hex::decode(s.trim_start_matches("0x"))
+            .map_err(de::Error::custom)?;
         let bytes: [u8; 32] = s.try_into().map_err(|_| de::Error::custom("wrong lenght"))?;
 
         Ok(FileKey { secret_key: bytes })

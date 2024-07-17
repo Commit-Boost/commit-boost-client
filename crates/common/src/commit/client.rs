@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use alloy_rpc_types_beacon::{BlsPublicKey, BlsSignature};
+use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use serde::{Deserialize, Serialize};
 

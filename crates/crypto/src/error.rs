@@ -1,4 +1,4 @@
-use alloy_rpc_types_beacon::BlsPublicKey;
+use alloy::rpc::types::beacon::BlsPublicKey;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},

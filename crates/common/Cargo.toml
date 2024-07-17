@@ -5,8 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-alloy-primitives.workspace = true
-alloy-rpc-types-beacon.workspace = true
+alloy = { workspace = true, features = ["ssz"] }
 
 serde.workspace = true
 serde_json.workspace = true

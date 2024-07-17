@@ -1,5 +1,5 @@
-// use alloy_primitives::U256;
-// use alloy_rpc_types_beacon::{BlsPublicKey, BlsSignature};
+// use alloy::primitives::U256;
+// use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
 // use cb_cli::runner::{Runner, SignRequestSender};
 // use cb_common::{config::BuilderConfig, types::Chain};
 // use cb_crypto::{signature::verify_signed_builder_message, types::SignRequest};

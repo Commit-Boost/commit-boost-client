@@ -3,8 +3,10 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use alloy_primitives::U256;
-use alloy_rpc_types_beacon::{BlsPublicKey, BlsSignature};
+use alloy::{
+    primitives::U256,
+    rpc::types::beacon::{BlsPublicKey, BlsSignature},
+};
 use blst::min_pk::{PublicKey, Signature};
 use rand::{distributions::Alphanumeric, Rng};
 use reqwest::header::HeaderMap;
@@ -73,7 +75,7 @@ pub mod as_str {
 }
 
 pub mod as_eth_str {
-    use alloy_primitives::U256;
+    use alloy::primitives::U256;
     use serde::Deserialize;
 
     use super::{eth_to_wei, wei_to_eth};

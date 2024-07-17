@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use alloy_rpc_types_beacon::relay::ValidatorRegistration;
+use alloy::rpc::types::beacon::relay::ValidatorRegistration;
 use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
     pbs::{RelayEntry, HEADER_START_TIME_UNIX_MS},

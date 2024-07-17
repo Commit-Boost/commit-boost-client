@@ -1,4 +1,4 @@
-use alloy_rpc_types_beacon::{BlsPublicKey, BlsSignature};
+use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
 use blst::BLST_ERROR;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};

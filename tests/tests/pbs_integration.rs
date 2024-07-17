@@ -1,7 +1,7 @@
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
-use alloy_primitives::U256;
-use alloy_rpc_types_beacon::BlsPublicKey;
+use alloy::primitives::U256;
+use alloy::rpc::types::beacon::BlsPublicKey;
 use cb_common::{
     config::{PbsConfig, PbsModuleConfig},
     pbs::RelayEntry,
