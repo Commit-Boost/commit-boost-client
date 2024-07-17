@@ -9,9 +9,13 @@ cb-cli.workspace = true
 cb-common.workspace = true
 cb-pbs.workspace = true
 cb-crypto.workspace = true
+cb-metrics.workspace = true
 
 tokio.workspace = true
 async-trait.workspace = true
+
+tree_hash.workspace = true
+tree_hash_derive.workspace = true
 
 serde_json.workspace = true
 
