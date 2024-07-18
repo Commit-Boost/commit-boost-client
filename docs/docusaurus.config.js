@@ -45,7 +45,7 @@ const config = {
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.
           editUrl:
-            'https://github.com/Commit-Boost/commit-boost-client/website/',
+            'https://github.com/Commit-Boost/commit-boost-client/tree/main/docs/',
         },
         blog: false,
         theme: {
