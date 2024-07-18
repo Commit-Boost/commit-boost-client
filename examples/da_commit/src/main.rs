@@ -9,8 +9,8 @@ use serde::Deserialize;
 use tokio::time::sleep;
 use tracing::{error, info};
 
-// You can define custom metrics and a custom registry for the business logic of your module. These
-// will be automatically scaped by the Prometheus server
+// You can define custom metrics and a custom registry for the business logic of
+// your module. These will be automatically scaped by the Prometheus server
 lazy_static! {
     pub static ref MY_CUSTOM_REGISTRY: prometheus::Registry =
         Registry::new_custom(Some("da_commit".to_string()), None).unwrap();
@@ -27,9 +27,9 @@ struct DaCommitService {
     config: StartModuleConfig<ExtraConfig>,
 }
 
-// Extra configurations parameters can be set here and will be automatically parsed from the
-// .config.toml file These parameters will be in the .extra field of the
-// StartModuleConfig<ExtraConfig> struct you get after calling
+// Extra configurations parameters can be set here and will be automatically
+// parsed from the .config.toml file These parameters will be in the .extra
+// field of the StartModuleConfig<ExtraConfig> struct you get after calling
 // `load_module_config::<ExtraConfig>()`
 #[derive(Debug, Deserialize)]
 struct ExtraConfig {
@@ -38,8 +38,8 @@ struct ExtraConfig {
 
 impl DaCommitService {
     pub async fn run(self) -> eyre::Result<()> {
-        // the config has the signer_client already setup, we can use it to interact with the Signer
-        // API
+        // the config has the signer_client already setup, we can use it to interact
+        // with the Signer API
         let pubkeys = self.config.signer_client.get_pubkeys().await?;
         info!(consensus = pubkeys.consensus.len(), proxy = pubkeys.proxy.len(), "Received pubkeys");
 
@@ -58,7 +58,6 @@ impl DaCommitService {
     pub async fn send_request(&self, data: u64, pubkey: BlsPublicKey) -> eyre::Result<()> {
         let datagram = Datagram { data };
         let request = SignRequest::builder(&self.config.id, pubkey).with_msg(&datagram);
-
         let signature = self.config.signer_client.request_signature(&request).await?;
 
         info!("Proposer commitment: {}", pretty_print_sig(signature));
