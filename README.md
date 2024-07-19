@@ -1,62 +1,76 @@
 # Commit-Boost
 
-### Note
-- The code is unaudited and NOT ready for production
+A new Ethereum validator sidecar focused on standardizing the last mile of communication between validators and third-party protocols.
 
-## Dependencies
-- Docker
+[Docs](https://commit-boost.github.io/commit-boost-client/) | 
+[Twitter](https://x.com/Commit_Boost)
 
-## Usage
-### Overview
-Commit Boost currently has a "container-centric" approach, i.e. services are mapped to containers which are spawned using docker compose.
+## Overview
+Commit-Boost is a modular sidecar that allows Ethereum validators to opt-in to different commitment protocols
 
-There are currently two modules that are provided by commit boost:
-- the pbs module (implements the [BuilderAPI](https://ethereum.github.io/builder-specs/) for [MEV Boost](https://docs.flashbots.net/flashbots-mev-boost/architecture-overview/specifications))
-- the signer module (implements the [Signer API](api/signer-api.yml))
+### For node operators
+- Run a single sidecar with support for MEV-Boost and other proposer commitments protocols, such as preconfirmations and inclusion lists
+- Out-of-the-box support for metrics reporting and dashboards to have clear insight into what is happening in your validator
+- Plug-in system to add custom modules, e.g. receive a notification on Telegram if a relay fails to deliver a block
 
-While in development you have to build them manually as Commit Boost will search for the images to run, eventually we'll provide images to pull from the Docker registry. You can do so by running [this script](scripts/build_local_images.sh).
+For more information on how to run Commit-Boost, check out our [docs](https://commit-boost.github.io/commit-boost-client/get_started/overview).
 
-Commit Boost also supports "Commit Modules", which are modules that leverage the Signer API to request signatures from the proposer. You can find an example [here](examples/da_commit). Commit Modules also need to be built as docker images and specified in the config file. You can build the local example by running [this script](scripts/build_local_module.sh).
+### For developers
+- A modular platform to develop and distribute proposer commitments protocols
+- A single API to interact with validators
+- Support for hard-forks and new protocol requirements
 
-Note: because Commit Boost currently uses Docker underneath, if you require `sudo` to interact with Docker, you will need `sudo` to launch some Commit Boost commands.
+For more information on how to develop a module on Commit-Boost, check out our [docs](https://commit-boost.github.io/commit-boost-client/category/developing).
 
-### Config
-The main config file is a `.toml` which specifies how modules should be built, and their configs. Full specifations are WIP. You can find an example [here](./config.example.toml)
+### Example
+> **_NOTE:_**  The code is unaudited and NOT ready for production. All APIs are subject to change
 
-### Running
+A basic commit module with Commit-Boost.
 
-#### Init
-Use this command to setup the Docker Compose file that will be used to run the services. For example:
-```shell
-./target/debug/commit-boost init --config config.example.toml
-```
-This will create three files:
-- `cb.docker-compose.yml`, used to start services
-- `.cb.env`, with local env variables to be loaded at runtime
-- `targets.json`, used by prometheus to dynamically discover metrics servers
+Add the `commit-boost` crate to your `Cargo.toml`:
 
-#### Start
-Once the `init` is done, you can start Commit Boost with `start`. For example:
-```shell
-./target/debug/commit-boost start --docker cb.docker-compose.yml --env .cb.env
+```toml
+commit-boost = { git = "https://github.com/Commit-Boost/commit-boost-client", rev = "..." }
 ```
 
-#### Stop
-```shell
-./target/debug/commit-boost stop --docker cb.docker-compose.yml --env .cb.env
+Then in `main.rs`:
+
+```rust
+use commit_boost::prelude::*;
+
+#[derive(Debug, TreeHash)]
+struct Datagram {
+    data: u64,
+}
+
+#[tokio::main]
+async fn main() {
+    let config = load_module_config::<()>().unwrap();
+    let pubkeys = config.signer_client.get_pubkeys().await.unwrap();
+
+    let pubkey = *pubkeys.consensus.first().unwrap();
+
+    let datagram = Datagram { data: 42 };
+    let request = SignRequest::builder(config.id, pubkey).with_msg(&datagram);
+    let signature = config
+        .signer_client
+        .request_signature(&request)
+        .await
+        .unwrap();
+
+    println!("Data: {datagram:?} - Commitment: {signature}");
+}
 ```
 
-#### Logs
-To listen to logs:
-```shell
-./target/debug/commit-boost stop --docker cb.docker-compose.yml --env .cb.env
+Finally, create a Docker image with your binary, e.g. `my_commit_module`, and add it to the `cb-config.toml` file:
+
+```toml
+[[modules]]
+id = "MY_MODULE"
+docker_image = "my_commit_module"
 ```
 
-
-TODO:
-- how services are started with configs
-- describe metrics
-
+For a more detailed example check out [here](/examples/da_commit) and our docs on how to [setup Commit-Boost](https://commit-boost.github.io/commit-boost-client/get_started/overview) for development.
 
 ## Acknowledgements
 - [MEV boost](https://github.com/flashbots/mev-boost)
