@@ -37,7 +37,7 @@ git clone https://github.com/Commit-Boost/commit-boost-client
 
 Now you can build the CLI with:
 ```bash
-cargo build --release --p commit-boost
+cargo build --release -p commit-boost
 ```
 
 :::note
