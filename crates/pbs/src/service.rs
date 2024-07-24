@@ -7,7 +7,7 @@ use tracing::{error, info};
 
 use crate::{
     boost::BuilderApi,
-    metrics::{register_default_metrics, PBS_METRICS_REGISTRY},
+    metrics::PBS_METRICS_REGISTRY,
     routes::create_app_router,
     state::{BuilderApiState, PbsState},
 };
@@ -39,7 +39,6 @@ impl PbsService {
     }
 
     pub fn init_metrics() {
-        register_default_metrics();
         MetricsProvider::load_and_run(PBS_METRICS_REGISTRY.clone());
     }
 

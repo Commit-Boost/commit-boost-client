@@ -6,8 +6,9 @@ use uuid::Uuid;
 
 use crate::{
     boost::BuilderApi,
+    constants::SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG,
     error::PbsClientError,
-    metrics::REQUESTS_RECEIVED,
+    metrics::BEACON_NODE_STATUS,
     state::{BuilderApiState, PbsState},
     types::SignedBlindedBeaconBlock,
     BuilderEvent,
@@ -20,7 +21,6 @@ pub async fn handle_submit_block<S: BuilderApiState, T: BuilderApi<S>>(
     req_headers: HeaderMap,
     Json(signed_blinded_block): Json<SignedBlindedBeaconBlock>,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    REQUESTS_RECEIVED.with_label_values(&["submit_block"]).inc();
     state.publish_event(BuilderEvent::SubmitBlockRequest(Box::new(signed_blinded_block.clone())));
 
     let req_id = Uuid::new_v4();
@@ -42,6 +42,8 @@ pub async fn handle_submit_block<S: BuilderApiState, T: BuilderApi<S>>(
             state.publish_event(BuilderEvent::SubmitBlockResponse(Box::new(res.clone())));
 
             info!(method="submit_block", %req_id, "received unblinded block");
+
+            BEACON_NODE_STATUS.with_label_values(&["200", SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG]).inc();
             Ok((StatusCode::OK, Json(res).into_response()))
         }
 
@@ -69,7 +71,11 @@ pub async fn handle_submit_block<S: BuilderApiState, T: BuilderApi<S>>(
                 });
             };
 
-            Err(PbsClientError::NoPayload)
+            let err = PbsClientError::NoPayload;
+            BEACON_NODE_STATUS
+                .with_label_values(&[err.status_code().as_str(), SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG])
+                .inc();
+            Err(err)
         }
     }
 }
