@@ -108,12 +108,7 @@ pub fn initialize_tracing_log() {
         Level::INFO
     };
 
-    tracing_subscriber::fmt()
-        .compact()
-        .with_max_level(level)
-        .with_target(true)
-        .with_file(true)
-        .init();
+    tracing_subscriber::fmt().compact().with_max_level(level).with_target(true).init();
 }
 
 pub fn print_logo() {

@@ -1,9 +1,10 @@
-use std::time::Duration;
+use std::{ops::Mul, time::Duration};
 
 use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{pbs::RelayEntry, utils::get_user_agent};
 use futures::future::select_ok;
 use reqwest::header::USER_AGENT;
+use tracing::{debug, error};
 
 use crate::{
     constants::STATUS_ENDPOINT_TAG,
@@ -24,9 +25,8 @@ pub async fn get_status<S: BuilderApiState>(
         Ok(())
     } else {
         // prepare headers
-        let ua = get_user_agent(&req_headers);
         let mut send_headers = HeaderMap::new();
-        if let Some(ua) = ua {
+        if let Some(ua) = get_user_agent(&req_headers) {
             send_headers.insert(USER_AGENT, HeaderValue::from_str(&ua)?);
         }
 
@@ -49,6 +49,7 @@ pub async fn get_status<S: BuilderApiState>(
     }
 }
 
+#[tracing::instrument(skip_all, name = "handler", fields(relay_id = relay.id))]
 async fn send_relay_check(
     headers: HeaderMap,
     relay: RelayEntry,
@@ -58,18 +59,23 @@ async fn send_relay_check(
 
     let timer = RELAY_LATENCY.with_label_values(&[STATUS_ENDPOINT_TAG, &relay.id]).start_timer();
     let res = client.get(url).timeout(Duration::from_secs(30)).headers(headers).send().await?;
-    timer.observe_duration();
+    let latency_ms = timer.stop_and_record().mul(1000.0).ceil() as u64;
 
-    let status = res.status();
-    RELAY_STATUS_CODE.with_label_values(&[status.as_str(), STATUS_ENDPOINT_TAG, &relay.id]).inc();
+    let code = res.status();
+    RELAY_STATUS_CODE.with_label_values(&[code.as_str(), STATUS_ENDPOINT_TAG, &relay.id]).inc();
 
     let response_bytes = res.bytes().await?;
-    if !status.is_success() {
-        return Err(PbsError::RelayResponse {
+    if !code.is_success() {
+        let err = PbsError::RelayResponse {
             error_msg: String::from_utf8_lossy(&response_bytes).into_owned(),
-            code: status.as_u16(),
-        })
+            code: code.as_u16(),
+        };
+
+        error!(?err, "status failed");
+        return Err(err)
     };
+
+    debug!(?code, latency_ms, "status passed");
 
     Ok(())
 }
