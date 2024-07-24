@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{ops::Mul, sync::Arc, time::Duration};
 
 use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
@@ -8,7 +8,7 @@ use cb_common::{
 };
 use futures::future::select_ok;
 use reqwest::header::USER_AGENT;
-use tracing::warn;
+use tracing::{debug, error};
 
 use crate::{
     constants::SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG,
@@ -24,24 +24,14 @@ pub async fn submit_block<S: BuilderApiState>(
     req_headers: HeaderMap,
     state: PbsState<S>,
 ) -> eyre::Result<SubmitBlindedBlockResponse> {
-    let (slot, slot_uuid) = state.get_slot_and_uuid();
-    let mut send_headers = HeaderMap::new();
-
-    if slot != signed_blinded_block.message.slot {
-        warn!(
-            expected = slot,
-            got = signed_blinded_block.message.slot,
-            "blinded beacon slot mismatch"
-        );
-    } else {
-        send_headers.insert(HEADER_SLOT_UUID_KEY, HeaderValue::from_str(&slot_uuid.to_string())?);
-    }
+    let (_, slot_uuid) = state.get_slot_and_uuid();
 
     // prepare headers
-    let ua = get_user_agent(&req_headers);
+    let mut send_headers = HeaderMap::new();
+    send_headers.insert(HEADER_SLOT_UUID_KEY, HeaderValue::from_str(&slot_uuid.to_string())?);
     send_headers
         .insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from_str(&utcnow_ms().to_string())?);
-    if let Some(ua) = ua {
+    if let Some(ua) = get_user_agent(&req_headers) {
         send_headers.insert(USER_AGENT, HeaderValue::from_str(&ua)?);
     }
 
@@ -66,6 +56,7 @@ pub async fn submit_block<S: BuilderApiState>(
 
 // submits blinded signed block and expects the execution payload + blobs bundle
 // back
+#[tracing::instrument(skip_all, name = "handler", fields(relay_id = relay.id))]
 async fn send_submit_block(
     headers: HeaderMap,
     relay: RelayEntry,
@@ -85,22 +76,32 @@ async fn send_submit_block(
         .json(&signed_blinded_block)
         .send()
         .await?;
-    timer.observe_duration();
+    let latency_ms = timer.stop_and_record().mul(1000.0).ceil() as u64;
 
-    let status = res.status();
+    let code = res.status();
     RELAY_STATUS_CODE
-        .with_label_values(&[status.as_str(), SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG, &relay.id])
+        .with_label_values(&[code.as_str(), SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG, &relay.id])
         .inc();
 
     let response_bytes = res.bytes().await?;
-    if !status.is_success() {
-        return Err(PbsError::RelayResponse {
+    if !code.is_success() {
+        let err = PbsError::RelayResponse {
             error_msg: String::from_utf8_lossy(&response_bytes).into_owned(),
-            code: status.as_u16(),
-        })
+            code: code.as_u16(),
+        };
+
+        error!(?err, "failed submit block");
+        return Err(err)
     };
 
     let block_response: SubmitBlindedBlockResponse = serde_json::from_slice(&response_bytes)?;
+
+    debug!(
+        ?code,
+        latency_ms,
+        block_hash = %block_response.block_hash(),
+        "received unblinded block"
+    );
 
     if signed_blinded_block.block_hash() != block_response.block_hash() {
         return Err(PbsError::Validation(ValidationError::BlockHashMismatch {

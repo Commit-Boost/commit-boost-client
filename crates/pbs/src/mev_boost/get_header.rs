@@ -1,7 +1,7 @@
-use std::{sync::Arc, time::Duration};
+use std::{ops::Mul, sync::Arc, time::Duration};
 
 use alloy::{
-    primitives::{B256, U256},
+    primitives::{utils::format_ether, B256, U256},
     rpc::types::beacon::BlsPublicKey,
 };
 use axum::http::{HeaderMap, HeaderValue};
@@ -10,7 +10,7 @@ use cb_common::{
     pbs::{RelayEntry, HEADER_SLOT_UUID_KEY, HEADER_START_TIME_UNIX_MS},
     signature::verify_signed_builder_message,
     types::Chain,
-    utils::{get_user_agent, utcnow_ms, wei_to_eth},
+    utils::{get_user_agent, utcnow_ms},
 };
 use futures::future::join_all;
 use reqwest::{header::USER_AGENT, StatusCode};
@@ -36,12 +36,11 @@ pub async fn get_header<S: BuilderApiState>(
     let slot_uuid = state.get_or_update_slot_uuid(slot);
 
     // prepare headers
-    let ua = get_user_agent(&req_headers);
     let mut send_headers = HeaderMap::new();
     send_headers.insert(HEADER_SLOT_UUID_KEY, HeaderValue::from_str(&slot_uuid.to_string())?);
     send_headers
         .insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from_str(&utcnow_ms().to_string())?);
-    if let Some(ua) = ua {
+    if let Some(ua) = get_user_agent(&req_headers) {
         send_headers.insert(USER_AGENT, HeaderValue::from_str(&ua)?);
     }
 
@@ -75,6 +74,7 @@ pub async fn get_header<S: BuilderApiState>(
     Ok(state.add_bids(slot, relay_bids))
 }
 
+#[tracing::instrument(skip_all, name = "handler", fields(relay_id = relay.id))]
 async fn send_get_header(
     headers: HeaderMap,
     slot: u64,
@@ -95,34 +95,38 @@ async fn send_get_header(
         .headers(headers)
         .send()
         .await?;
-    timer.observe_duration();
+    let latency_ms = timer.stop_and_record().mul(1000.0).ceil() as u64;
 
-    let status = res.status();
-    RELAY_STATUS_CODE
-        .with_label_values(&[status.as_str(), GET_HEADER_ENDPOINT_TAG, &relay.id])
-        .inc();
+    let code = res.status();
+    RELAY_STATUS_CODE.with_label_values(&[code.as_str(), GET_HEADER_ENDPOINT_TAG, &relay.id]).inc();
 
     let response_bytes = res.bytes().await?;
-    if !status.is_success() {
+    if !code.is_success() {
         return Err(PbsError::RelayResponse {
             error_msg: String::from_utf8_lossy(&response_bytes).into_owned(),
-            code: status.as_u16(),
+            code: code.as_u16(),
         });
     };
 
-    debug!(
-        method = "get_header",
-        relay = relay.id,
-        code = status.as_u16(),
-        response = ?response_bytes,
-        "received response"
-    );
-
-    if status == StatusCode::NO_CONTENT {
+    if code == StatusCode::NO_CONTENT {
+        debug!(
+            ?code,
+            latency_ms,
+            response = ?response_bytes,
+            "no header from relay"
+        );
         return Ok(None)
     }
 
     let get_header_response: GetHeaderReponse = serde_json::from_slice(&response_bytes)?;
+
+    debug!(
+        ?code,
+        latency_ms,
+        block_hash = %get_header_response.block_hash(),
+        value_eth = format_ether(get_header_response.value()),
+        "received new header"
+    );
 
     validate_header(
         &get_header_response.data,
@@ -146,11 +150,8 @@ fn validate_header(
 ) -> Result<(), ValidationError> {
     let block_hash = signed_header.message.header.block_hash;
     let relay_pubkey = signed_header.message.pubkey;
-    let block_number = signed_header.message.header.block_number;
     let tx_root = signed_header.message.header.transactions_root;
     let value = signed_header.message.value();
-
-    debug!(block_number, %block_hash, %tx_root, value_eth=wei_to_eth(&value), "received relay bid");
 
     if block_hash == B256::ZERO {
         return Err(ValidationError::EmptyBlockhash)
