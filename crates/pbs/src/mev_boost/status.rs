@@ -6,13 +6,15 @@ use futures::future::select_ok;
 use reqwest::header::USER_AGENT;
 
 use crate::{
+    constants::STATUS_ENDPOINT_TAG,
     error::PbsError,
-    metrics::{RELAY_RESPONSES, RELAY_RESPONSE_TIME},
+    metrics::{RELAY_LATENCY, RELAY_STATUS_CODE},
     state::{BuilderApiState, PbsState},
 };
 
 /// Implements https://ethereum.github.io/builder-specs/#/Builder/status
-/// Broadcasts a status check to all relays and returns 200 if at least one relay returns 200
+/// Broadcasts a status check to all relays and returns 200 if at least one
+/// relay returns 200
 pub async fn get_status<S: BuilderApiState>(
     req_headers: HeaderMap,
     state: PbsState<S>,
@@ -54,12 +56,12 @@ async fn send_relay_check(
 ) -> Result<(), PbsError> {
     let url = relay.get_status_url();
 
-    let timer = RELAY_RESPONSE_TIME.with_label_values(&["get_status", &relay.id]).start_timer();
+    let timer = RELAY_LATENCY.with_label_values(&[STATUS_ENDPOINT_TAG, &relay.id]).start_timer();
     let res = client.get(url).timeout(Duration::from_secs(30)).headers(headers).send().await?;
     timer.observe_duration();
 
     let status = res.status();
-    RELAY_RESPONSES.with_label_values(&[&status.to_string(), "get_status", &relay.id]).inc();
+    RELAY_STATUS_CODE.with_label_values(&[status.as_str(), STATUS_ENDPOINT_TAG, &relay.id]).inc();
 
     let response_bytes = res.bytes().await?;
     if !status.is_success() {

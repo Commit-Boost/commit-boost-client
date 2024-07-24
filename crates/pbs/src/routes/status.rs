@@ -6,8 +6,9 @@ use uuid::Uuid;
 
 use crate::{
     boost::BuilderApi,
+    constants::STATUS_ENDPOINT_TAG,
     error::PbsClientError,
-    metrics::REQUESTS_RECEIVED,
+    metrics::BEACON_NODE_STATUS,
     state::{BuilderApiState, PbsState},
     BuilderEvent,
 };
@@ -17,7 +18,7 @@ pub async fn handle_get_status<S: BuilderApiState, T: BuilderApi<S>>(
     State(state): State<PbsState<S>>,
 ) -> Result<impl IntoResponse, PbsClientError> {
     let req_id = Uuid::new_v4();
-    REQUESTS_RECEIVED.with_label_values(&["get_status"]).inc();
+
     state.publish_event(BuilderEvent::GetStatusEvent);
 
     let ua = get_user_agent(&req_headers);
@@ -28,11 +29,16 @@ pub async fn handle_get_status<S: BuilderApiState, T: BuilderApi<S>>(
         Ok(_) => {
             state.publish_event(BuilderEvent::GetStatusResponse);
             info!(method = "get_status", %req_id, "relay check successful");
+            BEACON_NODE_STATUS.with_label_values(&["200", STATUS_ENDPOINT_TAG]).inc();
             Ok(StatusCode::OK)
         }
         Err(err) => {
             error!(method = "get_status", %req_id, ?err, "all relays failed get_status");
-            Err(PbsClientError::NoResponse)
+            let err = PbsClientError::NoResponse;
+            BEACON_NODE_STATUS
+                .with_label_values(&[err.status_code().as_str(), STATUS_ENDPOINT_TAG])
+                .inc();
+            Err(err)
         }
     }
 }

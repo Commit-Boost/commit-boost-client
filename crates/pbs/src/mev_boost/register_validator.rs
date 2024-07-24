@@ -11,8 +11,9 @@ use reqwest::header::USER_AGENT;
 use tracing::error;
 
 use crate::{
+    constants::REGISTER_VALIDATOR_ENDPOINT_TAG,
     error::PbsError,
-    metrics::{RELAY_RESPONSES, RELAY_RESPONSE_TIME},
+    metrics::{RELAY_LATENCY, RELAY_STATUS_CODE},
     state::{BuilderApiState, PbsState},
 };
 
@@ -62,8 +63,9 @@ async fn send_register_validator(
 ) -> Result<(), PbsError> {
     let url = relay.register_validator_url();
 
-    let timer =
-        RELAY_RESPONSE_TIME.with_label_values(&["register_validator", &relay.id]).start_timer();
+    let timer = RELAY_LATENCY
+        .with_label_values(&[REGISTER_VALIDATOR_ENDPOINT_TAG, &relay.id])
+        .start_timer();
     let res = client
         .post(url)
         .timeout(Duration::from_millis(timeout_ms))
@@ -76,7 +78,9 @@ async fn send_register_validator(
     // TODO: send to relay monitor
 
     let status = res.status();
-    RELAY_RESPONSES.with_label_values(&[&status.to_string(), "get_header", &relay.id]).inc();
+    RELAY_STATUS_CODE
+        .with_label_values(&[status.as_str(), REGISTER_VALIDATOR_ENDPOINT_TAG, &relay.id])
+        .inc();
 
     let response_bytes = res.bytes().await?;
     if !status.is_success() {
