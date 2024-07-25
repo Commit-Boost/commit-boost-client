@@ -1,7 +1,7 @@
 use axum::{extract::State, http::HeaderMap, response::IntoResponse, Json};
 use cb_common::utils::{get_user_agent, timestamp_of_slot_start_millis, utcnow_ms};
 use reqwest::StatusCode;
-use tracing::{error, info, warn};
+use tracing::{error, info, trace, warn};
 use uuid::Uuid;
 
 use crate::{
@@ -14,16 +14,15 @@ use crate::{
     BuilderEvent,
 };
 
-/// Implements https://ethereum.github.io/builder-specs/#/Builder/submitBlindedBlock
-/// Returns error if the corresponding is not delivered by any relay
+#[tracing::instrument(skip_all, name = "submit_blinded_block", fields(req_id = %Uuid::new_v4(), slot = signed_blinded_block.message.slot))]
 pub async fn handle_submit_block<S: BuilderApiState, T: BuilderApi<S>>(
     State(state): State<PbsState<S>>,
     req_headers: HeaderMap,
     Json(signed_blinded_block): Json<SignedBlindedBeaconBlock>,
 ) -> Result<impl IntoResponse, PbsClientError> {
+    trace!(?signed_blinded_block);
     state.publish_event(BuilderEvent::SubmitBlockRequest(Box::new(signed_blinded_block.clone())));
 
-    let req_id = Uuid::new_v4();
     let now = utcnow_ms();
     let slot = signed_blinded_block.message.slot;
     let block_hash = signed_blinded_block.message.body.execution_payload_header.block_hash;
@@ -31,17 +30,17 @@ pub async fn handle_submit_block<S: BuilderApiState, T: BuilderApi<S>>(
     let ua = get_user_agent(&req_headers);
     let (curr_slot, slot_uuid) = state.get_slot_and_uuid();
 
-    info!(method = "submit_block", %req_id, ?ua, slot, %slot_uuid, ms_into_slot=now.saturating_sub(slot_start_ms), %block_hash);
+    info!(?ua, %slot_uuid, ms_into_slot=now.saturating_sub(slot_start_ms), %block_hash);
 
     if curr_slot != signed_blinded_block.message.slot {
-        warn!(%req_id, expected = curr_slot, got = slot, "blinded beacon slot mismatch")
+        warn!(expected = curr_slot, got = slot, "blinded beacon slot mismatch")
     }
 
     match T::submit_block(signed_blinded_block, req_headers, state.clone()).await {
         Ok(res) => {
+            trace!(?res);
             state.publish_event(BuilderEvent::SubmitBlockResponse(Box::new(res.clone())));
-
-            info!(method="submit_block", %req_id, "received unblinded block");
+            info!("received unblinded block");
 
             BEACON_NODE_STATUS.with_label_values(&["200", SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG]).inc();
             Ok((StatusCode::OK, Json(res).into_response()))
@@ -57,14 +56,13 @@ pub async fn handle_submit_block<S: BuilderApiState, T: BuilderApi<S>>(
                     .collect::<Vec<_>>()
                     .join(",");
 
-                error!(method="submit_block", %req_id, ?err, %block_hash, ?fault_relays, "CRITICAL: no payload received from relays");
-
+                error!(?err, %block_hash, fault_relays, "CRITICAL: no payload received from relays");
                 state.publish_event(BuilderEvent::MissedPayload {
                     block_hash,
                     relays: fault_relays,
                 });
             } else {
-                error!(method="submit_block", %req_id, ?err, %slot_uuid, %block_hash, "CRITICAL: no payload delivered and no relay for block hash. Was getHeader even called?");
+                error!(?err, %block_hash, "CRITICAL: no payload delivered and no relay for block hash. Was getHeader even called?");
                 state.publish_event(BuilderEvent::MissedPayload {
                     block_hash,
                     relays: String::default(),
