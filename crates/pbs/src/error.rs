@@ -1,5 +1,7 @@
-use alloy::primitives::{B256, U256};
-use alloy::rpc::types::beacon::BlsPublicKey;
+use alloy::{
+    primitives::{B256, U256},
+    rpc::types::beacon::BlsPublicKey,
+};
 use axum::{http::StatusCode, response::IntoResponse};
 use thiserror::Error;
 
@@ -10,16 +12,23 @@ pub enum PbsClientError {
     NoPayload,
 }
 
+impl PbsClientError {
+    pub fn status_code(&self) -> StatusCode {
+        match self {
+            PbsClientError::NoResponse => StatusCode::SERVICE_UNAVAILABLE,
+            PbsClientError::NoPayload => StatusCode::BAD_GATEWAY,
+        }
+    }
+}
+
 impl IntoResponse for PbsClientError {
     fn into_response(self) -> axum::response::Response {
-        match self {
-            PbsClientError::NoResponse => {
-                (StatusCode::SERVICE_UNAVAILABLE, "no response from relays").into_response()
-            }
-            PbsClientError::NoPayload => {
-                (StatusCode::BAD_GATEWAY, "no payload from relays").into_response()
-            }
-        }
+        let msg = match self {
+            PbsClientError::NoResponse => "no response from relays",
+            PbsClientError::NoPayload => "no payload from relays",
+        };
+
+        (self.status_code(), msg).into_response()
     }
 }
 

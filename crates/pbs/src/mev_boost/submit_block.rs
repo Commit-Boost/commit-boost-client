@@ -11,8 +11,9 @@ use reqwest::header::USER_AGENT;
 use tracing::warn;
 
 use crate::{
+    constants::SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG,
     error::{PbsError, ValidationError},
-    metrics::{RELAY_RESPONSES, RELAY_RESPONSE_TIME},
+    metrics::{RELAY_LATENCY, RELAY_STATUS_CODE},
     state::{BuilderApiState, PbsState},
     types::{SignedBlindedBeaconBlock, SubmitBlindedBlockResponse},
 };
@@ -63,7 +64,8 @@ pub async fn submit_block<S: BuilderApiState>(
     }
 }
 
-// submits blinded signed block and expects the execution payload + blobs bundle back
+// submits blinded signed block and expects the execution payload + blobs bundle
+// back
 async fn send_submit_block(
     headers: HeaderMap,
     relay: RelayEntry,
@@ -73,7 +75,9 @@ async fn send_submit_block(
 ) -> Result<SubmitBlindedBlockResponse, PbsError> {
     let url = relay.submit_block_url();
 
-    let timer = RELAY_RESPONSE_TIME.with_label_values(&["submit_block", &relay.id]).start_timer();
+    let timer = RELAY_LATENCY
+        .with_label_values(&[SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG, &relay.id])
+        .start_timer();
     let res = client
         .post(url)
         .timeout(Duration::from_millis(config.timeout_get_payload_ms))
@@ -84,7 +88,9 @@ async fn send_submit_block(
     timer.observe_duration();
 
     let status = res.status();
-    RELAY_RESPONSES.with_label_values(&[&status.to_string(), "submit_block", &relay.id]).inc();
+    RELAY_STATUS_CODE
+        .with_label_values(&[status.as_str(), SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG, &relay.id])
+        .inc();
 
     let response_bytes = res.bytes().await?;
     if !status.is_success() {

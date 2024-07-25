@@ -1,7 +1,9 @@
 use std::{sync::Arc, time::Duration};
 
-use alloy::primitives::{B256, U256};
-use alloy::rpc::types::beacon::BlsPublicKey;
+use alloy::{
+    primitives::{B256, U256},
+    rpc::types::beacon::BlsPublicKey,
+};
 use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
     config::PbsConfig,
@@ -15,8 +17,9 @@ use reqwest::{header::USER_AGENT, StatusCode};
 use tracing::{debug, error};
 
 use crate::{
+    constants::GET_HEADER_ENDPOINT_TAG,
     error::{PbsError, ValidationError},
-    metrics::{RELAY_RESPONSES, RELAY_RESPONSE_TIME},
+    metrics::{RELAY_LATENCY, RELAY_STATUS_CODE},
     state::{BuilderApiState, PbsState},
     types::{SignedExecutionPayloadHeader, EMPTY_TX_ROOT_HASH},
     GetHeaderParams, GetHeaderReponse,
@@ -84,7 +87,8 @@ async fn send_get_header(
 ) -> Result<Option<GetHeaderReponse>, PbsError> {
     let url = relay.get_header_url(slot, parent_hash, validator_pubkey);
 
-    let timer = RELAY_RESPONSE_TIME.with_label_values(&["get_header", &relay.id]).start_timer();
+    let timer =
+        RELAY_LATENCY.with_label_values(&[GET_HEADER_ENDPOINT_TAG, &relay.id]).start_timer();
     let res = client
         .get(url)
         .timeout(Duration::from_millis(config.timeout_get_header_ms))
@@ -94,7 +98,9 @@ async fn send_get_header(
     timer.observe_duration();
 
     let status = res.status();
-    RELAY_RESPONSES.with_label_values(&[&status.to_string(), "get_header", &relay.id]).inc();
+    RELAY_STATUS_CODE
+        .with_label_values(&[status.as_str(), GET_HEADER_ENDPOINT_TAG, &relay.id])
+        .inc();
 
     let response_bytes = res.bytes().await?;
     if !status.is_success() {
@@ -184,8 +190,10 @@ fn validate_header(
 
 #[cfg(test)]
 mod tests {
-    use alloy::primitives::{B256, U256};
-    use alloy::rpc::types::beacon::BlsPublicKey;
+    use alloy::{
+        primitives::{B256, U256},
+        rpc::types::beacon::BlsPublicKey,
+    };
     use blst::min_pk;
     use cb_common::{pbs::RelayEntry, signature::sign_builder_message, types::Chain};
 

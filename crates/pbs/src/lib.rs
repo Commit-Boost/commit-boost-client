@@ -1,6 +1,7 @@
 // implements https://github.com/ethereum/builder-specs and multiplexes to multiple builderAPI compatible clients (ie MEV Boost relays)
 
 mod boost;
+mod constants;
 mod error;
 mod metrics;
 mod mev_boost;
