@@ -1,7 +1,4 @@
-use std::{
-    str::FromStr,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use alloy::{
     primitives::U256,
@@ -10,7 +7,7 @@ use alloy::{
 use blst::min_pk::{PublicKey, Signature};
 use rand::{distributions::Alphanumeric, Rng};
 use reqwest::header::HeaderMap;
-use tracing::Level;
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 use crate::types::Chain;
 
@@ -101,14 +98,20 @@ pub mod as_eth_str {
 // TODO: more customized logging + logging guard
 pub fn initialize_tracing_log() {
     let level_env = std::env::var("RUST_LOG").unwrap_or("info".to_owned());
-    let level = if let Ok(level) = Level::from_str(&level_env) {
-        level
-    } else {
-        eprint!("Invalid log level {}, defaulting to info", level_env);
-        Level::INFO
+
+    let filter = match level_env.parse::<EnvFilter>() {
+        Ok(f) => f,
+        Err(_) => {
+            eprintln!("Invalid RUST_LOG value {}, defaulting to info", level_env);
+            EnvFilter::new("info")
+        }
     };
 
-    tracing_subscriber::fmt().with_max_level(level).with_target(false).init();
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(fmt::layer().with_target(false))
+        .try_init()
+        .unwrap();
 }
 
 pub fn print_logo() {
