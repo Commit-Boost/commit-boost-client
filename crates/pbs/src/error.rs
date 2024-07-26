@@ -43,7 +43,7 @@ pub enum PbsError {
     #[error("serde decode error: {0}")]
     SerdeDecodeError(#[from] serde_json::Error),
 
-    #[error("relay response error. Code: {code}, text: {error_msg}")]
+    #[error("relay response error. Code: {code}, err: {error_msg}")]
     RelayResponse { error_msg: String, code: u16 },
 
     #[error("failed validating relay response: {0}")]

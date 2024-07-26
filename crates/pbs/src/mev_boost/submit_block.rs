@@ -8,7 +8,7 @@ use cb_common::{
 };
 use futures::future::select_ok;
 use reqwest::header::USER_AGENT;
-use tracing::{debug, error};
+use tracing::{debug, warn};
 
 use crate::{
     constants::SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG,
@@ -90,14 +90,14 @@ async fn send_submit_block(
             code: code.as_u16(),
         };
 
-        error!(?err, "failed submit block");
+        // we request payload to all relays, but some may have not received it
+        warn!(?err, "failed to get payload (this might be ok if other relays have it)");
         return Err(err)
     };
 
     let block_response: SubmitBlindedBlockResponse = serde_json::from_slice(&response_bytes)?;
 
     debug!(
-        ?code,
         latency_ms,
         block_hash = %block_response.block_hash(),
         "received unblinded block"
