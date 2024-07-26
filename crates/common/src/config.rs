@@ -1,11 +1,12 @@
 use std::{collections::HashMap, sync::Arc};
 
 use alloy::primitives::U256;
+use bimap::BiHashMap;
 use eyre::{eyre, ContextCompat};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use super::utils::as_eth_str;
-use crate::{commit::client::SignerClient, loader::SignerLoader, pbs::RelayEntry, types::Chain};
+use crate::{commit::client::SignerClient, loader::SignerLoader, pbs::RelayEntry, types::{Chain, ModuleId, Jwt}};
 
 pub const MODULE_ID_ENV: &str = "CB_MODULE_ID";
 pub const MODULE_JWT_ENV: &str = "CB_SIGNER_JWT";
@@ -49,8 +50,8 @@ fn load_file_from_env<T: DeserializeOwned>(env: &str) -> T {
     load_from_file(&path)
 }
 
-/// Loads a map of module id -> jwt token from a json env
-fn load_jwts() -> HashMap<String, String> {
+/// Loads a bidirectional map of module id <-> jwt token from a json env
+fn load_jwts() -> BiHashMap<ModuleId, Jwt> {
     let jwts = std::env::var(JWTS_ENV).expect(&format!("{JWTS_ENV} is not set"));
     serde_json::from_str(&jwts).expect(&format!("Failed to parse jwts: {jwts}"))
 }
@@ -83,7 +84,7 @@ pub struct StartSignerConfig {
     pub chain: Chain,
     pub loader: SignerLoader,
     pub server_port: u16,
-    pub jwts: HashMap<String, String>,
+    pub jwts: BiHashMap<ModuleId, Jwt>,
 }
 
 impl StartSignerConfig {
@@ -240,7 +241,7 @@ pub fn load_pbs_custom_config<T: DeserializeOwned>() -> eyre::Result<PbsModuleCo
 #[derive(Debug, Deserialize, Serialize)]
 pub struct StaticModuleConfig {
     /// Unique id of the module
-    pub id: String,
+    pub id: ModuleId,
     /// Docker image of the module
     pub docker_image: String,
 }
@@ -249,7 +250,7 @@ pub struct StaticModuleConfig {
 #[derive(Debug)]
 pub struct StartModuleConfig<T = ()> {
     /// Unique id of the module
-    pub id: String,
+    pub id: ModuleId,
     /// Chain spec
     pub chain: Chain,
     /// Signer client to call Signer API
@@ -264,8 +265,8 @@ pub struct StartModuleConfig<T = ()> {
 /// - [MODULE_JWT_ENV] - the jwt token for the module
 // TODO: add metrics url here
 pub fn load_module_config<T: DeserializeOwned>() -> eyre::Result<StartModuleConfig<T>> {
-    let module_id = load_env_var_infallible(MODULE_ID_ENV);
-    let module_jwt = load_env_var_infallible(MODULE_JWT_ENV);
+    let module_id = ModuleId(load_env_var_infallible(MODULE_ID_ENV));
+    let module_jwt = Jwt(load_env_var_infallible(MODULE_JWT_ENV));
     let signer_server_address = load_env_var_infallible(SIGNER_SERVER_ENV);
 
     #[derive(Debug, Deserialize)]

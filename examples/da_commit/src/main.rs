@@ -46,6 +46,11 @@ impl DaCommitService {
         let pubkey = pubkeys.consensus.first().ok_or_eyre("no key available")?;
         info!("Registered validator {pubkey}");
 
+        let proxy_delegation = self.config.signer_client.generate_proxy_key(pubkey.clone()).await?;
+        info!("Obtained a proxy delegation {proxy_delegation:?}");
+
+        // TODO(David): Maybe showcase some proxy signature requests...?
+
         let mut data = 0;
 
         loop {
@@ -57,7 +62,7 @@ impl DaCommitService {
 
     pub async fn send_request(&self, data: u64, pubkey: BlsPublicKey) -> eyre::Result<()> {
         let datagram = Datagram { data };
-        let request = SignRequest::builder(&self.config.id, pubkey).with_msg(&datagram);
+        let request = SignRequest::builder(pubkey).with_msg(&datagram);
         let signature = self.config.signer_client.request_signature(&request).await?;
 
         info!("Proposer commitment: {}", pretty_print_sig(signature));
@@ -80,7 +85,7 @@ async fn main() {
     match load_module_config::<ExtraConfig>() {
         Ok(config) => {
             info!(
-                module_id = config.id,
+                module_id = config.id.0,
                 sleep_secs = config.extra.sleep_secs,
                 "Starting module with custom data"
             );

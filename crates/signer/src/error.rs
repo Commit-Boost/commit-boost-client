@@ -3,6 +3,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use cb_common::types::ModuleId;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -11,7 +12,7 @@ pub enum SignerModuleError {
     Unauthorized,
 
     #[error("unknown module id: {0}")]
-    UnknownModuleId(String),
+    UnknownModuleId(ModuleId),
 
     #[error("unknown consensus signer: {0}")]
     UnknownConsensusSigner(BlsPublicKey),

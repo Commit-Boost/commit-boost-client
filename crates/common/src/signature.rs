@@ -90,9 +90,7 @@ pub fn sign_builder_message(
     secret_key: &SecretKey,
     msg: &impl TreeHash,
 ) -> BlsSignature {
-    let domain = chain.builder_domain();
-    let signing_root = compute_signing_root(msg.tree_hash_root().0, domain);
-    sign_message(secret_key, &signing_root)
+    sign_builder_root(chain, secret_key, msg.tree_hash_root().0)
 }
 
 pub fn sign_builder_root(

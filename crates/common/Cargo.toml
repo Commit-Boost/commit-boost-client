@@ -33,3 +33,5 @@ thiserror.workspace = true
 eyre.workspace = true
 url.workspace = true
 rand.workspace = true
+bimap.workspace = true
+derive_more = "0.99.18"
