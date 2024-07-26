@@ -25,6 +25,7 @@ pub async fn handle_get_header<S: BuilderApiState, T: BuilderApi<S>>(
     Path(params): Path<GetHeaderParams>,
 ) -> Result<impl IntoResponse, PbsClientError> {
     state.publish_event(BuilderEvent::GetHeaderRequest(params));
+    state.get_or_update_slot_uuid(params.slot);
 
     let now = utcnow_ms();
     let slot_start_ms = timestamp_of_slot_start_millis(params.slot, state.config.chain);

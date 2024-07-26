@@ -33,7 +33,7 @@ pub async fn get_header<S: BuilderApiState>(
     state: PbsState<S>,
 ) -> eyre::Result<Option<GetHeaderReponse>> {
     let GetHeaderParams { slot, parent_hash, pubkey: validator_pubkey } = params;
-    let slot_uuid = state.get_or_update_slot_uuid(slot);
+    let (_, slot_uuid) = state.get_slot_and_uuid();
 
     // prepare headers
     let mut send_headers = HeaderMap::new();
@@ -67,7 +67,13 @@ pub async fn get_header<S: BuilderApiState>(
         match res {
             Ok(Some(res)) => relay_bids.push(res),
             Ok(_) => {}
-            Err(err) => error!(?err, relay_id),
+            Err(err) => match err {
+                PbsError::Reqwest(req_err) if req_err.is_timeout() => {
+                    error!(err = "Timed Out", relay_id)
+                }
+
+                _ => error!(?err, relay_id),
+            },
         }
     }
 
@@ -121,7 +127,6 @@ async fn send_get_header(
     let get_header_response: GetHeaderReponse = serde_json::from_slice(&response_bytes)?;
 
     debug!(
-        ?code,
         latency_ms,
         block_hash = %get_header_response.block_hash(),
         value_eth = format_ether(get_header_response.value()),
