@@ -6,7 +6,7 @@ use axum::{
 };
 use cb_common::utils::{get_user_agent, timestamp_of_slot_start_millis, utcnow_ms};
 use reqwest::StatusCode;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::{
@@ -27,11 +27,22 @@ pub async fn handle_get_header<S: BuilderApiState, T: BuilderApi<S>>(
     state.publish_event(BuilderEvent::GetHeaderRequest(params));
     state.get_or_update_slot_uuid(params.slot);
 
-    let now = utcnow_ms();
     let slot_start_ms = timestamp_of_slot_start_millis(params.slot, state.config.chain);
     let ua = get_user_agent(&req_headers);
 
-    info!(?ua, parent_hash=%params.parent_hash, validator_pubkey=%params.pubkey, ms_into_slot=now.saturating_sub(slot_start_ms));
+    let ms_into_slot = utcnow_ms().saturating_sub(slot_start_ms);
+
+    info!(?ua, parent_hash=%params.parent_hash, validator_pubkey=%params.pubkey, ms_into_slot);
+    if state.is_late_in_slot(ms_into_slot) && state.pbs_config().skip_header_late_in_slot {
+        // too late into slot, force local build
+        warn!(
+            ms_into_slot,
+            threshold = state.pbs_config().late_in_slot_time_ms,
+            "late in slot, skipping relay requests"
+        );
+        BEACON_NODE_STATUS.with_label_values(&["204", GET_HEADER_ENDPOINT_TAG]).inc();
+        return Ok(StatusCode::NO_CONTENT.into_response());
+    }
 
     match T::get_header(params, req_headers, state.clone()).await {
         Ok(res) => {
