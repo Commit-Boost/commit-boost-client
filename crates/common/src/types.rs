@@ -7,7 +7,7 @@ use crate::constants::{
     RHEA_BUILDER_DOMAIN, RHEA_FORK_VERSION, RHEA_GENESIS_TIME_SECONDS,
 };
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Chain {
     Mainnet,
     Holesky,

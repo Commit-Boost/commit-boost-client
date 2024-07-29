@@ -1,11 +1,15 @@
 use std::{collections::HashMap, sync::Arc};
 
-use alloy::primitives::U256;
 use eyre::{eyre, ContextCompat};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-use super::utils::as_eth_str;
-use crate::{commit::client::SignerClient, loader::SignerLoader, pbs::RelayEntry, types::Chain};
+use crate::{
+    commit::client::SignerClient,
+    loader::SignerLoader,
+    pbs::{PbsConfig, RelayClient, RelayConfig},
+    types::Chain,
+    utils::default_bool,
+};
 
 pub const MODULE_ID_ENV: &str = "CB_MODULE_ID";
 pub const MODULE_JWT_ENV: &str = "CB_SIGNER_JWT";
@@ -32,6 +36,7 @@ pub const SIGNER_IMAGE: &str = "commitboost_signer";
 pub struct CommitBoostConfig {
     // TODO: generalize this with a spec file
     pub chain: Chain,
+    pub relays: Vec<RelayConfig>,
     pub pbs: StaticPbsConfig,
     pub modules: Option<Vec<StaticModuleConfig>>,
     pub signer: Option<SignerConfig>,
@@ -136,53 +141,21 @@ pub struct StaticPbsConfig {
     pub with_signer: bool,
 }
 
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
-pub struct PbsConfig {
-    /// Port to receive BuilderAPI calls from CL
-    pub port: u16,
-    /// Which relay to register/subscribe to
-    pub relays: Vec<RelayEntry>,
-    /// Whether to forward getStatus to relays or skip it
-    pub relay_check: bool,
-    #[serde(default = "default_u64::<950>")]
-    pub timeout_get_header_ms: u64,
-    #[serde(default = "default_u64::<4000>")]
-    pub timeout_get_payload_ms: u64,
-    #[serde(default = "default_u64::<3000>")]
-    pub timeout_register_validator_ms: u64,
-    /// Whether to skip the relay signature verification
-    #[serde(default = "default_bool::<false>")]
-    pub skip_sigverify: bool,
-    /// Minimum bid that will be accepted from get_header
-    #[serde(rename = "min_bid_eth", with = "as_eth_str", default = "default_u256")]
-    pub min_bid_wei: U256,
-    /// Custom headers to send to relays
-    pub headers: Option<HashMap<String, String>>,
-}
-
 /// Runtime config for the pbs module with support for custom extra config
+/// This will be shared across threads, so the `extra` should be thread safe,
+/// e.g. wrapped in an Arc
 #[derive(Debug, Clone)]
 pub struct PbsModuleConfig<T = ()> {
     /// Chain spec
     pub chain: Chain,
     /// Pbs default config
     pub pbs_config: Arc<PbsConfig>,
+    /// List of relays
+    pub relays: Vec<RelayClient>,
     /// Signer client to call Signer API
     pub signer_client: Option<SignerClient>,
     /// Opaque module config
     pub extra: T,
-}
-
-const fn default_u64<const U: u64>() -> u64 {
-    U
-}
-
-const fn default_bool<const U: bool>() -> bool {
-    U
-}
-
-const fn default_u256() -> U256 {
-    U256::ZERO
 }
 
 fn default_pbs() -> String {
@@ -192,9 +165,12 @@ fn default_pbs() -> String {
 /// Loads the default pbs config, i.e. with no signer client or custom data
 pub fn load_pbs_config() -> eyre::Result<PbsModuleConfig<()>> {
     let config = CommitBoostConfig::from_env_path();
+    let relay_clients = config.relays.into_iter().map(RelayClient::new).collect();
+
     Ok(PbsModuleConfig {
         chain: config.chain,
         pbs_config: Arc::new(config.pbs.pbs_config),
+        relays: relay_clients,
         signer_client: None,
         extra: (),
     })
@@ -213,11 +189,13 @@ pub fn load_pbs_custom_config<T: DeserializeOwned>() -> eyre::Result<PbsModuleCo
     #[derive(Deserialize, Debug)]
     struct StubConfig<U> {
         chain: Chain,
+        relays: Vec<RelayConfig>,
         pbs: CustomPbsConfig<U>,
     }
 
     // load module config including the extra data (if any)
     let cb_config: StubConfig<T> = load_file_from_env(CB_CONFIG_ENV);
+    let relay_clients = cb_config.relays.into_iter().map(RelayClient::new).collect();
 
     let signer_client = if cb_config.pbs.static_config.with_signer {
         // if custom pbs requires a signer client, load jwt
@@ -231,6 +209,7 @@ pub fn load_pbs_custom_config<T: DeserializeOwned>() -> eyre::Result<PbsModuleCo
     Ok(PbsModuleConfig {
         chain: cb_config.chain,
         pbs_config: Arc::new(cb_config.pbs.static_config.pbs_config),
+        relays: relay_clients,
         signer_client,
         extra: cb_config.pbs.extra,
     })
