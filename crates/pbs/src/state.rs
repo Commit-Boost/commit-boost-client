@@ -4,12 +4,12 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use alloy::primitives::B256;
-use alloy::rpc::types::beacon::BlsPublicKey;
+use alloy::{primitives::B256, rpc::types::beacon::BlsPublicKey};
 use axum::http::{HeaderMap, HeaderName, HeaderValue};
 use cb_common::{
     config::{PbsConfig, PbsModuleConfig},
     pbs::{RelayEntry, HEADER_VERSION_KEY, HEAVER_VERSION_VALUE},
+    DEFAULT_REQUEST_TIMEOUT,
 };
 use dashmap::DashMap;
 use tokio::sync::broadcast;
@@ -62,6 +62,7 @@ where
 
         let relay_client = reqwest::Client::builder()
             .default_headers(headers)
+            .timeout(DEFAULT_REQUEST_TIMEOUT)
             .build()
             .expect("failed to build relay client");
 
@@ -115,9 +116,10 @@ where
         self.relay_client.clone()
     }
 
-    /// Add some bids to the cache, the bids are all assumed to be for the provided slot
-    /// Returns the bid with the max value
-    /// TODO: this doesnt handle cancellations if we call multiple times get_header
+    /// Add some bids to the cache, the bids are all assumed to be for the
+    /// provided slot Returns the bid with the max value
+    /// TODO: this doesnt handle cancellations if we call multiple times
+    /// get_header
     pub fn add_bids(&self, slot: u64, bids: Vec<GetHeaderReponse>) -> Option<GetHeaderReponse> {
         let mut slot_entry = self.bid_cache.entry(slot).or_default();
         slot_entry.extend(bids);
