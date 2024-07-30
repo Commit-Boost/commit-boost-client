@@ -14,7 +14,7 @@ use cb_common::{
 use futures::future::join_all;
 use reqwest::{header::USER_AGENT, StatusCode};
 use tokio::time::sleep;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, warn, Instrument};
 
 use crate::{
     constants::{GET_HEADER_ENDPOINT_TAG, TIMEOUT_ERROR_CODE, TIMEOUT_ERROR_CODE_STR},
@@ -119,16 +119,19 @@ async fn send_timed_get_header(
             debug!(send_freq_ms, timeout_left_ms, "TG: sending multiple header requests");
 
             loop {
-                handles.push(tokio::spawn(send_one_get_header(
-                    url.clone(),
-                    params,
-                    relay.clone(),
-                    chain,
-                    headers.clone(),
-                    timeout_left_ms,
-                    pbs_config.skip_sigverify,
-                    pbs_config.min_bid_wei,
-                )));
+                handles.push(tokio::spawn(
+                    send_one_get_header(
+                        url.clone(),
+                        params,
+                        relay.clone(),
+                        chain,
+                        headers.clone(),
+                        timeout_left_ms,
+                        pbs_config.skip_sigverify,
+                        pbs_config.min_bid_wei,
+                    )
+                    .in_current_span(),
+                ));
 
                 if timeout_left_ms > send_freq_ms {
                     // enough time for one more
