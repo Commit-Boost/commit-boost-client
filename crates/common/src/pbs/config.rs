@@ -52,7 +52,4 @@ pub struct PbsConfig {
     /// How late in the slot we consider to be "late"
     #[serde(default = "default_u64::<LATE_IN_SLOT_TIME_MS>")]
     pub late_in_slot_time_ms: u64,
-    /// If it's too late in the slot, skip get header and force local build
-    #[serde(default = "default_bool::<false>")]
-    pub skip_header_late_in_slot: bool,
 }

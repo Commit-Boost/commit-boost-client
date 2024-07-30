@@ -6,7 +6,7 @@ use axum::{
 };
 use cb_common::utils::{get_user_agent, ms_into_slot};
 use reqwest::StatusCode;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::{
@@ -31,16 +31,6 @@ pub async fn handle_get_header<S: BuilderApiState, T: BuilderApi<S>>(
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
 
     info!(?ua, parent_hash=%params.parent_hash, validator_pubkey=%params.pubkey, ms_into_slot);
-    if state.is_late_in_slot(ms_into_slot) && state.pbs_config().skip_header_late_in_slot {
-        // too late into slot, force local build
-        warn!(
-            ms_into_slot,
-            threshold = state.pbs_config().late_in_slot_time_ms,
-            "late in slot, skipping relay requests"
-        );
-        BEACON_NODE_STATUS.with_label_values(&["204", GET_HEADER_ENDPOINT_TAG]).inc();
-        return Ok(StatusCode::NO_CONTENT.into_response());
-    }
 
     match T::get_header(params, req_headers, state.clone()).await {
         Ok(res) => {
