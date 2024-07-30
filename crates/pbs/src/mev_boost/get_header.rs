@@ -9,10 +9,11 @@ use cb_common::{
     pbs::{PbsConfig, RelayClient, HEADER_SLOT_UUID_KEY, HEADER_START_TIME_UNIX_MS},
     signature::verify_signed_builder_message,
     types::Chain,
-    utils::{get_user_agent, utcnow_ms},
+    utils::{get_user_agent, ms_into_slot, utcnow_ms},
 };
 use futures::future::join_all;
 use reqwest::{header::USER_AGENT, StatusCode};
+use tokio::time::sleep;
 use tracing::{debug, error, warn};
 
 use crate::{
@@ -33,6 +34,12 @@ pub async fn get_header<S: BuilderApiState>(
 ) -> eyre::Result<Option<GetHeaderReponse>> {
     let (_, slot_uuid) = state.get_slot_and_uuid();
 
+    let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
+    let max_timeout_ms = state
+        .pbs_config()
+        .timeout_get_header_ms
+        .min(state.pbs_config().late_in_slot_time_ms.saturating_sub(ms_into_slot));
+
     // prepare headers, except for start time which is set in `send_one_get_header`
     let mut send_headers = HeaderMap::new();
     send_headers.insert(HEADER_SLOT_UUID_KEY, HeaderValue::from_str(&slot_uuid.to_string())?);
@@ -45,10 +52,12 @@ pub async fn get_header<S: BuilderApiState>(
     for relay in relays.iter() {
         handles.push(send_timed_get_header(
             params,
-            relay,
+            relay.clone(),
             state.config.chain,
             state.pbs_config(),
             send_headers.clone(),
+            ms_into_slot,
+            max_timeout_ms,
         ));
     }
 
@@ -60,9 +69,7 @@ pub async fn get_header<S: BuilderApiState>(
         match res {
             Ok(Some(res)) => relay_bids.push(res),
             Ok(_) => {}
-            Err(PbsError::Reqwest(req_err)) if req_err.is_timeout() => {
-                error!(err = "Timed Out", relay_id)
-            }
+            Err(err) if err.is_timeout() => error!(err = "Timed Out", relay_id),
             Err(err) => error!(?err, relay_id),
         }
     }
@@ -73,60 +80,80 @@ pub async fn get_header<S: BuilderApiState>(
 #[tracing::instrument(skip_all, name = "handler", fields(relay_id = relay.id.as_ref()))]
 async fn send_timed_get_header(
     params: GetHeaderParams,
-    relay: &RelayClient,
+    relay: RelayClient,
     chain: Chain,
     pbs_config: &PbsConfig,
     headers: HeaderMap,
+    ms_into_slot: u64,
+    mut timeout_left_ms: u64,
 ) -> Result<Option<GetHeaderReponse>, PbsError> {
     let url = relay.get_header_url(params.slot, params.parent_hash, params.pubkey);
 
     if relay.config.enable_timing_games {
-        if let Some(delay) = relay.config.wait_first_header_ms {
-            debug!(delay, "TG: waiting to send first header request");
-            tokio::time::sleep(Duration::from_millis(delay)).await;
+        if let Some(target_ms) = relay.config.target_first_request_ms {
+            // sleep until target time in slot
+
+            let delay = target_ms.saturating_sub(ms_into_slot);
+            if delay > 0 {
+                debug!(target_ms, ms_into_slot, "TG: waiting to send first header request");
+                timeout_left_ms = timeout_left_ms.saturating_sub(delay);
+                sleep(Duration::from_millis(delay)).await;
+            } else {
+                debug!(target_ms, ms_into_slot, "TG: request already late enough in slot");
+            }
         }
 
         if let Some(send_freq_ms) = relay.config.frequency_get_header_ms {
-            let start_time_ms = Instant::now();
             let mut handles = Vec::new();
-            let max_timeout_ms = pbs_config
-                .timeout_get_header_ms
-                .saturating_sub(relay.config.wait_first_header_ms.unwrap_or_default());
 
-            debug!(send_freq_ms, max_timeout_ms, "TG: sending multiple header requests");
+            debug!(send_freq_ms, timeout_left_ms, "TG: sending multiple header requests");
 
             loop {
-                let timeout_left_ms =
-                    max_timeout_ms.saturating_sub(start_time_ms.elapsed().as_millis() as u64);
-
-                handles.push(send_one_get_header(
+                handles.push(tokio::spawn(send_one_get_header(
                     url.clone(),
                     params,
-                    relay,
+                    relay.clone(),
                     chain,
-                    pbs_config,
                     headers.clone(),
-                    Some(timeout_left_ms),
-                ));
+                    timeout_left_ms,
+                    pbs_config.skip_sigverify,
+                    pbs_config.min_bid_wei,
+                )));
 
                 if timeout_left_ms > send_freq_ms {
                     // enough time for one more
-                    tokio::time::sleep(Duration::from_millis(send_freq_ms)).await;
+                    timeout_left_ms = timeout_left_ms.saturating_sub(send_freq_ms);
+                    sleep(Duration::from_millis(send_freq_ms)).await;
                 } else {
                     break;
                 }
             }
 
             let results = join_all(handles).await;
-            let n_headers = results.iter().filter(|header| header.is_ok()).count();
+            let mut n_headers = 0;
 
-            if let Some((_, maybe_header)) =
-                results.into_iter().filter_map(|r| r.ok()).max_by_key(|(start_time, _)| *start_time)
+            if let Some((_, maybe_header)) = results
+                .into_iter()
+                .filter_map(|res| {
+                    // ignore join error and timeouts, log other errors
+                    res.ok().and_then(|inner_res| match inner_res {
+                        Ok(maybe_header) => {
+                            n_headers += 1;
+                            Some(maybe_header)
+                        }
+                        Err(err) if err.is_timeout() => None,
+                        Err(err) => {
+                            error!(?err, "TG: error sending header request");
+                            None
+                        }
+                    })
+                })
+                .max_by_key(|(start_time, _)| *start_time)
             {
                 debug!(n_headers, "TG: received headers from relay");
                 return Ok(maybe_header)
             } else {
-                // all requests failed (likely all timeout)
+                // all requests failed
                 warn!("TG: no headers received");
 
                 return Err(PbsError::RelayResponse {
@@ -138,19 +165,29 @@ async fn send_timed_get_header(
     }
 
     // if no timing games or no repeated send, just send one request
-    send_one_get_header(url, params, relay, chain, pbs_config, headers, None)
-        .await
-        .map(|(_, maybe_header)| maybe_header)
+    send_one_get_header(
+        url,
+        params,
+        relay,
+        chain,
+        headers,
+        timeout_left_ms,
+        pbs_config.skip_sigverify,
+        pbs_config.min_bid_wei,
+    )
+    .await
+    .map(|(_, maybe_header)| maybe_header)
 }
 
 async fn send_one_get_header(
     url: String,
     params: GetHeaderParams,
-    relay: &RelayClient,
+    relay: RelayClient,
     chain: Chain,
-    pbs_config: &PbsConfig,
     mut headers: HeaderMap,
-    timeout_ms: Option<u64>,
+    timeout_ms: u64,
+    skip_sigverify: bool,
+    min_bid_wei: U256,
 ) -> Result<(u64, Option<GetHeaderReponse>), PbsError> {
     // the timestamp in the header is the consensus block time which is fixed,
     // use the beginning of the request as proxy to make sure we use only the
@@ -162,7 +199,7 @@ async fn send_one_get_header(
     let res = match relay
         .client
         .get(url)
-        .timeout(Duration::from_millis(timeout_ms.unwrap_or(pbs_config.timeout_get_header_ms)))
+        .timeout(Duration::from_millis(timeout_ms))
         .headers(headers)
         .send()
         .await
@@ -195,7 +232,7 @@ async fn send_one_get_header(
     if code == StatusCode::NO_CONTENT {
         debug!(
             ?code,
-            ?request_latency,
+            latency = ?request_latency,
             response = ?response_bytes,
             "no header from relay"
         );
@@ -205,7 +242,7 @@ async fn send_one_get_header(
     let get_header_response: GetHeaderReponse = serde_json::from_slice(&response_bytes)?;
 
     debug!(
-        ?request_latency,
+        latency = ?request_latency,
         block_hash = %get_header_response.block_hash(),
         value_eth = format_ether(get_header_response.value()),
         "received new header"
@@ -216,8 +253,8 @@ async fn send_one_get_header(
         chain,
         relay.pubkey(),
         params.parent_hash,
-        pbs_config.skip_sigverify,
-        pbs_config.min_bid_wei,
+        skip_sigverify,
+        min_bid_wei,
     )?;
 
     Ok((start_request_time, Some(get_header_response)))

@@ -18,6 +18,10 @@ pub fn timestamp_of_slot_start_millis(slot: u64, chain: Chain) -> u64 {
     let seconds_since_genesis = chain.genesis_time_sec() + slot * SECONDS_PER_SLOT;
     seconds_since_genesis * MILLIS_PER_SECOND
 }
+pub fn ms_into_slot(slot: u64, chain: Chain) -> u64 {
+    let slot_start_ms = timestamp_of_slot_start_millis(slot, chain);
+    utcnow_ms().saturating_sub(slot_start_ms)
+}
 
 /// Seconds
 pub fn utcnow_sec() -> u64 {

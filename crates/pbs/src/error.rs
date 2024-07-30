@@ -50,6 +50,12 @@ pub enum PbsError {
     Validation(#[from] ValidationError),
 }
 
+impl PbsError {
+    pub fn is_timeout(&self) -> bool {
+        matches!(self, PbsError::Reqwest(err) if err.is_timeout())
+    }
+}
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ValidationError {
     #[error("empty blockhash")]

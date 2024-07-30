@@ -22,8 +22,8 @@ pub struct RelayConfig {
     pub headers: Option<HashMap<String, String>>,
     /// Whether to enable timing games
     pub enable_timing_games: bool,
-    /// Delay in ms to wait before sending the first get_header
-    pub wait_first_header_ms: Option<u64>,
+    /// Target time in slot when to send the first header request
+    pub target_first_request_ms: Option<u64>,
     /// Frequency in ms to send get_header requests
     pub frequency_get_header_ms: Option<u64>,
 }
