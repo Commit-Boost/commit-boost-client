@@ -4,7 +4,7 @@ use axum::{
     http::HeaderMap,
     response::IntoResponse,
 };
-use cb_common::utils::{get_user_agent, timestamp_of_slot_start_millis, utcnow_ms};
+use cb_common::utils::{get_user_agent, ms_into_slot};
 use reqwest::StatusCode;
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -27,10 +27,8 @@ pub async fn handle_get_header<S: BuilderApiState, T: BuilderApi<S>>(
     state.publish_event(BuilderEvent::GetHeaderRequest(params));
     state.get_or_update_slot_uuid(params.slot);
 
-    let slot_start_ms = timestamp_of_slot_start_millis(params.slot, state.config.chain);
     let ua = get_user_agent(&req_headers);
-
-    let ms_into_slot = utcnow_ms().saturating_sub(slot_start_ms);
+    let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
 
     info!(?ua, parent_hash=%params.parent_hash, validator_pubkey=%params.pubkey, ms_into_slot);
     if state.is_late_in_slot(ms_into_slot) && state.pbs_config().skip_header_late_in_slot {

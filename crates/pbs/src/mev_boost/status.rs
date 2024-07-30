@@ -85,7 +85,7 @@ async fn send_relay_check(relay: &RelayClient, headers: HeaderMap) -> Result<(),
         return Err(err)
     };
 
-    debug!(?code, ?request_latency, "status passed");
+    debug!(?code, latency = ?request_latency, "status passed");
 
     Ok(())
 }

@@ -17,8 +17,8 @@ id = "example-relay"
 url = "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz"
 headers = { X-MyCustomHeader = "MyCustomValue" }
 enable_timing_games = false
-wait_first_header_ms = 250
-frequency_get_header_ms = 100
+target_first_request_ms = 200
+frequency_get_header_ms = 300
 
 [signer]
 [signer.loader]

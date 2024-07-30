@@ -109,7 +109,7 @@ async fn send_submit_block(
     let block_response: SubmitBlindedBlockResponse = serde_json::from_slice(&response_bytes)?;
 
     debug!(
-        ?request_latency,
+        latency = ?request_latency,
         block_hash = %block_response.block_hash(),
         "received unblinded block"
     );

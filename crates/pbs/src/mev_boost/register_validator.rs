@@ -106,7 +106,7 @@ async fn send_register_validator(
         return Err(err);
     };
 
-    debug!(?code, ?request_latency, "registration successful");
+    debug!(?code, latency = ?request_latency, "registration successful");
 
     Ok(())
 }
