@@ -21,6 +21,7 @@ pub struct RelayConfig {
     /// Optional headers to send with each request
     pub headers: Option<HashMap<String, String>>,
     /// Whether to enable timing games
+    #[serde(default = "default_bool::<false>")]
     pub enable_timing_games: bool,
     /// Target time in slot when to send the first header request
     pub target_first_request_ms: Option<u64>,
