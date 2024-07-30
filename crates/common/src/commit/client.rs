@@ -9,6 +9,7 @@ use super::{
     error::SignerClientError,
     request::SignRequest,
 };
+use crate::DEFAULT_REQUEST_TIMEOUT;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GetPubkeysResponse {
@@ -34,14 +35,17 @@ impl SignerClient {
             HeaderValue::from_str(&format!("Bearer {}", jwt)).expect("invalid jwt");
         auth_value.set_sensitive(true);
         headers.insert(AUTHORIZATION, auth_value);
-
-        let client = reqwest::Client::builder().default_headers(headers).build().unwrap();
+        let client = reqwest::Client::builder()
+            .timeout(DEFAULT_REQUEST_TIMEOUT)
+            .default_headers(headers)
+            .build()
+            .unwrap();
 
         Self { url: url.into(), client }
     }
 
-    /// Request a list of validator pubkeys for which signatures can be requested.
-    /// TODO: add more docs on how proxy keys work
+    /// Request a list of validator pubkeys for which signatures can be
+    /// requested. TODO: add more docs on how proxy keys work
     pub async fn get_pubkeys(&self) -> Result<GetPubkeysResponse, SignerClientError> {
         let url = format!("{}{}", self.url, GET_PUBKEYS_PATH);
         let res = self.client.get(&url).send().await?;
