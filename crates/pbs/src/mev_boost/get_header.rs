@@ -32,13 +32,23 @@ pub async fn get_header<S: BuilderApiState>(
     req_headers: HeaderMap,
     state: PbsState<S>,
 ) -> eyre::Result<Option<GetHeaderReponse>> {
-    let (_, slot_uuid) = state.get_slot_and_uuid();
-
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
     let max_timeout_ms = state
         .pbs_config()
         .timeout_get_header_ms
         .min(state.pbs_config().late_in_slot_time_ms.saturating_sub(ms_into_slot));
+
+    if max_timeout_ms == 0 {
+        warn!(
+            ms_into_slot,
+            threshold = state.pbs_config().late_in_slot_time_ms,
+            "late in slot, skipping relay requests"
+        );
+
+        return Ok(None)
+    }
+
+    let (_, slot_uuid) = state.get_slot_and_uuid();
 
     // prepare headers, except for start time which is set in `send_one_get_header`
     let mut send_headers = HeaderMap::new();

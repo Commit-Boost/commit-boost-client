@@ -82,10 +82,6 @@ where
         *guard
     }
 
-    pub fn is_late_in_slot(&self, ms_into_slot: u64) -> bool {
-        ms_into_slot > self.config.pbs_config.late_in_slot_time_ms
-    }
-
     // Getters
     pub fn pbs_config(&self) -> &PbsConfig {
         &self.config.pbs_config

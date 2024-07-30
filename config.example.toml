@@ -10,7 +10,6 @@ skip_sigverify = true
 min_bid_eth = 0.0
 
 late_in_slot_time_ms = 2000
-skip_header_late_in_slot = true
 
 [[relays]]
 id = "example-relay"
