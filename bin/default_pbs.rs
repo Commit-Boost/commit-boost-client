@@ -1,4 +1,5 @@
 use cb_common::{config::load_pbs_config, utils::initialize_tracing_log};
+use cb_logging::initialize_logging;
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 
 #[tokio::main]
@@ -12,6 +13,9 @@ async fn main() {
 
     // TODO: handle errors
     let pbs_config = load_pbs_config().expect("failed to load pbs config");
+
+    initialize_logging(pbs_config);
+
     let state = PbsState::<()>::new(pbs_config);
 
     PbsService::init_metrics();

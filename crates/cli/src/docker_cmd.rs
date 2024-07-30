@@ -1,5 +1,9 @@
 use std::process::{Command, Stdio};
 
+use std::fs;
+use chrono::{Utc, Duration as ChronoDuration};
+
+
 pub fn handle_docker_start(compose_path: String, env_path: String) -> eyre::Result<()> {
     println!("Starting Commit-Boost with compose file: {}", compose_path);
 
@@ -45,22 +49,32 @@ pub fn handle_docker_stop(compose_path: String, env_path: String) -> eyre::Resul
     Ok(())
 }
 
-// TODO: we shouldnt use docker logs
-pub fn handle_docker_logs(compose_path: String) -> eyre::Result<()> {
+pub async fn handle_docker_logs(compose_path: String, log_file_name: Option<String>, retention_period_days: Option<i64>) -> Result<()> {
+    let log_file_name = log_file_name.unwrap_or_else(|| "logs.txt".to_string());
+    let retention_period_days = retention_period_days.unwrap_or(1);
+
     println!("Querying Commit-Boost with compose file: {}", compose_path);
 
-    // TODO: if permission denied, print warning to run as sudo
+    // Create or append to the log file
+    let file = File::create(&log_file_name)?;
+    let mut writer = BufWriter::new(file);
 
-    // start docker compose
-    Command::new("docker")
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
+    // Start docker compose and redirect output to log file
+    let mut child = Command::new("docker")
         .arg("compose")
         .arg("-f")
-        .arg(compose_path)
+        .arg(&compose_path)
         .arg("logs")
         .arg("-f")
-        .output()?;
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
 
-    Ok(())
+    if let Some(mut stdout) = child.stdout.take() {
+        std::io::copy(&mut stdout, &mut writer)?;
+    }
+
+    if let Some(mut stderr) = child.stderr.take() {
+        std::io::copy(&mut stderr, &mut writer)?;
+    }
 }

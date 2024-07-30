@@ -158,6 +158,11 @@ pub struct PbsConfig {
     pub min_bid_wei: U256,
     /// Custom headers to send to relays
     pub headers: Option<HashMap<String, String>>,
+    ///logging file name
+    pub log_file_name: String,
+    /// logging rettention time in days
+    pub retention_period_days: i64
+
 }
 
 /// Runtime config for the pbs module with support for custom extra config

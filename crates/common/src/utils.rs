@@ -8,7 +8,6 @@ use blst::min_pk::{PublicKey, Signature};
 use rand::{distributions::Alphanumeric, Rng};
 use reqwest::header::HeaderMap;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
-
 use crate::types::Chain;
 
 const SECONDS_PER_SLOT: u64 = 12;
