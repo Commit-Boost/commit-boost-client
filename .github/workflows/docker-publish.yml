@@ -1,12 +1,15 @@
 name: Deploy Images to GHCR
 
 on:
-  pull_request:
-    branches: ["**"]
   workflow_run:
-    workflows: ["CI fmt clippy and test"]
+    workflows: [ "CI fmt clippy and test" ]
     types:
       - completed
+  push:
+    branches:
+      - main  # Trigger only on push to main branch
+    tags:     # Trigger on new tags
+      - 'v*'
 
 jobs:
   push-store-image:
