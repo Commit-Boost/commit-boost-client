@@ -1,4 +1,4 @@
-name: CI
+name: CI fmt clippy and test
 
 on:
   pull_request:
