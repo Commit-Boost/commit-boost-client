@@ -16,8 +16,11 @@ const MILLIS_PER_SECOND: u64 = 1_000;
 
 pub fn timestamp_of_slot_start_millis(slot: u64, chain: Chain) -> u64 {
     let seconds_since_genesis = chain.genesis_time_sec() + slot * SECONDS_PER_SLOT;
-
     seconds_since_genesis * MILLIS_PER_SECOND
+}
+pub fn ms_into_slot(slot: u64, chain: Chain) -> u64 {
+    let slot_start_ms = timestamp_of_slot_start_millis(slot, chain);
+    utcnow_ms().saturating_sub(slot_start_ms)
 }
 
 /// Seconds
@@ -92,6 +95,18 @@ pub mod as_eth_str {
         let s = f64::deserialize(deserializer)?;
         Ok(eth_to_wei(s))
     }
+}
+
+pub const fn default_u64<const U: u64>() -> u64 {
+    U
+}
+
+pub const fn default_bool<const U: bool>() -> bool {
+    U
+}
+
+pub const fn default_u256() -> U256 {
+    U256::ZERO
 }
 
 // LOGGING

@@ -14,3 +14,13 @@ pub const HEADER_START_TIME_UNIX_MS: &str = "X-MEVBoost-StartTimeUnixMS";
 
 pub const BUILDER_EVENTS_PATH: &str = "/events";
 pub const DEFAULT_PBS_JWT_KEY: &str = "DEFAULT_PBS";
+
+#[non_exhaustive]
+pub struct DefaultTimeout;
+impl DefaultTimeout {
+    pub const GET_HEADER_MS: u64 = 950;
+    pub const GET_PAYLOAD_MS: u64 = 4000;
+    pub const REGISTER_VALIDATOR_MS: u64 = 3000;
+}
+
+pub const LATE_IN_SLOT_TIME_MS: u64 = 2000;
