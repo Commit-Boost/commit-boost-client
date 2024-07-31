@@ -5,7 +5,7 @@ on:
     branches:
       - main  # Trigger only on push to main branch
     tags:     # Trigger on new tags
-      - 'v*'  # You can adjust this pattern to match your tag naming convention
+      - 'v*'
 
 jobs:
   push-store-image:
