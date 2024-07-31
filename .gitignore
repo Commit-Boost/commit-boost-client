@@ -16,4 +16,4 @@ Cargo.lock
 *.env
 *.docker-compose.yml
 targets.json
-
+.idea/
