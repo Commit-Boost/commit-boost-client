@@ -1,8 +1,15 @@
 name: Deploy Images to GHCR
 
 on:
-  pull_request:
-    branches: ["**"]
+  push:
+    branches:
+      - main  # Trigger only on push to main branch
+    tags:     # Trigger on new tags
+      - 'v*'
+  workflow_run:
+    workflows: [ "CI" ]
+    types:
+      - completed
 
 jobs:
   push-store-image:
