@@ -87,8 +87,9 @@ impl Args {
 
 // Command::Start2 { config: config_path } => {
 //     let config = CommitBoostConfig::from_file(&config_path);
-//     let signer_config = config.signer.expect("missing signer config with modules");
-//     let metrics_config = config.metrics.clone().expect("missing metrics config");
+//     let signer_config = config.signer.expect("missing signer config with
+// modules");     let metrics_config = config.metrics.clone().expect("missing
+// metrics config");
 
 //     // TODO: Actually generate this token
 //     let pbs_jwt = "MY_PBS_TOKEN";
@@ -102,8 +103,8 @@ impl Args {
 //         let jwts: HashMap<String, String> =
 //             iter::once((DEFAULT_PBS_JWT_KEY.into(), pbs_jwt.into()))
 //                 .chain(modules.iter().map(|module|
-//                 // TODO: Generate token instead of hard-coding it. Think about persisting it
-// across the project.                 (
+//                 // TODO: Generate token instead of hard-coding it. Think
+// about persisting it across the project.                 (
 //                     module.id.clone(),
 //                     MODULE_JWT.into()
 //                     // format!("JWT_{}", module.id)
@@ -123,14 +124,14 @@ impl Args {
 //                 image: Some(module.docker_image.clone()),
 //                 host_config: Some(bollard::secret::HostConfig {
 //                     binds: {
-//                         let full_config_path = std::fs::canonicalize(&config_path)
-//                             .unwrap()
+//                         let full_config_path =
+// std::fs::canonicalize(&config_path)                             .unwrap()
 //                             .to_string_lossy()
 //                             .to_string();
-//                         Some(vec![format!("{}:{}", full_config_path, "/config.toml")])
-//                     },
-//                     network_mode: Some(String::from("host")), // Use the host network
-//                     ..Default::default()
+//                         Some(vec![format!("{}:{}", full_config_path,
+// "/config.toml")])                     },
+//                     network_mode: Some(String::from("host")), // Use the host
+// network                     ..Default::default()
 //                 }),
 //                 env: {
 //                     let metrics_server_url = metrics_config.address;
@@ -138,9 +139,9 @@ impl Args {
 //                     Some(vec![
 //                         format!("{}={}", MODULE_ID_ENV, module.id),
 //                         format!("{}={}", CB_CONFIG_ENV, "/config.toml"),
-//                         format!("{}={}", MODULE_JWT_ENV, jwts.get(&module.id).unwrap()),
-//                         format!("{}={}", METRICS_SERVER_ENV, metrics_server_url),
-//                     ])
+//                         format!("{}={}", MODULE_JWT_ENV,
+// jwts.get(&module.id).unwrap()),                         format!("{}={}",
+// METRICS_SERVER_ENV, metrics_server_url),                     ])
 //                 },
 //                 ..Default::default()
 //             };
@@ -160,9 +161,9 @@ impl Args {
 //                 DockerMetricsCollector::new(
 //                     vec![cid],
 //                     metrics_config.address.clone(),
-//                     // FIXME: The entire DockerMetricsCollector currently works with a
-//                     // single JWT; need to migrate to per-module JWT.
-//                     MODULE_JWT.to_string(),
+//                     // FIXME: The entire DockerMetricsCollector currently
+// works with a                     // single JWT; need to migrate to per-module
+// JWT.                     MODULE_JWT.to_string(),
 //                 )
 //                 .await
 //             });

@@ -35,16 +35,16 @@ impl SignerLoader {
         match self {
             SignerLoader::File { .. } => {
                 let path = load_env_var_infallible(SIGNER_KEYS_ENV);
-                let file =
-                    std::fs::read_to_string(path).expect(&format!("Unable to find keys file"));
+                let file = std::fs::read_to_string(path)
+                    .unwrap_or_else(|_| panic!("Unable to find keys file"));
 
                 let keys: Vec<FileKey> = serde_json::from_str(&file).unwrap();
 
                 keys.into_iter().map(|k| Signer::new_from_bytes(&k.secret_key)).collect()
             }
             SignerLoader::ValidatorsDir { .. } => {
-                // TODO: hacky way to load for now, we should support reading the definitions.yml
-                // file
+                // TODO: hacky way to load for now, we should support reading the
+                // definitions.yml file
                 let keys_path = load_env_var_infallible(SIGNER_DIR_KEYS_ENV);
                 let secrets_path = load_env_var_infallible(SIGNER_DIR_SECRETS_ENV);
                 load_secrets_and_keys(keys_path, secrets_path).expect("failed to load signers")

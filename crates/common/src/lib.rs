@@ -10,5 +10,4 @@ pub mod signer;
 pub mod types;
 pub mod utils;
 
-
 pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(12);

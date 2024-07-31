@@ -7,7 +7,8 @@ use tree_hash_derive::TreeHash;
 
 use crate::{signature::verify_signed_builder_message, types::Chain};
 
-// TODO: might need to adapt the SignedProxyDelegation so that it goes through web3 signer
+// TODO: might need to adapt the SignedProxyDelegation so that it goes through
+// web3 signer
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Encode, Decode, TreeHash)]
 pub struct ProxyDelegation {
     pub delegator: BlsPublicKey,

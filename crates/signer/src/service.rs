@@ -30,7 +30,8 @@ pub struct SigningService;
 struct SigningState {
     /// Mananger handling different signing methods
     manager: Arc<SigningManager>,
-    /// Map of module ids to JWTs. This also acts as registry of all modules running
+    /// Map of module ids to JWTs. This also acts as registry of all modules
+    /// running
     jwts: HashMap<String, String>,
 }
 
