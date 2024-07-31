@@ -21,7 +21,7 @@ pub struct GetPubkeysResponse {
 #[derive(Debug, Clone)]
 pub struct SignerClient {
     /// Url endpoint of the Signer Module
-    url: Arc<str>,
+    url: Arc<String>,
     client: reqwest::Client,
 }
 

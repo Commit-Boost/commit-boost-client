@@ -51,8 +51,8 @@ pub async fn handle_submit_block<S: BuilderApiState, T: BuilderApi<S>>(
                 let fault_relays = state
                     .relays()
                     .iter()
-                    .filter(|relay| fault_pubkeys.contains(&relay.pubkey))
-                    .map(|relay| relay.id.clone())
+                    .filter(|relay| fault_pubkeys.contains(&relay.pubkey()))
+                    .map(|relay| &**relay.id)
                     .collect::<Vec<_>>()
                     .join(",");
 

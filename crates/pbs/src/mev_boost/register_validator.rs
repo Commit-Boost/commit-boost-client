@@ -1,9 +1,9 @@
-use std::{ops::Mul, time::Duration};
+use std::time::{Duration, Instant};
 
 use alloy::rpc::types::beacon::relay::ValidatorRegistration;
 use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
-    pbs::{RelayEntry, HEADER_START_TIME_UNIX_MS},
+    pbs::{RelayClient, HEADER_START_TIME_UNIX_MS},
     utils::{get_user_agent, utcnow_ms},
 };
 use eyre::bail;
@@ -12,7 +12,7 @@ use reqwest::header::USER_AGENT;
 use tracing::{debug, error};
 
 use crate::{
-    constants::REGISTER_VALIDATOR_ENDPOINT_TAG,
+    constants::{REGISTER_VALIDATOR_ENDPOINT_TAG, TIMEOUT_ERROR_CODE_STR},
     error::PbsError,
     metrics::{RELAY_LATENCY, RELAY_STATUS_CODE},
     state::{BuilderApiState, PbsState},
@@ -37,11 +37,10 @@ pub async fn register_validator<S: BuilderApiState>(
     let mut handles = Vec::with_capacity(relays.len());
     for relay in relays {
         handles.push(send_register_validator(
-            send_headers.clone(),
-            relay.clone(),
             registrations.clone(),
-            state.config.pbs_config.timeout_register_validator_ms,
-            state.relay_client(),
+            relay,
+            send_headers.clone(),
+            state.pbs_config().timeout_register_validator_ms,
         ));
     }
 
@@ -54,27 +53,41 @@ pub async fn register_validator<S: BuilderApiState>(
     }
 }
 
-#[tracing::instrument(skip_all, name = "handler", fields(relay_id = relay.id))]
+#[tracing::instrument(skip_all, name = "handler", fields(relay_id = relay.id.as_ref()))]
 async fn send_register_validator(
-    headers: HeaderMap,
-    relay: RelayEntry,
     registrations: Vec<ValidatorRegistration>,
+    relay: &RelayClient,
+    headers: HeaderMap,
     timeout_ms: u64,
-    client: reqwest::Client,
 ) -> Result<(), PbsError> {
     let url = relay.register_validator_url();
 
-    let timer = RELAY_LATENCY
-        .with_label_values(&[REGISTER_VALIDATOR_ENDPOINT_TAG, &relay.id])
-        .start_timer();
-    let res = client
+    let start_request = Instant::now();
+    let res = match relay
+        .client
         .post(url)
         .timeout(Duration::from_millis(timeout_ms))
         .headers(headers)
         .json(&registrations)
         .send()
-        .await?;
-    let latency_ms = timer.stop_and_record().mul(1000.0).ceil() as u64;
+        .await
+    {
+        Ok(res) => res,
+        Err(err) => {
+            RELAY_STATUS_CODE
+                .with_label_values(&[
+                    TIMEOUT_ERROR_CODE_STR,
+                    REGISTER_VALIDATOR_ENDPOINT_TAG,
+                    &relay.id,
+                ])
+                .inc();
+            return Err(err.into());
+        }
+    };
+    let request_latency = start_request.elapsed();
+    RELAY_LATENCY
+        .with_label_values(&[REGISTER_VALIDATOR_ENDPOINT_TAG, &relay.id])
+        .observe(request_latency.as_secs_f64());
 
     let code = res.status();
     RELAY_STATUS_CODE
@@ -93,7 +106,7 @@ async fn send_register_validator(
         return Err(err);
     };
 
-    debug!(?code, latency_ms, "registration successful");
+    debug!(?code, latency = ?request_latency, "registration successful");
 
     Ok(())
 }
