@@ -1,11 +1,8 @@
 name: Deploy Images to GHCR
 
 on:
-  push:
-    branches:
-      - main  # Trigger only on push to main branch
-    tags:     # Trigger on new tags
-      - 'v*'
+  pull_request:
+    branches: ["**"]
 
 jobs:
   push-store-image:
@@ -42,12 +39,22 @@ jobs:
             echo "DOCKER_TAG=${{ env.SHORT_SHA }}" >> $GITHUB_ENV
           fi
 
-      - name: 'Build pbs image'
-        run: |
-          docker build --tag ghcr.io/commit-boost/commit-boost-client/pbs:${{ env.DOCKER_TAG }} -f docker/pbs.Dockerfile .
-          docker push ghcr.io/commit-boost/commit-boost-client/pbs:${{ env.DOCKER_TAG }}
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/commit-boost/commit-boost-client/pbs:${{ env.DOCKER_TAG }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          file: docker/pbs.Dockerfile
 
-      - name: 'Build signer image'
-        run: |
-          docker build --tag ghcr.io/commit-boost/commit-boost-client/signer:${{ env.DOCKER_TAG }} -f docker/signer.Dockerfile .
-          docker push ghcr.io/commit-boost/commit-boost-client/signer:${{ env.DOCKER_TAG }}
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/commit-boost/commit-boost-client/pbs:${{ env.DOCKER_TAG }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          file: docker/signer.Dockerfile
