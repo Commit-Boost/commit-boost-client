@@ -46,7 +46,7 @@ jobs:
             echo "DOCKER_TAG=${{ env.SHORT_SHA }}" >> $GITHUB_ENV
           fi
 
-      - name: Build and push
+      - name: Build and push pbs
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -56,12 +56,12 @@ jobs:
           cache-to: type=gha,mode=max
           file: docker/pbs.Dockerfile
 
-      - name: Build and push
+      - name: Build and push signer
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: ghcr.io/commit-boost/commit-boost-client/pbs:${{ env.DOCKER_TAG }}
+          tags: ghcr.io/commit-boost/commit-boost-client/signer:${{ env.DOCKER_TAG }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           file: docker/signer.Dockerfile
