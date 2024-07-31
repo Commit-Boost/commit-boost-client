@@ -2,8 +2,8 @@
 // use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
 // use cb_cli::runner::{Runner, SignRequestSender};
 // use cb_common::{config::BuilderConfig, types::Chain};
-// use cb_crypto::{signature::verify_signed_builder_message, types::SignRequest};
-// use cb_pbs::{BuilderState, DefaultBuilderApi};
+// use cb_crypto::{signature::verify_signed_builder_message,
+// types::SignRequest}; use cb_pbs::{BuilderState, DefaultBuilderApi};
 // use cb_tests::utils::setup_test_env;
 // use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 // use tree_hash_derive::TreeHash;
@@ -24,11 +24,13 @@
 // ) -> eyre::Result<()> {
 //     let validator_pubkey = pubkeys[0];
 
-//     let (request, sign_rx) = SignRequest::new(COMMIT_ID, validator_pubkey, MSG);
+//     let (request, sign_rx) = SignRequest::new(COMMIT_ID, validator_pubkey,
+// MSG);
 
 //     tx.send(request).expect("failed sending request");
 
-//     let signature = sign_rx.await.expect("failed signing").expect("sign manager is down");
+//     let signature = sign_rx.await.expect("failed signing").expect("sign
+// manager is down");
 
 //     test_tx.send((validator_pubkey, signature)).unwrap();
 
@@ -65,5 +67,5 @@
 
 //     let (pubkey, signature) = test_rx.recv().await.unwrap();
 
-//     assert!(verify_signed_builder_message(chain, &pubkey, &MSG, &signature).is_ok())
-// }
+//     assert!(verify_signed_builder_message(chain, &pubkey, &MSG,
+// &signature).is_ok()) }

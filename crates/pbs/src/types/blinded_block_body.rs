@@ -1,7 +1,7 @@
-use std::usize;
-
-use alloy::primitives::{Address, B256};
-use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
+use alloy::{
+    primitives::{Address, B256},
+    rpc::types::beacon::{BlsPublicKey, BlsSignature},
+};
 use cb_common::utils::as_str;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
