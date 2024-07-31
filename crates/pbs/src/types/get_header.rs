@@ -1,5 +1,7 @@
-use alloy::primitives::{B256, U256};
-use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
+use alloy::{
+    primitives::{B256, U256},
+    rpc::types::beacon::{BlsPublicKey, BlsSignature},
+};
 use ethereum_types::U256 as EU256;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};

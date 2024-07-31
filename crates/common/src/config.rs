@@ -44,20 +44,20 @@ pub struct CommitBoostConfig {
 }
 
 fn load_from_file<T: DeserializeOwned>(path: &str) -> T {
-    let config_file =
-        std::fs::read_to_string(path).expect(&format!("Unable to find config file: '{}'", path));
+    let config_file = std::fs::read_to_string(path)
+        .unwrap_or_else(|_| panic!("Unable to find config file: '{}'", path));
     toml::from_str(&config_file).unwrap()
 }
 
 fn load_file_from_env<T: DeserializeOwned>(env: &str) -> T {
-    let path = std::env::var(env).expect(&format!("{env} is not set"));
+    let path = std::env::var(env).unwrap_or_else(|_| panic!("{env} is not set"));
     load_from_file(&path)
 }
 
 /// Loads a map of module id -> jwt token from a json env
 fn load_jwts() -> HashMap<String, String> {
-    let jwts = std::env::var(JWTS_ENV).expect(&format!("{JWTS_ENV} is not set"));
-    serde_json::from_str(&jwts).expect(&format!("Failed to parse jwts: {jwts}"))
+    let jwts = std::env::var(JWTS_ENV).unwrap_or_else(|_| panic!("{JWTS_ENV} is not set"));
+    serde_json::from_str(&jwts).unwrap_or_else(|_| panic!("Failed to parse jwts: {jwts}"))
 }
 
 impl CommitBoostConfig {
@@ -299,5 +299,5 @@ pub fn load_module_config<T: DeserializeOwned>() -> eyre::Result<StartModuleConf
 
 // TODO: propagate errors
 pub fn load_env_var_infallible(env: &str) -> String {
-    std::env::var(env).expect(&format!("{env} is not set"))
+    std::env::var(env).unwrap_or_else(|_| panic!("{env} is not set"))
 }

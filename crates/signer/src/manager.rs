@@ -10,12 +10,12 @@ use tree_hash::TreeHash;
 
 use crate::error::SignerModuleError;
 
-// For extra safety and to avoid risking signing malicious messages, use a proxy setup:
-// proposer creates a new ephemeral keypair which will be used to sign commit messages,
-// it also signs a ProxyDelegation associating the new keypair with its consensus pubkey
-// When a new commit module starts, pass the ProxyDelegation msg and then sign all future
-// commit messages with the proxy key
-// for slashing the faulty message + proxy delegation can be used
+// For extra safety and to avoid risking signing malicious messages, use a proxy
+// setup: proposer creates a new ephemeral keypair which will be used to sign
+// commit messages, it also signs a ProxyDelegation associating the new keypair
+// with its consensus pubkey When a new commit module starts, pass the
+// ProxyDelegation msg and then sign all future commit messages with the proxy
+// key for slashing the faulty message + proxy delegation can be used
 // Signed using builder domain
 
 pub struct ProxySigner {
@@ -58,7 +58,8 @@ impl SigningManager {
         Ok(signed_delegation)
     }
 
-    // TODO: double check what we can actually sign here with different providers eg web3 signer
+    // TODO: double check what we can actually sign here with different providers eg
+    // web3 signer
     pub async fn sign_consensus(
         &self,
         pubkey: &BlsPublicKey,

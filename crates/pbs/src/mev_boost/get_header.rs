@@ -121,14 +121,16 @@ async fn send_timed_get_header(
             loop {
                 handles.push(tokio::spawn(
                     send_one_get_header(
-                        url.clone(),
                         params,
                         relay.clone(),
                         chain,
-                        headers.clone(),
-                        timeout_left_ms,
                         pbs_config.skip_sigverify,
                         pbs_config.min_bid_wei,
+                        RequestConfig {
+                            timeout_ms: timeout_left_ms,
+                            url: url.clone(),
+                            headers: headers.clone(),
+                        },
                     )
                     .in_current_span(),
                 ));
@@ -179,41 +181,43 @@ async fn send_timed_get_header(
 
     // if no timing games or no repeated send, just send one request
     send_one_get_header(
-        url,
         params,
         relay,
         chain,
-        headers,
-        timeout_left_ms,
         pbs_config.skip_sigverify,
         pbs_config.min_bid_wei,
+        RequestConfig { timeout_ms: timeout_left_ms, url, headers },
     )
     .await
     .map(|(_, maybe_header)| maybe_header)
 }
 
-async fn send_one_get_header(
+struct RequestConfig {
     url: String,
+    timeout_ms: u64,
+    headers: HeaderMap,
+}
+
+async fn send_one_get_header(
     params: GetHeaderParams,
     relay: RelayClient,
     chain: Chain,
-    mut headers: HeaderMap,
-    timeout_ms: u64,
     skip_sigverify: bool,
     min_bid_wei: U256,
+    mut req_config: RequestConfig,
 ) -> Result<(u64, Option<GetHeaderReponse>), PbsError> {
     // the timestamp in the header is the consensus block time which is fixed,
     // use the beginning of the request as proxy to make sure we use only the
     // last one received
     let start_request_time = utcnow_ms();
-    headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(start_request_time));
+    req_config.headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(start_request_time));
 
     let start_request = Instant::now();
     let res = match relay
         .client
-        .get(url)
-        .timeout(Duration::from_millis(timeout_ms))
-        .headers(headers)
+        .get(req_config.url)
+        .timeout(Duration::from_millis(req_config.timeout_ms))
+        .headers(req_config.headers)
         .send()
         .await
     {
