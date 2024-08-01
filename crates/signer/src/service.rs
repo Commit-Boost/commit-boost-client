@@ -8,7 +8,6 @@ use axum::{
     Json,
 };
 use axum_extra::TypedHeader;
-use eyre::WrapErr;
 use cb_common::{
     commit::{
         client::GetPubkeysResponse,
@@ -17,6 +16,7 @@ use cb_common::{
     },
     config::StartSignerConfig,
 };
+use eyre::WrapErr;
 use headers::{authorization::Bearer, Authorization};
 use tokio::net::TcpListener;
 use tracing::{debug, error, info, warn};

@@ -18,5 +18,5 @@ pub fn setup_test_env() {
 pub fn generate_mock_relay(port: u16, pubkey: BlsPublicKey) -> Result<RelayClient> {
     let entry = RelayEntry { id: format!("mock_{port}"), pubkey, url: get_local_address(port) };
     let config = RelayConfig { entry, ..RelayConfig::default() };
-    Ok(RelayClient::new(config)?)
+    RelayClient::new(config)
 }

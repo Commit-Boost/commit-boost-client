@@ -44,8 +44,8 @@ pub struct CommitBoostConfig {
 }
 
 fn load_from_file<T: DeserializeOwned>(path: &str) -> Result<T> {
-    let config_file = std::fs::read_to_string(path)
-        .wrap_err(format!("Unable to find config file: {path}"))?;
+    let config_file =
+        std::fs::read_to_string(path).wrap_err(format!("Unable to find config file: {path}"))?;
     toml::from_str(&config_file).wrap_err("could not deserialize toml from string")
 }
 
@@ -165,7 +165,8 @@ fn default_pbs() -> String {
 /// Loads the default pbs config, i.e. with no signer client or custom data
 pub fn load_pbs_config() -> Result<PbsModuleConfig<()>> {
     let config = CommitBoostConfig::from_env_path()?;
-    let relay_clients = config.relays.into_iter().map(RelayClient::new).collect::<Result<Vec<RelayClient>>>()?;
+    let relay_clients =
+        config.relays.into_iter().map(RelayClient::new).collect::<Result<Vec<RelayClient>>>()?;
 
     Ok(PbsModuleConfig {
         chain: config.chain,
@@ -195,7 +196,8 @@ pub fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<PbsModuleConfig<T
 
     // load module config including the extra data (if any)
     let cb_config: StubConfig<T> = load_file_from_env(CB_CONFIG_ENV)?;
-    let relay_clients = cb_config.relays.into_iter().map(RelayClient::new).collect::<Result<Vec<RelayClient>>>()?;
+    let relay_clients =
+        cb_config.relays.into_iter().map(RelayClient::new).collect::<Result<Vec<RelayClient>>>()?;
 
     let signer_client = if cb_config.pbs.static_config.with_signer {
         // if custom pbs requires a signer client, load jwt
@@ -204,7 +206,8 @@ pub fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<PbsModuleConfig<T
         Some(SignerClient::new(signer_server_address, &module_jwt))
     } else {
         None
-    }.transpose()?;
+    }
+    .transpose()?;
 
     Ok(PbsModuleConfig {
         chain: cb_config.chain,

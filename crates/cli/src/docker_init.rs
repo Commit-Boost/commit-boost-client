@@ -1,5 +1,4 @@
 use std::{path::Path, vec};
-use eyre::Result;
 
 use cb_common::{
     config::{
@@ -14,6 +13,7 @@ use docker_compose_types::{
     Compose, DependsOnOptions, Environment, LoggingParameters, MapOrEmpty, NetworkSettings,
     Networks, Ports, Service, Services, SingleValue, Volumes,
 };
+use eyre::Result;
 use indexmap::IndexMap;
 use serde::Serialize;
 

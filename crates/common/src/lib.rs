@@ -1,5 +1,7 @@
-use std::fmt::{Display, Formatter};
-use std::time::Duration;
+use std::{
+    fmt::{Display, Formatter},
+    time::Duration,
+};
 
 pub mod commit;
 pub mod config;
@@ -13,8 +15,8 @@ pub mod utils;
 
 pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(12);
 
-use thiserror::Error;
 use blst::BLST_ERROR;
+use thiserror::Error;
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum BlstErrorWrapper {
     BlstSuccess(BLST_ERROR),
@@ -44,14 +46,28 @@ impl Display for BlstErrorWrapper {
 impl From<BLST_ERROR> for BlstErrorWrapper {
     fn from(value: BLST_ERROR) -> Self {
         match value {
-            BLST_ERROR::BLST_SUCCESS => BlstErrorWrapper::BlstSuccess( BLST_ERROR::BLST_SUCCESS),
-            BLST_ERROR::BLST_BAD_ENCODING => BlstErrorWrapper::BlstBadEncoding(BLST_ERROR::BLST_BAD_ENCODING),
-            BLST_ERROR::BLST_POINT_NOT_ON_CURVE => BlstErrorWrapper::BlstPointNotOnCurve(BLST_ERROR::BLST_POINT_NOT_ON_CURVE),
-            BLST_ERROR::BLST_POINT_NOT_IN_GROUP => BlstErrorWrapper::BlstPointNotInGroup(BLST_ERROR::BLST_POINT_NOT_IN_GROUP),
-            BLST_ERROR::BLST_AGGR_TYPE_MISMATCH => BlstErrorWrapper::BlstAggrTypeMismatch(BLST_ERROR::BLST_AGGR_TYPE_MISMATCH),
-            BLST_ERROR::BLST_VERIFY_FAIL => BlstErrorWrapper::BlstVerifyFail(BLST_ERROR::BLST_VERIFY_FAIL),
-            BLST_ERROR::BLST_PK_IS_INFINITY => BlstErrorWrapper::BlstPkIsInfinity(BLST_ERROR::BLST_PK_IS_INFINITY),
-            BLST_ERROR::BLST_BAD_SCALAR => BlstErrorWrapper::BlstBadScalar(BLST_ERROR::BLST_BAD_SCALAR),
+            BLST_ERROR::BLST_SUCCESS => BlstErrorWrapper::BlstSuccess(BLST_ERROR::BLST_SUCCESS),
+            BLST_ERROR::BLST_BAD_ENCODING => {
+                BlstErrorWrapper::BlstBadEncoding(BLST_ERROR::BLST_BAD_ENCODING)
+            }
+            BLST_ERROR::BLST_POINT_NOT_ON_CURVE => {
+                BlstErrorWrapper::BlstPointNotOnCurve(BLST_ERROR::BLST_POINT_NOT_ON_CURVE)
+            }
+            BLST_ERROR::BLST_POINT_NOT_IN_GROUP => {
+                BlstErrorWrapper::BlstPointNotInGroup(BLST_ERROR::BLST_POINT_NOT_IN_GROUP)
+            }
+            BLST_ERROR::BLST_AGGR_TYPE_MISMATCH => {
+                BlstErrorWrapper::BlstAggrTypeMismatch(BLST_ERROR::BLST_AGGR_TYPE_MISMATCH)
+            }
+            BLST_ERROR::BLST_VERIFY_FAIL => {
+                BlstErrorWrapper::BlstVerifyFail(BLST_ERROR::BLST_VERIFY_FAIL)
+            }
+            BLST_ERROR::BLST_PK_IS_INFINITY => {
+                BlstErrorWrapper::BlstPkIsInfinity(BLST_ERROR::BLST_PK_IS_INFINITY)
+            }
+            BLST_ERROR::BLST_BAD_SCALAR => {
+                BlstErrorWrapper::BlstBadScalar(BLST_ERROR::BLST_BAD_SCALAR)
+            }
         }
     }
 }

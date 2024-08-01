@@ -8,7 +8,12 @@ use ssz_derive::{Decode, Encode};
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
-use crate::{BlstErrorWrapper, constants::{APPLICATION_BUILDER_DOMAIN, GENESIS_VALIDATORS_ROOT}, types::Chain, utils::{alloy_pubkey_to_blst, alloy_sig_to_blst}};
+use crate::{
+    constants::{APPLICATION_BUILDER_DOMAIN, GENESIS_VALIDATORS_ROOT},
+    types::Chain,
+    utils::{alloy_pubkey_to_blst, alloy_sig_to_blst},
+    BlstErrorWrapper,
+};
 
 pub fn random_secret() -> SecretKey {
     let mut rng = rand::thread_rng();

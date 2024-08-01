@@ -2,13 +2,12 @@ use std::time::Duration;
 
 use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
 use commit_boost::prelude::*;
-use eyre::OptionExt;
+use eyre::{OptionExt, Result};
 use lazy_static::lazy_static;
 use prometheus::{IntCounter, Registry};
 use serde::Deserialize;
 use tokio::time::sleep;
 use tracing::{error, info};
-use eyre::Result;
 
 // You can define custom metrics and a custom registry for the business logic of
 // your module. These will be automatically scaped by the Prometheus server
@@ -71,7 +70,6 @@ impl DaCommitService {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-
     color_eyre::install()?;
     initialize_tracing_log();
 

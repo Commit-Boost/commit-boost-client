@@ -3,8 +3,8 @@ use alloy::{
     rpc::types::beacon::BlsPublicKey,
 };
 use axum::{http::StatusCode, response::IntoResponse};
-use thiserror::Error;
 use cb_common::BlstErrorWrapper;
+use thiserror::Error;
 
 #[derive(Debug)]
 /// Errors that the PbsService returns to client

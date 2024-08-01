@@ -4,7 +4,6 @@ use eyre::Result;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-
     color_eyre::install()?;
 
     // set default backtrace unless provided

@@ -3,7 +3,6 @@ use clap::Parser;
 /// Main entry point of the Commit Boost CLI
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
-
     color_eyre::install()?;
     // set default backtrace unless provided
     if std::env::var_os("RUST_BACKTRACE").is_none() {

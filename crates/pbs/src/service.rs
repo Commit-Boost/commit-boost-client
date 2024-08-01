@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 
 use cb_metrics::provider::MetricsProvider;
+use eyre::Result;
 use prometheus::core::Collector;
 use tokio::net::TcpListener;
 use tracing::{error, info};
@@ -11,7 +12,6 @@ use crate::{
     routes::create_app_router,
     state::{BuilderApiState, PbsState},
 };
-use eyre::Result;
 
 pub struct PbsService;
 
