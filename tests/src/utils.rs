@@ -1,7 +1,10 @@
 use std::sync::Once;
 
 use alloy::rpc::types::beacon::BlsPublicKey;
-use cb_common::pbs::{RelayClient, RelayConfig, RelayEntry};
+use cb_common::{
+    config::RelayConfig,
+    pbs::{RelayClient, RelayEntry},
+};
 use eyre::Result;
 
 pub fn get_local_address(port: u16) -> String {

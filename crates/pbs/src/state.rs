@@ -6,19 +6,14 @@ use std::{
 
 use alloy::{primitives::B256, rpc::types::beacon::BlsPublicKey};
 use cb_common::{
-    config::PbsModuleConfig,
-    pbs::{PbsConfig, RelayClient},
+    config::{PbsConfig, PbsModuleConfig},
+    pbs::{BuilderEvent, GetHeaderReponse, RelayClient},
 };
 use dashmap::DashMap;
-use tokio::sync::broadcast;
 use uuid::Uuid;
-
-use crate::{types::GetHeaderReponse, BuilderEvent};
 
 pub trait BuilderApiState: fmt::Debug + Default + Clone + Sync + Send + 'static {}
 impl BuilderApiState for () {}
-
-pub type BuilderEventReceiver = broadcast::Receiver<BuilderEvent>;
 
 /// State for the Pbs module. It can be extended in two ways:
 /// - By adding extra configs to be loaded at startup
@@ -29,8 +24,6 @@ pub struct PbsState<U, S: BuilderApiState = ()> {
     pub config: PbsModuleConfig<U>,
     /// Opaque extra data for library use
     pub data: S,
-    /// Pubsliher for builder events
-    event_publisher: broadcast::Sender<BuilderEvent>,
     /// Info about the latest slot and its uuid
     current_slot_info: Arc<Mutex<(u64, Uuid)>>,
     /// Keeps track of which relays delivered which block for which slot
@@ -42,12 +35,9 @@ where
     S: BuilderApiState,
 {
     pub fn new(config: PbsModuleConfig<U>) -> Self {
-        let (tx, _) = broadcast::channel(10);
-
         Self {
             config,
             data: S::default(),
-            event_publisher: tx,
             current_slot_info: Arc::new(Mutex::new((0, Uuid::default()))),
             bid_cache: Arc::new(DashMap::new()),
         }
@@ -58,12 +48,9 @@ where
     }
 
     pub fn publish_event(&self, e: BuilderEvent) {
-        // ignore client errors
-        let _ = self.event_publisher.send(e);
-    }
-
-    pub fn subscribe_events(&self) -> BuilderEventReceiver {
-        self.event_publisher.subscribe()
+        if let Some(publisher) = self.config.event_publiher.as_ref() {
+            publisher.publish(e);
+        }
     }
 
     pub fn get_or_update_slot_uuid(&self, last_slot: u64) -> Uuid {

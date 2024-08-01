@@ -2,8 +2,8 @@ use std::{net::SocketAddr, sync::Arc, time::Duration, u64};
 
 use alloy::primitives::U256;
 use cb_common::{
-    config::PbsModuleConfig,
-    pbs::{PbsConfig, RelayClient},
+    config::{PbsConfig, PbsModuleConfig},
+    pbs::RelayClient,
     signer::Signer,
     types::Chain,
 };
@@ -50,6 +50,7 @@ fn to_pbs_config(
         chain,
         pbs_config: Arc::new(pbs_config),
         signer_client: None,
+        event_publiher: None,
         extra: (),
         relays,
     }

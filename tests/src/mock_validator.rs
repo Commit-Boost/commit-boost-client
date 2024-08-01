@@ -2,8 +2,7 @@ use alloy::{
     primitives::B256,
     rpc::types::beacon::{relay::ValidatorRegistration, BlsPublicKey},
 };
-use cb_common::pbs::RelayClient;
-use cb_pbs::{GetHeaderReponse, SignedBlindedBeaconBlock};
+use cb_common::pbs::{GetHeaderReponse, RelayClient, SignedBlindedBeaconBlock};
 use reqwest::Error;
 
 use crate::utils::generate_mock_relay;

@@ -1,17 +1,16 @@
 use alloy::rpc::types::beacon::relay::ValidatorRegistration;
 use axum::{extract::State, http::HeaderMap, response::IntoResponse, Json};
-use cb_common::utils::get_user_agent;
+use cb_common::{pbs::BuilderEvent, utils::get_user_agent};
 use reqwest::StatusCode;
 use tracing::{error, info, trace};
 use uuid::Uuid;
 
 use crate::{
-    boost::BuilderApi,
+    api::BuilderApi,
     constants::REGISTER_VALIDATOR_ENDPOINT_TAG,
     error::PbsClientError,
     metrics::BEACON_NODE_STATUS,
     state::{BuilderApiState, PbsState},
-    BuilderEvent,
 };
 
 #[tracing::instrument(skip_all, name = "register_validators", fields(req_id = %Uuid::new_v4()))]

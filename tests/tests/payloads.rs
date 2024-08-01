@@ -1,7 +1,7 @@
 use std::fs;
 
 use alloy::rpc::types::beacon::relay::ValidatorRegistration;
-use cb_pbs::{SignedBlindedBeaconBlock, SubmitBlindedBlockResponse};
+use cb_common::pbs::{SignedBlindedBeaconBlock, SubmitBlindedBlockResponse};
 #[test]
 fn test_registrations() {
     let file = fs::read("data/registration_holesky.json").unwrap();
