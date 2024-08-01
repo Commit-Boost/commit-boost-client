@@ -13,6 +13,7 @@ use docker_compose_types::{
     Compose, DependsOnOptions, Environment, LoggingParameters, MapOrEmpty, NetworkSettings,
     Networks, Ports, Service, Services, SingleValue, Volumes,
 };
+use eyre::Result;
 use indexmap::IndexMap;
 use serde::Serialize;
 
@@ -29,10 +30,10 @@ const SIGNER_NETWORK: &str = "signer_network";
 
 // TODO: do more validation for paths, images, etc
 #[allow(unused_assignments)]
-pub fn handle_docker_init(config_path: String, output_dir: String) -> eyre::Result<()> {
+pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()> {
     println!("Initializing Commit-Boost with config file: {}", config_path);
 
-    let cb_config = CommitBoostConfig::from_file(&config_path);
+    let cb_config = CommitBoostConfig::from_file(&config_path)?;
 
     let mut services = IndexMap::new();
 
@@ -159,7 +160,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> eyre::Resu
         };
 
         // write jwts to env
-        let jwts_json = serde_json::to_string(&jwts).unwrap().clone();
+        let jwts_json = serde_json::to_string(&jwts)?.clone();
         envs.insert(JWTS_ENV.into(), format!("{jwts_json:?}"));
 
         let signer_service = Service {

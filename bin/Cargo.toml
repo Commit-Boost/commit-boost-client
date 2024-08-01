@@ -28,6 +28,8 @@ tracing-subscriber.workspace = true
 
 # misc
 clap.workspace = true
+eyre.workspace = true
+color-eyre.workspace = true
 
 [[bin]]
 name = "commit-boost"

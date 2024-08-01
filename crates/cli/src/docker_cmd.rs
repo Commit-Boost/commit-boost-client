@@ -1,6 +1,8 @@
 use std::process::{Command, Stdio};
 
-pub fn handle_docker_start(compose_path: String, env_path: String) -> eyre::Result<()> {
+use eyre::Result;
+
+pub fn handle_docker_start(compose_path: String, env_path: String) -> Result<()> {
     println!("Starting Commit-Boost with compose file: {}", compose_path);
 
     // load env file
@@ -24,7 +26,7 @@ pub fn handle_docker_start(compose_path: String, env_path: String) -> eyre::Resu
     Ok(())
 }
 
-pub fn handle_docker_stop(compose_path: String, env_path: String) -> eyre::Result<()> {
+pub fn handle_docker_stop(compose_path: String, env_path: String) -> Result<()> {
     println!("Stopping Commit-Boost with compose file: {}", compose_path);
 
     // load env file
@@ -46,7 +48,7 @@ pub fn handle_docker_stop(compose_path: String, env_path: String) -> eyre::Resul
 }
 
 // TODO: we shouldnt use docker logs
-pub fn handle_docker_logs(compose_path: String) -> eyre::Result<()> {
+pub fn handle_docker_logs(compose_path: String) -> Result<()> {
     println!("Querying Commit-Boost with compose file: {}", compose_path);
 
     // TODO: if permission denied, print warning to run as sudo

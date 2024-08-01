@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 
 use cb_metrics::provider::MetricsProvider;
+use eyre::Result;
 use prometheus::core::Collector;
 use tokio::net::TcpListener;
 use tracing::{error, info};
@@ -38,8 +39,8 @@ impl PbsService {
         PBS_METRICS_REGISTRY.register(c).expect("failed to register metric");
     }
 
-    pub fn init_metrics() {
-        MetricsProvider::load_and_run(PBS_METRICS_REGISTRY.clone());
+    pub fn init_metrics() -> Result<()> {
+        MetricsProvider::load_and_run(PBS_METRICS_REGISTRY.clone())
     }
 
     // TODO: before starting, send a sanity check to relay

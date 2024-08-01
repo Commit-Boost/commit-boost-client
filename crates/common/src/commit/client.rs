@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
+use eyre::WrapErr;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use serde::{Deserialize, Serialize};
 
@@ -27,21 +28,20 @@ pub struct SignerClient {
 
 impl SignerClient {
     /// Create a new SignerClient
-    pub fn new(signer_server_address: String, jwt: &str) -> Self {
+    pub fn new(signer_server_address: String, jwt: &str) -> eyre::Result<Self> {
         let url = format!("http://{}", signer_server_address);
         let mut headers = HeaderMap::new();
 
         let mut auth_value =
-            HeaderValue::from_str(&format!("Bearer {}", jwt)).expect("invalid jwt");
+            HeaderValue::from_str(&format!("Bearer {}", jwt)).wrap_err("invalid jwt")?;
         auth_value.set_sensitive(true);
         headers.insert(AUTHORIZATION, auth_value);
         let client = reqwest::Client::builder()
             .timeout(DEFAULT_REQUEST_TIMEOUT)
             .default_headers(headers)
-            .build()
-            .unwrap();
+            .build()?;
 
-        Self { url: url.into(), client }
+        Ok(Self { url: url.into(), client })
     }
 
     /// Request a list of validator pubkeys for which signatures can be

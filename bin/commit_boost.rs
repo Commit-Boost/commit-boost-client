@@ -2,7 +2,8 @@ use clap::Parser;
 
 /// Main entry point of the Commit Boost CLI
 #[tokio::main]
-async fn main() {
+async fn main() -> eyre::Result<()> {
+    color_eyre::install()?;
     // set default backtrace unless provided
     if std::env::var_os("RUST_BACKTRACE").is_none() {
         std::env::set_var("RUST_BACKTRACE", "1");
@@ -14,4 +15,5 @@ async fn main() {
         eprintln!("Error: {err}");
         std::process::exit(1)
     };
+    Ok(())
 }

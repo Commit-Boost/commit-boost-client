@@ -1,8 +1,10 @@
 use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
 use blst::min_pk::SecretKey;
+use eyre::Result;
 use tree_hash::TreeHash;
 
 use crate::{
+    error::BlstErrorWrapper,
     signature::{random_secret, sign_builder_message},
     types::Chain,
     utils::blst_pubkey_to_alloy,
@@ -14,13 +16,13 @@ pub enum Signer {
 }
 
 impl Signer {
-    pub fn new_random() -> Self {
-        Signer::Local(random_secret())
+    pub fn new_random() -> Result<Self> {
+        Ok(Signer::Local(random_secret()?))
     }
 
-    pub fn new_from_bytes(bytes: &[u8]) -> Self {
-        let secret_key = SecretKey::from_bytes(bytes).unwrap();
-        Self::Local(secret_key)
+    pub fn new_from_bytes(bytes: &[u8]) -> Result<Self> {
+        let secret_key = SecretKey::from_bytes(bytes).map_err(BlstErrorWrapper::from)?;
+        Ok(Self::Local(secret_key))
     }
 
     pub fn pubkey(&self) -> BlsPublicKey {

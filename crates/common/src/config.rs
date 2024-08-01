@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use eyre::{eyre, ContextCompat};
+use eyre::{eyre, ContextCompat, Result, WrapErr};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::{
@@ -43,29 +43,29 @@ pub struct CommitBoostConfig {
     pub metrics: MetricsConfig,
 }
 
-fn load_from_file<T: DeserializeOwned>(path: &str) -> T {
-    let config_file = std::fs::read_to_string(path)
-        .unwrap_or_else(|_| panic!("Unable to find config file: '{}'", path));
-    toml::from_str(&config_file).unwrap()
+fn load_from_file<T: DeserializeOwned>(path: &str) -> Result<T> {
+    let config_file =
+        std::fs::read_to_string(path).wrap_err(format!("Unable to find config file: {path}"))?;
+    toml::from_str(&config_file).wrap_err("could not deserialize toml from string")
 }
 
-fn load_file_from_env<T: DeserializeOwned>(env: &str) -> T {
-    let path = std::env::var(env).unwrap_or_else(|_| panic!("{env} is not set"));
+fn load_file_from_env<T: DeserializeOwned>(env: &str) -> Result<T> {
+    let path = std::env::var(env).wrap_err(format!("{env} is not set"))?;
     load_from_file(&path)
 }
 
 /// Loads a map of module id -> jwt token from a json env
-fn load_jwts() -> HashMap<String, String> {
-    let jwts = std::env::var(JWTS_ENV).unwrap_or_else(|_| panic!("{JWTS_ENV} is not set"));
-    serde_json::from_str(&jwts).unwrap_or_else(|_| panic!("Failed to parse jwts: {jwts}"))
+fn load_jwts() -> Result<HashMap<String, String>> {
+    let jwts = std::env::var(JWTS_ENV).wrap_err(format!("{JWTS_ENV} is not set"))?;
+    serde_json::from_str(&jwts).wrap_err("could not deserialize json from string")
 }
 
 impl CommitBoostConfig {
-    pub fn from_file(path: &str) -> Self {
+    pub fn from_file(path: &str) -> Result<Self> {
         load_from_file(path)
     }
 
-    pub fn from_env_path() -> Self {
+    pub fn from_env_path() -> Result<Self> {
         load_file_from_env(CB_CONFIG_ENV)
     }
 }
@@ -92,18 +92,18 @@ pub struct StartSignerConfig {
 }
 
 impl StartSignerConfig {
-    pub fn load_from_env() -> Self {
-        let config = CommitBoostConfig::from_env_path();
+    pub fn load_from_env() -> Result<Self> {
+        let config = CommitBoostConfig::from_env_path()?;
 
-        let jwts = load_jwts();
-        let server_port = load_env_var_infallible(SIGNER_SERVER_ENV).parse().unwrap();
+        let jwts = load_jwts()?;
+        let server_port = load_env_var(SIGNER_SERVER_ENV)?.parse()?;
 
-        StartSignerConfig {
+        Ok(StartSignerConfig {
             chain: config.chain,
             loader: config.signer.expect("Signer config is missing").loader,
             server_port,
             jwts,
-        }
+        })
     }
 }
 
@@ -121,9 +121,9 @@ pub struct ModuleMetricsConfig {
 }
 
 impl ModuleMetricsConfig {
-    pub fn load_from_env() -> Self {
-        let server_port = load_env_var_infallible(METRICS_SERVER_ENV).parse().unwrap();
-        ModuleMetricsConfig { server_port }
+    pub fn load_from_env() -> Result<Self> {
+        let server_port = load_env_var(METRICS_SERVER_ENV)?.parse()?;
+        Ok(ModuleMetricsConfig { server_port })
     }
 }
 
@@ -163,9 +163,10 @@ fn default_pbs() -> String {
 }
 
 /// Loads the default pbs config, i.e. with no signer client or custom data
-pub fn load_pbs_config() -> eyre::Result<PbsModuleConfig<()>> {
-    let config = CommitBoostConfig::from_env_path();
-    let relay_clients = config.relays.into_iter().map(RelayClient::new).collect();
+pub fn load_pbs_config() -> Result<PbsModuleConfig<()>> {
+    let config = CommitBoostConfig::from_env_path()?;
+    let relay_clients =
+        config.relays.into_iter().map(RelayClient::new).collect::<Result<Vec<RelayClient>>>()?;
 
     Ok(PbsModuleConfig {
         chain: config.chain,
@@ -177,7 +178,7 @@ pub fn load_pbs_config() -> eyre::Result<PbsModuleConfig<()>> {
 }
 
 /// Loads a custom pbs config, i.e. with signer client and/or custom data
-pub fn load_pbs_custom_config<T: DeserializeOwned>() -> eyre::Result<PbsModuleConfig<T>> {
+pub fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<PbsModuleConfig<T>> {
     #[derive(Debug, Deserialize)]
     struct CustomPbsConfig<U> {
         #[serde(flatten)]
@@ -194,17 +195,19 @@ pub fn load_pbs_custom_config<T: DeserializeOwned>() -> eyre::Result<PbsModuleCo
     }
 
     // load module config including the extra data (if any)
-    let cb_config: StubConfig<T> = load_file_from_env(CB_CONFIG_ENV);
-    let relay_clients = cb_config.relays.into_iter().map(RelayClient::new).collect();
+    let cb_config: StubConfig<T> = load_file_from_env(CB_CONFIG_ENV)?;
+    let relay_clients =
+        cb_config.relays.into_iter().map(RelayClient::new).collect::<Result<Vec<RelayClient>>>()?;
 
     let signer_client = if cb_config.pbs.static_config.with_signer {
         // if custom pbs requires a signer client, load jwt
-        let module_jwt = load_env_var_infallible(MODULE_JWT_ENV);
-        let signer_server_address = load_env_var_infallible(SIGNER_SERVER_ENV);
+        let module_jwt = load_env_var(MODULE_JWT_ENV)?;
+        let signer_server_address = load_env_var(SIGNER_SERVER_ENV)?;
         Some(SignerClient::new(signer_server_address, &module_jwt))
     } else {
         None
-    };
+    }
+    .transpose()?;
 
     Ok(PbsModuleConfig {
         chain: cb_config.chain,
@@ -242,10 +245,10 @@ pub struct StartModuleConfig<T = ()> {
 /// - [CB_CONFIG_ENV] - the path to the config file
 /// - [MODULE_JWT_ENV] - the jwt token for the module
 // TODO: add metrics url here
-pub fn load_module_config<T: DeserializeOwned>() -> eyre::Result<StartModuleConfig<T>> {
-    let module_id = load_env_var_infallible(MODULE_ID_ENV);
-    let module_jwt = load_env_var_infallible(MODULE_JWT_ENV);
-    let signer_server_address = load_env_var_infallible(SIGNER_SERVER_ENV);
+pub fn load_module_config<T: DeserializeOwned>() -> Result<StartModuleConfig<T>> {
+    let module_id = load_env_var(MODULE_ID_ENV)?;
+    let module_jwt = load_env_var(MODULE_JWT_ENV)?;
+    let signer_server_address = load_env_var(SIGNER_SERVER_ENV)?;
 
     #[derive(Debug, Deserialize)]
     struct ThisModuleConfig<U> {
@@ -269,7 +272,7 @@ pub fn load_module_config<T: DeserializeOwned>() -> eyre::Result<StartModuleConf
     }
 
     // load module config including the extra data (if any)
-    let cb_config: StubConfig<T> = load_file_from_env(CB_CONFIG_ENV);
+    let cb_config: StubConfig<T> = load_file_from_env(CB_CONFIG_ENV)?;
 
     // find all matching modules config
     let matches: Vec<ThisModuleConfig<T>> = cb_config
@@ -286,7 +289,7 @@ pub fn load_module_config<T: DeserializeOwned>() -> eyre::Result<StartModuleConf
             .find(|m| m.static_config.id == module_id)
             .wrap_err(format!("failed to find module for {module_id}"))?;
 
-        let signer_client = SignerClient::new(signer_server_address, &module_jwt);
+        let signer_client = SignerClient::new(signer_server_address, &module_jwt)?;
 
         Ok(StartModuleConfig {
             id: module_config.static_config.id,
@@ -297,7 +300,6 @@ pub fn load_module_config<T: DeserializeOwned>() -> eyre::Result<StartModuleConf
     }
 }
 
-// TODO: propagate errors
-pub fn load_env_var_infallible(env: &str) -> String {
-    std::env::var(env).unwrap_or_else(|_| panic!("{env} is not set"))
+pub fn load_env_var(env: &str) -> Result<String> {
+    std::env::var(env).wrap_err("{env} is not set")
 }

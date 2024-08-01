@@ -3,6 +3,7 @@ use alloy::{
     rpc::types::beacon::BlsPublicKey,
 };
 use axum::{http::StatusCode, response::IntoResponse};
+use cb_common::error::BlstErrorWrapper;
 use thiserror::Error;
 
 #[derive(Debug)]
@@ -88,5 +89,5 @@ pub enum ValidationError {
     EmptyTxRoot,
 
     #[error("failed signature verification: {0:?}")]
-    Sigverify(blst::BLST_ERROR),
+    Sigverify(#[from] BlstErrorWrapper),
 }

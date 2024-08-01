@@ -10,22 +10,23 @@ use tree_hash_derive::TreeHash;
 
 use crate::{
     constants::{APPLICATION_BUILDER_DOMAIN, GENESIS_VALIDATORS_ROOT},
+    error::BlstErrorWrapper,
     types::Chain,
     utils::{alloy_pubkey_to_blst, alloy_sig_to_blst},
 };
 
-pub fn random_secret() -> SecretKey {
+pub fn random_secret() -> eyre::Result<SecretKey> {
     let mut rng = rand::thread_rng();
     let mut ikm = [0u8; 32];
     rng.fill_bytes(&mut ikm);
-    SecretKey::key_gen(&ikm, &[]).unwrap()
+    Ok(SecretKey::key_gen(&ikm, &[]).map_err(BlstErrorWrapper::from)?)
 }
 
 pub fn verify_signature(
     pubkey: &BlsPublicKey,
     msg: &[u8],
     signature: &BlsSignature,
-) -> Result<(), blst::BLST_ERROR> {
+) -> Result<(), BlstErrorWrapper> {
     let pubkey: PublicKey = alloy_pubkey_to_blst(pubkey)?;
     let signature: Signature = alloy_sig_to_blst(signature)?;
 
@@ -33,7 +34,7 @@ pub fn verify_signature(
     if res == BLST_ERROR::BLST_SUCCESS {
         Ok(())
     } else {
-        Err(res)
+        Err(res.into())
     }
 }
 
@@ -78,7 +79,7 @@ pub fn verify_signed_builder_message<T: TreeHash>(
     pubkey: &BlsPublicKey,
     msg: &T,
     signature: &BlsSignature,
-) -> Result<(), BLST_ERROR> {
+) -> Result<(), BlstErrorWrapper> {
     let domain = chain.builder_domain();
     let signing_root = compute_signing_root(msg.tree_hash_root().0, domain);
 
