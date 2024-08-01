@@ -1,4 +1,4 @@
-use eyre::{eyre, ContextCompat, Result};
+use eyre::{ContextCompat, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use toml::Table;
 
@@ -85,26 +85,27 @@ pub fn load_commit_module_config<T: DeserializeOwned>() -> Result<StartCommitMod
     let matches: Vec<ThisModuleConfig<T>> = cb_config
         .modules
         .into_iter()
-        .filter_map(|m| if let ThisModule::Target(config) = m { Some(config) } else { None })
+        .filter_map(|m| match m {
+            ThisModule::Target(config) => Some(config),
+            _ => None,
+        })
         .collect();
 
-    if matches.is_empty() {
-        Err(eyre!("Failed to find matching config type"))
-    } else {
-        let module_config = matches
-            .into_iter()
-            .find(|m| m.static_config.id == module_id)
-            .wrap_err(format!("failed to find module for {module_id}"))?;
+    eyre::ensure!(!matches.is_empty(), "Failed to find matching config type");
 
-        let signer_client = SignerClient::new(signer_server_address, &module_jwt)?;
+    let module_config = matches
+        .into_iter()
+        .find(|m| m.static_config.id == module_id)
+        .wrap_err(format!("failed to find module for {module_id}"))?;
 
-        Ok(StartCommitModuleConfig {
-            id: module_config.static_config.id,
-            chain: cb_config.chain,
-            signer_client,
-            extra: module_config.extra,
-        })
-    }
+    let signer_client = SignerClient::new(signer_server_address, &module_jwt)?;
+
+    Ok(StartCommitModuleConfig {
+        id: module_config.static_config.id,
+        chain: cb_config.chain,
+        signer_client,
+        extra: module_config.extra,
+    })
 }
 
 #[derive(Debug)]
@@ -153,22 +154,23 @@ pub fn load_builder_module_config<T: DeserializeOwned>() -> eyre::Result<StartBu
     let matches: Vec<ThisModuleConfig<T>> = cb_config
         .modules
         .into_iter()
-        .filter_map(|m| if let ThisModule::Target(config) = m { Some(config) } else { None })
+        .filter_map(|m| match m {
+            ThisModule::Target(config) => Some(config),
+            _ => None,
+        })
         .collect();
 
-    if matches.is_empty() {
-        Err(eyre!("Failed to find matching config type"))
-    } else {
-        let module_config = matches
-            .into_iter()
-            .find(|m| m.static_config.id == module_id)
-            .wrap_err(format!("failed to find module for {module_id}"))?;
+    eyre::ensure!(!matches.is_empty(), "Failed to find matching config type");
 
-        Ok(StartBuilderModuleConfig {
-            id: module_config.static_config.id,
-            chain: cb_config.chain,
-            server_port: builder_events_port,
-            extra: module_config.extra,
-        })
-    }
+    let module_config = matches
+        .into_iter()
+        .find(|m| m.static_config.id == module_id)
+        .wrap_err(format!("failed to find module for {module_id}"))?;
+
+    Ok(StartBuilderModuleConfig {
+        id: module_config.static_config.id,
+        chain: cb_config.chain,
+        server_port: builder_events_port,
+        extra: module_config.extra,
+    })
 }
