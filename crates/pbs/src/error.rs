@@ -4,6 +4,7 @@ use alloy::{
 };
 use axum::{http::StatusCode, response::IntoResponse};
 use thiserror::Error;
+use cb_common::BlstErrorWrapper;
 
 #[derive(Debug)]
 /// Errors that the PbsService returns to client
@@ -88,5 +89,5 @@ pub enum ValidationError {
     EmptyTxRoot,
 
     #[error("failed signature verification: {0:?}")]
-    Sigverify(blst::BLST_ERROR),
+    Sigverify(#[from] BlstErrorWrapper),
 }

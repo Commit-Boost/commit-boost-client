@@ -1,4 +1,5 @@
 use std::{path::Path, vec};
+use eyre::Result;
 
 use cb_common::{
     config::{
@@ -28,7 +29,7 @@ const SIGNER_NETWORK: &str = "signer_network";
 
 // TODO: do more validation for paths, images, etc
 #[allow(unused_assignments)]
-pub fn handle_docker_init(config_path: String, output_dir: String) -> eyre::Result<()> {
+pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()> {
     println!("Initializing Commit-Boost with config file: {}", config_path);
 
     let cb_config = CommitBoostConfig::from_file(&config_path);
