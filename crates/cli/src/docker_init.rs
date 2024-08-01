@@ -32,7 +32,7 @@ const SIGNER_NETWORK: &str = "signer_network";
 pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()> {
     println!("Initializing Commit-Boost with config file: {}", config_path);
 
-    let cb_config = CommitBoostConfig::from_file(&config_path);
+    let cb_config = CommitBoostConfig::from_file(&config_path)?;
 
     let mut services = IndexMap::new();
 

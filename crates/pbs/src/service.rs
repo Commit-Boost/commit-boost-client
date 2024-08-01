@@ -11,6 +11,7 @@ use crate::{
     routes::create_app_router,
     state::{BuilderApiState, PbsState},
 };
+use eyre::Result;
 
 pub struct PbsService;
 
@@ -38,8 +39,8 @@ impl PbsService {
         PBS_METRICS_REGISTRY.register(c).expect("failed to register metric");
     }
 
-    pub fn init_metrics() {
-        MetricsProvider::load_and_run(PBS_METRICS_REGISTRY.clone());
+    pub fn init_metrics() -> Result<()> {
+        MetricsProvider::load_and_run(PBS_METRICS_REGISTRY.clone())
     }
 
     // TODO: before starting, send a sanity check to relay

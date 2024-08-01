@@ -22,18 +22,19 @@ impl MetricsProvider {
         MetricsProvider { config, registry }
     }
 
-    pub fn from_registry(registry: Registry) -> Self {
-        let config = ModuleMetricsConfig::load_from_env();
-        MetricsProvider { config, registry }
+    pub fn from_registry(registry: Registry) -> eyre::Result<Self> {
+        let config = ModuleMetricsConfig::load_from_env()?;
+        Ok(MetricsProvider { config, registry })
     }
 
-    pub fn load_and_run(registry: Registry) {
-        let provider = MetricsProvider::from_registry(registry);
+    pub fn load_and_run(registry: Registry) -> eyre::Result<()> {
+        let provider = MetricsProvider::from_registry(registry)?;
         tokio::spawn(async move {
             if let Err(err) = provider.run().await {
                 error!("Metrics server error: {:?}", err);
             }
         });
+        Ok(())
     }
 
     pub async fn run(self) -> eyre::Result<()> {

@@ -8,6 +8,7 @@ use axum::{
     Json,
 };
 use axum_extra::TypedHeader;
+use eyre::WrapErr;
 use cb_common::{
     commit::{
         client::GetPubkeysResponse,
@@ -36,10 +37,10 @@ struct SigningState {
 }
 
 impl SigningService {
-    pub async fn run(config: StartSignerConfig) {
+    pub async fn run(config: StartSignerConfig) -> eyre::Result<()> {
         if config.jwts.is_empty() {
             warn!("Signing service was started but no module is registered. Exiting");
-            return;
+            return Ok(());
         } else {
             info!(modules =? config.jwts.keys(), port =? config.server_port, "Starting signing service");
         }
@@ -47,7 +48,7 @@ impl SigningService {
         let mut manager = SigningManager::new(config.chain);
 
         // TODO: load proxy keys, or pass already loaded?
-        for signer in config.loader.load_keys() {
+        for signer in config.loader.load_keys()? {
             manager.add_consensus_signer(signer);
         }
 
@@ -59,11 +60,12 @@ impl SigningService {
             .with_state(state);
 
         let address = SocketAddr::from(([0, 0, 0, 0], config.server_port));
-        let listener = TcpListener::bind(address).await.expect("failed tcp binding");
+        let listener = TcpListener::bind(address).await.wrap_err("failed tcp binding")?;
 
         if let Err(err) = axum::serve(listener, app).await {
             error!(?err, "Signing server exited")
         }
+        Ok(())
     }
 }
 
