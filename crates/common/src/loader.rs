@@ -6,9 +6,7 @@ use eyre::eyre;
 use serde::{de, Deserialize, Deserializer, Serialize};
 
 use crate::{
-    config::{
-        load_env_var_infallible, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV,
-    },
+    config::{load_env_var, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV},
     signer::Signer,
 };
 
@@ -34,7 +32,7 @@ impl SignerLoader {
     pub fn load_from_env(self) -> eyre::Result<Vec<Signer>> {
         Ok(match self {
             SignerLoader::File { .. } => {
-                let path = load_env_var_infallible(SIGNER_KEYS_ENV)?;
+                let path = load_env_var(SIGNER_KEYS_ENV)?;
                 let file = std::fs::read_to_string(path)
                     .unwrap_or_else(|_| panic!("Unable to find keys file"));
 
@@ -47,8 +45,8 @@ impl SignerLoader {
             SignerLoader::ValidatorsDir { .. } => {
                 // TODO: hacky way to load for now, we should support reading the
                 // definitions.yml file
-                let keys_path = load_env_var_infallible(SIGNER_DIR_KEYS_ENV)?;
-                let secrets_path = load_env_var_infallible(SIGNER_DIR_SECRETS_ENV)?;
+                let keys_path = load_env_var(SIGNER_DIR_KEYS_ENV)?;
+                let secrets_path = load_env_var(SIGNER_DIR_SECRETS_ENV)?;
                 load_secrets_and_keys(keys_path, secrets_path).expect("failed to load signers")
             }
         })

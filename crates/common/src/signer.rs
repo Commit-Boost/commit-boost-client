@@ -4,10 +4,10 @@ use eyre::Result;
 use tree_hash::TreeHash;
 
 use crate::{
+    error::BlstErrorWrapper,
     signature::{random_secret, sign_builder_message},
     types::Chain,
     utils::blst_pubkey_to_alloy,
-    BlstErrorWrapper,
 };
 
 #[derive(Clone)]

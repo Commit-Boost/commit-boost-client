@@ -3,7 +3,7 @@ use alloy::{
     rpc::types::beacon::BlsPublicKey,
 };
 use axum::{http::StatusCode, response::IntoResponse};
-use cb_common::BlstErrorWrapper;
+use cb_common::error::BlstErrorWrapper;
 use thiserror::Error;
 
 #[derive(Debug)]

@@ -10,9 +10,9 @@ use tree_hash_derive::TreeHash;
 
 use crate::{
     constants::{APPLICATION_BUILDER_DOMAIN, GENESIS_VALIDATORS_ROOT},
+    error::BlstErrorWrapper,
     types::Chain,
     utils::{alloy_pubkey_to_blst, alloy_sig_to_blst},
-    BlstErrorWrapper,
 };
 
 pub fn random_secret() -> eyre::Result<SecretKey> {

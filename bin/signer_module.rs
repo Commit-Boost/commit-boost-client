@@ -14,6 +14,5 @@ async fn main() -> Result<()> {
     initialize_tracing_log();
 
     let config = StartSignerConfig::load_from_env()?;
-    SigningService::run(config).await?;
-    Ok(())
+    SigningService::run(config).await
 }
