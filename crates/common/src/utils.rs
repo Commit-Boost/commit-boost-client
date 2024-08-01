@@ -117,10 +117,10 @@ pub const fn default_u256() -> U256 {
 
 // LOGGING
 // TODO: more customized logging + logging guard
-pub fn initialize_tracing_log() {
+pub fn initialize_tracing_log(file_name_prefix: &str) {
     let level_env = std::env::var("RUST_LOG").unwrap_or("info".to_owned());
     // Log all events to a rolling log file.
-    let logfile = tracing_appender::rolling::hourly("/logs", "myapp-logs");
+    let logfile = tracing_appender::rolling::hourly(format!("/logs/{file_name_prefix}"), file_name_prefix);
     // Log `INFO` and above to stdout.
     let stdout = std::io::stdout.with_max_level(tracing::Level::INFO);
     let filter = match level_env.parse::<EnvFilter>() {
