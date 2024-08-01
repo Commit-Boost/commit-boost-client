@@ -7,3 +7,6 @@ set -euo pipefail
 
 docker build -t commitboost_pbs_default . -f ./docker/pbs.Dockerfile
 docker build -t commitboost_signer . -f ./docker/signer.Dockerfile
+docker build -t commitboost_logger . -f ./docker/logger.Dockerfile
+
+docker volume create logs

@@ -29,6 +29,9 @@ tracing-subscriber.workspace = true
 # misc
 clap.workspace = true
 
+#chrono
+chrono = "0.4.38"
+
 [[bin]]
 name = "commit-boost"
 path = "commit_boost.rs"
@@ -40,3 +43,7 @@ path = "default_pbs.rs"
 [[bin]]
 name = "signer-module"
 path = "signer_module.rs"
+
+[[bin]]
+name = "logger"
+path = "logger.rs"

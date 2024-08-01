@@ -36,6 +36,7 @@ pub struct CommitBoostConfig {
     pub modules: Option<Vec<StaticModuleConfig>>,
     pub signer: Option<SignerConfig>,
     pub metrics: MetricsConfig,
+    pub logger: LoggerConfig
 }
 
 fn load_from_file<T: DeserializeOwned>(path: &str) -> T {
@@ -158,11 +159,6 @@ pub struct PbsConfig {
     pub min_bid_wei: U256,
     /// Custom headers to send to relays
     pub headers: Option<HashMap<String, String>>,
-    ///logging file name
-    pub log_file_name: String,
-    /// logging rettention time in days
-    pub retention_period_days: i64
-
 }
 
 /// Runtime config for the pbs module with support for custom extra config
@@ -176,6 +172,23 @@ pub struct PbsModuleConfig<T = ()> {
     pub signer_client: Option<SignerClient>,
     /// Opaque module config
     pub extra: T,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct LoggerConfig {
+    /// path to docker-compose config. Used to get logs for all active containers for this project
+    pub compose_path: String,
+
+    /// directory to put log files into
+    pub log_dir: String,
+
+    /// how long to keep log files for
+    #[serde(default = "default_u64::<1>")]
+    pub retention_period_days: u64,
+
+    /// how often to collect logs (in seconds)
+    #[serde(default = "default_u64::<30>")]
+    pub log_collection_interval_secs: u64
 }
 
 const fn default_u64<const U: u64>() -> u64 {
@@ -204,6 +217,18 @@ pub fn load_pbs_config() -> eyre::Result<PbsModuleConfig<()>> {
         extra: (),
     })
 }
+
+/// Loads the default pbs config, i.e. with no signer client or custom data
+pub fn load_logger_config() -> eyre::Result<LoggerConfig> {
+    let config = CommitBoostConfig::from_env_path();
+    Ok(LoggerConfig {
+        compose_path: config.logger.compose_path,
+        log_dir: config.logger.log_dir,
+        retention_period_days: config.logger.retention_period_days,
+        log_collection_interval_secs: config.logger.log_collection_interval_secs
+    })
+}
+
 
 /// Loads a custom pbs config, i.e. with signer client and/or custom data
 pub fn load_pbs_custom_config<T: DeserializeOwned>() -> eyre::Result<PbsModuleConfig<T>> {

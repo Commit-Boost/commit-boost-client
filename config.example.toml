@@ -23,6 +23,12 @@ key_path = "./keys.example.json"
 prometheus_config = "./docker/prometheus.yml"
 use_grafana = true
 
+[logger]
+log_dir = "logs"
+retention_period_days = 1
+log_collection_interval_secs = 30
+compose_path = "./cb.docker-compose.yml"
+
 [[modules]]
 id = "DA_COMMIT"
 docker_image = "test_da_commit"

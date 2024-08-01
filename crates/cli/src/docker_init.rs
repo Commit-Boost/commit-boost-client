@@ -76,6 +76,22 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> eyre::Resu
 
     services.insert("cb_pbs".to_owned(), Some(pbs_service));
 
+    let logger_envs =  IndexMap::from([
+        get_env_same(CB_CONFIG_ENV)
+    ]);
+
+    let logs_volume = Volumes::Simple(format!("./{}:/{}", cb_config.logger.log_dir, cb_config.logger.log_dir));
+
+    let logger_service = Service {
+        container_name: Some("cb_logger".to_string()),
+        image: Some("commitboost_logger".to_string()),
+        environment: Environment::KvPair(logger_envs),
+        volumes: vec![config_volume.clone(), logs_volume.clone()],
+        ..Service::default()
+    };
+
+    services.insert("cb_logger".to_owned(), Some(logger_service));
+
     // setup modules
     if let Some(modules_config) = cb_config.modules {
         for module in modules_config {
