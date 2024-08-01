@@ -1,5 +1,3 @@
-use std::usize;
-
 use alloy::{
     primitives::{Address, B256},
     rpc::types::beacon::{BlsPublicKey, BlsSignature},
