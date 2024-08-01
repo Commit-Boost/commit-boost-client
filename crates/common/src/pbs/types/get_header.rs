@@ -14,7 +14,7 @@ use super::{
     utils::{as_dec_str, VersionedResponse},
 };
 
-#[derive(Debug, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 pub struct GetHeaderParams {
     pub slot: u64,
     pub parent_hash: B256,
@@ -67,9 +67,9 @@ impl ExecutionPayloadHeaderMessage {
 #[cfg(test)]
 mod tests {
     use alloy::primitives::U256;
-    use cb_common::{signature::verify_signed_builder_message, types::Chain};
 
     use super::GetHeaderReponse;
+    use crate::{signature::verify_signed_builder_message, types::Chain};
 
     #[test]
     fn test_get_header() {

@@ -1,0 +1,174 @@
+use eyre::{eyre, ContextCompat, Result};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use toml::Table;
+
+use crate::{
+    commit::client::SignerClient,
+    config::{
+        constants::{CB_CONFIG_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, SIGNER_SERVER_ENV},
+        load_env_var,
+        utils::load_file_from_env,
+        BUILDER_SERVER_ENV,
+    },
+    types::Chain,
+};
+
+#[derive(Debug, Deserialize, Serialize)]
+pub enum ModuleKind {
+    #[serde(alias = "commit")]
+    Commit,
+    #[serde(alias = "events")]
+    Events,
+}
+
+/// Static module config from config file
+#[derive(Debug, Deserialize, Serialize)]
+pub struct StaticModuleConfig {
+    /// Unique id of the module
+    pub id: String,
+    /// Docker image of the module
+    pub docker_image: String,
+    /// Type of the module
+    #[serde(rename = "type")]
+    pub kind: ModuleKind,
+}
+
+/// Runtime config to start a module
+#[derive(Debug)]
+pub struct StartCommitModuleConfig<T = ()> {
+    /// Unique id of the module
+    pub id: String,
+    /// Chain spec
+    pub chain: Chain,
+    /// Signer client to call Signer API
+    pub signer_client: SignerClient,
+    /// Opaque module config
+    pub extra: T,
+}
+
+/// Loads a module config from the environment and config file:
+/// - [MODULE_ID_ENV] - the id of the module to load
+/// - [CB_CONFIG_ENV] - the path to the config file
+/// - [MODULE_JWT_ENV] - the jwt token for the module
+// TODO: add metrics url here
+pub fn load_commit_module_config<T: DeserializeOwned>() -> Result<StartCommitModuleConfig<T>> {
+    let module_id = load_env_var(MODULE_ID_ENV)?;
+    let module_jwt = load_env_var(MODULE_JWT_ENV)?;
+    let signer_server_address = load_env_var(SIGNER_SERVER_ENV)?;
+
+    #[derive(Debug, Deserialize)]
+    struct ThisModuleConfig<U> {
+        #[serde(flatten)]
+        static_config: StaticModuleConfig,
+        #[serde(flatten)]
+        extra: U,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(untagged)]
+    enum ThisModule<U> {
+        Target(ThisModuleConfig<U>),
+        #[allow(dead_code)]
+        Other(Table),
+    }
+
+    #[derive(Deserialize, Debug)]
+    struct StubConfig<U> {
+        chain: Chain,
+        modules: Vec<ThisModule<U>>,
+    }
+
+    // load module config including the extra data (if any)
+    let cb_config: StubConfig<T> = load_file_from_env(CB_CONFIG_ENV)?;
+
+    // find all matching modules config
+    let matches: Vec<ThisModuleConfig<T>> = cb_config
+        .modules
+        .into_iter()
+        .filter_map(|m| if let ThisModule::Target(config) = m { Some(config) } else { None })
+        .collect();
+
+    if matches.is_empty() {
+        Err(eyre!("Failed to find matching config type"))
+    } else {
+        let module_config = matches
+            .into_iter()
+            .find(|m| m.static_config.id == module_id)
+            .wrap_err(format!("failed to find module for {module_id}"))?;
+
+        let signer_client = SignerClient::new(signer_server_address, &module_jwt)?;
+
+        Ok(StartCommitModuleConfig {
+            id: module_config.static_config.id,
+            chain: cb_config.chain,
+            signer_client,
+            extra: module_config.extra,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct StartBuilderModuleConfig<T> {
+    /// Unique id of the module
+    pub id: String,
+    /// Chain spec
+    pub chain: Chain,
+    /// Where to listen for Builder events
+    pub server_port: u16,
+    /// Opaque module config
+    pub extra: T,
+}
+
+pub fn load_builder_module_config<T: DeserializeOwned>() -> eyre::Result<StartBuilderModuleConfig<T>>
+{
+    let module_id = load_env_var(MODULE_ID_ENV)?;
+    let builder_events_port: u16 = load_env_var(BUILDER_SERVER_ENV)?.parse()?;
+
+    #[derive(Debug, Deserialize)]
+    struct ThisModuleConfig<U> {
+        #[serde(flatten)]
+        static_config: StaticModuleConfig,
+        #[serde(flatten)]
+        extra: U,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(untagged)]
+    enum ThisModule<U> {
+        Target(ThisModuleConfig<U>),
+        #[allow(dead_code)]
+        Other(Table),
+    }
+
+    #[derive(Deserialize, Debug)]
+    struct StubConfig<U> {
+        chain: Chain,
+        modules: Vec<ThisModule<U>>,
+    }
+
+    // load module config including the extra data (if any)
+    let cb_config: StubConfig<T> = load_file_from_env(CB_CONFIG_ENV)?;
+
+    // find all matching modules config
+    let matches: Vec<ThisModuleConfig<T>> = cb_config
+        .modules
+        .into_iter()
+        .filter_map(|m| if let ThisModule::Target(config) = m { Some(config) } else { None })
+        .collect();
+
+    if matches.is_empty() {
+        Err(eyre!("Failed to find matching config type"))
+    } else {
+        let module_config = matches
+            .into_iter()
+            .find(|m| m.static_config.id == module_id)
+            .wrap_err(format!("failed to find module for {module_id}"))?;
+
+        Ok(StartBuilderModuleConfig {
+            id: module_config.static_config.id,
+            chain: cb_config.chain,
+            server_port: builder_events_port,
+            extra: module_config.extra,
+        })
+    }
+}

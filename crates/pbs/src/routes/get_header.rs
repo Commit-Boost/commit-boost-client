@@ -4,18 +4,20 @@ use axum::{
     http::HeaderMap,
     response::IntoResponse,
 };
-use cb_common::utils::{get_user_agent, ms_into_slot};
+use cb_common::{
+    pbs::{BuilderEvent, GetHeaderParams},
+    utils::{get_user_agent, ms_into_slot},
+};
 use reqwest::StatusCode;
 use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::{
-    boost::BuilderApi,
+    api::BuilderApi,
     constants::GET_HEADER_ENDPOINT_TAG,
     error::PbsClientError,
     metrics::BEACON_NODE_STATUS,
     state::{BuilderApiState, PbsState},
-    BuilderEvent, GetHeaderParams,
 };
 
 #[tracing::instrument(skip_all, name = "get_header", fields(req_id = %Uuid::new_v4(), slot = params.slot))]

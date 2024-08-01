@@ -4,16 +4,16 @@ use alloy::{
     primitives::{hex::FromHex, B256},
     rpc::types::beacon::BlsPublicKey,
 };
-use eyre::WrapErr;
+use eyre::{Result, WrapErr};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
 use super::{
     constants::{BULDER_API_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH},
-    RelayConfig, HEADER_VERSION_KEY, HEAVER_VERSION_VALUE,
+    HEADER_VERSION_KEY, HEAVER_VERSION_VALUE,
 };
-use crate::DEFAULT_REQUEST_TIMEOUT;
+use crate::{config::RelayConfig, DEFAULT_REQUEST_TIMEOUT};
 /// A parsed entry of the relay url in the format: scheme://pubkey@host
 #[derive(Debug, Default, Clone)]
 pub struct RelayEntry {
@@ -60,7 +60,7 @@ pub struct RelayClient {
 }
 
 impl RelayClient {
-    pub fn new(config: RelayConfig) -> eyre::Result<Self> {
+    pub fn new(config: RelayConfig) -> Result<Self> {
         let mut headers = HeaderMap::new();
         headers.insert(HEADER_VERSION_KEY, HeaderValue::from_static(HEAVER_VERSION_VALUE));
 

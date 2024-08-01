@@ -1,13 +1,13 @@
-use std::fmt::Debug;
-
-use alloy::{primitives::B256, rpc::types::beacon::relay::ValidatorRegistration};
+use alloy::rpc::types::beacon::relay::ValidatorRegistration;
 use async_trait::async_trait;
 use axum::{http::HeaderMap, Router};
+use cb_common::pbs::{
+    GetHeaderParams, GetHeaderReponse, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
+};
 
 use crate::{
     mev_boost,
     state::{BuilderApiState, PbsState},
-    GetHeaderParams, GetHeaderReponse, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
 };
 
 #[async_trait]
@@ -52,16 +52,3 @@ pub trait BuilderApi<S: BuilderApiState>: 'static {
 
 pub struct DefaultBuilderApi;
 impl BuilderApi<()> for DefaultBuilderApi {}
-
-#[derive(Debug, Clone)]
-pub enum BuilderEvent {
-    GetHeaderRequest(GetHeaderParams),
-    GetHeaderResponse(Box<Option<GetHeaderReponse>>),
-    GetStatusEvent,
-    GetStatusResponse,
-    SubmitBlockRequest(Box<SignedBlindedBeaconBlock>),
-    SubmitBlockResponse(Box<SubmitBlindedBlockResponse>),
-    MissedPayload { block_hash: B256, relays: String },
-    RegisterValidatorRequest(Vec<ValidatorRegistration>),
-    RegisterValidatorResponse,
-}

@@ -7,7 +7,7 @@ use tokio::net::TcpListener;
 use tracing::{error, info};
 
 use crate::{
-    boost::BuilderApi,
+    api::BuilderApi,
     metrics::PBS_METRICS_REGISTRY,
     routes::create_app_router,
     state::{BuilderApiState, PbsState},
@@ -24,9 +24,11 @@ impl PbsService {
         // }
 
         let address = SocketAddr::from(([0, 0, 0, 0], state.config.pbs_config.port));
+        let events_subs =
+            state.config.event_publiher.as_ref().map(|e| e.n_subscribers()).unwrap_or_default();
         let app = create_app_router::<S, T>(state);
 
-        info!(?address, "Starting PBS service");
+        info!(?address, events_subs, "Starting PBS service");
 
         let listener = TcpListener::bind(address).await.expect("failed tcp binding");
 
