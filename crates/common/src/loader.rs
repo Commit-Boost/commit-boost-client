@@ -105,7 +105,7 @@ fn load_one(ks_path: String, pw_path: String) -> eyre::Result<Signer> {
     let password = fs::read(pw_path)?;
     let key =
         keystore.decrypt_keypair(&password).map_err(|_| eyre!("failed decrypting keypair"))?;
-    Ok(Signer::new_from_bytes(key.sk.serialize().as_bytes())?)
+    Signer::new_from_bytes(key.sk.serialize().as_bytes())
 }
 
 #[cfg(test)]
