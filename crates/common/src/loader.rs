@@ -38,9 +38,11 @@ impl SignerLoader {
                 let file = std::fs::read_to_string(path)
                     .unwrap_or_else(|_| panic!("Unable to find keys file"));
 
-                let keys: Vec<FileKey> = serde_json::from_str(&file).unwrap();
+                let keys: Vec<FileKey> = serde_json::from_str(&file)?;
 
-                keys.into_iter().map(|k| Signer::new_from_bytes(&k.secret_key)).collect()
+                keys.into_iter()
+                    .map(|k| Signer::new_from_bytes(&k.secret_key))
+                    .collect::<eyre::Result<Vec<Signer>>>()?
             }
             SignerLoader::ValidatorsDir { .. } => {
                 // TODO: hacky way to load for now, we should support reading the
@@ -103,7 +105,7 @@ fn load_one(ks_path: String, pw_path: String) -> eyre::Result<Signer> {
     let password = fs::read(pw_path)?;
     let key =
         keystore.decrypt_keypair(&password).map_err(|_| eyre!("failed decrypting keypair"))?;
-    Ok(Signer::new_from_bytes(key.sk.serialize().as_bytes()))
+    Ok(Signer::new_from_bytes(key.sk.serialize().as_bytes())?)
 }
 
 #[cfg(test)]

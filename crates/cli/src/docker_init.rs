@@ -159,7 +159,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
         };
 
         // write jwts to env
-        let jwts_json = serde_json::to_string(&jwts).unwrap().clone();
+        let jwts_json = serde_json::to_string(&jwts)?.clone();
         envs.insert(JWTS_ENV.into(), format!("{jwts_json:?}"));
 
         let signer_service = Service {

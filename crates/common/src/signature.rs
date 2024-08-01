@@ -15,11 +15,11 @@ use crate::{
     BlstErrorWrapper,
 };
 
-pub fn random_secret() -> SecretKey {
+pub fn random_secret() -> eyre::Result<SecretKey> {
     let mut rng = rand::thread_rng();
     let mut ikm = [0u8; 32];
     rng.fill_bytes(&mut ikm);
-    SecretKey::key_gen(&ikm, &[]).unwrap()
+    Ok(SecretKey::key_gen(&ikm, &[]).map_err(BlstErrorWrapper::from)?)
 }
 
 pub fn verify_signature(

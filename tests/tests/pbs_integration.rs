@@ -16,14 +16,15 @@ use cb_tests::{
 use tokio::net::TcpListener;
 use tracing::info;
 
-async fn start_mock_relay_service(state: Arc<MockRelayState>, port: u16) {
+async fn start_mock_relay_service(state: Arc<MockRelayState>, port: u16) -> eyre::Result<()> {
     let app = mock_relay_app_router(state);
 
-    let socket = SocketAddr::new("0.0.0.0".parse().unwrap(), port);
-    let listener = TcpListener::bind(socket).await.unwrap();
+    let socket = SocketAddr::new("0.0.0.0".parse()?, port);
+    let listener = TcpListener::bind(socket).await?;
 
     info!("Starting mock relay on {socket:?}");
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app).await?;
+    Ok(())
 }
 
 fn get_pbs_static_config(port: u16) -> PbsConfig {
