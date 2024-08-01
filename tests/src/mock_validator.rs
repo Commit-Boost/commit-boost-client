@@ -13,8 +13,8 @@ pub struct MockValidator {
 }
 
 impl MockValidator {
-    pub fn new(port: u16) -> Self {
-        Self { comm_boost: generate_mock_relay(port, BlsPublicKey::default()) }
+    pub fn new(port: u16) -> eyre::Result<Self> {
+        Ok(Self { comm_boost: generate_mock_relay(port, BlsPublicKey::default())? })
     }
 
     pub async fn do_get_header(&self) -> Result<(), Error> {

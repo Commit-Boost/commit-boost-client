@@ -45,8 +45,8 @@ impl SigningManager {
     pub async fn create_proxy(
         &mut self,
         delegator: BlsPublicKey,
-    ) -> Result<SignedProxyDelegation, SignerModuleError> {
-        let signer = Signer::new_random();
+    ) -> eyre::Result<SignedProxyDelegation> {
+        let signer = Signer::new_random()?;
 
         let message = ProxyDelegation { delegator, proxy: signer.pubkey() };
         let signature = self.sign_consensus(&delegator, &message.tree_hash_root().0).await?;

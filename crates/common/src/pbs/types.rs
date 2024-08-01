@@ -4,6 +4,7 @@ use alloy::{
     primitives::{hex::FromHex, B256},
     rpc::types::beacon::BlsPublicKey,
 };
+use eyre::WrapErr;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -59,17 +60,15 @@ pub struct RelayClient {
 }
 
 impl RelayClient {
-    pub fn new(config: RelayConfig) -> Self {
+    pub fn new(config: RelayConfig) -> eyre::Result<Self> {
         let mut headers = HeaderMap::new();
         headers.insert(HEADER_VERSION_KEY, HeaderValue::from_static(HEAVER_VERSION_VALUE));
 
         if let Some(custom_headers) = &config.headers {
             for (key, value) in custom_headers {
                 headers.insert(
-                    HeaderName::from_str(key)
-                        .unwrap_or_else(|_| panic!("{key} is an invalid header name")),
-                    HeaderValue::from_str(value)
-                        .unwrap_or_else(|_| panic!("{key} has an invalid header value")),
+                    HeaderName::from_str(key).wrap_err("{key} is an invalid header name")?,
+                    HeaderValue::from_str(value).wrap_err("{key} has an invalid header value")?,
                 );
             }
         }
@@ -77,14 +76,13 @@ impl RelayClient {
         let client = reqwest::Client::builder()
             .default_headers(headers)
             .timeout(DEFAULT_REQUEST_TIMEOUT)
-            .build()
-            .expect("failed to build relay client");
+            .build()?;
 
-        Self {
+        Ok(Self {
             id: Arc::new(config.id.clone().unwrap_or(config.entry.id.clone())),
             client,
             config: Arc::new(config),
-        }
+        })
     }
 
     pub fn pubkey(&self) -> BlsPublicKey {

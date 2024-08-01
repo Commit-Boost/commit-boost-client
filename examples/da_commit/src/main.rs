@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
 use commit_boost::prelude::*;
-use eyre::OptionExt;
+use eyre::{OptionExt, Result};
 use lazy_static::lazy_static;
 use prometheus::{IntCounter, Registry};
 use serde::Deserialize;
@@ -37,7 +37,7 @@ struct ExtraConfig {
 }
 
 impl DaCommitService {
-    pub async fn run(self) -> eyre::Result<()> {
+    pub async fn run(self) -> Result<()> {
         // the config has the signer_client already setup, we can use it to interact
         // with the Signer API
         let pubkeys = self.config.signer_client.get_pubkeys().await?;
@@ -55,7 +55,7 @@ impl DaCommitService {
         }
     }
 
-    pub async fn send_request(&self, data: u64, pubkey: BlsPublicKey) -> eyre::Result<()> {
+    pub async fn send_request(&self, data: u64, pubkey: BlsPublicKey) -> Result<()> {
         let datagram = Datagram { data };
         let request = SignRequest::builder(&self.config.id, pubkey).with_msg(&datagram);
         let signature = self.config.signer_client.request_signature(&request).await?;
@@ -69,13 +69,14 @@ impl DaCommitService {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<()> {
+    color_eyre::install()?;
     initialize_tracing_log();
 
     // Remember to register all your metrics before starting the process
-    MY_CUSTOM_REGISTRY.register(Box::new(SIG_RECEIVED_COUNTER.clone())).unwrap();
+    MY_CUSTOM_REGISTRY.register(Box::new(SIG_RECEIVED_COUNTER.clone()))?;
     // Spin up a server that exposes the /metrics endpoint to Prometheus
-    MetricsProvider::load_and_run(MY_CUSTOM_REGISTRY.clone());
+    MetricsProvider::load_and_run(MY_CUSTOM_REGISTRY.clone())?;
 
     match load_module_config::<ExtraConfig>() {
         Ok(config) => {
@@ -95,6 +96,7 @@ async fn main() {
             error!(?err, "Failed to load module config");
         }
     }
+    Ok(())
 }
 
 fn pretty_print_sig(sig: BlsSignature) -> String {
