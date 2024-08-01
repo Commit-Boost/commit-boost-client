@@ -63,7 +63,7 @@ async fn send_relay_check(relay: &RelayClient, headers: HeaderMap) -> Result<(),
             RELAY_STATUS_CODE
                 .with_label_values(&[TIMEOUT_ERROR_CODE_STR, STATUS_ENDPOINT_TAG, &relay.id])
                 .inc();
-            return Err(err.into())
+            return Err(err.into());
         }
     };
     let request_latency = start_request.elapsed();
@@ -82,7 +82,7 @@ async fn send_relay_check(relay: &RelayClient, headers: HeaderMap) -> Result<(),
         };
 
         error!(?err, "status failed");
-        return Err(err)
+        return Err(err);
     };
 
     debug!(?code, latency = ?request_latency, "status passed");
