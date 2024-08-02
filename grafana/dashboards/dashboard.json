@@ -39,7 +39,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PF1584C945D1A144E"
+        "uid": "cb_prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -122,7 +122,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PF1584C945D1A144E"
+            "uid": "cb_prometheus"
           },
           "editorMode": "code",
           "expr": "sum(increase(cb_pbs_relay_status_code_total{http_status_code=~\"2..\", endpoint=\"$endpoint\"}[1h])) by (relay_id)",
@@ -138,7 +138,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PF1584C945D1A144E"
+        "uid": "cb_prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -221,7 +221,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PF1584C945D1A144E"
+            "uid": "cb_prometheus"
           },
           "editorMode": "code",
           "expr": "sum(increase(cb_pbs_relay_status_code_total{http_status_code=~\"4..|5..\", endpoint=\"$endpoint\"}[1h])) by (relay_id)",
@@ -237,7 +237,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PF1584C945D1A144E"
+        "uid": "cb_prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -320,7 +320,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PF1584C945D1A144E"
+            "uid": "cb_prometheus"
           },
           "editorMode": "code",
           "expr": "sum(increase(cb_pbs_beacon_node_status_code_total{http_status_code=~\"2..\", endpoint=\"$endpoint\"}[1h]))",
@@ -336,7 +336,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PF1584C945D1A144E"
+        "uid": "cb_prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -419,7 +419,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PF1584C945D1A144E"
+            "uid": "cb_prometheus"
           },
           "editorMode": "code",
           "expr": "sum(increase(cb_pbs_beacon_node_status_code_total{http_status_code=~\"4..|5..\", endpoint=\"$endpoint\"}[1h]))",
@@ -435,7 +435,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PF1584C945D1A144E"
+        "uid": "cb_prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -519,7 +519,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PF1584C945D1A144E"
+            "uid": "cb_prometheus"
           },
           "disableTextWrap": false,
           "editorMode": "code",
@@ -539,7 +539,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PF1584C945D1A144E"
+        "uid": "cb_prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -623,7 +623,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PF1584C945D1A144E"
+            "uid": "cb_prometheus"
           },
           "disableTextWrap": false,
           "editorMode": "code",
@@ -643,7 +643,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PF1584C945D1A144E"
+        "uid": "cb_prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -727,7 +727,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PF1584C945D1A144E"
+            "uid": "cb_prometheus"
           },
           "disableTextWrap": false,
           "editorMode": "code",
@@ -783,7 +783,7 @@
             "value": "register_validator"
           }
         ],
-        "query": "get_header, submit_blinded_block, register_validator",
+        "query": "register_validator, get_header, submit_blinded_block",
         "queryValue": "",
         "skipUrlSync": false,
         "type": "custom"
@@ -797,7 +797,7 @@
   "timepicker": {},
   "timezone": "browser",
   "title": "PBS Metrics",
-  "uid": "PF1584C945D1A144E",
+  "uid": "cb_prometheus",
   "version": 1,
   "weekStart": ""
 }
