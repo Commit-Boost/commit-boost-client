@@ -17,6 +17,3 @@ Cargo.lock
 *.docker-compose.yml
 targets.json
 .idea/
-
-prometheus_data/*
-!prometheus_data/.gitkeep
