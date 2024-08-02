@@ -16,7 +16,7 @@ lazy_static! {
     // FROM RELAYS
     /// Status code received by relay by endpoint
     pub static ref RELAY_STATUS_CODE: IntCounterVec = register_int_counter_vec_with_registry!(
-        "relay_status_code",
+        "relay_status_code_total",
         "HTTP status code received by relay",
         &["http_status_code", "endpoint", "relay_id"],
         PBS_METRICS_REGISTRY
@@ -35,7 +35,7 @@ lazy_static! {
     // TO BEACON NODE
     /// Status code returned to beacon node by endpoint
     pub static ref BEACON_NODE_STATUS: IntCounterVec = register_int_counter_vec_with_registry!(
-        "beacon_node_status_code",
+        "beacon_node_status_code_total",
         "HTTP status code returned to beacon node",
         &["http_status_code", "endpoint"],
         PBS_METRICS_REGISTRY
