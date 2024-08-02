@@ -52,6 +52,7 @@ fn to_pbs_config(
         signer_client: None,
         extra: (),
         relays,
+        logs_settings: Default::default(),
     }
 }
 

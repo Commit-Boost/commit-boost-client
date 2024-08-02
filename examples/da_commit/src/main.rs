@@ -71,7 +71,6 @@ impl DaCommitService {
 #[tokio::main]
 async fn main() -> Result<()> {
     color_eyre::install()?;
-    initialize_tracing_log();
 
     // Remember to register all your metrics before starting the process
     MY_CUSTOM_REGISTRY.register(Box::new(SIG_RECEIVED_COUNTER.clone()))?;
@@ -85,7 +84,7 @@ async fn main() -> Result<()> {
                 sleep_secs = config.extra.sleep_secs,
                 "Starting module with custom data"
             );
-
+            initialize_tracing_log(config.logs_settings.clone());
             let service = DaCommitService { config };
 
             if let Err(err) = service.run().await {

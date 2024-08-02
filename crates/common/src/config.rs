@@ -41,6 +41,32 @@ pub struct CommitBoostConfig {
     pub modules: Option<Vec<StaticModuleConfig>>,
     pub signer: Option<SignerConfig>,
     pub metrics: MetricsConfig,
+    #[serde(default)]
+    pub logs: LogsSettings,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct LogsSettings {
+    pub duration: RollingDuration,
+    pub file_name_prefix: String,
+}
+
+impl Default for LogsSettings {
+    fn default() -> Self {
+        Self { duration: RollingDuration::Hourly, file_name_prefix: "".to_string() }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum RollingDuration {
+    #[serde(rename = "minutely")]
+    Minutely,
+    #[serde(rename = "hourly")]
+    Hourly,
+    #[serde(rename = "daily")]
+    Daily,
+    #[serde(rename = "never")]
+    Never,
 }
 
 fn load_from_file<T: DeserializeOwned>(path: &str) -> Result<T> {
@@ -89,6 +115,7 @@ pub struct StartSignerConfig {
     pub loader: SignerLoader,
     pub server_port: u16,
     pub jwts: HashMap<String, String>,
+    pub logs_settings: LogsSettings,
 }
 
 impl StartSignerConfig {
@@ -103,6 +130,7 @@ impl StartSignerConfig {
             loader: config.signer.expect("Signer config is missing").loader,
             server_port,
             jwts,
+            logs_settings: config.logs,
         })
     }
 }
@@ -156,6 +184,9 @@ pub struct PbsModuleConfig<T = ()> {
     pub signer_client: Option<SignerClient>,
     /// Opaque module config
     pub extra: T,
+    /// Settings for logging in file, refer to Default implementation to see
+    /// default values if not set.
+    pub logs_settings: LogsSettings,
 }
 
 fn default_pbs() -> String {
@@ -174,6 +205,7 @@ pub fn load_pbs_config() -> Result<PbsModuleConfig<()>> {
         relays: relay_clients,
         signer_client: None,
         extra: (),
+        logs_settings: config.logs,
     })
 }
 
@@ -192,6 +224,8 @@ pub fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<PbsModuleConfig<T
         chain: Chain,
         relays: Vec<RelayConfig>,
         pbs: CustomPbsConfig<U>,
+        #[serde(default)]
+        logs_settings: LogsSettings,
     }
 
     // load module config including the extra data (if any)
@@ -215,6 +249,7 @@ pub fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<PbsModuleConfig<T
         relays: relay_clients,
         signer_client,
         extra: cb_config.pbs.extra,
+        logs_settings: cb_config.logs_settings,
     })
 }
 
@@ -238,6 +273,7 @@ pub struct StartModuleConfig<T = ()> {
     pub signer_client: SignerClient,
     /// Opaque module config
     pub extra: T,
+    pub logs_settings: LogsSettings,
 }
 
 /// Loads a module config from the environment and config file:
@@ -269,6 +305,8 @@ pub fn load_module_config<T: DeserializeOwned>() -> Result<StartModuleConfig<T>>
     struct StubConfig<U> {
         chain: Chain,
         modules: Vec<ThisModule<U>>,
+        #[serde(default)]
+        logs_settings: LogsSettings,
     }
 
     // load module config including the extra data (if any)
@@ -296,6 +334,7 @@ pub fn load_module_config<T: DeserializeOwned>() -> Result<StartModuleConfig<T>>
             chain: cb_config.chain,
             signer_client,
             extra: module_config.extra,
+            logs_settings: cb_config.logs_settings,
         })
     }
 }

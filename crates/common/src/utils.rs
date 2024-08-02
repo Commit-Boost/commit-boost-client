@@ -1,7 +1,4 @@
-use std::{
-    fmt::Debug,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use alloy::{
     primitives::U256,
@@ -10,12 +7,14 @@ use alloy::{
 use blst::min_pk::{PublicKey, Signature};
 use rand::{distributions::Alphanumeric, Rng};
 use reqwest::header::HeaderMap;
-use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{
     fmt, fmt::writer::MakeWriterExt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter,
 };
 
-use crate::types::Chain;
+use crate::{
+    config::{LogsSettings, RollingDuration},
+    types::Chain,
+};
 
 const SECONDS_PER_SLOT: u64 = 12;
 const MILLIS_PER_SECOND: u64 = 1_000;
@@ -117,10 +116,23 @@ pub const fn default_u256() -> U256 {
 
 // LOGGING
 // TODO: more customized logging + logging guard
-pub fn initialize_tracing_log(file_name_prefix: &str) {
+pub fn initialize_tracing_log(logs_settings: LogsSettings) {
     let level_env = std::env::var("RUST_LOG").unwrap_or("info".to_owned());
     // Log all events to a rolling log file.
-    let logfile = tracing_appender::rolling::hourly(format!("/logs/{file_name_prefix}"), file_name_prefix);
+    let logfile = match logs_settings.duration {
+        RollingDuration::Minutely => {
+            tracing_appender::rolling::minutely("/logs", &logs_settings.file_name_prefix)
+        }
+        RollingDuration::Hourly => {
+            tracing_appender::rolling::hourly("/logs", &logs_settings.file_name_prefix)
+        }
+        RollingDuration::Daily => {
+            tracing_appender::rolling::daily("/logs", &logs_settings.file_name_prefix)
+        }
+        RollingDuration::Never => {
+            tracing_appender::rolling::never("/logs", &logs_settings.file_name_prefix)
+        }
+    };
     // Log `INFO` and above to stdout.
     let stdout = std::io::stdout.with_max_level(tracing::Level::INFO);
     let filter = match level_env.parse::<EnvFilter>() {

@@ -11,8 +11,7 @@ async fn main() -> Result<()> {
         std::env::set_var("RUST_BACKTRACE", "1");
     }
 
-    initialize_tracing_log();
-
     let config = StartSignerConfig::load_from_env()?;
+    initialize_tracing_log(config.logs_settings.clone());
     SigningService::run(config).await
 }

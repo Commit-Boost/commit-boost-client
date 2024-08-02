@@ -33,3 +33,7 @@ use_grafana = true
 id = "DA_COMMIT"
 docker_image = "test_da_commit"
 sleep_secs = 5
+
+[logs]
+duration = "hourly"
+file_name_prefix = "pbs"

@@ -11,10 +11,9 @@ async fn main() -> Result<()> {
         std::env::set_var("RUST_BACKTRACE", "1");
     }
 
-    initialize_tracing_log();
-
     // TODO: handle errors
     let pbs_config = load_pbs_config().expect("failed to load pbs config");
+    initialize_tracing_log(pbs_config.logs_settings.clone());
     let state = PbsState::<()>::new(pbs_config);
 
     PbsService::init_metrics()?;
