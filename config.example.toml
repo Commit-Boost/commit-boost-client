@@ -42,4 +42,5 @@ docker_image = "test_builder_log"
 
 [logs]
 duration = "hourly"
-host_path="./logs"
+host-path="./logs"
+rust-log="info"
