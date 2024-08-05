@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+use ssz_types::typenum;
 
 pub trait EthSpec {
     type MaxProposerSlashings: typenum::Unsigned + std::fmt::Debug;

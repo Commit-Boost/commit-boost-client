@@ -1,5 +1,4 @@
 use alloy::primitives::{Address, B256, U256};
-use cb_common::utils::as_str;
 use ethereum_types::{Address as EAddress, U256 as EU256};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -7,6 +6,7 @@ use ssz_types::{FixedVector, VariableList};
 use tree_hash_derive::TreeHash;
 
 use super::{spec::EthSpec, utils::*};
+use crate::utils::as_str;
 
 pub const EMPTY_TX_ROOT_HASH: [u8; 32] = [
     127, 254, 36, 30, 166, 1, 135, 253, 176, 24, 123, 250, 34, 222, 53, 209, 249, 190, 215, 171, 6,
@@ -96,8 +96,7 @@ mod tests {
     use ssz_types::VariableList;
     use tree_hash::TreeHash;
 
-    use super::Transactions;
-    use crate::types::{execution_payload::EMPTY_TX_ROOT_HASH, spec::DenebSpec};
+    use crate::pbs::types::{execution_payload::Transactions, spec::DenebSpec, EMPTY_TX_ROOT_HASH};
 
     #[test]
     fn test_empty_tx_root_hash() {

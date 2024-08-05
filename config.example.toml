@@ -31,8 +31,14 @@ use_grafana = true
 
 [[modules]]
 id = "DA_COMMIT"
+type = "commit"
 docker_image = "test_da_commit"
 sleep_secs = 5
+
+[[modules]]
+id = "BUILDER_LOG"
+type = "events"
+docker_image = "test_builder_log"
 
 [logs]
 duration = "hourly"
@@ -41,3 +47,4 @@ duration = "hourly"
 pbs="pbs"
 signer="signer"
 da_commit="da"
+logs="logs"

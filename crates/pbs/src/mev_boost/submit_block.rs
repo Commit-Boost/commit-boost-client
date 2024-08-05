@@ -2,7 +2,10 @@ use std::time::{Duration, Instant};
 
 use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
-    pbs::{RelayClient, HEADER_SLOT_UUID_KEY, HEADER_START_TIME_UNIX_MS},
+    pbs::{
+        RelayClient, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse, HEADER_SLOT_UUID_KEY,
+        HEADER_START_TIME_UNIX_MS,
+    },
     utils::{get_user_agent, utcnow_ms},
 };
 use futures::future::select_ok;
@@ -14,7 +17,6 @@ use crate::{
     error::{PbsError, ValidationError},
     metrics::{RELAY_LATENCY, RELAY_STATUS_CODE},
     state::{BuilderApiState, PbsState},
-    types::{SignedBlindedBeaconBlock, SubmitBlindedBlockResponse},
 };
 
 /// Implements https://ethereum.github.io/builder-specs/#/Builder/submitBlindedBlock

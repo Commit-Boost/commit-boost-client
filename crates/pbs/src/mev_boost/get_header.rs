@@ -6,7 +6,11 @@ use alloy::{
 };
 use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
-    pbs::{PbsConfig, RelayClient, HEADER_SLOT_UUID_KEY, HEADER_START_TIME_UNIX_MS},
+    config::PbsConfig,
+    pbs::{
+        GetHeaderParams, GetHeaderReponse, RelayClient, SignedExecutionPayloadHeader,
+        EMPTY_TX_ROOT_HASH, HEADER_SLOT_UUID_KEY, HEADER_START_TIME_UNIX_MS,
+    },
     signature::verify_signed_builder_message,
     types::Chain,
     utils::{get_user_agent, ms_into_slot, utcnow_ms},
@@ -21,8 +25,6 @@ use crate::{
     error::{PbsError, ValidationError},
     metrics::{RELAY_LATENCY, RELAY_STATUS_CODE},
     state::{BuilderApiState, PbsState},
-    types::{SignedExecutionPayloadHeader, EMPTY_TX_ROOT_HASH},
-    GetHeaderParams, GetHeaderReponse,
 };
 
 /// Implements https://ethereum.github.io/builder-specs/#/Builder/getHeader
@@ -336,13 +338,14 @@ mod tests {
         rpc::types::beacon::BlsPublicKey,
     };
     use blst::min_pk;
-    use cb_common::{signature::sign_builder_message, types::Chain};
+    use cb_common::{
+        pbs::{SignedExecutionPayloadHeader, EMPTY_TX_ROOT_HASH},
+        signature::sign_builder_message,
+        types::Chain,
+    };
 
     use super::validate_header;
-    use crate::{
-        error::ValidationError,
-        types::{SignedExecutionPayloadHeader, EMPTY_TX_ROOT_HASH},
-    };
+    use crate::error::ValidationError;
 
     #[test]
     fn test_validate_header() {

@@ -9,7 +9,7 @@ members = [
     "crates/metrics",
 
     "tests",
-    "examples/da_commit",
+    "examples/*",
 ]
 resolver = "2"
 

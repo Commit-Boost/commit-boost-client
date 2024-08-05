@@ -1,16 +1,15 @@
 use axum::{extract::State, http::HeaderMap, response::IntoResponse};
-use cb_common::utils::get_user_agent;
+use cb_common::{pbs::BuilderEvent, utils::get_user_agent};
 use reqwest::StatusCode;
 use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::{
-    boost::BuilderApi,
+    api::BuilderApi,
     constants::STATUS_ENDPOINT_TAG,
     error::PbsClientError,
     metrics::BEACON_NODE_STATUS,
     state::{BuilderApiState, PbsState},
-    BuilderEvent,
 };
 
 #[tracing::instrument(skip_all, name = "status", fields(req_id = %Uuid::new_v4()))]

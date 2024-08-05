@@ -24,7 +24,7 @@ struct Datagram {
 }
 
 struct DaCommitService {
-    config: StartModuleConfig<ExtraConfig>,
+    config: StartCommitModuleConfig<ExtraConfig>,
 }
 
 // Extra configurations parameters can be set here and will be automatically
@@ -77,7 +77,7 @@ async fn main() -> Result<()> {
     // Spin up a server that exposes the /metrics endpoint to Prometheus
     MetricsProvider::load_and_run(MY_CUSTOM_REGISTRY.clone())?;
 
-    match load_module_config::<ExtraConfig>() {
+    match load_commit_module_config::<ExtraConfig>() {
         Ok(config) => {
             info!(
                 module_id = config.id,

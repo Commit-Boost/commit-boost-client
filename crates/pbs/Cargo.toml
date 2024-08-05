@@ -11,11 +11,6 @@ cb-signer.workspace = true
 
 # ethereum
 alloy.workspace = true
-ethereum_ssz.workspace = true
-ethereum_ssz_derive.workspace = true
-ssz_types.workspace = true
-ethereum_serde_utils.workspace = true
-ethereum-types.workspace = true
 
 # networking
 axum.workspace = true

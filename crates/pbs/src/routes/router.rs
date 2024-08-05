@@ -8,7 +8,7 @@ use cb_common::pbs::{
 
 use super::{handle_get_header, handle_get_status, handle_register_validator, handle_submit_block};
 use crate::{
-    boost::BuilderApi,
+    api::BuilderApi,
     state::{BuilderApiState, PbsState},
 };
 
