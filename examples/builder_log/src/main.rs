@@ -17,7 +17,7 @@ async fn main() {
     match load_builder_module_config::<()>() {
         Ok(config) => {
             info!(module_id = config.id, "Starting module");
-            initialize_tracing_log(config.logs_settings.clone(), "logs");
+            let _guard = initialize_tracing_log(config.logs_settings.clone(), "builder_log");
             let client = BuilderEventClient::new(config.server_port, LogProcessor);
 
             if let Err(err) = client.run().await {

@@ -13,9 +13,8 @@ async fn main() -> Result<()> {
 
     // TODO: handle errors
     let pbs_config = load_pbs_config().expect("failed to load pbs config");
-    initialize_tracing_log(pbs_config.logs_settings.clone(), "pbs");
+    let _guard = initialize_tracing_log(pbs_config.logs_settings.clone(), "pbs");
     let state = PbsState::<()>::new(pbs_config);
-
     PbsService::init_metrics()?;
     PbsService::run::<(), DefaultBuilderApi>(state).await;
     Ok(())

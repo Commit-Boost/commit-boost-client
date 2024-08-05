@@ -12,6 +12,6 @@ async fn main() -> Result<()> {
     }
 
     let config = StartSignerConfig::load_from_env()?;
-    initialize_tracing_log(config.logs_settings.clone(), "signer");
+    let _guard = initialize_tracing_log(config.logs_settings.clone(), "signer");
     SigningService::run(config).await
 }

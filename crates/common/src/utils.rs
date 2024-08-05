@@ -10,6 +10,7 @@ use alloy::{
 use blst::min_pk::{PublicKey, Signature};
 use rand::{distributions::Alphanumeric, Rng};
 use reqwest::header::HeaderMap;
+use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{fmt::Layer, prelude::*, EnvFilter};
 
 use crate::{
@@ -116,8 +117,7 @@ pub const fn default_u256() -> U256 {
 }
 
 // LOGGING
-// TODO: more customized logging + logging guard
-pub fn initialize_tracing_log(logs_settings: LogsSettings, module_id: &str) {
+pub fn initialize_tracing_log(logs_settings: LogsSettings, module_id: &str) -> WorkerGuard {
     let level_env = std::env::var("RUST_LOG").unwrap_or("info".to_owned());
     // Log all events to a rolling log file.
     let log_file = match logs_settings.duration {
@@ -145,10 +145,12 @@ pub fn initialize_tracing_log(logs_settings: LogsSettings, module_id: &str) {
     let logging_level = tracing::Level::from_str(&level_env)
         .unwrap_or_else(|_| panic!("invalid value for tracing. Got {level_env}"));
     let stdout_log = tracing_subscriber::fmt::layer().pretty();
-    let (default, _guard) = tracing_appender::non_blocking(log_file);
+    let (default, guard) = tracing_appender::non_blocking(log_file);
     let log_file = Layer::new().with_writer(default.with_max_level(logging_level));
 
     tracing_subscriber::registry().with(stdout_log.with_filter(filter).and_then(log_file)).init();
+
+    guard
 }
 
 pub fn print_logo() {
