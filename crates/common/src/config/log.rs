@@ -13,6 +13,8 @@ pub struct LogsSettings {
     pub host_path: PathBuf,
     #[serde(default, rename = "rust-log")]
     pub rust_log: String,
+    #[serde(default, rename = "max-log-files")]
+    pub max_log_files: Option<usize>,
 }
 
 impl Default for LogsSettings {
@@ -21,6 +23,7 @@ impl Default for LogsSettings {
             duration: RollingDuration::Hourly,
             host_path: "/var/log/pbs".into(),
             rust_log: "info".to_string(),
+            max_log_files: None,
         }
     }
 }

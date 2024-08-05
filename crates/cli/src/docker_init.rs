@@ -8,7 +8,7 @@ use cb_common::{
         SIGNER_KEYS, SIGNER_KEYS_ENV, SIGNER_SERVER_ENV,
     },
     loader::SignerLoader,
-    utils::{random_jwt, ENV_ROLLING_DURATION},
+    utils::{random_jwt, ENV_MAX_LOG_FILES, ENV_ROLLING_DURATION, ENV_RUST_LOG},
 };
 use docker_compose_types::{
     Compose, ComposeVolume, DependsOnOptions, Environment, Labels, LoggingParameters, MapOrEmpty,
@@ -26,8 +26,6 @@ pub(super) const PROMETHEUS_DATA_VOLUME: &str = "prometheus-data";
 
 const METRICS_NETWORK: &str = "monitoring_network";
 const SIGNER_NETWORK: &str = "signer_network";
-
-const ENV_RUST_LOG: &str = "RUST_LOG";
 
 /// Builds the docker compose file for the Commit-Boost services
 
@@ -54,6 +52,9 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     let mut envs = IndexMap::from([(CB_CONFIG_ENV.into(), CB_CONFIG_NAME.into())]);
     envs.insert(ENV_ROLLING_DURATION.into(), cb_config.logs.duration.to_string());
     envs.insert(ENV_RUST_LOG.into(), cb_config.logs.rust_log);
+    if let Some(max_files) = cb_config.logs.max_log_files {
+        envs.insert(ENV_MAX_LOG_FILES.into(), max_files.to_string());
+    }
     // targets to pass to prometheus
     let mut targets = Vec::new();
     let metrics_port = 10000;
