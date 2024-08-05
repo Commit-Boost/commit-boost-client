@@ -136,8 +136,12 @@ pub fn initialize_tracing_log(module_id: &str) -> WorkerGuard {
             EnvFilter::new("info")
         }
     };
-    let logging_level = tracing::Level::from_str(&level_env)
-        .unwrap_or_else(|_| panic!("invalid value for tracing. Got {level_env}"));
+    let logging_level = if matches!(level_env.as_str(), "info" | "warning" | "error") {
+        tracing::Level::DEBUG
+    } else {
+        tracing::Level::from_str(&level_env)
+            .unwrap_or_else(|_| panic!("invalid value for tracing. Got {level_env}"))
+    };
     let stdout_log = tracing_subscriber::fmt::layer().pretty();
     let (default, guard) = tracing_appender::non_blocking(log_file);
     let log_file = Layer::new().with_writer(default.with_max_level(logging_level));
