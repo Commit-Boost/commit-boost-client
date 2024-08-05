@@ -5,31 +5,44 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
+use super::CB_BASE_LOG_PATH;
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct LogsSettings {
     #[serde(default)]
-    pub duration: RollingDuration,
-    #[serde(default, rename = "host-path")]
-    pub host_path: PathBuf,
-    #[serde(default, rename = "rust-log")]
-    pub rust_log: String,
+    pub rotation: RollingDuration,
+    #[serde(default = "default_log_dir_path")]
+    pub log_dir_path: PathBuf,
+    #[serde(default = "default_log_level")]
+    pub log_level: String,
+    #[serde(default)]
+    pub max_log_files: Option<usize>,
 }
 
 impl Default for LogsSettings {
     fn default() -> Self {
         Self {
-            duration: RollingDuration::Hourly,
-            host_path: "/var/log/pbs".into(),
-            rust_log: "info".to_string(),
+            rotation: RollingDuration::default(),
+            log_dir_path: default_log_dir_path(),
+            log_level: default_log_level(),
+            max_log_files: None,
         }
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+fn default_log_dir_path() -> PathBuf {
+    CB_BASE_LOG_PATH.into()
+}
+
+pub fn default_log_level() -> String {
+    "info".into()
+}
+
+#[derive(Clone, Default, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RollingDuration {
-    Minutely,
     Hourly,
+    #[default]
     Daily,
     Never,
 }
@@ -37,16 +50,9 @@ pub enum RollingDuration {
 impl Display for RollingDuration {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            RollingDuration::Minutely => write!(f, "minutely"),
             RollingDuration::Hourly => write!(f, "hourly"),
             RollingDuration::Daily => write!(f, "daily"),
             RollingDuration::Never => write!(f, "never"),
         }
-    }
-}
-
-impl Default for RollingDuration {
-    fn default() -> Self {
-        Self::Daily
     }
 }
