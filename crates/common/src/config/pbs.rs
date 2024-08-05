@@ -19,7 +19,7 @@ use crate::{
 pub struct RelayConfig {
     /// Relay ID, if missing will default to the URL hostname from the entry
     pub id: Option<String>,
-    /// Relay in the form of pubkey@url
+    /// Relay in the form of scheme://pubkey@host
     #[serde(rename = "url")]
     pub entry: RelayEntry,
     /// Optional headers to send with each request
@@ -37,7 +37,8 @@ pub struct RelayConfig {
 pub struct PbsConfig {
     /// Port to receive BuilderAPI calls from beacon node
     pub port: u16,
-    /// Whether to forward `get_status`` to relays or skip it
+    /// Whether to forward `get_status` to relays or skip it
+    #[serde(default = "default_bool::<true>")]
     pub relay_check: bool,
     /// Timeout for get_header request in milliseconds
     #[serde(default = "default_u64::<{ DefaultTimeout::GET_HEADER_MS }>")]

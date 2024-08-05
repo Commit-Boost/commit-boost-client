@@ -2,12 +2,14 @@ use eyre::Result;
 use serde::{Deserialize, Serialize};
 
 use super::{constants::METRICS_SERVER_ENV, load_env_var};
+use crate::utils::default_bool;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MetricsConfig {
     /// Path to prometheus config file
     pub prometheus_config: String,
     /// Whether to start a grafana service
+    #[serde(default = "default_bool::<false>")]
     pub use_grafana: bool,
 }
 
