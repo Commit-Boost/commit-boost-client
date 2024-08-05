@@ -11,9 +11,5 @@ async fn main() -> eyre::Result<()> {
 
     let args = cb_cli::Args::parse();
 
-    if let Err(err) = args.run().await {
-        eprintln!("Error: {err}");
-        std::process::exit(1)
-    };
-    Ok(())
+    args.run().await
 }

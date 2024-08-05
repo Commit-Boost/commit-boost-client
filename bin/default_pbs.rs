@@ -18,6 +18,5 @@ async fn main() -> Result<()> {
     let state = PbsState::<()>::new(pbs_config);
 
     PbsService::init_metrics()?;
-    PbsService::run::<(), DefaultBuilderApi>(state).await;
-    Ok(())
+    PbsService::run::<(), DefaultBuilderApi>(state).await
 }

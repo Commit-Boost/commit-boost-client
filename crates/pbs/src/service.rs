@@ -1,10 +1,10 @@
 use std::net::SocketAddr;
 
 use cb_metrics::provider::MetricsProvider;
-use eyre::Result;
+use eyre::{Context, Result};
 use prometheus::core::Collector;
 use tokio::net::TcpListener;
-use tracing::{error, info};
+use tracing::info;
 
 use crate::{
     api::BuilderApi,
@@ -18,7 +18,7 @@ pub struct PbsService;
 // TODO: add ServerMaxHeaderBytes
 
 impl PbsService {
-    pub async fn run<S: BuilderApiState, T: BuilderApi<S>>(state: PbsState<S>) {
+    pub async fn run<S: BuilderApiState, T: BuilderApi<S>>(state: PbsState<S>) -> Result<()> {
         // if state.pbs_config().relay_check {
         //     PbsService::relay_check(state.relays()).await;
         // }
@@ -32,9 +32,7 @@ impl PbsService {
 
         let listener = TcpListener::bind(address).await.expect("failed tcp binding");
 
-        if let Err(err) = axum::serve(listener, app).await {
-            error!(?err, "Pbs server exited")
-        }
+        axum::serve(listener, app).await.wrap_err("PBS server exited")
     }
 
     pub fn register_metric(c: Box<dyn Collector>) {
