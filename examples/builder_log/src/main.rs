@@ -14,8 +14,6 @@ impl OnBuilderApiEvent for LogProcessor {
 
 #[tokio::main]
 async fn main() {
-    
-
     match load_builder_module_config::<()>() {
         Ok(config) => {
             info!(module_id = config.id, "Starting module");

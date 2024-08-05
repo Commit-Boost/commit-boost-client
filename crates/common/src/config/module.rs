@@ -2,6 +2,7 @@ use eyre::{ContextCompat, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use toml::Table;
 
+use super::LogsSettings;
 use crate::{
     commit::client::SignerClient,
     config::{
@@ -12,8 +13,6 @@ use crate::{
     },
     types::Chain,
 };
-
-use super::LogsSettings;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum ModuleKind {
