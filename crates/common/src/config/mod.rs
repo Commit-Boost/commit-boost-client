@@ -10,7 +10,10 @@ mod pbs;
 mod signer;
 mod utils;
 
+mod log;
+
 pub use constants::*;
+pub use log::*;
 pub use metrics::*;
 pub use module::*;
 pub use pbs::*;
@@ -26,6 +29,8 @@ pub struct CommitBoostConfig {
     pub modules: Option<Vec<StaticModuleConfig>>,
     pub signer: Option<SignerConfig>,
     pub metrics: MetricsConfig,
+    #[serde(default)]
+    pub logs: LogsSettings,
 }
 
 impl CommitBoostConfig {

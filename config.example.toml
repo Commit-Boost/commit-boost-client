@@ -39,3 +39,8 @@ sleep_secs = 5
 id = "BUILDER_LOG"
 type = "events"
 docker_image = "test_builder_log"
+
+[logs]
+duration = "daily"
+host-path="./logs"
+rust-log="info"

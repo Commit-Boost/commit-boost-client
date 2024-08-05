@@ -1,4 +1,8 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    env,
+    str::FromStr,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use alloy::{
     primitives::U256,
@@ -7,12 +11,15 @@ use alloy::{
 use blst::min_pk::{PublicKey, Signature};
 use rand::{distributions::Alphanumeric, Rng};
 use reqwest::header::HeaderMap;
-use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_appender::non_blocking::WorkerGuard;
+use tracing_subscriber::{fmt::Layer, prelude::*, EnvFilter};
 
-use crate::types::Chain;
+use crate::{config::CB_BASE_LOG_PATH, types::Chain};
 
 const SECONDS_PER_SLOT: u64 = 12;
 const MILLIS_PER_SECOND: u64 = 1_000;
+
+pub const ENV_ROLLING_DURATION: &str = "ROLLING_DURATION";
 
 pub fn timestamp_of_slot_start_millis(slot: u64, chain: Chain) -> u64 {
     let seconds_since_genesis = chain.genesis_time_sec() + slot * SECONDS_PER_SLOT;
@@ -110,9 +117,17 @@ pub const fn default_u256() -> U256 {
 }
 
 // LOGGING
-// TODO: more customized logging + logging guard
-pub fn initialize_tracing_log() {
+pub fn initialize_tracing_log(module_id: &str) -> WorkerGuard {
     let level_env = std::env::var("RUST_LOG").unwrap_or("info".to_owned());
+    // Log all events to a rolling log file.
+
+    let log_file = match env::var(ENV_ROLLING_DURATION).unwrap_or("daily".into()).as_str() {
+        "minutely" => tracing_appender::rolling::minutely(CB_BASE_LOG_PATH, module_id),
+        "hourly" => tracing_appender::rolling::hourly(CB_BASE_LOG_PATH, module_id),
+        "daily" => tracing_appender::rolling::daily(CB_BASE_LOG_PATH, module_id),
+        "never" => tracing_appender::rolling::never(CB_BASE_LOG_PATH, module_id),
+        _ => panic!("unknown rolling duration value"),
+    };
 
     let filter = match level_env.parse::<EnvFilter>() {
         Ok(f) => f,
@@ -121,12 +136,19 @@ pub fn initialize_tracing_log() {
             EnvFilter::new("info")
         }
     };
+    let logging_level = if matches!(level_env.as_str(), "info" | "warning" | "error") {
+        tracing::Level::DEBUG
+    } else {
+        tracing::Level::from_str(&level_env)
+            .unwrap_or_else(|_| panic!("invalid value for tracing. Got {level_env}"))
+    };
+    let stdout_log = tracing_subscriber::fmt::layer().pretty();
+    let (default, guard) = tracing_appender::non_blocking(log_file);
+    let log_file = Layer::new().with_writer(default.with_max_level(logging_level));
 
-    tracing_subscriber::registry()
-        .with(filter)
-        .with(fmt::layer().with_target(false))
-        .try_init()
-        .unwrap();
+    tracing_subscriber::registry().with(stdout_log.with_filter(filter).and_then(log_file)).init();
+
+    guard
 }
 
 pub fn print_logo() {

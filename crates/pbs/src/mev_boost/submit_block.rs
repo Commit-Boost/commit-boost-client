@@ -83,7 +83,7 @@ async fn send_submit_block(
                     &relay.id,
                 ])
                 .inc();
-            return Err(err.into())
+            return Err(err.into());
         }
     };
     let request_latency = start_request.elapsed();
@@ -105,7 +105,7 @@ async fn send_submit_block(
 
         // we request payload to all relays, but some may have not received it
         warn!(?err, "failed to get payload (this might be ok if other relays have it)");
-        return Err(err)
+        return Err(err);
     };
 
     let block_response: SubmitBlindedBlockResponse = serde_json::from_slice(&response_bytes)?;
@@ -120,7 +120,7 @@ async fn send_submit_block(
         return Err(PbsError::Validation(ValidationError::BlockHashMismatch {
             expected: signed_blinded_block.block_hash(),
             got: block_response.block_hash(),
-        }))
+        }));
     }
 
     if let Some(blobs) = &block_response.data.blobs_bundle {
@@ -134,7 +134,7 @@ async fn send_submit_block(
                 got_blobs: blobs.blobs.len(),
                 got_commitments: blobs.commitments.len(),
                 got_proofs: blobs.proofs.len(),
-            }))
+            }));
         }
 
         for (i, comm) in expected_committments.iter().enumerate() {
@@ -144,7 +144,7 @@ async fn send_submit_block(
                     expected: format!("{comm}"),
                     got: format!("{}", blobs.commitments[i]),
                     index: i,
-                }))
+                }));
             }
         }
     }
