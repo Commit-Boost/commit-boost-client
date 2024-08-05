@@ -11,7 +11,7 @@ use alloy::{
 use blst::min_pk::{PublicKey, Signature};
 use rand::{distributions::Alphanumeric, Rng};
 use reqwest::header::HeaderMap;
-use tracing_appender::non_blocking::WorkerGuard;
+use tracing_appender::{non_blocking::WorkerGuard, rolling::Rotation};
 use tracing_subscriber::{fmt::Layer, prelude::*, EnvFilter};
 
 use crate::{config::CB_BASE_LOG_PATH, types::Chain};
@@ -19,7 +19,11 @@ use crate::{config::CB_BASE_LOG_PATH, types::Chain};
 const SECONDS_PER_SLOT: u64 = 12;
 const MILLIS_PER_SECOND: u64 = 1_000;
 
-pub const ENV_ROLLING_DURATION: &str = "ROLLING_DURATION";
+pub const ROLLING_DURATION_ENV: &str = "ROLLING_DURATION";
+
+pub const MAX_LOG_FILES_ENV: &str = "MAX_LOG_FILES";
+
+pub const RUST_LOG_ENV: &str = "RUST_LOG";
 
 pub fn timestamp_of_slot_start_millis(slot: u64, chain: Chain) -> u64 {
     let seconds_since_genesis = chain.genesis_time_sec() + slot * SECONDS_PER_SLOT;
@@ -118,16 +122,22 @@ pub const fn default_u256() -> U256 {
 
 // LOGGING
 pub fn initialize_tracing_log(module_id: &str) -> WorkerGuard {
-    let level_env = std::env::var("RUST_LOG").unwrap_or("info".to_owned());
+    let level_env = std::env::var(RUST_LOG_ENV).unwrap_or("info".to_owned());
     // Log all events to a rolling log file.
-
-    let log_file = match env::var(ENV_ROLLING_DURATION).unwrap_or("daily".into()).as_str() {
-        "minutely" => tracing_appender::rolling::minutely(CB_BASE_LOG_PATH, module_id),
-        "hourly" => tracing_appender::rolling::hourly(CB_BASE_LOG_PATH, module_id),
-        "daily" => tracing_appender::rolling::daily(CB_BASE_LOG_PATH, module_id),
-        "never" => tracing_appender::rolling::never(CB_BASE_LOG_PATH, module_id),
+    let mut builder = tracing_appender::rolling::Builder::new().filename_prefix(module_id);
+    if let Ok(value) = env::var(MAX_LOG_FILES_ENV) {
+        builder =
+            builder.max_log_files(value.parse().expect("MAX_LOG_FILES is not a valid usize value"));
+    }
+    let log_file = match env::var(ROLLING_DURATION_ENV).unwrap_or("daily".into()).as_str() {
+        "minutely" => builder.rotation(Rotation::MINUTELY),
+        "hourly" => builder.rotation(Rotation::HOURLY),
+        "daily" => builder.rotation(Rotation::DAILY),
+        "never" => builder.rotation(Rotation::NEVER),
         _ => panic!("unknown rolling duration value"),
-    };
+    }
+    .build(CB_BASE_LOG_PATH)
+    .expect("failed building rolling file appender");
 
     let filter = match level_env.parse::<EnvFilter>() {
         Ok(f) => f,

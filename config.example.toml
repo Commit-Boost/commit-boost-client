@@ -133,3 +133,4 @@ sleep_secs = 5
 duration = "daily"
 host-path = "./logs"
 rust-log = "info"
+max_log_files = 100

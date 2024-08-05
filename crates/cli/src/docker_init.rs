@@ -8,7 +8,7 @@ use cb_common::{
         SIGNER_KEYS, SIGNER_KEYS_ENV, SIGNER_SERVER_ENV,
     },
     loader::SignerLoader,
-    utils::{random_jwt, ENV_ROLLING_DURATION},
+    utils::{random_jwt, MAX_LOG_FILES_ENV, ROLLING_DURATION_ENV, RUST_LOG_ENV},
 };
 use docker_compose_types::{
     Compose, ComposeVolume, DependsOnOptions, Environment, Labels, LoggingParameters, MapOrEmpty,
@@ -26,8 +26,6 @@ pub(super) const PROMETHEUS_DATA_VOLUME: &str = "prometheus-data";
 
 const METRICS_NETWORK: &str = "monitoring_network";
 const SIGNER_NETWORK: &str = "signer_network";
-
-const ENV_RUST_LOG: &str = "RUST_LOG";
 
 /// Builds the docker compose file for the Commit-Boost services
 
@@ -52,8 +50,11 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     let mut jwts = IndexMap::new();
     // envs to write in .env file
     let mut envs = IndexMap::from([(CB_CONFIG_ENV.into(), CB_CONFIG_NAME.into())]);
-    envs.insert(ENV_ROLLING_DURATION.into(), cb_config.logs.duration.to_string());
-    envs.insert(ENV_RUST_LOG.into(), cb_config.logs.rust_log);
+    let max_files = if let Some(max_files) = cb_config.logs.max_log_files {
+       max_files.to_string()
+    } else {
+        "".to_string()
+    };
     // targets to pass to prometheus
     let mut targets = Vec::new();
     let metrics_port = 10000;
@@ -74,6 +75,9 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     let mut pbs_envs = IndexMap::from([
         get_env_same(CB_CONFIG_ENV),
         get_env_val(METRICS_SERVER_ENV, &metrics_port.to_string()),
+        get_env_val(ROLLING_DURATION_ENV, &cb_config.logs.duration.to_string()),
+        get_env_val(RUST_LOG_ENV, &cb_config.logs.rust_log),
+        get_env_val(MAX_LOG_FILES_ENV, &max_files),
     ]);
 
     let mut needs_signer_module = cb_config.pbs.with_signer;
@@ -104,6 +108,9 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                         get_env_interp(MODULE_JWT_ENV, &jwt_name),
                         get_env_val(METRICS_SERVER_ENV, &metrics_port.to_string()),
                         get_env_val(SIGNER_SERVER_ENV, &signer_server),
+                        get_env_val(ROLLING_DURATION_ENV, &cb_config.logs.duration.to_string()),
+                        get_env_val(RUST_LOG_ENV, &cb_config.logs.rust_log),
+                        get_env_val(MAX_LOG_FILES_ENV, &max_files),
                     ]);
 
                     envs.insert(jwt_name.clone(), jwt.clone());
@@ -131,6 +138,9 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                         get_env_same(CB_CONFIG_ENV),
                         get_env_val(METRICS_SERVER_ENV, &metrics_port.to_string()),
                         get_env_val(BUILDER_SERVER_ENV, &builder_events_port.to_string()),
+                        get_env_val(ROLLING_DURATION_ENV, &cb_config.logs.duration.to_string()),
+                        get_env_val(RUST_LOG_ENV, &cb_config.logs.rust_log),
+                        get_env_val(MAX_LOG_FILES_ENV, &max_files),
                     ]);
 
                     builder_events_modules.push(format!("{module_cid}:{builder_events_port}"));
@@ -190,6 +200,9 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                 get_env_same(JWTS_ENV),
                 get_env_val(METRICS_SERVER_ENV, &metrics_port.to_string()),
                 get_env_val(SIGNER_SERVER_ENV, &signer_port.to_string()),
+                get_env_val(ROLLING_DURATION_ENV, &cb_config.logs.duration.to_string()),
+                get_env_val(RUST_LOG_ENV, &cb_config.logs.rust_log),
+                get_env_val(MAX_LOG_FILES_ENV, &max_files),
             ]);
 
             // TODO: generalize this, different loaders may not need volumes but eg ports
