@@ -846,7 +846,7 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "Cadvisor exporter",
+  "title": "commit boost system metrics",
   "uid": "pMEd7m0Mz",
   "version": 1,
   "description": "Simple exporter for cadvisor only"
