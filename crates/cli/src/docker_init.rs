@@ -28,6 +28,8 @@ pub(super) const PROMETHEUS_DATA_VOLUME: &str = "prometheus-data";
 const METRICS_NETWORK: &str = "monitoring_network";
 const SIGNER_NETWORK: &str = "signer_network";
 
+const ENV_RUST_LOG: &str = "RUST_LOG";
+
 /// Builds the docker compose file for the Commit-Boost services
 
 // TODO: do more validation for paths, images, etc
@@ -52,7 +54,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     // envs to write in .env file
     let mut envs = IndexMap::from([(CB_CONFIG_ENV.into(), CB_CONFIG_NAME.into())]);
     envs.insert(ENV_ROLLING_DURATION.into(), cb_config.logs.duration.to_string());
-    envs.insert("RUST_LOG".into(), cb_config.logs.rust_log);
+    envs.insert(ENV_RUST_LOG.into(), cb_config.logs.rust_log);
     // targets to pass to prometheus
     let mut targets = Vec::new();
     let metrics_port = 10000;
