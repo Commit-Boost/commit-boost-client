@@ -4,6 +4,8 @@ pub const METRICS_SERVER_ENV: &str = "METRICS_SERVER";
 pub const SIGNER_SERVER_ENV: &str = "SIGNER_SERVER";
 pub const BUILDER_SERVER_ENV: &str = "BUILDER_SERVER";
 
+pub const CB_BASE_LOG_PATH: &str = "/var/logs/";
+
 pub const CB_CONFIG_ENV: &str = "CB_CONFIG";
 pub const CB_CONFIG_NAME: &str = "/cb-config.toml";
 

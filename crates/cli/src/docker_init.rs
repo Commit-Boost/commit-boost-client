@@ -2,10 +2,10 @@ use std::{path::Path, vec};
 
 use cb_common::{
     config::{
-        CommitBoostConfig, ModuleKind, BUILDER_SERVER_ENV, CB_CONFIG_ENV, CB_CONFIG_NAME, JWTS_ENV,
-        METRICS_SERVER_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, SIGNER_DIR_KEYS, SIGNER_DIR_KEYS_ENV,
-        SIGNER_DIR_SECRETS, SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS, SIGNER_KEYS_ENV,
-        SIGNER_SERVER_ENV,
+        CommitBoostConfig, ModuleKind, BUILDER_SERVER_ENV, CB_BASE_LOG_PATH, CB_CONFIG_ENV,
+        CB_CONFIG_NAME, JWTS_ENV, METRICS_SERVER_ENV, MODULE_ID_ENV, MODULE_JWT_ENV,
+        SIGNER_DIR_KEYS, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS, SIGNER_DIR_SECRETS_ENV,
+        SIGNER_KEYS, SIGNER_KEYS_ENV, SIGNER_SERVER_ENV,
     },
     loader::SignerLoader,
     utils::random_jwt,
@@ -41,10 +41,16 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
     // config volume to pass to all services
     let config_volume = Volumes::Simple(format!("./{}:{}:ro", config_path, CB_CONFIG_NAME));
+    let log_volume = Volumes::Simple(format!(
+        "{}:{}",
+        cb_config.logs.host_path.to_str().unwrap(),
+        CB_BASE_LOG_PATH
+    ));
 
     let mut jwts = IndexMap::new();
     // envs to write in .env file
     let mut envs = IndexMap::from([(CB_CONFIG_ENV.into(), CB_CONFIG_NAME.into())]);
+    envs.insert("ROLLING_DURATION".into(), cb_config.logs.duration.to_string());
 
     // targets to pass to prometheus
     let mut targets = Vec::new();
@@ -109,7 +115,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                             METRICS_NETWORK.to_owned(),
                             SIGNER_NETWORK.to_owned(),
                         ]),
-                        volumes: vec![config_volume.clone()],
+                        volumes: vec![config_volume.clone(), log_volume.clone()],
                         environment: Environment::KvPair(module_envs),
                         depends_on: DependsOnOptions::Simple(vec!["cb_signer".to_owned()]),
                         ..Service::default()
@@ -131,7 +137,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                         container_name: Some(module_cid.clone()),
                         image: Some(module.docker_image),
                         networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
-                        volumes: vec![config_volume.clone()],
+                        volumes: vec![config_volume.clone(), log_volume.clone()],
                         environment: Environment::KvPair(module_envs),
                         depends_on: DependsOnOptions::Simple(vec!["cb_pbs".to_owned()]),
                         ..Service::default()
@@ -157,7 +163,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
             cb_config.pbs.pbs_config.port, cb_config.pbs.pbs_config.port
         )]),
         networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
-        volumes: vec![config_volume.clone()],
+        volumes: vec![config_volume.clone(), log_volume.clone()],
         environment: Environment::KvPair(pbs_envs),
         ..Service::default()
     };
@@ -170,7 +176,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
     if let Some(signer_config) = cb_config.signer {
         if needs_signer_module {
-            let mut volumes = vec![config_volume.clone()];
+            let mut volumes = vec![config_volume.clone(), log_volume.clone()];
 
             targets.push(PrometheusTargetConfig {
                 targets: vec![format!("cb_signer:{metrics_port}")],

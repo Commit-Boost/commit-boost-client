@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use super::{
     constants::{SIGNER_IMAGE, SIGNER_SERVER_ENV},
     utils::{load_env_var, load_jwts},
-    CommitBoostConfig, LogsSettings,
+    CommitBoostConfig,
 };
 use crate::{loader::SignerLoader, types::Chain};
 
@@ -29,7 +29,6 @@ pub struct StartSignerConfig {
     pub loader: SignerLoader,
     pub server_port: u16,
     pub jwts: HashMap<String, String>,
-    pub logs_settings: LogsSettings,
 }
 
 impl StartSignerConfig {
@@ -44,7 +43,6 @@ impl StartSignerConfig {
             loader: config.signer.expect("Signer config is missing").loader,
             server_port,
             jwts,
-            logs_settings: config.logs,
         })
     }
 }

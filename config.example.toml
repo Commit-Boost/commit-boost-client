@@ -42,9 +42,4 @@ docker_image = "test_builder_log"
 
 [logs]
 duration = "hourly"
-
-[logs.prefixes]
-pbs="pbs"
-signer="signer"
-da_commit="da"
-logs="logs"
+host_path="./logs"

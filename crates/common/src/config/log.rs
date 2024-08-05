@@ -1,4 +1,7 @@
-use std::path::PathBuf;
+use std::{
+    fmt::{Display, Formatter},
+    path::PathBuf,
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -7,12 +10,12 @@ pub struct LogsSettings {
     #[serde(default)]
     pub duration: RollingDuration,
     #[serde(default)]
-    pub base_path: PathBuf,
+    pub host_path: PathBuf,
 }
 
 impl Default for LogsSettings {
     fn default() -> Self {
-        Self { duration: RollingDuration::Hourly, base_path: "/var/logs".into() }
+        Self { duration: RollingDuration::Hourly, host_path: "/var/logs".into() }
     }
 }
 
@@ -23,6 +26,17 @@ pub enum RollingDuration {
     Hourly,
     Daily,
     Never,
+}
+
+impl Display for RollingDuration {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RollingDuration::Minutely => write!(f, "minutely"),
+            RollingDuration::Hourly => write!(f, "hourly"),
+            RollingDuration::Daily => write!(f, "daily"),
+            RollingDuration::Never => write!(f, "never"),
+        }
+    }
 }
 
 impl Default for RollingDuration {

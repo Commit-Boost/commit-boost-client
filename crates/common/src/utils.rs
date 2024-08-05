@@ -1,4 +1,5 @@
 use std::{
+    env,
     str::FromStr,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -13,10 +14,7 @@ use reqwest::header::HeaderMap;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{fmt::Layer, prelude::*, EnvFilter};
 
-use crate::{
-    config::{LogsSettings, RollingDuration},
-    types::Chain,
-};
+use crate::{config::CB_BASE_LOG_PATH, types::Chain};
 
 const SECONDS_PER_SLOT: u64 = 12;
 const MILLIS_PER_SECOND: u64 = 1_000;
@@ -117,22 +115,16 @@ pub const fn default_u256() -> U256 {
 }
 
 // LOGGING
-pub fn initialize_tracing_log(logs_settings: LogsSettings, module_id: &str) -> WorkerGuard {
+pub fn initialize_tracing_log(module_id: &str) -> WorkerGuard {
     let level_env = std::env::var("RUST_LOG").unwrap_or("info".to_owned());
     // Log all events to a rolling log file.
-    let log_file = match logs_settings.duration {
-        RollingDuration::Minutely => {
-            tracing_appender::rolling::minutely(logs_settings.base_path, module_id)
-        }
-        RollingDuration::Hourly => {
-            tracing_appender::rolling::hourly(logs_settings.base_path, module_id)
-        }
-        RollingDuration::Daily => {
-            tracing_appender::rolling::daily(logs_settings.base_path, module_id)
-        }
-        RollingDuration::Never => {
-            tracing_appender::rolling::never(logs_settings.base_path, module_id)
-        }
+
+    let log_file = match env::var("ROLLING_DURATION").unwrap_or("daily".into()).as_str() {
+        "minutely" => tracing_appender::rolling::minutely(CB_BASE_LOG_PATH, module_id),
+        "hourly" => tracing_appender::rolling::hourly(CB_BASE_LOG_PATH, module_id),
+        "daily" => tracing_appender::rolling::daily(CB_BASE_LOG_PATH, module_id),
+        "never" => tracing_appender::rolling::never(CB_BASE_LOG_PATH, module_id),
+        _ => panic!("unknown rolling duration value"),
     };
 
     let filter = match level_env.parse::<EnvFilter>() {

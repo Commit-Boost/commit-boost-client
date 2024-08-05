@@ -6,7 +6,7 @@ use alloy::primitives::U256;
 use eyre::Result;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-use super::{constants::PBS_DEFAULT_IMAGE, CommitBoostConfig, LogsSettings};
+use super::{constants::PBS_DEFAULT_IMAGE, CommitBoostConfig};
 use crate::{
     commit::client::SignerClient,
     config::{load_env_var, load_file_from_env, CB_CONFIG_ENV, MODULE_JWT_ENV, SIGNER_SERVER_ENV},
@@ -90,8 +90,6 @@ pub struct PbsModuleConfig<T = ()> {
     pub event_publiher: Option<BuilderEventPublisher>,
     /// Opaque module config
     pub extra: T,
-
-    pub logs_settings: LogsSettings,
 }
 
 fn default_pbs() -> String {
@@ -112,7 +110,6 @@ pub fn load_pbs_config() -> Result<PbsModuleConfig<()>> {
         signer_client: None,
         event_publiher: maybe_publiher,
         extra: (),
-        logs_settings: config.logs,
     })
 }
 
@@ -131,7 +128,6 @@ pub fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<PbsModuleConfig<T
         chain: Chain,
         relays: Vec<RelayConfig>,
         pbs: CustomPbsConfig<U>,
-        logs: LogsSettings,
     }
 
     // load module config including the extra data (if any)
@@ -156,6 +152,5 @@ pub fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<PbsModuleConfig<T
         signer_client,
         event_publiher: maybe_publiher,
         extra: cb_config.pbs.extra,
-        logs_settings: cb_config.logs,
     })
 }

@@ -53,7 +53,6 @@ fn to_pbs_config(
         event_publiher: None,
         extra: (),
         relays,
-        logs_settings: Default::default(),
     }
 }
 

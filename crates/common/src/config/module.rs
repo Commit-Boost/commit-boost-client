@@ -2,7 +2,6 @@ use eyre::{ContextCompat, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use toml::Table;
 
-use super::LogsSettings;
 use crate::{
     commit::client::SignerClient,
     config::{
@@ -45,8 +44,6 @@ pub struct StartCommitModuleConfig<T = ()> {
     pub signer_client: SignerClient,
     /// Opaque module config
     pub extra: T,
-
-    pub logs_settings: LogsSettings,
 }
 
 /// Loads a module config from the environment and config file:
@@ -79,7 +76,6 @@ pub fn load_commit_module_config<T: DeserializeOwned>() -> Result<StartCommitMod
     struct StubConfig<U> {
         chain: Chain,
         modules: Vec<ThisModule<U>>,
-        logs: LogsSettings,
     }
 
     // load module config including the extra data (if any)
@@ -109,7 +105,6 @@ pub fn load_commit_module_config<T: DeserializeOwned>() -> Result<StartCommitMod
         chain: cb_config.chain,
         signer_client,
         extra: module_config.extra,
-        logs_settings: cb_config.logs,
     })
 }
 
@@ -123,8 +118,6 @@ pub struct StartBuilderModuleConfig<T> {
     pub server_port: u16,
     /// Opaque module config
     pub extra: T,
-
-    pub logs_settings: LogsSettings,
 }
 
 pub fn load_builder_module_config<T: DeserializeOwned>() -> eyre::Result<StartBuilderModuleConfig<T>>
@@ -152,7 +145,6 @@ pub fn load_builder_module_config<T: DeserializeOwned>() -> eyre::Result<StartBu
     struct StubConfig<U> {
         chain: Chain,
         modules: Vec<ThisModule<U>>,
-        logs: LogsSettings,
     }
 
     // load module config including the extra data (if any)
@@ -180,6 +172,5 @@ pub fn load_builder_module_config<T: DeserializeOwned>() -> eyre::Result<StartBu
         chain: cb_config.chain,
         server_port: builder_events_port,
         extra: module_config.extra,
-        logs_settings: cb_config.logs,
     })
 }
