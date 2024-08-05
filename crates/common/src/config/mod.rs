@@ -13,12 +13,12 @@ mod utils;
 mod log;
 
 pub use constants::*;
+pub use log::*;
 pub use metrics::*;
 pub use module::*;
 pub use pbs::*;
 pub use signer::*;
 pub use utils::*;
-pub use log::*;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CommitBoostConfig {

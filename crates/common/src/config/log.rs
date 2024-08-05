@@ -1,15 +1,18 @@
-use std::collections::HashMap;
+use std::path::PathBuf;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct LogsSettings {
+    #[serde(default)]
     pub duration: RollingDuration,
-    pub prefixes: HashMap<String, String>,
+    #[serde(default)]
+    pub base_path: PathBuf,
 }
 
 impl Default for LogsSettings {
     fn default() -> Self {
-        Self { duration: RollingDuration::Hourly, prefixes: Default::default() }
+        Self { duration: RollingDuration::Hourly, base_path: Default::default() }
     }
 }
 
@@ -20,4 +23,10 @@ pub enum RollingDuration {
     Hourly,
     Daily,
     Never,
+}
+
+impl Default for RollingDuration {
+    fn default() -> Self {
+        Self::Daily
+    }
 }
