@@ -41,6 +41,6 @@ type = "events"
 docker_image = "test_builder_log"
 
 [logs]
-duration = "hourly"
+duration = "daily"
 host-path="./logs"
 rust-log="info"
