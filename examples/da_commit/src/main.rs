@@ -46,7 +46,7 @@ impl DaCommitService {
         let pubkey = pubkeys.consensus.first().ok_or_eyre("no key available")?;
         info!("Registered validator {pubkey}");
 
-        let proxy_delegation = self.config.signer_client.generate_proxy_key(pubkey.clone()).await?;
+        let proxy_delegation = self.config.signer_client.generate_proxy_key(*pubkey).await?;
         info!("Obtained a proxy delegation {proxy_delegation:?}");
 
         // TODO(David): Maybe showcase some proxy signature requests...?
