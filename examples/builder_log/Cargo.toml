@@ -6,7 +6,6 @@ rust-version.workspace = true
 
 [dependencies]
 commit-boost = { path = "../../bin" }
-cb-common = { path = "../../crates/common" }
 
 # networking
 reqwest.workspace = true
@@ -21,4 +20,3 @@ serde.workspace = true
 # telemetry
 tracing.workspace = true
 
-backtrace.workspace = true

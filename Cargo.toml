@@ -68,7 +68,6 @@ docker-compose-types = "0.12.0"
 bollard = "0.16.1"
 
 # misc
-backtrace = "0.3.67"
 clap = { version = "4.5.4", features = ["derive", "env"] }
 thiserror = "1.0.61"
 color-eyre = "0.6.3"
