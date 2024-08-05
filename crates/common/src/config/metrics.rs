@@ -9,7 +9,7 @@ pub struct MetricsConfig {
     /// Path to prometheus config file
     pub prometheus_config: String,
     /// Whether to start a grafana service
-    #[serde(default = "default_bool::<false>")]
+    #[serde(default = "default_bool::<true>")]
     pub use_grafana: bool,
 }
 

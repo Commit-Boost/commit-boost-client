@@ -40,7 +40,7 @@ min_bid_eth = 0.0
 # OPTIONAL, DEFAULT: 2000
 late_in_slot_time_ms = 2000
 
-# The PBS module needs at least one relay as defined below.
+# The PBS module needs one or more [[relays]] as defined below.
 [[relays]]
 # Relay ID to use in telemetry
 # OPTIONAL, DEFAULT: URL hostname
@@ -50,7 +50,6 @@ url = "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb
 # Headers to send with each request for this relay
 # OPTIONAL
 headers = { X-MyCustomHeader = "MyCustomValue" }
-
 # Whether to enable timing games, as tuned by `target_first_request_ms` and `frequency_get_header_ms`.
 # These values should be carefully chosen for each relay, as each relay has different latency and timing games setups.
 # They should only be used by advanced users, and if mis-configured can result in unforeseen effects, e.g. fetching a lower header value, 
