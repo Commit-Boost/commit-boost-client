@@ -17,14 +17,13 @@ use docker_compose_types::{
 use eyre::Result;
 use indexmap::IndexMap;
 use serde::Serialize;
+use cb_common::utils::ENV_ROLLING_DURATION;
 
 pub(super) const CB_CONFIG_FILE: &str = "cb-config.toml";
 pub(super) const CB_COMPOSE_FILE: &str = "cb.docker-compose.yml";
 pub(super) const CB_ENV_FILE: &str = ".cb.env";
 pub(super) const CB_TARGETS_FILE: &str = "targets.json"; // needs to match prometheus.yml
 pub(super) const PROMETHEUS_DATA_VOLUME: &str = "prometheus-data";
-
-const ENV_ROLLING_DURATION: &str = "ROLLING_DURATION";
 
 const METRICS_NETWORK: &str = "monitoring_network";
 const SIGNER_NETWORK: &str = "signer_network";

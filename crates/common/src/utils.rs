@@ -19,6 +19,8 @@ use crate::{config::CB_BASE_LOG_PATH, types::Chain};
 const SECONDS_PER_SLOT: u64 = 12;
 const MILLIS_PER_SECOND: u64 = 1_000;
 
+pub const ENV_ROLLING_DURATION: &str = "ROLLING_DURATION";
+
 pub fn timestamp_of_slot_start_millis(slot: u64, chain: Chain) -> u64 {
     let seconds_since_genesis = chain.genesis_time_sec() + slot * SECONDS_PER_SLOT;
     seconds_since_genesis * MILLIS_PER_SECOND
@@ -119,7 +121,7 @@ pub fn initialize_tracing_log(module_id: &str) -> WorkerGuard {
     let level_env = std::env::var("RUST_LOG").unwrap_or("info".to_owned());
     // Log all events to a rolling log file.
 
-    let log_file = match env::var("ROLLING_DURATION").unwrap_or("daily".into()).as_str() {
+    let log_file = match env::var(ENV_ROLLING_DURATION).unwrap_or("daily".into()).as_str() {
         "minutely" => tracing_appender::rolling::minutely(CB_BASE_LOG_PATH, module_id),
         "hourly" => tracing_appender::rolling::hourly(CB_BASE_LOG_PATH, module_id),
         "daily" => tracing_appender::rolling::daily(CB_BASE_LOG_PATH, module_id),
