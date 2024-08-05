@@ -19,7 +19,7 @@ impl Default for LogsSettings {
     fn default() -> Self {
         Self {
             duration: RollingDuration::Hourly,
-            host_path: "/var/logs".into(),
+            host_path: "/var/log/pbs".into(),
             rust_log: "info".to_string(),
         }
     }
