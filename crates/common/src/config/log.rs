@@ -9,9 +9,9 @@ use serde::{Deserialize, Serialize};
 pub struct LogsSettings {
     #[serde(default)]
     pub duration: RollingDuration,
-    #[serde(default, rename="host-path")]
+    #[serde(default, rename = "host-path")]
     pub host_path: PathBuf,
-    #[serde(default, rename="rust-log")]
+    #[serde(default, rename = "rust-log")]
     pub rust_log: String,
 }
 

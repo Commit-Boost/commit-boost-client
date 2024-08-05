@@ -8,7 +8,7 @@ use cb_common::{
         SIGNER_KEYS, SIGNER_KEYS_ENV, SIGNER_SERVER_ENV,
     },
     loader::SignerLoader,
-    utils::random_jwt,
+    utils::{random_jwt, ENV_ROLLING_DURATION},
 };
 use docker_compose_types::{
     Compose, ComposeVolume, DependsOnOptions, Environment, Labels, LoggingParameters, MapOrEmpty,
@@ -17,7 +17,6 @@ use docker_compose_types::{
 use eyre::Result;
 use indexmap::IndexMap;
 use serde::Serialize;
-use cb_common::utils::ENV_ROLLING_DURATION;
 
 pub(super) const CB_CONFIG_FILE: &str = "cb-config.toml";
 pub(super) const CB_COMPOSE_FILE: &str = "cb.docker-compose.yml";
