@@ -44,4 +44,4 @@ docker_image = "test_builder_log"
 duration = "daily"
 host-path="./logs"
 rust-log="info"
-max_log_files = 100
+max-log-files = 100

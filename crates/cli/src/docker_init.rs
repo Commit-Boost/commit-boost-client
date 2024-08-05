@@ -58,6 +58,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     // targets to pass to prometheus
     let mut targets = Vec::new();
     let metrics_port = 10000;
+    let cadvisor_port = 8080;
 
     // address for signer API communication
     let signer_port = 20000;
@@ -324,6 +325,30 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
         services.insert("cb_grafana".to_owned(), Some(grafana_service));
     }
+
+    services.insert("cb_cadvisor".to_owned(), Some(Service{
+        container_name: Some("cb_cadvisor".to_owned()),
+        image: Some("gcr.io/cadvisor/cadvisor".to_owned()),
+        ports: Ports::Short(vec![format!("{cadvisor_port}:8080")]),
+        networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
+        volumes: vec![
+            Volumes::Simple(
+                "/var/run/docker.sock:/var/run/docker.sock:ro".to_owned(),
+            ),
+            Volumes::Simple(
+                "/sys:/sys:ro".to_owned(),
+            ),
+            Volumes::Simple(
+                "/var/lib/docker/:/var/lib/docker:ro".to_owned(),
+            ),
+        ],
+        ..Service::default()
+    }));
+
+    targets.push(PrometheusTargetConfig {
+        targets: vec![format!("cb_cadvisor:{cadvisor_port}")],
+        labels: PrometheusLabelsConfig { job: "cadvisor".to_owned() },
+    });
 
     compose.services = Services(services);
     compose.volumes = TopLevelVolumes(volumes);
