@@ -84,7 +84,7 @@ async fn main() -> Result<()> {
                 sleep_secs = config.extra.sleep_secs,
                 "Starting module with custom data"
             );
-            initialize_tracing_log(config.logs_settings.clone());
+            initialize_tracing_log(config.logs_settings.clone(), "da_commit");
             let service = DaCommitService { config };
 
             if let Err(err) = service.run().await {

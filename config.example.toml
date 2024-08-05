@@ -36,4 +36,8 @@ sleep_secs = 5
 
 [logs]
 duration = "hourly"
-file_name_prefix = "pbs"
+
+[logs.prefixes]
+pbs="pbs"
+signer="signer"
+da_commit="da"

@@ -48,12 +48,12 @@ pub struct CommitBoostConfig {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct LogsSettings {
     pub duration: RollingDuration,
-    pub file_name_prefix: String,
+    pub prefixes: HashMap<String, String>,
 }
 
 impl Default for LogsSettings {
     fn default() -> Self {
-        Self { duration: RollingDuration::Hourly, file_name_prefix: "".to_string() }
+        Self { duration: RollingDuration::Hourly, prefixes: Default::default() }
     }
 }
 

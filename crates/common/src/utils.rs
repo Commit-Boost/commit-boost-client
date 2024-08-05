@@ -116,22 +116,18 @@ pub const fn default_u256() -> U256 {
 
 // LOGGING
 // TODO: more customized logging + logging guard
-pub fn initialize_tracing_log(logs_settings: LogsSettings) {
+pub fn initialize_tracing_log(logs_settings: LogsSettings, module_name: &str) {
     let level_env = std::env::var("RUST_LOG").unwrap_or("info".to_owned());
+    let prefix = logs_settings
+        .prefixes
+        .get(module_name)
+        .unwrap_or_else(|| panic!("prefix not found for module name {module_name}"));
     // Log all events to a rolling log file.
     let logfile = match logs_settings.duration {
-        RollingDuration::Minutely => {
-            tracing_appender::rolling::minutely("/logs", &logs_settings.file_name_prefix)
-        }
-        RollingDuration::Hourly => {
-            tracing_appender::rolling::hourly("/logs", &logs_settings.file_name_prefix)
-        }
-        RollingDuration::Daily => {
-            tracing_appender::rolling::daily("/logs", &logs_settings.file_name_prefix)
-        }
-        RollingDuration::Never => {
-            tracing_appender::rolling::never("/logs", &logs_settings.file_name_prefix)
-        }
+        RollingDuration::Minutely => tracing_appender::rolling::minutely("/var/logs", prefix),
+        RollingDuration::Hourly => tracing_appender::rolling::hourly("/var/logs", prefix),
+        RollingDuration::Daily => tracing_appender::rolling::daily("/var/logs", prefix),
+        RollingDuration::Never => tracing_appender::rolling::never("/var/logs", prefix),
     };
     // Log `INFO` and above to stdout.
     let stdout = std::io::stdout.with_max_level(tracing::Level::INFO);
