@@ -12,7 +12,7 @@ pub struct LogsSettings {
 
 impl Default for LogsSettings {
     fn default() -> Self {
-        Self { duration: RollingDuration::Hourly, base_path: Default::default() }
+        Self { duration: RollingDuration::Hourly, base_path: "/var/logs".into() }
     }
 }
 
