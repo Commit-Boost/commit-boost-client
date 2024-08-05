@@ -2,7 +2,6 @@ chain = "Holesky"
 
 [pbs]
 port = 18550
-relays = []
 relay_check = true
 timeout_get_header_ms = 950
 timeout_get_payload_ms = 4000
@@ -10,8 +9,15 @@ timeout_register_validator_ms = 3000
 skip_sigverify = true
 min_bid_eth = 0.0
 
-[headers]
-X-MyCustomHeader = "MyCustomValue"
+late_in_slot_time_ms = 2000
+
+[[relays]]
+id = "example-relay"
+url = "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz"
+headers = { X-MyCustomHeader = "MyCustomValue" }
+enable_timing_games = false
+target_first_request_ms = 200
+frequency_get_header_ms = 300
 
 [signer]
 [signer.loader]
@@ -25,5 +31,11 @@ use_grafana = true
 
 [[modules]]
 id = "DA_COMMIT"
+type = "commit"
 docker_image = "test_da_commit"
 sleep_secs = 5
+
+[[modules]]
+id = "BUILDER_LOG"
+type = "events"
+docker_image = "test_builder_log"

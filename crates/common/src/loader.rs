@@ -6,9 +6,7 @@ use eyre::eyre;
 use serde::{de, Deserialize, Deserializer, Serialize};
 
 use crate::{
-    config::{
-        load_env_var_infallible, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV,
-    },
+    config::{load_env_var, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV},
     signer::Signer,
 };
 
@@ -26,30 +24,32 @@ pub enum SignerLoader {
 }
 
 impl SignerLoader {
-    pub fn load_keys(self) -> Vec<Signer> {
+    pub fn load_keys(self) -> eyre::Result<Vec<Signer>> {
         // TODO: add flag to support also native loader
         self.load_from_env()
     }
 
-    pub fn load_from_env(self) -> Vec<Signer> {
-        match self {
+    pub fn load_from_env(self) -> eyre::Result<Vec<Signer>> {
+        Ok(match self {
             SignerLoader::File { .. } => {
-                let path = load_env_var_infallible(SIGNER_KEYS_ENV);
-                let file =
-                    std::fs::read_to_string(path).expect(&format!("Unable to find keys file"));
+                let path = load_env_var(SIGNER_KEYS_ENV)?;
+                let file = std::fs::read_to_string(path)
+                    .unwrap_or_else(|_| panic!("Unable to find keys file"));
 
-                let keys: Vec<FileKey> = serde_json::from_str(&file).unwrap();
+                let keys: Vec<FileKey> = serde_json::from_str(&file)?;
 
-                keys.into_iter().map(|k| Signer::new_from_bytes(&k.secret_key)).collect()
+                keys.into_iter()
+                    .map(|k| Signer::new_from_bytes(&k.secret_key))
+                    .collect::<eyre::Result<Vec<Signer>>>()?
             }
             SignerLoader::ValidatorsDir { .. } => {
-                // TODO: hacky way to load for now, we should support reading the definitions.yml
-                // file
-                let keys_path = load_env_var_infallible(SIGNER_DIR_KEYS_ENV);
-                let secrets_path = load_env_var_infallible(SIGNER_DIR_SECRETS_ENV);
+                // TODO: hacky way to load for now, we should support reading the
+                // definitions.yml file
+                let keys_path = load_env_var(SIGNER_DIR_KEYS_ENV)?;
+                let secrets_path = load_env_var(SIGNER_DIR_SECRETS_ENV)?;
                 load_secrets_and_keys(keys_path, secrets_path).expect("failed to load signers")
             }
-        }
+        })
     }
 }
 
@@ -103,7 +103,7 @@ fn load_one(ks_path: String, pw_path: String) -> eyre::Result<Signer> {
     let password = fs::read(pw_path)?;
     let key =
         keystore.decrypt_keypair(&password).map_err(|_| eyre!("failed decrypting keypair"))?;
-    Ok(Signer::new_from_bytes(key.sk.serialize().as_bytes()))
+    Signer::new_from_bytes(key.sk.serialize().as_bytes())
 }
 
 #[cfg(test)]

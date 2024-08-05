@@ -3,8 +3,7 @@ use std::sync::{
     Arc,
 };
 
-use alloy::primitives::U256;
-use alloy::rpc::types::beacon::relay::ValidatorRegistration;
+use alloy::{primitives::U256, rpc::types::beacon::relay::ValidatorRegistration};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -14,13 +13,12 @@ use axum::{
 };
 use cb_common::{
     pbs::{
-        BULDER_API_PATH, GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH,
-        SUBMIT_BLOCK_PATH,
+        GetHeaderParams, GetHeaderReponse, SubmitBlindedBlockResponse, BULDER_API_PATH,
+        GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
     },
     signer::Signer,
     types::Chain,
 };
-use cb_pbs::{GetHeaderParams, GetHeaderReponse, SubmitBlindedBlockResponse};
 use tracing::debug;
 use tree_hash::TreeHash;
 

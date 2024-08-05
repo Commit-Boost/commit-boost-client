@@ -1,5 +1,4 @@
-use alloy::primitives::B256;
-use alloy::rpc::types::beacon::BlsSignature;
+use alloy::{primitives::B256, rpc::types::beacon::BlsSignature};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 
@@ -52,8 +51,8 @@ mod tests {
     use super::{SignedBlindedBeaconBlock, SubmitBlindedBlockResponse};
 
     #[test]
-    // this is from the builder api spec, but with sync_committee_bits fixed to deserialize
-    // correctly
+    // this is from the builder api spec, but with sync_committee_bits fixed to
+    // deserialize correctly
     fn test_signed_blinded_block() {
         let data = r#"{
         "message": {
@@ -567,7 +566,8 @@ mod tests {
     }
 
     #[test]
-    // this is from the builder api spec, but with blobs fixed to deserialize correctly
+    // this is from the builder api spec, but with blobs fixed to deserialize
+    // correctly
     fn test_submit_blinded_block_response() {
         let blob = alloy::primitives::hex::encode([1; 131072]);
         let data = format!(

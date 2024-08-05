@@ -1,13 +1,13 @@
 use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
-use blst::BLST_ERROR;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
-use crate::{signature::verify_signed_builder_message, types::Chain};
+use crate::{error::BlstErrorWrapper, signature::verify_signed_builder_message, types::Chain};
 
-// TODO: might need to adapt the SignedProxyDelegation so that it goes through web3 signer
+// TODO: might need to adapt the SignedProxyDelegation so that it goes through
+// web3 signer
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Encode, Decode, TreeHash)]
 pub struct ProxyDelegation {
     pub delegator: BlsPublicKey,
@@ -22,7 +22,7 @@ pub struct SignedProxyDelegation {
 }
 
 impl SignedProxyDelegation {
-    pub fn validate(&self, chain: Chain) -> Result<(), BLST_ERROR> {
+    pub fn validate(&self, chain: Chain) -> Result<(), BlstErrorWrapper> {
         verify_signed_builder_message(
             chain,
             &self.message.delegator,

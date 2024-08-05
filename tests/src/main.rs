@@ -16,7 +16,8 @@ async fn main() {
     //     cb_cli::Command::Start2 { config } => {
     //         let config = CommitBoostConfig::from_file(&config);
 
-    //         let mock_validator = MockValidator::new(config.pbs.pbs_config.address);
+    //         let mock_validator =
+    // MockValidator::new(config.pbs.pbs_config.address);
 
     //         loop {
     //             if let Err(err) = mock_validator.do_get_status().await {

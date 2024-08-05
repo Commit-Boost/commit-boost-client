@@ -9,7 +9,7 @@ members = [
     "crates/metrics",
 
     "tests",
-    "examples/da_commit",
+    "examples/*",
 ]
 resolver = "2"
 
@@ -69,6 +69,7 @@ bollard = "0.16.1"
 # misc
 clap = { version = "4.5.4", features = ["derive", "env"] }
 thiserror = "1.0.61"
+color-eyre = "0.6.3"
 eyre = "0.6.12"
 url = "2.5.0"
 uuid = { version = "1.8.0", features = ["v4", "fast-rng", "serde"] }

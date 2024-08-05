@@ -1,21 +1,22 @@
-use std::{ops::Mul, sync::Arc, time::Duration};
+use std::time::{Duration, Instant};
 
 use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
-    config::PbsConfig,
-    pbs::{RelayEntry, HEADER_SLOT_UUID_KEY, HEADER_START_TIME_UNIX_MS},
+    pbs::{
+        RelayClient, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse, HEADER_SLOT_UUID_KEY,
+        HEADER_START_TIME_UNIX_MS,
+    },
     utils::{get_user_agent, utcnow_ms},
 };
 use futures::future::select_ok;
 use reqwest::header::USER_AGENT;
-use tracing::{debug, error};
+use tracing::{debug, warn};
 
 use crate::{
-    constants::SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG,
+    constants::{SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG, TIMEOUT_ERROR_CODE_STR},
     error::{PbsError, ValidationError},
     metrics::{RELAY_LATENCY, RELAY_STATUS_CODE},
     state::{BuilderApiState, PbsState},
-    types::{SignedBlindedBeaconBlock, SubmitBlindedBlockResponse},
 };
 
 /// Implements https://ethereum.github.io/builder-specs/#/Builder/submitBlindedBlock
@@ -29,8 +30,7 @@ pub async fn submit_block<S: BuilderApiState>(
     // prepare headers
     let mut send_headers = HeaderMap::new();
     send_headers.insert(HEADER_SLOT_UUID_KEY, HeaderValue::from_str(&slot_uuid.to_string())?);
-    send_headers
-        .insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from_str(&utcnow_ms().to_string())?);
+    send_headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(utcnow_ms()));
     if let Some(ua) = get_user_agent(&req_headers) {
         send_headers.insert(USER_AGENT, HeaderValue::from_str(&ua)?);
     }
@@ -39,11 +39,10 @@ pub async fn submit_block<S: BuilderApiState>(
     let mut handles = Vec::with_capacity(relays.len());
     for relay in relays.iter() {
         handles.push(Box::pin(send_submit_block(
-            send_headers.clone(),
-            relay.clone(),
             &signed_blinded_block,
-            state.config.pbs_config.clone(),
-            state.relay_client(),
+            relay,
+            send_headers.clone(),
+            state.config.pbs_config.timeout_get_payload_ms,
         )));
     }
 
@@ -56,27 +55,41 @@ pub async fn submit_block<S: BuilderApiState>(
 
 // submits blinded signed block and expects the execution payload + blobs bundle
 // back
-#[tracing::instrument(skip_all, name = "handler", fields(relay_id = relay.id))]
+#[tracing::instrument(skip_all, name = "handler", fields(relay_id = relay.id.as_ref()))]
 async fn send_submit_block(
-    headers: HeaderMap,
-    relay: RelayEntry,
     signed_blinded_block: &SignedBlindedBeaconBlock,
-    config: Arc<PbsConfig>,
-    client: reqwest::Client,
+    relay: &RelayClient,
+    headers: HeaderMap,
+    timeout_ms: u64,
 ) -> Result<SubmitBlindedBlockResponse, PbsError> {
     let url = relay.submit_block_url();
 
-    let timer = RELAY_LATENCY
-        .with_label_values(&[SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG, &relay.id])
-        .start_timer();
-    let res = client
+    let start_request = Instant::now();
+    let res = match relay
+        .client
         .post(url)
-        .timeout(Duration::from_millis(config.timeout_get_payload_ms))
+        .timeout(Duration::from_millis(timeout_ms))
         .headers(headers)
         .json(&signed_blinded_block)
         .send()
-        .await?;
-    let latency_ms = timer.stop_and_record().mul(1000.0).ceil() as u64;
+        .await
+    {
+        Ok(res) => res,
+        Err(err) => {
+            RELAY_STATUS_CODE
+                .with_label_values(&[
+                    TIMEOUT_ERROR_CODE_STR,
+                    SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG,
+                    &relay.id,
+                ])
+                .inc();
+            return Err(err.into())
+        }
+    };
+    let request_latency = start_request.elapsed();
+    RELAY_LATENCY
+        .with_label_values(&[SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG, &relay.id])
+        .observe(request_latency.as_secs_f64());
 
     let code = res.status();
     RELAY_STATUS_CODE
@@ -90,15 +103,15 @@ async fn send_submit_block(
             code: code.as_u16(),
         };
 
-        error!(?err, "failed submit block");
+        // we request payload to all relays, but some may have not received it
+        warn!(?err, "failed to get payload (this might be ok if other relays have it)");
         return Err(err)
     };
 
     let block_response: SubmitBlindedBlockResponse = serde_json::from_slice(&response_bytes)?;
 
     debug!(
-        ?code,
-        latency_ms,
+        latency = ?request_latency,
         block_hash = %block_response.block_hash(),
         "received unblinded block"
     );

@@ -1,7 +1,6 @@
 use std::{
     fmt::{self, Debug, Display, Formatter},
     str::FromStr,
-    usize,
 };
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};

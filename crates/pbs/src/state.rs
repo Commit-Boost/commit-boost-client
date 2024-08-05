@@ -1,26 +1,19 @@
 use std::{
     collections::HashSet,
-    str::FromStr,
+    fmt,
     sync::{Arc, Mutex},
 };
 
-use alloy::primitives::B256;
-use alloy::rpc::types::beacon::BlsPublicKey;
-use axum::http::{HeaderMap, HeaderName, HeaderValue};
+use alloy::{primitives::B256, rpc::types::beacon::BlsPublicKey};
 use cb_common::{
     config::{PbsConfig, PbsModuleConfig},
-    pbs::{RelayEntry, HEADER_VERSION_KEY, HEAVER_VERSION_VALUE},
+    pbs::{BuilderEvent, GetHeaderReponse, RelayClient},
 };
 use dashmap::DashMap;
-use tokio::sync::broadcast;
 use uuid::Uuid;
 
-use crate::{types::GetHeaderReponse, BuilderEvent};
-
-pub trait BuilderApiState: std::fmt::Debug + Default + Clone + Sync + Send + 'static {}
+pub trait BuilderApiState: fmt::Debug + Default + Clone + Sync + Send + 'static {}
 impl BuilderApiState for () {}
-
-pub type BuilderEventReceiver = broadcast::Receiver<BuilderEvent>;
 
 /// State for the Pbs module. It can be extended in two ways:
 /// - By adding extra configs to be loaded at startup
@@ -28,13 +21,9 @@ pub type BuilderEventReceiver = broadcast::Receiver<BuilderEvent>;
 #[derive(Debug, Clone)]
 pub struct PbsState<U, S: BuilderApiState = ()> {
     /// Config data for the Pbs service
-    pub config: Arc<PbsModuleConfig<U>>,
+    pub config: PbsModuleConfig<U>,
     /// Opaque extra data for library use
     pub data: S,
-    /// Relay client to reuse across requests
-    relay_client: reqwest::Client,
-    /// Pubsliher for builder events
-    event_publisher: broadcast::Sender<BuilderEvent>,
     /// Info about the latest slot and its uuid
     current_slot_info: Arc<Mutex<(u64, Uuid)>>,
     /// Keeps track of which relays delivered which block for which slot
@@ -46,30 +35,9 @@ where
     S: BuilderApiState,
 {
     pub fn new(config: PbsModuleConfig<U>) -> Self {
-        let (tx, _) = broadcast::channel(10);
-
-        let mut headers = HeaderMap::new();
-        headers.insert(HEADER_VERSION_KEY, HeaderValue::from_static(HEAVER_VERSION_VALUE));
-
-        if let Some(custom_headers) = &config.pbs_config.headers {
-            for (key, value) in custom_headers.iter() {
-                headers.insert(
-                    HeaderName::from_str(key).expect("invalid header name"),
-                    HeaderValue::from_str(&value).expect("invalid header value"),
-                );
-            }
-        }
-
-        let relay_client = reqwest::Client::builder()
-            .default_headers(headers)
-            .build()
-            .expect("failed to build relay client");
-
         Self {
-            config: Arc::new(config),
+            config,
             data: S::default(),
-            relay_client,
-            event_publisher: tx,
             current_slot_info: Arc::new(Mutex::new((0, Uuid::default()))),
             bid_cache: Arc::new(DashMap::new()),
         }
@@ -80,12 +48,9 @@ where
     }
 
     pub fn publish_event(&self, e: BuilderEvent) {
-        // ignore client errors
-        let _ = self.event_publisher.send(e);
-    }
-
-    pub fn subscribe_events(&self) -> BuilderEventReceiver {
-        self.event_publisher.subscribe()
+        if let Some(publisher) = self.config.event_publiher.as_ref() {
+            publisher.publish(e);
+        }
     }
 
     pub fn get_or_update_slot_uuid(&self, last_slot: u64) -> Uuid {
@@ -108,16 +73,12 @@ where
     pub fn pbs_config(&self) -> &PbsConfig {
         &self.config.pbs_config
     }
-    pub fn relays(&self) -> &[RelayEntry] {
-        &self.pbs_config().relays
-    }
-    pub fn relay_client(&self) -> reqwest::Client {
-        self.relay_client.clone()
+    pub fn relays(&self) -> &[RelayClient] {
+        &self.config.relays
     }
 
-    /// Add some bids to the cache, the bids are all assumed to be for the provided slot
-    /// Returns the bid with the max value
-    /// TODO: this doesnt handle cancellations if we call multiple times get_header
+    /// Add some bids to the cache, the bids are all assumed to be for the
+    /// provided slot Returns the bid with the max value
     pub fn add_bids(&self, slot: u64, bids: Vec<GetHeaderReponse>) -> Option<GetHeaderReponse> {
         let mut slot_entry = self.bid_cache.entry(slot).or_default();
         slot_entry.extend(bids);

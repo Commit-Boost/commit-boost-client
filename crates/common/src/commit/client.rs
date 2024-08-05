@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
-use reqwest::{header::{HeaderMap, HeaderValue, AUTHORIZATION}, StatusCode};
+use eyre::WrapErr;
+use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -9,6 +10,7 @@ use super::{
     error::SignerClientError,
     request::{GenerateProxyRequest, SignRequest, SignedProxyDelegation},
 };
+use crate::DEFAULT_REQUEST_TIMEOUT;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GetPubkeysResponse {
@@ -20,28 +22,30 @@ pub struct GetPubkeysResponse {
 #[derive(Debug, Clone)]
 pub struct SignerClient {
     /// Url endpoint of the Signer Module
-    url: Arc<str>,
+    url: Arc<String>,
     client: reqwest::Client,
 }
 
 impl SignerClient {
     /// Create a new SignerClient
-    pub fn new(signer_server_address: String, jwt: &str) -> Self {
+    pub fn new(signer_server_address: String, jwt: &str) -> eyre::Result<Self> {
         let url = format!("http://{}", signer_server_address);
         let mut headers = HeaderMap::new();
 
         let mut auth_value =
-            HeaderValue::from_str(&format!("Bearer {}", jwt)).expect("invalid jwt");
+            HeaderValue::from_str(&format!("Bearer {}", jwt)).wrap_err("invalid jwt")?;
         auth_value.set_sensitive(true);
         headers.insert(AUTHORIZATION, auth_value);
+        let client = reqwest::Client::builder()
+            .timeout(DEFAULT_REQUEST_TIMEOUT)
+            .default_headers(headers)
+            .build()?;
 
-        let client = reqwest::Client::builder().default_headers(headers).build().unwrap();
-
-        Self { url: url.into(), client }
+        Ok(Self { url: url.into(), client })
     }
 
-    /// Request a list of validator pubkeys for which signatures can be requested.
-    /// TODO: add more docs on how proxy keys work
+    /// Request a list of validator pubkeys for which signatures can be
+    /// requested. TODO: add more docs on how proxy keys work
     pub async fn get_pubkeys(&self) -> Result<GetPubkeysResponse, SignerClientError> {
         let url = format!("{}{}", self.url, GET_PUBKEYS_PATH);
         let res = self.client.get(&url).send().await?;

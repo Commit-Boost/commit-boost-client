@@ -1,17 +1,18 @@
 use axum::{extract::State, http::HeaderMap, response::IntoResponse, Json};
-use cb_common::utils::{get_user_agent, timestamp_of_slot_start_millis, utcnow_ms};
+use cb_common::{
+    pbs::{BuilderEvent, SignedBlindedBeaconBlock},
+    utils::{get_user_agent, timestamp_of_slot_start_millis, utcnow_ms},
+};
 use reqwest::StatusCode;
 use tracing::{error, info, trace, warn};
 use uuid::Uuid;
 
 use crate::{
-    boost::BuilderApi,
+    api::BuilderApi,
     constants::SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG,
     error::PbsClientError,
     metrics::BEACON_NODE_STATUS,
     state::{BuilderApiState, PbsState},
-    types::SignedBlindedBeaconBlock,
-    BuilderEvent,
 };
 
 #[tracing::instrument(skip_all, name = "submit_blinded_block", fields(req_id = %Uuid::new_v4(), slot = signed_blinded_block.message.slot))]
@@ -51,8 +52,8 @@ pub async fn handle_submit_block<S: BuilderApiState, T: BuilderApi<S>>(
                 let fault_relays = state
                     .relays()
                     .iter()
-                    .filter(|relay| fault_pubkeys.contains(&relay.pubkey))
-                    .map(|relay| relay.id.clone())
+                    .filter(|relay| fault_pubkeys.contains(&relay.pubkey()))
+                    .map(|relay| &**relay.id)
                     .collect::<Vec<_>>()
                     .join(",");
 

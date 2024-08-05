@@ -1,15 +1,15 @@
-use std::usize;
-
-use alloy::primitives::{Address, B256};
-use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
-use cb_common::utils::as_str;
+use alloy::{
+    primitives::{Address, B256},
+    rpc::types::beacon::{BlsPublicKey, BlsSignature},
+};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use ssz_types::{BitList, BitVector, FixedVector, VariableList};
+use ssz_types::{typenum, BitList, BitVector, FixedVector, VariableList};
 
 use super::{
     execution_payload::ExecutionPayloadHeader, kzg::KzgCommitments, spec::EthSpec, utils::*,
 };
+use crate::utils::as_str;
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct BlindedBeaconBlockBody<T: EthSpec> {

@@ -1,13 +1,13 @@
-use std::{ops::Mul, time::Duration};
+use std::time::{Duration, Instant};
 
 use axum::http::{HeaderMap, HeaderValue};
-use cb_common::{pbs::RelayEntry, utils::get_user_agent};
+use cb_common::{pbs::RelayClient, utils::get_user_agent};
 use futures::future::select_ok;
 use reqwest::header::USER_AGENT;
 use tracing::{debug, error};
 
 use crate::{
-    constants::STATUS_ENDPOINT_TAG,
+    constants::{STATUS_ENDPOINT_TAG, TIMEOUT_ERROR_CODE_STR},
     error::PbsError,
     metrics::{RELAY_LATENCY, RELAY_STATUS_CODE},
     state::{BuilderApiState, PbsState},
@@ -33,11 +33,7 @@ pub async fn get_status<S: BuilderApiState>(
         let relays = state.relays();
         let mut handles = Vec::with_capacity(relays.len());
         for relay in relays {
-            handles.push(Box::pin(send_relay_check(
-                send_headers.clone(),
-                relay.clone(),
-                state.relay_client(),
-            )));
+            handles.push(Box::pin(send_relay_check(relay, send_headers.clone())));
         }
 
         // return ok if at least one relay returns 200
@@ -49,17 +45,31 @@ pub async fn get_status<S: BuilderApiState>(
     }
 }
 
-#[tracing::instrument(skip_all, name = "handler", fields(relay_id = relay.id))]
-async fn send_relay_check(
-    headers: HeaderMap,
-    relay: RelayEntry,
-    client: reqwest::Client,
-) -> Result<(), PbsError> {
+#[tracing::instrument(skip_all, name = "handler", fields(relay_id = relay.id.as_ref()))]
+async fn send_relay_check(relay: &RelayClient, headers: HeaderMap) -> Result<(), PbsError> {
     let url = relay.get_status_url();
 
-    let timer = RELAY_LATENCY.with_label_values(&[STATUS_ENDPOINT_TAG, &relay.id]).start_timer();
-    let res = client.get(url).timeout(Duration::from_secs(30)).headers(headers).send().await?;
-    let latency_ms = timer.stop_and_record().mul(1000.0).ceil() as u64;
+    let start_request = Instant::now();
+    let res = match relay
+        .client
+        .get(url)
+        .timeout(Duration::from_secs(30))
+        .headers(headers)
+        .send()
+        .await
+    {
+        Ok(res) => res,
+        Err(err) => {
+            RELAY_STATUS_CODE
+                .with_label_values(&[TIMEOUT_ERROR_CODE_STR, STATUS_ENDPOINT_TAG, &relay.id])
+                .inc();
+            return Err(err.into())
+        }
+    };
+    let request_latency = start_request.elapsed();
+    RELAY_LATENCY
+        .with_label_values(&[STATUS_ENDPOINT_TAG, &relay.id])
+        .observe(request_latency.as_secs_f64());
 
     let code = res.status();
     RELAY_STATUS_CODE.with_label_values(&[code.as_str(), STATUS_ENDPOINT_TAG, &relay.id]).inc();
@@ -75,7 +85,7 @@ async fn send_relay_check(
         return Err(err)
     };
 
-    debug!(?code, latency_ms, "status passed");
+    debug!(?code, latency = ?request_latency, "status passed");
 
     Ok(())
 }

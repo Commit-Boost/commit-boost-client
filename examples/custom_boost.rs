@@ -56,6 +56,8 @@ async fn handle_stats(State(state): State<BuilderState<StatusCounter>>) -> Respo
 
 #[tokio::main]
 async fn main() {
+
+    color_eyre::install()?;
     initialize_tracing_log();
 
     let (chain, config) = load_pbs_config();
