@@ -2,7 +2,7 @@
 
 A new Ethereum validator sidecar focused on standardizing the last mile of communication between validators and third-party protocols.
 
-[Docs](https://commit-boost.github.io/commit-boost-client/) | 
+[Docs](https://commit-boost.github.io/commit-boost-client/) |
 [Twitter](https://x.com/Commit_Boost)
 
 ## Overview
@@ -51,7 +51,7 @@ async fn main() {
     let pubkey = *pubkeys.consensus.first().unwrap();
 
     let datagram = Datagram { data: 42 };
-    let request = SignRequest::builder(config.id, pubkey).with_msg(&datagram);
+    let request = SignRequest::builder(pubkey).with_msg(&datagram);
     let signature = config
         .signer_client
         .request_signature(&request)
