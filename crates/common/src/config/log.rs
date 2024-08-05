@@ -11,11 +11,17 @@ pub struct LogsSettings {
     pub duration: RollingDuration,
     #[serde(default)]
     pub host_path: PathBuf,
+    #[serde(default)]
+    pub rust_log: String,
 }
 
 impl Default for LogsSettings {
     fn default() -> Self {
-        Self { duration: RollingDuration::Hourly, host_path: "/var/logs".into() }
+        Self {
+            duration: RollingDuration::Hourly,
+            host_path: "/var/logs".into(),
+            rust_log: "info".to_string(),
+        }
     }
 }
 

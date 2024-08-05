@@ -24,6 +24,8 @@ pub(super) const CB_ENV_FILE: &str = ".cb.env";
 pub(super) const CB_TARGETS_FILE: &str = "targets.json"; // needs to match prometheus.yml
 pub(super) const PROMETHEUS_DATA_VOLUME: &str = "prometheus-data";
 
+const ENV_ROLLING_DURATION: &str = "ROLLING_DURATION";
+
 const METRICS_NETWORK: &str = "monitoring_network";
 const SIGNER_NETWORK: &str = "signer_network";
 
@@ -50,8 +52,8 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     let mut jwts = IndexMap::new();
     // envs to write in .env file
     let mut envs = IndexMap::from([(CB_CONFIG_ENV.into(), CB_CONFIG_NAME.into())]);
-    envs.insert("ROLLING_DURATION".into(), cb_config.logs.duration.to_string());
-
+    envs.insert(ENV_ROLLING_DURATION.into(), cb_config.logs.duration.to_string());
+    envs.insert("RUST_LOG".into(), cb_config.logs.rust_log);
     // targets to pass to prometheus
     let mut targets = Vec::new();
     let metrics_port = 10000;
