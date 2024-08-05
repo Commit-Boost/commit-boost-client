@@ -1,4 +1,7 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    str::FromStr,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use alloy::{
     primitives::U256,
@@ -7,9 +10,7 @@ use alloy::{
 use blst::min_pk::{PublicKey, Signature};
 use rand::{distributions::Alphanumeric, Rng};
 use reqwest::header::HeaderMap;
-use tracing_subscriber::{
-    fmt, fmt::writer::MakeWriterExt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter,
-};
+use tracing_subscriber::{fmt::Layer, prelude::*, EnvFilter};
 
 use crate::{
     config::{LogsSettings, RollingDuration},
@@ -119,7 +120,7 @@ pub const fn default_u256() -> U256 {
 pub fn initialize_tracing_log(logs_settings: LogsSettings, module_id: &str) {
     let level_env = std::env::var("RUST_LOG").unwrap_or("info".to_owned());
     // Log all events to a rolling log file.
-    let logfile = match logs_settings.duration {
+    let log_file = match logs_settings.duration {
         RollingDuration::Minutely => {
             tracing_appender::rolling::minutely(logs_settings.base_path, module_id)
         }
@@ -133,8 +134,7 @@ pub fn initialize_tracing_log(logs_settings: LogsSettings, module_id: &str) {
             tracing_appender::rolling::never(logs_settings.base_path, module_id)
         }
     };
-    // Log `INFO` and above to stdout.
-    let stdout = std::io::stdout.with_max_level(tracing::Level::INFO);
+
     let filter = match level_env.parse::<EnvFilter>() {
         Ok(f) => f,
         Err(_) => {
@@ -142,12 +142,13 @@ pub fn initialize_tracing_log(logs_settings: LogsSettings, module_id: &str) {
             EnvFilter::new("info")
         }
     };
+    let logging_level = tracing::Level::from_str(&level_env)
+        .unwrap_or_else(|_| panic!("invalid value for tracing. Got {level_env}"));
+    let stdout_log = tracing_subscriber::fmt::layer().pretty();
+    let (default, _guard) = tracing_appender::non_blocking(log_file);
+    let log_file = Layer::new().with_writer(default.with_max_level(logging_level));
 
-    tracing_subscriber::registry()
-        .with(filter)
-        .with(fmt::layer().with_writer(stdout.and(logfile)))
-        .try_init()
-        .unwrap();
+    tracing_subscriber::registry().with(stdout_log.with_filter(filter).and_then(log_file)).init();
 }
 
 pub fn print_logo() {
