@@ -132,6 +132,7 @@ pub fn initialize_tracing_log(module_id: &str) -> WorkerGuard {
         builder =
             builder.max_log_files(value.parse().expect("MAX_LOG_FILES is not a valid usize value"));
     }
+
     let rotation = match env::var(ROLLING_DURATION_ENV)
         .unwrap_or(RollingDuration::default().to_string())
         .as_str()
