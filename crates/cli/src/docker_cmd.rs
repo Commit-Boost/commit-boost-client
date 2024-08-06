@@ -1,5 +1,9 @@
-use std::{mem, process::Command, str};
-use std::process::Stdio;
+use std::{
+    mem,
+    process::{Command, Stdio},
+    str,
+};
+
 use eyre::Result;
 
 macro_rules! run_docker_compose {
@@ -34,11 +38,17 @@ fn determine_docker_compose_command() -> Option<Command> {
     if is_command_available("docker compose") {
         println!("found docker compose");
         let mut docker: Command = Command::new("docker");
-        Some(mem::replace(docker.arg("compose").stdout(Stdio::inherit()).stderr(Stdio::inherit()), Command::new("docker")))
+        Some(mem::replace(
+            docker.arg("compose").stdout(Stdio::inherit()).stderr(Stdio::inherit()),
+            Command::new("docker"),
+        ))
     } else if is_command_available("docker-compose") {
         println!("docker compose not found, using docker-compose");
         let mut docker: Command = Command::new("docker-compose");
-        Some(mem::replace(docker.stdout(Stdio::inherit()).stderr(Stdio::inherit()), Command::new("docker")))
+        Some(mem::replace(
+            docker.stdout(Stdio::inherit()).stderr(Stdio::inherit()),
+            Command::new("docker"),
+        ))
     } else {
         None
     }
