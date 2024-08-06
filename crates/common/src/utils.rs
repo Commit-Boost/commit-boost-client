@@ -1,6 +1,5 @@
 use std::{
     env,
-    str::FromStr,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -11,10 +10,14 @@ use alloy::{
 use blst::min_pk::{PublicKey, Signature};
 use rand::{distributions::Alphanumeric, Rng};
 use reqwest::header::HeaderMap;
+use tracing::Level;
 use tracing_appender::{non_blocking::WorkerGuard, rolling::Rotation};
 use tracing_subscriber::{fmt::Layer, prelude::*, EnvFilter};
 
-use crate::{config::CB_BASE_LOG_PATH, types::Chain};
+use crate::{
+    config::{default_log_level, CB_BASE_LOG_PATH},
+    types::Chain,
+};
 
 const SECONDS_PER_SLOT: u64 = 12;
 const MILLIS_PER_SECOND: u64 = 1_000;
@@ -122,7 +125,6 @@ pub const fn default_u256() -> U256 {
 
 // LOGGING
 pub fn initialize_tracing_log(module_id: &str) -> WorkerGuard {
-    let level_env = std::env::var(RUST_LOG_ENV).unwrap_or("info".to_owned());
     // Log all events to a rolling log file.
     let mut builder = tracing_appender::rolling::Builder::new().filename_prefix(module_id);
     if let Ok(value) = env::var(MAX_LOG_FILES_ENV) {
@@ -139,26 +141,45 @@ pub fn initialize_tracing_log(module_id: &str) -> WorkerGuard {
     .build(CB_BASE_LOG_PATH)
     .expect("failed building rolling file appender");
 
-    let filter = match level_env.parse::<EnvFilter>() {
+    let level_env = std::env::var(RUST_LOG_ENV).unwrap_or(default_log_level());
+
+    // Log level for stdout
+    let stdout_log_level = match level_env.parse::<Level>() {
         Ok(f) => f,
         Err(_) => {
             eprintln!("Invalid RUST_LOG value {}, defaulting to info", level_env);
-            EnvFilter::new("info")
+            Level::INFO
         }
     };
-    let logging_level = if matches!(level_env.as_str(), "info" | "warning" | "error") {
-        tracing::Level::DEBUG
-    } else {
-        tracing::Level::from_str(&level_env)
-            .unwrap_or_else(|_| panic!("invalid value for tracing. Got {level_env}"))
-    };
-    let stdout_log = tracing_subscriber::fmt::layer().pretty();
-    let (default, guard) = tracing_appender::non_blocking(log_file);
-    let log_file = Layer::new().with_writer(default.with_max_level(logging_level));
 
-    tracing_subscriber::registry().with(stdout_log.with_filter(filter).and_then(log_file)).init();
+    // at least debug for file logs
+    let file_log_level = stdout_log_level.max(Level::DEBUG);
+
+    let stdout_log_filter = format_crates_filter(Level::INFO.as_str(), stdout_log_level.as_str());
+    let file_log_filter = format_crates_filter(Level::INFO.as_str(), file_log_level.as_str());
+
+    let stdout_log =
+        tracing_subscriber::fmt::layer().with_target(false).with_filter(stdout_log_filter);
+    let (default_writer, guard) = tracing_appender::non_blocking(log_file);
+    let file_log = Layer::new()
+        .json()
+        .with_current_span(false)
+        .with_span_list(true)
+        .with_writer(default_writer)
+        .with_filter(file_log_filter);
+
+    tracing_subscriber::registry().with(stdout_log.and_then(file_log)).init();
 
     guard
+}
+
+// all commit boost crates
+// TODO: this can probably done without unwrap
+fn format_crates_filter(default_level: &str, crates_level: &str) -> EnvFilter {
+    let s = format!(
+        "{default_level},cb_signer={crates_level},cb_pbs={crates_level},cb_common={crates_level},cb_metrics={crates_level}",
+    );
+    s.parse().unwrap()
 }
 
 pub fn print_logo() {
