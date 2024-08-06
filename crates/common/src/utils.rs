@@ -15,7 +15,7 @@ use tracing_appender::{non_blocking::WorkerGuard, rolling::Rotation};
 use tracing_subscriber::{fmt::Layer, prelude::*, EnvFilter};
 
 use crate::{
-    config::{default_log_level, CB_BASE_LOG_PATH},
+    config::{default_log_level, RollingDuration, CB_BASE_LOG_PATH},
     types::Chain,
 };
 
@@ -126,20 +126,26 @@ pub const fn default_u256() -> U256 {
 // LOGGING
 pub fn initialize_tracing_log(module_id: &str) -> WorkerGuard {
     // Log all events to a rolling log file.
-    let mut builder = tracing_appender::rolling::Builder::new().filename_prefix(module_id);
+    let mut builder =
+        tracing_appender::rolling::Builder::new().filename_prefix(module_id.to_lowercase());
     if let Ok(value) = env::var(MAX_LOG_FILES_ENV) {
         builder =
             builder.max_log_files(value.parse().expect("MAX_LOG_FILES is not a valid usize value"));
     }
-    let log_file = match env::var(ROLLING_DURATION_ENV).unwrap_or("daily".into()).as_str() {
-        "minutely" => builder.rotation(Rotation::MINUTELY),
-        "hourly" => builder.rotation(Rotation::HOURLY),
-        "daily" => builder.rotation(Rotation::DAILY),
-        "never" => builder.rotation(Rotation::NEVER),
-        _ => panic!("unknown rolling duration value"),
-    }
-    .build(CB_BASE_LOG_PATH)
-    .expect("failed building rolling file appender");
+    let rotation = match env::var(ROLLING_DURATION_ENV)
+        .unwrap_or(RollingDuration::default().to_string())
+        .as_str()
+    {
+        "hourly" => Rotation::HOURLY,
+        "daily" => Rotation::DAILY,
+        "never" => Rotation::NEVER,
+        _ => panic!("unknown rotation value"),
+    };
+
+    let log_file = builder
+        .rotation(rotation)
+        .build(CB_BASE_LOG_PATH)
+        .expect("failed building rolling file appender");
 
     let level_env = std::env::var(RUST_LOG_ENV).unwrap_or(default_log_level());
 
