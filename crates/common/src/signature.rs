@@ -22,7 +22,7 @@ pub fn random_secret() -> SecretKey {
 
     match SecretKey::key_gen(&ikm, &[]) {
         Ok(key) => key,
-        // Key material is always valid (32 `0_u8`s), so `key_gen` can't return Err.
+        // Key material is always valid (32 `u8`s), so `key_gen` can't return Err.
         Err(_) => unreachable!(),
     }
 }
