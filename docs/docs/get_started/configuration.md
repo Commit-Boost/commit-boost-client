@@ -28,7 +28,7 @@ Note that in this setup, the signer module will not be started.
 ## Custom module
 We currently provide a test module that needs to be built as a Docker image. To build the module run:
 ```bash
-bash scripts/build_local_module.sh
+bash scripts/build_local_modules.sh
 ```
 This will create a Docker image called `test_da_commit` that periodically requests signatures from the validator, and a `test_builder_log` module that logs BuilderAPI events. 
 
