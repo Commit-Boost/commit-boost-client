@@ -19,3 +19,4 @@ serde.workspace = true
 
 # telemetry
 tracing.workspace = true
+

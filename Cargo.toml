@@ -53,7 +53,8 @@ serde_yaml = "0.9.33"
 
 # telemetry
 tracing = "0.1.40"
-tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
+tracing-appender = "0.2.3"
 prometheus = "0.13.4"
 
 # crypto

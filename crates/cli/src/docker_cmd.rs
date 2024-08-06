@@ -1,6 +1,65 @@
-use std::process::{Command, Stdio};
+use std::{
+    mem,
+    process::{Command, Stdio},
+    str,
+};
 
 use eyre::Result;
+
+macro_rules! run_docker_compose {
+    ($compose_path:expr, $($arg:expr),*) => {{
+        let cmd = determine_docker_compose_command();
+        match cmd {
+            Some(mut command) => {
+                match command.arg("-f").arg($compose_path).args(&[$($arg),*]).output() {
+                    Ok(output) => {
+                        if !output.status.success() {
+                            let stderr = str::from_utf8(&output.stderr).unwrap_or("");
+                            if stderr.contains("permission denied") {
+                                println!("Warning: Permission denied. Try running with sudo.");
+                            } else {
+                                println!("Command failed with error: {}", stderr);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        println!("Failed to execute command: {}", e);
+                    }
+                }
+            }
+            None => {
+                println!("Neither `docker compose` nor `docker-compose` were found on your operating system.");
+            }
+        }
+    }};
+}
+
+fn determine_docker_compose_command() -> Option<Command> {
+    if is_command_available("docker compose") {
+        let mut docker: Command = Command::new("docker");
+        Some(mem::replace(
+            docker.arg("compose").stdout(Stdio::inherit()).stderr(Stdio::inherit()),
+            Command::new("docker"),
+        ))
+    } else if is_command_available("docker-compose") {
+        println!("using docker-compose. the command is being deprecated, install docker compose plugin");
+        let mut docker: Command = Command::new("docker-compose");
+        Some(mem::replace(
+            docker.stdout(Stdio::inherit()).stderr(Stdio::inherit()),
+            Command::new("docker"),
+        ))
+    } else {
+        None
+    }
+}
+
+fn is_command_available(command: &str) -> bool {
+    Command::new("sh")
+        .arg("-c")
+        .arg(format!("command -v {}", command))
+        .output()
+        .map_or(false, |output| output.status.success())
+}
 
 pub fn handle_docker_start(compose_path: String, env_path: String) -> Result<()> {
     println!("Starting Commit-Boost with compose file: {}", compose_path);
@@ -10,18 +69,8 @@ pub fn handle_docker_start(compose_path: String, env_path: String) -> Result<()>
 
     println!("Loaded env file: {:?}", env_file);
 
-    // TODO: if permission denied, print warning to run as sudo
-
     // start docker compose
-    Command::new("docker")
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .arg("compose")
-        .arg("-f")
-        .arg(compose_path)
-        .arg("up")
-        .arg("-d")
-        .output()?;
+    run_docker_compose!(compose_path, "up", "-d");
 
     Ok(())
 }
@@ -32,17 +81,8 @@ pub fn handle_docker_stop(compose_path: String, env_path: String) -> Result<()> 
     // load env file
     dotenvy::from_filename_override(env_path)?;
 
-    // TODO: if permission denied, print warning to run as sudo
-
     // start docker compose
-    Command::new("docker")
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .arg("compose")
-        .arg("-f")
-        .arg(compose_path)
-        .arg("down")
-        .output()?;
+    run_docker_compose!(compose_path, "down");
 
     Ok(())
 }
@@ -51,18 +91,8 @@ pub fn handle_docker_stop(compose_path: String, env_path: String) -> Result<()> 
 pub fn handle_docker_logs(compose_path: String) -> Result<()> {
     println!("Querying Commit-Boost with compose file: {}", compose_path);
 
-    // TODO: if permission denied, print warning to run as sudo
-
     // start docker compose
-    Command::new("docker")
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .arg("compose")
-        .arg("-f")
-        .arg(compose_path)
-        .arg("logs")
-        .arg("-f")
-        .output()?;
+    run_docker_compose!(compose_path, "logs", "-f");
 
     Ok(())
 }

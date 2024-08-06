@@ -47,7 +47,7 @@ pub async fn get_header<S: BuilderApiState>(
             "late in slot, skipping relay requests"
         );
 
-        return Ok(None)
+        return Ok(None);
     }
 
     let (_, slot_uuid) = state.get_slot_and_uuid();
@@ -168,7 +168,7 @@ async fn send_timed_get_header(
                 .max_by_key(|(start_time, _)| *start_time)
             {
                 debug!(n_headers, "TG: received headers from relay");
-                return Ok(maybe_header)
+                return Ok(maybe_header);
             } else {
                 // all requests failed
                 warn!("TG: no headers received");
@@ -176,7 +176,7 @@ async fn send_timed_get_header(
                 return Err(PbsError::RelayResponse {
                     error_msg: "no headers received".to_string(),
                     code: TIMEOUT_ERROR_CODE,
-                })
+                });
             }
         }
     }
@@ -255,7 +255,7 @@ async fn send_one_get_header(
             response = ?response_bytes,
             "no header from relay"
         );
-        return Ok((start_request_time, None))
+        return Ok((start_request_time, None));
     }
 
     let get_header_response: GetHeaderReponse = serde_json::from_slice(&response_bytes)?;
@@ -293,7 +293,7 @@ fn validate_header(
     let value = signed_header.message.value();
 
     if block_hash == B256::ZERO {
-        return Err(ValidationError::EmptyBlockhash)
+        return Err(ValidationError::EmptyBlockhash);
     }
 
     if parent_hash != signed_header.message.header.parent_hash {
@@ -315,7 +315,7 @@ fn validate_header(
         return Err(ValidationError::PubkeyMismatch {
             expected: expected_relay_pubkey,
             got: received_relay_pubkey,
-        })
+        });
     }
 
     if !skip_sig_verify {

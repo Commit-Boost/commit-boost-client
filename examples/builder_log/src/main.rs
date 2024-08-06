@@ -14,12 +14,10 @@ impl OnBuilderApiEvent for LogProcessor {
 
 #[tokio::main]
 async fn main() {
-    initialize_tracing_log();
-
     match load_builder_module_config::<()>() {
         Ok(config) => {
             info!(module_id = config.id.0, "Starting module");
-
+            let _guard = initialize_tracing_log(&config.id);
             let client = BuilderEventClient::new(config.server_port, LogProcessor);
 
             if let Err(err) = client.run().await {

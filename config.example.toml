@@ -1,41 +1,145 @@
+# The main configuration file for the Commit-Boost sidecar. 
+# Some fields are optional and can be omitted, in which case the default value, if present, will be used.
+
+# Chain spec id. Supported values: Mainnet, Holesky, Helder
 chain = "Holesky"
 
+# Configuration for the PBS module
 [pbs]
+# Docker image to use for the PBS module. This currently defaults to the image built in `scripts/build_local_images.sh` and will be
+# replaced by the official Commit-Boost PBS module once published in a public registry
+# OPTIONAL, DEFAULT: commitboost_pbs_default
+docker_image = "commitboost_pbs_default"
+# Whether to enable the PBS module to request signatures from the Signer module (not used in the default PBS image)
+# OPTIONAL, DEFAULT: false
+with_signer = false
+# Port to receive BuilderAPI calls from beacon node
 port = 18550
+# Whether to forward `status` calls to relays or skip and return 200
+# OPTIONAL, DEFAULT: true
 relay_check = true
+# Timeout in milliseconds for the `get_header` call to relays. Note that the CL has also a timeout (e.g. 1 second) so 
+# this should be lower than that, leaving some margin for overhead
+# OPTIONAL, DEFAULT: 950
 timeout_get_header_ms = 950
+# Timeout in milliseconds for the `submit_blinded_block` call to relays.
+# OPTIONAL, DEFAULT: 4000
 timeout_get_payload_ms = 4000
+# Timeout in milliseconds for the `register_validator` call to relays.
+# OPTIONAL, DEFAULT: 3000
 timeout_register_validator_ms = 3000
-skip_sigverify = true
+# Whether to skip signature verification of headers against the relay pubkey
+# OPTIONAL, DEFAULT: false
+skip_sigverify = false
+# Minimum bid in ETH that will be accepted from `get_header`
+# OPTIONAL, DEFAULT: 0.0
 min_bid_eth = 0.0
-
+# How late in milliseconds in the slot is "late". This impacts the `get_header` requests, by shortening timeouts for `get_header` calls to 
+# relays and make sure a header is returned within this deadline. If the request from the CL comes later in the slot, then fetching headers is skipped
+# to force local building and miniminzing the risk of missed slots. See also the timing games section below
+# OPTIONAL, DEFAULT: 2000
 late_in_slot_time_ms = 2000
 
+# The PBS module needs one or more [[relays]] as defined below.
 [[relays]]
+# Relay ID to use in telemetry
+# OPTIONAL, DEFAULT: URL hostname
 id = "example-relay"
+# Relay URL in the format scheme://pubkey@host
 url = "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz"
+# Headers to send with each request for this relay
+# OPTIONAL
 headers = { X-MyCustomHeader = "MyCustomValue" }
+# Whether to enable timing games, as tuned by `target_first_request_ms` and `frequency_get_header_ms`.
+# These values should be carefully chosen for each relay, as each relay has different latency and timing games setups.
+# They should only be used by advanced users, and if mis-configured can result in unforeseen effects, e.g. fetching a lower header value, 
+# or getting a temporary IP ban.
+# 
+# EXAMPLES
+# Assuming: timeout_get_header_ms = 950, frequency_get_header_ms = 300, target_first_request_ms = 200, late_in_slot_time_ms = 2000
+# 
+# 1) CL request comes at 100ms in the slot (max timeout 1050ms in the slot), then:
+#   - sleep for 100ms
+#   - send request at 200ms with 850ms timeout
+#   - send request at 500ms with 550ms timeout
+#   - send request at 800ms with 250ms timeout
+# 2) CL request comes at 1500ms in the slot (max timeout 2000ms in the slot), then:
+#   - send request at 1500ms with 500ms timeout
+#   - send request at 1800ms with 200ms timeout
+# 3) CL request comes 2500ms in the slot then:
+#   - return 204 and force local build
+#
+# OPTIONAL, DEFAULT: false
 enable_timing_games = false
+# Target time in slot when to send the first header request
+# OPTIONAL
 target_first_request_ms = 200
+# Frequency in ms to send get_header requests
+# OPTIONAL
 frequency_get_header_ms = 300
 
+# Configuration for the Signer Module, only required if any `commit` module is present, or if `pbs.with_signer = true`
+# OPTIONAL
 [signer]
+# Docker image to use for the Signer module. This currently defaults to the image built in `scripts/build_local_images.sh` and will be
+# replaced by the official Commit-Boost Signer module once published in a public registry
+# OPTIONAL, DEFAULT: commitboost_signer
+docker_image = "commitboost_signer"
+# Configuration for how the Signer module should load validator keys. Currently two types of loaders are supported:
+#   - File: load keys from a plain text file (unsafe, use only for testing purposes)
+#   - ValidatorsDir: load keys from a `keys` and `secrets` folder (ERC-2335 style keystores as used in Lighthouse)
 [signer.loader]
+# File: path to the keys file
 key_path = "./keys.example.json"
+# ValidatorsDir: path to the keys directory
 # keys_path = ""
+# ValidatorsDir: path to the secrets directory
 # secrets_path = ""
 
-[metrics]
-prometheus_config = "./docker/prometheus.yml"
-use_grafana = true
-
+# Commit-Boost can optionally run "modules" which extend the capabilities of the sidecar.
+# Currently, two types of modules are supported:
+#   - "commit": modules which request commitment signatures from the validator keys
+#   - "events": modules which callback to BuilderAPI events as triggered from the PBS modules, used e.g. for monitoring
+# If any "commit" module is present, then the [signer] section should also be configured
+# OPTIONAL
 [[modules]]
+# Unique ID of the module
 id = "DA_COMMIT"
+# Type of the module. Supported values: commit, events
 type = "commit"
+# Docker image of the module
 docker_image = "test_da_commit"
+# Additional config needed by the business logic of the module should also be set here. 
+# See also `examples/da_commit/src/main.rs` for more information
 sleep_secs = 5
 
-[[modules]]
-id = "BUILDER_LOG"
-type = "events"
-docker_image = "test_builder_log"
+# Configuration for how metrics should be collected and scraped
+[metrics]
+# Path to a `prometheus.yml` file to use in Prometheus. If using a custom config file, be sure to add a 
+# file discovery section as follows:
+# ```yml
+# file_sd_configs:
+#   - files:
+#       - /etc/prometheus/targets.json
+# ```
+# and use the `targets.json` file generated by `commit-boost init`
+prometheus_config = "./docker/prometheus.yml"
+# Whether to start Grafana with built-in dashboards
+# OPTIONAL, DEFAULT: true
+use_grafana = true
+
+# Configuration for how logs should be collected and stored
+# OPTIONAL
+[logs]
+# Log rotation policy. Supported values: hourly, daily, never
+# OPTIONAL, DEFAULT: daily
+rotation = "daily"
+# Path to the log directory
+# OPTIONAL, DEFAULT: /var/logs/commit-boost
+log_dir_path = "./logs"
+# Log level. Supported values: trace, debug, info, warn, error
+# OPTIONAL, DEFAULT: debug to file, info to stdout
+log_level = "debug"
+# Maximum number of log files to keep
+# OPTIONAL
+max_log_files = 30
