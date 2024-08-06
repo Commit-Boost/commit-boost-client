@@ -50,11 +50,6 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     let mut jwts = IndexMap::new();
     // envs to write in .env file
     let mut envs = IndexMap::from([(CB_CONFIG_ENV.into(), CB_CONFIG_NAME.into())]);
-    let max_files = if let Some(max_files) = cb_config.logs.max_log_files {
-        max_files.to_string()
-    } else {
-        "".to_string()
-    };
     // targets to pass to prometheus
     let mut targets = Vec::new();
     let metrics_port = 10000;
@@ -78,7 +73,6 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
         get_env_val(METRICS_SERVER_ENV, &metrics_port.to_string()),
         get_env_val(ROLLING_DURATION_ENV, &cb_config.logs.duration.to_string()),
         get_env_val(RUST_LOG_ENV, &cb_config.logs.rust_log),
-        get_env_val(MAX_LOG_FILES_ENV, &max_files),
     ]);
     if let Some(max_files) = cb_config.logs.max_log_files {
         let (key, val) = get_env_uval(MAX_LOG_FILES_ENV, max_files as u64);
@@ -115,7 +109,6 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                         get_env_val(SIGNER_SERVER_ENV, &signer_server),
                         get_env_val(ROLLING_DURATION_ENV, &cb_config.logs.duration.to_string()),
                         get_env_val(RUST_LOG_ENV, &cb_config.logs.rust_log),
-                        get_env_val(MAX_LOG_FILES_ENV, &max_files),
                     ]);
                     if let Some(max_files) = cb_config.logs.max_log_files {
                         let (key, val) = get_env_uval(MAX_LOG_FILES_ENV, max_files as u64);
@@ -149,7 +142,6 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                         get_env_val(BUILDER_SERVER_ENV, &builder_events_port.to_string()),
                         get_env_val(ROLLING_DURATION_ENV, &cb_config.logs.duration.to_string()),
                         get_env_val(RUST_LOG_ENV, &cb_config.logs.rust_log),
-                        get_env_val(MAX_LOG_FILES_ENV, &max_files),
                     ]);
                     if let Some(max_files) = cb_config.logs.max_log_files {
                         let (key, val) = get_env_uval(MAX_LOG_FILES_ENV, max_files as u64);
@@ -215,7 +207,6 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                 get_env_val(SIGNER_SERVER_ENV, &signer_port.to_string()),
                 get_env_val(ROLLING_DURATION_ENV, &cb_config.logs.duration.to_string()),
                 get_env_val(RUST_LOG_ENV, &cb_config.logs.rust_log),
-                get_env_val(MAX_LOG_FILES_ENV, &max_files),
             ]);
             if let Some(max_files) = cb_config.logs.max_log_files {
                 let (key, val) = get_env_uval(MAX_LOG_FILES_ENV, max_files as u64);
