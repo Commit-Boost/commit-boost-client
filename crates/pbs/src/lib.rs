@@ -4,7 +4,7 @@ mod api;
 mod constants;
 mod error;
 mod metrics;
-mod mev_boost;
+pub mod mev_boost;
 mod routes;
 mod service;
 mod state;
