@@ -35,8 +35,6 @@ struct SigningState {
     /// Mananger handling different signing methods
     manager: Arc<RwLock<SigningManager>>,
     /// Map of JWTs to module ids. This also acts as registry of all modules running
-    // TODO(David): `Arc` is perhaps not the optimal type here...
-    //  We need readonly async after initialization. Look into that.
     jwts: Arc<BiHashMap<ModuleId, Jwt>>,
 }
 
