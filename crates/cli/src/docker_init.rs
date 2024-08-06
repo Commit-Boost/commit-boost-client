@@ -70,7 +70,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
     let mut pbs_envs = IndexMap::from([
         get_env_same(CB_CONFIG_ENV),
-        get_env_val(METRICS_SERVER_ENV, &metrics_port.to_string()),
+        get_env_uval(METRICS_SERVER_ENV, metrics_port as u64),
         get_env_val(ROLLING_DURATION_ENV, &cb_config.logs.rotation.to_string()),
         get_env_val(RUST_LOG_ENV, &cb_config.logs.log_level),
     ]);
@@ -203,8 +203,8 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
             let mut signer_envs = IndexMap::from([
                 get_env_same(CB_CONFIG_ENV),
                 get_env_same(JWTS_ENV),
-                get_env_val(METRICS_SERVER_ENV, &metrics_port.to_string()),
-                get_env_val(SIGNER_SERVER_ENV, &signer_port.to_string()),
+                get_env_uval(METRICS_SERVER_ENV, metrics_port as u64),
+                get_env_uval(SIGNER_SERVER_ENV, signer_port as u64),
                 get_env_val(ROLLING_DURATION_ENV, &cb_config.logs.rotation.to_string()),
                 get_env_val(RUST_LOG_ENV, &cb_config.logs.log_level),
             ]);
