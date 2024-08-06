@@ -42,7 +42,9 @@ fn determine_docker_compose_command() -> Option<Command> {
             Command::new("docker"),
         ))
     } else if is_command_available("docker-compose") {
-        println!("using docker-compose. the command is being deprecated, install docker compose plugin");
+        println!(
+            "using docker-compose. the command is being deprecated, install docker compose plugin"
+        );
         let mut docker: Command = Command::new("docker-compose");
         Some(mem::replace(
             docker.stdout(Stdio::inherit()).stderr(Stdio::inherit()),
