@@ -133,13 +133,13 @@ use_grafana = true
 [logs]
 # Log rotation policy. Supported values: hourly, daily, never
 # OPTIONAL, DEFAULT: daily
-duration = "daily"
+rotation = "daily"
 # Path to the log directory
 # OPTIONAL, DEFAULT: /var/logs/commit-boost
-host-path="./logs"
+log_dir_path = "./logs"
 # Log level. Supported values: trace, debug, info, warn, error
 # OPTIONAL, DEFAULT: debug to file, info to stdout
-rust-log="debug"
+log_level = "debug"
 # Maximum number of log files to keep
 # OPTIONAL
-max-log-files = 100
+max_log_files = 30

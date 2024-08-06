@@ -43,7 +43,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     let config_volume = Volumes::Simple(format!("./{}:{}:ro", config_path, CB_CONFIG_NAME));
     let log_volume = Volumes::Simple(format!(
         "{}:{}",
-        cb_config.logs.host_path.to_str().unwrap(),
+        cb_config.logs.log_dir_path.to_str().unwrap(),
         CB_BASE_LOG_PATH
     ));
 
@@ -71,8 +71,8 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     let mut pbs_envs = IndexMap::from([
         get_env_same(CB_CONFIG_ENV),
         get_env_val(METRICS_SERVER_ENV, &metrics_port.to_string()),
-        get_env_val(ROLLING_DURATION_ENV, &cb_config.logs.duration.to_string()),
-        get_env_val(RUST_LOG_ENV, &cb_config.logs.rust_log),
+        get_env_val(ROLLING_DURATION_ENV, &cb_config.logs.rotation.to_string()),
+        get_env_val(RUST_LOG_ENV, &cb_config.logs.log_level),
     ]);
     if let Some(max_files) = cb_config.logs.max_log_files {
         let (key, val) = get_env_uval(MAX_LOG_FILES_ENV, max_files as u64);
@@ -107,8 +107,8 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                         get_env_interp(MODULE_JWT_ENV, &jwt_name),
                         get_env_uval(METRICS_SERVER_ENV, metrics_port as u64),
                         get_env_val(SIGNER_SERVER_ENV, &signer_server),
-                        get_env_val(ROLLING_DURATION_ENV, &cb_config.logs.duration.to_string()),
-                        get_env_val(RUST_LOG_ENV, &cb_config.logs.rust_log),
+                        get_env_val(ROLLING_DURATION_ENV, &cb_config.logs.rotation.to_string()),
+                        get_env_val(RUST_LOG_ENV, &cb_config.logs.log_level),
                     ]);
                     if let Some(max_files) = cb_config.logs.max_log_files {
                         let (key, val) = get_env_uval(MAX_LOG_FILES_ENV, max_files as u64);
@@ -140,8 +140,8 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                         get_env_same(CB_CONFIG_ENV),
                         get_env_uval(METRICS_SERVER_ENV, metrics_port as u64),
                         get_env_val(BUILDER_SERVER_ENV, &builder_events_port.to_string()),
-                        get_env_val(ROLLING_DURATION_ENV, &cb_config.logs.duration.to_string()),
-                        get_env_val(RUST_LOG_ENV, &cb_config.logs.rust_log),
+                        get_env_val(ROLLING_DURATION_ENV, &cb_config.logs.rotation.to_string()),
+                        get_env_val(RUST_LOG_ENV, &cb_config.logs.log_level),
                     ]);
                     if let Some(max_files) = cb_config.logs.max_log_files {
                         let (key, val) = get_env_uval(MAX_LOG_FILES_ENV, max_files as u64);
@@ -205,8 +205,8 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                 get_env_same(JWTS_ENV),
                 get_env_val(METRICS_SERVER_ENV, &metrics_port.to_string()),
                 get_env_val(SIGNER_SERVER_ENV, &signer_port.to_string()),
-                get_env_val(ROLLING_DURATION_ENV, &cb_config.logs.duration.to_string()),
-                get_env_val(RUST_LOG_ENV, &cb_config.logs.rust_log),
+                get_env_val(ROLLING_DURATION_ENV, &cb_config.logs.rotation.to_string()),
+                get_env_val(RUST_LOG_ENV, &cb_config.logs.log_level),
             ]);
             if let Some(max_files) = cb_config.logs.max_log_files {
                 let (key, val) = get_env_uval(MAX_LOG_FILES_ENV, max_files as u64);

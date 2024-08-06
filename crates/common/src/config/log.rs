@@ -8,21 +8,18 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct LogsSettings {
     #[serde(default)]
-    pub duration: RollingDuration,
-    #[serde(default, rename = "host-path")]
-    pub host_path: PathBuf,
-    #[serde(default, rename = "rust-log")]
-    pub rust_log: String,
-    #[serde(default, rename = "max-log-files")]
+    pub rotation: RollingDuration,
+    pub log_dir_path: PathBuf,
+    pub log_level: String,
     pub max_log_files: Option<usize>,
 }
 
 impl Default for LogsSettings {
     fn default() -> Self {
         Self {
-            duration: RollingDuration::Hourly,
-            host_path: "/var/logs/commit-boost".into(),
-            rust_log: "info".to_string(),
+            rotation: RollingDuration::Hourly,
+            log_dir_path: "/var/logs/commit-boost".into(),
+            log_level: "info".to_string(),
             max_log_files: None,
         }
     }
