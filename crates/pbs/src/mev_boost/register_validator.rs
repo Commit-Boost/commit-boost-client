@@ -4,7 +4,7 @@ use alloy::rpc::types::beacon::relay::ValidatorRegistration;
 use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
     pbs::{RelayClient, HEADER_START_TIME_UNIX_MS},
-    utils::{get_user_agent, utcnow_ms},
+    utils::{get_user_agent_with_version, utcnow_ms},
 };
 use eyre::bail;
 use futures::future::join_all;
@@ -29,9 +29,7 @@ pub async fn register_validator<S: BuilderApiState>(
     let mut send_headers = HeaderMap::new();
     send_headers
         .insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from_str(&utcnow_ms().to_string())?);
-    if let Some(ua) = get_user_agent(&req_headers) {
-        send_headers.insert(USER_AGENT, HeaderValue::from_str(&ua)?);
-    }
+    send_headers.insert(USER_AGENT, get_user_agent_with_version(&req_headers)?);
 
     let relays = state.relays();
     let mut handles = Vec::with_capacity(relays.len());

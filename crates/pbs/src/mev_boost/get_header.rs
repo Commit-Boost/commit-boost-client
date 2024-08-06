@@ -13,7 +13,7 @@ use cb_common::{
     },
     signature::verify_signed_builder_message,
     types::Chain,
-    utils::{get_user_agent, ms_into_slot, utcnow_ms},
+    utils::{get_user_agent_with_version, ms_into_slot, utcnow_ms},
 };
 use futures::future::join_all;
 use reqwest::{header::USER_AGENT, StatusCode};
@@ -55,9 +55,7 @@ pub async fn get_header<S: BuilderApiState>(
     // prepare headers, except for start time which is set in `send_one_get_header`
     let mut send_headers = HeaderMap::new();
     send_headers.insert(HEADER_SLOT_UUID_KEY, HeaderValue::from_str(&slot_uuid.to_string())?);
-    if let Some(ua) = get_user_agent(&req_headers) {
-        send_headers.insert(USER_AGENT, HeaderValue::from_str(&ua)?);
-    }
+    send_headers.insert(USER_AGENT, get_user_agent_with_version(&req_headers)?);
 
     let relays = state.relays();
     let mut handles = Vec::with_capacity(relays.len());

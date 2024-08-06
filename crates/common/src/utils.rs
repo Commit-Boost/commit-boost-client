@@ -7,6 +7,7 @@ use alloy::{
     primitives::U256,
     rpc::types::beacon::{BlsPublicKey, BlsSignature},
 };
+use axum::http::HeaderValue;
 use blst::min_pk::{PublicKey, Signature};
 use rand::{distributions::Alphanumeric, Rng};
 use reqwest::header::HeaderMap;
@@ -16,6 +17,7 @@ use tracing_subscriber::{fmt::Layer, prelude::*, EnvFilter};
 
 use crate::{
     config::{default_log_level, RollingDuration, CB_BASE_LOG_PATH},
+    pbs::HEAVER_VERSION_VALUE,
     types::Chain,
 };
 
@@ -220,8 +222,15 @@ pub fn random_jwt() -> String {
 }
 
 /// Extracts the user agent from the request headers
-pub fn get_user_agent(req_headers: &HeaderMap) -> Option<String> {
+pub fn get_user_agent(req_headers: &HeaderMap) -> String {
     req_headers
         .get(reqwest::header::USER_AGENT)
         .and_then(|ua| ua.to_str().ok().map(|s| s.to_string()))
+        .unwrap_or_default()
+}
+
+/// Extracts the user agent from the request headers and adds version
+pub fn get_user_agent_with_version(req_headers: &HeaderMap) -> eyre::Result<HeaderValue> {
+    let ua = get_user_agent(req_headers);
+    Ok(HeaderValue::from_str(&format!("commit-boost/{HEAVER_VERSION_VALUE} {}", ua))?)
 }

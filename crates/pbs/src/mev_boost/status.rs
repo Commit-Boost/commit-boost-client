@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
-use axum::http::{HeaderMap, HeaderValue};
-use cb_common::{pbs::RelayClient, utils::get_user_agent};
+use axum::http::HeaderMap;
+use cb_common::{pbs::RelayClient, utils::get_user_agent_with_version};
 use futures::future::select_ok;
 use reqwest::header::USER_AGENT;
 use tracing::{debug, error};
@@ -26,9 +26,7 @@ pub async fn get_status<S: BuilderApiState>(
     } else {
         // prepare headers
         let mut send_headers = HeaderMap::new();
-        if let Some(ua) = get_user_agent(&req_headers) {
-            send_headers.insert(USER_AGENT, HeaderValue::from_str(&ua)?);
-        }
+        send_headers.insert(USER_AGENT, get_user_agent_with_version(&req_headers)?);
 
         let relays = state.relays();
         let mut handles = Vec::with_capacity(relays.len());
