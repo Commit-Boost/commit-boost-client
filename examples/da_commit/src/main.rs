@@ -110,8 +110,7 @@ async fn main() -> Result<()> {
             }
         }
         Err(err) => {
-            // FIXME: This trace will never be shown since tracing log is not initialized here.
-            error!(?err, "Failed to load module config");
+            eprintln!("Failed to load module config: {err:?}");
         }
     }
     Ok(())

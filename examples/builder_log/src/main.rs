@@ -27,7 +27,7 @@ async fn main() {
             }
         }
         Err(err) => {
-            error!(?err, "Failed to load module config");
+            eprintln!("Failed to load module config: {err:?}");
         }
     }
 }
