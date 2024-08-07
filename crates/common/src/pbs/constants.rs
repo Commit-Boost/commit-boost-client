@@ -9,7 +9,7 @@ pub const SUBMIT_BLOCK_PATH: &str = "/blinded_blocks";
 
 pub const HEADER_SLOT_UUID_KEY: &str = "X-MEVBoost-SlotID";
 pub const HEADER_VERSION_KEY: &str = "X-CommitBoost-Version";
-pub const HEAVER_VERSION_VALUE: &str = "0.1.0"; // TODO: load this at compile from commit-boost
+pub const HEAVER_VERSION_VALUE: &str = env!("CARGO_PKG_VERSION");
 pub const HEADER_START_TIME_UNIX_MS: &str = "X-MEVBoost-StartTimeUnixMS";
 
 pub const BUILDER_EVENTS_PATH: &str = "/builder_events";
