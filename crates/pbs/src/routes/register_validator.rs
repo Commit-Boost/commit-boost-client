@@ -24,7 +24,7 @@ pub async fn handle_register_validator<S: BuilderApiState, T: BuilderApi<S>>(
 
     let ua = get_user_agent(&req_headers);
 
-    info!(?ua, num_registrations = registrations.len());
+    info!(ua, num_registrations = registrations.len());
 
     if let Err(err) = T::register_validator(registrations, req_headers, state.clone()).await {
         state.publish_event(BuilderEvent::RegisterValidatorResponse);

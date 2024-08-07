@@ -6,7 +6,7 @@ use cb_common::{
         RelayClient, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse, HEADER_SLOT_UUID_KEY,
         HEADER_START_TIME_UNIX_MS,
     },
-    utils::{get_user_agent, utcnow_ms},
+    utils::{get_user_agent_with_version, utcnow_ms},
 };
 use futures::future::select_ok;
 use reqwest::header::USER_AGENT;
@@ -31,9 +31,7 @@ pub async fn submit_block<S: BuilderApiState>(
     let mut send_headers = HeaderMap::new();
     send_headers.insert(HEADER_SLOT_UUID_KEY, HeaderValue::from_str(&slot_uuid.to_string())?);
     send_headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(utcnow_ms()));
-    if let Some(ua) = get_user_agent(&req_headers) {
-        send_headers.insert(USER_AGENT, HeaderValue::from_str(&ua)?);
-    }
+    send_headers.insert(USER_AGENT, get_user_agent_with_version(&req_headers)?);
 
     let relays = state.relays();
     let mut handles = Vec::with_capacity(relays.len());

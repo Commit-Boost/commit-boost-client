@@ -32,7 +32,7 @@ pub async fn handle_get_header<S: BuilderApiState, T: BuilderApi<S>>(
     let ua = get_user_agent(&req_headers);
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
 
-    info!(?ua, parent_hash=%params.parent_hash, validator_pubkey=%params.pubkey, ms_into_slot);
+    info!(ua, parent_hash=%params.parent_hash, validator_pubkey=%params.pubkey, ms_into_slot);
 
     match T::get_header(params, req_headers, state.clone()).await {
         Ok(res) => {
