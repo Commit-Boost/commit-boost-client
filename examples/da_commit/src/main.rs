@@ -46,21 +46,37 @@ impl DaCommitService {
         let pubkey = pubkeys.consensus.first().ok_or_eyre("no key available")?;
         info!("Registered validator {pubkey}");
 
+        let proxy_delegation = self.config.signer_client.generate_proxy_key(*pubkey).await?;
+        info!("Obtained a proxy delegation {proxy_delegation:#?}");
+
         let mut data = 0;
 
         loop {
-            self.send_request(data, *pubkey).await?;
+            self.send_request(data, *pubkey, proxy_delegation).await?;
             sleep(Duration::from_secs(self.config.extra.sleep_secs)).await;
             data += 1;
         }
     }
 
-    pub async fn send_request(&self, data: u64, pubkey: BlsPublicKey) -> Result<()> {
+    pub async fn send_request(&self, data: u64, pubkey: BlsPublicKey, proxy_delegation: SignedProxyDelegation) -> Result<()> {
         let datagram = Datagram { data };
-        let request = SignRequest::builder(&self.config.id, pubkey).with_msg(&datagram);
-        let signature = self.config.signer_client.request_signature(&request).await?;
 
-        info!("Proposer commitment: {}", pretty_print_sig(signature));
+        let request = SignRequest::builder(pubkey)
+            .with_msg(&datagram);
+        let signature = self.config.signer_client.request_signature(&request);
+
+        let proxy_request = SignRequest::builder(proxy_delegation.message.proxy)
+            .is_proxy()
+            .with_msg(&datagram);
+        let proxy_signature = self.config.signer_client.request_signature(&proxy_request);
+
+        let (signature, proxy_signature) = {
+            let res = tokio::join!(signature, proxy_signature);
+            (res.0?, res.1?)
+        };
+
+        info!("Proposer commitment (consensus): {}", pretty_print_sig(signature));
+        info!("Proposer commitment (proxy): {}", pretty_print_sig(proxy_signature));
 
         SIG_RECEIVED_COUNTER.inc();
 
@@ -79,12 +95,14 @@ async fn main() -> Result<()> {
 
     match load_commit_module_config::<ExtraConfig>() {
         Ok(config) => {
+            let _guard = initialize_tracing_log(&config.id);
+
             info!(
-                module_id = config.id,
+                module_id = %config.id,
                 sleep_secs = config.extra.sleep_secs,
                 "Starting module with custom data"
             );
-            let _guard = initialize_tracing_log(&config.id);
+
             let service = DaCommitService { config };
 
             if let Err(err) = service.run().await {
@@ -92,7 +110,7 @@ async fn main() -> Result<()> {
             }
         }
         Err(err) => {
-            error!(?err, "Failed to load module config");
+            eprintln!("Failed to load module config: {err:?}");
         }
     }
     Ok(())

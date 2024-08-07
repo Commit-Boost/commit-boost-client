@@ -1,7 +1,8 @@
-use std::collections::HashMap;
-
+use bimap::BiHashMap;
 use eyre::{Context, Result};
 use serde::de::DeserializeOwned;
+
+use crate::types::{Jwt, ModuleId};
 
 use super::constants::JWTS_ENV;
 
@@ -20,8 +21,8 @@ pub fn load_file_from_env<T: DeserializeOwned>(env: &str) -> Result<T> {
     load_from_file(&path)
 }
 
-/// Loads a map of module id -> jwt token from a json env
-pub fn load_jwts() -> Result<HashMap<String, String>> {
+/// Loads a bidirectional map of module id <-> jwt token from a json env
+pub fn load_jwts() -> Result<BiHashMap<ModuleId, Jwt>> {
     let jwts = std::env::var(JWTS_ENV).wrap_err(format!("{JWTS_ENV} is not set"))?;
     serde_json::from_str(&jwts).wrap_err("could not deserialize json from string")
 }

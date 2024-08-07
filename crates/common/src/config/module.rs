@@ -10,7 +10,7 @@ use crate::{
         utils::load_file_from_env,
         BUILDER_SERVER_ENV,
     },
-    types::Chain,
+    types::{Chain, Jwt, ModuleId},
 };
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -25,7 +25,7 @@ pub enum ModuleKind {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct StaticModuleConfig {
     /// Unique id of the module
-    pub id: String,
+    pub id: ModuleId,
     /// Docker image of the module
     pub docker_image: String,
     /// Type of the module
@@ -37,7 +37,7 @@ pub struct StaticModuleConfig {
 #[derive(Debug)]
 pub struct StartCommitModuleConfig<T = ()> {
     /// Unique id of the module
-    pub id: String,
+    pub id: ModuleId,
     /// Chain spec
     pub chain: Chain,
     /// Signer client to call Signer API
@@ -52,8 +52,8 @@ pub struct StartCommitModuleConfig<T = ()> {
 /// - [MODULE_JWT_ENV] - the jwt token for the module
 // TODO: add metrics url here
 pub fn load_commit_module_config<T: DeserializeOwned>() -> Result<StartCommitModuleConfig<T>> {
-    let module_id = load_env_var(MODULE_ID_ENV)?;
-    let module_jwt = load_env_var(MODULE_JWT_ENV)?;
+    let module_id = ModuleId(load_env_var(MODULE_ID_ENV)?);
+    let module_jwt = Jwt(load_env_var(MODULE_JWT_ENV)?);
     let signer_server_address = load_env_var(SIGNER_SERVER_ENV)?;
 
     #[derive(Debug, Deserialize)]
@@ -111,7 +111,7 @@ pub fn load_commit_module_config<T: DeserializeOwned>() -> Result<StartCommitMod
 #[derive(Debug)]
 pub struct StartBuilderModuleConfig<T> {
     /// Unique id of the module
-    pub id: String,
+    pub id: ModuleId,
     /// Chain spec
     pub chain: Chain,
     /// Where to listen for Builder events
@@ -122,7 +122,7 @@ pub struct StartBuilderModuleConfig<T> {
 
 pub fn load_builder_module_config<T: DeserializeOwned>() -> eyre::Result<StartBuilderModuleConfig<T>>
 {
-    let module_id = load_env_var(MODULE_ID_ENV)?;
+    let module_id = ModuleId(load_env_var(MODULE_ID_ENV)?);
     let builder_events_port: u16 = load_env_var(BUILDER_SERVER_ENV)?.parse()?;
 
     #[derive(Debug, Deserialize)]

@@ -36,3 +36,5 @@ thiserror.workspace = true
 eyre.workspace = true
 rand.workspace = true
 uuid.workspace = true
+bimap.workspace = true
+lazy_static.workspace = true

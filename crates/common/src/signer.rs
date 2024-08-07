@@ -16,8 +16,8 @@ pub enum Signer {
 }
 
 impl Signer {
-    pub fn new_random() -> Result<Self> {
-        Ok(Signer::Local(random_secret()?))
+    pub fn new_random() -> Self {
+        Signer::Local(random_secret())
     }
 
     pub fn new_from_bytes(bytes: &[u8]) -> Result<Self> {

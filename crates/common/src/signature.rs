@@ -15,11 +15,16 @@ use crate::{
     utils::{alloy_pubkey_to_blst, alloy_sig_to_blst},
 };
 
-pub fn random_secret() -> eyre::Result<SecretKey> {
+pub fn random_secret() -> SecretKey {
     let mut rng = rand::thread_rng();
     let mut ikm = [0u8; 32];
     rng.fill_bytes(&mut ikm);
-    Ok(SecretKey::key_gen(&ikm, &[]).map_err(BlstErrorWrapper::from)?)
+
+    match SecretKey::key_gen(&ikm, &[]) {
+        Ok(key) => key,
+        // Key material is always valid (32 `u8`s), so `key_gen` can't return Err.
+        Err(_) => unreachable!(),
+    }
 }
 
 pub fn verify_signature(
@@ -91,9 +96,7 @@ pub fn sign_builder_message(
     secret_key: &SecretKey,
     msg: &impl TreeHash,
 ) -> BlsSignature {
-    let domain = chain.builder_domain();
-    let signing_root = compute_signing_root(msg.tree_hash_root().0, domain);
-    sign_message(secret_key, &signing_root)
+    sign_builder_root(chain, secret_key, msg.tree_hash_root().0)
 }
 
 pub fn sign_builder_root(

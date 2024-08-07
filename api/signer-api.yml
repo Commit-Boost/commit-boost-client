@@ -11,6 +11,8 @@ paths:
       summary: Get a list of public keys for which signatures may be requested
       tags:
         - Signer
+      security:
+        - BearerAuth: []
       responses:
         "200":
           description: A list of Bls pubkeys
@@ -35,7 +37,6 @@ paths:
                       format: hex
                       pattern: "^0x[a-fA-F0-9]{96}$"
                       example: "0xa3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989"
-
         "500":
           description: Internal error
           content:
@@ -67,10 +68,6 @@ paths:
             schema:
               type: object
               properties:
-                id:
-                  description: The module ID
-                  type: string
-                  example: "MY_MODULE_ID"
                 pubkey:
                   description: BLS public key of validator
                   type: string
@@ -99,7 +96,7 @@ paths:
                 pattern: "^0x[a-fA-F0-9]{192}$"
                 example: "0xa3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989a3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989"
         "404":
-          description: Unknown value (pubkey, module id)
+          description: Unknown value (pubkey, etc.)
           content:
             application/json:
               schema:
@@ -130,6 +127,89 @@ paths:
                   message:
                     type: string
                     example: "Internal error"
+
+  /signer/v1/generate_proxy_key:
+    post:
+      summary: Request a proxy key be generated for a specific consensus pubkey
+      tags:
+        - Signer
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pubkey:
+                  description: a validator BLS public key for which to generate a proxy key
+                  type: string
+                  format: hex
+                  pattern: "^0x[a-fA-F0-9]{96}$"
+                  example: "0xac5e059177afc33263e95d0be0690138b9a1d79a6e19018086a0362e0c30a50bf9e05a08cb44785724d0b2718c5c7118"
+      responses:
+        "200":
+          description: Successs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: object
+                    properties:
+                      delegator:
+                        description: the validator BLS public key for which the proxy key was generated (the same one as requested)
+                        type: string
+                        format: hex
+                        pattern: "^0x[a-fA-F0-9]{96}$"
+                        example: "0xac5e059177afc33263e95d0be0690138b9a1d79a6e19018086a0362e0c30a50bf9e05a08cb44785724d0b2718c5c7118"
+                      proxy:
+                        description: the generated proxy public key
+                        type: string
+                        format: hex
+                        pattern: "^0x[a-fA-F0-9]{96}$"
+                        example: "0x8a481a7a51c430a9bafa64366bc4934f5880f5f1d97646f91680936a53f2a268fdde5369430a2b4bb700c5f82cfbab3f"
+                  signature:
+                    description: The signature of the proxy delegation
+                    type: string
+                    format: hex
+                    pattern: "^0x[a-fA-F0-9]{192}$"
+                    example: "0xabfacf1cd17d80abfc6fa6b8e534ab25cdb1f95a855706ef604672c8695401a84c7834008e57925d4259c551b7c03d1a16f05b082294fadcba802a61a5cccfb5e96dd1dce4c9dac3f6d15254495019146346670be1f374a67cb0cda2aaf72d00"
+        "404":
+          description: Unknown value (pubkey, etc.)
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                properties:
+                  code:
+                    type: number
+                    example: 404
+                  message:
+                    type: string
+                    example: "Unknown pubkey"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                properties:
+                  code:
+                    type: number
+                    example: 500
+                  message:
+                    type: string
+                    example: "Internal error"
+
 components:
   securitySchemes:
     BearerAuth:

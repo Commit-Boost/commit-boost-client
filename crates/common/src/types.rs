@@ -1,3 +1,5 @@
+use derive_more::{Deref, From, Into, Display};
+
 use serde::{Deserialize, Serialize};
 
 use crate::constants::{
@@ -43,3 +45,13 @@ impl Chain {
         }
     }
 }
+
+#[derive(Clone, Debug, Display, PartialEq, Eq, Hash, Deref, From, Into, Serialize, Deserialize)]
+#[into(owned, ref, ref_mut)]
+#[serde(transparent)]
+pub struct ModuleId(pub String);
+
+#[derive(Clone, Debug, Display, PartialEq, Eq, Hash, Deref, From, Into, Serialize, Deserialize)]
+#[into(owned, ref, ref_mut)]
+#[serde(transparent)]
+pub struct Jwt(pub String);

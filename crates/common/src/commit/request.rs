@@ -34,7 +34,6 @@ impl SignedProxyDelegation {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignRequest {
-    pub id: String,
     pub pubkey: BlsPublicKey,
     pub is_proxy: bool,
     pub object_root: [u8; 32],
@@ -42,16 +41,15 @@ pub struct SignRequest {
 
 impl SignRequest {
     pub fn new(
-        id: impl Into<String>,
         pubkey: BlsPublicKey,
         is_proxy: bool,
         object_root: [u8; 32],
     ) -> SignRequest {
-        Self { id: id.into(), pubkey, is_proxy, object_root }
+        Self { pubkey, is_proxy, object_root }
     }
 
-    pub fn builder(id: impl Into<String>, pubkey: BlsPublicKey) -> Self {
-        Self::new(id, pubkey, false, [0; 32])
+    pub fn builder(pubkey: BlsPublicKey) -> Self {
+        Self::new(pubkey, false, [0; 32])
     }
 
     pub fn is_proxy(self) -> Self {
@@ -63,6 +61,17 @@ impl SignRequest {
     }
 
     pub fn with_msg(self, msg: &impl TreeHash) -> Self {
-        Self { object_root: msg.tree_hash_root().0, ..self }
+        self.with_root(msg.tree_hash_root().0)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GenerateProxyRequest {
+    pub pubkey: BlsPublicKey,
+}
+
+impl GenerateProxyRequest {
+    pub fn new(pubkey: BlsPublicKey) -> Self {
+        GenerateProxyRequest { pubkey }
     }
 }

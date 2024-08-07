@@ -59,7 +59,7 @@ fn to_pbs_config(
 #[tokio::test]
 async fn test_get_header() -> Result<()> {
     setup_test_env();
-    let signer = Signer::new_random()?;
+    let signer = Signer::new_random();
 
     let chain = Chain::Holesky;
     let port = 3000;
@@ -87,7 +87,7 @@ async fn test_get_header() -> Result<()> {
 #[tokio::test]
 async fn test_get_status() -> Result<()> {
     setup_test_env();
-    let signer = Signer::new_random()?;
+    let signer = Signer::new_random();
 
     let chain = Chain::Holesky;
     let port = 3100;
@@ -119,7 +119,7 @@ async fn test_get_status() -> Result<()> {
 #[tokio::test]
 async fn test_register_validators() -> Result<()> {
     setup_test_env();
-    let signer = Signer::new_random()?;
+    let signer = Signer::new_random();
 
     let chain = Chain::Holesky;
     let port = 3300;
@@ -147,7 +147,7 @@ async fn test_register_validators() -> Result<()> {
 #[tokio::test]
 async fn test_submit_block() -> Result<()> {
     setup_test_env();
-    let signer = Signer::new_random()?;
+    let signer = Signer::new_random();
 
     let chain = Chain::Holesky;
     let port = 3400;
