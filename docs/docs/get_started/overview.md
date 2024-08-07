@@ -20,7 +20,7 @@ Commit-Boost ships with two core modules:
 
 ## Setup
 ### Requirements
-- Rust 1.79
+- Rust 1.80
 - Docker Engine up and running
 
 :::note
