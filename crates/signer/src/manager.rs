@@ -60,9 +60,9 @@ impl SigningManager {
         let signer = Signer::new_random();
         let proxy_pubkey = signer.pubkey();
 
-        let proxy_delegation = ProxyDelegation { delegator, proxy: proxy_pubkey };
-        let signature = self.sign_consensus(&delegator, &proxy_delegation.tree_hash_root().0).await?;
-        let signed_delegation: SignedProxyDelegation = SignedProxyDelegation { signature, proxy_delegation };
+        let message = ProxyDelegation { delegator, proxy: proxy_pubkey };
+        let signature = self.sign_consensus(&delegator, &message.tree_hash_root().0).await?;
+        let signed_delegation: SignedProxyDelegation = SignedProxyDelegation { signature, message };
         let proxy_signer = ProxySigner { signer, delegation: signed_delegation };
 
         // Add the new proxy key to the manager's internal state
@@ -171,7 +171,7 @@ mod tests {
         );
 
         assert!(
-            signing_manager.has_proxy(&signed_delegation.proxy_delegation.proxy),
+            signing_manager.has_proxy(&signed_delegation.message.proxy),
             "Newly generated proxy key must be present in the signing manager's registry."
         );
     }
@@ -198,7 +198,7 @@ mod tests {
         let (mut signing_manager, consensus_pk) = init_signing_manager();
 
         let signed_delegation = signing_manager.create_proxy(MODULE_ID.clone(), consensus_pk.clone()).await.unwrap();
-        let proxy_pk = signed_delegation.proxy_delegation.proxy;
+        let proxy_pk = signed_delegation.message.proxy;
 
         let data_root = Hash256::random();
         let data_root_bytes = data_root.as_fixed_bytes();
@@ -207,7 +207,7 @@ mod tests {
 
         let validation_result = verify_signed_builder_message(
             *CHAIN,
-            &signed_delegation.proxy_delegation.proxy,
+            &signed_delegation.message.proxy,
             &data_root_bytes,
             &sig,
         );

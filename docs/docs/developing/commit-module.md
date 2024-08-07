@@ -78,8 +78,8 @@ Where `pubkey` is the validator (consensus) public key for which the signature i
 ### With a proxy key
 You'll have to first request a proxy key be generated for a given consensus key:
 ```rust
-let signed_proxy_delegation = self.config.signer_client.generate_proxy_key(pubkey).await?;
-let proxy_pubkey = signed_proxy_delegation.proxy_delegation.proxy;
+let proxy_delegation = self.config.signer_client.generate_proxy_key(pubkey).await?;
+let proxy_pubkey = proxy_delegation.message.proxy;
 ```
 
 Where `pubkey` is the validator (consensus) public key for which a proxy is to be generated.

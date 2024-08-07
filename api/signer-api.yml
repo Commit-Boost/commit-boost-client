@@ -156,7 +156,7 @@ paths:
               schema:
                 type: object
                 properties:
-                  proxy_delegation:
+                  message:
                     type: object
                     properties:
                       delegator:

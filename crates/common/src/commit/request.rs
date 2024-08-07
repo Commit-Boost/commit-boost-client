@@ -16,7 +16,7 @@ pub struct ProxyDelegation {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct SignedProxyDelegation {
-    pub proxy_delegation: ProxyDelegation,
+    pub message: ProxyDelegation,
     /// Signature of message with the delegator keypair
     pub signature: BlsSignature,
 }
@@ -25,8 +25,8 @@ impl SignedProxyDelegation {
     pub fn validate(&self, chain: Chain) -> Result<(), BlstErrorWrapper> {
         verify_signed_builder_message(
             chain,
-            &self.proxy_delegation.delegator,
-            &self.proxy_delegation,
+            &self.message.delegator,
+            &self.message,
             &self.signature,
         )
     }

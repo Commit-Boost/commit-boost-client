@@ -65,7 +65,7 @@ impl DaCommitService {
             .with_msg(&datagram);
         let signature = self.config.signer_client.request_signature(&request);
 
-        let proxy_request = SignRequest::builder(proxy_delegation.proxy_delegation.proxy)
+        let proxy_request = SignRequest::builder(proxy_delegation.message.proxy)
             .is_proxy()
             .with_msg(&datagram);
         let proxy_signature = self.config.signer_client.request_signature(&proxy_request);
