@@ -32,10 +32,10 @@ struct ExtraConfig {
     sleep_secs: u64,
 }
 ```
-then pass that struct to the `load_module_config` function, which will load and parse the config. Your custom config will be under the `extra` field.
+then pass that struct to the `load_commit_module_config` function, which will load and parse the config. Your custom config will be under the `extra` field.
 
 ```rust
-let config = load_module_config::<ExtraConfig>().unwrap();
+let config = load_commit_module_config::<ExtraConfig>().unwrap();
 let to_sleep = config.extra.sleep_secs;
 ```
 

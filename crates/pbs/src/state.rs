@@ -1,6 +1,5 @@
 use std::{
     collections::HashSet,
-    fmt,
     sync::{Arc, Mutex},
 };
 
@@ -12,13 +11,13 @@ use cb_common::{
 use dashmap::DashMap;
 use uuid::Uuid;
 
-pub trait BuilderApiState: fmt::Debug + Default + Clone + Sync + Send + 'static {}
+pub trait BuilderApiState: Clone + Sync + Send + 'static {}
 impl BuilderApiState for () {}
 
 /// State for the Pbs module. It can be extended in two ways:
 /// - By adding extra configs to be loaded at startup
 /// - By adding extra data to the state
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct PbsState<U, S: BuilderApiState = ()> {
     /// Config data for the Pbs service
     pub config: PbsModuleConfig<U>,
@@ -30,23 +29,30 @@ pub struct PbsState<U, S: BuilderApiState = ()> {
     bid_cache: Arc<DashMap<u64, Vec<GetHeaderReponse>>>,
 }
 
-impl<U, S> PbsState<U, S>
-where
-    S: BuilderApiState,
-{
+impl<U> PbsState<U, ()> {
     pub fn new(config: PbsModuleConfig<U>) -> Self {
         Self {
             config,
-            data: S::default(),
-            current_slot_info: Arc::new(Mutex::new((0, Uuid::default()))),
+            data: (),
+            current_slot_info: Arc::new(Mutex::new((0, Uuid::new_v4()))),
             bid_cache: Arc::new(DashMap::new()),
         }
     }
 
-    pub fn with_data(self, data: S) -> Self {
-        Self { data, ..self }
+    pub fn with_data<S: BuilderApiState>(self, data: S) -> PbsState<U, S> {
+        PbsState {
+            data,
+            config: self.config,
+            current_slot_info: self.current_slot_info,
+            bid_cache: self.bid_cache,
+        }
     }
+}
 
+impl<U, S> PbsState<U, S>
+where
+    S: BuilderApiState,
+{
     pub fn publish_event(&self, e: BuilderEvent) {
         if let Some(publisher) = self.config.event_publiher.as_ref() {
             publisher.publish(e);

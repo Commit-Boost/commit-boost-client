@@ -30,7 +30,7 @@ struct DaCommitService {
 // Extra configurations parameters can be set here and will be automatically
 // parsed from the .config.toml file These parameters will be in the .extra
 // field of the StartModuleConfig<ExtraConfig> struct you get after calling
-// `load_module_config::<ExtraConfig>()`
+// `load_commit_module_config::<ExtraConfig>()`
 #[derive(Debug, Deserialize)]
 struct ExtraConfig {
     sleep_secs: u64,
