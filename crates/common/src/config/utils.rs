@@ -6,7 +6,7 @@ use serde::de::DeserializeOwned;
 use super::constants::JWTS_ENV;
 
 pub fn load_env_var(env: &str) -> Result<String> {
-    std::env::var(env).wrap_err("{env} is not set")
+    std::env::var(env).wrap_err(format!("{env} is not set"))
 }
 
 pub fn load_from_file<T: DeserializeOwned>(path: &str) -> Result<T> {
