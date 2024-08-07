@@ -16,8 +16,10 @@ impl OnBuilderApiEvent for LogProcessor {
 async fn main() {
     match load_builder_module_config::<()>() {
         Ok(config) => {
-            info!(module_id = config.id.0, "Starting module");
             let _guard = initialize_tracing_log(&config.id);
+
+            info!(module_id = %config.id, "Starting module");
+
             let client = BuilderEventClient::new(config.server_port, LogProcessor);
 
             if let Err(err) = client.run().await {

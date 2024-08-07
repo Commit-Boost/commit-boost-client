@@ -95,12 +95,14 @@ async fn main() -> Result<()> {
 
     match load_commit_module_config::<ExtraConfig>() {
         Ok(config) => {
+            let _guard = initialize_tracing_log(&config.id);
+
             info!(
-                module_id = config.id.0,
+                module_id = %config.id,
                 sleep_secs = config.extra.sleep_secs,
                 "Starting module with custom data"
             );
-            let _guard = initialize_tracing_log(&config.id);
+
             let service = DaCommitService { config };
 
             if let Err(err) = service.run().await {
@@ -108,6 +110,7 @@ async fn main() -> Result<()> {
             }
         }
         Err(err) => {
+            // FIXME: This trace will never be shown since tracing log is not initialized here.
             error!(?err, "Failed to load module config");
         }
     }
