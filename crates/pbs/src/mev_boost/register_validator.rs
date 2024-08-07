@@ -20,10 +20,10 @@ use crate::{
 
 /// Implements https://ethereum.github.io/builder-specs/#/Builder/registerValidator
 /// Returns 200 if at least one relay returns 200, else 503
-pub async fn register_validator<S: BuilderApiState>(
+pub async fn register_validator<U, S: BuilderApiState>(
     registrations: Vec<ValidatorRegistration>,
     req_headers: HeaderMap,
-    state: PbsState<S>,
+    state: PbsState<U, S>,
 ) -> eyre::Result<()> {
     // prepare headers
     let mut send_headers = HeaderMap::new();

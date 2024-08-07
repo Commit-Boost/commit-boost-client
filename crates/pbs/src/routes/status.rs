@@ -13,9 +13,13 @@ use crate::{
 };
 
 #[tracing::instrument(skip_all, name = "status", fields(req_id = %Uuid::new_v4()))]
-pub async fn handle_get_status<S: BuilderApiState, T: BuilderApi<S>>(
+pub async fn handle_get_status<
+    U: Clone + Send + Sync + 'static,
+    S: BuilderApiState,
+    T: BuilderApi<U, S>,
+>(
     req_headers: HeaderMap,
-    State(state): State<PbsState<S>>,
+    State(state): State<PbsState<U, S>>,
 ) -> Result<impl IntoResponse, PbsClientError> {
     state.publish_event(BuilderEvent::GetStatusEvent);
 

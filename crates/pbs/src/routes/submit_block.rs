@@ -16,8 +16,12 @@ use crate::{
 };
 
 #[tracing::instrument(skip_all, name = "submit_blinded_block", fields(req_id = %Uuid::new_v4(), slot = signed_blinded_block.message.slot))]
-pub async fn handle_submit_block<S: BuilderApiState, T: BuilderApi<S>>(
-    State(state): State<PbsState<S>>,
+pub async fn handle_submit_block<
+    U: Clone + Send + Sync + 'static,
+    S: BuilderApiState,
+    T: BuilderApi<U, S>,
+>(
+    State(state): State<PbsState<U, S>>,
     req_headers: HeaderMap,
     Json(signed_blinded_block): Json<SignedBlindedBeaconBlock>,
 ) -> Result<impl IntoResponse, PbsClientError> {

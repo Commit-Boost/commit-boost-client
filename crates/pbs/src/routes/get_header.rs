@@ -21,8 +21,12 @@ use crate::{
 };
 
 #[tracing::instrument(skip_all, name = "get_header", fields(req_id = %Uuid::new_v4(), slot = params.slot))]
-pub async fn handle_get_header<S: BuilderApiState, T: BuilderApi<S>>(
-    State(state): State<PbsState<S>>,
+pub async fn handle_get_header<
+    U: Clone + Send + Sync + 'static,
+    S: BuilderApiState,
+    T: BuilderApi<U, S>,
+>(
+    State(state): State<PbsState<U, S>>,
     req_headers: HeaderMap,
     Path(params): Path<GetHeaderParams>,
 ) -> Result<impl IntoResponse, PbsClientError> {

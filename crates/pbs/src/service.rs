@@ -18,7 +18,9 @@ pub struct PbsService;
 // TODO: add ServerMaxHeaderBytes
 
 impl PbsService {
-    pub async fn run<S: BuilderApiState, T: BuilderApi<S>>(state: PbsState<S>) -> Result<()> {
+    pub async fn run<U: Clone + Send + Sync + 'static, S: BuilderApiState, T: BuilderApi<U, S>>(
+        state: PbsState<U, S>,
+    ) -> Result<()> {
         // if state.pbs_config().relay_check {
         //     PbsService::relay_check(state.relays()).await;
         // }
@@ -26,7 +28,7 @@ impl PbsService {
         let address = SocketAddr::from(([0, 0, 0, 0], state.config.pbs_config.port));
         let events_subs =
             state.config.event_publiher.as_ref().map(|e| e.n_subscribers()).unwrap_or_default();
-        let app = create_app_router::<S, T>(state);
+        let app = create_app_router::<U, S, T>(state);
 
         info!(?address, events_subs, "Starting PBS service");
 

@@ -18,5 +18,5 @@ async fn main() -> Result<()> {
     let _guard = initialize_tracing_log(PBS_MODULE_NAME);
     let state = PbsState::<()>::new(pbs_config);
     PbsService::init_metrics()?;
-    PbsService::run::<(), DefaultBuilderApi>(state).await
+    PbsService::run::<(), (), DefaultBuilderApi>(state).await
 }

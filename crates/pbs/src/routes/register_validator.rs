@@ -14,8 +14,12 @@ use crate::{
 };
 
 #[tracing::instrument(skip_all, name = "register_validators", fields(req_id = %Uuid::new_v4()))]
-pub async fn handle_register_validator<S: BuilderApiState, T: BuilderApi<S>>(
-    State(state): State<PbsState<S>>,
+pub async fn handle_register_validator<
+    U: Clone + Send + Sync + 'static,
+    S: BuilderApiState,
+    T: BuilderApi<U, S>,
+>(
+    State(state): State<PbsState<U, S>>,
     req_headers: HeaderMap,
     Json(registrations): Json<Vec<ValidatorRegistration>>,
 ) -> Result<impl IntoResponse, PbsClientError> {

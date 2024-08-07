@@ -16,9 +16,9 @@ use crate::{
 /// Implements https://ethereum.github.io/builder-specs/#/Builder/status
 /// Broadcasts a status check to all relays and returns 200 if at least one
 /// relay returns 200
-pub async fn get_status<S: BuilderApiState>(
+pub async fn get_status<U, S: BuilderApiState>(
     req_headers: HeaderMap,
-    state: PbsState<S>,
+    state: PbsState<U, S>,
 ) -> eyre::Result<()> {
     // If no relay check, return early
     if !state.config.pbs_config.relay_check {

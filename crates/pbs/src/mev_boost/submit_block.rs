@@ -20,10 +20,10 @@ use crate::{
 };
 
 /// Implements https://ethereum.github.io/builder-specs/#/Builder/submitBlindedBlock
-pub async fn submit_block<S: BuilderApiState>(
+pub async fn submit_block<U, S: BuilderApiState>(
     signed_blinded_block: SignedBlindedBeaconBlock,
     req_headers: HeaderMap,
-    state: PbsState<S>,
+    state: PbsState<U, S>,
 ) -> eyre::Result<SubmitBlindedBlockResponse> {
     let (_, slot_uuid) = state.get_slot_and_uuid();
 

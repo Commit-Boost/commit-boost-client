@@ -29,10 +29,10 @@ use crate::{
 
 /// Implements https://ethereum.github.io/builder-specs/#/Builder/getHeader
 /// Returns 200 if at least one relay returns 200, else 204
-pub async fn get_header<S: BuilderApiState>(
+pub async fn get_header<U, S: BuilderApiState>(
     params: GetHeaderParams,
     req_headers: HeaderMap,
-    state: PbsState<S>,
+    state: PbsState<U, S>,
 ) -> eyre::Result<Option<GetHeaderReponse>> {
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
     let max_timeout_ms = state
