@@ -82,12 +82,10 @@ async fn jwt_auth(
 ) -> Result<Response, SignerModuleError> {
     let jwt: Jwt = auth.token().to_string().into();
 
-    let maybe_module_id = state.jwts.get_by_right(&jwt);
-
-    let Some(module_id) = maybe_module_id else {
-        warn!("Unauthorized request. Was the module started correctly?");
-        return Err(SignerModuleError::Unauthorized);
-    };
+    let module_id = state.jwts.get_by_right(&jwt).ok_or_else(|| {
+        error!("Unauthorized request. Was the module started correctly?");
+        SignerModuleError::Unauthorized
+    })?;
 
     req.extensions_mut().insert(module_id.clone());
 
