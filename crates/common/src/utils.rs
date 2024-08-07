@@ -221,7 +221,8 @@ pub fn random_jwt() -> String {
     rand::thread_rng().sample_iter(&Alphanumeric).take(32).map(char::from).collect()
 }
 
-/// Extracts the user agent from the request headers
+/// Returns the user agent from the request headers or an empty string if not
+/// present
 pub fn get_user_agent(req_headers: &HeaderMap) -> String {
     req_headers
         .get(reqwest::header::USER_AGENT)
@@ -229,7 +230,7 @@ pub fn get_user_agent(req_headers: &HeaderMap) -> String {
         .unwrap_or_default()
 }
 
-/// Extracts the user agent from the request headers and adds version
+/// Adds the commit boost version to the existing user agent
 pub fn get_user_agent_with_version(req_headers: &HeaderMap) -> eyre::Result<HeaderValue> {
     let ua = get_user_agent(req_headers);
     Ok(HeaderValue::from_str(&format!("commit-boost/{HEAVER_VERSION_VALUE} {}", ua))?)
