@@ -132,7 +132,6 @@ impl SigningManager {
     }
 }
 
-// TODO(David): Add more tests.
 #[cfg(test)]
 mod tests {
     use cb_common::signature::verify_signed_builder_message;
