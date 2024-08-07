@@ -1,7 +1,6 @@
 use std::time::Duration;
 
 use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
-use commit::request::SignedProxyDelegation;
 use commit_boost::prelude::*;
 use eyre::{OptionExt, Result};
 use lazy_static::lazy_static;
