@@ -16,8 +16,8 @@ use tracing_appender::{non_blocking::WorkerGuard, rolling::Rotation};
 use tracing_subscriber::{fmt::Layer, prelude::*, EnvFilter};
 
 use crate::{
-    config::{default_log_level, RollingDuration, CB_BASE_LOG_PATH},
-    pbs::HEAVER_VERSION_VALUE,
+    config::{default_log_level, RollingDuration, CB_BASE_LOG_PATH, PBS_MODULE_NAME},
+    pbs::HEADER_VERSION_VALUE,
     types::Chain,
 };
 
@@ -182,6 +182,10 @@ pub fn initialize_tracing_log(module_id: &str) -> WorkerGuard {
     guard
 }
 
+pub fn initialize_pbs_tracing_log() -> WorkerGuard {
+    initialize_tracing_log(PBS_MODULE_NAME)
+}
+
 // all commit boost crates
 // TODO: this can probably done without unwrap
 fn format_crates_filter(default_level: &str, crates_level: &str) -> EnvFilter {
@@ -233,5 +237,5 @@ pub fn get_user_agent(req_headers: &HeaderMap) -> String {
 /// Adds the commit boost version to the existing user agent
 pub fn get_user_agent_with_version(req_headers: &HeaderMap) -> eyre::Result<HeaderValue> {
     let ua = get_user_agent(req_headers);
-    Ok(HeaderValue::from_str(&format!("commit-boost/{HEAVER_VERSION_VALUE} {}", ua))?)
+    Ok(HeaderValue::from_str(&format!("commit-boost/{HEADER_VERSION_VALUE} {}", ua))?)
 }

@@ -14,13 +14,12 @@ use uuid::Uuid;
 pub trait BuilderApiState: Clone + Sync + Send + 'static {}
 impl BuilderApiState for () {}
 
-/// State for the Pbs module. It can be extended in two ways:
-/// - By adding extra configs to be loaded at startup
-/// - By adding extra data to the state
+/// State for the Pbs module. It can be extended by adding extra data to the
+/// state
 #[derive(Clone)]
-pub struct PbsState<U, S: BuilderApiState = ()> {
+pub struct PbsState<S: BuilderApiState = ()> {
     /// Config data for the Pbs service
-    pub config: PbsModuleConfig<U>,
+    pub config: PbsModuleConfig,
     /// Opaque extra data for library use
     pub data: S,
     /// Info about the latest slot and its uuid
@@ -29,8 +28,8 @@ pub struct PbsState<U, S: BuilderApiState = ()> {
     bid_cache: Arc<DashMap<u64, Vec<GetHeaderReponse>>>,
 }
 
-impl<U> PbsState<U, ()> {
-    pub fn new(config: PbsModuleConfig<U>) -> Self {
+impl PbsState<()> {
+    pub fn new(config: PbsModuleConfig) -> Self {
         Self {
             config,
             data: (),
@@ -39,7 +38,7 @@ impl<U> PbsState<U, ()> {
         }
     }
 
-    pub fn with_data<S: BuilderApiState>(self, data: S) -> PbsState<U, S> {
+    pub fn with_data<S: BuilderApiState>(self, data: S) -> PbsState<S> {
         PbsState {
             data,
             config: self.config,
@@ -49,7 +48,7 @@ impl<U> PbsState<U, ()> {
     }
 }
 
-impl<U, S> PbsState<U, S>
+impl<S> PbsState<S>
 where
     S: BuilderApiState,
 {

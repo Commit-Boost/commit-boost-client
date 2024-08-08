@@ -14,7 +14,7 @@ use crate::{
 };
 
 #[tracing::instrument(skip_all, name = "register_validators", fields(req_id = %Uuid::new_v4()))]
-pub async fn handle_register_validator<S: BuilderApiState, T: BuilderApi<S>>(
+pub async fn handle_register_validator<S: BuilderApiState, A: BuilderApi<S>>(
     State(state): State<PbsState<S>>,
     req_headers: HeaderMap,
     Json(registrations): Json<Vec<ValidatorRegistration>>,
@@ -26,7 +26,7 @@ pub async fn handle_register_validator<S: BuilderApiState, T: BuilderApi<S>>(
 
     info!(ua, num_registrations = registrations.len());
 
-    if let Err(err) = T::register_validator(registrations, req_headers, state.clone()).await {
+    if let Err(err) = A::register_validator(registrations, req_headers, state.clone()).await {
         state.publish_event(BuilderEvent::RegisterValidatorResponse);
         error!(?err, "all relays failed registration");
 

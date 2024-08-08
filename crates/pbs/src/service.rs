@@ -18,15 +18,11 @@ pub struct PbsService;
 // TODO: add ServerMaxHeaderBytes
 
 impl PbsService {
-    pub async fn run<S: BuilderApiState, T: BuilderApi<S>>(state: PbsState<S>) -> Result<()> {
-        // if state.pbs_config().relay_check {
-        //     PbsService::relay_check(state.relays()).await;
-        // }
-
+    pub async fn run<S: BuilderApiState, A: BuilderApi<S>>(state: PbsState<S>) -> Result<()> {
         let address = SocketAddr::from(([0, 0, 0, 0], state.config.pbs_config.port));
         let events_subs =
             state.config.event_publiher.as_ref().map(|e| e.n_subscribers()).unwrap_or_default();
-        let app = create_app_router::<S, T>(state);
+        let app = create_app_router::<S, A>(state);
 
         info!(?address, events_subs, "Starting PBS service");
 
@@ -42,32 +38,4 @@ impl PbsService {
     pub fn init_metrics() -> Result<()> {
         MetricsProvider::load_and_run(PBS_METRICS_REGISTRY.clone())
     }
-
-    // TODO: before starting, send a sanity check to relay
-    // pub async fn relay_check(relays: &[RelayEntry]) {
-    //     info!("Sending initial relay checks");
-
-    //     let mut handles = Vec::with_capacity(relays.len());
-
-    //     for relay in relays {
-    //         handles.push(Box::pin(send_relay_check(relay.clone())))
-    //     }
-
-    //     let results = join_all(handles).await;
-
-    //     if !results.iter().any(|r| r.is_ok()) {
-    //         error!("No relay passed check successfully");
-    //         return;
-    //     }
-
-    //     for (i, res) in results.into_iter().enumerate() {
-    //         let relay_id = relays[i].id.as_str();
-
-    //         if let Err(err) = res {
-    //             error!(?err, "Failed to get status from {relay_id}");
-    //         } else {
-    //             info!(relay_id, "Initial check successful")
-    //         }
-    //     }
-    // }
 }

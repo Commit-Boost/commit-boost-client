@@ -11,7 +11,7 @@ use url::Url;
 
 use super::{
     constants::{BULDER_API_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH},
-    HEADER_VERSION_KEY, HEAVER_VERSION_VALUE,
+    HEADER_VERSION_KEY, HEADER_VERSION_VALUE,
 };
 use crate::{config::RelayConfig, DEFAULT_REQUEST_TIMEOUT};
 /// A parsed entry of the relay url in the format: scheme://pubkey@host
@@ -62,7 +62,7 @@ pub struct RelayClient {
 impl RelayClient {
     pub fn new(config: RelayConfig) -> Result<Self> {
         let mut headers = HeaderMap::new();
-        headers.insert(HEADER_VERSION_KEY, HeaderValue::from_static(HEAVER_VERSION_VALUE));
+        headers.insert(HEADER_VERSION_KEY, HeaderValue::from_static(HEADER_VERSION_VALUE));
 
         if let Some(custom_headers) = &config.headers {
             for (key, value) in custom_headers {
