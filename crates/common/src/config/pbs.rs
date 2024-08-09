@@ -74,11 +74,9 @@ pub struct StaticPbsConfig {
     pub with_signer: bool,
 }
 
-/// Runtime config for the pbs module with support for custom extra config
-/// This will be shared across threads, so the `extra` should be thread safe,
-/// e.g. wrapped in an Arc
+/// Runtime config for the pbs module
 #[derive(Debug, Clone)]
-pub struct PbsModuleConfig<T = ()> {
+pub struct PbsModuleConfig {
     /// Chain spec
     pub chain: Chain,
     /// Pbs default config
@@ -89,8 +87,6 @@ pub struct PbsModuleConfig<T = ()> {
     pub signer_client: Option<SignerClient>,
     /// Event publisher
     pub event_publiher: Option<BuilderEventPublisher>,
-    /// Opaque module config
-    pub extra: T,
 }
 
 fn default_pbs() -> String {
@@ -98,7 +94,7 @@ fn default_pbs() -> String {
 }
 
 /// Loads the default pbs config, i.e. with no signer client or custom data
-pub fn load_pbs_config() -> Result<PbsModuleConfig<()>> {
+pub fn load_pbs_config() -> Result<PbsModuleConfig> {
     let config = CommitBoostConfig::from_env_path()?;
     let relay_clients =
         config.relays.into_iter().map(RelayClient::new).collect::<Result<Vec<_>>>()?;
@@ -110,12 +106,11 @@ pub fn load_pbs_config() -> Result<PbsModuleConfig<()>> {
         relays: relay_clients,
         signer_client: None,
         event_publiher: maybe_publiher,
-        extra: (),
     })
 }
 
 /// Loads a custom pbs config, i.e. with signer client and/or custom data
-pub fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<PbsModuleConfig<T>> {
+pub fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleConfig, T)> {
     #[derive(Debug, Deserialize)]
     struct CustomPbsConfig<U> {
         #[serde(flatten)]
@@ -146,12 +141,14 @@ pub fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<PbsModuleConfig<T
         None
     };
 
-    Ok(PbsModuleConfig {
-        chain: cb_config.chain,
-        pbs_config: Arc::new(cb_config.pbs.static_config.pbs_config),
-        relays: relay_clients,
-        signer_client,
-        event_publiher: maybe_publiher,
-        extra: cb_config.pbs.extra,
-    })
+    Ok((
+        PbsModuleConfig {
+            chain: cb_config.chain,
+            pbs_config: Arc::new(cb_config.pbs.static_config.pbs_config),
+            relays: relay_clients,
+            signer_client,
+            event_publiher: maybe_publiher,
+        },
+        cb_config.pbs.extra,
+    ))
 }
