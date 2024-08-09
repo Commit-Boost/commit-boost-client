@@ -58,16 +58,19 @@ impl DaCommitService {
         }
     }
 
-    pub async fn send_request(&self, data: u64, pubkey: BlsPublicKey, proxy_delegation: SignedProxyDelegation) -> Result<()> {
+    pub async fn send_request(
+        &self,
+        data: u64,
+        pubkey: BlsPublicKey,
+        proxy_delegation: SignedProxyDelegation,
+    ) -> Result<()> {
         let datagram = Datagram { data };
 
-        let request = SignRequest::builder(pubkey)
-            .with_msg(&datagram);
+        let request = SignRequest::builder(pubkey).with_msg(&datagram);
         let signature = self.config.signer_client.request_signature(&request);
 
-        let proxy_request = SignRequest::builder(proxy_delegation.message.proxy)
-            .is_proxy()
-            .with_msg(&datagram);
+        let proxy_request =
+            SignRequest::builder(proxy_delegation.message.proxy).is_proxy().with_msg(&datagram);
         let proxy_signature = self.config.signer_client.request_signature(&proxy_request);
 
         let (signature, proxy_signature) = {

@@ -40,11 +40,7 @@ pub struct SignRequest {
 }
 
 impl SignRequest {
-    pub fn new(
-        pubkey: BlsPublicKey,
-        is_proxy: bool,
-        object_root: [u8; 32],
-    ) -> SignRequest {
+    pub fn new(pubkey: BlsPublicKey, is_proxy: bool, object_root: [u8; 32]) -> SignRequest {
         Self { pubkey, is_proxy, object_root }
     }
 

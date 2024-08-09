@@ -160,7 +160,8 @@ mod tests {
     async fn test_proxy_key_is_valid_proxy_for_consensus_key() {
         let (mut signing_manager, consensus_pk) = init_signing_manager();
 
-        let signed_delegation = signing_manager.create_proxy(MODULE_ID.clone(), consensus_pk.clone()).await.unwrap();
+        let signed_delegation =
+            signing_manager.create_proxy(MODULE_ID.clone(), consensus_pk.clone()).await.unwrap();
 
         let validation_result = signed_delegation.validate(*CHAIN);
 
@@ -179,24 +180,23 @@ mod tests {
     async fn test_tampered_proxy_key_is_invalid() {
         let (mut signing_manager, consensus_pk) = init_signing_manager();
 
-        let mut signed_delegation = signing_manager.create_proxy(MODULE_ID.clone(), consensus_pk.clone()).await.unwrap();
+        let mut signed_delegation =
+            signing_manager.create_proxy(MODULE_ID.clone(), consensus_pk.clone()).await.unwrap();
 
         let m = &mut signed_delegation.signature.0[0];
         (*m, _) = m.overflowing_add(1);
 
         let validation_result = signed_delegation.validate(*CHAIN);
 
-        assert!(
-            validation_result.is_err(),
-            "Tampered proxy key must be invalid."
-        );
+        assert!(validation_result.is_err(), "Tampered proxy key must be invalid.");
     }
 
     #[tokio::test]
     async fn test_proxy_key_signs_message() {
         let (mut signing_manager, consensus_pk) = init_signing_manager();
 
-        let signed_delegation = signing_manager.create_proxy(MODULE_ID.clone(), consensus_pk.clone()).await.unwrap();
+        let signed_delegation =
+            signing_manager.create_proxy(MODULE_ID.clone(), consensus_pk.clone()).await.unwrap();
         let proxy_pk = signed_delegation.message.proxy;
 
         let data_root = Hash256::random();
