@@ -10,6 +10,7 @@ use axum::{
 };
 use axum_extra::TypedHeader;
 use bimap::BiHashMap;
+use blst::min_pk::SecretKey as BlsSecretKey;
 use cb_common::{
     commit::{
         client::GetPubkeysResponse,
@@ -34,7 +35,8 @@ pub struct SigningService;
 struct SigningState {
     /// Mananger handling different signing methods
     manager: Arc<RwLock<SigningManager>>,
-    /// Map of JWTs to module ids. This also acts as registry of all modules running
+    /// Map of JWTs to module ids. This also acts as registry of all modules
+    /// running
     jwts: Arc<BiHashMap<ModuleId, Jwt>>,
 }
 
@@ -126,7 +128,12 @@ async fn handle_request_signature(
     let sig = if request.is_proxy {
         signing_manager.sign_proxy(&request.pubkey, &request.object_root).await
     } else {
-        signing_manager.sign_consensus(&request.pubkey, &request.object_root).await
+        let pubkey = request
+            .pubkey
+            .as_slice()
+            .try_into()
+            .map_err(|_| SignerModuleError::UnknownConsensusSigner(request.pubkey.clone()))?;
+        signing_manager.sign_consensus(pubkey, &request.object_root).await.map(|x| x.to_vec())
     }?;
 
     Ok((StatusCode::OK, Json(sig)).into_response())
@@ -143,7 +150,12 @@ async fn handle_generate_proxy(
 
     let mut signing_manager = state.manager.write().await;
 
-    let proxy_delegation = signing_manager.create_proxy(module_id, request.pubkey).await?;
+    use cb_common::commit::request::EncryptionScheme;
+    let proxy_delegation = match request.scheme {
+        EncryptionScheme::Bls => signing_manager.create_proxy::<BlsSecretKey>(module_id, request.consensus_pubkey).await?,
+        EncryptionScheme::Ecdsa => todo!("Not yet implemented"), //signing_manager.create_proxy::<EcdsaSecretKey>(module_id, request.consensus_pubkey).await?,,
+    };
+
 
     Ok((StatusCode::OK, Json(proxy_delegation)).into_response())
 }

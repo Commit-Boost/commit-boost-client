@@ -10,12 +10,12 @@ use super::{
     error::SignerClientError,
     request::{GenerateProxyRequest, SignRequest, SignedProxyDelegation},
 };
-use crate::DEFAULT_REQUEST_TIMEOUT;
+use crate::{signer::GenericPubkey, DEFAULT_REQUEST_TIMEOUT};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GetPubkeysResponse {
     pub consensus: Vec<BlsPublicKey>,
-    pub proxy: Vec<BlsPublicKey>,
+    pub proxy: Vec<GenericPubkey>,
 }
 
 /// Client used by commit modules to request signatures via the Signer API
@@ -90,10 +90,9 @@ impl SignerClient {
 
     pub async fn generate_proxy_key(
         &self,
-        pubkey: BlsPublicKey,
+        request: &GenerateProxyRequest,
     ) -> Result<SignedProxyDelegation, SignerClientError> {
         let url = format!("{}{}", self.url, GENERATE_PROXY_KEY_PATH);
-        let request = GenerateProxyRequest::new(pubkey);
         let res = self.client.post(&url).json(&request).send().await?;
 
         let status = res.status();

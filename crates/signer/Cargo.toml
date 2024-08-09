@@ -38,3 +38,4 @@ rand.workspace = true
 uuid.workspace = true
 bimap.workspace = true
 lazy_static.workspace = true
+derive_more.workspace = true

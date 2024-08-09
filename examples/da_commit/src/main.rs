@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
+use commit::request::GenerateProxyRequest;
 use commit_boost::prelude::*;
 use eyre::{OptionExt, Result};
 use lazy_static::lazy_static;
@@ -46,7 +47,8 @@ impl DaCommitService {
         let pubkey = pubkeys.consensus.first().ok_or_eyre("no key available")?;
         info!("Registered validator {pubkey}");
 
-        let proxy_delegation = self.config.signer_client.generate_proxy_key(*pubkey).await?;
+        let request = GenerateProxyRequest::new(*pubkey, commit::request::EncryptionScheme::Bls);
+        let proxy_delegation = self.config.signer_client.generate_proxy_key(&request).await?;
         info!("Obtained a proxy delegation {proxy_delegation:#?}");
 
         let mut data = 0;
@@ -61,11 +63,11 @@ impl DaCommitService {
     pub async fn send_request(&self, data: u64, pubkey: BlsPublicKey, proxy_delegation: SignedProxyDelegation) -> Result<()> {
         let datagram = Datagram { data };
 
-        let request = SignRequest::builder(pubkey)
+        let request = SignRequest::builder(pubkey.to_vec())
             .with_msg(&datagram);
         let signature = self.config.signer_client.request_signature(&request);
 
-        let proxy_request = SignRequest::builder(proxy_delegation.message.proxy)
+        let proxy_request = SignRequest::builder(proxy_delegation.message.proxy.as_ref().to_vec())
             .is_proxy()
             .with_msg(&datagram);
         let proxy_signature = self.config.signer_client.request_signature(&proxy_request);

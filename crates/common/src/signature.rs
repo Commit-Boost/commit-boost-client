@@ -1,6 +1,6 @@
 use alloy::rpc::types::beacon::{constants::BLS_DST_SIG, BlsPublicKey, BlsSignature};
 use blst::{
-    min_pk::{PublicKey, SecretKey, Signature},
+    min_pk::{PublicKey, SecretKey as BlsSecretKey, Signature},
     BLST_ERROR,
 };
 use rand::RngCore;
@@ -9,24 +9,22 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    constants::{APPLICATION_BUILDER_DOMAIN, GENESIS_VALIDATORS_ROOT},
-    error::BlstErrorWrapper,
-    types::Chain,
-    utils::{alloy_pubkey_to_blst, alloy_sig_to_blst},
+    constants::{APPLICATION_BUILDER_DOMAIN, GENESIS_VALIDATORS_ROOT}, error::BlstErrorWrapper, signer::SecretKey, types::Chain, utils::{alloy_pubkey_to_blst, alloy_sig_to_blst}
 };
 
-pub fn random_secret() -> SecretKey {
+pub fn random_secret() -> BlsSecretKey {
     let mut rng = rand::thread_rng();
     let mut ikm = [0u8; 32];
     rng.fill_bytes(&mut ikm);
 
-    match SecretKey::key_gen(&ikm, &[]) {
+    match BlsSecretKey::key_gen(&ikm, &[]) {
         Ok(key) => key,
         // Key material is always valid (32 `u8`s), so `key_gen` can't return Err.
         Err(_) => unreachable!(),
     }
 }
 
+// TODO(David): Think about removing
 pub fn verify_signature(
     pubkey: &BlsPublicKey,
     msg: &[u8],
@@ -43,7 +41,7 @@ pub fn verify_signature(
     }
 }
 
-pub fn sign_message(secret_key: &SecretKey, msg: &[u8]) -> BlsSignature {
+pub fn sign_message(secret_key: &BlsSecretKey, msg: &[u8]) -> BlsSignature {
     let signature = secret_key.sign(msg, BLS_DST_SIG, &[]).to_bytes();
     BlsSignature::from_slice(&signature)
 }
@@ -91,22 +89,24 @@ pub fn verify_signed_builder_message<T: TreeHash>(
     verify_signature(pubkey, &signing_root, signature)
 }
 
-pub fn sign_builder_message(
+pub fn sign_builder_message<T: SecretKey>(
     chain: Chain,
-    secret_key: &SecretKey,
+    secret_key: &T,
     msg: &impl TreeHash,
-) -> BlsSignature {
+) -> T::Signature {
     sign_builder_root(chain, secret_key, msg.tree_hash_root().0)
 }
 
-pub fn sign_builder_root(
+// TODO(David): This utility function seems unnecessary
+pub fn sign_builder_root<T: SecretKey>(
     chain: Chain,
-    secret_key: &SecretKey,
+    secret_key: &T,
     object_root: [u8; 32],
-) -> BlsSignature {
+) -> T::Signature {
     let domain = chain.builder_domain();
     let signing_root = compute_signing_root(object_root, domain);
-    sign_message(secret_key, &signing_root)
+    secret_key.sign(&signing_root)
+    // sign_message(secret_key, &signing_root)
 }
 
 #[cfg(test)]

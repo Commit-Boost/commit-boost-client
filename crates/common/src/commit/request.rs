@@ -4,14 +4,14 @@ use ssz_derive::{Decode, Encode};
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
-use crate::{error::BlstErrorWrapper, signature::verify_signed_builder_message, types::Chain};
+use crate::{error::BlstErrorWrapper, signature::verify_signed_builder_message, signer::GenericPubkey, types::Chain};
 
 // TODO: might need to adapt the SignedProxyDelegation so that it goes through
 // web3 signer
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Encode, Decode, TreeHash)]
 pub struct ProxyDelegation {
     pub delegator: BlsPublicKey,
-    pub proxy: BlsPublicKey,
+    pub proxy: GenericPubkey,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -32,23 +32,25 @@ impl SignedProxyDelegation {
     }
 }
 
+// TODO(David): Consider splitting `SignRequest` into two: ConsensusSignRequest and ProxySignRequest
+//  for better type safety (avoid the Vec<u8> generalisation) and avoid the is_proxy flag
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignRequest {
-    pub pubkey: BlsPublicKey,
+    pub pubkey: Vec<u8>, // TODO(David): Vec<u8> might not be the most memory inefficient, think about something on the stack
     pub is_proxy: bool,
     pub object_root: [u8; 32],
 }
 
 impl SignRequest {
     pub fn new(
-        pubkey: BlsPublicKey,
+        pubkey: Vec<u8>,
         is_proxy: bool,
         object_root: [u8; 32],
     ) -> SignRequest {
         Self { pubkey, is_proxy, object_root }
     }
 
-    pub fn builder(pubkey: BlsPublicKey) -> Self {
+    pub fn builder(pubkey: Vec<u8>) -> Self {
         Self::new(pubkey, false, [0; 32])
     }
 
@@ -67,11 +69,18 @@ impl SignRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GenerateProxyRequest {
-    pub pubkey: BlsPublicKey,
+    pub consensus_pubkey: BlsPublicKey,
+    pub scheme: EncryptionScheme,
 }
 
 impl GenerateProxyRequest {
-    pub fn new(pubkey: BlsPublicKey) -> Self {
-        GenerateProxyRequest { pubkey }
+    pub fn new(consensus_pubkey: BlsPublicKey, scheme: EncryptionScheme) -> Self {
+        GenerateProxyRequest { consensus_pubkey, scheme }
     }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum EncryptionScheme {
+    Bls,
+    Ecdsa,
 }
