@@ -2,9 +2,8 @@ use bimap::BiHashMap;
 use eyre::{Context, Result};
 use serde::de::DeserializeOwned;
 
-use crate::types::{Jwt, ModuleId};
-
 use super::constants::JWTS_ENV;
+use crate::types::{Jwt, ModuleId};
 
 pub fn load_env_var(env: &str) -> Result<String> {
     std::env::var(env).wrap_err(format!("{env} is not set"))
