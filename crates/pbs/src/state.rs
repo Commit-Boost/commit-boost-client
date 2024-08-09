@@ -82,6 +82,10 @@ where
         &self.config.relays
     }
 
+    pub fn has_monitors(&self) -> bool {
+        !self.config.pbs_config.relay_monitors.is_empty()
+    }
+
     /// Add some bids to the cache, the bids are all assumed to be for the
     /// provided slot Returns the bid with the max value
     pub fn add_bids(&self, slot: u64, bids: Vec<GetHeaderReponse>) -> Option<GetHeaderReponse> {

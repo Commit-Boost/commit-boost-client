@@ -3,8 +3,9 @@
 use std::{collections::HashMap, sync::Arc};
 
 use alloy::primitives::U256;
-use eyre::Result;
+use eyre::{Context, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use url::Url;
 
 use super::{constants::PBS_DEFAULT_IMAGE, CommitBoostConfig};
 use crate::{
@@ -55,9 +56,23 @@ pub struct PbsConfig {
     /// Minimum bid that will be accepted from get_header
     #[serde(rename = "min_bid_eth", with = "as_eth_str", default = "default_u256")]
     pub min_bid_wei: U256,
+    /// List of relay monitor urls in the form of scheme://host
+    #[serde(default)]
+    pub relay_monitors: Vec<String>,
     /// How late in the slot we consider to be "late"
     #[serde(default = "default_u64::<LATE_IN_SLOT_TIME_MS>")]
     pub late_in_slot_time_ms: u64,
+}
+
+impl PbsConfig {
+    /// Validate PBS config parameters
+    pub fn validate(&self) -> Result<()> {
+        for monitor in &self.relay_monitors {
+            Url::parse(monitor).wrap_err(format!("Invalid relay monitor URL: {}", monitor))?;
+        }
+
+        Ok(())
+    }
 }
 
 /// Static pbs config from config file
@@ -96,6 +111,8 @@ fn default_pbs() -> String {
 /// Loads the default pbs config, i.e. with no signer client or custom data
 pub fn load_pbs_config() -> Result<PbsModuleConfig> {
     let config = CommitBoostConfig::from_env_path()?;
+    config.pbs.pbs_config.validate()?;
+
     let relay_clients =
         config.relays.into_iter().map(RelayClient::new).collect::<Result<Vec<_>>>()?;
     let maybe_publiher = BuilderEventPublisher::new_from_env();
@@ -128,6 +145,8 @@ pub fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleConfig,
 
     // load module config including the extra data (if any)
     let cb_config: StubConfig<T> = load_file_from_env(CB_CONFIG_ENV)?;
+    cb_config.pbs.static_config.pbs_config.validate()?;
+
     let relay_clients =
         cb_config.relays.into_iter().map(RelayClient::new).collect::<Result<Vec<_>>>()?;
     let maybe_publiher = BuilderEventPublisher::new_from_env();

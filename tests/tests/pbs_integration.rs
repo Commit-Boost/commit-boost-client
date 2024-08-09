@@ -38,6 +38,7 @@ fn get_pbs_static_config(port: u16) -> PbsConfig {
         skip_sigverify: false,
         min_bid_wei: U256::ZERO,
         late_in_slot_time_ms: u64::MAX,
+        relay_monitors: vec![],
     }
 }
 
