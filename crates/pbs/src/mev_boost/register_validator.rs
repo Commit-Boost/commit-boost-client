@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use alloy::rpc::types::beacon::relay::ValidatorRegistration;
 use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
-    pbs::{RelayClient, HEADER_START_TIME_UNIX_MS},
+    pbs::{error::PbsError, RelayClient, HEADER_START_TIME_UNIX_MS},
     utils::{get_user_agent_with_version, utcnow_ms},
 };
 use eyre::bail;
@@ -13,7 +13,6 @@ use tracing::{debug, error};
 
 use crate::{
     constants::{REGISTER_VALIDATOR_ENDPOINT_TAG, TIMEOUT_ERROR_CODE_STR},
-    error::PbsError,
     metrics::{RELAY_LATENCY, RELAY_STATUS_CODE},
     state::{BuilderApiState, PbsState},
 };
@@ -58,7 +57,7 @@ async fn send_register_validator(
     headers: HeaderMap,
     timeout_ms: u64,
 ) -> Result<(), PbsError> {
-    let url = relay.register_validator_url();
+    let url = relay.register_validator_url()?;
 
     let start_request = Instant::now();
     let res = match relay

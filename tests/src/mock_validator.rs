@@ -17,7 +17,7 @@ impl MockValidator {
     }
 
     pub async fn do_get_header(&self) -> Result<(), Error> {
-        let url = self.comm_boost.get_header_url(0, B256::ZERO, BlsPublicKey::ZERO);
+        let url = self.comm_boost.get_header_url(0, B256::ZERO, BlsPublicKey::ZERO).unwrap();
         let res = self.comm_boost.client.get(url).send().await?.bytes().await?;
         assert!(serde_json::from_slice::<GetHeaderReponse>(&res).is_ok());
 
@@ -25,7 +25,7 @@ impl MockValidator {
     }
 
     pub async fn do_get_status(&self) -> Result<(), Error> {
-        let url = self.comm_boost.get_status_url();
+        let url = self.comm_boost.get_status_url().unwrap();
         let _res = self.comm_boost.client.get(url).send().await?;
         // assert!(res.status().is_success());
 
@@ -33,7 +33,7 @@ impl MockValidator {
     }
 
     pub async fn do_register_validator(&self) -> Result<(), Error> {
-        let url = self.comm_boost.register_validator_url();
+        let url = self.comm_boost.register_validator_url().unwrap();
 
         let registration: Vec<ValidatorRegistration> = vec![];
 
@@ -50,7 +50,7 @@ impl MockValidator {
     }
 
     pub async fn do_submit_block(&self) -> Result<(), Error> {
-        let url = self.comm_boost.submit_block_url();
+        let url = self.comm_boost.submit_block_url().unwrap();
 
         let signed_blinded_block = SignedBlindedBeaconBlock::default();
 

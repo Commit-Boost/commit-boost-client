@@ -3,7 +3,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use alloy::primitives::U256;
-use eyre::{Context, Result};
+use eyre::Result;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use url::Url;
 
@@ -16,7 +16,7 @@ use crate::{
     utils::{as_eth_str, default_bool, default_u256, default_u64},
 };
 
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RelayConfig {
     /// Relay ID, if missing will default to the URL hostname from the entry
     pub id: Option<String>,
@@ -34,7 +34,7 @@ pub struct RelayConfig {
     pub frequency_get_header_ms: Option<u64>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PbsConfig {
     /// Port to receive BuilderAPI calls from beacon node
     pub port: u16,
@@ -58,7 +58,7 @@ pub struct PbsConfig {
     pub min_bid_wei: U256,
     /// List of relay monitor urls in the form of scheme://host
     #[serde(default)]
-    pub relay_monitors: Vec<String>,
+    pub relay_monitors: Vec<Url>,
     /// How late in the slot we consider to be "late"
     #[serde(default = "default_u64::<LATE_IN_SLOT_TIME_MS>")]
     pub late_in_slot_time_ms: u64,
@@ -67,16 +67,12 @@ pub struct PbsConfig {
 impl PbsConfig {
     /// Validate PBS config parameters
     pub fn validate(&self) -> Result<()> {
-        for monitor in &self.relay_monitors {
-            Url::parse(monitor).wrap_err(format!("Invalid relay monitor URL: {}", monitor))?;
-        }
-
         Ok(())
     }
 }
 
 /// Static pbs config from config file
-#[derive(Debug, Default, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct StaticPbsConfig {
     /// Docker image of the module
     #[serde(default = "default_pbs")]
@@ -111,7 +107,6 @@ fn default_pbs() -> String {
 /// Loads the default pbs config, i.e. with no signer client or custom data
 pub fn load_pbs_config() -> Result<PbsModuleConfig> {
     let config = CommitBoostConfig::from_env_path()?;
-    config.pbs.pbs_config.validate()?;
 
     let relay_clients =
         config.relays.into_iter().map(RelayClient::new).collect::<Result<Vec<_>>>()?;
