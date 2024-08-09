@@ -3,7 +3,7 @@ use axum::{
     Router,
 };
 use cb_common::pbs::{
-    BULDER_API_PATH, GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
+    BUILDER_API_PATH, GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
 };
 
 use super::{handle_get_header, handle_get_status, handle_register_validator, handle_submit_block};
@@ -19,7 +19,7 @@ pub fn create_app_router<S: BuilderApiState, A: BuilderApi<S>>(state: PbsState<S
         .route(REGISTER_VALIDATOR_PATH, post(handle_register_validator::<S, A>))
         .route(SUBMIT_BLOCK_PATH, post(handle_submit_block::<S, A>));
 
-    let builder_api = Router::new().nest(BULDER_API_PATH, builder_routes);
+    let builder_api = Router::new().nest(BUILDER_API_PATH, builder_routes);
 
     let app = if let Some(extra_routes) = A::extra_routes() {
         builder_api.merge(extra_routes)

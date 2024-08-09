@@ -34,11 +34,21 @@ pub struct CommitBoostConfig {
 }
 
 impl CommitBoostConfig {
+    /// Validate config
+    pub fn validate(&self) -> Result<()> {
+        self.pbs.pbs_config.validate()?;
+        Ok(())
+    }
+
     pub fn from_file(path: &str) -> Result<Self> {
-        load_from_file(path)
+        let config: Self = load_from_file(path)?;
+        config.validate()?;
+        Ok(config)
     }
 
     pub fn from_env_path() -> Result<Self> {
-        load_file_from_env(CB_CONFIG_ENV)
+        let config: Self = load_file_from_env(CB_CONFIG_ENV)?;
+        config.validate()?;
+        Ok(config)
     }
 }

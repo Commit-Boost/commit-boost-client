@@ -38,6 +38,7 @@ tree_hash_derive.workspace = true
 # misc
 thiserror.workspace = true
 eyre.workspace = true
+url.workspace = true
 uuid.workspace = true
 typenum.workspace = true
 lazy_static.workspace = true

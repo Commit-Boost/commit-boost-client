@@ -1,14 +1,16 @@
 use std::time::{Duration, Instant};
 
 use axum::http::HeaderMap;
-use cb_common::{pbs::RelayClient, utils::get_user_agent_with_version};
+use cb_common::{
+    pbs::{error::PbsError, RelayClient},
+    utils::get_user_agent_with_version,
+};
 use futures::future::select_ok;
 use reqwest::header::USER_AGENT;
 use tracing::{debug, error};
 
 use crate::{
     constants::{STATUS_ENDPOINT_TAG, TIMEOUT_ERROR_CODE_STR},
-    error::PbsError,
     metrics::{RELAY_LATENCY, RELAY_STATUS_CODE},
     state::{BuilderApiState, PbsState},
 };
@@ -45,7 +47,7 @@ pub async fn get_status<S: BuilderApiState>(
 
 #[tracing::instrument(skip_all, name = "handler", fields(relay_id = relay.id.as_ref()))]
 async fn send_relay_check(relay: &RelayClient, headers: HeaderMap) -> Result<(), PbsError> {
-    let url = relay.get_status_url();
+    let url = relay.get_status_url()?;
 
     let start_request = Instant::now();
     let res = match relay

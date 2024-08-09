@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
     pbs::{
+        error::{PbsError, ValidationError},
         RelayClient, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse, HEADER_SLOT_UUID_KEY,
         HEADER_START_TIME_UNIX_MS,
     },
@@ -14,7 +15,6 @@ use tracing::{debug, warn};
 
 use crate::{
     constants::{SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG, TIMEOUT_ERROR_CODE_STR},
-    error::{PbsError, ValidationError},
     metrics::{RELAY_LATENCY, RELAY_STATUS_CODE},
     state::{BuilderApiState, PbsState},
 };
@@ -60,7 +60,7 @@ async fn send_submit_block(
     headers: HeaderMap,
     timeout_ms: u64,
 ) -> Result<SubmitBlindedBlockResponse, PbsError> {
-    let url = relay.submit_block_url();
+    let url = relay.submit_block_url()?;
 
     let start_request = Instant::now();
     let res = match relay
