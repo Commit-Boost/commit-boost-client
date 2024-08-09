@@ -52,7 +52,7 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
             }
         }
         Err(err) => {
-            error!(?err, "no header available from relays");
+            error!(%err, "no header available from relays");
 
             let err = PbsClientError::NoPayload;
             BEACON_NODE_STATUS

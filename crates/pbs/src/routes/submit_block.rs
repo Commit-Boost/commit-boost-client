@@ -57,7 +57,7 @@ pub async fn handle_submit_block<S: BuilderApiState, A: BuilderApi<S>>(
                     .collect::<Vec<_>>()
                     .join(",");
 
-                error!(?err, %block_hash, fault_relays, "CRITICAL: no payload received from relays");
+                error!(%err, %block_hash, fault_relays, "CRITICAL: no payload received from relays");
                 state.publish_event(BuilderEvent::MissedPayload {
                     block_hash,
                     relays: fault_relays,

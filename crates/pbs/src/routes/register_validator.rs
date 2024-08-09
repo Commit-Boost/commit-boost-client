@@ -28,7 +28,7 @@ pub async fn handle_register_validator<S: BuilderApiState, A: BuilderApi<S>>(
 
     if let Err(err) = A::register_validator(registrations, req_headers, state.clone()).await {
         state.publish_event(BuilderEvent::RegisterValidatorResponse);
-        error!(?err, "all relays failed registration");
+        error!(%err, "all relays failed registration");
 
         let err = PbsClientError::NoResponse;
         BEACON_NODE_STATUS

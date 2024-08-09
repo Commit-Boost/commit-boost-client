@@ -32,7 +32,7 @@ pub async fn handle_get_status<S: BuilderApiState, A: BuilderApi<S>>(
             Ok(StatusCode::OK)
         }
         Err(err) => {
-            error!(?err, "all relays failed get_status");
+            error!(%err, "all relays failed get_status");
 
             let err = PbsClientError::NoResponse;
             BEACON_NODE_STATUS
