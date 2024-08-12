@@ -63,6 +63,8 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     let builder_events_port = 30000;
     let mut builder_events_modules = Vec::new();
 
+    let mut exposed_ports_warn = Vec::new();
+
     // setup pbs service
     targets.push(PrometheusTargetConfig {
         targets: vec![format!("cb_pbs:{metrics_port}")],
@@ -172,7 +174,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
         let (k, v) = get_env_val(BUILDER_SERVER_ENV, &env);
         pbs_envs.insert(k, v);
     }
-
+    exposed_ports_warn.push(format!("pbs has an exported port on {}", cb_config.pbs.pbs_config.port));
     let pbs_service = Service {
         container_name: Some("cb_pbs".to_owned()),
         image: Some(cb_config.pbs.docker_image),
@@ -310,7 +312,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
             name: None,
         }),
     );
-
+    exposed_ports_warn.push("prometheus has an exported port on 9090".to_string());
     let prometheus_service = Service {
         container_name: Some("cb_prometheus".to_owned()),
         image: Some("prom/prometheus:latest".to_owned()),
@@ -324,6 +326,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     services.insert("cb_prometheus".to_owned(), Some(prometheus_service));
 
     if cb_config.metrics.use_grafana {
+        exposed_ports_warn.push("grafana has an exported port on 3000".to_string());
         let grafana_service = Service {
             container_name: Some("cb_grafana".to_owned()),
             image: Some("grafana/grafana:latest".to_owned()),
@@ -347,7 +350,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
         services.insert("cb_grafana".to_owned(), Some(grafana_service));
     }
-
+    exposed_ports_warn.push("cadvisor has an exported port on 8080".to_string());
     services.insert(
         "cb_cadvisor".to_owned(),
         Some(Service {
@@ -377,6 +380,13 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     let compose_path = Path::new(&output_dir).join(CB_COMPOSE_FILE);
     // TODO: check if file exists already and avoid overwriting
     std::fs::write(&compose_path, compose_str)?;
+    if !exposed_ports_warn.is_empty() {
+        println!("\n");
+        for exposed_port in exposed_ports_warn {
+            println!("Warning: {}", exposed_port);
+        }
+        println!("\n");
+    }
     println!("Compose file written to: {:?}", compose_path);
 
     // write envs to .env file
