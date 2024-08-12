@@ -34,5 +34,6 @@ blst.workspace = true
 # misc
 thiserror.workspace = true
 eyre.workspace = true
+url.workspace = true
 uuid.workspace = true
 lazy_static.workspace = true

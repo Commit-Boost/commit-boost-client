@@ -19,7 +19,15 @@ pub fn setup_test_env() {
 }
 
 pub fn generate_mock_relay(port: u16, pubkey: BlsPublicKey) -> Result<RelayClient> {
-    let entry = RelayEntry { id: format!("mock_{port}"), pubkey, url: get_local_address(port) };
-    let config = RelayConfig { entry, ..RelayConfig::default() };
+    let entry =
+        RelayEntry { id: format!("mock_{port}"), pubkey, url: get_local_address(port).parse()? };
+    let config = RelayConfig {
+        entry,
+        id: None,
+        headers: None,
+        enable_timing_games: false,
+        target_first_request_ms: None,
+        frequency_get_header_ms: None,
+    };
     RelayClient::new(config)
 }

@@ -13,7 +13,7 @@ use axum::{
 };
 use cb_common::{
     pbs::{
-        GetHeaderParams, GetHeaderReponse, SubmitBlindedBlockResponse, BULDER_API_PATH,
+        GetHeaderParams, GetHeaderReponse, SubmitBlindedBlockResponse, BUILDER_API_PATH,
         GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
     },
     signer::Signer,
@@ -69,7 +69,7 @@ pub fn mock_relay_app_router(state: Arc<MockRelayState>) -> Router {
         .route(SUBMIT_BLOCK_PATH, post(handle_submit_block))
         .with_state(state);
 
-    Router::new().nest(BULDER_API_PATH, builder_routes)
+    Router::new().nest(BUILDER_API_PATH, builder_routes)
 }
 
 async fn handle_get_header(
