@@ -174,7 +174,8 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
         let (k, v) = get_env_val(BUILDER_SERVER_ENV, &env);
         pbs_envs.insert(k, v);
     }
-    exposed_ports_warn.push(format!("pbs has an exported port on {}", cb_config.pbs.pbs_config.port));
+    exposed_ports_warn
+        .push(format!("pbs has an exported port on {}", cb_config.pbs.pbs_config.port));
     let pbs_service = Service {
         container_name: Some("cb_pbs".to_owned()),
         image: Some(cb_config.pbs.docker_image),
