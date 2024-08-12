@@ -26,6 +26,7 @@ pub(super) const CB_COMPOSE_FILE: &str = "cb.docker-compose.yml";
 pub(super) const CB_ENV_FILE: &str = ".cb.env";
 pub(super) const CB_TARGETS_FILE: &str = "targets.json"; // needs to match prometheus.yml
 pub(super) const PROMETHEUS_DATA_VOLUME: &str = "prometheus-data";
+pub(super) const GRAFANA_DATA_VOLUME: &str = "grafana-data";
 
 const METRICS_NETWORK: &str = "monitoring_network";
 const SIGNER_NETWORK: &str = "signer_network";
@@ -48,10 +49,10 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     let mut jwts = IndexMap::new();
     // envs to write in .env file
     let mut envs = IndexMap::from([(CB_CONFIG_ENV.into(), CB_CONFIG_NAME.into())]);
-
     // targets to pass to prometheus
     let mut targets = Vec::new();
     let metrics_port = 10000;
+    let cadvisor_port = 8080;
 
     // address for signer API communication
     let signer_port = 20000;
@@ -115,11 +116,8 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
                     envs.insert(jwt_name.clone(), jwt.clone());
                     jwts.insert(module.id.clone(), jwt);
-                    let log_volume = get_log_volume(
-                        cb_config.logs.log_dir_path.to_str().unwrap().into(),
-                        &module.id,
-                    );
-
+                    let log_volume =
+                        get_log_volume(cb_config.logs.log_dir_path.clone(), &module.id);
                     Service {
                         container_name: Some(module_cid.clone()),
                         image: Some(module.docker_image),
@@ -151,11 +149,8 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                     }
 
                     builder_events_modules.push(format!("{module_cid}:{builder_events_port}"));
-                    let log_volume = get_log_volume(
-                        cb_config.logs.log_dir_path.to_str().unwrap().into(),
-                        &module.id,
-                    );
-
+                    let log_volume =
+                        get_log_volume(cb_config.logs.log_dir_path.clone(), &module.id);
                     Service {
                         container_name: Some(module_cid.clone()),
                         image: Some(module.docker_image),
@@ -177,7 +172,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
         let (k, v) = get_env_val(BUILDER_SERVER_ENV, &env);
         pbs_envs.insert(k, v);
     }
-    let log_volume = get_log_volume(cb_config.logs.log_dir_path.to_str().unwrap().into(), "pbs");
+    let log_volume = get_log_volume(cb_config.logs.log_dir_path.clone(), "pbs");
     let pbs_service = Service {
         container_name: Some("cb_pbs".to_owned()),
         image: Some(cb_config.pbs.docker_image),
@@ -199,8 +194,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
     if let Some(signer_config) = cb_config.signer {
         if needs_signer_module {
-            let log_volume =
-                get_log_volume(cb_config.logs.log_dir_path.to_str().unwrap().into(), "signer");
+            let log_volume = get_log_volume(cb_config.logs.log_dir_path.clone(), "signer");
             let mut volumes = vec![config_volume.clone(), log_volume];
 
             targets.push(PrometheusTargetConfig {
@@ -294,8 +288,21 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
     let data_volume = Volumes::Simple(format!("{}:/prometheus", PROMETHEUS_DATA_VOLUME));
 
+    let grafana_data_volume = Volumes::Simple(format!("{}:/var/lib/grafana", GRAFANA_DATA_VOLUME));
+
     volumes.insert(
         PROMETHEUS_DATA_VOLUME.to_owned(),
+        MapOrEmpty::Map(ComposeVolume {
+            driver: Some("local".to_owned()),
+            driver_opts: IndexMap::default(),
+            external: None,
+            labels: Labels::default(),
+            name: None,
+        }),
+    );
+
+    volumes.insert(
+        GRAFANA_DATA_VOLUME.to_owned(),
         MapOrEmpty::Map(ComposeVolume {
             driver: Some("local".to_owned()),
             driver_opts: IndexMap::default(),
@@ -332,6 +339,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                 Volumes::Simple(
                     "./grafana/datasources:/etc/grafana/provisioning/datasources".to_owned(),
                 ),
+                grafana_data_volume,
             ],
             // TODO: re-enable logging here once we move away from docker logs
             logging: Some(LoggingParameters { driver: Some("none".to_owned()), options: None }),
@@ -340,6 +348,27 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
         services.insert("cb_grafana".to_owned(), Some(grafana_service));
     }
+
+    services.insert(
+        "cb_cadvisor".to_owned(),
+        Some(Service {
+            container_name: Some("cb_cadvisor".to_owned()),
+            image: Some("gcr.io/cadvisor/cadvisor".to_owned()),
+            ports: Ports::Short(vec![format!("{cadvisor_port}:8080")]),
+            networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
+            volumes: vec![
+                Volumes::Simple("/var/run/docker.sock:/var/run/docker.sock:ro".to_owned()),
+                Volumes::Simple("/sys:/sys:ro".to_owned()),
+                Volumes::Simple("/var/lib/docker/:/var/lib/docker:ro".to_owned()),
+            ],
+            ..Service::default()
+        }),
+    );
+
+    targets.push(PrometheusTargetConfig {
+        targets: vec![format!("cb_cadvisor:{cadvisor_port}")],
+        labels: PrometheusLabelsConfig { job: "cadvisor".to_owned() },
+    });
 
     compose.services = Services(services);
     compose.volumes = TopLevelVolumes(volumes);
