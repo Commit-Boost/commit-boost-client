@@ -10,9 +10,6 @@ commit-boost = { path = "../../bin" }
 # ethereum
 alloy.workspace = true
 
-# networking
-reqwest.workspace = true
-
 # async / threads
 tokio.workspace = true
 

@@ -13,18 +13,10 @@ cb-signer.workspace = true
 
 # async / threads
 tokio.workspace = true
-async-trait.workspace = true
-
-# serialization
-serde_json.workspace = true
 
 # crypto
 tree_hash.workspace = true
 tree_hash_derive.workspace = true
-
-# telemetry
-tracing.workspace = true
-tracing-subscriber.workspace = true
 
 # misc
 clap.workspace = true
