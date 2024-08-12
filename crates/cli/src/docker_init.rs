@@ -7,8 +7,9 @@ use cb_common::{
     config::{
         CommitBoostConfig, ModuleKind, BUILDER_SERVER_ENV, CB_BASE_LOG_PATH, CB_CONFIG_ENV,
         CB_CONFIG_NAME, JWTS_ENV, METRICS_SERVER_ENV, MODULE_ID_ENV, MODULE_JWT_ENV,
-        SIGNER_DIR_KEYS, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS, SIGNER_DIR_SECRETS_ENV,
-        SIGNER_KEYS, SIGNER_KEYS_ENV, SIGNER_SERVER_ENV,
+        PBS_MODULE_NAME, SIGNER_DIR_KEYS, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS,
+        SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS, SIGNER_KEYS_ENV, SIGNER_MODULE_NAME,
+        SIGNER_SERVER_ENV,
     },
     loader::SignerLoader,
     utils::{random_jwt, MAX_LOG_FILES_ENV, ROLLING_DURATION_ENV, RUST_LOG_ENV},
@@ -172,7 +173,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
         let (k, v) = get_env_val(BUILDER_SERVER_ENV, &env);
         pbs_envs.insert(k, v);
     }
-    let log_volume = get_log_volume(cb_config.logs.log_dir_path.clone(), "pbs");
+    let log_volume = get_log_volume(cb_config.logs.log_dir_path.clone(), PBS_MODULE_NAME);
     let pbs_service = Service {
         container_name: Some("cb_pbs".to_owned()),
         image: Some(cb_config.pbs.docker_image),
@@ -194,7 +195,8 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
     if let Some(signer_config) = cb_config.signer {
         if needs_signer_module {
-            let log_volume = get_log_volume(cb_config.logs.log_dir_path.clone(), "signer");
+            let log_volume =
+                get_log_volume(cb_config.logs.log_dir_path.clone(), SIGNER_MODULE_NAME);
             let mut volumes = vec![config_volume.clone(), log_volume];
 
             targets.push(PrometheusTargetConfig {
