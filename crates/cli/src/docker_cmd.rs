@@ -10,41 +10,23 @@ macro_rules! run_docker_compose {
     ($compose_path:expr, $($arg:expr),*) => {{
         let cmd_info = determine_docker_compose_command();
         match cmd_info {
-            Some((mut command, version)) => {
-                // Determine the order based on the version
-                if version == "v1" {
-                    // v1: run with -f after other args
-                    match command.args(&[$($arg),*]).arg("-f").arg($compose_path).output() {
-                        Ok(output) => {
-                            if !output.status.success() {
-                                let stderr = str::from_utf8(&output.stderr).unwrap_or("");
-                                if stderr.contains("permission denied") {
-                                    println!("Warning: Permission denied. Try running with sudo.");
-                                } else {
-                                    println!("Command failed with error: {}", stderr);
-                                }
+            Some((mut command, _version)) => {
+                // Set the COMPOSE_FILE environment variable
+                command.env("COMPOSE_FILE", $compose_path);
+
+                match command.args(&[$($arg),*]).output() {
+                    Ok(output) => {
+                        if !output.status.success() {
+                            let stderr = str::from_utf8(&output.stderr).unwrap_or("");
+                            if stderr.contains("permission denied") {
+                                println!("Warning: Permission denied. Try running with sudo.");
+                            } else {
+                                println!("Command failed with error: {}", stderr);
                             }
-                        }
-                        Err(e) => {
-                            println!("Failed to execute command: {}", e);
                         }
                     }
-                } else {
-                    // v2: run with -f before other args
-                    match command.arg("-f").arg($compose_path).args(&[$($arg),*]).output() {
-                        Ok(output) => {
-                            if !output.status.success() {
-                                let stderr = str::from_utf8(&output.stderr).unwrap_or("");
-                                if stderr.contains("permission denied") {
-                                    println!("Warning: Permission denied. Try running with sudo.");
-                                } else {
-                                    println!("Command failed with error: {}", stderr);
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            println!("Failed to execute command: {}", e);
-                        }
+                    Err(e) => {
+                        println!("Failed to execute command: {}", e);
                     }
                 }
             }
