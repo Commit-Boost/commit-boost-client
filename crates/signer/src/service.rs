@@ -43,7 +43,10 @@ impl SigningService {
             warn!("Signing service was started but no module is registered. Exiting");
             return Ok(());
         } else {
-            info!(modules =? config.jwts.left_values(), port =? config.server_port, "Starting signing service");
+            let module_ids: Vec<String> =
+                config.jwts.left_values().cloned().map(Into::into).collect();
+
+            info!(modules =? module_ids, port =? config.server_port, "Starting signing service");
         }
 
         let mut manager = SigningManager::new(config.chain);

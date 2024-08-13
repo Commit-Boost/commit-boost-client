@@ -13,7 +13,7 @@ use crate::{
 };
 
 #[tracing::instrument(skip_all, name = "status", fields(req_id = %Uuid::new_v4()))]
-pub async fn handle_get_status<S: BuilderApiState, T: BuilderApi<S>>(
+pub async fn handle_get_status<S: BuilderApiState, A: BuilderApi<S>>(
     req_headers: HeaderMap,
     State(state): State<PbsState<S>>,
 ) -> Result<impl IntoResponse, PbsClientError> {
@@ -23,7 +23,7 @@ pub async fn handle_get_status<S: BuilderApiState, T: BuilderApi<S>>(
 
     info!(ua, relay_check = state.config.pbs_config.relay_check);
 
-    match T::get_status(req_headers, state.clone()).await {
+    match A::get_status(req_headers, state.clone()).await {
         Ok(_) => {
             state.publish_event(BuilderEvent::GetStatusResponse);
             info!("relay check successful");
@@ -32,7 +32,7 @@ pub async fn handle_get_status<S: BuilderApiState, T: BuilderApi<S>>(
             Ok(StatusCode::OK)
         }
         Err(err) => {
-            error!(?err, "all relays failed get_status");
+            error!(%err, "all relays failed get_status");
 
             let err = PbsClientError::NoResponse;
             BEACON_NODE_STATUS

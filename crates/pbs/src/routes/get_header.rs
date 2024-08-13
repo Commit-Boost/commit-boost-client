@@ -21,7 +21,7 @@ use crate::{
 };
 
 #[tracing::instrument(skip_all, name = "get_header", fields(req_id = %Uuid::new_v4(), slot = params.slot))]
-pub async fn handle_get_header<S: BuilderApiState, T: BuilderApi<S>>(
+pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
     State(state): State<PbsState<S>>,
     req_headers: HeaderMap,
     Path(params): Path<GetHeaderParams>,
@@ -34,7 +34,7 @@ pub async fn handle_get_header<S: BuilderApiState, T: BuilderApi<S>>(
 
     info!(ua, parent_hash=%params.parent_hash, validator_pubkey=%params.pubkey, ms_into_slot);
 
-    match T::get_header(params, req_headers, state.clone()).await {
+    match A::get_header(params, req_headers, state.clone()).await {
         Ok(res) => {
             state.publish_event(BuilderEvent::GetHeaderResponse(Box::new(res.clone())));
 
@@ -52,7 +52,7 @@ pub async fn handle_get_header<S: BuilderApiState, T: BuilderApi<S>>(
             }
         }
         Err(err) => {
-            error!(?err, "no header available from relays");
+            error!(%err, "no header available from relays");
 
             let err = PbsClientError::NoPayload;
             BEACON_NODE_STATUS

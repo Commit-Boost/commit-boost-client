@@ -8,6 +8,7 @@ use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
     config::PbsConfig,
     pbs::{
+        error::{PbsError, ValidationError},
         GetHeaderParams, GetHeaderReponse, RelayClient, SignedExecutionPayloadHeader,
         EMPTY_TX_ROOT_HASH, HEADER_SLOT_UUID_KEY, HEADER_START_TIME_UNIX_MS,
     },
@@ -19,10 +20,10 @@ use futures::future::join_all;
 use reqwest::{header::USER_AGENT, StatusCode};
 use tokio::time::sleep;
 use tracing::{debug, error, warn, Instrument};
+use url::Url;
 
 use crate::{
     constants::{GET_HEADER_ENDPOINT_TAG, TIMEOUT_ERROR_CODE, TIMEOUT_ERROR_CODE_STR},
-    error::{PbsError, ValidationError},
     metrics::{RELAY_LATENCY, RELAY_STATUS_CODE},
     state::{BuilderApiState, PbsState},
 };
@@ -97,7 +98,7 @@ async fn send_timed_get_header(
     ms_into_slot: u64,
     mut timeout_left_ms: u64,
 ) -> Result<Option<GetHeaderReponse>, PbsError> {
-    let url = relay.get_header_url(params.slot, params.parent_hash, params.pubkey);
+    let url = relay.get_header_url(params.slot, params.parent_hash, params.pubkey)?;
 
     if relay.config.enable_timing_games {
         if let Some(target_ms) = relay.config.target_first_request_ms {
@@ -193,7 +194,7 @@ async fn send_timed_get_header(
 }
 
 struct RequestConfig {
-    url: String,
+    url: Url,
     timeout_ms: u64,
     headers: HeaderMap,
 }
@@ -337,13 +338,12 @@ mod tests {
     };
     use blst::min_pk;
     use cb_common::{
-        pbs::{SignedExecutionPayloadHeader, EMPTY_TX_ROOT_HASH},
+        pbs::{error::ValidationError, SignedExecutionPayloadHeader, EMPTY_TX_ROOT_HASH},
         signature::sign_builder_message,
         types::Chain,
     };
 
     use super::validate_header;
-    use crate::error::ValidationError;
 
     #[test]
     fn test_validate_header() {

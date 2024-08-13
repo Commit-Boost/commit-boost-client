@@ -8,10 +8,13 @@ use eyre::Result;
 
 macro_rules! run_docker_compose {
     ($compose_path:expr, $($arg:expr),*) => {{
-        let cmd = determine_docker_compose_command();
-        match cmd {
-            Some(mut command) => {
-                match command.arg("-f").arg($compose_path).args(&[$($arg),*]).output() {
+        let cmd_info = determine_docker_compose_command();
+        match cmd_info {
+            Some((mut command, _version)) => {
+                // Set the COMPOSE_FILE environment variable
+                command.env("COMPOSE_FILE", $compose_path);
+
+                match command.args(&[$($arg),*]).output() {
                     Ok(output) => {
                         if !output.status.success() {
                             let stderr = str::from_utf8(&output.stderr).unwrap_or("");
@@ -34,21 +37,27 @@ macro_rules! run_docker_compose {
     }};
 }
 
-fn determine_docker_compose_command() -> Option<Command> {
+fn determine_docker_compose_command() -> Option<(Command, &'static str)> {
     if is_command_available("docker compose") {
         let mut docker: Command = Command::new("docker");
-        Some(mem::replace(
-            docker.arg("compose").stdout(Stdio::inherit()).stderr(Stdio::inherit()),
-            Command::new("docker"),
+        Some((
+            mem::replace(
+                docker.arg("compose").stdout(Stdio::inherit()).stderr(Stdio::inherit()),
+                Command::new("docker"),
+            ),
+            "v2",
         ))
     } else if is_command_available("docker-compose") {
         println!(
             "using docker-compose. the command is being deprecated, install docker compose plugin"
         );
         let mut docker: Command = Command::new("docker-compose");
-        Some(mem::replace(
-            docker.stdout(Stdio::inherit()).stderr(Stdio::inherit()),
-            Command::new("docker"),
+        Some((
+            mem::replace(
+                docker.stdout(Stdio::inherit()).stderr(Stdio::inherit()),
+                Command::new("docker"),
+            ),
+            "v1",
         ))
     } else {
         None

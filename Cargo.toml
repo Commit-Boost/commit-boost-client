@@ -68,14 +68,13 @@ k256 = "0.13"
 
 # docker
 docker-compose-types = "0.12.0"
-bollard = "0.16.1"
 
 # misc
 clap = { version = "4.5.4", features = ["derive", "env"] }
 thiserror = "1.0.61"
 color-eyre = "0.6.3"
 eyre = "0.6.12"
-url = "2.5.0"
+url = { version = "2.5.0", features = ["serde"] }
 uuid = { version = "1.8.0", features = ["v4", "fast-rng", "serde"] }
 typenum = "1.17.0"
 rand = "0.8.5"

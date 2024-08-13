@@ -7,7 +7,6 @@ rust-version.workspace = true
 [dependencies]
 cb-common.workspace = true
 cb-metrics.workspace = true
-cb-signer.workspace = true
 
 # ethereum
 alloy.workspace = true
@@ -23,7 +22,6 @@ async-trait.workspace = true
 dashmap.workspace = true
 
 # serialization
-serde.workspace = true
 serde_json.workspace = true
 
 # telemetry
@@ -32,15 +30,10 @@ prometheus.workspace = true
 
 # crypto
 blst.workspace = true
-tree_hash.workspace = true
-tree_hash_derive.workspace = true
 
 # misc
 thiserror.workspace = true
 eyre.workspace = true
+url.workspace = true
 uuid.workspace = true
-typenum.workspace = true
 lazy_static.workspace = true
-
-[dev-dependencies]
-tracing-subscriber.workspace = true

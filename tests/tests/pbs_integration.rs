@@ -38,20 +38,16 @@ fn get_pbs_static_config(port: u16) -> PbsConfig {
         skip_sigverify: false,
         min_bid_wei: U256::ZERO,
         late_in_slot_time_ms: u64::MAX,
+        relay_monitors: vec![],
     }
 }
 
-fn to_pbs_config(
-    chain: Chain,
-    pbs_config: PbsConfig,
-    relays: Vec<RelayClient>,
-) -> PbsModuleConfig<()> {
+fn to_pbs_config(chain: Chain, pbs_config: PbsConfig, relays: Vec<RelayClient>) -> PbsModuleConfig {
     PbsModuleConfig {
         chain,
         pbs_config: Arc::new(pbs_config),
         signer_client: None,
         event_publiher: None,
-        extra: (),
         relays,
     }
 }

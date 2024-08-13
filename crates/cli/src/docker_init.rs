@@ -1,11 +1,15 @@
-use std::{path::Path, vec};
+use std::{
+    path::{Path, PathBuf},
+    vec,
+};
 
 use cb_common::{
     config::{
         CommitBoostConfig, ModuleKind, BUILDER_SERVER_ENV, CB_BASE_LOG_PATH, CB_CONFIG_ENV,
         CB_CONFIG_NAME, JWTS_ENV, METRICS_SERVER_ENV, MODULE_ID_ENV, MODULE_JWT_ENV,
-        SIGNER_DIR_KEYS, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS, SIGNER_DIR_SECRETS_ENV,
-        SIGNER_KEYS, SIGNER_KEYS_ENV, SIGNER_SERVER_ENV,
+        PBS_MODULE_NAME, SIGNER_DIR_KEYS, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS,
+        SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS, SIGNER_KEYS_ENV, SIGNER_MODULE_NAME,
+        SIGNER_SERVER_ENV,
     },
     loader::SignerLoader,
     utils::{random_jwt, MAX_LOG_FILES_ENV, ROLLING_DURATION_ENV, RUST_LOG_ENV},
@@ -42,11 +46,6 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
     // config volume to pass to all services
     let config_volume = Volumes::Simple(format!("./{}:{}:ro", config_path, CB_CONFIG_NAME));
-    let log_volume = Volumes::Simple(format!(
-        "{}:{}",
-        cb_config.logs.log_dir_path.to_str().unwrap(),
-        CB_BASE_LOG_PATH
-    ));
 
     let mut jwts = IndexMap::new();
     // envs to write in .env file
@@ -62,6 +61,8 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
     let builder_events_port = 30000;
     let mut builder_events_modules = Vec::new();
+
+    let mut exposed_ports_warn = Vec::new();
 
     // setup pbs service
     targets.push(PrometheusTargetConfig {
@@ -118,7 +119,8 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
                     envs.insert(jwt_name.clone(), jwt.clone());
                     jwts.insert(module.id.clone(), jwt);
-
+                    let log_volume =
+                        get_log_volume(cb_config.logs.log_dir_path.clone(), &module.id);
                     Service {
                         container_name: Some(module_cid.clone()),
                         image: Some(module.docker_image),
@@ -127,7 +129,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                             METRICS_NETWORK.to_owned(),
                             SIGNER_NETWORK.to_owned(),
                         ]),
-                        volumes: vec![config_volume.clone(), log_volume.clone()],
+                        volumes: vec![config_volume.clone(), log_volume],
                         environment: Environment::KvPair(module_envs),
                         depends_on: DependsOnOptions::Simple(vec!["cb_signer".to_owned()]),
                         ..Service::default()
@@ -150,12 +152,13 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                     }
 
                     builder_events_modules.push(format!("{module_cid}:{builder_events_port}"));
-
+                    let log_volume =
+                        get_log_volume(cb_config.logs.log_dir_path.clone(), &module.id);
                     Service {
                         container_name: Some(module_cid.clone()),
                         image: Some(module.docker_image),
                         networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
-                        volumes: vec![config_volume.clone(), log_volume.clone()],
+                        volumes: vec![config_volume.clone(), log_volume],
                         environment: Environment::KvPair(module_envs),
                         depends_on: DependsOnOptions::Simple(vec!["cb_pbs".to_owned()]),
                         ..Service::default()
@@ -173,6 +176,9 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
         pbs_envs.insert(k, v);
     }
 
+    let log_volume = get_log_volume(cb_config.logs.log_dir_path.clone(), PBS_MODULE_NAME);
+    exposed_ports_warn
+        .push(format!("pbs has an exported port on {}", cb_config.pbs.pbs_config.port));
     let pbs_service = Service {
         container_name: Some("cb_pbs".to_owned()),
         image: Some(cb_config.pbs.docker_image),
@@ -181,7 +187,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
             cb_config.pbs.pbs_config.port, cb_config.pbs.pbs_config.port
         )]),
         networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
-        volumes: vec![config_volume.clone(), log_volume.clone()],
+        volumes: vec![config_volume.clone(), log_volume],
         environment: Environment::KvPair(pbs_envs),
         ..Service::default()
     };
@@ -194,7 +200,9 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
     if let Some(signer_config) = cb_config.signer {
         if needs_signer_module {
-            let mut volumes = vec![config_volume.clone(), log_volume.clone()];
+            let log_volume =
+                get_log_volume(cb_config.logs.log_dir_path.clone(), SIGNER_MODULE_NAME);
+            let mut volumes = vec![config_volume.clone(), log_volume];
 
             targets.push(PrometheusTargetConfig {
                 targets: vec![format!("cb_signer:{metrics_port}")],
@@ -310,7 +318,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
             name: None,
         }),
     );
-
+    exposed_ports_warn.push("prometheus has an exported port on 9090".to_string());
     let prometheus_service = Service {
         container_name: Some("cb_prometheus".to_owned()),
         image: Some("prom/prometheus:latest".to_owned()),
@@ -324,6 +332,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     services.insert("cb_prometheus".to_owned(), Some(prometheus_service));
 
     if cb_config.metrics.use_grafana {
+        exposed_ports_warn.push("grafana has an exported port on 3000".to_string());
         let grafana_service = Service {
             container_name: Some("cb_grafana".to_owned()),
             image: Some("grafana/grafana:latest".to_owned()),
@@ -347,7 +356,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
         services.insert("cb_grafana".to_owned(), Some(grafana_service));
     }
-
+    exposed_ports_warn.push("cadvisor has an exported port on 8080".to_string());
     services.insert(
         "cb_cadvisor".to_owned(),
         Some(Service {
@@ -377,6 +386,13 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     let compose_path = Path::new(&output_dir).join(CB_COMPOSE_FILE);
     // TODO: check if file exists already and avoid overwriting
     std::fs::write(&compose_path, compose_str)?;
+    if !exposed_ports_warn.is_empty() {
+        println!("\n");
+        for exposed_port in exposed_ports_warn {
+            println!("Warning: {}", exposed_port);
+        }
+        println!("\n");
+    }
     println!("Compose file written to: {:?}", compose_path);
 
     // write envs to .env file
@@ -433,4 +449,13 @@ struct PrometheusTargetConfig {
 #[derive(Debug, Serialize)]
 struct PrometheusLabelsConfig {
     job: String,
+}
+
+fn get_log_volume(host_path: PathBuf, module_id: &str) -> Volumes {
+    let p = host_path.join(module_id);
+    Volumes::Simple(format!(
+        "{}:{}",
+        p.to_str().expect("could not convert pathbuf to str"),
+        CB_BASE_LOG_PATH
+    ))
 }

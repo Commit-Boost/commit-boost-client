@@ -34,6 +34,9 @@ skip_sigverify = false
 # Minimum bid in ETH that will be accepted from `get_header`
 # OPTIONAL, DEFAULT: 0.0
 min_bid_eth = 0.0
+# List of URLs of relay monitors to send registrations to
+# OPTIONAL
+relay_monitors = []
 # How late in milliseconds in the slot is "late". This impacts the `get_header` requests, by shortening timeouts for `get_header` calls to 
 # relays and make sure a header is returned within this deadline. If the request from the CL comes later in the slot, then fetching headers is skipped
 # to force local building and miniminzing the risk of missed slots. See also the timing games section below

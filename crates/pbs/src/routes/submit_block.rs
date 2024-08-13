@@ -16,7 +16,7 @@ use crate::{
 };
 
 #[tracing::instrument(skip_all, name = "submit_blinded_block", fields(req_id = %Uuid::new_v4(), slot = signed_blinded_block.message.slot))]
-pub async fn handle_submit_block<S: BuilderApiState, T: BuilderApi<S>>(
+pub async fn handle_submit_block<S: BuilderApiState, A: BuilderApi<S>>(
     State(state): State<PbsState<S>>,
     req_headers: HeaderMap,
     Json(signed_blinded_block): Json<SignedBlindedBeaconBlock>,
@@ -37,7 +37,7 @@ pub async fn handle_submit_block<S: BuilderApiState, T: BuilderApi<S>>(
         warn!(expected = curr_slot, got = slot, "blinded beacon slot mismatch")
     }
 
-    match T::submit_block(signed_blinded_block, req_headers, state.clone()).await {
+    match A::submit_block(signed_blinded_block, req_headers, state.clone()).await {
         Ok(res) => {
             trace!(?res);
             state.publish_event(BuilderEvent::SubmitBlockResponse(Box::new(res.clone())));
@@ -57,7 +57,7 @@ pub async fn handle_submit_block<S: BuilderApiState, T: BuilderApi<S>>(
                     .collect::<Vec<_>>()
                     .join(",");
 
-                error!(?err, %block_hash, fault_relays, "CRITICAL: no payload received from relays");
+                error!(%err, %block_hash, fault_relays, "CRITICAL: no payload received from relays");
                 state.publish_event(BuilderEvent::MissedPayload {
                     block_hash,
                     relays: fault_relays,
