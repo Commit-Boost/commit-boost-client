@@ -8,22 +8,43 @@ use eyre::Result;
 
 macro_rules! run_docker_compose {
     ($compose_path:expr, $($arg:expr),*) => {{
-        let cmd = determine_docker_compose_command();
-        match cmd {
-            Some(mut command) => {
-                match command.arg("-f").arg($compose_path).args(&[$($arg),*]).output() {
-                    Ok(output) => {
-                        if !output.status.success() {
-                            let stderr = str::from_utf8(&output.stderr).unwrap_or("");
-                            if stderr.contains("permission denied") {
-                                println!("Warning: Permission denied. Try running with sudo.");
-                            } else {
-                                println!("Command failed with error: {}", stderr);
+        let cmd_info = determine_docker_compose_command();
+        match cmd_info {
+            Some((mut command, version)) => {
+                // Determine the order based on the version
+                if version == "v1" {
+                    // v1: run with -f after other args
+                    match command.args(&[$($arg),*]).arg("-f").arg($compose_path).output() {
+                        Ok(output) => {
+                            if !output.status.success() {
+                                let stderr = str::from_utf8(&output.stderr).unwrap_or("");
+                                if stderr.contains("permission denied") {
+                                    println!("Warning: Permission denied. Try running with sudo.");
+                                } else {
+                                    println!("Command failed with error: {}", stderr);
+                                }
                             }
                         }
+                        Err(e) => {
+                            println!("Failed to execute command: {}", e);
+                        }
                     }
-                    Err(e) => {
-                        println!("Failed to execute command: {}", e);
+                } else {
+                    // v2: run with -f before other args
+                    match command.arg("-f").arg($compose_path).args(&[$($arg),*]).output() {
+                        Ok(output) => {
+                            if !output.status.success() {
+                                let stderr = str::from_utf8(&output.stderr).unwrap_or("");
+                                if stderr.contains("permission denied") {
+                                    println!("Warning: Permission denied. Try running with sudo.");
+                                } else {
+                                    println!("Command failed with error: {}", stderr);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            println!("Failed to execute command: {}", e);
+                        }
                     }
                 }
             }
@@ -34,22 +55,23 @@ macro_rules! run_docker_compose {
     }};
 }
 
-fn determine_docker_compose_command() -> Option<Command> {
+
+fn determine_docker_compose_command() -> Option<(Command, &'static str)> {
     if is_command_available("docker compose") {
         let mut docker: Command = Command::new("docker");
-        Some(mem::replace(
+        Some((mem::replace(
             docker.arg("compose").stdout(Stdio::inherit()).stderr(Stdio::inherit()),
             Command::new("docker"),
-        ))
+        ), "v2"))
     } else if is_command_available("docker-compose") {
         println!(
             "using docker-compose. the command is being deprecated, install docker compose plugin"
         );
         let mut docker: Command = Command::new("docker-compose");
-        Some(mem::replace(
+        Some((mem::replace(
             docker.stdout(Stdio::inherit()).stderr(Stdio::inherit()),
             Command::new("docker"),
-        ))
+        ), "v1"))
     } else {
         None
     }
