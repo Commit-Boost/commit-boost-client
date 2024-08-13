@@ -37,23 +37,28 @@ macro_rules! run_docker_compose {
     }};
 }
 
-
 fn determine_docker_compose_command() -> Option<(Command, &'static str)> {
     if is_command_available("docker compose") {
         let mut docker: Command = Command::new("docker");
-        Some((mem::replace(
-            docker.arg("compose").stdout(Stdio::inherit()).stderr(Stdio::inherit()),
-            Command::new("docker"),
-        ), "v2"))
+        Some((
+            mem::replace(
+                docker.arg("compose").stdout(Stdio::inherit()).stderr(Stdio::inherit()),
+                Command::new("docker"),
+            ),
+            "v2",
+        ))
     } else if is_command_available("docker-compose") {
         println!(
             "using docker-compose. the command is being deprecated, install docker compose plugin"
         );
         let mut docker: Command = Command::new("docker-compose");
-        Some((mem::replace(
-            docker.stdout(Stdio::inherit()).stderr(Stdio::inherit()),
-            Command::new("docker"),
-        ), "v1"))
+        Some((
+            mem::replace(
+                docker.stdout(Stdio::inherit()).stderr(Stdio::inherit()),
+                Command::new("docker"),
+            ),
+            "v1",
+        ))
     } else {
         None
     }
