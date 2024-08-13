@@ -1,5 +1,4 @@
 use bimap::BiHashMap;
-
 use eyre::Result;
 use serde::{Deserialize, Serialize};
 
@@ -8,7 +7,10 @@ use super::{
     utils::{load_env_var, load_jwts},
     CommitBoostConfig,
 };
-use crate::{loader::SignerLoader, types::{Chain, Jwt, ModuleId}};
+use crate::{
+    loader::SignerLoader,
+    types::{Chain, Jwt, ModuleId},
+};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SignerConfig {

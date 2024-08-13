@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
+use alloy::rpc::types::beacon::BlsPublicKey;
 use commit::request::GenerateProxyRequest;
 use commit_boost::prelude::*;
 use eyre::{OptionExt, Result};
@@ -47,9 +47,9 @@ impl DaCommitService {
         let pubkey = pubkeys.consensus.first().ok_or_eyre("no key available")?;
         info!("Registered validator {pubkey}");
 
-        let request = GenerateProxyRequest::new(*pubkey, commit::request::EncryptionScheme::Bls);
+        let request = GenerateProxyRequest::new(*pubkey, commit::request::EncryptionScheme::Ecdsa);
         let proxy_delegation = self.config.signer_client.generate_proxy_key(&request).await?;
-        info!("Obtained a proxy delegation {proxy_delegation:#?}");
+        info!("Obtained a proxy delegation:\n{proxy_delegation}");
 
         let mut data = 0;
 
@@ -60,11 +60,15 @@ impl DaCommitService {
         }
     }
 
-    pub async fn send_request(&self, data: u64, pubkey: BlsPublicKey, proxy_delegation: SignedProxyDelegation) -> Result<()> {
+    pub async fn send_request(
+        &self,
+        data: u64,
+        pubkey: BlsPublicKey,
+        proxy_delegation: SignedProxyDelegation,
+    ) -> Result<()> {
         let datagram = Datagram { data };
 
-        let request = SignRequest::builder(pubkey.to_vec())
-            .with_msg(&datagram);
+        let request = SignRequest::builder(pubkey.to_vec()).with_msg(&datagram);
         let signature = self.config.signer_client.request_signature(&request);
 
         let proxy_request = SignRequest::builder(proxy_delegation.message.proxy.as_ref().to_vec())
@@ -77,8 +81,8 @@ impl DaCommitService {
             (res.0?, res.1?)
         };
 
-        info!("Proposer commitment (consensus): {}", pretty_print_sig(signature));
-        info!("Proposer commitment (proxy): {}", pretty_print_sig(proxy_signature));
+        info!("Proposer commitment (consensus): {}", signature);
+        info!("Proposer commitment (proxy): {}", proxy_signature);
 
         SIG_RECEIVED_COUNTER.inc();
 
@@ -116,8 +120,4 @@ async fn main() -> Result<()> {
         }
     }
     Ok(())
-}
-
-fn pretty_print_sig(sig: BlsSignature) -> String {
-    format!("{}..", &sig.to_string()[..16])
 }

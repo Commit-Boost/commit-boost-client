@@ -10,15 +10,12 @@ use axum::{
 };
 use axum_extra::TypedHeader;
 use bimap::BiHashMap;
-use blst::min_pk::SecretKey as BlsSecretKey;
 use cb_common::{
     commit::{
         client::GetPubkeysResponse,
         constants::{GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, REQUEST_SIGNATURE_PATH},
         request::{GenerateProxyRequest, SignRequest},
-    },
-    config::StartSignerConfig,
-    types::{Jwt, ModuleId},
+    }, config::StartSignerConfig, signer::{BlsSecretKey, EcdsaSecretKey}, types::{Jwt, ModuleId}
 };
 use eyre::{Result, WrapErr};
 use headers::{authorization::Bearer, Authorization};
@@ -152,10 +149,17 @@ async fn handle_generate_proxy(
 
     use cb_common::commit::request::EncryptionScheme;
     let proxy_delegation = match request.scheme {
-        EncryptionScheme::Bls => signing_manager.create_proxy::<BlsSecretKey>(module_id, request.consensus_pubkey).await?,
-        EncryptionScheme::Ecdsa => todo!("Not yet implemented"), //signing_manager.create_proxy::<EcdsaSecretKey>(module_id, request.consensus_pubkey).await?,,
+        EncryptionScheme::Bls => {
+            signing_manager
+                .create_proxy::<BlsSecretKey>(module_id, request.consensus_pubkey)
+                .await?
+        }
+        EncryptionScheme::Ecdsa => {
+            signing_manager
+                .create_proxy::<EcdsaSecretKey>(module_id, request.consensus_pubkey)
+                .await?
+        }
     };
-
 
     Ok((StatusCode::OK, Json(proxy_delegation)).into_response())
 }

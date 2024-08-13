@@ -1,4 +1,4 @@
-use alloy::{hex, rpc::types::beacon::BlsPublicKey};
+use alloy::hex;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -13,7 +13,6 @@ pub enum SignerModuleError {
     #[error("unknown consensus signer: 0x{}", hex::encode(.0))]
     UnknownConsensusSigner(Vec<u8>),
 
-    // TODO(David): Think about better formatting, maybe a custom type instead of Vec<u8>
     #[error("unknown proxy signer: 0x{}", hex::encode(.0))]
     UnknownProxySigner(Vec<u8>),
 }

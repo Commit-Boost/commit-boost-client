@@ -1,6 +1,6 @@
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
 
-use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
+use alloy::rpc::types::beacon::BlsPublicKey;
 use eyre::WrapErr;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use serde::{Deserialize, Serialize};
@@ -45,7 +45,8 @@ impl SignerClient {
     }
 
     /// Request a list of validator pubkeys for which signatures can be
-    /// requested. TODO: add more docs on how proxy keys work
+    /// requested.
+    // TODO: add more docs on how proxy keys work
     pub async fn get_pubkeys(&self) -> Result<GetPubkeysResponse, SignerClientError> {
         let url = format!("{}{}", self.url, GET_PUBKEYS_PATH);
         let res = self.client.get(&url).send().await?;
@@ -69,7 +70,7 @@ impl SignerClient {
     pub async fn request_signature(
         &self,
         request: &SignRequest,
-    ) -> Result<BlsSignature, SignerClientError> {
+    ) -> Result<GenericSignature, SignerClientError> {
         let url = format!("{}{}", self.url, REQUEST_SIGNATURE_PATH);
         let res = self.client.post(&url).json(&request).send().await?;
 
@@ -83,9 +84,9 @@ impl SignerClient {
             });
         }
 
-        let signature: BlsSignature = serde_json::from_slice(&response_bytes)?;
+        let signature: Vec<u8> = serde_json::from_slice(&response_bytes)?;
 
-        Ok(signature)
+        Ok(GenericSignature(signature))
     }
 
     pub async fn generate_proxy_key(
@@ -93,6 +94,7 @@ impl SignerClient {
         request: &GenerateProxyRequest,
     ) -> Result<SignedProxyDelegation, SignerClientError> {
         let url = format!("{}{}", self.url, GENERATE_PROXY_KEY_PATH);
+        println!("{}", serde_json::to_string(&request).unwrap());
         let res = self.client.post(&url).json(&request).send().await?;
 
         let status = res.status();
@@ -108,5 +110,18 @@ impl SignerClient {
         let signed_proxy_delegation = serde_json::from_slice(&response_bytes)?;
 
         Ok(signed_proxy_delegation)
+    }
+}
+
+// TODO(David): Better naming
+pub struct GenericSignature(Vec<u8>);
+
+impl fmt::Display for GenericSignature {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "0x")?;
+        for byte in &self.0 {
+            write!(f, "{:02x}", byte)?;
+        }
+        Ok(())
     }
 }

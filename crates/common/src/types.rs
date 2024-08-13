@@ -1,5 +1,4 @@
-use derive_more::{Deref, From, Into, Display};
-
+use derive_more::{Deref, Display, From, Into};
 use serde::{Deserialize, Serialize};
 
 use crate::constants::{

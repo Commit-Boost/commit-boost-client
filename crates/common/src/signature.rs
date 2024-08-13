@@ -3,26 +3,17 @@ use blst::{
     min_pk::{PublicKey, SecretKey as BlsSecretKey, Signature},
     BLST_ERROR,
 };
-use rand::RngCore;
 use ssz_derive::{Decode, Encode};
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    constants::{APPLICATION_BUILDER_DOMAIN, GENESIS_VALIDATORS_ROOT}, error::BlstErrorWrapper, signer::SecretKey, types::Chain, utils::{alloy_pubkey_to_blst, alloy_sig_to_blst}
+    constants::{APPLICATION_BUILDER_DOMAIN, GENESIS_VALIDATORS_ROOT},
+    error::BlstErrorWrapper,
+    signer::SecretKey,
+    types::Chain,
+    utils::{alloy_pubkey_to_blst, alloy_sig_to_blst},
 };
-
-pub fn random_secret() -> BlsSecretKey {
-    let mut rng = rand::thread_rng();
-    let mut ikm = [0u8; 32];
-    rng.fill_bytes(&mut ikm);
-
-    match BlsSecretKey::key_gen(&ikm, &[]) {
-        Ok(key) => key,
-        // Key material is always valid (32 `u8`s), so `key_gen` can't return Err.
-        Err(_) => unreachable!(),
-    }
-}
 
 // TODO(David): Think about removing
 pub fn verify_signature(
