@@ -13,6 +13,7 @@ use tree_hash::TreeHash;
 
 use crate::error::SignerModuleError;
 
+#[derive(Default)]
 struct ProxySigners {
     bls_signers: HashMap<PubKey<BlsSecretKey>, ProxySigner<BlsSecretKey>>,
     ecdsa_signers: HashMap<PubKey<EcdsaSecretKey>, ProxySigner<EcdsaSecretKey>>,
@@ -57,12 +58,6 @@ impl<'a> ProxySigners {
 
         find_typed::<BlsSecretKey>(self.bls_signers.keys(), pubkey)
             .or_else(|| find_typed::<EcdsaSecretKey>(self.ecdsa_signers.keys(), pubkey))
-    }
-}
-
-impl Default for ProxySigners {
-    fn default() -> Self {
-        Self { bls_signers: Default::default(), ecdsa_signers: Default::default() }
     }
 }
 

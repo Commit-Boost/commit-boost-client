@@ -145,7 +145,7 @@ impl TryFrom<Vec<u8>> for EcdsaPublicKey {
 
 impl From<EcdsaCompressedKey> for EcdsaPublicKey {
     fn from(value: EcdsaCompressedKey) -> Self {
-        Self::new_from_bytes_infallible(value.try_into().unwrap())
+        Self::new_from_bytes_infallible(value.into())
     }
 }
 
@@ -156,9 +156,7 @@ struct JSONEcdsaPublicKey {
 
 impl From<JSONEcdsaPublicKey> for EcdsaPublicKey {
     fn from(value: JSONEcdsaPublicKey) -> Self {
-        // TODO(David): think about fallible decoding of invalid keys.
-        // This would incorrectly panic.
-        Self::try_from(value.encoded).expect("Encoded ECDSA key must be valid.")
+        Self::from(value.encoded)
     }
 }
 

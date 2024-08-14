@@ -1,4 +1,7 @@
-use std::{error::Error, fmt::{self, LowerHex}};
+use std::{
+    error::Error,
+    fmt::{self, LowerHex},
+};
 
 use eyre::{Context, Result};
 use serde::{Deserialize, Serialize};
