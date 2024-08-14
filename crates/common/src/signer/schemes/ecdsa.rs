@@ -1,11 +1,14 @@
 use std::hash::Hash;
 
-use derive_more::derive::Into;
+use derive_more::derive::{Deref, Into};
 use eyre::Result;
 use generic_array::GenericArray;
 use k256::ecdsa::{Signature as EcdsaSignatureInner, VerifyingKey as EcdsaPublicKeyInner};
 use serde::{Deserialize, Serialize};
-use ssz_types::{typenum::U33, FixedVector};
+use ssz_types::{
+    typenum::{U33, U64},
+    FixedVector,
+};
 use tree_hash::TreeHash;
 
 use crate::signer::{GenericPubkey, PubKey, SecretKey, Verifier};
@@ -14,7 +17,7 @@ pub type EcdsaSecretKey = k256::ecdsa::SigningKey;
 
 type CompressedPublicKey = GenericArray<u8, U33>;
 
-#[derive(Debug, Clone, Copy, Into, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Into, Serialize, Deserialize, PartialEq, Eq, Deref)]
 pub struct EcdsaPublicKey {
     encoded: CompressedPublicKey,
 }
@@ -50,7 +53,7 @@ impl TreeHash for EcdsaPublicKey {
         // implementation.  If this becomes a performance issue, we could use
         // `ssz_types::tree_hash::vec_tree_hash_root`,  which is unfortunately
         // not public.
-        let vec = self.encoded.into_array::<{ Self::SIZE }>().to_vec();
+        let vec = self.encoded.to_vec();
         FixedVector::<u8, U33>::from(vec).tree_hash_root()
     }
 }
@@ -125,22 +128,14 @@ impl AsRef<[u8]> for EcdsaPublicKey {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Deref)]
 pub struct EcdsaSignature {
-    inner: EcdsaSignatureInner,
-    // TODO(David): Maybe prefer `GenericArray<u8, U64>` for explicit fixed size.
-    pub(in crate::signer) encoded: Vec<u8>,
-}
-
-impl EcdsaSignature {
-    pub fn new(inner: EcdsaSignatureInner) -> Self {
-        Self { inner, encoded: inner.to_vec() }
-    }
+    encoded: GenericArray<u8, U64>,
 }
 
 impl From<EcdsaSignatureInner> for EcdsaSignature {
     fn from(value: EcdsaSignatureInner) -> Self {
-        Self::new(value)
+        Self { encoded: value.to_bytes() }
     }
 }
 
@@ -193,7 +188,8 @@ impl Verifier<EcdsaSecretKey> for PubKey<EcdsaSecretKey> {
     ) -> Result<(), Self::VerificationError> {
         use k256::ecdsa::signature::Verifier;
         let ecdsa_pubkey = EcdsaPublicKeyInner::from_sec1_bytes(&self.encoded)?;
-        ecdsa_pubkey.verify(msg, &signature.inner)
+        let ecdsa_sig = EcdsaSignatureInner::from_bytes(&signature)?;
+        ecdsa_pubkey.verify(msg, &ecdsa_sig)
     }
 }
 

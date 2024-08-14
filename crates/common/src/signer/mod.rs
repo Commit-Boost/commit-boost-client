@@ -12,7 +12,7 @@ pub mod schemes;
 pub mod signers;
 
 pub use schemes::{bls::BlsSecretKey, ecdsa::EcdsaSecretKey};
-pub use signers::{GenericProxySigner, ProxySigner, Signer};
+pub use signers::Signer;
 
 pub type PubKey<T> = <T as SecretKey>::PubKey;
 

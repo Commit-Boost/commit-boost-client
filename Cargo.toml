@@ -29,7 +29,7 @@ cb-signer = { path = "crates/signer" }
 alloy = { version = "0.2.0", features = ["rpc-types-beacon"] }
 ethereum_ssz = "0.5"
 ethereum_ssz_derive = "0.5.3"
-ssz_types = "0.5"
+ssz_types = "0.6.0"
 ethereum_serde_utils = "0.5.2"
 ethereum-types = "0.14.1"
 
@@ -59,11 +59,11 @@ prometheus = "0.13.4"
 
 # crypto
 blst = "0.3.11"
-tree_hash = "0.5"
-tree_hash_derive = "0.5"
+tree_hash = "0.6.0"
+tree_hash_derive = "0.6.0"
 eth2_keystore = { git = "https://github.com/sigp/lighthouse", rev = "9e12c21f268c80a3f002ae0ca27477f9f512eb6f" }
 elliptic-curve = { version = "0.13", features = ["serde"] }
-generic-array = { version = "1.1.0", features = ["serde"] }
+generic-array = { version = "0.14.7", features = ["serde"] }
 k256 = "0.13"
 
 # docker
