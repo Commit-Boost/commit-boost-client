@@ -12,7 +12,7 @@ pub mod schemes;
 pub mod signers;
 
 pub use schemes::{bls::BlsSecretKey, ecdsa::EcdsaSecretKey};
-pub use signers::Signer;
+pub use signers::{ConsensusSigner, Signer};
 
 pub type Pubkey<T> = <T as SecretKey>::PublicKey;
 

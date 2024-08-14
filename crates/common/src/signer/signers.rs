@@ -1,12 +1,13 @@
 use eyre::Result;
 use tree_hash::TreeHash;
 
-use super::{schemes::bls::BlsSecretKey, SecretKey};
+use super::{BlsSecretKey, SecretKey};
 use crate::{signature::sign_builder_root, types::Chain};
 
-// TODO(David): remove the default type arg
+pub type ConsensusSigner = Signer<BlsSecretKey>;
+
 #[derive(Clone)]
-pub enum Signer<T: SecretKey = BlsSecretKey> {
+pub enum Signer<T: SecretKey> {
     Local(T),
 }
 

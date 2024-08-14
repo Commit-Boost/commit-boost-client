@@ -16,7 +16,7 @@ use cb_common::{
         GetHeaderParams, GetHeaderReponse, SubmitBlindedBlockResponse, BUILDER_API_PATH,
         GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
     },
-    signer::Signer,
+    signer::ConsensusSigner,
     types::Chain,
 };
 use tracing::debug;
@@ -25,7 +25,7 @@ use tree_hash::TreeHash;
 pub struct MockRelayState {
     pub chain: Chain,
     pub get_header_delay_ms: u64,
-    pub signer: Signer,
+    pub signer: ConsensusSigner,
     received_get_header: Arc<AtomicU64>,
     received_get_status: Arc<AtomicU64>,
     received_register_validator: Arc<AtomicU64>,
@@ -48,7 +48,7 @@ impl MockRelayState {
 }
 
 impl MockRelayState {
-    pub fn new(chain: Chain, signer: Signer, get_header_delay_ms: u64) -> Self {
+    pub fn new(chain: Chain, signer: ConsensusSigner, get_header_delay_ms: u64) -> Self {
         Self {
             chain,
             signer,

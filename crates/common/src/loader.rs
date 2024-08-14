@@ -7,7 +7,7 @@ use serde::{de, Deserialize, Deserializer, Serialize};
 
 use crate::{
     config::{load_env_var, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV},
-    signer::Signer,
+    signer::{ConsensusSigner, Signer},
 };
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -24,12 +24,12 @@ pub enum SignerLoader {
 }
 
 impl SignerLoader {
-    pub fn load_keys(self) -> eyre::Result<Vec<Signer>> {
+    pub fn load_keys(self) -> eyre::Result<Vec<ConsensusSigner>> {
         // TODO: add flag to support also native loader
         self.load_from_env()
     }
 
-    pub fn load_from_env(self) -> eyre::Result<Vec<Signer>> {
+    pub fn load_from_env(self) -> eyre::Result<Vec<ConsensusSigner>> {
         Ok(match self {
             SignerLoader::File { .. } => {
                 let path = load_env_var(SIGNER_KEYS_ENV)?;
@@ -40,7 +40,7 @@ impl SignerLoader {
 
                 keys.into_iter()
                     .map(|k| Signer::new_from_bytes(&k.secret_key))
-                    .collect::<eyre::Result<Vec<Signer>>>()?
+                    .collect::<eyre::Result<Vec<ConsensusSigner>>>()?
             }
             SignerLoader::ValidatorsDir { .. } => {
                 // TODO: hacky way to load for now, we should support reading the
@@ -71,7 +71,10 @@ impl<'de> Deserialize<'de> for FileKey {
     }
 }
 
-fn load_secrets_and_keys(keys_path: String, secrets_path: String) -> eyre::Result<Vec<Signer>> {
+fn load_secrets_and_keys(
+    keys_path: String,
+    secrets_path: String,
+) -> eyre::Result<Vec<ConsensusSigner>> {
     let entries = fs::read_dir(keys_path.clone())?;
 
     let mut signers = Vec::new();
@@ -98,7 +101,7 @@ fn load_secrets_and_keys(keys_path: String, secrets_path: String) -> eyre::Resul
     Ok(signers)
 }
 
-fn load_one(ks_path: String, pw_path: String) -> eyre::Result<Signer> {
+fn load_one(ks_path: String, pw_path: String) -> eyre::Result<ConsensusSigner> {
     let keystore = Keystore::from_json_file(ks_path).map_err(|_| eyre!("failed reading json"))?;
     let password = fs::read(pw_path)?;
     let key =

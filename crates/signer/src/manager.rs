@@ -4,7 +4,7 @@ use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
 use blst::min_pk::SecretKey as BlsSecretKey;
 use cb_common::{
     commit::request::{ProxyDelegation, SignedProxyDelegation},
-    signer::{EcdsaSecretKey, GenericPubkey, Pubkey, SecretKey, Signer},
+    signer::{ConsensusSigner, EcdsaSecretKey, GenericPubkey, Pubkey, SecretKey, Signer},
     types::{Chain, ModuleId},
 };
 use derive_more::derive::{Deref, From};
@@ -138,7 +138,7 @@ impl GetProxySigner<EcdsaSecretKey> for ProxySigners {
 
 pub struct SigningManager {
     chain: Chain,
-    consensus_signers: HashMap<BlsPublicKey, Signer>,
+    consensus_signers: HashMap<BlsPublicKey, ConsensusSigner>,
     proxy_signers: ProxySigners, // HashMap<Vec<u8>, ProxySigner>,
     // proxy_delegations:
     /// Map of module ids to their associated proxy pubkeys.
@@ -157,7 +157,7 @@ impl SigningManager {
         }
     }
 
-    pub fn add_consensus_signer(&mut self, signer: Signer) {
+    pub fn add_consensus_signer(&mut self, signer: ConsensusSigner) {
         self.consensus_signers.insert(signer.pubkey(), signer);
     }
 
