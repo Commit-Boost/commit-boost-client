@@ -70,7 +70,7 @@ impl SignerClient {
     pub async fn request_signature(
         &self,
         request: &SignRequest,
-    ) -> Result<GenericSignature, SignerClientError> {
+    ) -> Result<Signature, SignerClientError> {
         let url = format!("{}{}", self.url, REQUEST_SIGNATURE_PATH);
         let res = self.client.post(&url).json(&request).send().await?;
 
@@ -86,7 +86,7 @@ impl SignerClient {
 
         let signature: Vec<u8> = serde_json::from_slice(&response_bytes)?;
 
-        Ok(GenericSignature(signature))
+        Ok(Signature(signature))
     }
 
     pub async fn generate_proxy_key(
@@ -113,10 +113,13 @@ impl SignerClient {
     }
 }
 
-// TODO(David): Better naming
-pub struct GenericSignature(Vec<u8>);
+// NOTE(David):
+// For now, this is a simple displayable wrapper around vec, serving as a
+// client-side type. It can be further deliberated whether a separate
+// client-side type is preferrable over re-using an SDK in `common::signer`.
+pub struct Signature(Vec<u8>);
 
-impl fmt::Display for GenericSignature {
+impl fmt::Display for Signature {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "0x")?;
         for byte in &self.0 {
