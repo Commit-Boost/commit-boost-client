@@ -14,17 +14,17 @@ pub mod signers;
 pub use schemes::{bls::BlsSecretKey, ecdsa::EcdsaSecretKey};
 pub use signers::Signer;
 
-pub type PubKey<T> = <T as SecretKey>::PubKey;
+pub type Pubkey<T> = <T as SecretKey>::PublicKey;
 
 pub trait SecretKey {
-    type PubKey: AsRef<[u8]> + Clone + Verifier<Self>;
+    type PublicKey: AsRef<[u8]> + Clone + Verifier<Self>;
     type Signature: AsRef<[u8]> + Clone;
 
     fn new_random() -> Self;
     fn new_from_bytes(bytes: &[u8]) -> eyre::Result<Self>
     where
         Self: Sized;
-    fn pubkey(&self) -> Self::PubKey;
+    fn pubkey(&self) -> Self::PublicKey;
     fn sign(&self, msg: &[u8]) -> Self::Signature;
     fn sign_msg(&self, msg: &impl TreeHash) -> Self::Signature {
         self.sign(&msg.tree_hash_root().0)
@@ -48,8 +48,8 @@ where
 #[serde(untagged)]
 #[ssz(enum_behaviour = "transparent")]
 pub enum GenericPubkey {
-    Bls(PubKey<BlsSecretKey>),
-    Ecdsa(PubKey<EcdsaSecretKey>),
+    Bls(Pubkey<BlsSecretKey>),
+    Ecdsa(Pubkey<EcdsaSecretKey>),
 }
 
 impl GenericPubkey {

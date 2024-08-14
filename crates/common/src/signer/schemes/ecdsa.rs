@@ -11,7 +11,7 @@ use ssz_types::{
 };
 use tree_hash::TreeHash;
 
-use crate::signer::{GenericPubkey, PubKey, SecretKey, Verifier};
+use crate::signer::{GenericPubkey, Pubkey, SecretKey, Verifier};
 
 pub type EcdsaSecretKey = k256::ecdsa::SigningKey;
 
@@ -154,7 +154,7 @@ impl TryFrom<&[u8]> for EcdsaSignature {
 }
 
 impl SecretKey for EcdsaSecretKey {
-    type PubKey = EcdsaPublicKey;
+    type PublicKey = EcdsaPublicKey;
 
     type Signature = EcdsaSignature;
 
@@ -169,7 +169,7 @@ impl SecretKey for EcdsaSecretKey {
         Ok(EcdsaSecretKey::from_slice(bytes)?)
     }
 
-    fn pubkey(&self) -> Self::PubKey {
+    fn pubkey(&self) -> Self::PublicKey {
         EcdsaPublicKeyInner::from(self).into()
     }
 
@@ -178,7 +178,7 @@ impl SecretKey for EcdsaSecretKey {
     }
 }
 
-impl Verifier<EcdsaSecretKey> for PubKey<EcdsaSecretKey> {
+impl Verifier<EcdsaSecretKey> for Pubkey<EcdsaSecretKey> {
     type VerificationError = k256::ecdsa::Error;
 
     fn verify_signature(
@@ -194,7 +194,7 @@ impl Verifier<EcdsaSecretKey> for PubKey<EcdsaSecretKey> {
 }
 
 impl From<EcdsaPublicKey> for GenericPubkey {
-    fn from(value: PubKey<EcdsaSecretKey>) -> Self {
+    fn from(value: Pubkey<EcdsaSecretKey>) -> Self {
         GenericPubkey::Ecdsa(value)
     }
 }

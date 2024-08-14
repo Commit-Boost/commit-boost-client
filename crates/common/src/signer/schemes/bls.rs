@@ -3,14 +3,14 @@ use blst::BLST_ERROR;
 
 use crate::{
     error::BlstErrorWrapper,
-    signer::{GenericPubkey, PubKey, SecretKey, Verifier},
+    signer::{GenericPubkey, Pubkey, SecretKey, Verifier},
     utils::blst_pubkey_to_alloy,
 };
 
 pub type BlsSecretKey = blst::min_pk::SecretKey;
 
 impl SecretKey for BlsSecretKey {
-    type PubKey = BlsPublicKey;
+    type PublicKey = BlsPublicKey;
     type Signature = BlsSignature;
 
     fn new_random() -> Self {
@@ -31,7 +31,7 @@ impl SecretKey for BlsSecretKey {
         Ok(BlsSecretKey::from_bytes(bytes).map_err(BlstErrorWrapper::from)?)
     }
 
-    fn pubkey(&self) -> Self::PubKey {
+    fn pubkey(&self) -> Self::PublicKey {
         blst_pubkey_to_alloy(&self.sk_to_pk())
     }
 
@@ -41,7 +41,7 @@ impl SecretKey for BlsSecretKey {
     }
 }
 
-impl Verifier<BlsSecretKey> for PubKey<BlsSecretKey> {
+impl Verifier<BlsSecretKey> for Pubkey<BlsSecretKey> {
     type VerificationError = BlstErrorWrapper;
 
     fn verify_signature(

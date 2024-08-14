@@ -19,7 +19,7 @@ impl<T: SecretKey> Signer<T> {
         T::new_from_bytes(bytes).map(Self::Local)
     }
 
-    pub fn pubkey(&self) -> T::PubKey {
+    pub fn pubkey(&self) -> T::PublicKey {
         match self {
             Signer::Local(secret) => secret.pubkey(),
         }

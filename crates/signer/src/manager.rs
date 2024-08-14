@@ -4,7 +4,7 @@ use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
 use blst::min_pk::SecretKey as BlsSecretKey;
 use cb_common::{
     commit::request::{ProxyDelegation, SignedProxyDelegation},
-    signer::{EcdsaSecretKey, GenericPubkey, PubKey, SecretKey, Signer},
+    signer::{EcdsaSecretKey, GenericPubkey, Pubkey, SecretKey, Signer},
     types::{Chain, ModuleId},
 };
 use derive_more::derive::{Deref, From};
@@ -71,8 +71,8 @@ impl GenericProxySigner {
 
 #[derive(Default)]
 struct ProxySigners {
-    bls_signers: HashMap<PubKey<BlsSecretKey>, ProxySigner<BlsSecretKey>>,
-    ecdsa_signers: HashMap<PubKey<EcdsaSecretKey>, ProxySigner<EcdsaSecretKey>>,
+    bls_signers: HashMap<Pubkey<BlsSecretKey>, ProxySigner<BlsSecretKey>>,
+    ecdsa_signers: HashMap<Pubkey<EcdsaSecretKey>, ProxySigner<EcdsaSecretKey>>,
 }
 
 impl<'a> ProxySigners {
@@ -102,12 +102,12 @@ impl<'a> ProxySigners {
 
     pub fn find_pubkey(&'a self, pubkey: &[u8]) -> Option<GenericPubkey> {
         fn find_typed<'a, T>(
-            keys: impl IntoIterator<Item = &'a PubKey<T>>,
+            keys: impl IntoIterator<Item = &'a Pubkey<T>>,
             pubkey: &[u8],
         ) -> Option<GenericPubkey>
         where
             T: SecretKey,
-            PubKey<T>: 'a + Into<GenericPubkey>,
+            Pubkey<T>: 'a + Into<GenericPubkey>,
         {
             keys.into_iter().find(|x| x.as_ref() == pubkey).cloned().map(Into::into)
         }
@@ -118,11 +118,11 @@ impl<'a> ProxySigners {
 }
 
 trait GetProxySigner<T: SecretKey> {
-    fn get_proxy_signer(&self, pk: &PubKey<T>) -> Option<&ProxySigner<T>>;
+    fn get_proxy_signer(&self, pk: &Pubkey<T>) -> Option<&ProxySigner<T>>;
 }
 
 impl GetProxySigner<BlsSecretKey> for ProxySigners {
-    fn get_proxy_signer(&self, pk: &PubKey<BlsSecretKey>) -> Option<&ProxySigner<BlsSecretKey>> {
+    fn get_proxy_signer(&self, pk: &Pubkey<BlsSecretKey>) -> Option<&ProxySigner<BlsSecretKey>> {
         self.bls_signers.get(pk)
     }
 }
@@ -130,7 +130,7 @@ impl GetProxySigner<BlsSecretKey> for ProxySigners {
 impl GetProxySigner<EcdsaSecretKey> for ProxySigners {
     fn get_proxy_signer(
         &self,
-        pk: &PubKey<EcdsaSecretKey>,
+        pk: &Pubkey<EcdsaSecretKey>,
     ) -> Option<&ProxySigner<EcdsaSecretKey>> {
         self.ecdsa_signers.get(pk)
     }
@@ -171,7 +171,7 @@ impl SigningManager {
         delegator: BlsPublicKey,
     ) -> Result<SignedProxyDelegation, SignerModuleError>
     where
-        PubKey<T>: Into<GenericPubkey>,
+        Pubkey<T>: Into<GenericPubkey>,
         ProxySigner<T>: Into<GenericProxySigner>,
     {
         let signer = Signer::<T>::new_random();
