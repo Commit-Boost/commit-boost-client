@@ -54,8 +54,6 @@ impl fmt::Display for SignedProxyDelegation {
 // generalisation) and avoid the is_proxy flag
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignRequest {
-    // TODO(David): Vec<u8> might not be the most memory inefficient, think about something on the
-    // stack
     pub pubkey: Vec<u8>,
     pub is_proxy: bool,
     pub object_root: [u8; 32],

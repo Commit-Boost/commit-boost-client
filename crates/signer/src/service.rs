@@ -15,7 +15,10 @@ use cb_common::{
         client::GetPubkeysResponse,
         constants::{GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, REQUEST_SIGNATURE_PATH},
         request::{GenerateProxyRequest, SignRequest},
-    }, config::StartSignerConfig, signer::{BlsSecretKey, EcdsaSecretKey}, types::{Jwt, ModuleId}
+    },
+    config::StartSignerConfig,
+    signer::{BlsSecretKey, EcdsaSecretKey},
+    types::{Jwt, ModuleId},
 };
 use eyre::{Result, WrapErr};
 use headers::{authorization::Bearer, Authorization};

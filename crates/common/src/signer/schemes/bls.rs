@@ -1,9 +1,9 @@
-use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
+use alloy::rpc::types::beacon::{constants::BLS_DST_SIG, BlsPublicKey, BlsSignature};
+use blst::BLST_ERROR;
 
 use crate::{
     error::BlstErrorWrapper,
-    signature::{sign_message, verify_signature},
-    signer::{GenericPubkey, SecretKey},
+    signer::{GenericPubkey, PubKey, SecretKey, Verifier},
     utils::blst_pubkey_to_alloy,
 };
 
@@ -12,7 +12,6 @@ pub type BlsSecretKey = blst::min_pk::SecretKey;
 impl SecretKey for BlsSecretKey {
     type PubKey = BlsPublicKey;
     type Signature = BlsSignature;
-    type VerificationError = BlstErrorWrapper;
 
     fn new_random() -> Self {
         use rand::RngCore;
@@ -36,16 +35,31 @@ impl SecretKey for BlsSecretKey {
         blst_pubkey_to_alloy(&self.sk_to_pk())
     }
 
-    fn sign(&self, msg: &[u8; 32]) -> Self::Signature {
-        sign_message(self, msg)
+    fn sign(&self, msg: &[u8]) -> Self::Signature {
+        let signature = self.sign(msg, BLS_DST_SIG, &[]).to_bytes();
+        BlsSignature::from_slice(&signature)
     }
+}
+
+impl Verifier<BlsSecretKey> for PubKey<BlsSecretKey> {
+    type VerificationError = BlstErrorWrapper;
 
     fn verify_signature(
-        pubkey: &Self::PubKey,
+        &self,
         msg: &[u8],
-        signature: &Self::Signature,
+        signature: &<BlsSecretKey as SecretKey>::Signature,
     ) -> Result<(), Self::VerificationError> {
-        verify_signature(pubkey, msg, signature)
+        use crate::utils::{alloy_pubkey_to_blst, alloy_sig_to_blst};
+
+        let pubkey = alloy_pubkey_to_blst(self)?;
+        let signature = alloy_sig_to_blst(signature)?;
+
+        let res = signature.verify(true, msg, BLS_DST_SIG, &[], &pubkey, true);
+        if res == BLST_ERROR::BLST_SUCCESS {
+            Ok(())
+        } else {
+            Err(res.into())
+        }
     }
 }
 

@@ -3,7 +3,7 @@ use std::{
     fmt::{self, LowerHex},
 };
 
-use eyre::{Context, Result};
+use eyre::Context;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use tree_hash::TreeHash;
@@ -17,24 +17,30 @@ pub use signers::{GenericProxySigner, ProxySigner, Signer};
 pub type PubKey<T> = <T as SecretKey>::PubKey;
 
 pub trait SecretKey {
-    type PubKey: AsRef<[u8]> + Clone;
+    type PubKey: AsRef<[u8]> + Clone + Verifier<Self>;
     type Signature: AsRef<[u8]> + Clone;
-    type VerificationError: Error;
 
     fn new_random() -> Self;
-    fn new_from_bytes(bytes: &[u8]) -> Result<Self>
+    fn new_from_bytes(bytes: &[u8]) -> eyre::Result<Self>
     where
         Self: Sized;
     fn pubkey(&self) -> Self::PubKey;
-    fn sign(&self, msg: &[u8; 32]) -> Self::Signature;
+    fn sign(&self, msg: &[u8]) -> Self::Signature;
     fn sign_msg(&self, msg: &impl TreeHash) -> Self::Signature {
         self.sign(&msg.tree_hash_root().0)
     }
+}
+
+pub trait Verifier<T: SecretKey>
+where
+    T: ?Sized,
+{
+    type VerificationError: Error;
 
     fn verify_signature(
-        pubkey: &Self::PubKey,
+        &self,
         msg: &[u8],
-        signature: &Self::Signature,
+        signature: &T::Signature,
     ) -> Result<(), Self::VerificationError>;
 }
 
@@ -49,14 +55,13 @@ pub enum GenericPubkey {
 impl GenericPubkey {
     pub fn verify_signature(&self, msg: &[u8], signature: &[u8]) -> eyre::Result<()> {
         match self {
-            GenericPubkey::Bls(bls_pubkey) => Ok(<BlsSecretKey as SecretKey>::verify_signature(
-                bls_pubkey,
-                msg,
-                signature.try_into().context("Invalid signature length for BLS.")?,
-            )?),
+            GenericPubkey::Bls(bls_pubkey) => {
+                let sig = signature.try_into().context("Invalid signature length for BLS.")?;
+                Ok(bls_pubkey.verify_signature(msg, &sig)?)
+            }
             GenericPubkey::Ecdsa(ecdsa_pubkey) => {
                 let sig = signature.try_into().context("Invalid signature for ECDSA.")?;
-                Ok(<EcdsaSecretKey as SecretKey>::verify_signature(ecdsa_pubkey, msg, &sig)?)
+                Ok(ecdsa_pubkey.verify_signature(msg, &sig)?)
             }
         }
     }

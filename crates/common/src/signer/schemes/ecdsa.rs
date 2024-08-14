@@ -3,56 +3,26 @@ use std::hash::Hash;
 use derive_more::derive::Into;
 use eyre::Result;
 use generic_array::GenericArray;
-use k256::{
-    ecdsa::{Signature as EcdsaSignatureInner, VerifyingKey as EcdsaPublicKeyInner},
-    AffinePoint,
-};
+use k256::ecdsa::{Signature as EcdsaSignatureInner, VerifyingKey as EcdsaPublicKeyInner};
 use serde::{Deserialize, Serialize};
 use ssz_types::{typenum::U33, FixedVector};
 use tree_hash::TreeHash;
 
-use crate::signer::{GenericPubkey, PubKey, SecretKey};
+use crate::signer::{GenericPubkey, PubKey, SecretKey, Verifier};
 
 pub type EcdsaSecretKey = k256::ecdsa::SigningKey;
-type EcdsaCompressedKey = GenericArray<u8, U33>;
+
+type CompressedPublicKey = GenericArray<u8, U33>;
 
 #[derive(Debug, Clone, Copy, Into, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(from = "JSONEcdsaPublicKey")]
 pub struct EcdsaPublicKey {
-    #[serde(skip_serializing)]
-    inner: EcdsaPublicKeyInner,
-    encoded: EcdsaCompressedKey,
+    encoded: CompressedPublicKey,
 }
 
 impl EcdsaPublicKey {
     /// Size of the public key in bytes. We store the SEC1 encoded affine point
     /// compressed, thus 33 bytes.
     const SIZE: usize = 33;
-
-    pub fn new(inner: EcdsaPublicKeyInner) -> Self {
-        use elliptic_curve::sec1::ToEncodedPoint;
-
-        let affine: &AffinePoint = inner.as_ref();
-        let encoded: [u8; Self::SIZE] =
-            affine.to_encoded_point(true).as_bytes().try_into().unwrap();
-
-        let encoded = GenericArray::from_array(encoded);
-
-        EcdsaPublicKey { inner, encoded }
-    }
-
-    pub fn new_from_bytes(encoded: Vec<u8>) -> Result<Self, k256::ecdsa::Error> {
-        let inner = EcdsaPublicKeyInner::from_sec1_bytes(&encoded)?;
-        let encoded = GenericArray::from_array::<{ Self::SIZE }>(encoded.try_into().unwrap());
-        Ok(Self { inner, encoded })
-    }
-
-    fn new_from_bytes_infallible(encoded: [u8; Self::SIZE]) -> Self {
-        Self {
-            inner: EcdsaPublicKeyInner::from_sec1_bytes(&encoded).unwrap(),
-            encoded: GenericArray::from_array(encoded),
-        }
-    }
 }
 
 impl Hash for EcdsaPublicKey {
@@ -131,38 +101,21 @@ impl ssz::Decode for EcdsaPublicKey {
         let mut fixed_array = [0_u8; Self::SIZE];
         fixed_array.copy_from_slice(bytes);
 
-        Ok(EcdsaPublicKey::new_from_bytes_infallible(fixed_array))
+        Ok(EcdsaPublicKey { encoded: fixed_array.into() })
     }
 }
 
-impl TryFrom<Vec<u8>> for EcdsaPublicKey {
-    type Error = k256::ecdsa::Error;
-
-    fn try_from(value: Vec<u8>) -> std::result::Result<Self, Self::Error> {
-        Self::new_from_bytes(value)
-    }
-}
-
-impl From<EcdsaCompressedKey> for EcdsaPublicKey {
-    fn from(value: EcdsaCompressedKey) -> Self {
-        Self::new_from_bytes_infallible(value.into())
-    }
-}
-
-#[derive(Deserialize)]
-struct JSONEcdsaPublicKey {
-    encoded: EcdsaCompressedKey,
-}
-
-impl From<JSONEcdsaPublicKey> for EcdsaPublicKey {
-    fn from(value: JSONEcdsaPublicKey) -> Self {
-        Self::from(value.encoded)
+impl From<CompressedPublicKey> for EcdsaPublicKey {
+    fn from(value: CompressedPublicKey) -> Self {
+        Self { encoded: value }
     }
 }
 
 impl From<EcdsaPublicKeyInner> for EcdsaPublicKey {
     fn from(value: EcdsaPublicKeyInner) -> Self {
-        EcdsaPublicKey::new(value)
+        let encoded: [u8; Self::SIZE] = value.to_encoded_point(true).as_bytes().try_into().unwrap();
+
+        EcdsaPublicKey { encoded: encoded.into() }
     }
 }
 
@@ -210,8 +163,6 @@ impl SecretKey for EcdsaSecretKey {
 
     type Signature = EcdsaSignature;
 
-    type VerificationError = k256::ecdsa::Error;
-
     fn new_random() -> Self {
         EcdsaSecretKey::random(&mut rand::thread_rng())
     }
@@ -227,17 +178,22 @@ impl SecretKey for EcdsaSecretKey {
         EcdsaPublicKeyInner::from(self).into()
     }
 
-    fn sign(&self, msg: &[u8; 32]) -> Self::Signature {
+    fn sign(&self, msg: &[u8]) -> Self::Signature {
         k256::ecdsa::signature::Signer::<EcdsaSignatureInner>::sign(self, msg).into()
     }
+}
+
+impl Verifier<EcdsaSecretKey> for PubKey<EcdsaSecretKey> {
+    type VerificationError = k256::ecdsa::Error;
 
     fn verify_signature(
-        pubkey: &Self::PubKey,
+        &self,
         msg: &[u8],
-        signature: &Self::Signature,
+        signature: &<EcdsaSecretKey as SecretKey>::Signature,
     ) -> Result<(), Self::VerificationError> {
         use k256::ecdsa::signature::Verifier;
-        pubkey.inner.verify(msg, &signature.inner)
+        let ecdsa_pubkey = EcdsaPublicKeyInner::from_sec1_bytes(&self.encoded)?;
+        ecdsa_pubkey.verify(msg, &signature.inner)
     }
 }
 

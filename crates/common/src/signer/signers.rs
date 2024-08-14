@@ -38,17 +38,6 @@ impl<T: SecretKey> Signer<T> {
     pub async fn sign_msg(&self, chain: Chain, msg: &impl TreeHash) -> T::Signature {
         self.sign(chain, msg.tree_hash_root().0).await
     }
-
-    // TODO(David):
-    // This doesn't need to be here. A separate `Verifier` might make sense.
-    // Left here for now (for convenience).
-    pub async fn verify_signature(
-        pubkey: &T::PubKey,
-        msg: &[u8],
-        signature: &T::Signature,
-    ) -> Result<(), T::VerificationError> {
-        T::verify_signature(pubkey, msg, signature)
-    }
 }
 
 // For extra safety and to avoid risking signing malicious messages, use a proxy
