@@ -188,7 +188,7 @@ impl Verifier<EcdsaSecretKey> for Pubkey<EcdsaSecretKey> {
     ) -> Result<(), Self::VerificationError> {
         use k256::ecdsa::signature::Verifier;
         let ecdsa_pubkey = EcdsaPublicKeyInner::from_sec1_bytes(&self.encoded)?;
-        let ecdsa_sig = EcdsaSignatureInner::from_bytes(&signature)?;
+        let ecdsa_sig = EcdsaSignatureInner::from_bytes(signature)?;
         ecdsa_pubkey.verify(msg, &ecdsa_sig)
     }
 }
