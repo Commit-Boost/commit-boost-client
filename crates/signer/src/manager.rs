@@ -334,18 +334,10 @@ mod tests {
         let sig = signing_manager.sign_proxy(proxy_pk.as_ref(), data_root_bytes).await.unwrap();
 
         // Verify signature
-
         let domain = CHAIN.builder_domain();
         let signing_root = compute_signing_root(data_root_bytes.tree_hash_root().0, domain);
 
         let validation_result = proxy_pk.verify_signature(&signing_root, &sig);
-
-        // verify_signed_builder_message(
-        //     *CHAIN,
-        //     &signed_delegation.message.proxy,
-        //     &data_root_bytes,
-        //     &sig,
-        // );
 
         assert!(
             validation_result.is_ok(),
