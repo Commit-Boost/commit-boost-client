@@ -150,10 +150,7 @@ impl SecretKey for EcdsaSecretKey {
         EcdsaSecretKey::random(&mut rand::thread_rng())
     }
 
-    fn new_from_bytes(bytes: &[u8]) -> Result<Self>
-    where
-        Self: Sized,
-    {
+    fn new_from_bytes(bytes: &[u8]) -> Result<Self> {
         Ok(EcdsaSecretKey::from_slice(bytes)?)
     }
 
