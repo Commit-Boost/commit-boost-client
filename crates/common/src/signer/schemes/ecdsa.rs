@@ -1,6 +1,6 @@
 use std::hash::Hash;
 
-use derive_more::derive::{Deref, Into};
+use derive_more::derive::{Deref, From, Into};
 use eyre::Result;
 use generic_array::GenericArray;
 use k256::ecdsa::{Signature as EcdsaSignatureInner, VerifyingKey as EcdsaPublicKeyInner};
@@ -17,7 +17,7 @@ pub type EcdsaSecretKey = k256::ecdsa::SigningKey;
 
 type CompressedPublicKey = GenericArray<u8, U33>;
 
-#[derive(Debug, Clone, Copy, Into, Serialize, Deserialize, PartialEq, Eq, Deref)]
+#[derive(Debug, Clone, Copy, From, Into, Serialize, Deserialize, PartialEq, Eq, Deref, Hash)]
 pub struct EcdsaPublicKey {
     encoded: CompressedPublicKey,
 }
@@ -26,12 +26,6 @@ impl EcdsaPublicKey {
     /// Size of the public key in bytes. We store the SEC1 encoded affine point
     /// compressed, thus 33 bytes.
     const SIZE: usize = 33;
-}
-
-impl Hash for EcdsaPublicKey {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.encoded.hash(state);
-    }
 }
 
 impl TreeHash for EcdsaPublicKey {
@@ -105,12 +99,6 @@ impl ssz::Decode for EcdsaPublicKey {
         fixed_array.copy_from_slice(bytes);
 
         Ok(EcdsaPublicKey { encoded: fixed_array.into() })
-    }
-}
-
-impl From<CompressedPublicKey> for EcdsaPublicKey {
-    fn from(value: CompressedPublicKey) -> Self {
-        Self { encoded: value }
     }
 }
 
