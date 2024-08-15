@@ -9,10 +9,11 @@ use ssz_derive::{Decode, Encode};
 use tree_hash::TreeHash;
 
 pub mod schemes;
-pub mod signers;
+#[allow(clippy::module_inception)]
+mod signer;
 
 pub use schemes::{bls::BlsSecretKey, ecdsa::EcdsaSecretKey};
-pub use signers::{ConsensusSigner, Signer};
+pub use signer::{ConsensusSigner, Signer};
 
 pub type Pubkey<T> = <T as SecretKey>::PublicKey;
 
