@@ -94,7 +94,6 @@ impl SignerClient {
         request: &GenerateProxyRequest,
     ) -> Result<SignedProxyDelegation, SignerClientError> {
         let url = format!("{}{}", self.url, GENERATE_PROXY_KEY_PATH);
-        println!("{}", serde_json::to_string(&request).unwrap());
         let res = self.client.post(&url).json(&request).send().await?;
 
         let status = res.status();
