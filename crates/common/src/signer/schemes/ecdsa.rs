@@ -1,3 +1,4 @@
+use core::fmt;
 use std::hash::Hash;
 
 use derive_more::derive::{Deref, From, Into};
@@ -11,7 +12,7 @@ use ssz_types::{
 };
 use tree_hash::TreeHash;
 
-use crate::signer::{GenericPubkey, Pubkey, SecretKey, Verifier};
+use crate::{signature::compute_signing_root, signer::GenericPubkey, types::Chain};
 
 pub type EcdsaSecretKey = k256::ecdsa::SigningKey;
 
@@ -141,45 +142,109 @@ impl TryFrom<&[u8]> for EcdsaSignature {
     }
 }
 
-impl SecretKey for EcdsaSecretKey {
-    type PublicKey = EcdsaPublicKey;
+impl fmt::LowerHex for EcdsaSignature {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "0x")?;
 
-    type Signature = EcdsaSignature;
+        let pubkey_bytes = self.as_ref();
 
-    fn new_random() -> Self {
-        EcdsaSecretKey::random(&mut rand::thread_rng())
-    }
+        for byte in pubkey_bytes {
+            write!(f, "{:02x}", byte)?;
+        }
 
-    fn new_from_bytes(bytes: &[u8]) -> Result<Self> {
-        Ok(EcdsaSecretKey::from_slice(bytes)?)
-    }
-
-    fn pubkey(&self) -> Self::PublicKey {
-        EcdsaPublicKeyInner::from(self).into()
-    }
-
-    fn sign(&self, msg: &[u8]) -> Self::Signature {
-        k256::ecdsa::signature::Signer::<EcdsaSignatureInner>::sign(self, msg).into()
+        Ok(())
     }
 }
 
-impl Verifier<EcdsaSecretKey> for Pubkey<EcdsaSecretKey> {
-    type VerificationError = k256::ecdsa::Error;
-
-    fn verify_signature(
-        &self,
-        msg: &[u8],
-        signature: &<EcdsaSecretKey as SecretKey>::Signature,
-    ) -> Result<(), Self::VerificationError> {
-        use k256::ecdsa::signature::Verifier;
-        let ecdsa_pubkey = EcdsaPublicKeyInner::from_sec1_bytes(&self.encoded)?;
-        let ecdsa_sig = EcdsaSignatureInner::from_bytes(signature)?;
-        ecdsa_pubkey.verify(msg, &ecdsa_sig)
+impl fmt::Display for EcdsaSignature {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:x}")
     }
 }
+
+// SIGNER
+#[derive(Clone)]
+pub enum EcdsaSigner {
+    Local(EcdsaSecretKey),
+}
+
+impl EcdsaSigner {
+    pub fn new_random() -> Self {
+        Self::Local(EcdsaSecretKey::random(&mut rand::thread_rng()))
+    }
+
+    pub fn new_from_bytes(bytes: &[u8]) -> eyre::Result<Self> {
+        let secret = EcdsaSecretKey::from_slice(bytes)?;
+        Ok(Self::Local(secret))
+    }
+
+    pub fn pubkey(&self) -> EcdsaPublicKey {
+        match self {
+            EcdsaSigner::Local(secret) => EcdsaPublicKeyInner::from(secret).into(),
+        }
+    }
+
+    pub async fn sign(&self, chain: Chain, object_root: [u8; 32]) -> EcdsaSignature {
+        match self {
+            EcdsaSigner::Local(sk) => /*sign_builder_root(chain, sk, object_root),*/ {
+                let domain = chain.builder_domain();
+                let signing_root = compute_signing_root(object_root, domain);
+                k256::ecdsa::signature::Signer::<EcdsaSignatureInner>::sign(sk, &signing_root).into()
+            }
+        }
+    }
+
+    pub async fn sign_msg(&self, chain: Chain, msg: &impl TreeHash) -> EcdsaSignature {
+        self.sign(chain, msg.tree_hash_root().0).await
+    }
+}
+
+pub fn verify_ecdsa_signature(pubkey: &EcdsaPublicKey, msg: &[u8], signature: &EcdsaSignature) -> Result<(), k256::ecdsa::Error> {
+    use k256::ecdsa::signature::Verifier;
+    let ecdsa_pubkey = EcdsaPublicKeyInner::from_sec1_bytes(&pubkey.encoded)?;
+    let ecdsa_sig = EcdsaSignatureInner::from_bytes(signature)?;
+    ecdsa_pubkey.verify(msg, &ecdsa_sig)
+}
+
+// impl SecretKey for EcdsaSecretKey {
+//     type PublicKey = EcdsaPublicKey;
+
+//     type Signature = EcdsaSignature;
+
+//     fn new_random() -> Self {
+//         EcdsaSecretKey::random(&mut rand::thread_rng())
+//     }
+
+//     fn new_from_bytes(bytes: &[u8]) -> Result<Self> {
+//         Ok(EcdsaSecretKey::from_slice(bytes)?)
+//     }
+
+//     fn pubkey(&self) -> Self::PublicKey {
+//         EcdsaPublicKeyInner::from(self).into()
+//     }
+
+//     fn sign(&self, msg: &[u8]) -> Self::Signature {
+//         k256::ecdsa::signature::Signer::<EcdsaSignatureInner>::sign(self, msg).into()
+//     }
+// }
+
+// impl Verifier<EcdsaSecretKey> for Pubkey<EcdsaSecretKey> {
+//     type VerificationError = k256::ecdsa::Error;
+
+//     fn verify_signature(
+//         &self,
+//         msg: &[u8],
+//         signature: &<EcdsaSecretKey as SecretKey>::Signature,
+//     ) -> Result<(), Self::VerificationError> {
+//         use k256::ecdsa::signature::Verifier;
+//         let ecdsa_pubkey = EcdsaPublicKeyInner::from_sec1_bytes(&self.encoded)?;
+//         let ecdsa_sig = EcdsaSignatureInner::from_bytes(signature)?;
+//         ecdsa_pubkey.verify(msg, &ecdsa_sig)
+//     }
+// }
 
 impl From<EcdsaPublicKey> for GenericPubkey {
-    fn from(value: Pubkey<EcdsaSecretKey>) -> Self {
+    fn from(value: EcdsaPublicKey) -> Self {
         GenericPubkey::Ecdsa(value)
     }
 }

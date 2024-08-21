@@ -14,7 +14,7 @@ use cb_common::{
     commit::{
         client::GetPubkeysResponse,
         constants::{GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, REQUEST_SIGNATURE_PATH},
-        request::{GenerateProxyRequest, SignRequest},
+        request::{GenerateProxyRequest, SignConsensusRequest, SignProxyRequest, SignRequest},
     },
     config::StartSignerConfig,
     signer::{BlsSecretKey, EcdsaSecretKey},
@@ -128,16 +128,32 @@ async fn handle_request_signature(
 
     let signing_manager = state.manager.read().await;
 
-    let sig = if request.is_proxy {
-        signing_manager.sign_proxy(&request.pubkey, &request.object_root).await
-    } else {
-        let pubkey = request
-            .pubkey
-            .as_slice()
-            .try_into()
-            .map_err(|_| SignerModuleError::UnknownConsensusSigner(request.pubkey.clone()))?;
-        signing_manager.sign_consensus(pubkey, &request.object_root).await.map(|x| x.to_vec())
+    let sig = match request {
+        SignRequest::Consensus(SignConsensusRequest { pubkey, object_root }) => {
+            signing_manager.sign_consensus(&pubkey, &object_root).await.map(|sig| sig.to_vec())
+        },
+        SignRequest::Proxy(SignProxyRequest { pubkey, object_root }) => {
+            match pubkey {
+                cb_common::signer::GenericPubkey::Bls(bls_pubkey) => {
+                    signing_manager.sign_proxy_bls(&bls_pubkey, &object_root).await.map(|sig| sig.to_vec())
+                },
+                cb_common::signer::GenericPubkey::Ecdsa(ecdsa_pubkey) => {
+                    signing_manager.sign_proxy_ecdsa(&ecdsa_pubkey, &object_root).await.map(|sig| sig.to_vec())
+                },
+            }
+        },
     }?;
+
+    // let sig = if request.is_proxy {
+    //     signing_manager.sign_proxy(&request.pubkey, &request.object_root).await
+    // } else {
+    //     let pubkey = request
+    //         .pubkey
+    //         .as_slice()
+    //         .try_into()
+    //         .map_err(|_| SignerModuleError::UnknownConsensusSigner(request.pubkey.clone()))?;
+    //     signing_manager.sign_consensus(pubkey, &request.object_root).await.map(|x| x.to_vec())
+    // }?;
 
     Ok((StatusCode::OK, Json(sig)).into_response())
 }
@@ -153,19 +169,20 @@ async fn handle_generate_proxy(
 
     let mut signing_manager = state.manager.write().await;
 
-    use cb_common::commit::request::EncryptionScheme;
-    let proxy_delegation = match request.scheme {
-        EncryptionScheme::Bls => {
-            signing_manager
-                .create_proxy::<BlsSecretKey>(module_id, request.consensus_pubkey)
-                .await?
-        }
-        EncryptionScheme::Ecdsa => {
-            signing_manager
-                .create_proxy::<EcdsaSecretKey>(module_id, request.consensus_pubkey)
-                .await?
-        }
-    };
+    let proxy_delegation = signing_manager
+        .create_proxy(module_id, request.consensus_pubkey, request.scheme)
+        .await?;
+
+    // match request.scheme {
+    //     EncryptionScheme::Bls => {
+
+    //     }
+    //     EncryptionScheme::Ecdsa => {
+    //         signing_manager
+    //             .create_proxy::<EcdsaSecretKey>(module_id, request.consensus_pubkey)
+    //             .await?
+    //     }
+    // };
 
     Ok((StatusCode::OK, Json(proxy_delegation)).into_response())
 }

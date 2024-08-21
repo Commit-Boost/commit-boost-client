@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use alloy::rpc::types::beacon::BlsPublicKey;
-use commit::request::GenerateProxyRequest;
+use commit::request::{GenerateProxyRequest, SignProxyEcdsaRequest};
 use commit_boost::prelude::*;
 use eyre::{OptionExt, Result};
 use lazy_static::lazy_static;
@@ -68,13 +68,14 @@ impl DaCommitService {
     ) -> Result<()> {
         let datagram = Datagram { data };
 
-        let request = SignRequest::builder(pubkey.to_vec()).with_msg(&datagram);
-        let signature = self.config.signer_client.request_signature(&request);
+        let request = SignConsensusRequest::builder(pubkey).with_msg(&datagram);
+        let signature = self.config.signer_client.request_consensus_signature(request);
 
-        let proxy_request = SignRequest::builder(proxy_delegation.message.proxy.as_ref().to_vec())
-            .is_proxy()
+        let ecdsa_proxy: EcdsaPublicKey = proxy_delegation.message.proxy.try_into().unwrap();
+
+        let proxy_request = SignProxyEcdsaRequest::builder(ecdsa_proxy)
             .with_msg(&datagram);
-        let proxy_signature = self.config.signer_client.request_signature(&proxy_request);
+        let proxy_signature = self.config.signer_client.request_proxy_ecdsa_signature(proxy_request);
 
         let (signature, proxy_signature) = {
             let res = tokio::join!(signature, proxy_signature);

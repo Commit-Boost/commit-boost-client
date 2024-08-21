@@ -1,6 +1,6 @@
 use std::{fmt, sync::Arc};
 
-use alloy::rpc::types::beacon::BlsPublicKey;
+use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
 use eyre::WrapErr;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use serde::{Deserialize, Serialize};
@@ -8,9 +8,9 @@ use serde::{Deserialize, Serialize};
 use super::{
     constants::{GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, REQUEST_SIGNATURE_PATH},
     error::SignerClientError,
-    request::{GenerateProxyRequest, SignRequest, SignedProxyDelegation},
+    request::{GenerateProxyRequest, SignConsensusRequest, SignProxyBlsRequest, SignProxyEcdsaRequest, SignProxyRequest, SignRequest, SignedProxyDelegation},
 };
-use crate::{signer::GenericPubkey, DEFAULT_REQUEST_TIMEOUT};
+use crate::{signer::{schemes::ecdsa::{EcdsaPublicKey, EcdsaSignature}, BlsSecretKey, GenericPubkey}, DEFAULT_REQUEST_TIMEOUT};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GetPubkeysResponse {
@@ -67,10 +67,10 @@ impl SignerClient {
     }
 
     /// Send a signature request
-    pub async fn request_signature(
+    async fn request_signature(
         &self,
         request: &SignRequest,
-    ) -> Result<Signature, SignerClientError> {
+    ) -> Result<Vec<u8>, SignerClientError> {
         let url = format!("{}{}", self.url, REQUEST_SIGNATURE_PATH);
         let res = self.client.post(&url).json(&request).send().await?;
 
@@ -86,7 +86,33 @@ impl SignerClient {
 
         let signature: Vec<u8> = serde_json::from_slice(&response_bytes)?;
 
-        Ok(Signature(signature))
+        Ok(signature)
+    }
+
+    pub async fn request_consensus_signature(&self, request: SignConsensusRequest) -> Result<BlsSignature, SignerClientError> {
+        let request = SignRequest::Consensus(request);
+        let raw_signature = self.request_signature(&request).await?;
+
+        let signature = BlsSignature::from_slice(&raw_signature);
+
+        Ok(signature)
+    }
+
+    async fn request_proxy_signature(&self, request: SignProxyRequest) -> Result<Vec<u8>, SignerClientError> {
+        let request = SignRequest::Proxy(request);
+        self.request_signature(&request).await
+    }
+
+    pub async fn request_proxy_ecdsa_signature(&self, request: SignProxyEcdsaRequest) -> Result<EcdsaSignature, SignerClientError> {
+        let raw_signature = self.request_proxy_signature(request.into()).await?;
+        let signature = EcdsaSignature::try_from(raw_signature.as_ref()).expect("unexpected invalid ECDSA signature");
+        Ok(signature)
+    }
+
+    pub async fn request_proxy_bls_signature(&self, request: SignProxyBlsRequest) -> Result<BlsSignature, SignerClientError> {
+        let raw_signature = self.request_proxy_signature(request.into()).await?;
+        let signature = BlsSignature::from_slice(&raw_signature);
+        Ok(signature)
     }
 
     pub async fn generate_proxy_key(
@@ -109,21 +135,5 @@ impl SignerClient {
         let signed_proxy_delegation = serde_json::from_slice(&response_bytes)?;
 
         Ok(signed_proxy_delegation)
-    }
-}
-
-// NOTE(David):
-// For now, this is a simple displayable wrapper around vec, serving as a
-// client-side type. It can be further deliberated whether a separate
-// client-side type is preferrable over re-using an SDK in `common::signer`.
-pub struct Signature(Vec<u8>);
-
-impl fmt::Display for Signature {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "0x")?;
-        for byte in &self.0 {
-            write!(f, "{:02x}", byte)?;
-        }
-        Ok(())
     }
 }

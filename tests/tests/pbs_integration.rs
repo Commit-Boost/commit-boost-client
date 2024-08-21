@@ -2,10 +2,7 @@ use std::{net::SocketAddr, sync::Arc, time::Duration, u64};
 
 use alloy::primitives::U256;
 use cb_common::{
-    config::{PbsConfig, PbsModuleConfig},
-    pbs::RelayClient,
-    signer::Signer,
-    types::Chain,
+    config::{PbsConfig, PbsModuleConfig}, pbs::RelayClient, signer::ConsensusSigner, types::Chain
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
@@ -55,7 +52,7 @@ fn to_pbs_config(chain: Chain, pbs_config: PbsConfig, relays: Vec<RelayClient>) 
 #[tokio::test]
 async fn test_get_header() -> Result<()> {
     setup_test_env();
-    let signer = Signer::new_random();
+    let signer = ConsensusSigner::new_random();
 
     let chain = Chain::Holesky;
     let port = 3000;
@@ -83,7 +80,7 @@ async fn test_get_header() -> Result<()> {
 #[tokio::test]
 async fn test_get_status() -> Result<()> {
     setup_test_env();
-    let signer = Signer::new_random();
+    let signer = ConsensusSigner::new_random();
 
     let chain = Chain::Holesky;
     let port = 3100;
@@ -115,7 +112,7 @@ async fn test_get_status() -> Result<()> {
 #[tokio::test]
 async fn test_register_validators() -> Result<()> {
     setup_test_env();
-    let signer = Signer::new_random();
+    let signer = ConsensusSigner::new_random();
 
     let chain = Chain::Holesky;
     let port = 3300;
@@ -143,7 +140,7 @@ async fn test_register_validators() -> Result<()> {
 #[tokio::test]
 async fn test_submit_block() -> Result<()> {
     setup_test_env();
-    let signer = Signer::new_random();
+    let signer = ConsensusSigner::new_random();
 
     let chain = Chain::Holesky;
     let port = 3400;

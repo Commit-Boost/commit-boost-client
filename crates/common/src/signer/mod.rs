@@ -1,56 +1,56 @@
 use std::{
-    error::Error,
     fmt::{self, LowerHex},
 };
 
+use alloy::rpc::types::beacon::BlsPublicKey;
 use eyre::Context;
+use schemes::{bls::verify_bls_signature, ecdsa::verify_ecdsa_signature};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use tree_hash::TreeHash;
 
 pub mod schemes;
 #[allow(clippy::module_inception)]
 mod signer;
 
-pub use schemes::{bls::BlsSecretKey, ecdsa::EcdsaSecretKey};
-pub use signer::{ConsensusSigner, Signer};
+pub use schemes::{bls::BlsSecretKey, ecdsa::EcdsaSecretKey, ecdsa::EcdsaPublicKey, ecdsa::EcdsaSignature};
+pub use signer::{ConsensusSigner, BlsSigner, EcdsaSigner};
 
-pub type Pubkey<T> = <T as SecretKey>::PublicKey;
+// pub type Pubkey<T> = <T as SecretKey>::PublicKey;
 
-pub trait SecretKey {
-    type PublicKey: AsRef<[u8]> + Clone + Verifier<Self>;
-    type Signature: AsRef<[u8]> + Clone;
+// pub trait SecretKey {
+//     type PublicKey: AsRef<[u8]> + Clone + Verifier<Self>;
+//     type Signature: AsRef<[u8]> + Clone;
 
-    fn new_random() -> Self;
-    fn new_from_bytes(bytes: &[u8]) -> eyre::Result<Self>
-    where
-        Self: Sized;
-    fn pubkey(&self) -> Self::PublicKey;
-    fn sign(&self, msg: &[u8]) -> Self::Signature;
-    fn sign_msg(&self, msg: &impl TreeHash) -> Self::Signature {
-        self.sign(&msg.tree_hash_root().0)
-    }
-}
+//     fn new_random() -> Self;
+//     fn new_from_bytes(bytes: &[u8]) -> eyre::Result<Self>
+//     where
+//         Self: Sized;
+//     fn pubkey(&self) -> Self::PublicKey;
+//     fn sign(&self, msg: &[u8]) -> Self::Signature;
+//     fn sign_msg(&self, msg: &impl TreeHash) -> Self::Signature {
+//         self.sign(&msg.tree_hash_root().0)
+//     }
+// }
 
-pub trait Verifier<T: SecretKey>
-where
-    T: ?Sized,
-{
-    type VerificationError: Error;
+// pub trait Verifier<T: SecretKey>
+// where
+//     T: ?Sized,
+// {
+//     type VerificationError: Error;
 
-    fn verify_signature(
-        &self,
-        msg: &[u8],
-        signature: &T::Signature,
-    ) -> Result<(), Self::VerificationError>;
-}
+//     fn verify_signature(
+//         &self,
+//         msg: &[u8],
+//         signature: &T::Signature,
+//     ) -> Result<(), Self::VerificationError>;
+// }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Encode, Decode)]
 #[serde(untagged)]
 #[ssz(enum_behaviour = "transparent")]
 pub enum GenericPubkey {
-    Bls(Pubkey<BlsSecretKey>),
-    Ecdsa(Pubkey<EcdsaSecretKey>),
+    Bls(BlsPublicKey),
+    Ecdsa(EcdsaPublicKey),
 }
 
 impl GenericPubkey {
@@ -58,11 +58,11 @@ impl GenericPubkey {
         match self {
             GenericPubkey::Bls(bls_pubkey) => {
                 let sig = signature.try_into().context("Invalid signature length for BLS.")?;
-                Ok(bls_pubkey.verify_signature(msg, &sig)?)
+                Ok(verify_bls_signature(bls_pubkey, msg, &sig)?)
             }
             GenericPubkey::Ecdsa(ecdsa_pubkey) => {
                 let sig = signature.try_into().context("Invalid signature for ECDSA.")?;
-                Ok(ecdsa_pubkey.verify_signature(msg, &sig)?)
+                Ok(verify_ecdsa_signature(ecdsa_pubkey, msg, &sig)?)
             }
         }
     }
@@ -73,6 +73,28 @@ impl AsRef<[u8]> for GenericPubkey {
         match self {
             GenericPubkey::Bls(bls_pubkey) => bls_pubkey.as_ref(),
             GenericPubkey::Ecdsa(ecdsa_pubkey) => ecdsa_pubkey.as_ref(),
+        }
+    }
+}
+
+impl TryFrom<GenericPubkey> for BlsPublicKey {
+    type Error = ();
+
+    fn try_from(value: GenericPubkey) -> Result<Self, Self::Error> {
+        match value {
+            GenericPubkey::Bls(bls_pubkey) => Ok(bls_pubkey),
+            GenericPubkey::Ecdsa(_) => Err(()),
+        }
+    }
+}
+
+impl TryFrom<GenericPubkey> for EcdsaPublicKey {
+    type Error = ();
+
+    fn try_from(value: GenericPubkey) -> Result<Self, Self::Error> {
+        match value {
+            GenericPubkey::Bls(_) => Err(()),
+            GenericPubkey::Ecdsa(ecdsa_pubkey) => Ok(ecdsa_pubkey),
         }
     }
 }

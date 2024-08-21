@@ -1,7 +1,8 @@
 pub mod prelude {
     pub use cb_common::{
         commit,
-        commit::request::{SignRequest, SignedProxyDelegation},
+        commit::request::{SignConsensusRequest, SignedProxyDelegation},
+        signer::{EcdsaPublicKey, EcdsaSignature},
         config::{
             load_builder_module_config, load_commit_module_config, load_pbs_config,
             load_pbs_custom_config, StartCommitModuleConfig,

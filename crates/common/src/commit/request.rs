@@ -7,7 +7,7 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    error::BlstErrorWrapper, signature::verify_signed_builder_message, signer::GenericPubkey,
+    error::BlstErrorWrapper, signature::verify_signed_builder_message, signer::{schemes::ecdsa::EcdsaPublicKey, GenericPubkey},
     types::Chain,
 };
 
@@ -49,27 +49,26 @@ impl fmt::Display for SignedProxyDelegation {
     }
 }
 
-// TODO(David): Consider splitting `SignRequest` into two: ConsensusSignRequest
-// and ProxySignRequest. For better type safety (to avoid the Vec<u8>
-// generalisation) and avoid the is_proxy flag
+// TODO(David): This struct shouldn't be visible in the client SDK
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SignRequest {
-    pub pubkey: Vec<u8>,
-    pub is_proxy: bool,
+pub enum SignRequest {
+    Consensus(SignConsensusRequest),
+    Proxy(SignProxyRequest),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignConsensusRequest {
+    pub pubkey: BlsPublicKey,
     pub object_root: [u8; 32],
 }
 
-impl SignRequest {
-    pub fn new(pubkey: Vec<u8>, is_proxy: bool, object_root: [u8; 32]) -> SignRequest {
-        Self { pubkey, is_proxy, object_root }
+impl SignConsensusRequest {
+    pub fn new(pubkey: BlsPublicKey, object_root: [u8; 32]) -> Self {
+        Self { pubkey, object_root }
     }
 
-    pub fn builder(pubkey: Vec<u8>) -> Self {
-        Self::new(pubkey, false, [0; 32])
-    }
-
-    pub fn is_proxy(self) -> Self {
-        Self { is_proxy: true, ..self }
+    pub fn builder(pubkey: BlsPublicKey) -> Self {
+        Self::new(pubkey, [0; 32])
     }
 
     pub fn with_root(self, object_root: [u8; 32]) -> Self {
@@ -78,6 +77,91 @@ impl SignRequest {
 
     pub fn with_msg(self, msg: &impl TreeHash) -> Self {
         self.with_root(msg.tree_hash_root().0)
+    }
+}
+
+//TODO(David): Shouldn't be visible from the client SDK
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignProxyRequest {
+    pub pubkey: GenericPubkey,
+    pub object_root: [u8; 32],
+}
+
+impl SignProxyRequest {
+    pub fn new(pubkey: GenericPubkey, object_root: [u8; 32]) -> Self {
+        Self { pubkey, object_root }
+    }
+
+    pub fn builder(pubkey: GenericPubkey) -> Self {
+        Self::new(pubkey, [0; 32])
+    }
+
+    pub fn with_root(self, object_root: [u8; 32]) -> Self {
+        Self { object_root, ..self }
+    }
+
+    pub fn with_msg(self, msg: &impl TreeHash) -> Self {
+        self.with_root(msg.tree_hash_root().0)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignProxyEcdsaRequest {
+    pub pubkey: EcdsaPublicKey,
+    pub object_root: [u8; 32],
+}
+
+impl SignProxyEcdsaRequest {
+    pub fn new(pubkey: EcdsaPublicKey, object_root: [u8; 32]) -> Self {
+        Self { pubkey, object_root }
+    }
+
+    pub fn builder(pubkey: EcdsaPublicKey) -> Self {
+        Self::new(pubkey, [0; 32])
+    }
+
+    pub fn with_root(self, object_root: [u8; 32]) -> Self {
+        Self { object_root, ..self }
+    }
+
+    pub fn with_msg(self, msg: &impl TreeHash) -> Self {
+        self.with_root(msg.tree_hash_root().0)
+    }
+}
+
+impl From<SignProxyEcdsaRequest> for SignProxyRequest {
+    fn from(value: SignProxyEcdsaRequest) -> Self {
+        Self { pubkey: GenericPubkey::Ecdsa(value.pubkey), object_root: value.object_root }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignProxyBlsRequest {
+    pub pubkey: BlsPublicKey,
+    pub object_root: [u8; 32],
+}
+
+impl SignProxyBlsRequest {
+    pub fn new(pubkey: BlsPublicKey, object_root: [u8; 32]) -> Self {
+        Self { pubkey, object_root }
+    }
+
+    pub fn builder(pubkey: BlsPublicKey) -> Self {
+        Self::new(pubkey, [0; 32])
+    }
+
+    pub fn with_root(self, object_root: [u8; 32]) -> Self {
+        Self { object_root, ..self }
+    }
+
+    pub fn with_msg(self, msg: &impl TreeHash) -> Self {
+        self.with_root(msg.tree_hash_root().0)
+    }
+}
+
+impl From<SignProxyBlsRequest> for SignProxyRequest {
+    fn from(value: SignProxyBlsRequest) -> Self {
+        Self { pubkey: GenericPubkey::Bls(value.pubkey), object_root: value.object_root }
     }
 }
 

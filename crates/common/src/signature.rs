@@ -1,4 +1,4 @@
-use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
+use alloy::rpc::types::beacon::{constants::BLS_DST_SIG, BlsPublicKey, BlsSignature};
 use ssz_derive::{Decode, Encode};
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
@@ -6,9 +6,14 @@ use tree_hash_derive::TreeHash;
 use crate::{
     constants::{APPLICATION_BUILDER_DOMAIN, GENESIS_VALIDATORS_ROOT},
     error::BlstErrorWrapper,
-    signer::{SecretKey, Verifier},
+    signer::{schemes::bls::verify_bls_signature, BlsSecretKey},
     types::Chain,
 };
+
+pub fn sign_message(secret_key: &BlsSecretKey, msg: &[u8]) -> BlsSignature {
+    let signature = secret_key.sign(msg, BLS_DST_SIG, &[]).to_bytes();
+    BlsSignature::from_slice(&signature)
+}
 
 pub fn compute_signing_root(object_root: [u8; 32], signing_domain: [u8; 32]) -> [u8; 32] {
     #[derive(Default, Debug, Encode, Decode, TreeHash)]
@@ -50,25 +55,25 @@ pub fn verify_signed_builder_message<T: TreeHash>(
     let domain = chain.builder_domain();
     let signing_root = compute_signing_root(msg.tree_hash_root().0, domain);
 
-    pubkey.verify_signature(&signing_root, signature)
+    verify_bls_signature(pubkey, &signing_root, signature)
 }
 
-pub fn sign_builder_message<T: SecretKey>(
+pub fn sign_builder_message(
     chain: Chain,
-    secret_key: &T,
+    secret_key: &BlsSecretKey,
     msg: &impl TreeHash,
-) -> T::Signature {
+) -> BlsSignature {
     sign_builder_root(chain, secret_key, msg.tree_hash_root().0)
 }
 
-pub fn sign_builder_root<T: SecretKey>(
+pub fn sign_builder_root(
     chain: Chain,
-    secret_key: &T,
+    secret_key: &BlsSecretKey,
     object_root: [u8; 32],
-) -> T::Signature {
+) -> BlsSignature {
     let domain = chain.builder_domain();
     let signing_root = compute_signing_root(object_root, domain);
-    secret_key.sign(&signing_root)
+    sign_message(secret_key, &signing_root)
 }
 
 #[cfg(test)]
