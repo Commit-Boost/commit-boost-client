@@ -1,0 +1,10 @@
+chain = "Holesky"
+
+[pbs]
+port = 18550
+
+[[relays]]
+url = ""
+
+[metrics]
+prometheus_config = "./docker/prometheus.yml"

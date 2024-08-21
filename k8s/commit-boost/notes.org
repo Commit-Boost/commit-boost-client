@@ -1,0 +1,3 @@
+* commit-boost config requires prometheus stuff
+* rolling duration for logs needs to be set to never
+* metrics server?
