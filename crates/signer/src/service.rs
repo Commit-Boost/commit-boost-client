@@ -133,29 +133,18 @@ async fn handle_request_signature(
     let sig = match request {
         SignRequest::Consensus(SignConsensusRequest { pubkey, object_root }) => {
             signing_manager.sign_consensus(&pubkey, &object_root).await.map(|sig| sig.to_vec())
-        },
-        SignRequest::Proxy(SignProxyRequest { pubkey, object_root }) => {
-            match pubkey {
-                cb_common::signer::GenericPubkey::Bls(bls_pubkey) => {
-                    signing_manager.sign_proxy_bls(&bls_pubkey, &object_root).await.map(|sig| sig.to_vec())
-                },
-                cb_common::signer::GenericPubkey::Ecdsa(ecdsa_pubkey) => {
-                    signing_manager.sign_proxy_ecdsa(&ecdsa_pubkey, &object_root).await.map(|sig| sig.to_vec())
-                },
-            }
+        }
+        SignRequest::Proxy(SignProxyRequest { pubkey, object_root }) => match pubkey {
+            cb_common::signer::GenericPubkey::Bls(bls_pubkey) => signing_manager
+                .sign_proxy_bls(&bls_pubkey, &object_root)
+                .await
+                .map(|sig| sig.to_vec()),
+            cb_common::signer::GenericPubkey::Ecdsa(ecdsa_pubkey) => signing_manager
+                .sign_proxy_ecdsa(&ecdsa_pubkey, &object_root)
+                .await
+                .map(|sig| sig.to_vec()),
         },
     }?;
-
-    // let sig = if request.is_proxy {
-    //     signing_manager.sign_proxy(&request.pubkey, &request.object_root).await
-    // } else {
-    //     let pubkey = request
-    //         .pubkey
-    //         .as_slice()
-    //         .try_into()
-    //         .map_err(|_| SignerModuleError::UnknownConsensusSigner(request.pubkey.clone()))?;
-    //     signing_manager.sign_consensus(pubkey, &request.object_root).await.map(|x| x.to_vec())
-    // }?;
 
     Ok((StatusCode::OK, Json(sig)).into_response())
 }
@@ -170,10 +159,6 @@ async fn handle_generate_proxy(
     debug!(event = "generate_proxy", module_id=?module_id, ?req_id, "New request");
 
     let mut signing_manager = state.manager.write().await;
-
-    // let proxy_delegation = signing_manager
-    //     .create_proxy(module_id, request.consensus_pubkey, request.scheme)
-    //     .await?;
 
     let proxy_delegation: SignedProxyDelegation = match request.scheme {
         EncryptionScheme::Bls => {

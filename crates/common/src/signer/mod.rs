@@ -1,6 +1,4 @@
-use std::{
-    fmt::{self, LowerHex},
-};
+use std::fmt::{self, LowerHex};
 
 use alloy::rpc::types::beacon::BlsPublicKey;
 use eyre::Context;
@@ -12,38 +10,11 @@ pub mod schemes;
 #[allow(clippy::module_inception)]
 mod signer;
 
-pub use schemes::{bls::BlsSecretKey, ecdsa::EcdsaSecretKey, ecdsa::EcdsaPublicKey, ecdsa::EcdsaSignature};
-pub use signer::{ConsensusSigner, BlsSigner, EcdsaSigner};
-
-// pub type Pubkey<T> = <T as SecretKey>::PublicKey;
-
-// pub trait SecretKey {
-//     type PublicKey: AsRef<[u8]> + Clone + Verifier<Self>;
-//     type Signature: AsRef<[u8]> + Clone;
-
-//     fn new_random() -> Self;
-//     fn new_from_bytes(bytes: &[u8]) -> eyre::Result<Self>
-//     where
-//         Self: Sized;
-//     fn pubkey(&self) -> Self::PublicKey;
-//     fn sign(&self, msg: &[u8]) -> Self::Signature;
-//     fn sign_msg(&self, msg: &impl TreeHash) -> Self::Signature {
-//         self.sign(&msg.tree_hash_root().0)
-//     }
-// }
-
-// pub trait Verifier<T: SecretKey>
-// where
-//     T: ?Sized,
-// {
-//     type VerificationError: Error;
-
-//     fn verify_signature(
-//         &self,
-//         msg: &[u8],
-//         signature: &T::Signature,
-//     ) -> Result<(), Self::VerificationError>;
-// }
+pub use schemes::{
+    bls::BlsSecretKey,
+    ecdsa::{EcdsaPublicKey, EcdsaSecretKey, EcdsaSignature},
+};
+pub use signer::{BlsSigner, ConsensusSigner, EcdsaSigner};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Encode, Decode)]
 #[serde(untagged)]

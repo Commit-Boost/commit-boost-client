@@ -72,9 +72,9 @@ impl DaCommitService {
 
         let ecdsa_proxy: EcdsaPublicKey = proxy_delegation.message.proxy;
 
-        let proxy_request = SignProxyEcdsaRequest::builder(ecdsa_proxy)
-            .with_msg(&datagram);
-        let proxy_signature = self.config.signer_client.request_proxy_ecdsa_signature(proxy_request);
+        let proxy_request = SignProxyEcdsaRequest::builder(ecdsa_proxy).with_msg(&datagram);
+        let proxy_signature =
+            self.config.signer_client.request_proxy_ecdsa_signature(proxy_request);
 
         let (signature, proxy_signature) = {
             let res = tokio::join!(signature, proxy_signature);

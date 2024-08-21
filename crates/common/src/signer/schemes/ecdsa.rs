@@ -192,9 +192,7 @@ impl EcdsaSigner {
 
     pub async fn sign(&self, chain: Chain, object_root: [u8; 32]) -> EcdsaSignature {
         match self {
-            EcdsaSigner::Local(sk) =>
-            /* sign_builder_root(chain, sk, object_root), */
-            {
+            EcdsaSigner::Local(sk) => {
                 let domain = chain.builder_domain();
                 let signing_root = compute_signing_root(object_root, domain);
                 k256::ecdsa::signature::Signer::<EcdsaSignatureInner>::sign(sk, &signing_root)
@@ -208,6 +206,8 @@ impl EcdsaSigner {
     }
 }
 
+// TODO(David): Add tests for this verification, most probably not properly
+// working yet
 pub fn verify_ecdsa_signature(
     pubkey: &EcdsaPublicKey,
     msg: &[u8],
@@ -218,43 +218,6 @@ pub fn verify_ecdsa_signature(
     let ecdsa_sig = EcdsaSignatureInner::from_bytes(signature)?;
     ecdsa_pubkey.verify(msg, &ecdsa_sig)
 }
-
-// impl SecretKey for EcdsaSecretKey {
-//     type PublicKey = EcdsaPublicKey;
-
-//     type Signature = EcdsaSignature;
-
-//     fn new_random() -> Self {
-//         EcdsaSecretKey::random(&mut rand::thread_rng())
-//     }
-
-//     fn new_from_bytes(bytes: &[u8]) -> Result<Self> {
-//         Ok(EcdsaSecretKey::from_slice(bytes)?)
-//     }
-
-//     fn pubkey(&self) -> Self::PublicKey {
-//         EcdsaPublicKeyInner::from(self).into()
-//     }
-
-//     fn sign(&self, msg: &[u8]) -> Self::Signature {
-//         k256::ecdsa::signature::Signer::<EcdsaSignatureInner>::sign(self, msg).into()
-//     }
-// }
-
-// impl Verifier<EcdsaSecretKey> for Pubkey<EcdsaSecretKey> {
-//     type VerificationError = k256::ecdsa::Error;
-
-//     fn verify_signature(
-//         &self,
-//         msg: &[u8],
-//         signature: &<EcdsaSecretKey as SecretKey>::Signature,
-//     ) -> Result<(), Self::VerificationError> {
-//         use k256::ecdsa::signature::Verifier;
-//         let ecdsa_pubkey = EcdsaPublicKeyInner::from_sec1_bytes(&self.encoded)?;
-//         let ecdsa_sig = EcdsaSignatureInner::from_bytes(signature)?;
-//         ecdsa_pubkey.verify(msg, &ecdsa_sig)
-//     }
-// }
 
 impl From<EcdsaPublicKey> for GenericPubkey {
     fn from(value: EcdsaPublicKey) -> Self {

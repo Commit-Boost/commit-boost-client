@@ -2,7 +2,10 @@ use std::{net::SocketAddr, sync::Arc, time::Duration, u64};
 
 use alloy::primitives::U256;
 use cb_common::{
-    config::{PbsConfig, PbsModuleConfig}, pbs::RelayClient, signer::ConsensusSigner, types::Chain
+    config::{PbsConfig, PbsModuleConfig},
+    pbs::RelayClient,
+    signer::ConsensusSigner,
+    types::Chain,
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
