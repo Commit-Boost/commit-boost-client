@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use alloy::rpc::types::beacon::BlsPublicKey;
-use commit::request::{GenerateProxyRequest, SignProxyEcdsaRequest};
+use commit::request::SignProxyEcdsaRequest;
 use commit_boost::prelude::*;
 use eyre::{OptionExt, Result};
 use lazy_static::lazy_static;
@@ -47,8 +47,7 @@ impl DaCommitService {
         let pubkey = pubkeys.consensus.first().ok_or_eyre("no key available")?;
         info!("Registered validator {pubkey}");
 
-        let request = GenerateProxyRequest::new(*pubkey, commit::request::EncryptionScheme::Ecdsa);
-        let proxy_delegation = self.config.signer_client.generate_proxy_key(&request).await?;
+        let proxy_delegation = self.config.signer_client.generate_ecdsa_proxy_key(*pubkey).await?;
         info!("Obtained a proxy delegation:\n{proxy_delegation}");
 
         let mut data = 0;
@@ -64,14 +63,14 @@ impl DaCommitService {
         &self,
         data: u64,
         pubkey: BlsPublicKey,
-        proxy_delegation: SignedProxyDelegation,
+        proxy_delegation: SignedProxyDelegationEcdsa,
     ) -> Result<()> {
         let datagram = Datagram { data };
 
         let request = SignConsensusRequest::builder(pubkey).with_msg(&datagram);
         let signature = self.config.signer_client.request_consensus_signature(request);
 
-        let ecdsa_proxy: EcdsaPublicKey = proxy_delegation.message.proxy.try_into().unwrap();
+        let ecdsa_proxy: EcdsaPublicKey = proxy_delegation.message.proxy;
 
         let proxy_request = SignProxyEcdsaRequest::builder(ecdsa_proxy)
             .with_msg(&datagram);

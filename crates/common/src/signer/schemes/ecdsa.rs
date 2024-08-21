@@ -2,10 +2,10 @@ use core::fmt;
 use std::hash::Hash;
 
 use derive_more::derive::{Deref, From, Into};
-use eyre::Result;
 use generic_array::GenericArray;
 use k256::ecdsa::{Signature as EcdsaSignatureInner, VerifyingKey as EcdsaPublicKeyInner};
 use serde::{Deserialize, Serialize};
+use serde_utils::hex;
 use ssz_types::{
     typenum::{U33, U64},
     FixedVector,
@@ -117,6 +117,19 @@ impl AsRef<[u8]> for EcdsaPublicKey {
     }
 }
 
+impl fmt::LowerHex for EcdsaPublicKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", hex::encode(self.as_ref()))?;
+        Ok(())
+    }
+}
+
+impl fmt::Display for EcdsaPublicKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:x}")
+    }
+}
+
 #[derive(Clone, Deref)]
 pub struct EcdsaSignature {
     encoded: GenericArray<u8, U64>,
@@ -144,14 +157,7 @@ impl TryFrom<&[u8]> for EcdsaSignature {
 
 impl fmt::LowerHex for EcdsaSignature {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "0x")?;
-
-        let pubkey_bytes = self.as_ref();
-
-        for byte in pubkey_bytes {
-            write!(f, "{:02x}", byte)?;
-        }
-
+        write!(f, "{}", hex::encode(self.as_ref()))?;
         Ok(())
     }
 }
@@ -186,10 +192,13 @@ impl EcdsaSigner {
 
     pub async fn sign(&self, chain: Chain, object_root: [u8; 32]) -> EcdsaSignature {
         match self {
-            EcdsaSigner::Local(sk) => /*sign_builder_root(chain, sk, object_root),*/ {
+            EcdsaSigner::Local(sk) =>
+            /* sign_builder_root(chain, sk, object_root), */
+            {
                 let domain = chain.builder_domain();
                 let signing_root = compute_signing_root(object_root, domain);
-                k256::ecdsa::signature::Signer::<EcdsaSignatureInner>::sign(sk, &signing_root).into()
+                k256::ecdsa::signature::Signer::<EcdsaSignatureInner>::sign(sk, &signing_root)
+                    .into()
             }
         }
     }
@@ -199,7 +208,11 @@ impl EcdsaSigner {
     }
 }
 
-pub fn verify_ecdsa_signature(pubkey: &EcdsaPublicKey, msg: &[u8], signature: &EcdsaSignature) -> Result<(), k256::ecdsa::Error> {
+pub fn verify_ecdsa_signature(
+    pubkey: &EcdsaPublicKey,
+    msg: &[u8],
+    signature: &EcdsaSignature,
+) -> Result<(), k256::ecdsa::Error> {
     use k256::ecdsa::signature::Verifier;
     let ecdsa_pubkey = EcdsaPublicKeyInner::from_sec1_bytes(&pubkey.encoded)?;
     let ecdsa_sig = EcdsaSignatureInner::from_bytes(signature)?;

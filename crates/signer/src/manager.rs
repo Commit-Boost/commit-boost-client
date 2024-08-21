@@ -2,8 +2,14 @@ use std::collections::HashMap;
 
 use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
 use cb_common::{
-    commit::request::{EncryptionScheme, ProxyDelegation, SignedProxyDelegation},
-    signer::{schemes::ecdsa::{EcdsaPublicKey, EcdsaSignature}, BlsSigner, ConsensusSigner, EcdsaSigner, GenericPubkey},
+    commit::request::{
+        ProxyDelegationBls, ProxyDelegationEcdsa, SignedProxyDelegation, SignedProxyDelegationBls,
+        SignedProxyDelegationEcdsa,
+    },
+    signer::{
+        schemes::ecdsa::{EcdsaPublicKey, EcdsaSignature},
+        BlsSigner, ConsensusSigner, EcdsaSigner, GenericPubkey,
+    },
     types::{Chain, ModuleId},
 };
 use derive_more::derive::{Deref, From};
@@ -35,14 +41,14 @@ use crate::error::SignerModuleError;
 pub struct BlsProxySigner {
     #[deref]
     signer: BlsSigner,
-    delegation: SignedProxyDelegation,
+    delegation: SignedProxyDelegationBls,
 }
 
 #[derive(Clone, Deref)]
 pub struct EcdsaProxySigner {
     #[deref]
     signer: EcdsaSigner,
-    delegation: SignedProxyDelegation,
+    delegation: SignedProxyDelegationEcdsa,
 }
 
 #[derive(From)]
@@ -61,8 +67,8 @@ impl GenericProxySigner {
 
     pub fn delegation(&self) -> SignedProxyDelegation {
         match self {
-            GenericProxySigner::Bls(proxy_signer) => proxy_signer.delegation,
-            GenericProxySigner::Ecdsa(proxy_signer) => proxy_signer.delegation,
+            GenericProxySigner::Bls(proxy_signer) => proxy_signer.delegation.into(),
+            GenericProxySigner::Ecdsa(proxy_signer) => proxy_signer.delegation.into(),
         }
     }
 
@@ -185,47 +191,102 @@ impl SigningManager {
         self.proxy_signers.add(proxy);
     }
 
-    pub async fn create_proxy(
+    fn persist_proxy_signer(&mut self, proxy: GenericProxySigner, module_id: ModuleId) {
+        let proxy_pubkey = proxy.pubkey();
+        self.add_proxy_signer(proxy);
+        self.proxy_pubkeys.entry(module_id).or_default().push(proxy_pubkey)
+    }
+
+    pub async fn create_proxy_bls(
         &mut self,
         module_id: ModuleId,
         delegator: BlsPublicKey,
-        encryption_scheme: EncryptionScheme,
-    ) -> Result<SignedProxyDelegation, SignerModuleError>
-    {
-        let (proxy_signer, proxy_pubkey, signed_delegation) = match encryption_scheme {
-            EncryptionScheme::Bls => {
-                let signer = BlsSigner::new_random();
-                let proxy_pubkey = signer.pubkey().into();
+    ) -> Result<SignedProxyDelegationBls, SignerModuleError> {
+        let signer = BlsSigner::new_random();
+        let proxy_pubkey = signer.pubkey();
 
-                let message = ProxyDelegation { delegator, proxy: proxy_pubkey };
-                let signature = self.sign_consensus(&delegator, &message.tree_hash_root().0).await?;
-                let delegation: SignedProxyDelegation = SignedProxyDelegation { signature, message };
-                (BlsProxySigner { signer, delegation }.into(), proxy_pubkey, delegation)
-            },
-            EncryptionScheme::Ecdsa => {
-                let signer = EcdsaSigner::new_random();
-                let proxy_pubkey = signer.pubkey().into();
+        let message = ProxyDelegationBls { delegator, proxy: proxy_pubkey };
+        let signature = self.sign_consensus(&delegator, &message.tree_hash_root().0).await?;
+        let delegation = SignedProxyDelegationBls { signature, message };
+        let proxy_signer = BlsProxySigner { signer, delegation };
 
-                let message = ProxyDelegation { delegator, proxy: proxy_pubkey };
-                let signature = self.sign_consensus(&delegator, &message.tree_hash_root().0).await?;
-                let delegation: SignedProxyDelegation = SignedProxyDelegation { signature, message };
-                (EcdsaProxySigner { signer, delegation }.into(), proxy_pubkey, delegation)
-            },
-        };
-        // let signer = Signer::<T>::new_random();
-        // let proxy_pubkey = signer.pubkey().into();
+        self.persist_proxy_signer(proxy_signer.into(), module_id);
 
-        // let message = ProxyDelegation { delegator, proxy: proxy_pubkey };
-        // let signature = self.sign_consensus(&delegator, &message.tree_hash_root().0).await?;
-        // let signed_delegation: SignedProxyDelegation = SignedProxyDelegation { signature, message };
-        // let proxy_signer = ProxySigner::new(signer, signed_delegation).into();
-
-        // Add the new proxy key to the manager's internal state
-        self.add_proxy_signer(proxy_signer);
-        self.proxy_pubkeys.entry(module_id).or_default().push(proxy_pubkey);
-
-        Ok(signed_delegation)
+        Ok(delegation)
     }
+
+    pub async fn create_proxy_ecdsa(
+        &mut self,
+        module_id: ModuleId,
+        delegator: BlsPublicKey,
+    ) -> Result<SignedProxyDelegationEcdsa, SignerModuleError> {
+        let signer = EcdsaSigner::new_random();
+        let proxy_pubkey = signer.pubkey();
+
+        let message = ProxyDelegationEcdsa { delegator, proxy: proxy_pubkey };
+        let signature = self.sign_consensus(&delegator, &message.tree_hash_root().0).await?;
+        let delegation = SignedProxyDelegationEcdsa { signature, message };
+        let proxy_signer = EcdsaProxySigner { signer, delegation };
+
+        self.persist_proxy_signer(proxy_signer.into(), module_id);
+
+        Ok(delegation)
+    }
+
+    // pub async fn create_proxy(
+    //     &mut self,
+    //     module_id: ModuleId,
+    //     delegator: BlsPublicKey,
+    //     encryption_scheme: EncryptionScheme,
+    // ) -> Result<SignedProxyDelegation, SignerModuleError> {
+    //     let (proxy_signer, proxy_pubkey, signed_delegation) = match
+    // encryption_scheme {         EncryptionScheme::Bls => {
+    //             let signer = BlsSigner::new_random();
+    //             let proxy_pubkey = signer.pubkey().into();
+
+    //             let message = ProxyDelegation { delegator, proxy: proxy_pubkey };
+    //             let signature =
+    //                 self.sign_consensus(&delegator,
+    // &message.tree_hash_root().0).await?;             let delegation:
+    // SignedProxyDelegation =                 SignedProxyDelegation {
+    // signature, message };             (
+    //                 BlsProxySigner { signer, delegation:
+    // delegation.try_into().unwrap() }.into(),                 proxy_pubkey,
+    //                 delegation,
+    //             )
+    //         }
+    //         EncryptionScheme::Ecdsa => {
+    //             let signer = EcdsaSigner::new_random();
+    //             let proxy_pubkey = signer.pubkey().into();
+
+    //             let message = ProxyDelegation { delegator, proxy: proxy_pubkey };
+    //             let signature =
+    //                 self.sign_consensus(&delegator,
+    // &message.tree_hash_root().0).await?;             let delegation:
+    // SignedProxyDelegation =                 SignedProxyDelegation {
+    // signature, message };             (
+    //                 EcdsaProxySigner { signer, delegation:
+    // delegation.try_into().unwrap() }.into(),                 proxy_pubkey,
+    //                 delegation,
+    //             )
+    //         }
+    //     };
+
+    //     // let signer = Signer::<T>::new_random();
+    //     // let proxy_pubkey = signer.pubkey().into();
+
+    //     // let message = ProxyDelegation { delegator, proxy: proxy_pubkey };
+    //     // let signature = self.sign_consensus(&delegator,
+    //     // &message.tree_hash_root().0).await?; let signed_delegation:
+    //     // SignedProxyDelegation = SignedProxyDelegation { signature, message };
+    //     // let proxy_signer = ProxySigner::new(signer, signed_delegation).into();
+
+    //     // Add the new proxy key to the manager's internal state
+    //     self.add_proxy_signer(proxy_signer);
+    //     self.proxy_pubkeys.entry(module_id).or_default().push(proxy_pubkey);
+
+    //     Ok(signed_delegation)
+    // }
 
     // TODO: double check what we can actually sign here with different providers eg
     // web3 signer
@@ -257,14 +318,30 @@ impl SigningManager {
     //     Ok(signature)
     // }
 
-    pub async fn sign_proxy_bls(&self, pubkey: &BlsPublicKey, object_root: &[u8; 32]) -> Result<BlsSignature, SignerModuleError> {
-        let bls_proxy = self.proxy_signers.bls_signers.get(pubkey).ok_or(SignerModuleError::UnknownProxySigner(pubkey.to_vec()))?;
+    pub async fn sign_proxy_bls(
+        &self,
+        pubkey: &BlsPublicKey,
+        object_root: &[u8; 32],
+    ) -> Result<BlsSignature, SignerModuleError> {
+        let bls_proxy = self
+            .proxy_signers
+            .bls_signers
+            .get(pubkey)
+            .ok_or(SignerModuleError::UnknownProxySigner(pubkey.to_vec()))?;
         let signature = bls_proxy.sign(self.chain, *object_root).await;
         Ok(signature)
     }
 
-    pub async fn sign_proxy_ecdsa(&self, pubkey: &EcdsaPublicKey, object_root: &[u8; 32]) -> Result<EcdsaSignature, SignerModuleError> {
-        let ecdsa_proxy = self.proxy_signers.ecdsa_signers.get(pubkey).ok_or(SignerModuleError::UnknownProxySigner(pubkey.to_vec()))?;
+    pub async fn sign_proxy_ecdsa(
+        &self,
+        pubkey: &EcdsaPublicKey,
+        object_root: &[u8; 32],
+    ) -> Result<EcdsaSignature, SignerModuleError> {
+        let ecdsa_proxy = self
+            .proxy_signers
+            .ecdsa_signers
+            .get(pubkey)
+            .ok_or(SignerModuleError::UnknownProxySigner(pubkey.to_vec()))?;
         let signature = ecdsa_proxy.sign(self.chain, *object_root).await;
         Ok(signature)
     }
@@ -289,7 +366,9 @@ impl SigningManager {
         &self,
         pubkey: &GenericPubkey,
     ) -> Result<SignedProxyDelegation, SignerModuleError> {
-        let proxy = self.proxy_signers.get(&pubkey)
+        let proxy = self
+            .proxy_signers
+            .get(&pubkey)
             .ok_or(SignerModuleError::UnknownProxySigner(pubkey.as_ref().to_vec()))?;
 
         Ok(proxy.delegation())
@@ -298,7 +377,7 @@ impl SigningManager {
 
 #[cfg(test)]
 mod tests {
-    use cb_common::signature::compute_signing_root;
+    use cb_common::{signature::compute_signing_root, signer::schemes::bls::verify_bls_signature};
     use lazy_static::lazy_static;
     use tree_hash::Hash256;
 
@@ -325,7 +404,7 @@ mod tests {
         let (mut signing_manager, consensus_pk) = init_signing_manager();
 
         let signed_delegation = signing_manager
-            .create_proxy(MODULE_ID.clone(), consensus_pk.clone(), EncryptionScheme::Bls)
+            .create_proxy_bls(MODULE_ID.clone(), consensus_pk.clone())
             .await
             .unwrap();
 
@@ -337,7 +416,7 @@ mod tests {
         );
 
         assert!(
-            signing_manager.has_proxy(&signed_delegation.message.proxy),
+            signing_manager.has_proxy(&signed_delegation.message.proxy.into()),
             "Newly generated proxy key must be present in the signing manager's registry."
         );
     }
@@ -347,7 +426,7 @@ mod tests {
         let (mut signing_manager, consensus_pk) = init_signing_manager();
 
         let mut signed_delegation = signing_manager
-            .create_proxy(MODULE_ID.clone(), consensus_pk.clone(), EncryptionScheme::Bls)
+            .create_proxy_bls(MODULE_ID.clone(), consensus_pk.clone())
             .await
             .unwrap();
 
@@ -364,7 +443,7 @@ mod tests {
         let (mut signing_manager, consensus_pk) = init_signing_manager();
 
         let signed_delegation = signing_manager
-            .create_proxy(MODULE_ID.clone(), consensus_pk.clone(), EncryptionScheme::Bls)
+            .create_proxy_bls(MODULE_ID.clone(), consensus_pk.clone())
             .await
             .unwrap();
         let proxy_pk = signed_delegation.message.proxy;
@@ -372,13 +451,16 @@ mod tests {
         let data_root = Hash256::random();
         let data_root_bytes = data_root.as_fixed_bytes();
 
-        let sig = signing_manager.sign_proxy_bls(&proxy_pk.try_into().unwrap(), data_root_bytes).await.unwrap();
+        let sig = signing_manager
+            .sign_proxy_bls(&proxy_pk.try_into().unwrap(), data_root_bytes)
+            .await
+            .unwrap();
 
         // Verify signature
         let domain = CHAIN.builder_domain();
         let signing_root = compute_signing_root(data_root_bytes.tree_hash_root().0, domain);
 
-        let validation_result = proxy_pk.verify_signature(&signing_root, sig.as_ref());
+        let validation_result = verify_bls_signature(&proxy_pk, &signing_root, &sig);
 
         assert!(
             validation_result.is_ok(),

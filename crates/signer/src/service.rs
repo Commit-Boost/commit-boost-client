@@ -14,10 +14,12 @@ use cb_common::{
     commit::{
         client::GetPubkeysResponse,
         constants::{GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, REQUEST_SIGNATURE_PATH},
-        request::{GenerateProxyRequest, SignConsensusRequest, SignProxyRequest, SignRequest},
+        request::{
+            EncryptionScheme, GenerateProxyRequest, SignConsensusRequest, SignProxyRequest,
+            SignRequest, SignedProxyDelegation,
+        },
     },
     config::StartSignerConfig,
-    signer::{BlsSecretKey, EcdsaSecretKey},
     types::{Jwt, ModuleId},
 };
 use eyre::{Result, WrapErr};
@@ -169,20 +171,18 @@ async fn handle_generate_proxy(
 
     let mut signing_manager = state.manager.write().await;
 
-    let proxy_delegation = signing_manager
-        .create_proxy(module_id, request.consensus_pubkey, request.scheme)
-        .await?;
+    // let proxy_delegation = signing_manager
+    //     .create_proxy(module_id, request.consensus_pubkey, request.scheme)
+    //     .await?;
 
-    // match request.scheme {
-    //     EncryptionScheme::Bls => {
-
-    //     }
-    //     EncryptionScheme::Ecdsa => {
-    //         signing_manager
-    //             .create_proxy::<EcdsaSecretKey>(module_id, request.consensus_pubkey)
-    //             .await?
-    //     }
-    // };
+    let proxy_delegation: SignedProxyDelegation = match request.scheme {
+        EncryptionScheme::Bls => {
+            signing_manager.create_proxy_bls(module_id, request.consensus_pubkey).await?.into()
+        }
+        EncryptionScheme::Ecdsa => {
+            signing_manager.create_proxy_ecdsa(module_id, request.consensus_pubkey).await?.into()
+        }
+    };
 
     Ok((StatusCode::OK, Json(proxy_delegation)).into_response())
 }
