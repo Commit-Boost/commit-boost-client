@@ -41,7 +41,9 @@ impl MetricsProvider {
         info!("Starting metrics server on port {}", self.config.server_port);
 
         let router =
-            axum::Router::new().route("/metrics", get(handle_metrics)).with_state(self.registry);
+            axum::Router::new()
+            .route("/metrics", get(handle_metrics)).with_state(self.registry)
+            .route("/status", get(handle_status));
         let address = SocketAddr::from(([0, 0, 0, 0], self.config.server_port));
         let listener = TcpListener::bind(&address).await?;
 
@@ -49,6 +51,10 @@ impl MetricsProvider {
 
         Err(eyre::eyre!("Metrics server stopped"))
     }
+}
+
+async fn handle_status() -> &'static str {
+    "OK"
 }
 
 async fn handle_metrics(State(registry): State<Registry>) -> Response {
