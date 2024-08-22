@@ -1,6 +1,12 @@
-use alloy::rpc::types::beacon::{constants::BLS_DST_SIG, BlsPublicKey, BlsSignature};
+use alloy::rpc::types::beacon::{
+    constants::BLS_DST_SIG, BlsPublicKey as BlsPublicKeyInner, BlsSignature,
+};
 use blst::BLST_ERROR;
+use derive_more::derive::{Deref, Display, From, Into, LowerHex};
+use serde::{Deserialize, Serialize};
+use ssz_derive::{Decode, Encode};
 use tree_hash::TreeHash;
+use tree_hash_derive::TreeHash;
 
 use crate::{
     error::BlstErrorWrapper, signature::sign_builder_root, signer::GenericPubkey, types::Chain,
@@ -8,6 +14,23 @@ use crate::{
 };
 
 pub type BlsSecretKey = blst::min_pk::SecretKey;
+
+// std traits
+#[derive(Debug, Clone, Copy, LowerHex, Display, PartialEq, Eq, Hash)]
+// serde, ssz, tree_hash
+#[derive(Serialize, Deserialize, Encode, Decode, TreeHash)]
+#[ssz(struct_behaviour = "transparent")]
+// derive_more
+#[derive(Deref, From, Into)]
+pub struct BlsPublicKey {
+    inner: BlsPublicKeyInner,
+}
+
+impl AsRef<[u8]> for BlsPublicKey {
+    fn as_ref(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
 
 #[derive(Clone)]
 pub enum BlsSigner {
@@ -26,7 +49,7 @@ impl BlsSigner {
 
     pub fn pubkey(&self) -> BlsPublicKey {
         match self {
-            BlsSigner::Local(secret) => blst_pubkey_to_alloy(&secret.sk_to_pk()),
+            BlsSigner::Local(secret) => blst_pubkey_to_alloy(&secret.sk_to_pk()).into(),
         }
     }
 
@@ -55,8 +78,10 @@ fn random_secret() -> BlsSecretKey {
     }
 }
 
+// TODO(David): Refine the boundaries between our wrapper `BlsPublicKey` type
+// and alloy's `BlsPublicKey`. This stinks right now...
 pub fn verify_bls_signature(
-    pubkey: &BlsPublicKey,
+    pubkey: &BlsPublicKeyInner,
     msg: &[u8],
     signature: &BlsSignature,
 ) -> Result<(), BlstErrorWrapper> {

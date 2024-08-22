@@ -117,7 +117,7 @@ mod tests {
 
         assert!(verify_signed_builder_message(
             Chain::Holesky,
-            &parsed.message.pubkey,
+            &parsed.message.pubkey.into(),
             &parsed.message,
             &parsed.signature,
         )

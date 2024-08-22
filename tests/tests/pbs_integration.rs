@@ -60,7 +60,7 @@ async fn test_get_header() -> Result<()> {
     let chain = Chain::Holesky;
     let port = 3000;
 
-    let mock_relay = generate_mock_relay(port + 1, signer.pubkey())?;
+    let mock_relay = generate_mock_relay(port + 1, *signer.pubkey())?;
     let mock_state = Arc::new(MockRelayState::new(chain, signer, 0));
     tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 1));
 
@@ -89,8 +89,8 @@ async fn test_get_status() -> Result<()> {
     let port = 3100;
 
     let relays = vec![
-        generate_mock_relay(port + 1, signer.pubkey())?,
-        generate_mock_relay(port + 2, signer.pubkey())?,
+        generate_mock_relay(port + 1, *signer.pubkey())?,
+        generate_mock_relay(port + 2, *signer.pubkey())?,
     ];
     let mock_state = Arc::new(MockRelayState::new(chain, signer, 0));
     tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 1));
@@ -120,7 +120,7 @@ async fn test_register_validators() -> Result<()> {
     let chain = Chain::Holesky;
     let port = 3300;
 
-    let relays = vec![generate_mock_relay(port + 1, signer.pubkey())?];
+    let relays = vec![generate_mock_relay(port + 1, *signer.pubkey())?];
     let mock_state = Arc::new(MockRelayState::new(chain, signer, 0));
     tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 1));
 
@@ -148,7 +148,7 @@ async fn test_submit_block() -> Result<()> {
     let chain = Chain::Holesky;
     let port = 3400;
 
-    let relays = vec![generate_mock_relay(port + 1, signer.pubkey())?];
+    let relays = vec![generate_mock_relay(port + 1, *signer.pubkey())?];
     let mock_state = Arc::new(MockRelayState::new(chain, signer, 0));
     tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 1));
 

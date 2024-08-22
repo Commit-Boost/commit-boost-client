@@ -1,13 +1,16 @@
 use std::collections::HashMap;
 
-use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
+use alloy::rpc::types::beacon::BlsSignature;
 use cb_common::{
     commit::request::{
-        ProxyDelegationBls, ProxyDelegationEcdsa, SignedProxyDelegation, SignedProxyDelegationBls,
-        SignedProxyDelegationEcdsa,
+        ProxyDelegationBls, ProxyDelegationEcdsa, PublicKey, SignedProxyDelegation,
+        SignedProxyDelegationBls, SignedProxyDelegationEcdsa,
     },
     signer::{
-        schemes::ecdsa::{EcdsaPublicKey, EcdsaSignature},
+        schemes::{
+            bls::BlsPublicKey,
+            ecdsa::{EcdsaPublicKey, EcdsaSignature},
+        },
         BlsSigner, ConsensusSigner, EcdsaSigner, GenericPubkey,
     },
     types::{Chain, ModuleId},
@@ -180,20 +183,38 @@ impl SigningManager {
         }
     }
 
-    pub fn get_delegation(
+    // The trait bound is merely an implementational detail, we don't want this
+    // trait to be implemented outside.
+    #[allow(private_bounds)]
+    pub fn get_delegation<T>(
         &self,
-        pubkey: &GenericPubkey,
-    ) -> Result<SignedProxyDelegation, SignerModuleError> {
-        let delegation: Option<SignedProxyDelegation> = match pubkey {
-            GenericPubkey::Bls(bls_pk) => {
-                self.proxy_signers.bls_signers.get(bls_pk).map(|x| x.delegation).map(Into::into)
-            }
-            GenericPubkey::Ecdsa(ecdsa_pk) => {
-                self.proxy_signers.ecdsa_signers.get(ecdsa_pk).map(|x| x.delegation).map(Into::into)
-            }
-        };
+        pubkey: &T,
+    ) -> Result<SignedProxyDelegation<T>, SignerModuleError>
+    where
+        T: PublicKey,
+        Self: GetDelegation<T>,
+    {
+        <Self as GetDelegation<T>>::get_delegation(self, pubkey)
+            .ok_or(SignerModuleError::UnknownProxySigner(pubkey.as_ref().to_vec()))
+    }
+}
 
-        delegation.ok_or(SignerModuleError::UnknownProxySigner(pubkey.as_ref().to_vec()))
+trait GetDelegation<T: PublicKey> {
+    fn get_delegation(&self, pubkey: &T) -> Option<SignedProxyDelegation<T>>;
+}
+
+impl GetDelegation<BlsPublicKey> for SigningManager {
+    fn get_delegation(&self, pubkey: &BlsPublicKey) -> Option<SignedProxyDelegation<BlsPublicKey>> {
+        self.proxy_signers.bls_signers.get(pubkey).map(|x| x.delegation)
+    }
+}
+
+impl GetDelegation<EcdsaPublicKey> for SigningManager {
+    fn get_delegation(
+        &self,
+        pubkey: &EcdsaPublicKey,
+    ) -> Option<SignedProxyDelegation<EcdsaPublicKey>> {
+        self.proxy_signers.ecdsa_signers.get(pubkey).map(|x| x.delegation)
     }
 }
 

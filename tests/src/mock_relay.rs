@@ -82,7 +82,7 @@ async fn handle_get_header(
     response.data.message.header.parent_hash = parent_hash;
     response.data.message.header.block_hash.0[0] = 1;
     response.data.message.set_value(U256::from(10));
-    response.data.message.pubkey = state.signer.pubkey();
+    response.data.message.pubkey = state.signer.pubkey().into();
     let object_root = response.data.message.tree_hash_root().0;
     response.data.signature = state.signer.sign(state.chain, object_root).await;
 

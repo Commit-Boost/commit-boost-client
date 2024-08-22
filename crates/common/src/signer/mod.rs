@@ -1,8 +1,10 @@
 use std::fmt::{self, LowerHex};
 
-use alloy::rpc::types::beacon::BlsPublicKey;
 use eyre::Context;
-use schemes::{bls::verify_bls_signature, ecdsa::verify_ecdsa_signature};
+use schemes::{
+    bls::{verify_bls_signature, BlsPublicKey},
+    ecdsa::verify_ecdsa_signature,
+};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 
@@ -93,17 +95,18 @@ impl fmt::Display for GenericPubkey {
     }
 }
 
+/// A transparent implementation
 impl tree_hash::TreeHash for GenericPubkey {
     fn tree_hash_type() -> tree_hash::TreeHashType {
-        tree_hash::TreeHashType::Container
+        tree_hash::TreeHashType::Vector
     }
 
     fn tree_hash_packed_encoding(&self) -> tree_hash::PackedEncoding {
-        unimplemented!("Enum should never be packed")
+        unimplemented!("Vector should never be packed")
     }
 
     fn tree_hash_packing_factor() -> usize {
-        unimplemented!("Enum should never be packed")
+        unimplemented!("Vector should never be packed")
     }
 
     fn tree_hash_root(&self) -> tree_hash::Hash256 {

@@ -16,7 +16,7 @@ use cb_common::{
         constants::{GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, REQUEST_SIGNATURE_PATH},
         request::{
             EncryptionScheme, GenerateProxyRequest, SignConsensusRequest, SignProxyRequest,
-            SignRequest, SignedProxyDelegation,
+            SignRequest,
         },
     },
     config::StartSignerConfig,
@@ -160,14 +160,18 @@ async fn handle_generate_proxy(
 
     let mut signing_manager = state.manager.write().await;
 
-    let proxy_delegation: SignedProxyDelegation = match request.scheme {
+    let response = match request.scheme {
         EncryptionScheme::Bls => {
-            signing_manager.create_proxy_bls(module_id, request.consensus_pubkey).await?.into()
+            let proxy_delegation =
+                signing_manager.create_proxy_bls(module_id, request.consensus_pubkey).await?;
+            (StatusCode::OK, Json(proxy_delegation)).into_response()
         }
         EncryptionScheme::Ecdsa => {
-            signing_manager.create_proxy_ecdsa(module_id, request.consensus_pubkey).await?.into()
+            let proxy_delegation =
+                signing_manager.create_proxy_ecdsa(module_id, request.consensus_pubkey).await?;
+            (StatusCode::OK, Json(proxy_delegation)).into_response()
         }
     };
 
-    Ok((StatusCode::OK, Json(proxy_delegation)).into_response())
+    Ok(response)
 }

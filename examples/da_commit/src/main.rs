@@ -44,16 +44,16 @@ impl DaCommitService {
         let pubkeys = self.config.signer_client.get_pubkeys().await?;
         info!(consensus = pubkeys.consensus.len(), proxy = pubkeys.proxy.len(), "Received pubkeys");
 
-        let pubkey = pubkeys.consensus.first().ok_or_eyre("no key available")?;
+        let pubkey = *pubkeys.consensus.first().ok_or_eyre("no key available")?;
         info!("Registered validator {pubkey}");
 
-        let proxy_delegation = self.config.signer_client.generate_ecdsa_proxy_key(*pubkey).await?;
+        let proxy_delegation = self.config.signer_client.generate_ecdsa_proxy_key(pubkey).await?;
         info!("Obtained a proxy delegation:\n{proxy_delegation}");
 
         let mut data = 0;
 
         loop {
-            self.send_request(data, *pubkey, proxy_delegation).await?;
+            self.send_request(data, pubkey.into(), proxy_delegation).await?;
             sleep(Duration::from_secs(self.config.extra.sleep_secs)).await;
             data += 1;
         }
@@ -67,7 +67,7 @@ impl DaCommitService {
     ) -> Result<()> {
         let datagram = Datagram { data };
 
-        let request = SignConsensusRequest::builder(pubkey).with_msg(&datagram);
+        let request = SignConsensusRequest::builder(pubkey.into()).with_msg(&datagram);
         let signature = self.config.signer_client.request_consensus_signature(request);
 
         let ecdsa_proxy: EcdsaPublicKey = proxy_delegation.message.proxy;

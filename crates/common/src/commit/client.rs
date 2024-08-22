@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
+use alloy::rpc::types::beacon::BlsSignature;
 use eyre::WrapErr;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use serde::{Deserialize, Serialize};
@@ -9,13 +9,16 @@ use super::{
     constants::{GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, REQUEST_SIGNATURE_PATH},
     error::SignerClientError,
     request::{
-        EncryptionScheme, GenerateProxyRequest, SignConsensusRequest, SignProxyBlsRequest,
-        SignProxyEcdsaRequest, SignProxyRequest, SignRequest, SignedProxyDelegation,
-        SignedProxyDelegationBls, SignedProxyDelegationEcdsa,
+        EncryptionScheme, GenerateProxyRequest, PublicKey, SignConsensusRequest,
+        SignProxyBlsRequest, SignProxyEcdsaRequest, SignProxyRequest, SignRequest,
+        SignedProxyDelegation,
     },
 };
 use crate::{
-    signer::{schemes::ecdsa::EcdsaSignature, GenericPubkey},
+    signer::{
+        schemes::{bls::BlsPublicKey, ecdsa::EcdsaSignature},
+        EcdsaPublicKey, GenericPubkey,
+    },
     DEFAULT_REQUEST_TIMEOUT,
 };
 
@@ -132,10 +135,13 @@ impl SignerClient {
         Ok(signature)
     }
 
-    async fn generate_proxy_key(
+    async fn generate_proxy_key<T>(
         &self,
         request: &GenerateProxyRequest,
-    ) -> Result<SignedProxyDelegation, SignerClientError> {
+    ) -> Result<SignedProxyDelegation<T>, SignerClientError>
+    where
+        T: PublicKey + for<'de> Deserialize<'de>,
+    {
         let url = format!("{}{}", self.url, GENERATE_PROXY_KEY_PATH);
         let res = self.client.post(&url).json(&request).send().await?;
 
@@ -157,14 +163,10 @@ impl SignerClient {
     pub async fn generate_bls_proxy_key(
         &self,
         consensus_pubkey: BlsPublicKey,
-    ) -> Result<SignedProxyDelegationBls, SignerClientError> {
+    ) -> Result<SignedProxyDelegation<BlsPublicKey>, SignerClientError> {
         let request = GenerateProxyRequest::new(consensus_pubkey, EncryptionScheme::Bls);
 
-        let bls_signed_proxy_delegation = self
-            .generate_proxy_key(&request)
-            .await?
-            .try_into()
-            .expect("generated proxy delegation should be BLS");
+        let bls_signed_proxy_delegation = self.generate_proxy_key(&request).await?;
 
         Ok(bls_signed_proxy_delegation)
     }
@@ -172,14 +174,10 @@ impl SignerClient {
     pub async fn generate_ecdsa_proxy_key(
         &self,
         consensus_pubkey: BlsPublicKey,
-    ) -> Result<SignedProxyDelegationEcdsa, SignerClientError> {
+    ) -> Result<SignedProxyDelegation<EcdsaPublicKey>, SignerClientError> {
         let request = GenerateProxyRequest::new(consensus_pubkey, EncryptionScheme::Ecdsa);
 
-        let ecdsa_signed_proxy_delegation = self
-            .generate_proxy_key(&request)
-            .await?
-            .try_into()
-            .expect("generated proxy delegation should be BLS");
+        let ecdsa_signed_proxy_delegation = self.generate_proxy_key(&request).await?;
 
         Ok(ecdsa_signed_proxy_delegation)
     }
