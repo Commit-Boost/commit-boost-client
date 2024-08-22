@@ -42,8 +42,8 @@ impl MetricsProvider {
 
         let router = axum::Router::new()
             .route("/metrics", get(handle_metrics))
-            .with_state(self.registry)
-            .route("/status", get(handle_status));
+            .route("/status", get(handle_status))
+            .with_state(self.registry);
         let address = SocketAddr::from(([0, 0, 0, 0], self.config.server_port));
         let listener = TcpListener::bind(&address).await?;
 
@@ -53,8 +53,10 @@ impl MetricsProvider {
     }
 }
 
-async fn handle_status() -> &'static str {
-    "OK"
+async fn handle_status() -> Response {
+    trace!("Handling status request");
+
+    StatusCode::OK.into_response()
 }
 
 async fn handle_metrics(State(registry): State<Registry>) -> Response {
