@@ -8,8 +8,12 @@ spec:
   type: {{ .Values.service.type }}
   ports:
     - port: {{ .Values.service.port }}
-      targetPort: http
+      name: http-pbs
+      targetPort: http-pbs
       protocol: TCP
-      name: http
+    - port: {{ .Values.service.metrics_port }}
+      protocol: TCP
+      name: http-metrics
+      targetPort: http-metrics
   selector:
     {{- include "commit-boost.selectorLabels" . | nindent 4 }}

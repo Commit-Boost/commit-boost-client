@@ -38,17 +38,20 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
-            - name: http
+            - name: http-pbs
               containerPort: {{ .Values.service.port }}
+              protocol: TCP
+            - name: http-metrics
+              containerPort: {{ .Values.service.metrics_port }}
               protocol: TCP
           livenessProbe:
             httpGet:
-              path: /
-              port: http
+              path: /status
+              port: http-metrics
           readinessProbe:
             httpGet:
-              path: /
-              port: http
+              path: /status
+              port: http-metrics
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           env:
@@ -57,7 +60,7 @@ spec:
             - name: ROLLING_DURATION
               value: never
             - name: METRICS_SERVER
-              value: '1000'
+              value: '{{ .Values.service.metrics_port }}'
             - name: RUST_LOG
               value: info
           volumeMounts:
