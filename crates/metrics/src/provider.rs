@@ -40,9 +40,9 @@ impl MetricsProvider {
     pub async fn run(self) -> eyre::Result<()> {
         info!("Starting metrics server on port {}", self.config.server_port);
 
-        let router =
-            axum::Router::new()
-            .route("/metrics", get(handle_metrics)).with_state(self.registry)
+        let router = axum::Router::new()
+            .route("/metrics", get(handle_metrics))
+            .with_state(self.registry)
             .route("/status", get(handle_status));
         let address = SocketAddr::from(([0, 0, 0, 0], self.config.server_port));
         let listener = TcpListener::bind(&address).await?;
