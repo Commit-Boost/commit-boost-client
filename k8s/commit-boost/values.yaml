@@ -5,9 +5,9 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/kilnfi/commit-boost-pbs
+  repository: ghcr.io/commit-boost/commit-boost-client/pbs:0c12f37
   pullPolicy: IfNotPresent
-  tag: "55cdb"
+  tag: "0c12f37"
 
 imagePullSecrets: []
 nameOverride: ""
