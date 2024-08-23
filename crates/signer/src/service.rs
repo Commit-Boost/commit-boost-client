@@ -139,7 +139,7 @@ async fn handle_request_signature(
         }
         SignRequest::ProxyEcdsa(SignProxyRequest { pubkey: ecdsa_pk, object_root }) => {
             signing_manager.sign_proxy_ecdsa(&ecdsa_pk, &object_root).await.map(|sig| sig.to_vec())
-        },
+        }
     }?;
 
     Ok((StatusCode::OK, Json(sig)).into_response())
