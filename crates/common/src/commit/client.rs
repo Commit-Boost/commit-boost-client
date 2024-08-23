@@ -9,9 +9,8 @@ use super::{
     constants::{GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, REQUEST_SIGNATURE_PATH},
     error::SignerClientError,
     request::{
-        EncryptionScheme, GenerateProxyRequest, PublicKey, SignConsensusRequest,
-        SignProxyBlsRequest, SignProxyEcdsaRequest, SignProxyRequest, SignRequest,
-        SignedProxyDelegation,
+        EncryptionScheme, GenerateProxyRequest, PublicKey, SignConsensusRequest, SignProxyRequest,
+        SignRequest, SignedProxyDelegation,
     },
 };
 use crate::{
@@ -108,19 +107,11 @@ impl SignerClient {
         Ok(signature)
     }
 
-    async fn request_proxy_signature(
-        &self,
-        request: SignProxyRequest,
-    ) -> Result<Vec<u8>, SignerClientError> {
-        let request = SignRequest::Proxy(request);
-        self.request_signature(&request).await
-    }
-
     pub async fn request_proxy_ecdsa_signature(
         &self,
-        request: SignProxyEcdsaRequest,
+        request: SignProxyRequest<EcdsaPublicKey>,
     ) -> Result<EcdsaSignature, SignerClientError> {
-        let raw_signature = self.request_proxy_signature(request.into()).await?;
+        let raw_signature = self.request_signature(&request.into()).await?;
         let signature = EcdsaSignature::try_from(raw_signature.as_ref())
             .expect("requested signature should be ECDSA");
         Ok(signature)
@@ -128,9 +119,9 @@ impl SignerClient {
 
     pub async fn request_proxy_bls_signature(
         &self,
-        request: SignProxyBlsRequest,
+        request: SignProxyRequest<BlsPublicKey>,
     ) -> Result<BlsSignature, SignerClientError> {
-        let raw_signature = self.request_proxy_signature(request.into()).await?;
+        let raw_signature = self.request_signature(&request.into()).await?;
         let signature = BlsSignature::from_slice(&raw_signature);
         Ok(signature)
     }

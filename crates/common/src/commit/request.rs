@@ -10,10 +10,7 @@ use tree_hash_derive::TreeHash;
 use crate::{
     error::BlstErrorWrapper,
     signature::verify_signed_builder_message,
-    signer::{
-        schemes::{bls::BlsPublicKey, ecdsa::EcdsaPublicKey},
-        GenericPubkey,
-    },
+    signer::schemes::{bls::BlsPublicKey, ecdsa::EcdsaPublicKey},
     types::Chain,
 };
 
@@ -75,7 +72,8 @@ impl<T: PublicKey> fmt::Display for SignedProxyDelegation<T> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SignRequest {
     Consensus(SignConsensusRequest),
-    Proxy(SignProxyRequest),
+    ProxyBls(SignProxyRequest<BlsPublicKey>),
+    ProxyEcdsa(SignProxyRequest<EcdsaPublicKey>),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -102,26 +100,18 @@ impl SignConsensusRequest {
     }
 }
 
-//TODO(David): Make generic on PublicKey?
-//TODO(David): Shouldn't be visible from the client SDK
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SignProxyRequest {
-    pub pubkey: GenericPubkey,
+pub struct SignProxyRequest<T: PublicKey> {
+    pub pubkey: T,
     pub object_root: [u8; 32],
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SignProxyEcdsaRequest {
-    pub pubkey: EcdsaPublicKey,
-    pub object_root: [u8; 32],
-}
-
-impl SignProxyEcdsaRequest {
-    pub fn new(pubkey: EcdsaPublicKey, object_root: [u8; 32]) -> Self {
+impl<T: PublicKey> SignProxyRequest<T> {
+    pub fn new(pubkey: T, object_root: [u8; 32]) -> Self {
         Self { pubkey, object_root }
     }
 
-    pub fn builder(pubkey: EcdsaPublicKey) -> Self {
+    pub fn builder(pubkey: T) -> Self {
         Self::new(pubkey, [0; 32])
     }
 
@@ -134,39 +124,14 @@ impl SignProxyEcdsaRequest {
     }
 }
 
-impl From<SignProxyEcdsaRequest> for SignProxyRequest {
-    fn from(value: SignProxyEcdsaRequest) -> Self {
-        Self { pubkey: value.pubkey.into(), object_root: value.object_root }
+impl From<SignProxyRequest<EcdsaPublicKey>> for SignRequest {
+    fn from(value: SignProxyRequest<EcdsaPublicKey>) -> Self {
+        Self::ProxyEcdsa(value)
     }
 }
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SignProxyBlsRequest {
-    pub pubkey: BlsPublicKey,
-    pub object_root: [u8; 32],
-}
-
-impl SignProxyBlsRequest {
-    pub fn new(pubkey: BlsPublicKey, object_root: [u8; 32]) -> Self {
-        Self { pubkey, object_root }
-    }
-
-    pub fn builder(pubkey: BlsPublicKey) -> Self {
-        Self::new(pubkey, [0; 32])
-    }
-
-    pub fn with_root(self, object_root: [u8; 32]) -> Self {
-        Self { object_root, ..self }
-    }
-
-    pub fn with_msg(self, msg: &impl TreeHash) -> Self {
-        self.with_root(msg.tree_hash_root().0)
-    }
-}
-
-impl From<SignProxyBlsRequest> for SignProxyRequest {
-    fn from(value: SignProxyBlsRequest) -> Self {
-        Self { pubkey: value.pubkey.into(), object_root: value.object_root }
+impl From<SignProxyRequest<BlsPublicKey>> for SignRequest {
+    fn from(value: SignProxyRequest<BlsPublicKey>) -> Self {
+        Self::ProxyBls(value)
     }
 }
 

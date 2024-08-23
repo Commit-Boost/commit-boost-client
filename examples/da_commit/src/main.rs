@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use alloy::rpc::types::beacon::BlsPublicKey;
-use commit::request::SignProxyEcdsaRequest;
+use commit::request::SignProxyRequest;
 use commit_boost::prelude::*;
 use eyre::{OptionExt, Result};
 use lazy_static::lazy_static;
@@ -72,7 +72,7 @@ impl DaCommitService {
 
         let ecdsa_proxy: EcdsaPublicKey = proxy_delegation.message.proxy;
 
-        let proxy_request = SignProxyEcdsaRequest::builder(ecdsa_proxy).with_msg(&datagram);
+        let proxy_request = SignProxyRequest::builder(ecdsa_proxy).with_msg(&datagram);
         let proxy_signature =
             self.config.signer_client.request_proxy_ecdsa_signature(proxy_request);
 

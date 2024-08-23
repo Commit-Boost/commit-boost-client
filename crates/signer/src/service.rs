@@ -134,15 +134,11 @@ async fn handle_request_signature(
         SignRequest::Consensus(SignConsensusRequest { pubkey, object_root }) => {
             signing_manager.sign_consensus(&pubkey, &object_root).await.map(|sig| sig.to_vec())
         }
-        SignRequest::Proxy(SignProxyRequest { pubkey, object_root }) => match pubkey {
-            cb_common::signer::GenericPubkey::Bls(bls_pubkey) => signing_manager
-                .sign_proxy_bls(&bls_pubkey, &object_root)
-                .await
-                .map(|sig| sig.to_vec()),
-            cb_common::signer::GenericPubkey::Ecdsa(ecdsa_pubkey) => signing_manager
-                .sign_proxy_ecdsa(&ecdsa_pubkey, &object_root)
-                .await
-                .map(|sig| sig.to_vec()),
+        SignRequest::ProxyBls(SignProxyRequest { pubkey: bls_pk, object_root }) => {
+            signing_manager.sign_proxy_bls(&bls_pk, &object_root).await.map(|sig| sig.to_vec())
+        }
+        SignRequest::ProxyEcdsa(SignProxyRequest { pubkey: ecdsa_pk, object_root }) => {
+            signing_manager.sign_proxy_ecdsa(&ecdsa_pk, &object_root).await.map(|sig| sig.to_vec())
         },
     }?;
 
