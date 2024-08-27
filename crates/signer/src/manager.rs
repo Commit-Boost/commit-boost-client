@@ -208,7 +208,7 @@ impl SigningManager {
 
 #[cfg(test)]
 mod tests {
-    use cb_common::{signature::compute_signing_root, signer::schemes::bls::verify_bls_signature};
+    use cb_common::signature::compute_signing_root;
     use lazy_static::lazy_static;
     use tree_hash::Hash256;
 
@@ -230,72 +230,153 @@ mod tests {
         (signing_manager, consensus_pk)
     }
 
-    #[tokio::test]
-    async fn test_proxy_key_is_valid_proxy_for_consensus_key() {
-        let (mut signing_manager, consensus_pk) = init_signing_manager();
+    mod test_proxy_bls {
+        use cb_common::signer::schemes::bls::verify_bls_signature;
 
-        let signed_delegation = signing_manager
-            .create_proxy_bls(MODULE_ID.clone(), consensus_pk.clone())
-            .await
-            .unwrap();
+        use super::*;
 
-        let validation_result = signed_delegation.validate(*CHAIN);
+        #[tokio::test]
+        async fn test_proxy_key_is_valid_proxy_for_consensus_key() {
+            let (mut signing_manager, consensus_pk) = init_signing_manager();
 
-        assert!(
-            validation_result.is_ok(),
-            "Proxy delegation signature must be valid for consensus key."
-        );
+            let signed_delegation = signing_manager
+                .create_proxy_bls(MODULE_ID.clone(), consensus_pk.clone())
+                .await
+                .unwrap();
 
-        assert!(
-            signing_manager.has_proxy(&signed_delegation.message.proxy.into()),
-            "Newly generated proxy key must be present in the signing manager's registry."
-        );
+            let validation_result = signed_delegation.validate(*CHAIN);
+
+            assert!(
+                validation_result.is_ok(),
+                "Proxy delegation signature must be valid for consensus key."
+            );
+
+            assert!(
+                signing_manager.has_proxy(&signed_delegation.message.proxy.into()),
+                "Newly generated proxy key must be present in the signing manager's registry."
+            );
+        }
+
+        #[tokio::test]
+        async fn test_tampered_proxy_key_is_invalid() {
+            let (mut signing_manager, consensus_pk) = init_signing_manager();
+
+            let mut signed_delegation = signing_manager
+                .create_proxy_bls(MODULE_ID.clone(), consensus_pk.clone())
+                .await
+                .unwrap();
+
+            let m = &mut signed_delegation.signature.0[0];
+            (*m, _) = m.overflowing_add(1);
+
+            let validation_result = signed_delegation.validate(*CHAIN);
+
+            assert!(validation_result.is_err(), "Tampered proxy key must be invalid.");
+        }
+
+        #[tokio::test]
+        async fn test_proxy_key_signs_message() {
+            let (mut signing_manager, consensus_pk) = init_signing_manager();
+
+            let signed_delegation = signing_manager
+                .create_proxy_bls(MODULE_ID.clone(), consensus_pk.clone())
+                .await
+                .unwrap();
+            let proxy_pk = signed_delegation.message.proxy;
+
+            let data_root = Hash256::random();
+            let data_root_bytes = data_root.as_fixed_bytes();
+
+            let sig = signing_manager
+                .sign_proxy_bls(&proxy_pk.try_into().unwrap(), data_root_bytes)
+                .await
+                .unwrap();
+
+            // Verify signature
+            let domain = CHAIN.builder_domain();
+            let signing_root = compute_signing_root(data_root_bytes.tree_hash_root().0, domain);
+
+            let validation_result = verify_bls_signature(&proxy_pk, &signing_root, &sig);
+
+            assert!(
+                validation_result.is_ok(),
+                "Proxy keypair must produce valid signatures of messages."
+            )
+        }
     }
 
-    #[tokio::test]
-    async fn test_tampered_proxy_key_is_invalid() {
-        let (mut signing_manager, consensus_pk) = init_signing_manager();
+    mod test_proxy_ecdsa {
+        use cb_common::signer::schemes::ecdsa::verify_ecdsa_signature;
 
-        let mut signed_delegation = signing_manager
-            .create_proxy_bls(MODULE_ID.clone(), consensus_pk.clone())
-            .await
-            .unwrap();
+        use super::*;
 
-        let m = &mut signed_delegation.signature.0[0];
-        (*m, _) = m.overflowing_add(1);
+        #[tokio::test]
+        async fn test_proxy_key_is_valid_proxy_for_consensus_key() {
+            let (mut signing_manager, consensus_pk) = init_signing_manager();
 
-        let validation_result = signed_delegation.validate(*CHAIN);
+            let signed_delegation = signing_manager
+                .create_proxy_ecdsa(MODULE_ID.clone(), consensus_pk.clone())
+                .await
+                .unwrap();
 
-        assert!(validation_result.is_err(), "Tampered proxy key must be invalid.");
-    }
+            let validation_result = signed_delegation.validate(*CHAIN);
 
-    #[tokio::test]
-    async fn test_proxy_key_signs_message() {
-        let (mut signing_manager, consensus_pk) = init_signing_manager();
+            assert!(
+                validation_result.is_ok(),
+                "Proxy delegation signature must be valid for consensus key."
+            );
 
-        let signed_delegation = signing_manager
-            .create_proxy_bls(MODULE_ID.clone(), consensus_pk.clone())
-            .await
-            .unwrap();
-        let proxy_pk = signed_delegation.message.proxy;
+            assert!(
+                signing_manager.has_proxy(&signed_delegation.message.proxy.into()),
+                "Newly generated proxy key must be present in the signing manager's registry."
+            );
+        }
 
-        let data_root = Hash256::random();
-        let data_root_bytes = data_root.as_fixed_bytes();
+        #[tokio::test]
+        async fn test_tampered_proxy_key_is_invalid() {
+            let (mut signing_manager, consensus_pk) = init_signing_manager();
 
-        let sig = signing_manager
-            .sign_proxy_bls(&proxy_pk.try_into().unwrap(), data_root_bytes)
-            .await
-            .unwrap();
+            let mut signed_delegation = signing_manager
+                .create_proxy_ecdsa(MODULE_ID.clone(), consensus_pk.clone())
+                .await
+                .unwrap();
 
-        // Verify signature
-        let domain = CHAIN.builder_domain();
-        let signing_root = compute_signing_root(data_root_bytes.tree_hash_root().0, domain);
+            let m = &mut signed_delegation.signature.0[0];
+            (*m, _) = m.overflowing_add(1);
 
-        let validation_result = verify_bls_signature(&proxy_pk, &signing_root, &sig);
+            let validation_result = signed_delegation.validate(*CHAIN);
 
-        assert!(
-            validation_result.is_ok(),
-            "Proxy keypair must produce valid signatures of messages."
-        )
+            assert!(validation_result.is_err(), "Tampered proxy key must be invalid.");
+        }
+
+        #[tokio::test]
+        async fn test_proxy_key_signs_message() {
+            let (mut signing_manager, consensus_pk) = init_signing_manager();
+
+            let signed_delegation = signing_manager
+                .create_proxy_ecdsa(MODULE_ID.clone(), consensus_pk.clone())
+                .await
+                .unwrap();
+            let proxy_pk = signed_delegation.message.proxy;
+
+            let data_root = Hash256::random();
+            let data_root_bytes = data_root.as_fixed_bytes();
+
+            let sig = signing_manager
+                .sign_proxy_ecdsa(&proxy_pk.try_into().unwrap(), data_root_bytes)
+                .await
+                .unwrap();
+
+            // Verify signature
+            let domain = CHAIN.builder_domain();
+            let signing_root = compute_signing_root(data_root_bytes.tree_hash_root().0, domain);
+
+            let validation_result = verify_ecdsa_signature(&proxy_pk, &signing_root, &sig);
+
+            assert!(
+                validation_result.is_ok(),
+                "Proxy keypair must produce valid signatures of messages."
+            )
+        }
     }
 }

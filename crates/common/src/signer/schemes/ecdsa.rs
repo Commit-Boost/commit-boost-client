@@ -207,8 +207,6 @@ impl EcdsaSigner {
     }
 }
 
-// TODO(David): Add tests for this verification, most probably not properly
-// working yet
 pub fn verify_ecdsa_signature(
     pubkey: &EcdsaPublicKey,
     msg: &[u8],
