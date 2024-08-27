@@ -47,13 +47,19 @@ impl DaCommitService {
         let pubkey = *pubkeys.consensus.first().ok_or_eyre("no key available")?;
         info!("Registered validator {pubkey}");
 
-        let proxy_delegation = self.config.signer_client.generate_ecdsa_proxy_key(pubkey).await?;
-        info!("Obtained a proxy delegation:\n{proxy_delegation}");
+        let proxy_delegation_bls = self.config.signer_client.generate_bls_proxy_key(pubkey).await?;
+        info!("Obtained a BLS proxy delegation:\n{proxy_delegation_bls}");
+        let proxy_bls = proxy_delegation_bls.message.proxy;
+
+        let proxy_delegation_ecdsa =
+            self.config.signer_client.generate_ecdsa_proxy_key(pubkey).await?;
+        info!("Obtained an ECDSA proxy delegation:\n{proxy_delegation_bls}");
+        let proxy_ecdsa = proxy_delegation_ecdsa.message.proxy;
 
         let mut data = 0;
 
         loop {
-            self.send_request(data, pubkey.into(), proxy_delegation).await?;
+            self.send_request(data, pubkey.into(), proxy_bls.into(), proxy_ecdsa).await?;
             sleep(Duration::from_secs(self.config.extra.sleep_secs)).await;
             data += 1;
         }
@@ -63,26 +69,30 @@ impl DaCommitService {
         &self,
         data: u64,
         pubkey: BlsPublicKey,
-        proxy_delegation: SignedProxyDelegationEcdsa,
+        proxy_bls: BlsPublicKey,
+        proxy_ecdsa: EcdsaPublicKey,
     ) -> Result<()> {
         let datagram = Datagram { data };
 
         let request = SignConsensusRequest::builder(pubkey.into()).with_msg(&datagram);
         let signature = self.config.signer_client.request_consensus_signature(request);
 
-        let ecdsa_proxy: EcdsaPublicKey = proxy_delegation.message.proxy;
+        let proxy_request_bls = SignProxyRequest::builder(proxy_bls.into()).with_msg(&datagram);
+        let proxy_signature_bls =
+            self.config.signer_client.request_proxy_bls_signature(proxy_request_bls);
 
-        let proxy_request = SignProxyRequest::builder(ecdsa_proxy).with_msg(&datagram);
-        let proxy_signature =
-            self.config.signer_client.request_proxy_ecdsa_signature(proxy_request);
+        let proxy_request_ecdsa = SignProxyRequest::builder(proxy_ecdsa).with_msg(&datagram);
+        let proxy_signature_ecdsa =
+            self.config.signer_client.request_proxy_ecdsa_signature(proxy_request_ecdsa);
 
-        let (signature, proxy_signature) = {
-            let res = tokio::join!(signature, proxy_signature);
-            (res.0?, res.1?)
+        let (signature, proxy_signature_bls, proxy_signature_ecdsa) = {
+            let res = tokio::join!(signature, proxy_signature_bls, proxy_signature_ecdsa);
+            (res.0?, res.1?, res.2?)
         };
 
         info!("Proposer commitment (consensus): {}", signature);
-        info!("Proposer commitment (proxy): {}", proxy_signature);
+        info!("Proposer commitment (proxy BLS): {}", proxy_signature_bls);
+        info!("Proposer commitment (proxy ECDSA): {}", proxy_signature_ecdsa);
 
         SIG_RECEIVED_COUNTER.inc();
 

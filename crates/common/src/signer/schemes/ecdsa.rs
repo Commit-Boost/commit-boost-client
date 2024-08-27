@@ -130,7 +130,8 @@ impl fmt::Display for EcdsaPublicKey {
     }
 }
 
-#[derive(Clone, Deref)]
+// TODO(David): Hex encode when Ser/De
+#[derive(Clone, Deref, Serialize, Deserialize)]
 pub struct EcdsaSignature {
     encoded: GenericArray<u8, U64>,
 }

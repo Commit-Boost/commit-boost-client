@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use alloy::rpc::types::beacon::BlsSignature;
+use axum::body::Bytes;
 use eyre::WrapErr;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use serde::{Deserialize, Serialize};
@@ -76,7 +77,7 @@ impl SignerClient {
     }
 
     /// Send a signature request
-    async fn request_signature(&self, request: &SignRequest) -> Result<Vec<u8>, SignerClientError> {
+    async fn request_signature(&self, request: &SignRequest) -> Result<Bytes, SignerClientError> {
         let url = format!("{}{}", self.url, REQUEST_SIGNATURE_PATH);
         let res = self.client.post(&url).json(&request).send().await?;
 
@@ -90,9 +91,7 @@ impl SignerClient {
             });
         }
 
-        let signature: Vec<u8> = serde_json::from_slice(&response_bytes)?;
-
-        Ok(signature)
+        Ok(response_bytes)
     }
 
     pub async fn request_consensus_signature(
@@ -102,7 +101,7 @@ impl SignerClient {
         let request = SignRequest::Consensus(request);
         let raw_signature = self.request_signature(&request).await?;
 
-        let signature = BlsSignature::from_slice(&raw_signature);
+        let signature = serde_json::from_slice(&raw_signature)?;
 
         Ok(signature)
     }
@@ -112,8 +111,7 @@ impl SignerClient {
         request: SignProxyRequest<EcdsaPublicKey>,
     ) -> Result<EcdsaSignature, SignerClientError> {
         let raw_signature = self.request_signature(&request.into()).await?;
-        let signature = EcdsaSignature::try_from(raw_signature.as_ref())
-            .expect("requested signature should be ECDSA");
+        let signature = serde_json::from_slice(&raw_signature)?;
         Ok(signature)
     }
 
@@ -122,7 +120,7 @@ impl SignerClient {
         request: SignProxyRequest<BlsPublicKey>,
     ) -> Result<BlsSignature, SignerClientError> {
         let raw_signature = self.request_signature(&request.into()).await?;
-        let signature = BlsSignature::from_slice(&raw_signature);
+        let signature = serde_json::from_slice(&raw_signature)?;
         Ok(signature)
     }
 

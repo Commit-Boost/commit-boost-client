@@ -130,19 +130,24 @@ async fn handle_request_signature(
 
     let signing_manager = state.manager.read().await;
 
-    let sig = match request {
-        SignRequest::Consensus(SignConsensusRequest { pubkey, object_root }) => {
-            signing_manager.sign_consensus(&pubkey, &object_root).await.map(|sig| sig.to_vec())
-        }
-        SignRequest::ProxyBls(SignProxyRequest { pubkey: bls_pk, object_root }) => {
-            signing_manager.sign_proxy_bls(&bls_pk, &object_root).await.map(|sig| sig.to_vec())
-        }
+    let signature_response = match request {
+        SignRequest::Consensus(SignConsensusRequest { pubkey, object_root }) => signing_manager
+            .sign_consensus(&pubkey, &object_root)
+            .await
+            .map(|sig| Json(sig).into_response()),
+        SignRequest::ProxyBls(SignProxyRequest { pubkey: bls_pk, object_root }) => signing_manager
+            .sign_proxy_bls(&bls_pk, &object_root)
+            .await
+            .map(|sig| Json(sig).into_response()),
         SignRequest::ProxyEcdsa(SignProxyRequest { pubkey: ecdsa_pk, object_root }) => {
-            signing_manager.sign_proxy_ecdsa(&ecdsa_pk, &object_root).await.map(|sig| sig.to_vec())
+            signing_manager
+                .sign_proxy_ecdsa(&ecdsa_pk, &object_root)
+                .await
+                .map(|sig| Json(sig).into_response())
         }
     }?;
 
-    Ok((StatusCode::OK, Json(sig)).into_response())
+    Ok(signature_response)
 }
 
 async fn handle_generate_proxy(
@@ -160,12 +165,12 @@ async fn handle_generate_proxy(
         EncryptionScheme::Bls => {
             let proxy_delegation =
                 signing_manager.create_proxy_bls(module_id, request.consensus_pubkey).await?;
-            (StatusCode::OK, Json(proxy_delegation)).into_response()
+            Json(proxy_delegation).into_response()
         }
         EncryptionScheme::Ecdsa => {
             let proxy_delegation =
                 signing_manager.create_proxy_ecdsa(module_id, request.consensus_pubkey).await?;
-            (StatusCode::OK, Json(proxy_delegation)).into_response()
+            Json(proxy_delegation).into_response()
         }
     };
 
