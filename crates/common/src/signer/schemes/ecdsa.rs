@@ -2,8 +2,10 @@ use core::fmt;
 use std::hash::Hash;
 
 use derive_more::derive::{Deref, From, Into};
-use generic_array::GenericArray;
-use k256::ecdsa::{Signature as EcdsaSignatureInner, VerifyingKey as EcdsaPublicKeyInner};
+use k256::{
+    ecdsa::{Signature as EcdsaSignatureInner, VerifyingKey as EcdsaPublicKeyInner},
+    elliptic_curve::generic_array::GenericArray,
+};
 use serde::{Deserialize, Serialize};
 use serde_utils::hex;
 use ssz_types::{
