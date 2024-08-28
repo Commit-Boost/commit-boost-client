@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use alloy::rpc::types::beacon::BlsSignature;
-use axum::body::Bytes;
 use eyre::WrapErr;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use serde::Deserialize;
@@ -71,7 +70,10 @@ impl SignerClient {
     }
 
     /// Send a signature request
-    async fn request_signature(&self, request: &SignRequest) -> Result<Bytes, SignerClientError> {
+    async fn request_signature<T>(&self, request: &SignRequest) -> Result<T, SignerClientError>
+    where
+        T: for<'de> Deserialize<'de>,
+    {
         let url = format!("{}{}", self.url, REQUEST_SIGNATURE_PATH);
         let res = self.client.post(&url).json(&request).send().await?;
 
@@ -85,37 +87,30 @@ impl SignerClient {
             });
         }
 
-        Ok(response_bytes)
+        let signature = serde_json::from_slice(&response_bytes)?;
+
+        Ok(signature)
     }
 
     pub async fn request_consensus_signature(
         &self,
         request: SignConsensusRequest,
     ) -> Result<BlsSignature, SignerClientError> {
-        let request = SignRequest::Consensus(request);
-        let raw_signature = self.request_signature(&request).await?;
-
-        let signature = serde_json::from_slice(&raw_signature)?;
-
-        Ok(signature)
+        self.request_signature(&request.into()).await
     }
 
     pub async fn request_proxy_ecdsa_signature(
         &self,
         request: SignProxyRequest<EcdsaPublicKey>,
     ) -> Result<EcdsaSignature, SignerClientError> {
-        let raw_signature = self.request_signature(&request.into()).await?;
-        let signature = serde_json::from_slice(&raw_signature)?;
-        Ok(signature)
+        self.request_signature(&request.into()).await
     }
 
     pub async fn request_proxy_bls_signature(
         &self,
         request: SignProxyRequest<BlsPublicKey>,
     ) -> Result<BlsSignature, SignerClientError> {
-        let raw_signature = self.request_signature(&request.into()).await?;
-        let signature = serde_json::from_slice(&raw_signature)?;
-        Ok(signature)
+        self.request_signature(&request.into()).await
     }
 
     async fn generate_proxy_key<T>(

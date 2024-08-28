@@ -1,6 +1,7 @@
 use std::fmt::{self, Debug, Display, LowerHex};
 
 use alloy::rpc::types::beacon::BlsSignature;
+use derive_more::derive::From;
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
@@ -69,7 +70,7 @@ impl<T: PublicKey> fmt::Display for SignedProxyDelegation<T> {
 }
 
 // TODO(David): This struct shouldn't be visible to module authors
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, From)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SignRequest {
     Consensus(SignConsensusRequest),
@@ -124,17 +125,6 @@ impl<T: PublicKey> SignProxyRequest<T> {
 
     pub fn with_msg(self, msg: &impl TreeHash) -> Self {
         self.with_root(msg.tree_hash_root().0)
-    }
-}
-
-impl From<SignProxyRequest<EcdsaPublicKey>> for SignRequest {
-    fn from(value: SignProxyRequest<EcdsaPublicKey>) -> Self {
-        Self::ProxyEcdsa(value)
-    }
-}
-impl From<SignProxyRequest<BlsPublicKey>> for SignRequest {
-    fn from(value: SignProxyRequest<BlsPublicKey>) -> Self {
-        Self::ProxyBls(value)
     }
 }
 
