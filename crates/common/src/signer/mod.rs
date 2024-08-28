@@ -9,14 +9,13 @@ use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 
 pub mod schemes;
-#[allow(clippy::module_inception)]
-mod signer;
 
 pub use schemes::{
-    bls::BlsSecretKey,
-    ecdsa::{EcdsaPublicKey, EcdsaSecretKey, EcdsaSignature},
+    bls::{BlsSecretKey, BlsSigner},
+    ecdsa::{EcdsaPublicKey, EcdsaSecretKey, EcdsaSignature, EcdsaSigner},
 };
-pub use signer::{BlsSigner, ConsensusSigner, EcdsaSigner};
+
+pub type ConsensusSigner = BlsSigner;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Encode, Decode)]
 #[serde(untagged)]
