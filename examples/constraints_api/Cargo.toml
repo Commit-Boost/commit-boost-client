@@ -1,0 +1,31 @@
+[package]
+name = "constraints_api"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+commit-boost = { path = "../../bin" }
+
+# networking
+reqwest.workspace = true
+axum.workspace = true
+
+# async / threads
+tokio.workspace = true
+async-trait.workspace = true
+
+# serialization
+serde.workspace = true
+
+# telemetry
+tracing.workspace = true
+prometheus.workspace = true
+
+# misc
+eyre.workspace = true
+color-eyre.workspace = true
+lazy_static.workspace = true
+
+# types
+alloy.workspace = true
