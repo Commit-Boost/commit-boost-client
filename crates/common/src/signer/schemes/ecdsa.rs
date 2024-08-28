@@ -16,10 +16,12 @@ use crate::{signature::compute_signing_root, signer::GenericPubkey, types::Chain
 
 pub type EcdsaSecretKey = k256::ecdsa::SigningKey;
 
-type CompressedPublicKey = GenericArray<u8, U33>;
+type CompressedPublicKey = [u8; 33];
 
 #[derive(Debug, Clone, Copy, From, Into, Serialize, Deserialize, PartialEq, Eq, Deref, Hash)]
+#[serde(transparent)]
 pub struct EcdsaPublicKey {
+    #[serde(with = "alloy::hex::serde")]
     encoded: CompressedPublicKey,
 }
 
@@ -27,6 +29,12 @@ impl EcdsaPublicKey {
     /// Size of the public key in bytes. We store the SEC1 encoded affine point
     /// compressed, thus 33 bytes.
     const SIZE: usize = 33;
+}
+
+impl Default for EcdsaPublicKey {
+    fn default() -> Self {
+        Self { encoded: [0; Self::SIZE] }
+    }
 }
 
 impl TreeHash for EcdsaPublicKey {
@@ -88,18 +96,12 @@ impl ssz::Decode for EcdsaPublicKey {
         Self::SIZE
     }
 
-    fn from_ssz_bytes(bytes: &[u8]) -> std::result::Result<Self, ssz::DecodeError> {
-        if bytes.len() != Self::SIZE {
-            return Err(ssz::DecodeError::InvalidByteLength {
-                len: bytes.len(),
-                expected: Self::SIZE,
-            });
-        }
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+        let encoded = <[u8; 33]>::try_from(bytes).map_err(|_| {
+            ssz::DecodeError::InvalidByteLength { len: bytes.len(), expected: Self::SIZE }
+        })?;
 
-        let mut fixed_array = [0_u8; Self::SIZE];
-        fixed_array.copy_from_slice(bytes);
-
-        Ok(EcdsaPublicKey { encoded: fixed_array.into() })
+        Ok(EcdsaPublicKey { encoded })
     }
 }
 
@@ -107,7 +109,7 @@ impl From<EcdsaPublicKeyInner> for EcdsaPublicKey {
     fn from(value: EcdsaPublicKeyInner) -> Self {
         let encoded: [u8; Self::SIZE] = value.to_encoded_point(true).as_bytes().try_into().unwrap();
 
-        EcdsaPublicKey { encoded: encoded.into() }
+        EcdsaPublicKey { encoded }
     }
 }
 
@@ -130,15 +132,22 @@ impl fmt::Display for EcdsaPublicKey {
     }
 }
 
-// TODO(David): Hex encode when Ser/De
 #[derive(Clone, Deref, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct EcdsaSignature {
-    encoded: GenericArray<u8, U64>,
+    #[serde(with = "alloy::hex::serde")]
+    encoded: [u8; 64],
+}
+
+impl Default for EcdsaSignature {
+    fn default() -> Self {
+        Self { encoded: [0; 64] }
+    }
 }
 
 impl From<EcdsaSignatureInner> for EcdsaSignature {
     fn from(value: EcdsaSignatureInner) -> Self {
-        Self { encoded: value.to_bytes() }
+        Self { encoded: value.to_bytes().as_slice().try_into().unwrap() }
     }
 }
 
@@ -214,7 +223,8 @@ pub fn verify_ecdsa_signature(
 ) -> Result<(), k256::ecdsa::Error> {
     use k256::ecdsa::signature::Verifier;
     let ecdsa_pubkey = EcdsaPublicKeyInner::from_sec1_bytes(&pubkey.encoded)?;
-    let ecdsa_sig = EcdsaSignatureInner::from_bytes(signature)?;
+    let ecdsa_sig =
+        EcdsaSignatureInner::from_bytes(GenericArray::<u8, U64>::from_slice(signature.as_ref()))?;
     ecdsa_pubkey.verify(msg, &ecdsa_sig)
 }
 

@@ -70,6 +70,7 @@ impl<T: PublicKey> fmt::Display for SignedProxyDelegation<T> {
 
 // TODO(David): This struct shouldn't be visible in the client SDK
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum SignRequest {
     Consensus(SignConsensusRequest),
     ProxyBls(SignProxyRequest<BlsPublicKey>),
@@ -79,6 +80,7 @@ pub enum SignRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignConsensusRequest {
     pub pubkey: BlsPublicKey,
+    #[serde(with = "alloy::hex::serde")]
     pub object_root: [u8; 32],
 }
 
@@ -103,6 +105,7 @@ impl SignConsensusRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignProxyRequest<T: PublicKey> {
     pub pubkey: T,
+    #[serde(with = "alloy::hex::serde")]
     pub object_root: [u8; 32],
 }
 

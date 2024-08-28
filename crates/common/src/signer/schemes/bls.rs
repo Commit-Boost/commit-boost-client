@@ -16,10 +16,11 @@ use crate::{
 pub type BlsSecretKey = blst::min_pk::SecretKey;
 
 // std traits
-#[derive(Debug, Clone, Copy, LowerHex, Display, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, LowerHex, Display, PartialEq, Eq, Hash, Default)]
 // serde, ssz, tree_hash
 #[derive(Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[ssz(struct_behaviour = "transparent")]
+#[serde(transparent)]
 // derive_more
 #[derive(Deref, From, Into)]
 pub struct BlsPublicKey {
