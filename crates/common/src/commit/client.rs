@@ -51,22 +51,16 @@ impl SignerClient {
     /// requested.
     // TODO: add more docs on how proxy keys work
     pub async fn get_pubkeys(&self) -> Result<GetPubkeysResponse, SignerClientError> {
-        let url = format!("{}{}", self.url, GET_PUBKEYS_PATH);
-        let res = self.client.get(&url).send().await?;
+        let res = self.client.get(&format!("{}{}", self.url, GET_PUBKEYS_PATH)).send().await?;
 
-        let status = res.status();
-        let response_bytes = res.bytes().await?;
-
-        if !status.is_success() {
+        if !res.status().is_success() {
             return Err(SignerClientError::FailedRequest {
-                status: status.as_u16(),
-                error_msg: String::from_utf8_lossy(&response_bytes).into_owned(),
+                status: res.status().as_u16(),
+                error_msg: String::from_utf8_lossy(&res.bytes().await?).into_owned(),
             });
         }
 
-        let parsed_response = serde_json::from_slice(&response_bytes)?;
-
-        Ok(parsed_response)
+        Ok(serde_json::from_slice(&res.bytes().await?)?)
     }
 
     /// Send a signature request
