@@ -68,7 +68,7 @@ impl<T: PublicKey> fmt::Display for SignedProxyDelegation<T> {
     }
 }
 
-// TODO(David): This struct shouldn't be visible in the client SDK
+// TODO(David): This struct shouldn't be visible to module authors
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SignRequest {
@@ -146,7 +146,7 @@ pub enum EncryptionScheme {
     Ecdsa,
 }
 
-// TODO(David): This struct shouldn't be visible in the client SDK
+// TODO(David): This struct shouldn't be visible to module authors
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GenerateProxyRequest {
     pub consensus_pubkey: BlsPublicKey,
@@ -157,4 +157,11 @@ impl GenerateProxyRequest {
     pub fn new(consensus_pubkey: BlsPublicKey, scheme: EncryptionScheme) -> Self {
         GenerateProxyRequest { consensus_pubkey, scheme }
     }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct GetPubkeysResponse {
+    pub consensus: Vec<BlsPublicKey>,
+    pub proxy_bls: Vec<BlsPublicKey>,
+    pub proxy_ecdsa: Vec<EcdsaPublicKey>,
 }

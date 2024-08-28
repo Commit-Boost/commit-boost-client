@@ -12,11 +12,10 @@ use axum_extra::TypedHeader;
 use bimap::BiHashMap;
 use cb_common::{
     commit::{
-        client::GetPubkeysResponse,
         constants::{GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, REQUEST_SIGNATURE_PATH},
         request::{
-            EncryptionScheme, GenerateProxyRequest, SignConsensusRequest, SignProxyRequest,
-            SignRequest,
+            EncryptionScheme, GenerateProxyRequest, GetPubkeysResponse, SignConsensusRequest,
+            SignProxyRequest, SignRequest,
         },
     },
     config::StartSignerConfig,

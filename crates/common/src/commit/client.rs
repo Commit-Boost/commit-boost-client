@@ -4,14 +4,14 @@ use alloy::rpc::types::beacon::BlsSignature;
 use axum::body::Bytes;
 use eyre::WrapErr;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use super::{
     constants::{GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, REQUEST_SIGNATURE_PATH},
     error::SignerClientError,
     request::{
-        EncryptionScheme, GenerateProxyRequest, PublicKey, SignConsensusRequest, SignProxyRequest,
-        SignRequest, SignedProxyDelegation,
+        EncryptionScheme, GenerateProxyRequest, GetPubkeysResponse, PublicKey,
+        SignConsensusRequest, SignProxyRequest, SignRequest, SignedProxyDelegation,
     },
 };
 use crate::{
@@ -21,14 +21,6 @@ use crate::{
     },
     DEFAULT_REQUEST_TIMEOUT,
 };
-
-// TODO(David): move to `request.rs`
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct GetPubkeysResponse {
-    pub consensus: Vec<BlsPublicKey>,
-    pub proxy_bls: Vec<BlsPublicKey>,
-    pub proxy_ecdsa: Vec<EcdsaPublicKey>,
-}
 
 /// Client used by commit modules to request signatures via the Signer API
 #[derive(Debug, Clone)]
@@ -73,7 +65,7 @@ impl SignerClient {
             });
         }
 
-        let parsed_response: GetPubkeysResponse = serde_json::from_slice(&response_bytes)?;
+        let parsed_response = serde_json::from_slice(&response_bytes)?;
 
         Ok(parsed_response)
     }
