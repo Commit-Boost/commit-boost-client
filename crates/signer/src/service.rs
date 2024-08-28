@@ -111,9 +111,12 @@ async fn handle_get_pubkeys(
     let signing_manager = state.manager.read().await;
 
     let consensus = signing_manager.consensus_pubkeys();
-    let proxy = signing_manager.proxy_pubkeys().get(&module_id).cloned().unwrap_or_default();
+    let proxy_bls =
+        signing_manager.proxy_pubkeys_bls().get(&module_id).cloned().unwrap_or_default();
+    let proxy_ecdsa =
+        signing_manager.proxy_pubkeys_ecdsa().get(&module_id).cloned().unwrap_or_default();
 
-    let res = GetPubkeysResponse { consensus, proxy };
+    let res = GetPubkeysResponse { consensus, proxy_bls, proxy_ecdsa };
 
     Ok((StatusCode::OK, Json(res)).into_response())
 }

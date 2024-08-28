@@ -42,7 +42,12 @@ impl DaCommitService {
         // the config has the signer_client already setup, we can use it to interact
         // with the Signer API
         let pubkeys = self.config.signer_client.get_pubkeys().await?;
-        info!(consensus = pubkeys.consensus.len(), proxy = pubkeys.proxy.len(), "Received pubkeys");
+        info!(
+            consensus = pubkeys.consensus.len(),
+            proxy_bls = pubkeys.proxy_bls.len(),
+            proxy_ecdsa = pubkeys.proxy_ecdsa.len(),
+            "Received pubkeys"
+        );
 
         let pubkey = *pubkeys.consensus.first().ok_or_eyre("no key available")?;
         info!("Registered validator {pubkey}");

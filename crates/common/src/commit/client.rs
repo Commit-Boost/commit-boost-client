@@ -17,15 +17,17 @@ use super::{
 use crate::{
     signer::{
         schemes::{bls::BlsPublicKey, ecdsa::EcdsaSignature},
-        EcdsaPublicKey, GenericPubkey,
+        EcdsaPublicKey,
     },
     DEFAULT_REQUEST_TIMEOUT,
 };
 
+// TODO(David): move to `request.rs`
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GetPubkeysResponse {
     pub consensus: Vec<BlsPublicKey>,
-    pub proxy: Vec<GenericPubkey>,
+    pub proxy_bls: Vec<BlsPublicKey>,
+    pub proxy_ecdsa: Vec<EcdsaPublicKey>,
 }
 
 /// Client used by commit modules to request signatures via the Signer API

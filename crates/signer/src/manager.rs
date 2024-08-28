@@ -11,7 +11,7 @@ use cb_common::{
             bls::BlsPublicKey,
             ecdsa::{EcdsaPublicKey, EcdsaSignature},
         },
-        BlsSigner, ConsensusSigner, EcdsaSigner, GenericPubkey,
+        BlsSigner, ConsensusSigner, EcdsaSigner,
     },
     types::{Chain, ModuleId},
 };
@@ -53,7 +53,8 @@ pub struct SigningManager {
     /// Map of module ids to their associated proxy pubkeys.
     /// Used to retrieve the corresponding proxy signer from the signing
     /// manager.
-    proxy_pubkeys: HashMap<ModuleId, Vec<GenericPubkey>>,
+    proxy_pubkeys_bls: HashMap<ModuleId, Vec<BlsPublicKey>>,
+    proxy_pubkeys_ecdsa: HashMap<ModuleId, Vec<EcdsaPublicKey>>,
 }
 
 impl SigningManager {
@@ -62,7 +63,8 @@ impl SigningManager {
             chain,
             consensus_signers: Default::default(),
             proxy_signers: Default::default(),
-            proxy_pubkeys: Default::default(),
+            proxy_pubkeys_bls: Default::default(),
+            proxy_pubkeys_ecdsa: Default::default(),
         }
     }
 
@@ -73,13 +75,13 @@ impl SigningManager {
     pub fn add_proxy_signer_bls(&mut self, proxy: BlsProxySigner, module_id: ModuleId) {
         let proxy_pubkey = proxy.pubkey();
         self.proxy_signers.bls_signers.insert(proxy.pubkey(), proxy);
-        self.proxy_pubkeys.entry(module_id).or_default().push(proxy_pubkey.into())
+        self.proxy_pubkeys_bls.entry(module_id).or_default().push(proxy_pubkey)
     }
 
     pub fn add_proxy_signer_ecdsa(&mut self, proxy: EcdsaProxySigner, module_id: ModuleId) {
         let proxy_pubkey = proxy.pubkey();
         self.proxy_signers.ecdsa_signers.insert(proxy.pubkey(), proxy);
-        self.proxy_pubkeys.entry(module_id).or_default().push(proxy_pubkey.into())
+        self.proxy_pubkeys_ecdsa.entry(module_id).or_default().push(proxy_pubkey)
     }
 
     pub async fn create_proxy_bls(
@@ -166,21 +168,24 @@ impl SigningManager {
         self.consensus_signers.keys().cloned().collect()
     }
 
-    pub fn proxy_pubkeys(&self) -> &HashMap<ModuleId, Vec<GenericPubkey>> {
-        &self.proxy_pubkeys
+    pub fn proxy_pubkeys_bls(&self) -> &HashMap<ModuleId, Vec<BlsPublicKey>> {
+        &self.proxy_pubkeys_bls
+    }
+
+    pub fn proxy_pubkeys_ecdsa(&self) -> &HashMap<ModuleId, Vec<EcdsaPublicKey>> {
+        &self.proxy_pubkeys_ecdsa
     }
 
     pub fn has_consensus(&self, pubkey: &BlsPublicKey) -> bool {
         self.consensus_signers.contains_key(pubkey)
     }
 
-    pub fn has_proxy(&self, pubkey: &GenericPubkey) -> bool {
-        match pubkey {
-            GenericPubkey::Bls(bls_pk) => self.proxy_signers.bls_signers.contains_key(bls_pk),
-            GenericPubkey::Ecdsa(ecdsa_pk) => {
-                self.proxy_signers.ecdsa_signers.contains_key(ecdsa_pk)
-            }
-        }
+    pub fn has_proxy_ecdsa(&self, ecdsa_pk: &EcdsaPublicKey) -> bool {
+        self.proxy_signers.ecdsa_signers.contains_key(ecdsa_pk)
+    }
+
+    pub fn has_proxy_bls(&self, bls_pk: &BlsPublicKey) -> bool {
+        self.proxy_signers.bls_signers.contains_key(bls_pk)
     }
 
     pub fn get_delegation_bls(
@@ -252,7 +257,7 @@ mod tests {
             );
 
             assert!(
-                signing_manager.has_proxy(&signed_delegation.message.proxy.into()),
+                signing_manager.has_proxy_bls(&signed_delegation.message.proxy),
                 "Newly generated proxy key must be present in the signing manager's registry."
             );
         }
@@ -327,7 +332,7 @@ mod tests {
             );
 
             assert!(
-                signing_manager.has_proxy(&signed_delegation.message.proxy.into()),
+                signing_manager.has_proxy_ecdsa(&signed_delegation.message.proxy),
                 "Newly generated proxy key must be present in the signing manager's registry."
             );
         }

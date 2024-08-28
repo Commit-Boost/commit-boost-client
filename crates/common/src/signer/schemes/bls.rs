@@ -9,7 +9,7 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    error::BlstErrorWrapper, signature::sign_builder_root, signer::GenericPubkey, types::Chain,
+    error::BlstErrorWrapper, signature::sign_builder_root, types::Chain,
     utils::blst_pubkey_to_alloy,
 };
 
@@ -96,11 +96,5 @@ pub fn verify_bls_signature(
         Ok(())
     } else {
         Err(res.into())
-    }
-}
-
-impl From<BlsPublicKey> for GenericPubkey {
-    fn from(value: BlsPublicKey) -> Self {
-        GenericPubkey::Bls(value)
     }
 }

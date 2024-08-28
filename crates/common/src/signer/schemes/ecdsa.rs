@@ -12,7 +12,7 @@ use ssz_types::{
 };
 use tree_hash::TreeHash;
 
-use crate::{signature::compute_signing_root, signer::GenericPubkey, types::Chain};
+use crate::{signature::compute_signing_root, types::Chain};
 
 pub type EcdsaSecretKey = k256::ecdsa::SigningKey;
 
@@ -226,10 +226,4 @@ pub fn verify_ecdsa_signature(
     let ecdsa_sig =
         EcdsaSignatureInner::from_bytes(GenericArray::<u8, U64>::from_slice(signature.as_ref()))?;
     ecdsa_pubkey.verify(msg, &ecdsa_sig)
-}
-
-impl From<EcdsaPublicKey> for GenericPubkey {
-    fn from(value: EcdsaPublicKey) -> Self {
-        GenericPubkey::Ecdsa(value)
-    }
 }
