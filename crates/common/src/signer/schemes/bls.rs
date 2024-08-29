@@ -15,6 +15,12 @@ use crate::{
 
 pub type BlsSecretKey = blst::min_pk::SecretKey;
 
+// TODO(David):
+// This wrapper type is potentially a temporary solution, merely to implement
+// `TreeHash`. Remove when progress is made on this issue (https://github.com/sigp/tree_hash/issues/22)
+// or refine the boundaries between our wrapper `BlsPublicKey` type
+// and alloy's `BlsPublicKey` if we stick with it
+
 // std traits
 #[derive(Debug, Clone, Copy, LowerHex, Display, PartialEq, Eq, Hash, Default)]
 // serde, ssz, tree_hash
@@ -79,8 +85,6 @@ fn random_secret() -> BlsSecretKey {
     }
 }
 
-// TODO(David): Refine the boundaries between our wrapper `BlsPublicKey` type
-// and alloy's `BlsPublicKey`. This stinks right now...
 pub fn verify_bls_signature(
     pubkey: &BlsPublicKeyInner,
     msg: &[u8],
