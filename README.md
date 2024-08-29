@@ -51,10 +51,10 @@ async fn main() {
     let pubkey = *pubkeys.consensus.first().unwrap();
 
     let datagram = Datagram { data: 42 };
-    let request = SignRequest::builder(pubkey).with_msg(&datagram);
+    let request = SignConsensusRequest::builder(pubkey).with_msg(&datagram);
     let signature = config
         .signer_client
-        .request_signature(&request)
+        .request_consensus_signature(&request)
         .await
         .unwrap();
 

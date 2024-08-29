@@ -46,7 +46,7 @@ The loaded `config` also has a few other useful fields:
 
 
 ## Requesting signatures
-At its core the Signer Module simply provides a signature on a 32-byte data digest. The signatures are currently provided with either the validator keys (BLS) or a proxy key (also BLS) for a given validator key, both on the [builder domain](https://github.com/Commit-Boost/commit-boost-client/blob/main/crates/common/src/signature.rs#L88-L96). Eventually we plan to support [alternative](https://github.com/Commit-Boost/commit-boost-client/issues/20) signing schemes, too.
+At its core the Signer Module simply provides a signature on a 32-byte data digest. The signatures are currently provided with either the validator keys (BLS) or a proxy key (BLS or ECDSA) for a given validator key, both on the [builder domain](https://github.com/Commit-Boost/commit-boost-client/blob/main/crates/common/src/signature.rs#L88-L96).
 
 In the example we use `TreeHash`, already used in the CL, to create the digest from a custom struct:
 ```rust
@@ -69,26 +69,37 @@ Then, we can request a signature either with a consensus key or with a proxy key
 Requesting a signature is as simple as:
 ```rust
 let datagram = Datagram { data: 1 };
-let request = SignRequest::builder(pubkey).with_msg(&datagram);
-let signature = config.signer_client.request_signature(&request).await.unwrap();
+let request = SignConsensusRequest::builder(pubkey).with_msg(&datagram);
+let signature = config.signer_client.request_consensus_signature(&request).await.unwrap();
 ```
 
 Where `pubkey` is the validator (consensus) public key for which the signature is requested.
 
 ### With a proxy key
-You'll have to first request a proxy key be generated for a given consensus key:
+You'll have to first request a proxy key be generated for a given consensus key.
+We support two signature schemes for proxies: BLS or ECDSA.
+
+To request a proxy:
 ```rust
-let proxy_delegation = self.config.signer_client.generate_proxy_key(pubkey).await?;
+// BLS proxy
+let proxy_delegation = self.config.signer_client.generate_proxy_key_bls(pubkey).await?;
+let proxy_pubkey = proxy_delegation.message.proxy;
+
+// or ECDSA proxy
+let proxy_delegation = self.config.signer_client.generate_proxy_key_ecdsa(pubkey).await?;
 let proxy_pubkey = proxy_delegation.message.proxy;
 ```
 
 Where `pubkey` is the validator (consensus) public key for which a proxy is to be generated.
 
-Then, the only difference from the direct approach is explicitly saying that the signature request uses a proxy key:
+Then you can use the generated proxy key to request a signature:
 ```rust
 let datagram = Datagram { data: 1 };
-let request = SignRequest::builder(proxy_pubkey).is_proxy().with_msg(&datagram);
-let signature = config.signer_client.request_signature(&request).await.unwrap();
+let request = SignProxyRequest::builder(proxy_pubkey).with_msg(&datagram);
+// if `proxy_pubkey` is a BLS proxy
+let signature = config.signer_client.request_proxy_signature_bls(&request).await.unwrap();
+// or for ECDSA proxy
+let signature = config.signer_client.request_proxy_signature_ecdsa(&request).await.unwrap();
 ```
 
 ## Metrics
