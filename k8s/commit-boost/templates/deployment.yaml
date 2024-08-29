@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "commit-boost.fullname" . }}
+  labels:
+    {{- include "commit-boost.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "commit-boost.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "commit-boost.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "commit-boost.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        {{- if .Values.commitBoost.pbs.enable }}
+        - name: {{ .Chart.Name }}-pbs
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http-pbs
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+            - name: http-metrics
+              containerPort: {{ .Values.service.metrics_port }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: http-metrics
+          readinessProbe:
+            httpGet:
+              path: /status
+              port: http-metrics
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          env:
+            - name: CB_CONFIG
+              value: /config/config.pbs.toml
+            - name: ROLLING_DURATION
+              value: never
+            - name: METRICS_SERVER
+              value: '{{ .Values.service.metrics_port }}'
+            - name: RUST_LOG
+              value: info
+          volumeMounts:
+            - name: commit-boost-configs
+              mountPath: /config
+          {{- with .Values.volumeMounts }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        {{- end }}
+      volumes:
+      - name: commit-boost-configs
+        configMap:
+          defaultMode: 0755
+          name: {{ include "commit-boost.fullname" . }}
+          items:
+            - key: prometheus.yaml
+              path: prometheus.yaml
+            {{- if .Values.commitBoost.pbs.enable }}
+            - key: config.pbs.toml
+              path: config.pbs.toml
+            {{- end }}
+      {{- with .Values.volumes }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
