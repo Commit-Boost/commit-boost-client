@@ -93,14 +93,14 @@ impl SignerClient {
         self.request_signature(&request.into()).await
     }
 
-    pub async fn request_proxy_ecdsa_signature(
+    pub async fn request_proxy_signature_ecdsa(
         &self,
         request: SignProxyRequest<EcdsaPublicKey>,
     ) -> Result<EcdsaSignature, SignerClientError> {
         self.request_signature(&request.into()).await
     }
 
-    pub async fn request_proxy_bls_signature(
+    pub async fn request_proxy_signature_bls(
         &self,
         request: SignProxyRequest<BlsPublicKey>,
     ) -> Result<BlsSignature, SignerClientError> {
@@ -132,7 +132,7 @@ impl SignerClient {
         Ok(signed_proxy_delegation)
     }
 
-    pub async fn generate_bls_proxy_key(
+    pub async fn generate_proxy_key_bls(
         &self,
         consensus_pubkey: BlsPublicKey,
     ) -> Result<SignedProxyDelegation<BlsPublicKey>, SignerClientError> {
@@ -143,7 +143,7 @@ impl SignerClient {
         Ok(bls_signed_proxy_delegation)
     }
 
-    pub async fn generate_ecdsa_proxy_key(
+    pub async fn generate_proxy_key_ecdsa(
         &self,
         consensus_pubkey: BlsPublicKey,
     ) -> Result<SignedProxyDelegation<EcdsaPublicKey>, SignerClientError> {

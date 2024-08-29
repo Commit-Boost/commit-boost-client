@@ -1,7 +1,7 @@
 pub mod schemes;
 
 pub use schemes::{
-    bls::{BlsSecretKey, BlsSigner},
+    bls::{BlsPublicKey, BlsSecretKey, BlsSignature, BlsSigner},
     ecdsa::{EcdsaPublicKey, EcdsaSecretKey, EcdsaSignature, EcdsaSigner},
 };
 

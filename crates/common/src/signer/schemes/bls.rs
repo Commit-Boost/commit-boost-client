@@ -1,6 +1,5 @@
-use alloy::rpc::types::beacon::{
-    constants::BLS_DST_SIG, BlsPublicKey as BlsPublicKeyInner, BlsSignature,
-};
+pub use alloy::rpc::types::beacon::BlsSignature;
+use alloy::rpc::types::beacon::{constants::BLS_DST_SIG, BlsPublicKey as BlsPublicKeyInner};
 use blst::BLST_ERROR;
 use derive_more::derive::{Deref, Display, From, Into, LowerHex};
 use serde::{Deserialize, Serialize};

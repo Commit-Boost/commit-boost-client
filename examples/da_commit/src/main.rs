@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use alloy::rpc::types::beacon::BlsPublicKey;
 use commit_boost::prelude::*;
 use eyre::{OptionExt, Result};
 use lazy_static::lazy_static;
@@ -51,19 +50,19 @@ impl DaCommitService {
         let pubkey = *pubkeys.consensus.first().ok_or_eyre("no key available")?;
         info!("Registered validator {pubkey}");
 
-        let proxy_delegation_bls = self.config.signer_client.generate_bls_proxy_key(pubkey).await?;
+        let proxy_delegation_bls = self.config.signer_client.generate_proxy_key_bls(pubkey).await?;
         info!("Obtained a BLS proxy delegation:\n{proxy_delegation_bls}");
         let proxy_bls = proxy_delegation_bls.message.proxy;
 
         let proxy_delegation_ecdsa =
-            self.config.signer_client.generate_ecdsa_proxy_key(pubkey).await?;
+            self.config.signer_client.generate_proxy_key_ecdsa(pubkey).await?;
         info!("Obtained an ECDSA proxy delegation:\n{proxy_delegation_ecdsa}");
         let proxy_ecdsa = proxy_delegation_ecdsa.message.proxy;
 
         let mut data = 0;
 
         loop {
-            self.send_request(data, pubkey.into(), proxy_bls.into(), proxy_ecdsa).await?;
+            self.send_request(data, pubkey, proxy_bls, proxy_ecdsa).await?;
             sleep(Duration::from_secs(self.config.extra.sleep_secs)).await;
             data += 1;
         }
@@ -78,16 +77,16 @@ impl DaCommitService {
     ) -> Result<()> {
         let datagram = Datagram { data };
 
-        let request = SignConsensusRequest::builder(pubkey.into()).with_msg(&datagram);
+        let request = SignConsensusRequest::builder(pubkey).with_msg(&datagram);
         let signature = self.config.signer_client.request_consensus_signature(request);
 
-        let proxy_request_bls = SignProxyRequest::builder(proxy_bls.into()).with_msg(&datagram);
+        let proxy_request_bls = SignProxyRequest::builder(proxy_bls).with_msg(&datagram);
         let proxy_signature_bls =
-            self.config.signer_client.request_proxy_bls_signature(proxy_request_bls);
+            self.config.signer_client.request_proxy_signature_bls(proxy_request_bls);
 
         let proxy_request_ecdsa = SignProxyRequest::builder(proxy_ecdsa).with_msg(&datagram);
         let proxy_signature_ecdsa =
-            self.config.signer_client.request_proxy_ecdsa_signature(proxy_request_ecdsa);
+            self.config.signer_client.request_proxy_signature_ecdsa(proxy_request_ecdsa);
 
         let (signature, proxy_signature_bls, proxy_signature_ecdsa) = {
             let res = tokio::join!(signature, proxy_signature_bls, proxy_signature_ecdsa);
