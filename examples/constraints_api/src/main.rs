@@ -1,23 +1,30 @@
-use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Arc,
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, RwLock,
+    },
 };
 
-use alloy::{primitives::B256, rpc::types::beacon::BlsPublicKey};
 use async_trait::async_trait;
 use axum::{
     extract::{Path, State},
     response::{IntoResponse, Response},
     routing::{get, post},
-    Router,
+    Json, Router,
 };
 use commit_boost::prelude::*;
 use eyre::Result;
 use lazy_static::lazy_static;
 use prometheus::IntCounter;
 use reqwest::{header::HeaderMap, StatusCode};
-use serde::Deserialize;
 use tracing::info;
+
+mod types;
+use types::{
+    ConstraintsMessage, ExtraConfig, GetHeaderParams, SignedConstraints, SignedDelegation,
+    SignedRevocation,
+};
 
 const SUBMIT_CONSTRAINTS_PATH: &str = "/constraints/v1/builder/constraints";
 const DELEGATE_PATH: &str = "/constraints/v1/builder/delegate";
@@ -25,39 +32,28 @@ const REVOKE_PATH: &str = "/constraints/v1/builder/revoke";
 const GET_HEADER_WITH_PROOFS_PATH: &str =
     "/eth/v1/builder/header_with_proofs/:slot/:parent_hash/:pubkey";
 
-#[derive(Debug, Deserialize, Clone, Copy)]
-pub struct GetHeaderParams {
-    pub slot: u64,
-    pub parent_hash: B256,
-    pub pubkey: BlsPublicKey,
-}
-
 lazy_static! {
     pub static ref CHECK_RECEIVED_COUNTER: IntCounter =
         IntCounter::new("checks", "successful /check requests received").unwrap();
 }
 
-/// Extra config loaded from the config file
-/// You should add an `inc_amount` field to the config file in the `pbs`
-/// section. Be sure also to change the `pbs.docker_image` field,
-/// `test_status_api` in this case (from scripts/build_local_modules.sh).
-#[derive(Debug, Deserialize)]
-struct ExtraConfig {
-    inc_amount: u64,
-}
-
 // Extra state available at runtime
 #[derive(Clone)]
-struct MyBuilderState {
+struct BuilderState {
     inc_amount: u64,
     counter: Arc<AtomicU64>,
+    constraints: Arc<RwLock<HashMap<u64, ConstraintsMessage>>>,
 }
 
-impl BuilderApiState for MyBuilderState {}
+impl BuilderApiState for BuilderState {}
 
-impl MyBuilderState {
+impl BuilderState {
     fn from_config(extra: ExtraConfig) -> Self {
-        Self { inc_amount: extra.inc_amount, counter: Arc::new(AtomicU64::new(0)) }
+        Self {
+            inc_amount: extra.inc_amount,
+            counter: Arc::new(AtomicU64::new(0)),
+            constraints: Default::default(),
+        }
     }
 
     fn inc(&self) {
@@ -71,15 +67,17 @@ impl MyBuilderState {
 struct MyBuilderApi;
 
 #[async_trait]
-impl BuilderApi<MyBuilderState> for MyBuilderApi {
-    async fn get_status(req_headers: HeaderMap, state: PbsState<MyBuilderState>) -> Result<()> {
+impl BuilderApi<BuilderState> for MyBuilderApi {
+    async fn get_status(req_headers: HeaderMap, state: PbsState<BuilderState>) -> Result<()> {
         state.data.inc();
         info!("THIS IS A CUSTOM LOG");
         CHECK_RECEIVED_COUNTER.inc();
         get_status(req_headers, state).await
     }
 
-    fn extra_routes() -> Option<Router<PbsState<MyBuilderState>>> {
+    /// Gets the extra routes for supporting the constraints API as defined in
+    /// the spec: <https://chainbound.github.io/bolt-docs/api/builder>.
+    fn extra_routes() -> Option<Router<PbsState<BuilderState>>> {
         let mut router = Router::new();
         router = router.route(SUBMIT_CONSTRAINTS_PATH, post(submit_constraints));
         router = router.route(DELEGATE_PATH, post(delegate));
@@ -91,26 +89,50 @@ impl BuilderApi<MyBuilderState> for MyBuilderApi {
 
 /// Submit signed constraints to the builder.
 /// Spec: <https://chainbound.github.io/bolt-docs/api/builder#constraints>
-async fn submit_constraints(State(state): State<PbsState<MyBuilderState>>) -> Response {
+#[tracing::instrument(skip_all)]
+async fn submit_constraints(
+    State(state): State<PbsState<BuilderState>>,
+    Json(constraints): Json<Vec<SignedConstraints>>,
+) -> Response {
+    // Save constraints for the slot to verify proofs against later.
+    for signed_constraints in constraints {
+        // TODO: check for ToB conflicts!
+        state
+            .data
+            .constraints
+            .write()
+            .unwrap()
+            .insert(signed_constraints.message.slot, signed_constraints.message.clone());
+    }
+
     todo!()
 }
 
 /// Delegate constraint submission rights to another BLS key.
 /// Spec: <https://chainbound.github.io/bolt-docs/api/builder#delegate>
-async fn delegate(State(state): State<PbsState<MyBuilderState>>) -> Response {
+#[tracing::instrument(skip_all)]
+async fn delegate(
+    State(state): State<PbsState<BuilderState>>,
+    Json(delegation): Json<SignedDelegation>,
+) -> Response {
     todo!()
 }
 
 /// Revoke constraint submission rights from a BLS key.
 /// Spec: <https://chainbound.github.io/bolt-docs/api/builder#revoke>
-async fn revoke(State(state): State<PbsState<MyBuilderState>>) -> Response {
+#[tracing::instrument(skip_all)]
+async fn revoke(
+    State(state): State<PbsState<BuilderState>>,
+    Json(revocation): Json<SignedRevocation>,
+) -> Response {
     todo!()
 }
 
 /// Get a header with proofs for a given slot and parent hash.
 /// Spec: <https://chainbound.github.io/bolt-docs/api/builder#get_header_with_proofs>
+#[tracing::instrument(skip_all, fields(slot = params.slot))]
 async fn get_header_with_proofs(
-    State(state): State<PbsState<MyBuilderState>>,
+    State(state): State<PbsState<BuilderState>>,
     Path(params): Path<GetHeaderParams>,
 ) -> Response {
     todo!()
@@ -123,11 +145,11 @@ async fn main() -> Result<()> {
     let (pbs_config, extra) = load_pbs_custom_config::<ExtraConfig>()?;
     let _guard = initialize_pbs_tracing_log();
 
-    let custom_state = MyBuilderState::from_config(extra);
+    let custom_state = BuilderState::from_config(extra);
     let state = PbsState::new(pbs_config).with_data(custom_state);
 
     PbsService::register_metric(Box::new(CHECK_RECEIVED_COUNTER.clone()));
     PbsService::init_metrics()?;
 
-    PbsService::run::<MyBuilderState, MyBuilderApi>(state).await
+    PbsService::run::<BuilderState, MyBuilderApi>(state).await
 }
