@@ -1,7 +1,10 @@
+use std::ops::Deref;
+
 use alloy::{
-    primitives::{Bytes, B256},
+    primitives::{Bytes, B256, U256},
     rpc::types::beacon::{BlsPublicKey, BlsSignature},
 };
+use cb_common::pbs::{SignedExecutionPayloadHeader, VersionedResponse};
 use serde::{Deserialize, Serialize};
 
 /// Extra config loaded from the config file
@@ -56,4 +59,21 @@ pub struct SignedRevocation {
 pub struct RevocationMessage {
     pub validator_index: u64,
     pub pubkey: BlsPublicKey,
+}
+
+pub type GetHeaderWithProofsResponse = VersionedResponse<SignedExecutionPayloadHeaderWithProofs>;
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct SignedExecutionPayloadHeaderWithProofs {
+    #[serde(flatten)]
+    pub header: SignedExecutionPayloadHeader,
+    pub proofs: (),
+}
+
+impl Deref for SignedExecutionPayloadHeaderWithProofs {
+    type Target = SignedExecutionPayloadHeader;
+
+    fn deref(&self) -> &Self::Target {
+        &self.header
+    }
 }

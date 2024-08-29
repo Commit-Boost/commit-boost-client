@@ -10,3 +10,4 @@ mod utils;
 pub use beacon_block::{SignedBlindedBeaconBlock, SubmitBlindedBlockResponse};
 pub use execution_payload::EMPTY_TX_ROOT_HASH;
 pub use get_header::{GetHeaderParams, GetHeaderReponse, SignedExecutionPayloadHeader};
+pub use utils::{Version, VersionedResponse};
