@@ -57,7 +57,7 @@ impl DaCommitService {
 
         let proxy_delegation_ecdsa =
             self.config.signer_client.generate_ecdsa_proxy_key(pubkey).await?;
-        info!("Obtained an ECDSA proxy delegation:\n{proxy_delegation_bls}");
+        info!("Obtained an ECDSA proxy delegation:\n{proxy_delegation_ecdsa}");
         let proxy_ecdsa = proxy_delegation_ecdsa.message.proxy;
 
         let mut data = 0;

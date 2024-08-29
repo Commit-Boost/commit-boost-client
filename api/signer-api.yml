@@ -15,7 +15,7 @@ paths:
         - BearerAuth: []
       responses:
         "200":
-          description: A list of Bls pubkeys
+          description: "All public keys available to the module: consensus pubkeys (BLS) and proxy pubkeys (BLS and ECDSA)"
           content:
             application/json:
               schema:
@@ -25,18 +25,17 @@ paths:
                     description: Consensus validator pubkeys
                     type: array
                     items:
-                      type: string
-                      format: hex
-                      pattern: "^0x[a-fA-F0-9]{96}$"
-                      example: "0xa3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989"
-                  proxy:
-                    description: Proxy validator pubkeys
+                      $ref: '#/components/schemas/BlsPubkey'
+                  proxy_bls:
+                    description: BLS proxy validator pubkeys
                     type: array
                     items:
-                      type: string
-                      format: hex
-                      pattern: "^0x[a-fA-F0-9]{96}$"
-                      example: "0xa3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989"
+                      $ref: '#/components/schemas/BlsPubkey'
+                  proxy_ecdsa:
+                    description: ECDSA proxy validator pubkeys
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EcdsaPubkey'
         "500":
           description: Internal error
           content:
@@ -67,34 +66,55 @@ paths:
           application/json:
             schema:
               type: object
+              required: [type, pubkey, object_root]
               properties:
-                pubkey:
-                  description: BLS public key of validator
+                type:
+                  description: Type of the sign request
                   type: string
-                  format: hex
-                  pattern: "^0x[a-fA-F0-9]{96}$"
-                  example: "0xa3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989"
-                is_proxy:
-                  description: Whether the request is for a proxy pubkey
-                  type: boolean
-                  example: false
+                  enum: [consensus, proxy_bls, proxy_ecdsa]
+                pubkey:
+                  description: Public key of the validator
+                  oneOf:
+                    - $ref: '#/components/schemas/BlsPubkey'
+                    - $ref: '#/components/schemas/EcdsaPubkey'
                 object_root:
                   description: The root of the object to be signed
                   type: string
                   format: hex
                   pattern: "^0x[a-fA-F0-9]{64}$"
                   example: "0x3e9f4a78b5c21d64f0b8e3d9a7f5c02b4d1e67a3c8f29b5d6e4a3b1c8f72e6d9"
+            examples:
+              Consensus:
+                value:
+                  type: "consensus"
+                  pubkey: "0xa3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989"
+                  object_root: "0x3e9f4a78b5c21d64f0b8e3d9a7f5c02b4d1e67a3c8f29b5d6e4a3b1c8f72e6d9"
+              ProxyBls:
+                value:
+                  type: "proxy_bls"
+                  pubkey: "0xa3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989"
+                  object_root: "0x3e9f4a78b5c21d64f0b8e3d9a7f5c02b4d1e67a3c8f29b5d6e4a3b1c8f72e6d9"
+              ProxyEcdsa:
+                value:
+                  type: "proxy_ecdsa"
+                  pubkey: "0x023b2806b1b1dfa34dd90b01546906cef3e4c8e0fc0cba60480e9eb4d0a0828311"
+                  object_root: "0x3e9f4a78b5c21d64f0b8e3d9a7f5c02b4d1e67a3c8f29b5d6e4a3b1c8f72e6d9"
       responses:
         "200":
-          description: Successs
+          description: Success
           content:
             application/json:
               schema:
-                type: string
-                description: The validator signature
-                format: hex
-                pattern: "^0x[a-fA-F0-9]{192}$"
-                example: "0xa3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989a3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989"
+                oneOf:
+                  - $ref: '#/components/schemas/BlsSignature'
+                  - $ref: '#/components/schemas/EcdsaSignature'
+              examples:
+                Consensus:
+                  value: "0xa3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989a3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989"
+                ProxyBls:
+                  value: "0xa3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989a3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989"
+                ProxyEcdsa:
+                  value: "0xe6a0c0c41a6d4af9794882c18c5280376cbfb7921453612dea02ed8f47b1208455f07931dc12c4b70c4e8ae216db0136000ec2cf17244189f012de356ac46cec"
         "404":
           description: Unknown value (pubkey, etc.)
           content:
@@ -141,13 +161,25 @@ paths:
           application/json:
             schema:
               type: object
+              required: [pubkey, scheme]
               properties:
                 pubkey:
                   description: a validator BLS public key for which to generate a proxy key
+                  allOf:
+                    - $ref: '#/components/schemas/BlsPubkey'
+                scheme:
+                  description: signature scheme to generate proxy keypair for
                   type: string
-                  format: hex
-                  pattern: "^0x[a-fA-F0-9]{96}$"
-                  example: "0xac5e059177afc33263e95d0be0690138b9a1d79a6e19018086a0362e0c30a50bf9e05a08cb44785724d0b2718c5c7118"
+                  enum: [bls, ecdsa]
+            examples:
+              Bls:
+                value:
+                  pubkey: "0xa9e9cff900de07e295a044789fd4bdb6785eb0651ad282f9e76d12afd87e75180bdd64caf2e315b815d7322bd31ab48a"
+                  scheme: "bls"
+              Ecdsa:
+                value:
+                  pubkey: "0xa9e9cff900de07e295a044789fd4bdb6785eb0651ad282f9e76d12afd87e75180bdd64caf2e315b815d7322bd31ab48a"
+                  scheme: "ecdsa"
       responses:
         "200":
           description: Successs
@@ -161,22 +193,30 @@ paths:
                     properties:
                       delegator:
                         description: the validator BLS public key for which the proxy key was generated (the same one as requested)
-                        type: string
-                        format: hex
-                        pattern: "^0x[a-fA-F0-9]{96}$"
-                        example: "0xac5e059177afc33263e95d0be0690138b9a1d79a6e19018086a0362e0c30a50bf9e05a08cb44785724d0b2718c5c7118"
+                        allOf:
+                          - $ref: '#/components/schemas/BlsPubkey'
                       proxy:
                         description: the generated proxy public key
-                        type: string
-                        format: hex
-                        pattern: "^0x[a-fA-F0-9]{96}$"
-                        example: "0x8a481a7a51c430a9bafa64366bc4934f5880f5f1d97646f91680936a53f2a268fdde5369430a2b4bb700c5f82cfbab3f"
+                        oneOf:
+                          - $ref: '#/components/schemas/BlsPubkey'
+                          - $ref: '#/components/schemas/EcdsaPubkey'
                   signature:
                     description: The signature of the proxy delegation
-                    type: string
-                    format: hex
-                    pattern: "^0x[a-fA-F0-9]{192}$"
-                    example: "0xabfacf1cd17d80abfc6fa6b8e534ab25cdb1f95a855706ef604672c8695401a84c7834008e57925d4259c551b7c03d1a16f05b082294fadcba802a61a5cccfb5e96dd1dce4c9dac3f6d15254495019146346670be1f374a67cb0cda2aaf72d00"
+                    allOf:
+                      - $ref: '#/components/schemas/BlsSignature'
+              examples:
+                Bls:
+                  value:
+                    message:
+                      delegator: "0xa9e9cff900de07e295a044789fd4bdb6785eb0651ad282f9e76d12afd87e75180bdd64caf2e315b815d7322bd31ab48a"
+                      proxy: "0xb646318d81b7cff3f8aae5040eab11927b4a99542c02970a1ab8069a83e5b76b302705d0b5e0054831ce2af72088bf30"
+                    signature: "0x88274f2d78d30ae429cc16f5c64657b491ccf26291c821cf953da34f16d60947d4f245decdce4a492e8d8f949482051b184aaa890d5dd97788387689335a1fee37cbe55c0227f81b073ce6e93b45f96169f497ed322d3d384d79ccaa7846d5ab"
+                Ecdsa:
+                  value:
+                    message:
+                      delegator: "0xa9e9cff900de07e295a044789fd4bdb6785eb0651ad282f9e76d12afd87e75180bdd64caf2e315b815d7322bd31ab48a"
+                      proxy: "0x023b2806b1b1dfa34dd90b01546906cef3e4c8e0fc0cba60480e9eb4d0a0828311"
+                    signature: "0xb5b5b71d1701cc45086af3d3d86bf9d3c509442835e5b9f7734923edc9a6c538e743d70613cdef90b7e5b171fbbe6a29075b3f155e4bd66d81ff9dbc3b6d7fa677d169b2ceab727ffa079a31fe1fc0e478752e9da9566a9408e4db24ac6104db"
         "404":
           description: Unknown value (pubkey, etc.)
           content:
@@ -216,3 +256,24 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+  schemas:
+    BlsPubkey:
+      type: string
+      format: hex
+      pattern: "^0x[a-fA-F0-9]{96}$"
+      example: "0xa9e9cff900de07e295a044789fd4bdb6785eb0651ad282f9e76d12afd87e75180bdd64caf2e315b815d7322bd31ab48a"
+    EcdsaPubkey:
+      type: string
+      format: hex
+      pattern: "^0x[a-fA-F0-9]{64}$"
+      example: "0x023b2806b1b1dfa34dd90b01546906cef3e4c8e0fc0cba60480e9eb4d0a0828311"
+    BlsSignature:
+      type: string
+      format: hex
+      pattern: "^0x[a-fA-F0-9]{192}$"
+      example: "0xa3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989a3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989"
+    EcdsaSignature:
+      type: string
+      format: hex
+      pattern: "^0x[a-fA-F0-9]{128}$"
+      example: "0xe6a0c0c41a6d4af9794882c18c5280376cbfb7921453612dea02ed8f47b1208455f07931dc12c4b70c4e8ae216db0136000ec2cf17244189f012de356ac46cec"
