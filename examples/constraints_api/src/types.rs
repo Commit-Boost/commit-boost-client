@@ -42,8 +42,8 @@ pub struct SignedDelegation {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DelegationMessage {
-    validator_index: u64,
-    pubkey: BlsPublicKey,
+    pub validator_index: u64,
+    pub pubkey: BlsPublicKey,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,6 +54,6 @@ pub struct SignedRevocation {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RevocationMessage {
-    validator_index: u64,
-    pubkey: BlsPublicKey,
+    pub validator_index: u64,
+    pub pubkey: BlsPublicKey,
 }

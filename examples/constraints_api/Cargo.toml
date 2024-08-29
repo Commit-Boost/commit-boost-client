@@ -14,6 +14,7 @@ axum.workspace = true
 # async / threads
 tokio.workspace = true
 async-trait.workspace = true
+futures.workspace = true
 
 # serialization
 serde.workspace = true

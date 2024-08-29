@@ -13,14 +13,19 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use commit_boost::prelude::*;
 use eyre::Result;
+use futures::{stream::FuturesUnordered, StreamExt};
 use lazy_static::lazy_static;
 use prometheus::IntCounter;
 use reqwest::{header::HeaderMap, StatusCode};
+use serde::Serialize;
 use tracing::info;
 
+use commit_boost::prelude::*;
+
+mod error;
 mod types;
+use error::PbsClientError;
 use types::{
     ConstraintsMessage, ExtraConfig, GetHeaderParams, SignedConstraints, SignedDelegation,
     SignedRevocation,
@@ -64,11 +69,12 @@ impl BuilderState {
     }
 }
 
-struct MyBuilderApi;
+struct ConstraintsApi;
 
 #[async_trait]
-impl BuilderApi<BuilderState> for MyBuilderApi {
+impl BuilderApi<BuilderState> for ConstraintsApi {
     async fn get_status(req_headers: HeaderMap, state: PbsState<BuilderState>) -> Result<()> {
+        // TODO: piggyback to clear up cache!
         state.data.inc();
         info!("THIS IS A CUSTOM LOG");
         CHECK_RECEIVED_COUNTER.inc();
@@ -93,9 +99,10 @@ impl BuilderApi<BuilderState> for MyBuilderApi {
 async fn submit_constraints(
     State(state): State<PbsState<BuilderState>>,
     Json(constraints): Json<Vec<SignedConstraints>>,
-) -> Response {
+) -> Result<impl IntoResponse, PbsClientError> {
+    tracing::info!("Submitting {} constraints to relays", constraints.len());
     // Save constraints for the slot to verify proofs against later.
-    for signed_constraints in constraints {
+    for signed_constraints in &constraints {
         // TODO: check for ToB conflicts!
         state
             .data
@@ -105,7 +112,8 @@ async fn submit_constraints(
             .insert(signed_constraints.message.slot, signed_constraints.message.clone());
     }
 
-    todo!()
+    post_request(state, SUBMIT_CONSTRAINTS_PATH, &constraints).await?;
+    Ok(StatusCode::OK)
 }
 
 /// Delegate constraint submission rights to another BLS key.
@@ -114,8 +122,10 @@ async fn submit_constraints(
 async fn delegate(
     State(state): State<PbsState<BuilderState>>,
     Json(delegation): Json<SignedDelegation>,
-) -> Response {
-    todo!()
+) -> Result<impl IntoResponse, PbsClientError> {
+    tracing::info!(pubkey = %delegation.message.pubkey, validator_index = delegation.message.validator_index, "Delegating signing rights");
+    post_request(state, DELEGATE_PATH, &delegation).await?;
+    Ok(StatusCode::OK)
 }
 
 /// Revoke constraint submission rights from a BLS key.
@@ -124,8 +134,10 @@ async fn delegate(
 async fn revoke(
     State(state): State<PbsState<BuilderState>>,
     Json(revocation): Json<SignedRevocation>,
-) -> Response {
-    todo!()
+) -> Result<impl IntoResponse, PbsClientError> {
+    tracing::info!(pubkey = %revocation.message.pubkey, validator_index = revocation.message.validator_index, "Revoking signing rights");
+    post_request(state, REVOKE_PATH, &revocation).await?;
+    Ok(StatusCode::OK)
 }
 
 /// Get a header with proofs for a given slot and parent hash.
@@ -136,6 +148,52 @@ async fn get_header_with_proofs(
     Path(params): Path<GetHeaderParams>,
 ) -> Response {
     todo!()
+}
+
+/// Send a POST request to all relays.
+async fn post_request<T>(
+    state: PbsState<BuilderState>,
+    path: &str,
+    body: &T,
+) -> Result<(), PbsClientError>
+where
+    T: Serialize,
+{
+    // Forward constraints to all relays.
+    let mut responses = FuturesUnordered::new();
+
+    for relay in state.relays() {
+        let url = relay.get_url(path).map_err(|_| PbsClientError::BadRequest)?;
+        responses.push(relay.client.post(url).json(&body).send());
+    }
+
+    let mut success = false;
+    for res in responses.next().await {
+        match res {
+            Ok(response) => {
+                let url = response.url().clone();
+                let status = response.status();
+                let body = response.text().await.ok();
+                if status != StatusCode::OK {
+                    tracing::error!(
+                        %status,
+                        %url,
+                        "Failed to POST to relay: {body:?}"
+                    )
+                } else {
+                    tracing::debug!(%url, "Successfully sent POST request to relay");
+                    success = true;
+                }
+            }
+            Err(e) => tracing::error!(error = ?e, "Failed to POST to relay"),
+        }
+    }
+
+    if success {
+        Ok(())
+    } else {
+        Err(PbsClientError::NoResponse)
+    }
 }
 
 #[tokio::main]
@@ -151,5 +209,5 @@ async fn main() -> Result<()> {
     PbsService::register_metric(Box::new(CHECK_RECEIVED_COUNTER.clone()));
     PbsService::init_metrics()?;
 
-    PbsService::run::<BuilderState, MyBuilderApi>(state).await
+    PbsService::run::<BuilderState, ConstraintsApi>(state).await
 }
