@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc, RwLock,
+        Arc,
     },
     time::{Duration, Instant},
 };
@@ -30,23 +30,24 @@ use cb_common::{
     types::Chain,
     utils::{get_user_agent_with_version, ms_into_slot},
 };
+use constraints::{ConstraintsCache, ConstraintsMessageWithTxs};
 use eyre::Result;
 use futures::{future::join_all, stream::FuturesUnordered, StreamExt};
 use lazy_static::lazy_static;
 use prometheus::IntCounter;
-use reqwest::Url;
 use serde::Serialize;
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn, Instrument};
 
 use commit_boost::prelude::*;
 
+mod constraints;
 mod error;
 mod types;
 use error::PbsClientError;
 use types::{
-    ConstraintsMessage, ExtraConfig, GetHeaderParams, GetHeaderWithProofsResponse,
-    SignedConstraints, SignedDelegation, SignedRevocation,
+    ExtraConfig, GetHeaderParams, GetHeaderWithProofsResponse, RequestConfig, SignedConstraints,
+    SignedDelegation, SignedRevocation,
 };
 
 const SUBMIT_CONSTRAINTS_PATH: &str = "/constraints/v1/builder/constraints";
@@ -67,7 +68,7 @@ lazy_static! {
 struct BuilderState {
     inc_amount: u64,
     counter: Arc<AtomicU64>,
-    constraints: Arc<RwLock<HashMap<u64, ConstraintsMessage>>>,
+    constraints: ConstraintsCache,
 }
 
 impl BuilderApiState for BuilderState {}
@@ -77,7 +78,7 @@ impl BuilderState {
         Self {
             inc_amount: extra.inc_amount,
             counter: Arc::new(AtomicU64::new(0)),
-            constraints: Default::default(),
+            constraints: ConstraintsCache::new(),
         }
     }
 
@@ -127,8 +128,6 @@ async fn submit_constraints(
         state
             .data
             .constraints
-            .write()
-            .unwrap()
             .insert(signed_constraints.message.slot, signed_constraints.message.clone());
     }
 
@@ -158,6 +157,10 @@ async fn revoke(
     info!(pubkey = %revocation.message.pubkey, validator_index = revocation.message.validator_index, "Revoking signing rights");
     post_request(state, REVOKE_PATH, &revocation).await?;
     Ok(StatusCode::OK)
+}
+
+fn total_leaves(constraints: Option<Vec<ConstraintsMessageWithTxs>>) -> usize {
+    constraints.map_or(0, |c| c.iter().map(|c| c.message.transactions.len()).sum())
 }
 
 /// Get a header with proofs for a given slot and parent hash.
@@ -210,11 +213,34 @@ async fn get_header_with_proofs(
     let results = join_all(handles).await;
     let mut relay_bids = Vec::with_capacity(relays.len());
     let mut hash_to_proofs = HashMap::new();
+
+    let constraints = state.data.constraints.remove(params.slot);
+    let total_leaves = total_leaves(constraints);
+
     for (i, res) in results.into_iter().enumerate() {
         let relay_id = relays[i].id.as_ref();
 
         match res {
             Ok(Some(res)) => {
+                // TODO: validate proofs (lengths etc)
+                if !res.data.proofs.sanity_check() {
+                    error!(relay_id, "Proofs sanity check failed, skipping bid");
+                    continue;
+                }
+
+                // Check if the total leaves matches the proofs provided
+                if total_leaves != res.data.proofs.total_leaves() {
+                    error!(
+                        total_leaves,
+                        transaction_hashes = res.data.proofs.total_leaves(),
+                        relay_id,
+                        "Transaction hashes length mismatch, skipping bid"
+                    );
+                    continue;
+                }
+
+                // TODO: verify in order to add to relay_bids!
+
                 // Save the proofs per block hash
                 hash_to_proofs.insert(res.data.header.message.header.block_hash, res.data.proofs);
 
@@ -259,8 +285,10 @@ async fn send_timed_get_header(
     ms_into_slot: u64,
     mut timeout_left_ms: u64,
 ) -> Result<Option<GetHeaderWithProofsResponse>, PbsError> {
-    // TODO: change to correct path
-    let url = relay.get_header_url(params.slot, params.parent_hash, params.pubkey)?;
+    let url = relay.get_url(&format!(
+        "/eth/v1/builder/header_with_proofs/{}/{}/{}",
+        params.slot, params.parent_hash, params.pubkey
+    ))?;
 
     if relay.config.enable_timing_games {
         if let Some(target_ms) = relay.config.target_first_request_ms {
@@ -353,12 +381,6 @@ async fn send_timed_get_header(
     )
     .await
     .map(|(_, maybe_header)| maybe_header)
-}
-
-struct RequestConfig {
-    url: Url,
-    timeout_ms: u64,
-    headers: HeaderMap,
 }
 
 async fn send_one_get_header(
@@ -493,7 +515,7 @@ fn validate_header(
     Ok(())
 }
 
-/// Send a POST request to all relays.
+/// Send a POST request to all relays. Only returns an error if all of the requests fail.
 async fn post_request<T>(
     state: PbsState<BuilderState>,
     path: &str,
@@ -512,7 +534,7 @@ where
     }
 
     let mut success = false;
-    for res in responses.next().await {
+    while let Some(res) = responses.next().await {
         match res {
             Ok(response) => {
                 let url = response.url().clone();

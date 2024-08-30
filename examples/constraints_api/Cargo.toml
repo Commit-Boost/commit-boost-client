@@ -7,6 +7,7 @@ rust-version.workspace = true
 [dependencies]
 commit-boost = { path = "../../bin" }
 cb-common.workspace = true
+cb-pbs.workspace = true
 
 # networking
 reqwest.workspace = true
@@ -20,6 +21,9 @@ futures.workspace = true
 # serialization
 serde.workspace = true
 serde_json.workspace = true
+tree_hash.workspace = true
+ethereum_ssz.workspace = true
+ethereum_ssz_derive.workspace = true
 
 # telemetry
 tracing.workspace = true
@@ -32,3 +36,5 @@ lazy_static.workspace = true
 
 # types
 alloy.workspace = true
+alloy-consensus = "0.2.0"
+alloy-eips = "0.2.0"
