@@ -35,6 +35,7 @@ use eyre::Result;
 use futures::{future::join_all, stream::FuturesUnordered, StreamExt};
 use lazy_static::lazy_static;
 use prometheus::IntCounter;
+use proofs::verify_multiproofs;
 use serde::Serialize;
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn, Instrument};
@@ -43,6 +44,7 @@ use commit_boost::prelude::*;
 
 mod constraints;
 mod error;
+mod proofs;
 mod types;
 use error::PbsClientError;
 use types::{
@@ -159,10 +161,6 @@ async fn revoke(
     Ok(StatusCode::OK)
 }
 
-fn total_leaves(constraints: Option<Vec<ConstraintsMessageWithTxs>>) -> usize {
-    constraints.map_or(0, |c| c.iter().map(|c| c.message.transactions.len()).sum())
-}
-
 /// Get a header with proofs for a given slot and parent hash.
 /// Spec: <https://chainbound.github.io/bolt-docs/api/builder#get_header_with_proofs>
 #[tracing::instrument(skip_all, fields(slot = params.slot))]
@@ -214,32 +212,25 @@ async fn get_header_with_proofs(
     let mut relay_bids = Vec::with_capacity(relays.len());
     let mut hash_to_proofs = HashMap::new();
 
+    // Get and remove the constraints for this slot
     let constraints = state.data.constraints.remove(params.slot);
-    let total_leaves = total_leaves(constraints);
 
     for (i, res) in results.into_iter().enumerate() {
         let relay_id = relays[i].id.as_ref();
 
         match res {
             Ok(Some(res)) => {
-                // TODO: validate proofs (lengths etc)
-                if !res.data.proofs.sanity_check() {
-                    error!(relay_id, "Proofs sanity check failed, skipping bid");
-                    continue;
-                }
+                // TODO: check if returned transactions hashes and roots are the same as the saved ones
 
-                // Check if the total leaves matches the proofs provided
-                if total_leaves != res.data.proofs.total_leaves() {
-                    error!(
-                        total_leaves,
-                        transaction_hashes = res.data.proofs.total_leaves(),
-                        relay_id,
-                        "Transaction hashes length mismatch, skipping bid"
-                    );
-                    continue;
-                }
+                let root = res.data.header.message.header.transactions_root;
 
                 // TODO: verify in order to add to relay_bids!
+                if let Err(e) =
+                    verify_multiproofs(constraints.as_ref().unwrap(), &res.data.proofs, root)
+                {
+                    error!(?e, relay_id, "Failed to verify multiproof, skipping bid");
+                    continue;
+                }
 
                 // Save the proofs per block hash
                 hash_to_proofs.insert(res.data.header.message.header.block_hash, res.data.proofs);

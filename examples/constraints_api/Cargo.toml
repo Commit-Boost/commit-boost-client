@@ -36,5 +36,9 @@ lazy_static.workspace = true
 
 # types
 alloy.workspace = true
+
+# other
 alloy-consensus = "0.2.0"
 alloy-eips = "0.2.0"
+ssz_rs = { git = "https://github.com/ralexstokes/ssz-rs", rev = "84ef2b7" }
+thiserror = "1"
