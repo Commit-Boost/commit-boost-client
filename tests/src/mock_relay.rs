@@ -16,7 +16,7 @@ use cb_common::{
         GetHeaderParams, GetHeaderReponse, SubmitBlindedBlockResponse, BUILDER_API_PATH,
         GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
     },
-    signer::Signer,
+    signer::ConsensusSigner,
     types::Chain,
 };
 use tracing::debug;
@@ -25,7 +25,7 @@ use tree_hash::TreeHash;
 pub struct MockRelayState {
     pub chain: Chain,
     pub get_header_delay_ms: u64,
-    pub signer: Signer,
+    pub signer: ConsensusSigner,
     received_get_header: Arc<AtomicU64>,
     received_get_status: Arc<AtomicU64>,
     received_register_validator: Arc<AtomicU64>,
@@ -48,7 +48,7 @@ impl MockRelayState {
 }
 
 impl MockRelayState {
-    pub fn new(chain: Chain, signer: Signer, get_header_delay_ms: u64) -> Self {
+    pub fn new(chain: Chain, signer: ConsensusSigner, get_header_delay_ms: u64) -> Self {
         Self {
             chain,
             signer,
@@ -82,9 +82,9 @@ async fn handle_get_header(
     response.data.message.header.parent_hash = parent_hash;
     response.data.message.header.block_hash.0[0] = 1;
     response.data.message.set_value(U256::from(10));
-    response.data.message.pubkey = state.signer.pubkey();
-    response.data.signature =
-        state.signer.sign(state.chain, &response.data.message.tree_hash_root().0).await;
+    response.data.message.pubkey = state.signer.pubkey().into();
+    let object_root = response.data.message.tree_hash_root().0;
+    response.data.signature = state.signer.sign(state.chain, object_root).await;
 
     (StatusCode::OK, axum::Json(response)).into_response()
 }

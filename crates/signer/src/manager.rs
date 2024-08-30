@@ -1,11 +1,21 @@
 use std::collections::HashMap;
 
-use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
+use alloy::rpc::types::beacon::BlsSignature;
 use cb_common::{
-    commit::request::{ProxyDelegation, SignedProxyDelegation},
-    signer::Signer,
+    commit::request::{
+        ProxyDelegationBls, ProxyDelegationEcdsa, SignedProxyDelegationBls,
+        SignedProxyDelegationEcdsa,
+    },
+    signer::{
+        schemes::{
+            bls::BlsPublicKey,
+            ecdsa::{EcdsaPublicKey, EcdsaSignature},
+        },
+        BlsSigner, ConsensusSigner, EcdsaSigner,
+    },
     types::{Chain, ModuleId},
 };
+use derive_more::derive::Deref;
 use tree_hash::TreeHash;
 
 use crate::error::SignerModuleError;
@@ -16,60 +26,98 @@ use crate::error::SignerModuleError;
 // with its consensus pubkey When a new commit module starts, pass the
 // ProxyDelegation msg and then sign all future commit messages with the proxy
 // key for slashing the faulty message + proxy delegation can be used
-// Signed using builder domain
+#[derive(Clone, Deref)]
+pub struct BlsProxySigner {
+    #[deref]
+    signer: BlsSigner,
+    delegation: SignedProxyDelegationBls,
+}
 
-#[derive(Clone)]
-pub struct ProxySigner {
-    signer: Signer,
-    delegation: SignedProxyDelegation,
+#[derive(Clone, Deref)]
+pub struct EcdsaProxySigner {
+    #[deref]
+    signer: EcdsaSigner,
+    delegation: SignedProxyDelegationEcdsa,
+}
+
+#[derive(Default)]
+struct ProxySigners {
+    bls_signers: HashMap<BlsPublicKey, BlsProxySigner>,
+    ecdsa_signers: HashMap<EcdsaPublicKey, EcdsaProxySigner>,
 }
 
 pub struct SigningManager {
     chain: Chain,
-    consensus_signers: HashMap<BlsPublicKey, Signer>,
-    proxy_signers: HashMap<BlsPublicKey, ProxySigner>,
+    consensus_signers: HashMap<BlsPublicKey, ConsensusSigner>,
+    proxy_signers: ProxySigners,
     /// Map of module ids to their associated proxy pubkeys.
     /// Used to retrieve the corresponding proxy signer from the signing
     /// manager.
-    proxy_pubkeys: HashMap<ModuleId, Vec<BlsPublicKey>>,
+    proxy_pubkeys_bls: HashMap<ModuleId, Vec<BlsPublicKey>>,
+    proxy_pubkeys_ecdsa: HashMap<ModuleId, Vec<EcdsaPublicKey>>,
 }
 
 impl SigningManager {
     pub fn new(chain: Chain) -> Self {
         Self {
             chain,
-            consensus_signers: HashMap::new(),
-            proxy_signers: HashMap::new(),
-            proxy_pubkeys: HashMap::new(),
+            consensus_signers: Default::default(),
+            proxy_signers: Default::default(),
+            proxy_pubkeys_bls: Default::default(),
+            proxy_pubkeys_ecdsa: Default::default(),
         }
     }
 
-    pub fn add_consensus_signer(&mut self, signer: Signer) {
+    pub fn add_consensus_signer(&mut self, signer: ConsensusSigner) {
         self.consensus_signers.insert(signer.pubkey(), signer);
     }
 
-    pub fn add_proxy_signer(&mut self, proxy: ProxySigner) {
-        self.proxy_signers.insert(proxy.signer.pubkey(), proxy);
+    pub fn add_proxy_signer_bls(&mut self, proxy: BlsProxySigner, module_id: ModuleId) {
+        let proxy_pubkey = proxy.pubkey();
+        self.proxy_signers.bls_signers.insert(proxy.pubkey(), proxy);
+        self.proxy_pubkeys_bls.entry(module_id).or_default().push(proxy_pubkey)
     }
 
-    pub async fn create_proxy(
+    pub fn add_proxy_signer_ecdsa(&mut self, proxy: EcdsaProxySigner, module_id: ModuleId) {
+        let proxy_pubkey = proxy.pubkey();
+        self.proxy_signers.ecdsa_signers.insert(proxy.pubkey(), proxy);
+        self.proxy_pubkeys_ecdsa.entry(module_id).or_default().push(proxy_pubkey)
+    }
+
+    pub async fn create_proxy_bls(
         &mut self,
         module_id: ModuleId,
         delegator: BlsPublicKey,
-    ) -> Result<SignedProxyDelegation, SignerModuleError> {
-        let signer = Signer::new_random();
+    ) -> Result<SignedProxyDelegationBls, SignerModuleError> {
+        let signer = BlsSigner::new_random();
         let proxy_pubkey = signer.pubkey();
 
-        let message = ProxyDelegation { delegator, proxy: proxy_pubkey };
+        let message = ProxyDelegationBls { delegator, proxy: proxy_pubkey };
         let signature = self.sign_consensus(&delegator, &message.tree_hash_root().0).await?;
-        let signed_delegation: SignedProxyDelegation = SignedProxyDelegation { signature, message };
-        let proxy_signer = ProxySigner { signer, delegation: signed_delegation };
+        let delegation = SignedProxyDelegationBls { signature, message };
+        let proxy_signer = BlsProxySigner { signer, delegation };
 
-        // Add the new proxy key to the manager's internal state
-        self.add_proxy_signer(proxy_signer);
-        self.proxy_pubkeys.entry(module_id).or_default().push(proxy_pubkey);
+        self.add_proxy_signer_bls(proxy_signer, module_id);
 
-        Ok(signed_delegation)
+        Ok(delegation)
+    }
+
+    pub async fn create_proxy_ecdsa(
+        &mut self,
+        module_id: ModuleId,
+        delegator: BlsPublicKey,
+    ) -> Result<SignedProxyDelegationEcdsa, SignerModuleError> {
+        let signer = EcdsaSigner::new_random();
+        let proxy_pubkey = signer.pubkey();
+
+        let message = ProxyDelegationEcdsa { delegator, proxy: proxy_pubkey };
+        let signature = self.sign_consensus(&delegator, &message.tree_hash_root().0).await?;
+        let delegation = SignedProxyDelegationEcdsa { signature, message };
+        let proxy_signer = EcdsaProxySigner { signer, delegation };
+
+        self.add_proxy_signer_ecdsa(proxy_signer, module_id);
+
+        Ok(delegation)
     }
 
     // TODO: double check what we can actually sign here with different providers eg
@@ -77,26 +125,42 @@ impl SigningManager {
     pub async fn sign_consensus(
         &self,
         pubkey: &BlsPublicKey,
-        msg: &[u8; 32],
+        object_root: &[u8; 32],
     ) -> Result<BlsSignature, SignerModuleError> {
         let signer = self
             .consensus_signers
             .get(pubkey)
-            .ok_or(SignerModuleError::UnknownConsensusSigner(*pubkey))?;
-        let signature = signer.sign(self.chain, msg).await;
+            .ok_or(SignerModuleError::UnknownConsensusSigner(pubkey.to_vec()))?;
+        let signature = signer.sign(self.chain, *object_root).await;
 
         Ok(signature)
     }
 
-    pub async fn sign_proxy(
+    pub async fn sign_proxy_bls(
         &self,
         pubkey: &BlsPublicKey,
-        msg: &[u8; 32],
+        object_root: &[u8; 32],
     ) -> Result<BlsSignature, SignerModuleError> {
-        let proxy =
-            self.proxy_signers.get(pubkey).ok_or(SignerModuleError::UnknownProxySigner(*pubkey))?;
-        let signature = proxy.signer.sign(self.chain, msg).await;
+        let bls_proxy = self
+            .proxy_signers
+            .bls_signers
+            .get(pubkey)
+            .ok_or(SignerModuleError::UnknownProxySigner(pubkey.to_vec()))?;
+        let signature = bls_proxy.sign(self.chain, *object_root).await;
+        Ok(signature)
+    }
 
+    pub async fn sign_proxy_ecdsa(
+        &self,
+        pubkey: &EcdsaPublicKey,
+        object_root: &[u8; 32],
+    ) -> Result<EcdsaSignature, SignerModuleError> {
+        let ecdsa_proxy = self
+            .proxy_signers
+            .ecdsa_signers
+            .get(pubkey)
+            .ok_or(SignerModuleError::UnknownProxySigner(pubkey.to_vec()))?;
+        let signature = ecdsa_proxy.sign(self.chain, *object_root).await;
         Ok(signature)
     }
 
@@ -104,37 +168,52 @@ impl SigningManager {
         self.consensus_signers.keys().cloned().collect()
     }
 
-    pub fn proxy_pubkeys(&self) -> &HashMap<ModuleId, Vec<BlsPublicKey>> {
-        &self.proxy_pubkeys
+    pub fn proxy_pubkeys_bls(&self) -> &HashMap<ModuleId, Vec<BlsPublicKey>> {
+        &self.proxy_pubkeys_bls
     }
 
-    pub fn delegations(&self) -> Vec<SignedProxyDelegation> {
-        self.proxy_signers.values().map(|s| s.delegation).collect()
+    pub fn proxy_pubkeys_ecdsa(&self) -> &HashMap<ModuleId, Vec<EcdsaPublicKey>> {
+        &self.proxy_pubkeys_ecdsa
     }
 
     pub fn has_consensus(&self, pubkey: &BlsPublicKey) -> bool {
         self.consensus_signers.contains_key(pubkey)
     }
 
-    pub fn has_proxy(&self, pubkey: &BlsPublicKey) -> bool {
-        self.proxy_signers.contains_key(pubkey)
+    pub fn has_proxy_ecdsa(&self, ecdsa_pk: &EcdsaPublicKey) -> bool {
+        self.proxy_signers.ecdsa_signers.contains_key(ecdsa_pk)
     }
 
-    pub fn get_delegation(
+    pub fn has_proxy_bls(&self, bls_pk: &BlsPublicKey) -> bool {
+        self.proxy_signers.bls_signers.contains_key(bls_pk)
+    }
+
+    pub fn get_delegation_bls(
         &self,
-        proxy_pubkey: &BlsPublicKey,
-    ) -> Result<SignedProxyDelegation, SignerModuleError> {
-        let signer = self
-            .proxy_signers
-            .get(proxy_pubkey)
-            .ok_or(SignerModuleError::UnknownProxySigner(*proxy_pubkey))?;
-        Ok(signer.delegation)
+        pubkey: &BlsPublicKey,
+    ) -> Result<SignedProxyDelegationBls, SignerModuleError> {
+        self.proxy_signers
+            .bls_signers
+            .get(pubkey)
+            .map(|x| x.delegation)
+            .ok_or(SignerModuleError::UnknownProxySigner(pubkey.as_ref().to_vec()))
+    }
+
+    pub fn get_delegation_ecdsa(
+        &self,
+        pubkey: &EcdsaPublicKey,
+    ) -> Result<SignedProxyDelegationEcdsa, SignerModuleError> {
+        self.proxy_signers
+            .ecdsa_signers
+            .get(pubkey)
+            .map(|x| x.delegation)
+            .ok_or(SignerModuleError::UnknownProxySigner(pubkey.as_ref().to_vec()))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use cb_common::signature::verify_signed_builder_message;
+    use cb_common::signature::compute_signing_root;
     use lazy_static::lazy_static;
     use tree_hash::Hash256;
 
@@ -148,7 +227,7 @@ mod tests {
     fn init_signing_manager() -> (SigningManager, BlsPublicKey) {
         let mut signing_manager = SigningManager::new(*CHAIN);
 
-        let consensus_signer = Signer::new_random();
+        let consensus_signer = ConsensusSigner::new_random();
         let consensus_pk = consensus_signer.pubkey();
 
         signing_manager.add_consensus_signer(consensus_signer.clone());
@@ -156,64 +235,153 @@ mod tests {
         (signing_manager, consensus_pk)
     }
 
-    #[tokio::test]
-    async fn test_proxy_key_is_valid_proxy_for_consensus_key() {
-        let (mut signing_manager, consensus_pk) = init_signing_manager();
+    mod test_proxy_bls {
+        use cb_common::signer::schemes::bls::verify_bls_signature;
 
-        let signed_delegation =
-            signing_manager.create_proxy(MODULE_ID.clone(), consensus_pk.clone()).await.unwrap();
+        use super::*;
 
-        let validation_result = signed_delegation.validate(*CHAIN);
+        #[tokio::test]
+        async fn test_proxy_key_is_valid_proxy_for_consensus_key() {
+            let (mut signing_manager, consensus_pk) = init_signing_manager();
 
-        assert!(
-            validation_result.is_ok(),
-            "Proxy delegation signature must be valid for consensus key."
-        );
+            let signed_delegation = signing_manager
+                .create_proxy_bls(MODULE_ID.clone(), consensus_pk.clone())
+                .await
+                .unwrap();
 
-        assert!(
-            signing_manager.has_proxy(&signed_delegation.message.proxy),
-            "Newly generated proxy key must be present in the signing manager's registry."
-        );
+            let validation_result = signed_delegation.validate(*CHAIN);
+
+            assert!(
+                validation_result.is_ok(),
+                "Proxy delegation signature must be valid for consensus key."
+            );
+
+            assert!(
+                signing_manager.has_proxy_bls(&signed_delegation.message.proxy),
+                "Newly generated proxy key must be present in the signing manager's registry."
+            );
+        }
+
+        #[tokio::test]
+        async fn test_tampered_proxy_key_is_invalid() {
+            let (mut signing_manager, consensus_pk) = init_signing_manager();
+
+            let mut signed_delegation = signing_manager
+                .create_proxy_bls(MODULE_ID.clone(), consensus_pk.clone())
+                .await
+                .unwrap();
+
+            let m = &mut signed_delegation.signature.0[0];
+            (*m, _) = m.overflowing_add(1);
+
+            let validation_result = signed_delegation.validate(*CHAIN);
+
+            assert!(validation_result.is_err(), "Tampered proxy key must be invalid.");
+        }
+
+        #[tokio::test]
+        async fn test_proxy_key_signs_message() {
+            let (mut signing_manager, consensus_pk) = init_signing_manager();
+
+            let signed_delegation = signing_manager
+                .create_proxy_bls(MODULE_ID.clone(), consensus_pk.clone())
+                .await
+                .unwrap();
+            let proxy_pk = signed_delegation.message.proxy;
+
+            let data_root = Hash256::random();
+            let data_root_bytes = data_root.as_fixed_bytes();
+
+            let sig = signing_manager
+                .sign_proxy_bls(&proxy_pk.try_into().unwrap(), data_root_bytes)
+                .await
+                .unwrap();
+
+            // Verify signature
+            let domain = CHAIN.builder_domain();
+            let signing_root = compute_signing_root(data_root_bytes.tree_hash_root().0, domain);
+
+            let validation_result = verify_bls_signature(&proxy_pk, &signing_root, &sig);
+
+            assert!(
+                validation_result.is_ok(),
+                "Proxy keypair must produce valid signatures of messages."
+            )
+        }
     }
 
-    #[tokio::test]
-    async fn test_tampered_proxy_key_is_invalid() {
-        let (mut signing_manager, consensus_pk) = init_signing_manager();
+    mod test_proxy_ecdsa {
+        use cb_common::signer::schemes::ecdsa::verify_ecdsa_signature;
 
-        let mut signed_delegation =
-            signing_manager.create_proxy(MODULE_ID.clone(), consensus_pk.clone()).await.unwrap();
+        use super::*;
 
-        let m = &mut signed_delegation.signature.0[0];
-        (*m, _) = m.overflowing_add(1);
+        #[tokio::test]
+        async fn test_proxy_key_is_valid_proxy_for_consensus_key() {
+            let (mut signing_manager, consensus_pk) = init_signing_manager();
 
-        let validation_result = signed_delegation.validate(*CHAIN);
+            let signed_delegation = signing_manager
+                .create_proxy_ecdsa(MODULE_ID.clone(), consensus_pk.clone())
+                .await
+                .unwrap();
 
-        assert!(validation_result.is_err(), "Tampered proxy key must be invalid.");
-    }
+            let validation_result = signed_delegation.validate(*CHAIN);
 
-    #[tokio::test]
-    async fn test_proxy_key_signs_message() {
-        let (mut signing_manager, consensus_pk) = init_signing_manager();
+            assert!(
+                validation_result.is_ok(),
+                "Proxy delegation signature must be valid for consensus key."
+            );
 
-        let signed_delegation =
-            signing_manager.create_proxy(MODULE_ID.clone(), consensus_pk.clone()).await.unwrap();
-        let proxy_pk = signed_delegation.message.proxy;
+            assert!(
+                signing_manager.has_proxy_ecdsa(&signed_delegation.message.proxy),
+                "Newly generated proxy key must be present in the signing manager's registry."
+            );
+        }
 
-        let data_root = Hash256::random();
-        let data_root_bytes = data_root.as_fixed_bytes();
+        #[tokio::test]
+        async fn test_tampered_proxy_key_is_invalid() {
+            let (mut signing_manager, consensus_pk) = init_signing_manager();
 
-        let sig = signing_manager.sign_proxy(&proxy_pk, data_root_bytes).await.unwrap();
+            let mut signed_delegation = signing_manager
+                .create_proxy_ecdsa(MODULE_ID.clone(), consensus_pk.clone())
+                .await
+                .unwrap();
 
-        let validation_result = verify_signed_builder_message(
-            *CHAIN,
-            &signed_delegation.message.proxy,
-            &data_root_bytes,
-            &sig,
-        );
+            let m = &mut signed_delegation.signature.0[0];
+            (*m, _) = m.overflowing_add(1);
 
-        assert!(
-            validation_result.is_ok(),
-            "Proxy keypair must produce valid signatures of messages."
-        )
+            let validation_result = signed_delegation.validate(*CHAIN);
+
+            assert!(validation_result.is_err(), "Tampered proxy key must be invalid.");
+        }
+
+        #[tokio::test]
+        async fn test_proxy_key_signs_message() {
+            let (mut signing_manager, consensus_pk) = init_signing_manager();
+
+            let signed_delegation = signing_manager
+                .create_proxy_ecdsa(MODULE_ID.clone(), consensus_pk.clone())
+                .await
+                .unwrap();
+            let proxy_pk = signed_delegation.message.proxy;
+
+            let data_root = Hash256::random();
+            let data_root_bytes = data_root.as_fixed_bytes();
+
+            let sig = signing_manager
+                .sign_proxy_ecdsa(&proxy_pk.try_into().unwrap(), data_root_bytes)
+                .await
+                .unwrap();
+
+            // Verify signature
+            let domain = CHAIN.builder_domain();
+            let signing_root = compute_signing_root(data_root_bytes.tree_hash_root().0, domain);
+
+            let validation_result = verify_ecdsa_signature(&proxy_pk, &signing_root, &sig);
+
+            assert!(
+                validation_result.is_ok(),
+                "Proxy keypair must produce valid signatures of messages."
+            )
+        }
     }
 }
