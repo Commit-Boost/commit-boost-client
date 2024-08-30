@@ -30,7 +30,7 @@ use cb_common::{
     types::Chain,
     utils::{get_user_agent_with_version, ms_into_slot},
 };
-use constraints::{ConstraintsCache, ConstraintsMessageWithTxs};
+use constraints::{ConstraintsCache, ConstraintsWithProofData};
 use eyre::Result;
 use futures::{future::join_all, stream::FuturesUnordered, StreamExt};
 use lazy_static::lazy_static;

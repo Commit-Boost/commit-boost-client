@@ -11,7 +11,7 @@ use tracing::trace;
 
 use crate::types::{ConstraintsMessage, HashTreeRoot};
 
-pub(crate) struct ConstraintsMessageWithTxs {
+pub(crate) struct ConstraintsWithProofData {
     pub message: ConstraintsMessage,
     /// List of transaction hashes and corresponding hash tree roots. Same order
     /// as the transactions in the `message`.
@@ -21,7 +21,7 @@ pub(crate) struct ConstraintsMessageWithTxs {
 /// A concurrent cache of constraints.
 #[derive(Clone)]
 pub(crate) struct ConstraintsCache {
-    cache: Arc<RwLock<HashMap<u64, Vec<ConstraintsMessageWithTxs>>>>,
+    cache: Arc<RwLock<HashMap<u64, Vec<ConstraintsWithProofData>>>>,
 }
 
 impl ConstraintsCache {
@@ -62,7 +62,7 @@ impl ConstraintsCache {
         }
 
         // Wrap the constraints message with the transaction info
-        let message_with_txs = ConstraintsMessageWithTxs { message: constraints, transactions };
+        let message_with_txs = ConstraintsWithProofData { message: constraints, transactions };
 
         if let Some(cs) = self.cache.write().unwrap().get_mut(&slot) {
             cs.push(message_with_txs);
@@ -79,7 +79,7 @@ impl ConstraintsCache {
     }
 
     /// Gets and removes the constraints for the given slot.
-    pub fn remove(&self, slot: u64) -> Option<Vec<ConstraintsMessageWithTxs>> {
+    pub fn remove(&self, slot: u64) -> Option<Vec<ConstraintsWithProofData>> {
         self.cache.write().unwrap().remove(&slot)
     }
 }

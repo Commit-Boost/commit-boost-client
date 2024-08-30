@@ -1,6 +1,6 @@
 use alloy::primitives::B256;
 
-use crate::{constraints::ConstraintsMessageWithTxs, types::InclusionProofs};
+use crate::{constraints::ConstraintsWithProofData, types::InclusionProofs};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProofError {
@@ -13,12 +13,12 @@ pub enum ProofError {
 }
 
 /// Returns the length of the leaves that need to be proven (i.e. all transactions).
-fn total_leaves(constraints: &[ConstraintsMessageWithTxs]) -> usize {
+fn total_leaves(constraints: &[ConstraintsWithProofData]) -> usize {
     constraints.iter().map(|c| c.transactions.len()).sum()
 }
 
 pub fn verify_multiproofs(
-    constraints: &[ConstraintsMessageWithTxs],
+    constraints: &[ConstraintsWithProofData],
     proofs: &InclusionProofs,
     root: B256,
 ) -> Result<(), ProofError> {
