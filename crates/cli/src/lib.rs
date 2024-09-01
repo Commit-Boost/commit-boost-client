@@ -34,8 +34,8 @@ pub enum Command {
         compose_path: String,
 
         /// Path env file
-        #[arg(short, long("env"), default_value = CB_ENV_FILE)]
-        env_path: String,
+        #[arg(short, long("env"))]
+        env_path: Option<String>,
     },
 
     Stop {

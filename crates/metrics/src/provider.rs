@@ -10,7 +10,7 @@ use axum::{
 use cb_common::config::ModuleMetricsConfig;
 use prometheus::{Encoder, Registry, TextEncoder};
 use tokio::net::TcpListener;
-use tracing::{error, info, trace};
+use tracing::{error, info, trace, warn};
 
 pub struct MetricsProvider {
     config: ModuleMetricsConfig,
@@ -22,18 +22,21 @@ impl MetricsProvider {
         MetricsProvider { config, registry }
     }
 
-    pub fn from_registry(registry: Registry) -> eyre::Result<Self> {
-        let config = ModuleMetricsConfig::load_from_env()?;
-        Ok(MetricsProvider { config, registry })
+    pub fn from_registry(registry: Registry) -> eyre::Result<Option<Self>> {
+        Ok(ModuleMetricsConfig::load_from_env()?.map(|config| MetricsProvider { config, registry }))
     }
 
     pub fn load_and_run(registry: Registry) -> eyre::Result<()> {
-        let provider = MetricsProvider::from_registry(registry)?;
-        tokio::spawn(async move {
-            if let Err(err) = provider.run().await {
-                error!("Metrics server error: {:?}", err);
-            }
-        });
+        if let Some(provider) = MetricsProvider::from_registry(registry)? {
+            tokio::spawn(async move {
+                if let Err(err) = provider.run().await {
+                    error!("Metrics server error: {:?}", err);
+                }
+            });
+        } else {
+            warn!("No metrics server configured");
+        }
+
         Ok(())
     }
 

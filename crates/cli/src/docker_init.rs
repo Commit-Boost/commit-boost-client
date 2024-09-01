@@ -41,6 +41,8 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
     let cb_config = CommitBoostConfig::from_file(&config_path)?;
 
+    let metrics_enabled = cb_config.metrics.is_some();
+
     let mut services = IndexMap::new();
     let mut volumes = IndexMap::new();
 
@@ -65,17 +67,22 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     let mut exposed_ports_warn = Vec::new();
 
     // setup pbs service
-    targets.push(PrometheusTargetConfig {
-        targets: vec![format!("cb_pbs:{metrics_port}")],
-        labels: PrometheusLabelsConfig { job: "pbs".to_owned() },
-    });
+    if metrics_enabled {
+        targets.push(PrometheusTargetConfig {
+            targets: vec![format!("cb_pbs:{metrics_port}")],
+            labels: PrometheusLabelsConfig { job: "pbs".to_owned() },
+        });
+    }
 
     let mut pbs_envs = IndexMap::from([
         get_env_val(CB_CONFIG_ENV, CB_CONFIG_NAME),
-        get_env_uval(METRICS_SERVER_ENV, metrics_port as u64),
         get_env_val(ROLLING_DURATION_ENV, &cb_config.logs.rotation.to_string()),
         get_env_val(RUST_LOG_ENV, &cb_config.logs.log_level),
     ]);
+    if metrics_enabled {
+        let (key, val) = get_env_uval(METRICS_SERVER_ENV, metrics_port as u64);
+        pbs_envs.insert(key, val);
+    }
     if let Some(max_files) = cb_config.logs.max_log_files {
         let (key, val) = get_env_uval(MAX_LOG_FILES_ENV, max_files as u64);
         pbs_envs.insert(key, val);
@@ -89,10 +96,12 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
             // TODO: support modules volumes and network
             let module_cid = format!("cb_{}", module.id.to_lowercase());
 
-            targets.push(PrometheusTargetConfig {
-                targets: vec![format!("{module_cid}:{metrics_port}")],
-                labels: PrometheusLabelsConfig { job: module_cid.clone() },
-            });
+            if metrics_enabled {
+                targets.push(PrometheusTargetConfig {
+                    targets: vec![format!("{module_cid}:{metrics_port}")],
+                    labels: PrometheusLabelsConfig { job: module_cid.clone() },
+                });
+            }
 
             let module_service = match module.kind {
                 // a commit module needs a JWT and access to the signer network
@@ -107,11 +116,14 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                         get_env_val(MODULE_ID_ENV, &module.id),
                         get_env_val(CB_CONFIG_ENV, CB_CONFIG_NAME),
                         get_env_interp(MODULE_JWT_ENV, &jwt_name),
-                        get_env_uval(METRICS_SERVER_ENV, metrics_port as u64),
                         get_env_val(SIGNER_SERVER_ENV, &signer_server),
                         get_env_val(ROLLING_DURATION_ENV, &cb_config.logs.rotation.to_string()),
                         get_env_val(RUST_LOG_ENV, &cb_config.logs.log_level),
                     ]);
+                    if metrics_enabled {
+                        let (key, val) = get_env_uval(METRICS_SERVER_ENV, metrics_port as u64);
+                        module_envs.insert(key, val);
+                    }
                     if let Some(max_files) = cb_config.logs.max_log_files {
                         let (key, val) = get_env_uval(MAX_LOG_FILES_ENV, max_files as u64);
                         module_envs.insert(key, val);
@@ -119,16 +131,22 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
                     envs.insert(jwt_name.clone(), jwt.clone());
                     jwts.insert(module.id.clone(), jwt);
+
+                    // volumes
                     let log_volume =
                         get_log_volume(cb_config.logs.log_dir_path.clone(), &module.id);
+
+                    // networks
+                    let mut module_networks = vec![SIGNER_NETWORK.to_owned()];
+                    if metrics_enabled {
+                        module_networks.push(METRICS_NETWORK.to_owned());
+                    }
+
                     Service {
                         container_name: Some(module_cid.clone()),
                         image: Some(module.docker_image),
                         // TODO: allow service to open ports here
-                        networks: Networks::Simple(vec![
-                            METRICS_NETWORK.to_owned(),
-                            SIGNER_NETWORK.to_owned(),
-                        ]),
+                        networks: Networks::Simple(module_networks),
                         volumes: vec![config_volume.clone(), log_volume],
                         environment: Environment::KvPair(module_envs),
                         depends_on: DependsOnOptions::Simple(vec!["cb_signer".to_owned()]),
@@ -141,23 +159,36 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                     let mut module_envs = IndexMap::from([
                         get_env_val(MODULE_ID_ENV, &module.id),
                         get_env_val(CB_CONFIG_ENV, CB_CONFIG_NAME),
-                        get_env_uval(METRICS_SERVER_ENV, metrics_port as u64),
                         get_env_val(BUILDER_SERVER_ENV, &builder_events_port.to_string()),
                         get_env_val(ROLLING_DURATION_ENV, &cb_config.logs.rotation.to_string()),
                         get_env_val(RUST_LOG_ENV, &cb_config.logs.log_level),
                     ]);
+                    if metrics_enabled {
+                        let (key, val) = get_env_uval(METRICS_SERVER_ENV, metrics_port as u64);
+                        module_envs.insert(key, val);
+                    }
                     if let Some(max_files) = cb_config.logs.max_log_files {
                         let (key, val) = get_env_uval(MAX_LOG_FILES_ENV, max_files as u64);
                         module_envs.insert(key, val);
                     }
 
                     builder_events_modules.push(format!("{module_cid}:{builder_events_port}"));
+
+                    // volumes
                     let log_volume =
                         get_log_volume(cb_config.logs.log_dir_path.clone(), &module.id);
+
+                    // networks
+                    let modules_neworks = if metrics_enabled {
+                        Networks::Simple(vec![METRICS_NETWORK.to_owned()])
+                    } else {
+                        Networks::default()
+                    };
+
                     Service {
                         container_name: Some(module_cid.clone()),
                         image: Some(module.docker_image),
-                        networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
+                        networks: modules_neworks,
                         volumes: vec![config_volume.clone(), log_volume],
                         environment: Environment::KvPair(module_envs),
                         depends_on: DependsOnOptions::Simple(vec!["cb_pbs".to_owned()]),
@@ -176,9 +207,19 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
         pbs_envs.insert(k, v);
     }
 
+    // volumes
     let log_volume = get_log_volume(cb_config.logs.log_dir_path.clone(), PBS_MODULE_NAME);
+
+    // networks
+    let pbs_networs = if metrics_enabled {
+        Networks::Simple(vec![METRICS_NETWORK.to_owned()])
+    } else {
+        Networks::default()
+    };
+
     exposed_ports_warn
         .push(format!("pbs has an exported port on {}", cb_config.pbs.pbs_config.port));
+
     let pbs_service = Service {
         container_name: Some("cb_pbs".to_owned()),
         image: Some(cb_config.pbs.docker_image),
@@ -186,7 +227,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
             "{}:{}",
             cb_config.pbs.pbs_config.port, cb_config.pbs.pbs_config.port
         )]),
-        networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
+        networks: pbs_networs,
         volumes: vec![config_volume.clone(), log_volume],
         environment: Environment::KvPair(pbs_envs),
         ..Service::default()
@@ -197,31 +238,39 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     // TODO: validate if we have signer modules but not signer config
 
     // setup signer service
-
     if let Some(signer_config) = cb_config.signer {
         if needs_signer_module {
-            let log_volume =
-                get_log_volume(cb_config.logs.log_dir_path.clone(), SIGNER_MODULE_NAME);
-            let mut volumes = vec![config_volume.clone(), log_volume];
-
-            targets.push(PrometheusTargetConfig {
-                targets: vec![format!("cb_signer:{metrics_port}")],
-                labels: PrometheusLabelsConfig { job: "signer".into() },
-            });
+            if metrics_enabled {
+                targets.push(PrometheusTargetConfig {
+                    targets: vec![format!("cb_signer:{metrics_port}")],
+                    labels: PrometheusLabelsConfig { job: "signer".into() },
+                });
+            }
 
             let mut signer_envs = IndexMap::from([
                 get_env_val(CB_CONFIG_ENV, CB_CONFIG_NAME),
                 get_env_same(JWTS_ENV),
-                get_env_uval(METRICS_SERVER_ENV, metrics_port as u64),
                 get_env_uval(SIGNER_SERVER_ENV, signer_port as u64),
                 get_env_val(ROLLING_DURATION_ENV, &cb_config.logs.rotation.to_string()),
                 get_env_val(RUST_LOG_ENV, &cb_config.logs.log_level),
             ]);
+            if metrics_enabled {
+                let (key, val) = get_env_uval(METRICS_SERVER_ENV, metrics_port as u64);
+                signer_envs.insert(key, val);
+            }
             if let Some(max_files) = cb_config.logs.max_log_files {
                 let (key, val) = get_env_uval(MAX_LOG_FILES_ENV, max_files as u64);
                 signer_envs.insert(key, val);
             }
 
+            // write jwts to env
+            let jwts_json = serde_json::to_string(&jwts).unwrap().clone();
+            envs.insert(JWTS_ENV.into(), format!("{jwts_json:?}"));
+
+            // volumes
+            let log_volume =
+                get_log_volume(cb_config.logs.log_dir_path.clone(), SIGNER_MODULE_NAME);
+            let mut volumes = vec![config_volume.clone(), log_volume];
             // TODO: generalize this, different loaders may not need volumes but eg ports
             match signer_config.loader {
                 SignerLoader::File { key_path } => {
@@ -243,17 +292,16 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                 }
             };
 
-            // write jwts to env
-            let jwts_json = serde_json::to_string(&jwts).unwrap().clone();
-            envs.insert(JWTS_ENV.into(), format!("{jwts_json:?}"));
+            // networks
+            let mut signer_networks = vec![SIGNER_NETWORK.to_owned()];
+            if metrics_enabled {
+                signer_networks.push(METRICS_NETWORK.to_owned());
+            }
 
             let signer_service = Service {
                 container_name: Some("cb_signer".to_owned()),
                 image: Some(signer_config.docker_image),
-                networks: Networks::Simple(vec![
-                    METRICS_NETWORK.to_owned(),
-                    SIGNER_NETWORK.to_owned(),
-                ]),
+                networks: Networks::Simple(signer_networks),
                 volumes,
                 environment: Environment::KvPair(signer_envs),
                 ..Service::default()
@@ -270,113 +318,127 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
     let mut compose = Compose::default();
 
-    compose.networks.0.insert(
-        METRICS_NETWORK.to_owned(),
-        MapOrEmpty::Map(NetworkSettings {
-            driver: Some("bridge".to_owned()),
-            ..NetworkSettings::default()
-        }),
-    );
-    compose.networks.0.insert(
-        SIGNER_NETWORK.to_owned(),
-        MapOrEmpty::Map(NetworkSettings {
-            driver: Some("bridge".to_owned()),
-            ..NetworkSettings::default()
-        }),
-    );
+    if metrics_enabled {
+        compose.networks.0.insert(
+            METRICS_NETWORK.to_owned(),
+            MapOrEmpty::Map(NetworkSettings {
+                driver: Some("bridge".to_owned()),
+                ..NetworkSettings::default()
+            }),
+        );
+    }
 
-    let prom_volume = Volumes::Simple(format!(
-        "{}:/etc/prometheus/prometheus.yml",
-        cb_config.metrics.prometheus_config
-    ));
-    // TODO: fix path to targets file
-    let targets_volume =
-        Volumes::Simple(format!("./{}:/etc/prometheus/targets.json", CB_TARGETS_FILE));
+    if needs_signer_module {
+        compose.networks.0.insert(
+            SIGNER_NETWORK.to_owned(),
+            MapOrEmpty::Map(NetworkSettings {
+                driver: Some("bridge".to_owned()),
+                ..NetworkSettings::default()
+            }),
+        );
+    }
 
-    let data_volume = Volumes::Simple(format!("{}:/prometheus", PROMETHEUS_DATA_VOLUME));
+    if let Some(metrics_config) = cb_config.metrics {
+        // prometheus
+        exposed_ports_warn.push("prometheus has an exported port on 9090".to_string());
 
-    let grafana_data_volume = Volumes::Simple(format!("{}:/var/lib/grafana", GRAFANA_DATA_VOLUME));
+        let prom_volume = Volumes::Simple(format!(
+            "{}:/etc/prometheus/prometheus.yml",
+            metrics_config.prometheus_config
+        ));
 
-    volumes.insert(
-        PROMETHEUS_DATA_VOLUME.to_owned(),
-        MapOrEmpty::Map(ComposeVolume {
-            driver: Some("local".to_owned()),
-            driver_opts: IndexMap::default(),
-            external: None,
-            labels: Labels::default(),
-            name: None,
-        }),
-    );
+        // TODO: fix path to targets file
+        let targets_volume =
+            Volumes::Simple(format!("./{}:/etc/prometheus/targets.json", CB_TARGETS_FILE));
 
-    volumes.insert(
-        GRAFANA_DATA_VOLUME.to_owned(),
-        MapOrEmpty::Map(ComposeVolume {
-            driver: Some("local".to_owned()),
-            driver_opts: IndexMap::default(),
-            external: None,
-            labels: Labels::default(),
-            name: None,
-        }),
-    );
-    exposed_ports_warn.push("prometheus has an exported port on 9090".to_string());
-    let prometheus_service = Service {
-        container_name: Some("cb_prometheus".to_owned()),
-        image: Some("prom/prometheus:latest".to_owned()),
-        volumes: vec![prom_volume, targets_volume, data_volume],
-        // to inspect prometheus from localhost
-        ports: Ports::Short(vec!["9090:9090".to_owned()]),
-        networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
-        ..Service::default()
-    };
+        let data_volume = Volumes::Simple(format!("{}:/prometheus", PROMETHEUS_DATA_VOLUME));
 
-    services.insert("cb_prometheus".to_owned(), Some(prometheus_service));
-
-    if cb_config.metrics.use_grafana {
-        exposed_ports_warn.push("grafana has an exported port on 3000".to_string());
-        let grafana_service = Service {
-            container_name: Some("cb_grafana".to_owned()),
-            image: Some("grafana/grafana:latest".to_owned()),
-            ports: Ports::Short(vec!["3000:3000".to_owned()]),
+        let prometheus_service = Service {
+            container_name: Some("cb_prometheus".to_owned()),
+            image: Some("prom/prometheus:latest".to_owned()),
+            volumes: vec![prom_volume, targets_volume, data_volume],
+            // to inspect prometheus from localhost
+            ports: Ports::Short(vec!["9090:9090".to_owned()]),
             networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
-            depends_on: DependsOnOptions::Simple(vec!["cb_prometheus".to_owned()]),
-            environment: Environment::List(vec!["GF_SECURITY_ADMIN_PASSWORD=admin".to_owned()]),
-            volumes: vec![
-                Volumes::Simple(
-                    "./grafana/dashboards:/etc/grafana/provisioning/dashboards".to_owned(),
-                ),
-                Volumes::Simple(
-                    "./grafana/datasources:/etc/grafana/provisioning/datasources".to_owned(),
-                ),
-                grafana_data_volume,
-            ],
-            // TODO: re-enable logging here once we move away from docker logs
-            logging: Some(LoggingParameters { driver: Some("none".to_owned()), options: None }),
             ..Service::default()
         };
 
-        services.insert("cb_grafana".to_owned(), Some(grafana_service));
-    }
-    exposed_ports_warn.push("cadvisor has an exported port on 8080".to_string());
-    services.insert(
-        "cb_cadvisor".to_owned(),
-        Some(Service {
-            container_name: Some("cb_cadvisor".to_owned()),
-            image: Some("gcr.io/cadvisor/cadvisor".to_owned()),
-            ports: Ports::Short(vec![format!("{cadvisor_port}:8080")]),
-            networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
-            volumes: vec![
-                Volumes::Simple("/var/run/docker.sock:/var/run/docker.sock:ro".to_owned()),
-                Volumes::Simple("/sys:/sys:ro".to_owned()),
-                Volumes::Simple("/var/lib/docker/:/var/lib/docker:ro".to_owned()),
-            ],
-            ..Service::default()
-        }),
-    );
+        services.insert("cb_prometheus".to_owned(), Some(prometheus_service));
+        volumes.insert(
+            PROMETHEUS_DATA_VOLUME.to_owned(),
+            MapOrEmpty::Map(ComposeVolume {
+                driver: Some("local".to_owned()),
+                driver_opts: IndexMap::default(),
+                external: None,
+                labels: Labels::default(),
+                name: None,
+            }),
+        );
 
-    targets.push(PrometheusTargetConfig {
-        targets: vec![format!("cb_cadvisor:{cadvisor_port}")],
-        labels: PrometheusLabelsConfig { job: "cadvisor".to_owned() },
-    });
+        // grafana
+        if metrics_config.use_grafana {
+            exposed_ports_warn.push("grafana has an exported port on 3000".to_string());
+
+            let grafana_data_volume =
+                Volumes::Simple(format!("{}:/var/lib/grafana", GRAFANA_DATA_VOLUME));
+
+            let grafana_service = Service {
+                container_name: Some("cb_grafana".to_owned()),
+                image: Some("grafana/grafana:latest".to_owned()),
+                ports: Ports::Short(vec!["3000:3000".to_owned()]),
+                networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
+                depends_on: DependsOnOptions::Simple(vec!["cb_prometheus".to_owned()]),
+                environment: Environment::List(vec!["GF_SECURITY_ADMIN_PASSWORD=admin".to_owned()]),
+                volumes: vec![
+                    Volumes::Simple(
+                        "./grafana/dashboards:/etc/grafana/provisioning/dashboards".to_owned(),
+                    ),
+                    Volumes::Simple(
+                        "./grafana/datasources:/etc/grafana/provisioning/datasources".to_owned(),
+                    ),
+                    grafana_data_volume,
+                ],
+                // TODO: re-enable logging here once we move away from docker logs
+                logging: Some(LoggingParameters { driver: Some("none".to_owned()), options: None }),
+                ..Service::default()
+            };
+
+            services.insert("cb_grafana".to_owned(), Some(grafana_service));
+            volumes.insert(
+                GRAFANA_DATA_VOLUME.to_owned(),
+                MapOrEmpty::Map(ComposeVolume {
+                    driver: Some("local".to_owned()),
+                    driver_opts: IndexMap::default(),
+                    external: None,
+                    labels: Labels::default(),
+                    name: None,
+                }),
+            );
+        }
+
+        // cadvisor
+        exposed_ports_warn.push("cadvisor has an exported port on 8080".to_string());
+
+        services.insert(
+            "cb_cadvisor".to_owned(),
+            Some(Service {
+                container_name: Some("cb_cadvisor".to_owned()),
+                image: Some("gcr.io/cadvisor/cadvisor".to_owned()),
+                ports: Ports::Short(vec![format!("{cadvisor_port}:8080")]),
+                networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
+                volumes: vec![
+                    Volumes::Simple("/var/run/docker.sock:/var/run/docker.sock:ro".to_owned()),
+                    Volumes::Simple("/sys:/sys:ro".to_owned()),
+                    Volumes::Simple("/var/lib/docker/:/var/lib/docker:ro".to_owned()),
+                ],
+                ..Service::default()
+            }),
+        );
+        targets.push(PrometheusTargetConfig {
+            targets: vec![format!("cb_cadvisor:{cadvisor_port}")],
+            labels: PrometheusLabelsConfig { job: "cadvisor".to_owned() },
+        });
+    }
 
     compose.services = Services(services);
     compose.volumes = TopLevelVolumes(volumes);
@@ -395,27 +457,36 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     }
     println!("Compose file written to: {:?}", compose_path);
 
-    // write envs to .env file
-    let envs_str = {
-        let mut envs_str = String::new();
-        for (k, v) in envs {
-            envs_str.push_str(&format!("{}={}\n", k, v));
-        }
-        envs_str
-    };
-    let env_path = Path::new(&output_dir).join(CB_ENV_FILE);
-    // TODO: check if file exists already and avoid overwriting
-    std::fs::write(&env_path, envs_str)?;
-    println!("Env file written to: {:?}", env_path);
-
     // write prometheus targets to file
-    let targets_str = serde_json::to_string_pretty(&targets)?;
-    let targets_path = Path::new(&output_dir).join(CB_TARGETS_FILE);
-    // TODO: check if file exists already and avoid overwriting
-    std::fs::write(&targets_path, targets_str)?;
-    println!("Targets file written to: {:?}", targets_path);
+    if !targets.is_empty() {
+        let targets_str = serde_json::to_string_pretty(&targets)?;
+        let targets_path = Path::new(&output_dir).join(CB_TARGETS_FILE);
+        // TODO: check if file exists already and avoid overwriting
+        std::fs::write(&targets_path, targets_str)?;
+        println!("Targets file written to: {:?}", targets_path);
+    }
 
-    println!("Run with:\n\t`commit-boost start --docker {:?} --env {:?}`", compose_path, env_path);
+    if envs.is_empty() {
+        println!("Run with:\n\t`commit-boost start --docker {:?}`", compose_path);
+    } else {
+        // write envs to .env file
+        let envs_str = {
+            let mut envs_str = String::new();
+            for (k, v) in envs {
+                envs_str.push_str(&format!("{}={}\n", k, v));
+            }
+            envs_str
+        };
+        let env_path = Path::new(&output_dir).join(CB_ENV_FILE);
+        // TODO: check if file exists already and avoid overwriting
+        std::fs::write(&env_path, envs_str)?;
+        println!("Env file written to: {:?}", env_path);
+
+        println!(
+            "Run with:\n\t`commit-boost start --docker {:?} --env {:?}`",
+            compose_path, env_path
+        );
+    }
 
     Ok(())
 }

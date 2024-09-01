@@ -8,6 +8,9 @@ use crate::types::{Jwt, ModuleId};
 pub fn load_env_var(env: &str) -> Result<String> {
     std::env::var(env).wrap_err(format!("{env} is not set"))
 }
+pub fn load_optional_env_var(env: &str) -> Option<String> {
+    std::env::var(env).ok()
+}
 
 pub fn load_from_file<T: DeserializeOwned>(path: &str) -> Result<T> {
     let config_file =
