@@ -1,6 +1,9 @@
-use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Arc,
+use std::{
+    net::SocketAddr,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
 };
 
 use alloy::{primitives::U256, rpc::types::beacon::relay::ValidatorRegistration};
@@ -19,12 +22,22 @@ use cb_common::{
     signer::ConsensusSigner,
     types::Chain,
 };
+use tokio::net::TcpListener;
 use tracing::debug;
 use tree_hash::TreeHash;
 
+pub async fn start_mock_relay_service(state: Arc<MockRelayState>, port: u16) -> eyre::Result<()> {
+    let app = mock_relay_app_router(state);
+
+    let socket = SocketAddr::new("0.0.0.0".parse()?, port);
+    let listener = TcpListener::bind(socket).await?;
+
+    axum::serve(listener, app).await?;
+    Ok(())
+}
+
 pub struct MockRelayState {
     pub chain: Chain,
-    pub get_header_delay_ms: u64,
     pub signer: ConsensusSigner,
     received_get_header: Arc<AtomicU64>,
     received_get_status: Arc<AtomicU64>,
@@ -48,11 +61,11 @@ impl MockRelayState {
 }
 
 impl MockRelayState {
-    pub fn new(chain: Chain, signer: ConsensusSigner, get_header_delay_ms: u64) -> Self {
+    pub fn new(chain: Chain, signer: ConsensusSigner) -> Self {
         Self {
             chain,
             signer,
-            get_header_delay_ms,
+
             received_get_header: Default::default(),
             received_get_status: Default::default(),
             received_register_validator: Default::default(),

@@ -1,0 +1,22 @@
+chain = "Holesky"
+
+[pbs]
+port = 18750
+late_in_slot_time_ms = 1000000000000 # skip late in slot checks
+
+[[relays]]
+id = "bench_mock_relay"
+url = "http://0xb060572f535ba5615b874ebfef757fbe6825352ad257e31d724e57fe25a067a13cfddd0f00cb17bf3a3d2e901a380c17@172.17.0.1:18450" # do not change this
+
+
+[benchmark]
+n_slots = 5
+headers_per_slot = 1000
+
+[[bench]]
+id = "mev_boost"
+url = "http://0.0.0.0:18650"
+
+[[bench]]
+id = "commit_boost"
+url = "http://0.0.0.0:18750"
