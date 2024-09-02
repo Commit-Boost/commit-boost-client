@@ -8,9 +8,12 @@ use crate::utils::default_bool;
 pub struct MetricsConfig {
     /// Path to prometheus config file
     pub prometheus_config: String,
-    /// Whether to start a grafana service
+    /// Whether to start the grafana service
     #[serde(default = "default_bool::<true>")]
     pub use_grafana: bool,
+    /// Whether to start the cadvisor service
+    #[serde(default = "default_bool::<true>")]
+    pub use_cadvisor: bool,
 }
 
 /// Module runtime config set after init

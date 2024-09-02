@@ -407,27 +407,29 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
         }
 
         // cadvisor
-        exposed_ports_warn.push("cadvisor has an exported port on 8080".to_string());
+        if metrics_config.use_cadvisor {
+            exposed_ports_warn.push("cadvisor has an exported port on 8080".to_string());
 
-        services.insert(
-            "cb_cadvisor".to_owned(),
-            Some(Service {
-                container_name: Some("cb_cadvisor".to_owned()),
-                image: Some("gcr.io/cadvisor/cadvisor".to_owned()),
-                ports: Ports::Short(vec![format!("{cadvisor_port}:8080")]),
-                networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
-                volumes: vec![
-                    Volumes::Simple("/var/run/docker.sock:/var/run/docker.sock:ro".to_owned()),
-                    Volumes::Simple("/sys:/sys:ro".to_owned()),
-                    Volumes::Simple("/var/lib/docker/:/var/lib/docker:ro".to_owned()),
-                ],
-                ..Service::default()
-            }),
-        );
-        targets.push(PrometheusTargetConfig {
-            targets: vec![format!("cb_cadvisor:{cadvisor_port}")],
-            labels: PrometheusLabelsConfig { job: "cadvisor".to_owned() },
-        });
+            services.insert(
+                "cb_cadvisor".to_owned(),
+                Some(Service {
+                    container_name: Some("cb_cadvisor".to_owned()),
+                    image: Some("gcr.io/cadvisor/cadvisor".to_owned()),
+                    ports: Ports::Short(vec![format!("{cadvisor_port}:8080")]),
+                    networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
+                    volumes: vec![
+                        Volumes::Simple("/var/run/docker.sock:/var/run/docker.sock:ro".to_owned()),
+                        Volumes::Simple("/sys:/sys:ro".to_owned()),
+                        Volumes::Simple("/var/lib/docker/:/var/lib/docker:ro".to_owned()),
+                    ],
+                    ..Service::default()
+                }),
+            );
+            targets.push(PrometheusTargetConfig {
+                targets: vec![format!("cb_cadvisor:{cadvisor_port}")],
+                labels: PrometheusLabelsConfig { job: "cadvisor".to_owned() },
+            });
+        }
     }
 
     compose.services = Services(services);

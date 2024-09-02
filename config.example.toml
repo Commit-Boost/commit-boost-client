@@ -132,6 +132,9 @@ prometheus_config = "./docker/prometheus.yml"
 # Whether to start Grafana with built-in dashboards
 # OPTIONAL, DEFAULT: true
 use_grafana = true
+# Whether to start cadvisor for system monitoring
+# OPTIONAL, DEFAULT: true
+use_cadvisor = true
 
 # Configuration for how logs should be collected and stored
 # OPTIONAL, info to stdout if missing
