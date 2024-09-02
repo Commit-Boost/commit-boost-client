@@ -9,6 +9,6 @@ mod utils;
 
 pub use beacon_block::{SignedBlindedBeaconBlock, SubmitBlindedBlockResponse};
 pub use execution_payload::{Transaction, EMPTY_TX_ROOT_HASH};
-pub use get_header::{GetHeaderParams, GetHeaderReponse, SignedExecutionPayloadHeader};
+pub use get_header::{GetHeaderParams, GetHeaderResponse, SignedExecutionPayloadHeader};
 pub use spec::{DenebSpec, EthSpec};
 pub use utils::{Version, VersionedResponse};

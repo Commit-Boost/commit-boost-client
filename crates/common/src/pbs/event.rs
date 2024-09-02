@@ -15,7 +15,7 @@ use tokio::net::TcpListener;
 use tracing::{error, info, trace};
 
 use super::{
-    GetHeaderParams, GetHeaderReponse, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
+    GetHeaderParams, GetHeaderResponse, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
 };
 use crate::{
     config::{load_env_var, BUILDER_SERVER_ENV},
@@ -25,7 +25,7 @@ use crate::{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BuilderEvent {
     GetHeaderRequest(GetHeaderParams),
-    GetHeaderResponse(Box<Option<GetHeaderReponse>>),
+    GetHeaderResponse(Box<Option<GetHeaderResponse>>),
     GetStatusEvent,
     GetStatusResponse,
     SubmitBlockRequest(Box<SignedBlindedBeaconBlock>),
