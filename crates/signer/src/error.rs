@@ -1,4 +1,4 @@
-use alloy::rpc::types::beacon::BlsPublicKey;
+use alloy::hex;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -10,11 +10,11 @@ pub enum SignerModuleError {
     #[error("unauthorized")]
     Unauthorized,
 
-    #[error("unknown consensus signer: {0}")]
-    UnknownConsensusSigner(BlsPublicKey),
+    #[error("unknown consensus signer: 0x{}", hex::encode(.0))]
+    UnknownConsensusSigner(Vec<u8>),
 
-    #[error("unknown proxy signer: {0}")]
-    UnknownProxySigner(BlsPublicKey),
+    #[error("unknown proxy signer: 0x{}", hex::encode(.0))]
+    UnknownProxySigner(Vec<u8>),
 }
 
 impl IntoResponse for SignerModuleError {

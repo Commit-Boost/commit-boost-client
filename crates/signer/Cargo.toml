@@ -22,7 +22,10 @@ tokio.workspace = true
 tracing.workspace = true
 
 # crypto
+blst.workspace = true
 tree_hash.workspace = true
+tree_hash_derive.workspace = true
+k256.workspace = true
 
 # misc
 thiserror.workspace = true
@@ -30,3 +33,4 @@ eyre.workspace = true
 uuid.workspace = true
 bimap.workspace = true
 lazy_static.workspace = true
+derive_more.workspace = true

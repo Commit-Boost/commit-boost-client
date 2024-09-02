@@ -35,6 +35,7 @@ blst.workspace = true
 tree_hash.workspace = true
 tree_hash_derive.workspace = true
 eth2_keystore.workspace = true
+k256.workspace = true
 
 # misc
 thiserror.workspace = true

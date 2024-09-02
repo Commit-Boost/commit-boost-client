@@ -1,22 +1,25 @@
 use std::sync::Arc;
 
-use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
+use alloy::rpc::types::beacon::BlsSignature;
 use eyre::WrapErr;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use super::{
     constants::{GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, REQUEST_SIGNATURE_PATH},
     error::SignerClientError,
-    request::{GenerateProxyRequest, SignRequest, SignedProxyDelegation},
+    request::{
+        EncryptionScheme, GenerateProxyRequest, GetPubkeysResponse, PublicKey,
+        SignConsensusRequest, SignProxyRequest, SignRequest, SignedProxyDelegation,
+    },
 };
-use crate::DEFAULT_REQUEST_TIMEOUT;
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct GetPubkeysResponse {
-    pub consensus: Vec<BlsPublicKey>,
-    pub proxy: Vec<BlsPublicKey>,
-}
+use crate::{
+    signer::{
+        schemes::{bls::BlsPublicKey, ecdsa::EcdsaSignature},
+        EcdsaPublicKey,
+    },
+    DEFAULT_REQUEST_TIMEOUT,
+};
 
 /// Client used by commit modules to request signatures via the Signer API
 #[derive(Debug, Clone)]
@@ -45,31 +48,26 @@ impl SignerClient {
     }
 
     /// Request a list of validator pubkeys for which signatures can be
-    /// requested. TODO: add more docs on how proxy keys work
+    /// requested.
+    // TODO: add more docs on how proxy keys work
     pub async fn get_pubkeys(&self) -> Result<GetPubkeysResponse, SignerClientError> {
-        let url = format!("{}{}", self.url, GET_PUBKEYS_PATH);
-        let res = self.client.get(&url).send().await?;
+        let res = self.client.get(&format!("{}{}", self.url, GET_PUBKEYS_PATH)).send().await?;
 
-        let status = res.status();
-        let response_bytes = res.bytes().await?;
-
-        if !status.is_success() {
+        if !res.status().is_success() {
             return Err(SignerClientError::FailedRequest {
-                status: status.as_u16(),
-                error_msg: String::from_utf8_lossy(&response_bytes).into_owned(),
+                status: res.status().as_u16(),
+                error_msg: String::from_utf8_lossy(&res.bytes().await?).into_owned(),
             });
         }
 
-        let parsed_response: GetPubkeysResponse = serde_json::from_slice(&response_bytes)?;
-
-        Ok(parsed_response)
+        Ok(serde_json::from_slice(&res.bytes().await?)?)
     }
 
     /// Send a signature request
-    pub async fn request_signature(
-        &self,
-        request: &SignRequest,
-    ) -> Result<BlsSignature, SignerClientError> {
+    async fn request_signature<T>(&self, request: &SignRequest) -> Result<T, SignerClientError>
+    where
+        T: for<'de> Deserialize<'de>,
+    {
         let url = format!("{}{}", self.url, REQUEST_SIGNATURE_PATH);
         let res = self.client.post(&url).json(&request).send().await?;
 
@@ -83,17 +81,40 @@ impl SignerClient {
             });
         }
 
-        let signature: BlsSignature = serde_json::from_slice(&response_bytes)?;
+        let signature = serde_json::from_slice(&response_bytes)?;
 
         Ok(signature)
     }
 
-    pub async fn generate_proxy_key(
+    pub async fn request_consensus_signature(
         &self,
-        pubkey: BlsPublicKey,
-    ) -> Result<SignedProxyDelegation, SignerClientError> {
+        request: SignConsensusRequest,
+    ) -> Result<BlsSignature, SignerClientError> {
+        self.request_signature(&request.into()).await
+    }
+
+    pub async fn request_proxy_signature_ecdsa(
+        &self,
+        request: SignProxyRequest<EcdsaPublicKey>,
+    ) -> Result<EcdsaSignature, SignerClientError> {
+        self.request_signature(&request.into()).await
+    }
+
+    pub async fn request_proxy_signature_bls(
+        &self,
+        request: SignProxyRequest<BlsPublicKey>,
+    ) -> Result<BlsSignature, SignerClientError> {
+        self.request_signature(&request.into()).await
+    }
+
+    async fn generate_proxy_key<T>(
+        &self,
+        request: &GenerateProxyRequest,
+    ) -> Result<SignedProxyDelegation<T>, SignerClientError>
+    where
+        T: PublicKey + for<'de> Deserialize<'de>,
+    {
         let url = format!("{}{}", self.url, GENERATE_PROXY_KEY_PATH);
-        let request = GenerateProxyRequest::new(pubkey);
         let res = self.client.post(&url).json(&request).send().await?;
 
         let status = res.status();
@@ -109,5 +130,27 @@ impl SignerClient {
         let signed_proxy_delegation = serde_json::from_slice(&response_bytes)?;
 
         Ok(signed_proxy_delegation)
+    }
+
+    pub async fn generate_proxy_key_bls(
+        &self,
+        consensus_pubkey: BlsPublicKey,
+    ) -> Result<SignedProxyDelegation<BlsPublicKey>, SignerClientError> {
+        let request = GenerateProxyRequest::new(consensus_pubkey, EncryptionScheme::Bls);
+
+        let bls_signed_proxy_delegation = self.generate_proxy_key(&request).await?;
+
+        Ok(bls_signed_proxy_delegation)
+    }
+
+    pub async fn generate_proxy_key_ecdsa(
+        &self,
+        consensus_pubkey: BlsPublicKey,
+    ) -> Result<SignedProxyDelegation<EcdsaPublicKey>, SignerClientError> {
+        let request = GenerateProxyRequest::new(consensus_pubkey, EncryptionScheme::Ecdsa);
+
+        let ecdsa_signed_proxy_delegation = self.generate_proxy_key(&request).await?;
+
+        Ok(ecdsa_signed_proxy_delegation)
     }
 }

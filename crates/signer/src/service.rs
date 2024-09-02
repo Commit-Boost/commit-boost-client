@@ -12,9 +12,11 @@ use axum_extra::TypedHeader;
 use bimap::BiHashMap;
 use cb_common::{
     commit::{
-        client::GetPubkeysResponse,
         constants::{GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, REQUEST_SIGNATURE_PATH},
-        request::{GenerateProxyRequest, SignRequest},
+        request::{
+            EncryptionScheme, GenerateProxyRequest, GetPubkeysResponse, SignConsensusRequest,
+            SignProxyRequest, SignRequest,
+        },
     },
     config::StartSignerConfig,
     types::{Jwt, ModuleId},
@@ -108,9 +110,12 @@ async fn handle_get_pubkeys(
     let signing_manager = state.manager.read().await;
 
     let consensus = signing_manager.consensus_pubkeys();
-    let proxy = signing_manager.proxy_pubkeys().get(&module_id).cloned().unwrap_or_default();
+    let proxy_bls =
+        signing_manager.proxy_pubkeys_bls().get(&module_id).cloned().unwrap_or_default();
+    let proxy_ecdsa =
+        signing_manager.proxy_pubkeys_ecdsa().get(&module_id).cloned().unwrap_or_default();
 
-    let res = GetPubkeysResponse { consensus, proxy };
+    let res = GetPubkeysResponse { consensus, proxy_bls, proxy_ecdsa };
 
     Ok((StatusCode::OK, Json(res)).into_response())
 }
@@ -127,13 +132,24 @@ async fn handle_request_signature(
 
     let signing_manager = state.manager.read().await;
 
-    let sig = if request.is_proxy {
-        signing_manager.sign_proxy(&request.pubkey, &request.object_root).await
-    } else {
-        signing_manager.sign_consensus(&request.pubkey, &request.object_root).await
+    let signature_response = match request {
+        SignRequest::Consensus(SignConsensusRequest { pubkey, object_root }) => signing_manager
+            .sign_consensus(&pubkey, &object_root)
+            .await
+            .map(|sig| Json(sig).into_response()),
+        SignRequest::ProxyBls(SignProxyRequest { pubkey: bls_pk, object_root }) => signing_manager
+            .sign_proxy_bls(&bls_pk, &object_root)
+            .await
+            .map(|sig| Json(sig).into_response()),
+        SignRequest::ProxyEcdsa(SignProxyRequest { pubkey: ecdsa_pk, object_root }) => {
+            signing_manager
+                .sign_proxy_ecdsa(&ecdsa_pk, &object_root)
+                .await
+                .map(|sig| Json(sig).into_response())
+        }
     }?;
 
-    Ok((StatusCode::OK, Json(sig)).into_response())
+    Ok(signature_response)
 }
 
 async fn handle_generate_proxy(
@@ -147,7 +163,18 @@ async fn handle_generate_proxy(
 
     let mut signing_manager = state.manager.write().await;
 
-    let proxy_delegation = signing_manager.create_proxy(module_id, request.pubkey).await?;
+    let response = match request.scheme {
+        EncryptionScheme::Bls => {
+            let proxy_delegation =
+                signing_manager.create_proxy_bls(module_id, request.consensus_pubkey).await?;
+            Json(proxy_delegation).into_response()
+        }
+        EncryptionScheme::Ecdsa => {
+            let proxy_delegation =
+                signing_manager.create_proxy_ecdsa(module_id, request.consensus_pubkey).await?;
+            Json(proxy_delegation).into_response()
+        }
+    };
 
-    Ok((StatusCode::OK, Json(proxy_delegation)).into_response())
+    Ok(response)
 }

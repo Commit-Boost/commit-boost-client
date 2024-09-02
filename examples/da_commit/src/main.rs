@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
 use commit_boost::prelude::*;
 use eyre::{OptionExt, Result};
 use lazy_static::lazy_static;
@@ -41,18 +40,29 @@ impl DaCommitService {
         // the config has the signer_client already setup, we can use it to interact
         // with the Signer API
         let pubkeys = self.config.signer_client.get_pubkeys().await?;
-        info!(consensus = pubkeys.consensus.len(), proxy = pubkeys.proxy.len(), "Received pubkeys");
+        info!(
+            consensus = pubkeys.consensus.len(),
+            proxy_bls = pubkeys.proxy_bls.len(),
+            proxy_ecdsa = pubkeys.proxy_ecdsa.len(),
+            "Received pubkeys"
+        );
 
-        let pubkey = pubkeys.consensus.first().ok_or_eyre("no key available")?;
+        let pubkey = *pubkeys.consensus.first().ok_or_eyre("no key available")?;
         info!("Registered validator {pubkey}");
 
-        let proxy_delegation = self.config.signer_client.generate_proxy_key(*pubkey).await?;
-        info!("Obtained a proxy delegation {proxy_delegation:#?}");
+        let proxy_delegation_bls = self.config.signer_client.generate_proxy_key_bls(pubkey).await?;
+        info!("Obtained a BLS proxy delegation:\n{proxy_delegation_bls}");
+        let proxy_bls = proxy_delegation_bls.message.proxy;
+
+        let proxy_delegation_ecdsa =
+            self.config.signer_client.generate_proxy_key_ecdsa(pubkey).await?;
+        info!("Obtained an ECDSA proxy delegation:\n{proxy_delegation_ecdsa}");
+        let proxy_ecdsa = proxy_delegation_ecdsa.message.proxy;
 
         let mut data = 0;
 
         loop {
-            self.send_request(data, *pubkey, proxy_delegation).await?;
+            self.send_request(data, pubkey, proxy_bls, proxy_ecdsa).await?;
             sleep(Duration::from_secs(self.config.extra.sleep_secs)).await;
             data += 1;
         }
@@ -62,24 +72,30 @@ impl DaCommitService {
         &self,
         data: u64,
         pubkey: BlsPublicKey,
-        proxy_delegation: SignedProxyDelegation,
+        proxy_bls: BlsPublicKey,
+        proxy_ecdsa: EcdsaPublicKey,
     ) -> Result<()> {
         let datagram = Datagram { data };
 
-        let request = SignRequest::builder(pubkey).with_msg(&datagram);
-        let signature = self.config.signer_client.request_signature(&request);
+        let request = SignConsensusRequest::builder(pubkey).with_msg(&datagram);
+        let signature = self.config.signer_client.request_consensus_signature(request);
 
-        let proxy_request =
-            SignRequest::builder(proxy_delegation.message.proxy).is_proxy().with_msg(&datagram);
-        let proxy_signature = self.config.signer_client.request_signature(&proxy_request);
+        let proxy_request_bls = SignProxyRequest::builder(proxy_bls).with_msg(&datagram);
+        let proxy_signature_bls =
+            self.config.signer_client.request_proxy_signature_bls(proxy_request_bls);
 
-        let (signature, proxy_signature) = {
-            let res = tokio::join!(signature, proxy_signature);
-            (res.0?, res.1?)
+        let proxy_request_ecdsa = SignProxyRequest::builder(proxy_ecdsa).with_msg(&datagram);
+        let proxy_signature_ecdsa =
+            self.config.signer_client.request_proxy_signature_ecdsa(proxy_request_ecdsa);
+
+        let (signature, proxy_signature_bls, proxy_signature_ecdsa) = {
+            let res = tokio::join!(signature, proxy_signature_bls, proxy_signature_ecdsa);
+            (res.0?, res.1?, res.2?)
         };
 
-        info!("Proposer commitment (consensus): {}", pretty_print_sig(signature));
-        info!("Proposer commitment (proxy): {}", pretty_print_sig(proxy_signature));
+        info!("Proposer commitment (consensus): {}", signature);
+        info!("Proposer commitment (proxy BLS): {}", proxy_signature_bls);
+        info!("Proposer commitment (proxy ECDSA): {}", proxy_signature_ecdsa);
 
         SIG_RECEIVED_COUNTER.inc();
 
@@ -117,8 +133,4 @@ async fn main() -> Result<()> {
         }
     }
     Ok(())
-}
-
-fn pretty_print_sig(sig: BlsSignature) -> String {
-    format!("{}..", &sig.to_string()[..16])
 }
