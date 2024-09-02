@@ -29,7 +29,7 @@ pub(super) const CB_TARGETS_FILE: &str = "targets.json"; // needs to match prome
 pub(super) const PROMETHEUS_DATA_VOLUME: &str = "prometheus-data";
 pub(super) const GRAFANA_DATA_VOLUME: &str = "grafana-data";
 
-const METRICS_NETWORK: &str = "monitoring_network";
+const DEFAULT_NETWORK: &str = "default_network";
 const SIGNER_NETWORK: &str = "signer_network";
 
 /// Builds the docker compose file for the Commit-Boost services
@@ -126,7 +126,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                         image: Some(module.docker_image),
                         // TODO: allow service to open ports here
                         networks: Networks::Simple(vec![
-                            METRICS_NETWORK.to_owned(),
+                            DEFAULT_NETWORK.to_owned(),
                             SIGNER_NETWORK.to_owned(),
                         ]),
                         volumes: vec![config_volume.clone(), log_volume],
@@ -157,7 +157,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                     Service {
                         container_name: Some(module_cid.clone()),
                         image: Some(module.docker_image),
-                        networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
+                        networks: Networks::Simple(vec![DEFAULT_NETWORK.to_owned()]),
                         volumes: vec![config_volume.clone(), log_volume],
                         environment: Environment::KvPair(module_envs),
                         depends_on: DependsOnOptions::Simple(vec!["cb_pbs".to_owned()]),
@@ -186,7 +186,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
             "{}:{}",
             cb_config.pbs.pbs_config.port, cb_config.pbs.pbs_config.port
         )]),
-        networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
+        networks: Networks::Simple(vec![DEFAULT_NETWORK.to_owned()]),
         volumes: vec![config_volume.clone(), log_volume],
         environment: Environment::KvPair(pbs_envs),
         ..Service::default()
@@ -251,7 +251,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                 container_name: Some("cb_signer".to_owned()),
                 image: Some(signer_config.docker_image),
                 networks: Networks::Simple(vec![
-                    METRICS_NETWORK.to_owned(),
+                    DEFAULT_NETWORK.to_owned(),
                     SIGNER_NETWORK.to_owned(),
                 ]),
                 volumes,
@@ -271,7 +271,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     let mut compose = Compose::default();
 
     compose.networks.0.insert(
-        METRICS_NETWORK.to_owned(),
+        DEFAULT_NETWORK.to_owned(),
         MapOrEmpty::Map(NetworkSettings {
             driver: Some("bridge".to_owned()),
             ..NetworkSettings::default()
@@ -326,7 +326,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
             volumes: vec![prom_volume, targets_volume, data_volume],
             // to inspect prometheus from localhost
             ports: Ports::Short(vec!["9090:9090".to_owned()]),
-            networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
+            networks: Networks::Simple(vec![DEFAULT_NETWORK.to_owned()]),
             ..Service::default()
         };
 
@@ -338,7 +338,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                 container_name: Some("cb_grafana".to_owned()),
                 image: Some("grafana/grafana:latest".to_owned()),
                 ports: Ports::Short(vec!["3000:3000".to_owned()]),
-                networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
+                networks: Networks::Simple(vec![DEFAULT_NETWORK.to_owned()]),
                 depends_on: DependsOnOptions::Simple(vec!["cb_prometheus".to_owned()]),
                 environment: Environment::List(vec!["GF_SECURITY_ADMIN_PASSWORD=admin".to_owned()]),
                 volumes: vec![
@@ -364,7 +364,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                 container_name: Some("cb_cadvisor".to_owned()),
                 image: Some("gcr.io/cadvisor/cadvisor".to_owned()),
                 ports: Ports::Short(vec![format!("{cadvisor_port}:8080")]),
-                networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
+                networks: Networks::Simple(vec![DEFAULT_NETWORK.to_owned()]),
                 volumes: vec![
                     Volumes::Simple("/var/run/docker.sock:/var/run/docker.sock:ro".to_owned()),
                     Volumes::Simple("/sys:/sys:ro".to_owned()),
