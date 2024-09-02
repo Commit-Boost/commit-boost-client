@@ -3,6 +3,9 @@ pub const MODULE_JWT_ENV: &str = "CB_SIGNER_JWT";
 pub const METRICS_SERVER_ENV: &str = "METRICS_SERVER";
 pub const SIGNER_SERVER_ENV: &str = "SIGNER_SERVER";
 pub const BUILDER_SERVER_ENV: &str = "BUILDER_SERVER";
+pub const MAX_LOG_FILES_ENV: &str = "MAX_LOG_FILES";
+pub const RUST_LOG_ENV: &str = "RUST_LOG";
+pub const USE_FILE_LOGS_ENV: &str = "USE_FILE_LOGS";
 
 pub const CB_BASE_LOG_PATH: &str = "/var/logs/commit-boost";
 

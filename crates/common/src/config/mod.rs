@@ -29,8 +29,7 @@ pub struct CommitBoostConfig {
     pub modules: Option<Vec<StaticModuleConfig>>,
     pub signer: Option<SignerConfig>,
     pub metrics: Option<MetricsConfig>,
-    #[serde(default)]
-    pub logs: LogsSettings,
+    pub logs: Option<LogsSettings>,
 }
 
 impl CommitBoostConfig {

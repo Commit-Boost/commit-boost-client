@@ -1,18 +1,15 @@
-use std::{
-    path::{Path, PathBuf},
-    vec,
-};
+use std::{path::Path, vec};
 
 use cb_common::{
     config::{
-        CommitBoostConfig, ModuleKind, BUILDER_SERVER_ENV, CB_BASE_LOG_PATH, CB_CONFIG_ENV,
-        CB_CONFIG_NAME, JWTS_ENV, METRICS_SERVER_ENV, MODULE_ID_ENV, MODULE_JWT_ENV,
-        PBS_MODULE_NAME, SIGNER_DIR_KEYS, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS,
-        SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS, SIGNER_KEYS_ENV, SIGNER_MODULE_NAME,
-        SIGNER_SERVER_ENV,
+        CommitBoostConfig, LogsSettings, ModuleKind, BUILDER_SERVER_ENV, CB_BASE_LOG_PATH,
+        CB_CONFIG_ENV, CB_CONFIG_NAME, JWTS_ENV, MAX_LOG_FILES_ENV, METRICS_SERVER_ENV,
+        MODULE_ID_ENV, MODULE_JWT_ENV, PBS_MODULE_NAME, RUST_LOG_ENV, SIGNER_DIR_KEYS,
+        SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS, SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS,
+        SIGNER_KEYS_ENV, SIGNER_MODULE_NAME, SIGNER_SERVER_ENV, USE_FILE_LOGS_ENV,
     },
     loader::SignerLoader,
-    utils::{random_jwt, MAX_LOG_FILES_ENV, ROLLING_DURATION_ENV, RUST_LOG_ENV},
+    utils::random_jwt,
 };
 use docker_compose_types::{
     Compose, ComposeVolume, DependsOnOptions, Environment, Labels, LoggingParameters, MapOrEmpty,
@@ -35,13 +32,27 @@ const SIGNER_NETWORK: &str = "signer_network";
 /// Builds the docker compose file for the Commit-Boost services
 
 // TODO: do more validation for paths, images, etc
-#[allow(unused_assignments)]
+
 pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()> {
     println!("Initializing Commit-Boost with config file: {}", config_path);
 
     let cb_config = CommitBoostConfig::from_file(&config_path)?;
 
     let metrics_enabled = cb_config.metrics.is_some();
+
+    // Logging
+    let logging_envs = if let Some(log_config) = &cb_config.logs {
+        let mut envs = vec![
+            get_env_bool(USE_FILE_LOGS_ENV, true),
+            get_env_val(RUST_LOG_ENV, &log_config.log_level),
+        ];
+        if let Some(max_files) = log_config.max_log_files {
+            envs.push(get_env_uval(MAX_LOG_FILES_ENV, max_files as u64))
+        }
+        envs
+    } else {
+        vec![]
+    };
 
     let mut services = IndexMap::new();
     let mut volumes = IndexMap::new();
@@ -65,28 +76,6 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     let mut builder_events_modules = Vec::new();
 
     let mut exposed_ports_warn = Vec::new();
-
-    // setup pbs service
-    if metrics_enabled {
-        targets.push(PrometheusTargetConfig {
-            targets: vec![format!("cb_pbs:{metrics_port}")],
-            labels: PrometheusLabelsConfig { job: "pbs".to_owned() },
-        });
-    }
-
-    let mut pbs_envs = IndexMap::from([
-        get_env_val(CB_CONFIG_ENV, CB_CONFIG_NAME),
-        get_env_val(ROLLING_DURATION_ENV, &cb_config.logs.rotation.to_string()),
-        get_env_val(RUST_LOG_ENV, &cb_config.logs.log_level),
-    ]);
-    if metrics_enabled {
-        let (key, val) = get_env_uval(METRICS_SERVER_ENV, metrics_port as u64);
-        pbs_envs.insert(key, val);
-    }
-    if let Some(max_files) = cb_config.logs.max_log_files {
-        let (key, val) = get_env_uval(MAX_LOG_FILES_ENV, max_files as u64);
-        pbs_envs.insert(key, val);
-    }
 
     let mut needs_signer_module = cb_config.pbs.with_signer;
 
@@ -117,24 +106,15 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                         get_env_val(CB_CONFIG_ENV, CB_CONFIG_NAME),
                         get_env_interp(MODULE_JWT_ENV, &jwt_name),
                         get_env_val(SIGNER_SERVER_ENV, &signer_server),
-                        get_env_val(ROLLING_DURATION_ENV, &cb_config.logs.rotation.to_string()),
-                        get_env_val(RUST_LOG_ENV, &cb_config.logs.log_level),
                     ]);
                     if metrics_enabled {
                         let (key, val) = get_env_uval(METRICS_SERVER_ENV, metrics_port as u64);
                         module_envs.insert(key, val);
                     }
-                    if let Some(max_files) = cb_config.logs.max_log_files {
-                        let (key, val) = get_env_uval(MAX_LOG_FILES_ENV, max_files as u64);
-                        module_envs.insert(key, val);
-                    }
+                    module_envs.extend(logging_envs.clone());
 
                     envs.insert(jwt_name.clone(), jwt.clone());
                     jwts.insert(module.id.clone(), jwt);
-
-                    // volumes
-                    let log_volume =
-                        get_log_volume(cb_config.logs.log_dir_path.clone(), &module.id);
 
                     // networks
                     let mut module_networks = vec![SIGNER_NETWORK.to_owned()];
@@ -142,12 +122,16 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                         module_networks.push(METRICS_NETWORK.to_owned());
                     }
 
+                    // volumes
+                    let mut module_volumes = vec![config_volume.clone()];
+                    module_volumes.extend(get_log_volume(&cb_config.logs, &module.id));
+
                     Service {
                         container_name: Some(module_cid.clone()),
                         image: Some(module.docker_image),
                         // TODO: allow service to open ports here
                         networks: Networks::Simple(module_networks),
-                        volumes: vec![config_volume.clone(), log_volume],
+                        volumes: module_volumes,
                         environment: Environment::KvPair(module_envs),
                         depends_on: DependsOnOptions::Simple(vec!["cb_signer".to_owned()]),
                         ..Service::default()
@@ -155,28 +139,20 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                 }
                 // an event module just needs a port to listen on
                 ModuleKind::Events => {
+                    builder_events_modules.push(format!("{module_cid}:{builder_events_port}"));
+
                     // module ids are assumed unique, so envs dont override each other
                     let mut module_envs = IndexMap::from([
                         get_env_val(MODULE_ID_ENV, &module.id),
                         get_env_val(CB_CONFIG_ENV, CB_CONFIG_NAME),
                         get_env_val(BUILDER_SERVER_ENV, &builder_events_port.to_string()),
-                        get_env_val(ROLLING_DURATION_ENV, &cb_config.logs.rotation.to_string()),
-                        get_env_val(RUST_LOG_ENV, &cb_config.logs.log_level),
                     ]);
+                    module_envs.extend(logging_envs.clone());
+
                     if metrics_enabled {
                         let (key, val) = get_env_uval(METRICS_SERVER_ENV, metrics_port as u64);
                         module_envs.insert(key, val);
                     }
-                    if let Some(max_files) = cb_config.logs.max_log_files {
-                        let (key, val) = get_env_uval(MAX_LOG_FILES_ENV, max_files as u64);
-                        module_envs.insert(key, val);
-                    }
-
-                    builder_events_modules.push(format!("{module_cid}:{builder_events_port}"));
-
-                    // volumes
-                    let log_volume =
-                        get_log_volume(cb_config.logs.log_dir_path.clone(), &module.id);
 
                     // networks
                     let modules_neworks = if metrics_enabled {
@@ -185,11 +161,15 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                         Networks::default()
                     };
 
+                    // volumes
+                    let mut module_volumes = vec![config_volume.clone()];
+                    module_volumes.extend(get_log_volume(&cb_config.logs, &module.id));
+
                     Service {
                         container_name: Some(module_cid.clone()),
                         image: Some(module.docker_image),
                         networks: modules_neworks,
-                        volumes: vec![config_volume.clone(), log_volume],
+                        volumes: module_volumes,
                         environment: Environment::KvPair(module_envs),
                         depends_on: DependsOnOptions::Simple(vec!["cb_pbs".to_owned()]),
                         ..Service::default()
@@ -201,6 +181,21 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
         }
     };
 
+    // setup pbs service
+    if metrics_enabled {
+        targets.push(PrometheusTargetConfig {
+            targets: vec![format!("cb_pbs:{metrics_port}")],
+            labels: PrometheusLabelsConfig { job: "pbs".to_owned() },
+        });
+    }
+
+    let mut pbs_envs = IndexMap::from([get_env_val(CB_CONFIG_ENV, CB_CONFIG_NAME)]);
+    pbs_envs.extend(logging_envs.clone());
+    if metrics_enabled {
+        let (key, val) = get_env_uval(METRICS_SERVER_ENV, metrics_port as u64);
+        pbs_envs.insert(key, val);
+    }
+
     if !builder_events_modules.is_empty() {
         let env = builder_events_modules.join(",");
         let (k, v) = get_env_val(BUILDER_SERVER_ENV, &env);
@@ -208,7 +203,8 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     }
 
     // volumes
-    let log_volume = get_log_volume(cb_config.logs.log_dir_path.clone(), PBS_MODULE_NAME);
+    let mut pbs_volumes = vec![config_volume.clone()];
+    pbs_volumes.extend(get_log_volume(&cb_config.logs, PBS_MODULE_NAME));
 
     // networks
     let pbs_networs = if metrics_enabled {
@@ -228,14 +224,12 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
             cb_config.pbs.pbs_config.port, cb_config.pbs.pbs_config.port
         )]),
         networks: pbs_networs,
-        volumes: vec![config_volume.clone(), log_volume],
+        volumes: pbs_volumes,
         environment: Environment::KvPair(pbs_envs),
         ..Service::default()
     };
 
     services.insert("cb_pbs".to_owned(), Some(pbs_service));
-
-    // TODO: validate if we have signer modules but not signer config
 
     // setup signer service
     if let Some(signer_config) = cb_config.signer {
@@ -251,15 +245,10 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                 get_env_val(CB_CONFIG_ENV, CB_CONFIG_NAME),
                 get_env_same(JWTS_ENV),
                 get_env_uval(SIGNER_SERVER_ENV, signer_port as u64),
-                get_env_val(ROLLING_DURATION_ENV, &cb_config.logs.rotation.to_string()),
-                get_env_val(RUST_LOG_ENV, &cb_config.logs.log_level),
             ]);
+            signer_envs.extend(logging_envs);
             if metrics_enabled {
                 let (key, val) = get_env_uval(METRICS_SERVER_ENV, metrics_port as u64);
-                signer_envs.insert(key, val);
-            }
-            if let Some(max_files) = cb_config.logs.max_log_files {
-                let (key, val) = get_env_uval(MAX_LOG_FILES_ENV, max_files as u64);
                 signer_envs.insert(key, val);
             }
 
@@ -268,9 +257,8 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
             envs.insert(JWTS_ENV.into(), format!("{jwts_json:?}"));
 
             // volumes
-            let log_volume =
-                get_log_volume(cb_config.logs.log_dir_path.clone(), SIGNER_MODULE_NAME);
-            let mut volumes = vec![config_volume.clone(), log_volume];
+            let mut volumes = vec![config_volume.clone()];
+
             // TODO: generalize this, different loaders may not need volumes but eg ports
             match signer_config.loader {
                 SignerLoader::File { key_path } => {
@@ -291,6 +279,8 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                     signer_envs.insert(k, v);
                 }
             };
+
+            volumes.extend(get_log_volume(&cb_config.logs, SIGNER_MODULE_NAME));
 
             // networks
             let mut signer_networks = vec![SIGNER_NETWORK.to_owned()];
@@ -510,6 +500,10 @@ fn get_env_uval(k: &str, v: u64) -> (String, Option<SingleValue>) {
     (k.into(), Some(SingleValue::Unsigned(v)))
 }
 
+fn get_env_bool(k: &str, v: bool) -> (String, Option<SingleValue>) {
+    (k.into(), Some(SingleValue::Bool(v)))
+}
+
 /// A prometheus target, use to dynamically add targets to the prometheus config
 #[derive(Debug, Serialize)]
 struct PrometheusTargetConfig {
@@ -522,11 +516,13 @@ struct PrometheusLabelsConfig {
     job: String,
 }
 
-fn get_log_volume(host_path: PathBuf, module_id: &str) -> Volumes {
-    let p = host_path.join(module_id);
-    Volumes::Simple(format!(
-        "{}:{}",
-        p.to_str().expect("could not convert pathbuf to str"),
-        CB_BASE_LOG_PATH
-    ))
+fn get_log_volume(maybe_config: &Option<LogsSettings>, module_id: &str) -> Option<Volumes> {
+    maybe_config.as_ref().map(|config| {
+        let p = config.log_dir_path.join(module_id);
+        Volumes::Simple(format!(
+            "{}:{}",
+            p.to_str().expect("could not convert pathbuf to str"),
+            CB_BASE_LOG_PATH
+        ))
+    })
 }

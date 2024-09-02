@@ -134,11 +134,8 @@ prometheus_config = "./docker/prometheus.yml"
 use_grafana = true
 
 # Configuration for how logs should be collected and stored
-# OPTIONAL
+# OPTIONAL, info to stdout if missing
 [logs]
-# Log rotation policy. Supported values: hourly, daily, never
-# OPTIONAL, DEFAULT: daily
-rotation = "daily"
 # Path to the log directory
 # OPTIONAL, DEFAULT: /var/logs/commit-boost
 log_dir_path = "./logs"
