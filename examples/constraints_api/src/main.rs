@@ -23,14 +23,14 @@ use cb_common::{
     config::PbsConfig,
     pbs::{
         error::{PbsError, ValidationError},
-        GetHeaderReponse, RelayClient, SignedExecutionPayloadHeader, EMPTY_TX_ROOT_HASH,
+        GetHeaderResponse, RelayClient, SignedExecutionPayloadHeader, EMPTY_TX_ROOT_HASH,
         HEADER_SLOT_UUID_KEY, HEADER_START_TIME_UNIX_MS,
     },
     signature::verify_signed_builder_message,
     types::Chain,
     utils::{get_user_agent_with_version, ms_into_slot},
 };
-use constraints::{ConstraintsCache, ConstraintsWithProofData};
+use constraints::ConstraintsCache;
 use eyre::Result;
 use futures::{future::join_all, stream::FuturesUnordered, StreamExt};
 use lazy_static::lazy_static;
@@ -220,10 +220,9 @@ async fn get_header_with_proofs(
 
         match res {
             Ok(Some(res)) => {
-                // TODO: check if returned transactions hashes and roots are the same as the saved ones
-
                 let root = res.data.header.message.header.transactions_root;
 
+                let start = Instant::now();
                 // TODO: verify in order to add to relay_bids!
                 if let Err(e) =
                     verify_multiproofs(constraints.as_ref().unwrap(), &res.data.proofs, root)
@@ -231,12 +230,13 @@ async fn get_header_with_proofs(
                     error!(?e, relay_id, "Failed to verify multiproof, skipping bid");
                     continue;
                 }
+                tracing::debug!("Verified multiproof in {:?}", start.elapsed());
 
                 // Save the proofs per block hash
                 hash_to_proofs.insert(res.data.header.message.header.block_hash, res.data.proofs);
 
                 let vanilla_response =
-                    GetHeaderReponse { version: res.version, data: res.data.header };
+                    GetHeaderResponse { version: res.version, data: res.data.header };
 
                 relay_bids.push(vanilla_response)
             }
