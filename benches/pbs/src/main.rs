@@ -124,7 +124,7 @@ async fn main() {
         table.add_row(vec![result.id, r50, r90, r95, r99]);
     }
 
-    println!("");
+    println!();
 
     println!("Bench results (lower is better)");
     println!("Lowest is indicated with *, percentages are relative to lowest");
