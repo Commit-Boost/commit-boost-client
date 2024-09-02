@@ -284,99 +284,103 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
             ..NetworkSettings::default()
         }),
     );
+    if let Some(metrics) = cb_config.metrics {
+        let prom_volume = Volumes::Simple(format!(
+            "{}:/etc/prometheus/prometheus.yml",
+            metrics.prometheus_config
+        ));
+        // TODO: fix path to targets file
+        let targets_volume =
+            Volumes::Simple(format!("./{}:/etc/prometheus/targets.json", CB_TARGETS_FILE));
 
-    let prom_volume = Volumes::Simple(format!(
-        "{}:/etc/prometheus/prometheus.yml",
-        cb_config.metrics.prometheus_config
-    ));
-    // TODO: fix path to targets file
-    let targets_volume =
-        Volumes::Simple(format!("./{}:/etc/prometheus/targets.json", CB_TARGETS_FILE));
+        let data_volume = Volumes::Simple(format!("{}:/prometheus", PROMETHEUS_DATA_VOLUME));
 
-    let data_volume = Volumes::Simple(format!("{}:/prometheus", PROMETHEUS_DATA_VOLUME));
+        let grafana_data_volume =
+            Volumes::Simple(format!("{}:/var/lib/grafana", GRAFANA_DATA_VOLUME));
 
-    let grafana_data_volume = Volumes::Simple(format!("{}:/var/lib/grafana", GRAFANA_DATA_VOLUME));
+        volumes.insert(
+            PROMETHEUS_DATA_VOLUME.to_owned(),
+            MapOrEmpty::Map(ComposeVolume {
+                driver: Some("local".to_owned()),
+                driver_opts: IndexMap::default(),
+                external: None,
+                labels: Labels::default(),
+                name: None,
+            }),
+        );
 
-    volumes.insert(
-        PROMETHEUS_DATA_VOLUME.to_owned(),
-        MapOrEmpty::Map(ComposeVolume {
-            driver: Some("local".to_owned()),
-            driver_opts: IndexMap::default(),
-            external: None,
-            labels: Labels::default(),
-            name: None,
-        }),
-    );
-
-    volumes.insert(
-        GRAFANA_DATA_VOLUME.to_owned(),
-        MapOrEmpty::Map(ComposeVolume {
-            driver: Some("local".to_owned()),
-            driver_opts: IndexMap::default(),
-            external: None,
-            labels: Labels::default(),
-            name: None,
-        }),
-    );
-    exposed_ports_warn.push("prometheus has an exported port on 9090".to_string());
-    let prometheus_service = Service {
-        container_name: Some("cb_prometheus".to_owned()),
-        image: Some("prom/prometheus:latest".to_owned()),
-        volumes: vec![prom_volume, targets_volume, data_volume],
-        // to inspect prometheus from localhost
-        ports: Ports::Short(vec!["9090:9090".to_owned()]),
-        networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
-        ..Service::default()
-    };
-
-    services.insert("cb_prometheus".to_owned(), Some(prometheus_service));
-
-    if cb_config.metrics.use_grafana {
-        exposed_ports_warn.push("grafana has an exported port on 3000".to_string());
-        let grafana_service = Service {
-            container_name: Some("cb_grafana".to_owned()),
-            image: Some("grafana/grafana:latest".to_owned()),
-            ports: Ports::Short(vec!["3000:3000".to_owned()]),
+        volumes.insert(
+            GRAFANA_DATA_VOLUME.to_owned(),
+            MapOrEmpty::Map(ComposeVolume {
+                driver: Some("local".to_owned()),
+                driver_opts: IndexMap::default(),
+                external: None,
+                labels: Labels::default(),
+                name: None,
+            }),
+        );
+        exposed_ports_warn.push("prometheus has an exported port on 9090".to_string());
+        let prometheus_service = Service {
+            container_name: Some("cb_prometheus".to_owned()),
+            image: Some("prom/prometheus:latest".to_owned()),
+            volumes: vec![prom_volume, targets_volume, data_volume],
+            // to inspect prometheus from localhost
+            ports: Ports::Short(vec!["9090:9090".to_owned()]),
             networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
-            depends_on: DependsOnOptions::Simple(vec!["cb_prometheus".to_owned()]),
-            environment: Environment::List(vec!["GF_SECURITY_ADMIN_PASSWORD=admin".to_owned()]),
-            volumes: vec![
-                Volumes::Simple(
-                    "./grafana/dashboards:/etc/grafana/provisioning/dashboards".to_owned(),
-                ),
-                Volumes::Simple(
-                    "./grafana/datasources:/etc/grafana/provisioning/datasources".to_owned(),
-                ),
-                grafana_data_volume,
-            ],
-            // TODO: re-enable logging here once we move away from docker logs
-            logging: Some(LoggingParameters { driver: Some("none".to_owned()), options: None }),
             ..Service::default()
         };
 
-        services.insert("cb_grafana".to_owned(), Some(grafana_service));
-    }
-    exposed_ports_warn.push("cadvisor has an exported port on 8080".to_string());
-    services.insert(
-        "cb_cadvisor".to_owned(),
-        Some(Service {
-            container_name: Some("cb_cadvisor".to_owned()),
-            image: Some("gcr.io/cadvisor/cadvisor".to_owned()),
-            ports: Ports::Short(vec![format!("{cadvisor_port}:8080")]),
-            networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
-            volumes: vec![
-                Volumes::Simple("/var/run/docker.sock:/var/run/docker.sock:ro".to_owned()),
-                Volumes::Simple("/sys:/sys:ro".to_owned()),
-                Volumes::Simple("/var/lib/docker/:/var/lib/docker:ro".to_owned()),
-            ],
-            ..Service::default()
-        }),
-    );
+        services.insert("cb_prometheus".to_owned(), Some(prometheus_service));
 
-    targets.push(PrometheusTargetConfig {
-        targets: vec![format!("cb_cadvisor:{cadvisor_port}")],
-        labels: PrometheusLabelsConfig { job: "cadvisor".to_owned() },
-    });
+        if metrics.use_grafana {
+            exposed_ports_warn.push("grafana has an exported port on 3000".to_string());
+            let grafana_service = Service {
+                container_name: Some("cb_grafana".to_owned()),
+                image: Some("grafana/grafana:latest".to_owned()),
+                ports: Ports::Short(vec!["3000:3000".to_owned()]),
+                networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
+                depends_on: DependsOnOptions::Simple(vec!["cb_prometheus".to_owned()]),
+                environment: Environment::List(vec!["GF_SECURITY_ADMIN_PASSWORD=admin".to_owned()]),
+                volumes: vec![
+                    Volumes::Simple(
+                        "./grafana/dashboards:/etc/grafana/provisioning/dashboards".to_owned(),
+                    ),
+                    Volumes::Simple(
+                        "./grafana/datasources:/etc/grafana/provisioning/datasources".to_owned(),
+                    ),
+                    grafana_data_volume,
+                ],
+                // TODO: re-enable logging here once we move away from docker logs
+                logging: Some(LoggingParameters { driver: Some("none".to_owned()), options: None }),
+                ..Service::default()
+            };
+
+            services.insert("cb_grafana".to_owned(), Some(grafana_service));
+        }
+        exposed_ports_warn.push("cadvisor has an exported port on 8080".to_string());
+        services.insert(
+            "cb_cadvisor".to_owned(),
+            Some(Service {
+                container_name: Some("cb_cadvisor".to_owned()),
+                image: Some("gcr.io/cadvisor/cadvisor".to_owned()),
+                ports: Ports::Short(vec![format!("{cadvisor_port}:8080")]),
+                networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
+                volumes: vec![
+                    Volumes::Simple("/var/run/docker.sock:/var/run/docker.sock:ro".to_owned()),
+                    Volumes::Simple("/sys:/sys:ro".to_owned()),
+                    Volumes::Simple("/var/lib/docker/:/var/lib/docker:ro".to_owned()),
+                ],
+                ..Service::default()
+            }),
+        );
+
+        targets.push(PrometheusTargetConfig {
+            targets: vec![format!("cb_cadvisor:{cadvisor_port}")],
+            labels: PrometheusLabelsConfig { job: "cadvisor".to_owned() },
+        });
+    } else {
+        println!("[WARN]: metrics disabled")
+    }
 
     compose.services = Services(services);
     compose.volumes = TopLevelVolumes(volumes);
