@@ -118,6 +118,7 @@ docker_image = "test_da_commit"
 sleep_secs = 5
 
 # Configuration for how metrics should be collected and scraped
+# OPTIONAL, skip metrics collection if missing
 [metrics]
 # Path to a `prometheus.yml` file to use in Prometheus. If using a custom config file, be sure to add a
 # file discovery section as follows:
