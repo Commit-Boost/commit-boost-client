@@ -22,9 +22,9 @@ pub struct GetHeaderParams {
 }
 
 /// Returned by relay in get_header
-pub type GetHeaderReponse = VersionedResponse<SignedExecutionPayloadHeader>;
+pub type GetHeaderResponse = VersionedResponse<SignedExecutionPayloadHeader>;
 
-impl GetHeaderReponse {
+impl GetHeaderResponse {
     pub fn block_hash(&self) -> B256 {
         self.data.message.header.block_hash
     }
@@ -68,7 +68,7 @@ impl ExecutionPayloadHeaderMessage {
 mod tests {
     use alloy::primitives::U256;
 
-    use super::GetHeaderReponse;
+    use super::GetHeaderResponse;
     use crate::{signature::verify_signed_builder_message, types::Chain};
 
     #[test]
@@ -111,7 +111,7 @@ mod tests {
             }
         }"#;
 
-        let parsed = serde_json::from_str::<GetHeaderReponse>(&data).unwrap().data;
+        let parsed = serde_json::from_str::<GetHeaderResponse>(&data).unwrap().data;
 
         assert_eq!(parsed.message.value(), U256::from(4293912964927787u64));
 

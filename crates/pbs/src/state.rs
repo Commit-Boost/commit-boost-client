@@ -6,7 +6,7 @@ use std::{
 use alloy::{primitives::B256, rpc::types::beacon::BlsPublicKey};
 use cb_common::{
     config::{PbsConfig, PbsModuleConfig},
-    pbs::{BuilderEvent, GetHeaderReponse, RelayClient},
+    pbs::{BuilderEvent, GetHeaderResponse, RelayClient},
 };
 use dashmap::DashMap;
 use uuid::Uuid;
@@ -25,7 +25,7 @@ pub struct PbsState<S: BuilderApiState = ()> {
     /// Info about the latest slot and its uuid
     current_slot_info: Arc<Mutex<(u64, Uuid)>>,
     /// Keeps track of which relays delivered which block for which slot
-    bid_cache: Arc<DashMap<u64, Vec<GetHeaderReponse>>>,
+    bid_cache: Arc<DashMap<u64, Vec<GetHeaderResponse>>>,
 }
 
 impl PbsState<()> {
@@ -88,7 +88,7 @@ where
 
     /// Add some bids to the cache, the bids are all assumed to be for the
     /// provided slot Returns the bid with the max value
-    pub fn add_bids(&self, slot: u64, bids: Vec<GetHeaderReponse>) -> Option<GetHeaderReponse> {
+    pub fn add_bids(&self, slot: u64, bids: Vec<GetHeaderResponse>) -> Option<GetHeaderResponse> {
         let mut slot_entry = self.bid_cache.entry(slot).or_default();
         slot_entry.extend(bids);
         slot_entry.iter().max_by_key(|bid| bid.value()).cloned()
