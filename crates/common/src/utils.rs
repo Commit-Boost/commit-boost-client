@@ -140,14 +140,6 @@ pub fn initialize_tracing_log(module_id: &str) -> WorkerGuard {
         .unwrap_or(false);
 
     if use_file_logs {
-        let (writer, guard) = tracing_appender::non_blocking(std::io::stdout());
-        let stdout_layer = tracing_subscriber::fmt::layer()
-            .with_target(false)
-            .with_writer(writer)
-            .with_filter(stdout_filter);
-        tracing_subscriber::registry().with(stdout_layer).init();
-        guard
-    } else {
         // Log all events to a rolling log file.
         let mut builder =
             tracing_appender::rolling::Builder::new().filename_prefix(module_id.to_lowercase());
@@ -177,6 +169,14 @@ pub fn initialize_tracing_log(module_id: &str) -> WorkerGuard {
             .with_filter(file_log_filter);
 
         tracing_subscriber::registry().with(stdout_layer.and_then(file_layer)).init();
+        guard
+    } else {
+        let (writer, guard) = tracing_appender::non_blocking(std::io::stdout());
+        let stdout_layer = tracing_subscriber::fmt::layer()
+            .with_target(false)
+            .with_writer(writer)
+            .with_filter(stdout_filter);
+        tracing_subscriber::registry().with(stdout_layer).init();
         guard
     }
 }
