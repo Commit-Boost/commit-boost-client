@@ -6,10 +6,9 @@ chain = "Holesky"
 
 # Configuration for the PBS module
 [pbs]
-# Docker image to use for the PBS module. This currently defaults to the image built in `scripts/build_local_images.sh` and will be
-# replaced by the official Commit-Boost PBS module once published in a public registry
-# OPTIONAL, DEFAULT: commitboost_pbs_default
-docker_image = "commitboost_pbs_default"
+# Docker image to use for the PBS module.
+# OPTIONAL, DEFAULT: ghcr.io/commit-boost/pbs:latest
+docker_image = "ghcr.io/commit-boost/pbs:latest"
 # Whether to enable the PBS module to request signatures from the Signer module (not used in the default PBS image)
 # OPTIONAL, DEFAULT: false
 with_signer = false
@@ -85,10 +84,9 @@ frequency_get_header_ms = 300
 # Configuration for the Signer Module, only required if any `commit` module is present, or if `pbs.with_signer = true`
 # OPTIONAL
 [signer]
-# Docker image to use for the Signer module. This currently defaults to the image built in `scripts/build_local_images.sh` and will be
-# replaced by the official Commit-Boost Signer module once published in a public registry
-# OPTIONAL, DEFAULT: commitboost_signer
-docker_image = "commitboost_signer"
+# Docker image to use for the Signer module.
+# OPTIONAL, DEFAULT: ghcr.io/commit-boost/signer:latest
+docker_image = "ghcr.io/commit-boost/signer:latest"
 # Configuration for how the Signer module should load validator keys. Currently two types of loaders are supported:
 #   - File: load keys from a plain text file (unsafe, use only for testing purposes)
 #   - ValidatorsDir: load keys from a `keys` and `secrets` folder (ERC-2335 style keystores as used in Lighthouse)

@@ -3,6 +3,7 @@ name = "cb-signer"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+publish = false
 
 [dependencies]
 cb-common.workspace = true
