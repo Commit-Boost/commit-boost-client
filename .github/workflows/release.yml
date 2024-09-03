@@ -30,8 +30,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        # with:
-        #   ref: "stable"
+        with:
+          ref: "stable"
 
       - name: Install GNU toolchain (Windows)
         if: matrix.target == 'x86_64-pc-windows-gnu'
@@ -83,8 +83,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        # with:
-        #   ref: "stable"
+        with:
+          ref: "stable"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
