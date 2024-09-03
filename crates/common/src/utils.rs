@@ -16,19 +16,16 @@ use tracing_appender::{non_blocking::WorkerGuard, rolling::Rotation};
 use tracing_subscriber::{fmt::Layer, prelude::*, EnvFilter};
 
 use crate::{
-    config::{default_log_level, RollingDuration, CB_BASE_LOG_PATH, PBS_MODULE_NAME},
+    config::{
+        default_log_level, load_optional_env_var, CB_BASE_LOG_PATH, MAX_LOG_FILES_ENV,
+        PBS_MODULE_NAME, RUST_LOG_ENV, USE_FILE_LOGS_ENV,
+    },
     pbs::HEADER_VERSION_VALUE,
     types::Chain,
 };
 
 const SECONDS_PER_SLOT: u64 = 12;
 const MILLIS_PER_SECOND: u64 = 1_000;
-
-pub const ROLLING_DURATION_ENV: &str = "ROLLING_DURATION";
-
-pub const MAX_LOG_FILES_ENV: &str = "MAX_LOG_FILES";
-
-pub const RUST_LOG_ENV: &str = "RUST_LOG";
 
 pub fn timestamp_of_slot_start_millis(slot: u64, chain: Chain) -> u64 {
     let seconds_since_genesis = chain.genesis_time_sec() + slot * SECONDS_PER_SLOT;
@@ -127,31 +124,7 @@ pub const fn default_u256() -> U256 {
 
 // LOGGING
 pub fn initialize_tracing_log(module_id: &str) -> WorkerGuard {
-    // Log all events to a rolling log file.
-    let mut builder =
-        tracing_appender::rolling::Builder::new().filename_prefix(module_id.to_lowercase());
-    if let Ok(value) = env::var(MAX_LOG_FILES_ENV) {
-        builder =
-            builder.max_log_files(value.parse().expect("MAX_LOG_FILES is not a valid usize value"));
-    }
-
-    let rotation = match env::var(ROLLING_DURATION_ENV)
-        .unwrap_or(RollingDuration::default().to_string())
-        .as_str()
-    {
-        "hourly" => Rotation::HOURLY,
-        "daily" => Rotation::DAILY,
-        "never" => Rotation::NEVER,
-        _ => panic!("unknown rotation value"),
-    };
-
-    let log_file = builder
-        .rotation(rotation)
-        .build(CB_BASE_LOG_PATH)
-        .expect("failed building rolling file appender");
-
     let level_env = std::env::var(RUST_LOG_ENV).unwrap_or(default_log_level());
-
     // Log level for stdout
     let stdout_log_level = match level_env.parse::<Level>() {
         Ok(f) => f,
@@ -160,26 +133,52 @@ pub fn initialize_tracing_log(module_id: &str) -> WorkerGuard {
             Level::INFO
         }
     };
+    let stdout_filter = format_crates_filter(Level::INFO.as_str(), stdout_log_level.as_str());
 
-    // at least debug for file logs
-    let file_log_level = stdout_log_level.max(Level::DEBUG);
+    let use_file_logs = load_optional_env_var(USE_FILE_LOGS_ENV)
+        .map(|s| s.parse().expect("failed to parse USE_FILE_LOGS"))
+        .unwrap_or(false);
 
-    let stdout_log_filter = format_crates_filter(Level::INFO.as_str(), stdout_log_level.as_str());
-    let file_log_filter = format_crates_filter(Level::INFO.as_str(), file_log_level.as_str());
+    if use_file_logs {
+        let (writer, guard) = tracing_appender::non_blocking(std::io::stdout());
+        let stdout_layer = tracing_subscriber::fmt::layer()
+            .with_target(false)
+            .with_writer(writer)
+            .with_filter(stdout_filter);
+        tracing_subscriber::registry().with(stdout_layer).init();
+        guard
+    } else {
+        // Log all events to a rolling log file.
+        let mut builder =
+            tracing_appender::rolling::Builder::new().filename_prefix(module_id.to_lowercase());
+        if let Ok(value) = env::var(MAX_LOG_FILES_ENV) {
+            builder = builder
+                .max_log_files(value.parse().expect("MAX_LOG_FILES is not a valid usize value"));
+        }
+        let file_appender = builder
+            .rotation(Rotation::DAILY)
+            .build(CB_BASE_LOG_PATH)
+            .expect("failed building rolling file appender");
 
-    let stdout_log =
-        tracing_subscriber::fmt::layer().with_target(false).with_filter(stdout_log_filter);
-    let (default_writer, guard) = tracing_appender::non_blocking(log_file);
-    let file_log = Layer::new()
-        .json()
-        .with_current_span(false)
-        .with_span_list(true)
-        .with_writer(default_writer)
-        .with_filter(file_log_filter);
+        let (writer, guard) = tracing_appender::non_blocking(file_appender);
 
-    tracing_subscriber::registry().with(stdout_log.and_then(file_log)).init();
+        // at least debug for file logs
+        let file_log_level = stdout_log_level.max(Level::DEBUG);
+        let file_log_filter = format_crates_filter(Level::INFO.as_str(), file_log_level.as_str());
 
-    guard
+        let stdout_layer =
+            tracing_subscriber::fmt::layer().with_target(false).with_filter(stdout_filter);
+
+        let file_layer = Layer::new()
+            .json()
+            .with_current_span(false)
+            .with_span_list(true)
+            .with_writer(writer)
+            .with_filter(file_log_filter);
+
+        tracing_subscriber::registry().with(stdout_layer.and_then(file_layer)).init();
+        guard
+    }
 }
 
 pub fn initialize_pbs_tracing_log() -> WorkerGuard {
