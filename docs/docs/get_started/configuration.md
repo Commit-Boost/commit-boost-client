@@ -4,9 +4,11 @@ sidebar_position: 2
 
 # Configuration
 
-After the Commit-Boost CLI is setup as detailed in the previous section, you will need to create a `cb-config.toml` file, detailing all the services that you want to run. 
+After the Commit-Boost CLI and the modules are setup as detailed in the previous section, you will need to create a `cb-config.toml` file, detailing all the services that you want to run. 
 
 For a full explanation of all the fields, check out [here](https://github.com/Commit-Boost/commit-boost-client/blob/main/config.example.toml).
+
+For some additional examples on config presets, check out [here](https://github.com/Commit-Boost/commit-boost-client/tree/main/configs).
 
 ## Minimal PBS setup on Holesky
 ```toml
@@ -38,7 +40,6 @@ The `cb-config.toml` file needs to be updated as follows:
 port = 18550
 
 [[relays]]
-# Add a relay URL here
 url = ""
 
 [signer]

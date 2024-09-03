@@ -22,8 +22,8 @@ pub const SIGNER_DIR_SECRETS: &str = "/secrets";
 pub const JWTS_ENV: &str = "CB_JWTS";
 
 // TODO: replace these with an actual image in the registry
-pub const PBS_DEFAULT_IMAGE: &str = "commitboost_pbs_default";
-pub const SIGNER_IMAGE: &str = "commitboost_signer";
+pub const PBS_DEFAULT_IMAGE: &str = "ghcr.io/commit-boost/pbs:latest";
+pub const SIGNER_IMAGE: &str = "ghcr.io/commit-boost/signer:latest";
 
 // Module names
 pub const PBS_MODULE_NAME: &str = "pbs";

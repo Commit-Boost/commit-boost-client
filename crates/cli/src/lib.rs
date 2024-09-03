@@ -1,12 +1,12 @@
 use cb_common::utils::print_logo;
 use clap::{Parser, Subcommand};
-use docker_init::{CB_COMPOSE_FILE, CB_CONFIG_FILE, CB_ENV_FILE};
+use docker_init::{CB_COMPOSE_FILE, CB_ENV_FILE};
 
 mod docker_cmd;
 mod docker_init;
 
 #[derive(Parser, Debug)]
-#[command(version, about)]
+#[command(version, about, long_about = LONG_ABOUT, name = "commit-boost-cli")]
 pub struct Args {
     #[command(subcommand)]
     pub cmd: Command,
@@ -14,9 +14,10 @@ pub struct Args {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Generate the starting docker-compose file
     Init {
         /// Path to config file
-        #[arg(long("config"), default_value = CB_CONFIG_FILE)]
+        #[arg(long("config"))]
         config_path: String,
 
         /// Path to output files
@@ -24,6 +25,7 @@ pub enum Command {
         output_path: String,
     },
 
+    /// Start the Commit-Boost services
     Start {
         /// Path to docker compose file
         #[arg(
@@ -38,6 +40,7 @@ pub enum Command {
         env_path: Option<String>,
     },
 
+    /// Stop the Commit-Boost services
     Stop {
         /// Path to docker compose file
         #[arg(
@@ -52,6 +55,7 @@ pub enum Command {
         env_path: String,
     },
 
+    /// See stdout logs
     Logs {
         /// Path to docker compose file
         #[arg(
@@ -84,3 +88,5 @@ impl Args {
         }
     }
 }
+
+const LONG_ABOUT: &str = "Commit-Boost allows Ethereum validators to safely run MEV-Boost and community-built commitment protocols";
