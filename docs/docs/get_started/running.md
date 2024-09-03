@@ -11,23 +11,23 @@ After creating the `cb-config.toml` file, you can now run the Commit-Boost sidec
 ```bash
 commit-boost init --config cb-config.toml
 ```
-This will create three files:
+This will create up to three files:
 - `cb.docker-compose.yml`, which contains the full setup of the Commit-Boost services
-- `.cb.env`, with local env variables, including JWTs for modules
-- `target.json`, which enables dynamic discovery of services for metrics scraping via Prometheus
+- `.cb.env`, with local env variables, including JWTs for modules, only created if the signer module is enabled
+- `target.json`, which enables dynamic discovery of services for metrics scraping via Prometheus, only created if metrics are enabled
 
 ## Start
 
 To start Commit-Boost run:
 ```bash
-commit-boost start --docker cb.docker-compose.yml --env .cb.env
+commit-boost start --docker cb.docker-compose.yml [--env .cb.env]
 ```
 
-This will start up the services including PBS, commit modules (if any), and metrics collection.
+This will start up the services including PBS, commit modules (if any), and metrics collection (if enabled).
 
 The MEV-Boost server will be exposed at `pbs.port` from the config, `18550` in our example. You'll need to point your CL/Validator client to this port to be able to source blocks from the builder market.
 
-This will also start a Prometheus server on port `9090` and a Grafana instance on port `3000`. We're working to provide [built-in dashboards](https://github.com/Commit-Boost/commit-boost-client/issues/14) for the core services.
+If enabled, this will also start a Prometheus server on port `9090` and a Grafana instance on port `3000`. In Grafana, you will also find some preset dabhboards already connected.
 
 
 ## Logs
@@ -36,7 +36,7 @@ To check logs, run:
 ```bash
 commit-boost logs
 ```
-This will currently show all logs from the different services via the Docker logs interface. We're working to add [persistent](https://github.com/Commit-Boost/commit-boost-client/issues/21) logging. 
+This will currently show all logs from the different services via the Docker logs interface. Logs are also optionally saved to file, depending on your `[logs]` configuration.
 
 ## Stop
 

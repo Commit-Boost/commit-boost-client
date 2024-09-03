@@ -19,7 +19,6 @@ use eyre::Result;
 use indexmap::IndexMap;
 use serde::Serialize;
 
-pub(super) const CB_CONFIG_FILE: &str = "cb-config.toml";
 pub(super) const CB_COMPOSE_FILE: &str = "cb.docker-compose.yml";
 pub(super) const CB_ENV_FILE: &str = ".cb.env";
 pub(super) const CB_TARGETS_FILE: &str = "targets.json"; // needs to match prometheus.yml
