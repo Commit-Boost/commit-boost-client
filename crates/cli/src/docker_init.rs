@@ -155,7 +155,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                     }
 
                     // networks
-                    let modules_neworks = if metrics_enabled {
+                    let modules_networks = if metrics_enabled {
                         Networks::Simple(vec![METRICS_NETWORK.to_owned()])
                     } else {
                         Networks::default()
@@ -168,7 +168,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                     Service {
                         container_name: Some(module_cid.clone()),
                         image: Some(module.docker_image),
-                        networks: modules_neworks,
+                        networks: modules_networks,
                         volumes: module_volumes,
                         environment: Environment::KvPair(module_envs),
                         depends_on: DependsOnOptions::Simple(vec!["cb_pbs".to_owned()]),
