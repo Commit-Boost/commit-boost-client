@@ -13,7 +13,7 @@ use axum::{
 };
 use cb_common::{
     pbs::{
-        GetHeaderParams, GetHeaderReponse, SubmitBlindedBlockResponse, BUILDER_API_PATH,
+        GetHeaderParams, GetHeaderResponse, SubmitBlindedBlockResponse, BUILDER_API_PATH,
         GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
     },
     signer::ConsensusSigner,
@@ -78,7 +78,7 @@ async fn handle_get_header(
 ) -> Response {
     state.received_get_header.fetch_add(1, Ordering::Relaxed);
 
-    let mut response = GetHeaderReponse::default();
+    let mut response = GetHeaderResponse::default();
     response.data.message.header.parent_hash = parent_hash;
     response.data.message.header.block_hash.0[0] = 1;
     response.data.message.set_value(U256::from(10));

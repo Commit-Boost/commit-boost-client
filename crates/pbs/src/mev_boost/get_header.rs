@@ -9,7 +9,7 @@ use cb_common::{
     config::PbsConfig,
     pbs::{
         error::{PbsError, ValidationError},
-        GetHeaderParams, GetHeaderReponse, RelayClient, SignedExecutionPayloadHeader,
+        GetHeaderParams, GetHeaderResponse, RelayClient, SignedExecutionPayloadHeader,
         EMPTY_TX_ROOT_HASH, HEADER_SLOT_UUID_KEY, HEADER_START_TIME_UNIX_MS,
     },
     signature::verify_signed_builder_message,
@@ -34,7 +34,7 @@ pub async fn get_header<S: BuilderApiState>(
     params: GetHeaderParams,
     req_headers: HeaderMap,
     state: PbsState<S>,
-) -> eyre::Result<Option<GetHeaderReponse>> {
+) -> eyre::Result<Option<GetHeaderResponse>> {
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
     let max_timeout_ms = state
         .pbs_config()
@@ -97,7 +97,7 @@ async fn send_timed_get_header(
     headers: HeaderMap,
     ms_into_slot: u64,
     mut timeout_left_ms: u64,
-) -> Result<Option<GetHeaderReponse>, PbsError> {
+) -> Result<Option<GetHeaderResponse>, PbsError> {
     let url = relay.get_header_url(params.slot, params.parent_hash, params.pubkey)?;
 
     if relay.config.enable_timing_games {
@@ -206,7 +206,7 @@ async fn send_one_get_header(
     skip_sigverify: bool,
     min_bid_wei: U256,
     mut req_config: RequestConfig,
-) -> Result<(u64, Option<GetHeaderReponse>), PbsError> {
+) -> Result<(u64, Option<GetHeaderResponse>), PbsError> {
     // the timestamp in the header is the consensus block time which is fixed,
     // use the beginning of the request as proxy to make sure we use only the
     // last one received
@@ -257,7 +257,7 @@ async fn send_one_get_header(
         return Ok((start_request_time, None));
     }
 
-    let get_header_response: GetHeaderReponse = serde_json::from_slice(&response_bytes)?;
+    let get_header_response: GetHeaderResponse = serde_json::from_slice(&response_bytes)?;
 
     debug!(
         latency = ?request_latency,

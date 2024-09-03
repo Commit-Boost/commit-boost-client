@@ -2,7 +2,7 @@ use alloy::rpc::types::beacon::relay::ValidatorRegistration;
 use async_trait::async_trait;
 use axum::{http::HeaderMap, Router};
 use cb_common::pbs::{
-    GetHeaderParams, GetHeaderReponse, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
+    GetHeaderParams, GetHeaderResponse, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
 };
 
 use crate::{
@@ -22,7 +22,7 @@ pub trait BuilderApi<S: BuilderApiState>: 'static {
         params: GetHeaderParams,
         req_headers: HeaderMap,
         state: PbsState<S>,
-    ) -> eyre::Result<Option<GetHeaderReponse>> {
+    ) -> eyre::Result<Option<GetHeaderResponse>> {
         mev_boost::get_header(params, req_headers, state).await
     }
 
