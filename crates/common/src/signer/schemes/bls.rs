@@ -77,8 +77,6 @@ fn random_secret() -> BlsSecretKey {
     let mut ikm = [0u8; 32];
     rng.fill_bytes(&mut ikm);
 
-    println!("{ikm:?}");
-
     match BlsSecretKey::key_gen(&ikm, &[]) {
         Ok(key) => key,
         // Key material is always valid (32 `u8`s), so `key_gen` can't return Err.
@@ -101,30 +99,5 @@ pub fn verify_bls_signature(
         Ok(())
     } else {
         Err(res.into())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_bls_pubkey_conversion() {
-        let secret = random_secret();
-
-        println!("{secret:?}");
-
-        let secret = [
-            131, 231, 162, 159, 42, 4, 109, 144, 166, 131, 12, 91, 185, 48, 106, 219, 55, 145, 120,
-            57, 51, 152, 98, 59, 240, 181, 131, 47, 1, 180, 255, 245,
-        ];
-
-        let secret = BlsSecretKey::key_gen(&secret, &[]).unwrap();
-
-        let signer = BlsSigner::Local(secret);
-
-        let pubkey = signer.pubkey();
-
-        println!("{pubkey:?}");
     }
 }

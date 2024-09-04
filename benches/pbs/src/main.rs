@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use alloy::{primitives::B256, rpc::types::beacon::BlsPublicKey};
 use cb_common::{
     config::RelayConfig,
-    pbs::{GetHeaderReponse, RelayClient, RelayEntry},
+    pbs::{GetHeaderResponse, RelayClient, RelayEntry},
     signer::{BlsSecretKey, BlsSigner},
     types::Chain,
 };
@@ -62,7 +62,7 @@ async fn main() {
                     .expect("failed to decode response");
 
                 assert!(
-                    serde_json::from_slice::<GetHeaderReponse>(&res).is_ok(),
+                    serde_json::from_slice::<GetHeaderResponse>(&res).is_ok(),
                     "invalid header returned"
                 );
 
