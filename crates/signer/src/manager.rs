@@ -315,7 +315,10 @@ mod tests {
     }
 
     mod test_proxy_ecdsa {
-        use cb_common::signer::schemes::ecdsa::verify_ecdsa_signature;
+        use cb_common::{
+            constants::COMMIT_BOOST_DOMAIN, signature::compute_domain,
+            signer::schemes::ecdsa::verify_ecdsa_signature,
+        };
 
         use super::*;
 
@@ -377,7 +380,7 @@ mod tests {
                 .unwrap();
 
             // Verify signature
-            let domain = CHAIN.builder_domain();
+            let domain = compute_domain(CHAIN, COMMIT_BOOST_DOMAIN);
             let signing_root = compute_signing_root(data_root_bytes.tree_hash_root().0, domain);
 
             let validation_result = verify_ecdsa_signature(&proxy_pk, &signing_root, &sig);
