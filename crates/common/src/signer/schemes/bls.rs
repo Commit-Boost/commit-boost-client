@@ -70,7 +70,7 @@ impl BlsSigner {
     }
 }
 
-fn random_secret() -> BlsSecretKey {
+pub fn random_secret() -> BlsSecretKey {
     use rand::RngCore;
 
     let mut rng = rand::thread_rng();

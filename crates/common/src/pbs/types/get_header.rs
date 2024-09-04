@@ -69,7 +69,9 @@ mod tests {
     use alloy::primitives::U256;
 
     use super::GetHeaderResponse;
-    use crate::{signature::verify_signed_builder_message, types::Chain};
+    use crate::{
+        constants::APPLICATION_BUILDER_DOMAIN, signature::verify_signed_message, types::Chain,
+    };
 
     #[test]
     fn test_get_header() {
@@ -115,11 +117,12 @@ mod tests {
 
         assert_eq!(parsed.message.value(), U256::from(4293912964927787u64));
 
-        assert!(verify_signed_builder_message(
+        assert!(verify_signed_message(
             Chain::Holesky,
             &parsed.message.pubkey.into(),
             &parsed.message,
             &parsed.signature,
+            APPLICATION_BUILDER_DOMAIN
         )
         .is_ok())
     }

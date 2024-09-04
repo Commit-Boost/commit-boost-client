@@ -9,8 +9,9 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
+    constants::COMMIT_BOOST_DOMAIN,
     error::BlstErrorWrapper,
-    signature::verify_signed_builder_message,
+    signature::verify_signed_message,
     signer::schemes::{bls::BlsPublicKey, ecdsa::EcdsaPublicKey},
     types::Chain,
 };
@@ -54,11 +55,12 @@ pub type SignedProxyDelegationEcdsa = SignedProxyDelegation<EcdsaPublicKey>;
 
 impl<T: PublicKey> SignedProxyDelegation<T> {
     pub fn validate(&self, chain: Chain) -> Result<(), BlstErrorWrapper> {
-        verify_signed_builder_message(
+        verify_signed_message(
             chain,
             &self.message.delegator,
             &self.message,
             &self.signature,
+            COMMIT_BOOST_DOMAIN,
         )
     }
 }

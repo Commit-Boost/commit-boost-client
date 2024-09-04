@@ -7,12 +7,13 @@ use alloy::{
 use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
     config::PbsConfig,
+    constants::APPLICATION_BUILDER_DOMAIN,
     pbs::{
         error::{PbsError, ValidationError},
         GetHeaderParams, GetHeaderResponse, RelayClient, SignedExecutionPayloadHeader,
         EMPTY_TX_ROOT_HASH, HEADER_SLOT_UUID_KEY, HEADER_START_TIME_UNIX_MS,
     },
-    signature::verify_signed_builder_message,
+    signature::verify_signed_message,
     types::Chain,
     utils::{get_user_agent_with_version, ms_into_slot, utcnow_ms},
 };
@@ -318,11 +319,12 @@ fn validate_header(
     }
 
     if !skip_sig_verify {
-        verify_signed_builder_message(
+        verify_signed_message(
             chain,
             &received_relay_pubkey,
             &signed_header.message,
             &signed_header.signature,
+            APPLICATION_BUILDER_DOMAIN,
         )
         .map_err(ValidationError::Sigverify)?;
     }

@@ -19,8 +19,10 @@ use cb_common::{
         GetHeaderParams, GetHeaderResponse, SubmitBlindedBlockResponse, BUILDER_API_PATH,
         GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
     },
-    signer::ConsensusSigner,
+    signature::sign_builder_root,
+    signer::BlsSecretKey,
     types::Chain,
+    utils::blst_pubkey_to_alloy,
 };
 use tokio::net::TcpListener;
 use tracing::debug;
@@ -38,7 +40,7 @@ pub async fn start_mock_relay_service(state: Arc<MockRelayState>, port: u16) -> 
 
 pub struct MockRelayState {
     pub chain: Chain,
-    pub signer: ConsensusSigner,
+    pub signer: BlsSecretKey,
     received_get_header: Arc<AtomicU64>,
     received_get_status: Arc<AtomicU64>,
     received_register_validator: Arc<AtomicU64>,
@@ -61,11 +63,10 @@ impl MockRelayState {
 }
 
 impl MockRelayState {
-    pub fn new(chain: Chain, signer: ConsensusSigner) -> Self {
+    pub fn new(chain: Chain, signer: BlsSecretKey) -> Self {
         Self {
             chain,
             signer,
-
             received_get_header: Default::default(),
             received_get_status: Default::default(),
             received_register_validator: Default::default(),
@@ -95,9 +96,9 @@ async fn handle_get_header(
     response.data.message.header.parent_hash = parent_hash;
     response.data.message.header.block_hash.0[0] = 1;
     response.data.message.set_value(U256::from(10));
-    response.data.message.pubkey = state.signer.pubkey().into();
+    response.data.message.pubkey = blst_pubkey_to_alloy(&state.signer.sk_to_pk()).into();
     let object_root = response.data.message.tree_hash_root().0;
-    response.data.signature = state.signer.sign(state.chain, object_root).await;
+    response.data.signature = sign_builder_root(state.chain, &state.signer, object_root);
 
     (StatusCode::OK, axum::Json(response)).into_response()
 }

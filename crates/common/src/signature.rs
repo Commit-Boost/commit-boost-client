@@ -26,7 +26,7 @@ pub fn compute_signing_root(object_root: [u8; 32], signing_domain: [u8; 32]) -> 
     signing_data.tree_hash_root().0
 }
 
-fn compute_domain(chain: Chain, domain_mask: [u8; 4]) -> [u8; 32] {
+pub fn compute_domain(chain: Chain, domain_mask: [u8; 4]) -> [u8; 32] {
     #[derive(Debug, Encode, Decode, TreeHash)]
     struct ForkData {
         fork_version: [u8; 4],
@@ -45,13 +45,14 @@ fn compute_domain(chain: Chain, domain_mask: [u8; 4]) -> [u8; 32] {
     domain
 }
 
-pub fn verify_signed_builder_message<T: TreeHash>(
+pub fn verify_signed_message<T: TreeHash>(
     chain: Chain,
     pubkey: &BlsPublicKey,
     msg: &T,
     signature: &BlsSignature,
+    domain_mask: [u8; 4],
 ) -> Result<(), BlstErrorWrapper> {
-    let domain = chain.builder_domain();
+    let domain = compute_domain(chain, domain_mask);
     let signing_root = compute_signing_root(msg.tree_hash_root().0, domain);
 
     verify_bls_signature(pubkey, &signing_root, signature)
