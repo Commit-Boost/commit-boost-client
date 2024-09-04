@@ -1,6 +1,6 @@
 services:
   cb_pbs:
-    image: commitboost_pbs_default
+    image: ghcr.io/commit-boost/pbs:v0.1.0
     container_name: cb_pbs
     ports:
     - 18750:18750

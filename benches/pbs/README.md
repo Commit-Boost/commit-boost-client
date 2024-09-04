@@ -6,7 +6,7 @@ Benchmark of the PBS module and the [MEV-Boost go-client](https://github.com/fla
 ## Benchmark info 
 Last updated: `02-Sep-2024`
 - MEV-Boost: docker image `flashbots/mev-boost:1.8.1`, digest: `sha256:1ce07514249dbd9648773cf5ddfd75f74344c7e49ba8bbc38cec2531e26751a1`
-- Commit-Boost: commit hash: `c1503b2447c8535f5d3e7d3ae37e31544f6e18e6`
+- Commit-Boost: docker image `ghcr.io/commit-boost/pbs:v0.1.0`, digest: `sha256:7d90fc816470f9dd37640bc89b3fdb021a9023e9e3c43ea4426dd1145984ddde`
 
 <details><summary>Runtime info</summary>
 
@@ -87,18 +87,12 @@ After the benchmark, clean up the container:
 docker rm --force mev_boost_bench
 ```
 
-
 #### Commit-Boost
 You can run the provided `docker-compose` file:
 ```bash
 commit-boost start --docker benches/pbs/bench.docker-compose.yml
 ```
 or regenerate it using `commit-boost init`.
-
-Make sure that the pbs image is available. If not, build it:
-```bash
-docker build -t commitboost_pbs_default . -f ./docker/pbs.Dockerfile
-```
 
 To clean up after then benchmark, run:
 ```bash
@@ -120,12 +114,11 @@ For each `get_header` call we measure the latency. Note that this latency also i
 ```bash
 Bench results (lower is better)
 Lowest is indicated with *, percentages are relative to lowest
-
 +--------------+-------------------+------------------+------------------+------------------+
 | ID           | p50               | p90              | p95              | p99              |
 +===========================================================================================+
-| mev_boost    | 4.31ms (+142.45%) | 5.08ms (+33.99%) | 5.94ms (+44.48%) | 6.88ms (+48.92%) |
+| mev_boost    | 5.22ms (+152.54%) | 6.87ms (+53.30%) | 7.63ms (+52.79%) | 8.98ms (+37.67%) |
 |--------------+-------------------+------------------+------------------+------------------|
-| commit_boost | 1.78ms (*)        | 3.79ms (*)       | 4.11ms (*)       | 4.62ms (*)       |
+| commit_boost | 2.07ms (*)        | 4.48ms (*)       | 4.99ms (*)       | 6.52ms (*)       |
 +--------------+-------------------+------------------+------------------+------------------+
 ```
