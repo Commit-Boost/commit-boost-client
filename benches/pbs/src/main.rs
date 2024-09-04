@@ -4,8 +4,9 @@ use alloy::{primitives::B256, rpc::types::beacon::BlsPublicKey};
 use cb_common::{
     config::RelayConfig,
     pbs::{GetHeaderResponse, RelayClient, RelayEntry},
-    signer::{BlsSecretKey, BlsSigner},
+    signer::BlsSecretKey,
     types::Chain,
+    utils::blst_pubkey_to_alloy,
 };
 use cb_tests::mock_relay::{start_mock_relay_service, MockRelayState};
 use comfy_table::Table;
@@ -137,9 +138,10 @@ const MOCK_RELAY_SECRET: [u8; 32] = [
     152, 98, 59, 240, 181, 131, 47, 1, 180, 255, 245,
 ];
 async fn start_mock_relay(chain: Chain, relay_config: RelayConfig) {
-    let signer = BlsSigner::Local(BlsSecretKey::key_gen(&MOCK_RELAY_SECRET, &[]).unwrap());
+    let signer = BlsSecretKey::key_gen(&MOCK_RELAY_SECRET, &[]).unwrap();
+    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk());
 
-    assert_eq!(relay_config.entry.pubkey, *signer.pubkey(), "Expected relay pubkey to be 0xb060572f535ba5615b874ebfef757fbe6825352ad257e31d724e57fe25a067a13cfddd0f00cb17bf3a3d2e901a380c17");
+    assert_eq!(relay_config.entry.pubkey, pubkey, "Expected relay pubkey to be 0xb060572f535ba5615b874ebfef757fbe6825352ad257e31d724e57fe25a067a13cfddd0f00cb17bf3a3d2e901a380c17");
 
     let relay_port = relay_config.entry.url.port().expect("missing port");
 

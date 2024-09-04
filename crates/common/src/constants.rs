@@ -2,6 +2,7 @@
 
 pub const APPLICATION_BUILDER_DOMAIN: [u8; 4] = [0, 0, 0, 1];
 pub const GENESIS_VALIDATORS_ROOT: [u8; 32] = [0; 32];
+pub const COMMIT_BOOST_DOMAIN: [u8; 4] = [109, 109, 111, 67];
 
 // MAINNET
 pub const MAINNET_FORK_VERSION: [u8; 4] = [0u8; 4];
@@ -18,14 +19,6 @@ pub const HOLESKY_BUILDER_DOMAIN: [u8; 32] = [
     196, 152, 143, 62, 13, 159, 119, 240, 83, 135,
 ];
 pub const HOLESKY_GENESIS_TIME_SECONDS: u64 = 1695902400;
-
-// RHEA DEVNET
-pub const RHEA_FORK_VERSION: [u8; 4] = [16, 0, 0, 56];
-pub const RHEA_BUILDER_DOMAIN: [u8; 32] = [
-    0, 0, 0, 1, 11, 65, 190, 76, 219, 52, 209, 131, 221, 220, 165, 57, 131, 55, 98, 109, 205, 207,
-    175, 23, 32, 193, 32, 45, 59, 149, 248, 78,
-];
-pub const RHEA_GENESIS_TIME_SECONDS: u64 = 1718117531;
 
 // HELDER
 pub const HELDER_FORK_VERSION: [u8; 4] = [16, 0, 0, 0];

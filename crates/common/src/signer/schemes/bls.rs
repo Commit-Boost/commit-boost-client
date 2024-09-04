@@ -8,7 +8,7 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    error::BlstErrorWrapper, signature::sign_builder_root, types::Chain,
+    error::BlstErrorWrapper, signature::sign_commit_boost_root, types::Chain,
     utils::blst_pubkey_to_alloy,
 };
 
@@ -61,7 +61,7 @@ impl BlsSigner {
 
     pub async fn sign(&self, chain: Chain, object_root: [u8; 32]) -> BlsSignature {
         match self {
-            BlsSigner::Local(sk) => sign_builder_root(chain, sk, object_root),
+            BlsSigner::Local(sk) => sign_commit_boost_root(chain, sk, object_root),
         }
     }
 
@@ -70,7 +70,7 @@ impl BlsSigner {
     }
 }
 
-fn random_secret() -> BlsSecretKey {
+pub fn random_secret() -> BlsSecretKey {
     use rand::RngCore;
 
     let mut rng = rand::thread_rng();

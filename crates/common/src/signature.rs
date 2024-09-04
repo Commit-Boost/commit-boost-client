@@ -4,7 +4,7 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    constants::{APPLICATION_BUILDER_DOMAIN, GENESIS_VALIDATORS_ROOT},
+    constants::{COMMIT_BOOST_DOMAIN, GENESIS_VALIDATORS_ROOT},
     error::BlstErrorWrapper,
     signer::{schemes::bls::verify_bls_signature, BlsSecretKey},
     types::Chain,
@@ -26,8 +26,7 @@ pub fn compute_signing_root(object_root: [u8; 32], signing_domain: [u8; 32]) -> 
     signing_data.tree_hash_root().0
 }
 
-#[allow(dead_code)]
-fn compute_builder_domain(chain: Chain) -> [u8; 32] {
+pub fn compute_domain(chain: Chain, domain_mask: [u8; 4]) -> [u8; 32] {
     #[derive(Debug, Encode, Decode, TreeHash)]
     struct ForkData {
         fork_version: [u8; 4],
@@ -35,7 +34,7 @@ fn compute_builder_domain(chain: Chain) -> [u8; 32] {
     }
 
     let mut domain = [0u8; 32];
-    domain[..4].copy_from_slice(&APPLICATION_BUILDER_DOMAIN);
+    domain[..4].copy_from_slice(&domain_mask);
 
     let fork_version = chain.fork_version();
     let fd = ForkData { fork_version, genesis_validators_root: GENESIS_VALIDATORS_ROOT };
@@ -46,13 +45,14 @@ fn compute_builder_domain(chain: Chain) -> [u8; 32] {
     domain
 }
 
-pub fn verify_signed_builder_message<T: TreeHash>(
+pub fn verify_signed_message<T: TreeHash>(
     chain: Chain,
     pubkey: &BlsPublicKey,
     msg: &T,
     signature: &BlsSignature,
+    domain_mask: [u8; 4],
 ) -> Result<(), BlstErrorWrapper> {
-    let domain = chain.builder_domain();
+    let domain = compute_domain(chain, domain_mask);
     let signing_root = compute_signing_root(msg.tree_hash_root().0, domain);
 
     verify_bls_signature(pubkey, &signing_root, signature)
@@ -76,17 +76,35 @@ pub fn sign_builder_root(
     sign_message(secret_key, &signing_root)
 }
 
+pub fn sign_commit_boost_root(
+    chain: Chain,
+    secret_key: &BlsSecretKey,
+    object_root: [u8; 32],
+) -> BlsSignature {
+    let domain = compute_domain(chain, COMMIT_BOOST_DOMAIN);
+    let signing_root = compute_signing_root(object_root, domain);
+    sign_message(secret_key, &signing_root)
+}
+
 #[cfg(test)]
 mod tests {
 
-    use super::compute_builder_domain;
-    use crate::types::Chain;
+    use super::compute_domain;
+    use crate::{constants::APPLICATION_BUILDER_DOMAIN, types::Chain};
 
     #[test]
     fn test_builder_domains() {
-        assert_eq!(compute_builder_domain(Chain::Mainnet), Chain::Mainnet.builder_domain());
-        assert_eq!(compute_builder_domain(Chain::Holesky), Chain::Holesky.builder_domain());
-        assert_eq!(compute_builder_domain(Chain::Rhea), Chain::Rhea.builder_domain());
-        assert_eq!(compute_builder_domain(Chain::Helder), Chain::Helder.builder_domain());
+        assert_eq!(
+            compute_domain(Chain::Mainnet, APPLICATION_BUILDER_DOMAIN),
+            Chain::Mainnet.builder_domain()
+        );
+        assert_eq!(
+            compute_domain(Chain::Holesky, APPLICATION_BUILDER_DOMAIN),
+            Chain::Holesky.builder_domain()
+        );
+        assert_eq!(
+            compute_domain(Chain::Helder, APPLICATION_BUILDER_DOMAIN),
+            Chain::Helder.builder_domain()
+        );
     }
 }

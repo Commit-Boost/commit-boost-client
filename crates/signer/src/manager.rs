@@ -219,13 +219,14 @@ mod tests {
 
     use super::*;
 
+    const CHAIN: Chain = Chain::Holesky;
+
     lazy_static! {
-        static ref CHAIN: Chain = Chain::Holesky;
         static ref MODULE_ID: ModuleId = ModuleId("SAMPLE_MODULE".to_string());
     }
 
     fn init_signing_manager() -> (SigningManager, BlsPublicKey) {
-        let mut signing_manager = SigningManager::new(*CHAIN);
+        let mut signing_manager = SigningManager::new(CHAIN);
 
         let consensus_signer = ConsensusSigner::new_random();
         let consensus_pk = consensus_signer.pubkey();
@@ -236,7 +237,10 @@ mod tests {
     }
 
     mod test_proxy_bls {
-        use cb_common::signer::schemes::bls::verify_bls_signature;
+        use cb_common::{
+            constants::COMMIT_BOOST_DOMAIN, signature::compute_domain,
+            signer::schemes::bls::verify_bls_signature,
+        };
 
         use super::*;
 
@@ -249,7 +253,7 @@ mod tests {
                 .await
                 .unwrap();
 
-            let validation_result = signed_delegation.validate(*CHAIN);
+            let validation_result = signed_delegation.validate(CHAIN);
 
             assert!(
                 validation_result.is_ok(),
@@ -274,7 +278,7 @@ mod tests {
             let m = &mut signed_delegation.signature.0[0];
             (*m, _) = m.overflowing_add(1);
 
-            let validation_result = signed_delegation.validate(*CHAIN);
+            let validation_result = signed_delegation.validate(CHAIN);
 
             assert!(validation_result.is_err(), "Tampered proxy key must be invalid.");
         }
@@ -298,7 +302,7 @@ mod tests {
                 .unwrap();
 
             // Verify signature
-            let domain = CHAIN.builder_domain();
+            let domain = compute_domain(CHAIN, COMMIT_BOOST_DOMAIN);
             let signing_root = compute_signing_root(data_root_bytes.tree_hash_root().0, domain);
 
             let validation_result = verify_bls_signature(&proxy_pk, &signing_root, &sig);
@@ -311,7 +315,10 @@ mod tests {
     }
 
     mod test_proxy_ecdsa {
-        use cb_common::signer::schemes::ecdsa::verify_ecdsa_signature;
+        use cb_common::{
+            constants::COMMIT_BOOST_DOMAIN, signature::compute_domain,
+            signer::schemes::ecdsa::verify_ecdsa_signature,
+        };
 
         use super::*;
 
@@ -324,7 +331,7 @@ mod tests {
                 .await
                 .unwrap();
 
-            let validation_result = signed_delegation.validate(*CHAIN);
+            let validation_result = signed_delegation.validate(CHAIN);
 
             assert!(
                 validation_result.is_ok(),
@@ -349,7 +356,7 @@ mod tests {
             let m = &mut signed_delegation.signature.0[0];
             (*m, _) = m.overflowing_add(1);
 
-            let validation_result = signed_delegation.validate(*CHAIN);
+            let validation_result = signed_delegation.validate(CHAIN);
 
             assert!(validation_result.is_err(), "Tampered proxy key must be invalid.");
         }
@@ -373,7 +380,7 @@ mod tests {
                 .unwrap();
 
             // Verify signature
-            let domain = CHAIN.builder_domain();
+            let domain = compute_domain(CHAIN, COMMIT_BOOST_DOMAIN);
             let signing_root = compute_signing_root(data_root_bytes.tree_hash_root().0, domain);
 
             let validation_result = verify_ecdsa_signature(&proxy_pk, &signing_root, &sig);

@@ -14,7 +14,11 @@ use ssz_types::{
 };
 use tree_hash::TreeHash;
 
-use crate::{signature::compute_signing_root, types::Chain};
+use crate::{
+    constants::COMMIT_BOOST_DOMAIN,
+    signature::{compute_domain, compute_signing_root},
+    types::Chain,
+};
 
 pub type EcdsaSecretKey = k256::ecdsa::SigningKey;
 
@@ -205,7 +209,7 @@ impl EcdsaSigner {
     pub async fn sign(&self, chain: Chain, object_root: [u8; 32]) -> EcdsaSignature {
         match self {
             EcdsaSigner::Local(sk) => {
-                let domain = chain.builder_domain();
+                let domain = compute_domain(chain, COMMIT_BOOST_DOMAIN);
                 let signing_root = compute_signing_root(object_root, domain);
                 k256::ecdsa::signature::Signer::<EcdsaSignatureInner>::sign(sk, &signing_root)
                     .into()
