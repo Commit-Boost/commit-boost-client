@@ -1,0 +1,32 @@
+[package]
+name = "cb-bench-pbs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+cb-common.workspace = true
+cb-pbs.workspace = true
+cb-tests = { path = "../../tests" }
+
+tokio.workspace = true
+
+axum.workspace = true
+
+alloy.workspace = true
+
+serde.workspace = true
+toml.workspace = true
+serde_json.workspace = true
+
+reqwest.workspace = true
+
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+tree_hash.workspace = true
+eyre.workspace = true
+
+rand.workspace = true
+histogram = "0.11.0"
+comfy-table = "7.1.1"

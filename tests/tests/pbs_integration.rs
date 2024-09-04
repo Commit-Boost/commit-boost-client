@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, sync::Arc, time::Duration, u64};
+use std::{sync::Arc, time::Duration, u64};
 
 use alloy::primitives::U256;
 use cb_common::{
@@ -9,24 +9,12 @@ use cb_common::{
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
-    mock_relay::{mock_relay_app_router, MockRelayState},
+    mock_relay::{start_mock_relay_service, MockRelayState},
     mock_validator::MockValidator,
     utils::{generate_mock_relay, setup_test_env},
 };
 use eyre::Result;
-use tokio::net::TcpListener;
 use tracing::info;
-
-async fn start_mock_relay_service(state: Arc<MockRelayState>, port: u16) -> Result<()> {
-    let app = mock_relay_app_router(state);
-
-    let socket = SocketAddr::new("0.0.0.0".parse()?, port);
-    let listener = TcpListener::bind(socket).await?;
-
-    info!("Starting mock relay on {socket:?}");
-    axum::serve(listener, app).await?;
-    Ok(())
-}
 
 fn get_pbs_static_config(port: u16) -> PbsConfig {
     PbsConfig {
@@ -61,7 +49,7 @@ async fn test_get_header() -> Result<()> {
     let port = 3000;
 
     let mock_relay = generate_mock_relay(port + 1, *signer.pubkey())?;
-    let mock_state = Arc::new(MockRelayState::new(chain, signer, 0));
+    let mock_state = Arc::new(MockRelayState::new(chain, signer));
     tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 1));
 
     let config = to_pbs_config(chain, get_pbs_static_config(port), vec![mock_relay]);
@@ -92,7 +80,7 @@ async fn test_get_status() -> Result<()> {
         generate_mock_relay(port + 1, *signer.pubkey())?,
         generate_mock_relay(port + 2, *signer.pubkey())?,
     ];
-    let mock_state = Arc::new(MockRelayState::new(chain, signer, 0));
+    let mock_state = Arc::new(MockRelayState::new(chain, signer));
     tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 1));
     tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 2));
 
@@ -121,7 +109,7 @@ async fn test_register_validators() -> Result<()> {
     let port = 3300;
 
     let relays = vec![generate_mock_relay(port + 1, *signer.pubkey())?];
-    let mock_state = Arc::new(MockRelayState::new(chain, signer, 0));
+    let mock_state = Arc::new(MockRelayState::new(chain, signer));
     tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 1));
 
     let config = to_pbs_config(chain, get_pbs_static_config(port), relays);
@@ -149,7 +137,7 @@ async fn test_submit_block() -> Result<()> {
     let port = 3400;
 
     let relays = vec![generate_mock_relay(port + 1, *signer.pubkey())?];
-    let mock_state = Arc::new(MockRelayState::new(chain, signer, 0));
+    let mock_state = Arc::new(MockRelayState::new(chain, signer));
     tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 1));
 
     let config = to_pbs_config(chain, get_pbs_static_config(port), relays);

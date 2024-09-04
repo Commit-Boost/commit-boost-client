@@ -9,6 +9,7 @@ members = [
     "crates/metrics",
 
     "tests",
+    "benches/*",
     "examples/*",
 ]
 resolver = "2"

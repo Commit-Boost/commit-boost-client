@@ -1,0 +1,10 @@
+services:
+  cb_pbs:
+    image: ghcr.io/commit-boost/pbs:v0.1.0
+    container_name: cb_pbs
+    ports:
+    - 18750:18750
+    environment:
+      CB_CONFIG: /cb-config.toml
+    volumes:
+    - ./bench-config.toml:/cb-config.toml:ro
