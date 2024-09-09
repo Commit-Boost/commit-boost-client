@@ -59,7 +59,7 @@ sleep_secs = 5
 [[modules]]
 id = "BUILDER_LOG"
 type = "events"
-docker_image = "test_da_commit"
+docker_image = "test_builder_log"
 ```
 
 A few things to note:
