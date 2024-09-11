@@ -3,7 +3,7 @@ use eyre::Result;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    constants::{SIGNER_IMAGE, SIGNER_SERVER_ENV},
+    constants::{SIGNER_IMAGE_DEFAULT, SIGNER_SERVER_ENV},
     utils::{load_env_var, load_jwts},
     CommitBoostConfig,
 };
@@ -22,7 +22,7 @@ pub struct SignerConfig {
 }
 
 fn default_signer() -> String {
-    SIGNER_IMAGE.to_string()
+    SIGNER_IMAGE_DEFAULT.to_string()
 }
 
 #[derive(Debug)]

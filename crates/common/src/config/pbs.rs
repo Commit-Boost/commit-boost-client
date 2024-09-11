@@ -7,7 +7,7 @@ use eyre::Result;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use url::Url;
 
-use super::{constants::PBS_DEFAULT_IMAGE, CommitBoostConfig};
+use super::{constants::PBS_IMAGE_DEFAULT, CommitBoostConfig};
 use crate::{
     commit::client::SignerClient,
     config::{load_env_var, load_file_from_env, CB_CONFIG_ENV, MODULE_JWT_ENV, SIGNER_SERVER_ENV},
@@ -101,7 +101,7 @@ pub struct PbsModuleConfig {
 }
 
 fn default_pbs() -> String {
-    PBS_DEFAULT_IMAGE.to_string()
+    PBS_IMAGE_DEFAULT.to_string()
 }
 
 /// Loads the default pbs config, i.e. with no signer client or custom data

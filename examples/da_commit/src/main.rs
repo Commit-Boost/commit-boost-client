@@ -114,7 +114,7 @@ async fn main() -> Result<()> {
 
     match load_commit_module_config::<ExtraConfig>() {
         Ok(config) => {
-            let _guard = initialize_tracing_log(&config.id);
+            let _guard = initialize_tracing_log(&config.id)?;
 
             info!(
                 module_id = %config.id,
