@@ -1,5 +1,6 @@
 use eyre::{ContextCompat, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use std::collections::HashMap;
 use toml::Table;
 
 use crate::{
@@ -28,6 +29,10 @@ pub struct StaticModuleConfig {
     pub id: ModuleId,
     /// Docker image of the module
     pub docker_image: String,
+    /// Environment variables for the module
+    pub env: Option<HashMap<String, String>>,
+    /// Environment file for the module
+    pub env_file: Option<String>,
     /// Type of the module
     #[serde(rename = "type")]
     pub kind: ModuleKind,
