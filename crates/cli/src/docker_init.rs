@@ -110,7 +110,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                     // Pass on the env variables
                     if let Some(envs) = module.env {
                         for (k, v) in envs {
-                            module_envs.insert(k, Some(SingleValue::String(v.to_string())));
+                            module_envs.insert(k, Some(SingleValue::String(v)));
                         }
                     }
 
