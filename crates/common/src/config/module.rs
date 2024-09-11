@@ -1,6 +1,7 @@
+use std::collections::HashMap;
+
 use eyre::{ContextCompat, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::collections::HashMap;
 use toml::Table;
 
 use crate::{
