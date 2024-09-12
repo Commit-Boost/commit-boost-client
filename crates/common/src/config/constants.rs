@@ -1,11 +1,11 @@
 ///////////////////////// COMMMON /////////////////////////
 
 /// Path to the main toml config file
-pub const CB_CONFIG_ENV: &str = "CB_CONFIG";
-pub const CB_CONFIG_DEFAULT: &str = "/cb-config.toml";
+pub const CONFIG_ENV: &str = "CB_CONFIG";
+pub const CONFIG_DEFAULT: &str = "/cb-config.toml";
 
 /// Where to receive scrape requests from Prometheus
-pub const METRICS_SERVER_ENV: &str = "METRICS_SERVER";
+pub const METRICS_PORT_ENV: &str = "CB_METRICS_PORT";
 
 /// Path to logs directory
 pub const LOGS_DIR_ENV: &str = "CB_LOGS_DIR";
@@ -15,6 +15,9 @@ pub const LOGS_DIR_DEFAULT: &str = "/var/logs/commit-boost";
 
 pub const PBS_IMAGE_DEFAULT: &str = "ghcr.io/commit-boost/pbs:latest";
 pub const PBS_MODULE_NAME: &str = "pbs";
+
+/// Urls the pbs modules should post events to (comma separated)
+pub const BUILDER_URLS_ENV: &str = "CB_BUILDER_URLS";
 
 ///////////////////////// SIGNER /////////////////////////
 
@@ -46,8 +49,8 @@ pub const MODULE_ID_ENV: &str = "CB_MODULE_ID";
 /// The JWT secret for the module to communicate with the signer module
 pub const MODULE_JWT_ENV: &str = "CB_SIGNER_JWT";
 /// Where to send signature request
-pub const SIGNER_SERVER_ENV: &str = "CB_SIGNER_SERVER";
+pub const SIGNER_URL_ENV: &str = "CB_SIGNER_URL";
 
 /// Events modules
 /// Where to receive builder events
-pub const BUILDER_SERVER_ENV: &str = "BUILDER_SERVER";
+pub const BUILDER_PORT_ENV: &str = "CB_BUILDER_PORT";

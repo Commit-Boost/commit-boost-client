@@ -46,7 +46,7 @@ impl CommitBoostConfig {
     }
 
     pub fn from_env_path() -> Result<Self> {
-        let config: Self = load_file_from_env(CB_CONFIG_ENV)?;
+        let config: Self = load_file_from_env(CONFIG_ENV)?;
         config.validate()?;
         Ok(config)
     }

@@ -1,5 +1,5 @@
 use bimap::BiHashMap;
-use eyre::{Context, Result};
+use eyre::{bail, Context, Ok, Result};
 use serde::de::DeserializeOwned;
 
 use super::constants::JWTS_ENV;
@@ -26,5 +26,34 @@ pub fn load_file_from_env<T: DeserializeOwned>(env: &str) -> Result<T> {
 /// Loads a bidirectional map of module id <-> jwt token from a json env
 pub fn load_jwts() -> Result<BiHashMap<ModuleId, Jwt>> {
     let jwts = std::env::var(JWTS_ENV).wrap_err(format!("{JWTS_ENV} is not set"))?;
-    serde_json::from_str(&jwts).wrap_err("could not deserialize json from string")
+    decode_string_to_map(&jwts)
+}
+
+fn decode_string_to_map(raw: &str) -> Result<BiHashMap<ModuleId, Jwt>> {
+    // trim the string and split for comma
+    raw.trim()
+        .split(',')
+        .map(|pair| {
+            let mut parts = pair.trim().split('=');
+            match (parts.next(), parts.next()) {
+                (Some(key), Some(value)) => Ok((ModuleId(key.into()), Jwt(value.into()))),
+                _ => bail!("Invalid key-value pair: {pair}"),
+            }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_decode_string_to_map() {
+        let raw = " KEY=VALUE , KEY2=value2 ";
+
+        let map = decode_string_to_map(raw).unwrap();
+
+        assert_eq!(map.get_by_left(&ModuleId("KEY".into())), Some(&Jwt("VALUE".into())));
+        assert_eq!(map.get_by_left(&ModuleId("KEY2".into())), Some(&Jwt("value2".into())));
+    }
 }

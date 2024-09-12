@@ -18,7 +18,7 @@ use super::{
     GetHeaderParams, GetHeaderResponse, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
 };
 use crate::{
-    config::{load_env_var, BUILDER_SERVER_ENV},
+    config::{load_env_var, BUILDER_PORT_ENV},
     pbs::BUILDER_EVENTS_PATH,
 };
 
@@ -47,7 +47,7 @@ impl BuilderEventPublisher {
     }
 
     pub fn new_from_env() -> Option<Self> {
-        load_env_var(BUILDER_SERVER_ENV)
+        load_env_var(BUILDER_PORT_ENV)
             .map(|joined| {
                 let endpoints = joined
                     .split(',')

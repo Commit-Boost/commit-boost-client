@@ -10,7 +10,7 @@ use url::Url;
 use super::{constants::PBS_IMAGE_DEFAULT, CommitBoostConfig};
 use crate::{
     commit::client::SignerClient,
-    config::{load_env_var, load_file_from_env, CB_CONFIG_ENV, MODULE_JWT_ENV, SIGNER_SERVER_ENV},
+    config::{load_env_var, load_file_from_env, CONFIG_ENV, MODULE_JWT_ENV, SIGNER_URL_ENV},
     pbs::{BuilderEventPublisher, DefaultTimeout, RelayClient, RelayEntry, LATE_IN_SLOT_TIME_MS},
     types::Chain,
     utils::{as_eth_str, default_bool, default_u256, default_u64},
@@ -139,7 +139,7 @@ pub fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleConfig,
     }
 
     // load module config including the extra data (if any)
-    let cb_config: StubConfig<T> = load_file_from_env(CB_CONFIG_ENV)?;
+    let cb_config: StubConfig<T> = load_file_from_env(CONFIG_ENV)?;
     cb_config.pbs.static_config.pbs_config.validate()?;
 
     let relay_clients =
@@ -149,7 +149,7 @@ pub fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleConfig,
     let signer_client = if cb_config.pbs.static_config.with_signer {
         // if custom pbs requires a signer client, load jwt
         let module_jwt = load_env_var(MODULE_JWT_ENV)?;
-        let signer_server_url = load_env_var(SIGNER_SERVER_ENV)?.parse()?;
+        let signer_server_url = load_env_var(SIGNER_URL_ENV)?.parse()?;
         Some(SignerClient::new(signer_server_url, &module_jwt)?)
     } else {
         None
