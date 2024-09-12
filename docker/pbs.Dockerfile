@@ -14,11 +14,16 @@ COPY . .
 RUN cargo build --release --bin default-pbs
 
 
-FROM ubuntu AS runtime
+FROM debian:bookworm-slim AS runtime
 WORKDIR /app
 
-RUN apt-get update
-RUN apt-get install -y openssl ca-certificates libssl3 libssl-dev
+RUN apt-get update && apt-get install -y \
+  openssl \
+  ca-certificates \
+  libssl3 \
+  libssl-dev \
+  && apt-get clean autoclean \
+  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/target/release/default-pbs /usr/local/bin
 ENTRYPOINT ["/usr/local/bin/default-pbs"]
