@@ -6,7 +6,7 @@ use cb_common::{
         CB_CONFIG_ENV, JWTS_ENV, LOGS_DIR_DEFAULT, LOGS_DIR_ENV, METRICS_SERVER_ENV, MODULE_ID_ENV,
         MODULE_JWT_ENV, PBS_MODULE_NAME, SIGNER_DEFAULT, SIGNER_DIR_KEYS_DEFAULT,
         SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS, SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV,
-        SIGNER_MODULE_NAME, SIGNER_SERVER_ENV,
+        SIGNER_MODULE_NAME, SIGNER_PORT_ENV, SIGNER_SERVER_ENV,
     },
     loader::SignerLoader,
     utils::random_jwt,
@@ -56,7 +56,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
     // address for signer API communication
     let signer_port = 20000;
-    let signer_server = format!("cb_signer:{signer_port}");
+    let signer_server = format!("http://cb_signer:{signer_port}");
 
     let builder_events_port = 30000;
     let mut builder_events_modules = Vec::new();
@@ -251,7 +251,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
             let mut signer_envs = IndexMap::from([
                 get_env_val(CB_CONFIG_ENV, CB_CONFIG_DEFAULT),
                 get_env_same(JWTS_ENV),
-                get_env_uval(SIGNER_SERVER_ENV, signer_port as u64),
+                get_env_uval(SIGNER_PORT_ENV, signer_port as u64),
             ]);
 
             if metrics_enabled {

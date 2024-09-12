@@ -21,6 +21,9 @@ pub const PBS_MODULE_NAME: &str = "pbs";
 pub const SIGNER_IMAGE_DEFAULT: &str = "ghcr.io/commit-boost/signer:latest";
 pub const SIGNER_MODULE_NAME: &str = "signer";
 
+/// Where the signer module should open the server
+pub const SIGNER_PORT_ENV: &str = "CB_SIGNER_PORT";
+
 /// Comma separated list module_id=jwt_secret
 pub const JWTS_ENV: &str = "CB_JWTS";
 
@@ -43,7 +46,7 @@ pub const MODULE_ID_ENV: &str = "CB_MODULE_ID";
 /// The JWT secret for the module to communicate with the signer module
 pub const MODULE_JWT_ENV: &str = "CB_SIGNER_JWT";
 /// Where to send signature request
-pub const SIGNER_SERVER_ENV: &str = "SIGNER_SERVER";
+pub const SIGNER_SERVER_ENV: &str = "CB_SIGNER_SERVER";
 
 /// Events modules
 /// Where to receive builder events

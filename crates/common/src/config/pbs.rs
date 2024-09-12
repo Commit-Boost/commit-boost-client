@@ -149,8 +149,8 @@ pub fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleConfig,
     let signer_client = if cb_config.pbs.static_config.with_signer {
         // if custom pbs requires a signer client, load jwt
         let module_jwt = load_env_var(MODULE_JWT_ENV)?;
-        let signer_server_address = load_env_var(SIGNER_SERVER_ENV)?;
-        Some(SignerClient::new(signer_server_address, &module_jwt)?)
+        let signer_server_url = load_env_var(SIGNER_SERVER_ENV)?.parse()?;
+        Some(SignerClient::new(signer_server_url, &module_jwt)?)
     } else {
         None
     };

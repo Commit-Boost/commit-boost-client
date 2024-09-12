@@ -60,7 +60,7 @@ pub struct StartCommitModuleConfig<T = ()> {
 pub fn load_commit_module_config<T: DeserializeOwned>() -> Result<StartCommitModuleConfig<T>> {
     let module_id = ModuleId(load_env_var(MODULE_ID_ENV)?);
     let module_jwt = Jwt(load_env_var(MODULE_JWT_ENV)?);
-    let signer_server_address = load_env_var(SIGNER_SERVER_ENV)?;
+    let signer_server_url = load_env_var(SIGNER_SERVER_ENV)?.parse()?;
 
     #[derive(Debug, Deserialize)]
     struct ThisModuleConfig<U> {
@@ -104,7 +104,7 @@ pub fn load_commit_module_config<T: DeserializeOwned>() -> Result<StartCommitMod
         .find(|m| m.static_config.id == module_id)
         .wrap_err(format!("failed to find module for {module_id}"))?;
 
-    let signer_client = SignerClient::new(signer_server_address, &module_jwt)?;
+    let signer_client = SignerClient::new(signer_server_url, &module_jwt)?;
 
     Ok(StartCommitModuleConfig {
         id: module_config.static_config.id,
