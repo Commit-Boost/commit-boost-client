@@ -51,7 +51,7 @@ impl SignerClient {
     /// requested.
     // TODO: add more docs on how proxy keys work
     pub async fn get_pubkeys(&self) -> Result<GetPubkeysResponse, SignerClientError> {
-        let res = self.client.get(&format!("{}{}", self.url, GET_PUBKEYS_PATH)).send().await?;
+        let res = self.client.get(format!("{}{}", self.url, GET_PUBKEYS_PATH)).send().await?;
 
         if !res.status().is_success() {
             return Err(SignerClientError::FailedRequest {
