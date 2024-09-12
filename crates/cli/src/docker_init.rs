@@ -546,5 +546,5 @@ fn get_log_volume(maybe_config: &Option<LogsSettings>, module_id: &str) -> Optio
 
 /// Formats as a comma separated list of key=value
 fn format_comma_separated(map: &IndexMap<ModuleId, String>) -> String {
-    map.iter().map(|(k, v)| format!("{}={}", k.to_string(), v)).collect::<Vec<_>>().join(",")
+    map.iter().map(|(k, v)| format!("{}={}", k, v)).collect::<Vec<_>>().join(",")
 }
