@@ -110,9 +110,17 @@ id = "DA_COMMIT"
 type = "commit"
 # Docker image of the module
 docker_image = "test_da_commit"
+# Environment file for the module
+env_file = ".cb.env"
+
 # Additional config needed by the business logic of the module should also be set here.
 # See also `examples/da_commit/src/main.rs` for more information
 sleep_secs = 5
+
+# Other environment variables for the module
+[modules.env]
+SOME_ENV_VAR = "some_value"
+
 
 # Configuration for how metrics should be collected and scraped
 # OPTIONAL, skip metrics collection if missing

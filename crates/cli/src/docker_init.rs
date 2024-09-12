@@ -12,8 +12,9 @@ use cb_common::{
     utils::random_jwt,
 };
 use docker_compose_types::{
-    Compose, ComposeVolume, DependsOnOptions, Environment, Labels, LoggingParameters, MapOrEmpty,
-    NetworkSettings, Networks, Ports, Service, Services, SingleValue, TopLevelVolumes, Volumes,
+    Compose, ComposeVolume, DependsOnOptions, EnvFile, Environment, Labels, LoggingParameters,
+    MapOrEmpty, NetworkSettings, Networks, Ports, Service, Services, SingleValue, TopLevelVolumes,
+    Volumes,
 };
 use eyre::Result;
 use indexmap::IndexMap;
@@ -34,7 +35,6 @@ const SIGNER_NETWORK: &str = "signer_network";
 
 pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()> {
     println!("Initializing Commit-Boost with config file: {}", config_path);
-
     let cb_config = CommitBoostConfig::from_file(&config_path)?;
 
     let metrics_enabled = cb_config.metrics.is_some();
@@ -106,6 +106,17 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                         get_env_interp(MODULE_JWT_ENV, &jwt_name),
                         get_env_val(SIGNER_SERVER_ENV, &signer_server),
                     ]);
+
+                    // Pass on the env variables
+                    if let Some(envs) = module.env {
+                        for (k, v) in envs {
+                            module_envs.insert(k, Some(SingleValue::String(v)));
+                        }
+                    }
+
+                    // Set environment file
+                    let env_file = module.env_file.map(EnvFile::Simple);
+
                     if metrics_enabled {
                         let (key, val) = get_env_uval(METRICS_SERVER_ENV, metrics_port as u64);
                         module_envs.insert(key, val);
@@ -133,6 +144,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                         volumes: module_volumes,
                         environment: Environment::KvPair(module_envs),
                         depends_on: DependsOnOptions::Simple(vec!["cb_signer".to_owned()]),
+                        env_file,
                         ..Service::default()
                     }
                 }
