@@ -31,13 +31,13 @@ pub const SIGNER_PORT_ENV: &str = "CB_SIGNER_PORT";
 pub const JWTS_ENV: &str = "CB_JWTS";
 
 /// Path to json file with plaintext keys (testing only)
-pub const SIGNER_KEYS_ENV: &str = "CB_SIGNER_FILE";
+pub const SIGNER_KEYS_ENV: &str = "CB_SIGNER_LOADER_FILE";
 pub const SIGNER_DEFAULT: &str = "/keys.json";
 /// Path to `keys` folder
-pub const SIGNER_DIR_KEYS_ENV: &str = "SIGNER_LOADER_DIR_KEYS";
+pub const SIGNER_DIR_KEYS_ENV: &str = "CB_SIGNER_LOADER_KEYS_DIR";
 pub const SIGNER_DIR_KEYS_DEFAULT: &str = "/keys";
 /// Path to `secrets` folder
-pub const SIGNER_DIR_SECRETS_ENV: &str = "SIGNER_LOADER_DIR_SECRETS";
+pub const SIGNER_DIR_SECRETS_ENV: &str = "CB_SIGNER_LOADER_SECRETS_DIR";
 pub const SIGNER_DIR_SECRETS: &str = "/secrets";
 
 ///////////////////////// MODULES /////////////////////////

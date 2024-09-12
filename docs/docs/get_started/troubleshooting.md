@@ -1,5 +1,5 @@
 ---
-sidebar_position: 4
+description: Common issues
 ---
 
 # Troubleshooting

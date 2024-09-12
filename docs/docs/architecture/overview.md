@@ -1,5 +1,5 @@
 ---
-sidebar_position: 1
+description: Overview of the architecture of Commit-Boost
 ---
 
 # Overview

@@ -1,9 +1,9 @@
 ---
-sidebar_position: 3
+description: Run Commit-Boost with Docker
 ---
 
-# Running
-Here are the commands currently supported by the CLI.
+# Docker
+The `commit-boost` cli will generate a dynamic `docker-compose.yml` file using the provided `toml` config file. This is the recommended approach as Docker provides sandboxing of the containers from the rest of your system.
 
 ## Init
 

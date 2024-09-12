@@ -1,5 +1,5 @@
 ---
-sidebar_position: 1
+description: Initial setup
 ---
 
 # Overview
@@ -17,10 +17,12 @@ Commit-Boost ships with two core modules:
 - a signer module, which implements the [Signer API](/api) and provides the interface for modules to request proposer commitments
 
 ## Setup
-Requirements:
-- Docker Engine up and running
 
-### Binaries
+The Commit-Boost CLI creates a dynamic `docker-compose` file, with services and ports already set up. Alternatively, you can also run each module natively without using Docker.
+
+Either way, you can compile from source from our repo, or download binaries and fetch docker images from the official releases.
+
+### Binaries and images
 Find the latest releases at https://github.com/Commit-Boost/commit-boost-client/releases.
 
 The modules are also published at [each release](https://github.com/orgs/Commit-Boost/packages?repo_name=commit-boost-client).
@@ -33,15 +35,22 @@ Requirements:
 run `rustup update` to update Rust and Cargo to the latest version
 :::
 
-### Build CLI
-
 ```bash
 # Pull the repo
 git clone https://github.com/Commit-Boost/commit-boost-client
 
 # Stable branch has the latest released version
 git checkout stable
+```
 
+:::note
+If you get an `openssl` related error try running: `apt-get update && apt-get install -y openssl ca-certificates libssl3 libssl-dev`
+:::
+
+#### Docker
+You can now build the CLI:
+
+```bash
 # Build the CLI
 cargo build --release --bin commit-boost
 
@@ -49,13 +58,7 @@ cargo build --release --bin commit-boost
 ./target/release/commit-boost --version
 ```
 
-:::note
-If you get an `openssl` related error try running: `apt-get update && apt-get install -y openssl ca-certificates libssl3 libssl-dev`
-:::
-
-
-### Modules
-You can build modules with the following script:
+and the modules as Docker images
 ```bash
 bash scripts/build_local_images.sh
 ```
@@ -65,3 +68,16 @@ If you require `sudo` access to run Docker, you will need `sudo` to run some of 
 :::
 
 This will create two local images called `commitboost_pbs_default` and `commitboost_signer` for the Pbs and Signer module respectively. Make sure to use these images in the `docker_image` field in the `[pbs]` and `[signer]` sections of the `.toml` config file, respectively.
+
+#### Binaries
+
+Alternatively, you can also build the modules from source and run them without Docker, in which case you wouldn't need the CLI:
+
+```bash
+# Build the PBS module
+cargo build --release --bin default-pbs
+
+# Build the Signer module
+cargo build --release --bin signer-module
+```
+
