@@ -39,30 +39,26 @@ impl DaCommitService {
     pub async fn run(self) -> Result<()> {
         // the config has the signer_client already setup, we can use it to interact
         // with the Signer API
-        let pubkeys = self.config.signer_client.get_pubkeys().await?;
-        info!(
-            consensus = pubkeys.consensus.len(),
-            proxy_bls = pubkeys.proxy_bls.len(),
-            proxy_ecdsa = pubkeys.proxy_ecdsa.len(),
-            "Received pubkeys"
-        );
+        let pubkeys = self.config.signer_client.get_pubkeys().await?.keys;
+        info!(pubkeys = %serde_json::to_string_pretty(&pubkeys).unwrap(), "Received pubkeys");
 
-        let pubkey = *pubkeys.consensus.first().ok_or_eyre("no key available")?;
+        let pubkey = *pubkeys.first().ok_or_eyre("no key available")?.consensus;
         info!("Registered validator {pubkey}");
 
-        let proxy_delegation_bls = self.config.signer_client.generate_proxy_key_bls(pubkey).await?;
+        let proxy_delegation_bls =
+            self.config.signer_client.generate_proxy_key_bls(pubkey.into()).await?;
         info!("Obtained a BLS proxy delegation:\n{proxy_delegation_bls}");
         let proxy_bls = proxy_delegation_bls.message.proxy;
 
         let proxy_delegation_ecdsa =
-            self.config.signer_client.generate_proxy_key_ecdsa(pubkey).await?;
+            self.config.signer_client.generate_proxy_key_ecdsa(pubkey.into()).await?;
         info!("Obtained an ECDSA proxy delegation:\n{proxy_delegation_ecdsa}");
         let proxy_ecdsa = proxy_delegation_ecdsa.message.proxy;
 
         let mut data = 0;
 
         loop {
-            self.send_request(data, pubkey, proxy_bls, proxy_ecdsa).await?;
+            self.send_request(data, pubkey.into(), proxy_bls, proxy_ecdsa).await?;
             sleep(Duration::from_secs(self.config.extra.sleep_secs)).await;
             data += 1;
         }

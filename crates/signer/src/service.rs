@@ -108,14 +108,11 @@ async fn handle_get_pubkeys(
     debug!(event = "get_pubkeys", ?req_id, "New request");
 
     let signing_manager = state.manager.read().await;
+    let map = signing_manager
+        .get_consensus_proxy_map(&module_id)
+        .map_err(|err| SignerModuleError::Internal(err.to_string()))?;
 
-    let consensus = signing_manager.consensus_pubkeys();
-    let proxy_bls =
-        signing_manager.proxy_pubkeys_bls().get(&module_id).cloned().unwrap_or_default();
-    let proxy_ecdsa =
-        signing_manager.proxy_pubkeys_ecdsa().get(&module_id).cloned().unwrap_or_default();
-
-    let res = GetPubkeysResponse { consensus, proxy_bls, proxy_ecdsa };
+    let res = GetPubkeysResponse { keys: map };
 
     Ok((StatusCode::OK, Json(res)).into_response())
 }
