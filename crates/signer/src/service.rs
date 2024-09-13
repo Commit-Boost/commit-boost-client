@@ -109,7 +109,7 @@ async fn handle_get_pubkeys(
 
     let signing_manager = state.manager.read().await;
     let map = signing_manager
-        .get_consensus_proxy_map(&module_id)
+        .get_consensus_proxy_maps(&module_id)
         .map_err(|err| SignerModuleError::Internal(err.to_string()))?;
 
     let res = GetPubkeysResponse { keys: map };

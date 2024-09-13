@@ -46,9 +46,9 @@ struct Datagram {
 #[tokio::main]
 async fn main() {
     let config = load_commit_module_config::<()>().unwrap();
-    let pubkeys = config.signer_client.get_pubkeys().await.unwrap();
+    let pubkeys = config.signer_client.get_pubkeys().await.unwrap().keys;
 
-    let pubkey = *pubkeys.consensus.first().unwrap();
+    let pubkey = *pubkeys.consensus.first().unwrap().consensus;
 
     let datagram = Datagram { data: 42 };
     let request = SignConsensusRequest::builder(pubkey).with_msg(&datagram);

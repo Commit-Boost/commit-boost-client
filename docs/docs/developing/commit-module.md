@@ -61,7 +61,7 @@ Furthermore, in order to request a signature, we'd need a public key of the vali
 let pubkeys = config.signer_client.get_pubkeys().await.unwrap();
 ```
 
-Which will essentially call the `get_pubkeys` endpoint of the [SignerAPI](/api).
+Which will call the `get_pubkeys` endpoint of the [SignerAPI](/api), returning all the consensus pubkeys and the corresponding proxy keys, of your module.
 
 Then, we can request a signature either with a consensus key or with a proxy key:
 

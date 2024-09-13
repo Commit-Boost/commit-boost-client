@@ -211,7 +211,7 @@ impl SigningManager {
             .ok_or(SignerModuleError::UnknownProxySigner(pubkey.as_ref().to_vec()))
     }
 
-    pub fn get_consensus_proxy_map(
+    pub fn get_consensus_proxy_maps(
         &self,
         module_id: &ModuleId,
     ) -> eyre::Result<Vec<ConsensusProxyMap>> {
