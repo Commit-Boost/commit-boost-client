@@ -15,6 +15,7 @@ tokio.workspace = true
 
 # serialization
 serde.workspace = true
+serde_json.workspace = true
 
 # telemetry
 tracing.workspace = true

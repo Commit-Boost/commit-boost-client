@@ -21,21 +21,25 @@ paths:
               schema:
                 type: object
                 properties:
-                  consensus:
-                    description: Consensus validator pubkeys
+                  keys:
+                    description: List of mappings between consensus pubkeys and their proxies
                     type: array
                     items:
-                      $ref: '#/components/schemas/BlsPubkey'
-                  proxy_bls:
-                    description: BLS proxy validator pubkeys
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/BlsPubkey'
-                  proxy_ecdsa:
-                    description: ECDSA proxy validator pubkeys
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/EcdsaPubkey'
+                      type: object
+                      properties:
+                        consensus:
+                          description: Consensus validator pubkey
+                          $ref: "#/components/schemas/BlsPubkey"
+                        proxy_bls:
+                          description: BLS proxy validator pubkeys
+                          type: array
+                          items:
+                            $ref: "#/components/schemas/BlsPubkey"
+                        proxy_ecdsa:
+                          description: ECDSA proxy validator pubkeys
+                          type: array
+                          items:
+                            $ref: "#/components/schemas/EcdsaPubkey"
         "500":
           description: Internal error
           content:
@@ -75,8 +79,8 @@ paths:
                 pubkey:
                   description: Public key of the validator
                   oneOf:
-                    - $ref: '#/components/schemas/BlsPubkey'
-                    - $ref: '#/components/schemas/EcdsaPubkey'
+                    - $ref: "#/components/schemas/BlsPubkey"
+                    - $ref: "#/components/schemas/EcdsaPubkey"
                 object_root:
                   description: The root of the object to be signed
                   type: string
@@ -106,8 +110,8 @@ paths:
             application/json:
               schema:
                 oneOf:
-                  - $ref: '#/components/schemas/BlsSignature'
-                  - $ref: '#/components/schemas/EcdsaSignature'
+                  - $ref: "#/components/schemas/BlsSignature"
+                  - $ref: "#/components/schemas/EcdsaSignature"
               examples:
                 Consensus:
                   value: "0xa3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989a3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989"
@@ -166,7 +170,7 @@ paths:
                 pubkey:
                   description: a validator BLS public key for which to generate a proxy key
                   allOf:
-                    - $ref: '#/components/schemas/BlsPubkey'
+                    - $ref: "#/components/schemas/BlsPubkey"
                 scheme:
                   description: signature scheme to generate proxy keypair for
                   type: string
@@ -194,16 +198,16 @@ paths:
                       delegator:
                         description: the validator BLS public key for which the proxy key was generated (the same one as requested)
                         allOf:
-                          - $ref: '#/components/schemas/BlsPubkey'
+                          - $ref: "#/components/schemas/BlsPubkey"
                       proxy:
                         description: the generated proxy public key
                         oneOf:
-                          - $ref: '#/components/schemas/BlsPubkey'
-                          - $ref: '#/components/schemas/EcdsaPubkey'
+                          - $ref: "#/components/schemas/BlsPubkey"
+                          - $ref: "#/components/schemas/EcdsaPubkey"
                   signature:
                     description: The signature of the proxy delegation
                     allOf:
-                      - $ref: '#/components/schemas/BlsSignature'
+                      - $ref: "#/components/schemas/BlsSignature"
               examples:
                 Bls:
                   value:

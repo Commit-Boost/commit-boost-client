@@ -153,7 +153,19 @@ impl GenerateProxyRequest {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GetPubkeysResponse {
-    pub consensus: Vec<BlsPublicKey>,
+    pub keys: Vec<ConsensusProxyMap>,
+}
+
+/// Map of consensus pubkeys to proxies
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ConsensusProxyMap {
+    pub consensus: BlsPublicKey,
     pub proxy_bls: Vec<BlsPublicKey>,
     pub proxy_ecdsa: Vec<EcdsaPublicKey>,
+}
+
+impl ConsensusProxyMap {
+    pub fn new(consensus: BlsPublicKey) -> Self {
+        Self { consensus, proxy_bls: vec![], proxy_ecdsa: vec![] }
+    }
 }

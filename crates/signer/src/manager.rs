@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use alloy::rpc::types::beacon::BlsSignature;
 use cb_common::{
     commit::request::{
-        ProxyDelegationBls, ProxyDelegationEcdsa, SignedProxyDelegationBls,
+        ConsensusProxyMap, ProxyDelegationBls, ProxyDelegationEcdsa, SignedProxyDelegationBls,
         SignedProxyDelegationEcdsa,
     },
     signer::{
@@ -16,6 +16,7 @@ use cb_common::{
     types::{Chain, ModuleId},
 };
 use derive_more::derive::Deref;
+use eyre::OptionExt;
 use tree_hash::TreeHash;
 
 use crate::error::SignerModuleError;
@@ -208,6 +209,39 @@ impl SigningManager {
             .get(pubkey)
             .map(|x| x.delegation)
             .ok_or(SignerModuleError::UnknownProxySigner(pubkey.as_ref().to_vec()))
+    }
+
+    pub fn get_consensus_proxy_maps(
+        &self,
+        module_id: &ModuleId,
+    ) -> eyre::Result<Vec<ConsensusProxyMap>> {
+        let consensus = self.consensus_pubkeys();
+        let proxy_bls = self.proxy_pubkeys_bls.get(module_id).cloned().unwrap_or_default();
+        let proxy_ecdsa = self.proxy_pubkeys_ecdsa.get(module_id).cloned().unwrap_or_default();
+
+        let mut keys: Vec<_> = consensus.into_iter().map(ConsensusProxyMap::new).collect();
+
+        for bls in proxy_bls {
+            let delegator = self.get_delegation_bls(&bls)?.message.delegator;
+            let entry = keys
+                .iter_mut()
+                .find(|x| x.consensus == delegator)
+                .ok_or_eyre("missing consensus")?;
+
+            entry.proxy_bls.push(bls);
+        }
+
+        for ecdsa in proxy_ecdsa {
+            let delegator = self.get_delegation_ecdsa(&ecdsa)?.message.delegator;
+            let entry = keys
+                .iter_mut()
+                .find(|x| x.consensus == delegator)
+                .ok_or_eyre("missing consensus")?;
+
+            entry.proxy_ecdsa.push(ecdsa);
+        }
+
+        Ok(keys)
     }
 }
 

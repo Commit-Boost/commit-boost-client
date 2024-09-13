@@ -15,6 +15,9 @@ pub enum SignerModuleError {
 
     #[error("unknown proxy signer: 0x{}", hex::encode(.0))]
     UnknownProxySigner(Vec<u8>),
+
+    #[error("internal error {0}")]
+    Internal(String),
 }
 
 impl IntoResponse for SignerModuleError {
@@ -23,6 +26,7 @@ impl IntoResponse for SignerModuleError {
             SignerModuleError::Unauthorized => StatusCode::UNAUTHORIZED,
             SignerModuleError::UnknownConsensusSigner(_) => StatusCode::NOT_FOUND,
             SignerModuleError::UnknownProxySigner(_) => StatusCode::NOT_FOUND,
+            SignerModuleError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
 
         (status, self.to_string()).into_response()
