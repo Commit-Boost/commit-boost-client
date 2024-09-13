@@ -181,12 +181,22 @@ impl SigningManager {
         self.consensus_signers.contains_key(pubkey)
     }
 
-    pub fn has_proxy_ecdsa(&self, ecdsa_pk: &EcdsaPublicKey) -> bool {
-        self.proxy_signers.ecdsa_signers.contains_key(ecdsa_pk)
+    pub fn has_proxy_bls_for_module(&self, bls_pk: &BlsPublicKey, module_id: &ModuleId) -> bool {
+        match self.proxy_pubkeys_bls.get(module_id) {
+            Some(keys) => keys.contains(bls_pk),
+            None => false,
+        }
     }
 
-    pub fn has_proxy_bls(&self, bls_pk: &BlsPublicKey) -> bool {
-        self.proxy_signers.bls_signers.contains_key(bls_pk)
+    pub fn has_proxy_ecdsa_for_module(
+        &self,
+        ecdsa_pk: &EcdsaPublicKey,
+        module_id: &ModuleId,
+    ) -> bool {
+        match self.proxy_pubkeys_ecdsa.get(module_id) {
+            Some(keys) => keys.contains(ecdsa_pk),
+            None => false,
+        }
     }
 
     pub fn get_delegation_bls(
@@ -295,7 +305,8 @@ mod tests {
             );
 
             assert!(
-                signing_manager.has_proxy_bls(&signed_delegation.message.proxy),
+                signing_manager
+                    .has_proxy_bls_for_module(&signed_delegation.message.proxy, &MODULE_ID),
                 "Newly generated proxy key must be present in the signing manager's registry."
             );
         }
@@ -373,7 +384,8 @@ mod tests {
             );
 
             assert!(
-                signing_manager.has_proxy_ecdsa(&signed_delegation.message.proxy),
+                signing_manager
+                    .has_proxy_ecdsa_for_module(&signed_delegation.message.proxy, &MODULE_ID),
                 "Newly generated proxy key must be present in the signing manager's registry."
             );
         }
