@@ -7,10 +7,10 @@ use toml::Table;
 use crate::{
     commit::client::SignerClient,
     config::{
-        constants::{CB_CONFIG_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, SIGNER_SERVER_ENV},
+        constants::{CONFIG_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, SIGNER_URL_ENV},
         load_env_var,
         utils::load_file_from_env,
-        BUILDER_SERVER_ENV,
+        BUILDER_PORT_ENV,
     },
     types::{Chain, Jwt, ModuleId},
 };
@@ -60,7 +60,7 @@ pub struct StartCommitModuleConfig<T = ()> {
 pub fn load_commit_module_config<T: DeserializeOwned>() -> Result<StartCommitModuleConfig<T>> {
     let module_id = ModuleId(load_env_var(MODULE_ID_ENV)?);
     let module_jwt = Jwt(load_env_var(MODULE_JWT_ENV)?);
-    let signer_server_address = load_env_var(SIGNER_SERVER_ENV)?;
+    let signer_server_url = load_env_var(SIGNER_URL_ENV)?.parse()?;
 
     #[derive(Debug, Deserialize)]
     struct ThisModuleConfig<U> {
@@ -85,7 +85,7 @@ pub fn load_commit_module_config<T: DeserializeOwned>() -> Result<StartCommitMod
     }
 
     // load module config including the extra data (if any)
-    let cb_config: StubConfig<T> = load_file_from_env(CB_CONFIG_ENV)?;
+    let cb_config: StubConfig<T> = load_file_from_env(CONFIG_ENV)?;
 
     // find all matching modules config
     let matches: Vec<ThisModuleConfig<T>> = cb_config
@@ -104,7 +104,7 @@ pub fn load_commit_module_config<T: DeserializeOwned>() -> Result<StartCommitMod
         .find(|m| m.static_config.id == module_id)
         .wrap_err(format!("failed to find module for {module_id}"))?;
 
-    let signer_client = SignerClient::new(signer_server_address, &module_jwt)?;
+    let signer_client = SignerClient::new(signer_server_url, &module_jwt)?;
 
     Ok(StartCommitModuleConfig {
         id: module_config.static_config.id,
@@ -129,7 +129,7 @@ pub struct StartBuilderModuleConfig<T> {
 pub fn load_builder_module_config<T: DeserializeOwned>() -> eyre::Result<StartBuilderModuleConfig<T>>
 {
     let module_id = ModuleId(load_env_var(MODULE_ID_ENV)?);
-    let builder_events_port: u16 = load_env_var(BUILDER_SERVER_ENV)?.parse()?;
+    let builder_events_port: u16 = load_env_var(BUILDER_PORT_ENV)?.parse()?;
 
     #[derive(Debug, Deserialize)]
     struct ThisModuleConfig<U> {
@@ -154,7 +154,7 @@ pub fn load_builder_module_config<T: DeserializeOwned>() -> eyre::Result<StartBu
     }
 
     // load module config including the extra data (if any)
-    let cb_config: StubConfig<T> = load_file_from_env(CB_CONFIG_ENV)?;
+    let cb_config: StubConfig<T> = load_file_from_env(CONFIG_ENV)?;
 
     // find all matching modules config
     let matches: Vec<ThisModuleConfig<T>> = cb_config

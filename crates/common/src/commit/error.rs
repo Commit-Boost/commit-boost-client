@@ -11,4 +11,7 @@ pub enum SignerClientError {
 
     #[error("serde decode error: {0}")]
     SerdeDecodeError(#[from] serde_json::Error),
+
+    #[error("url parse error: {0}")]
+    ParseError(#[from] url::ParseError),
 }

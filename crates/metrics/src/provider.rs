@@ -8,6 +8,7 @@ use axum::{
     routing::get,
 };
 use cb_common::config::ModuleMetricsConfig;
+use eyre::bail;
 use prometheus::{Encoder, Registry, TextEncoder};
 use tokio::net::TcpListener;
 use tracing::{error, info, trace, warn};
@@ -52,7 +53,7 @@ impl MetricsProvider {
 
         axum::serve(listener, router).await?;
 
-        Err(eyre::eyre!("Metrics server stopped"))
+        bail!("Metrics server stopped")
     }
 }
 

@@ -1,5 +1,5 @@
 ---
-sidebar_position: 2
+description: Configure Commit-Boost
 ---
 
 # Configuration

@@ -13,3 +13,4 @@ async-trait.workspace = true
 
 # telemetry
 tracing.workspace = true
+eyre.workspace = true

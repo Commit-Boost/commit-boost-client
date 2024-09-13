@@ -4,6 +4,7 @@ use alloy::rpc::types::beacon::BlsSignature;
 use eyre::WrapErr;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use serde::Deserialize;
+use url::Url;
 
 use super::{
     constants::{GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, REQUEST_SIGNATURE_PATH},
@@ -25,14 +26,13 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct SignerClient {
     /// Url endpoint of the Signer Module
-    url: Arc<String>,
+    url: Arc<Url>,
     client: reqwest::Client,
 }
 
 impl SignerClient {
     /// Create a new SignerClient
-    pub fn new(signer_server_address: String, jwt: &str) -> eyre::Result<Self> {
-        let url = format!("http://{}", signer_server_address);
+    pub fn new(signer_server_url: Url, jwt: &str) -> eyre::Result<Self> {
         let mut headers = HeaderMap::new();
 
         let mut auth_value =
@@ -44,14 +44,15 @@ impl SignerClient {
             .default_headers(headers)
             .build()?;
 
-        Ok(Self { url: url.into(), client })
+        Ok(Self { url: signer_server_url.into(), client })
     }
 
     /// Request a list of validator pubkeys for which signatures can be
     /// requested.
     // TODO: add more docs on how proxy keys work
     pub async fn get_pubkeys(&self) -> Result<GetPubkeysResponse, SignerClientError> {
-        let res = self.client.get(format!("{}{}", self.url, GET_PUBKEYS_PATH)).send().await?;
+        let url = self.url.join(GET_PUBKEYS_PATH)?;
+        let res = self.client.get(url).send().await?;
 
         if !res.status().is_success() {
             return Err(SignerClientError::FailedRequest {
@@ -68,8 +69,8 @@ impl SignerClient {
     where
         T: for<'de> Deserialize<'de>,
     {
-        let url = format!("{}{}", self.url, REQUEST_SIGNATURE_PATH);
-        let res = self.client.post(&url).json(&request).send().await?;
+        let url = self.url.join(REQUEST_SIGNATURE_PATH)?;
+        let res = self.client.post(url).json(&request).send().await?;
 
         let status = res.status();
         let response_bytes = res.bytes().await?;
@@ -114,8 +115,8 @@ impl SignerClient {
     where
         T: PublicKey + for<'de> Deserialize<'de>,
     {
-        let url = format!("{}{}", self.url, GENERATE_PROXY_KEY_PATH);
-        let res = self.client.post(&url).json(&request).send().await?;
+        let url = self.url.join(GENERATE_PROXY_KEY_PATH)?;
+        let res = self.client.post(url).json(&request).send().await?;
 
         let status = res.status();
         let response_bytes = res.bytes().await?;

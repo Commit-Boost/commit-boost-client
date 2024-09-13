@@ -13,10 +13,10 @@ impl OnBuilderApiEvent for LogProcessor {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> eyre::Result<()> {
     match load_builder_module_config::<()>() {
         Ok(config) => {
-            let _guard = initialize_tracing_log(&config.id);
+            let _guard = initialize_tracing_log(&config.id)?;
 
             info!(module_id = %config.id, "Starting module");
 
@@ -30,4 +30,6 @@ async fn main() {
             eprintln!("Failed to load module config: {err:?}");
         }
     }
+
+    Ok(())
 }

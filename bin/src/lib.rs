@@ -7,7 +7,7 @@ pub mod prelude {
         },
         config::{
             load_builder_module_config, load_commit_module_config, load_pbs_config,
-            load_pbs_custom_config, StartCommitModuleConfig,
+            load_pbs_custom_config, LogsSettings, StartCommitModuleConfig,
         },
         pbs::{BuilderEvent, BuilderEventClient, OnBuilderApiEvent},
         signer::{BlsPublicKey, BlsSignature, EcdsaPublicKey, EcdsaSignature},
