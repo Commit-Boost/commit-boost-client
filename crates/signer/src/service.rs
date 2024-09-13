@@ -134,11 +134,21 @@ async fn handle_request_signature(
             .sign_consensus(&pubkey, &object_root)
             .await
             .map(|sig| Json(sig).into_response()),
-        SignRequest::ProxyBls(SignProxyRequest { pubkey: bls_pk, object_root }) => signing_manager
-            .sign_proxy_bls(&bls_pk, &object_root)
-            .await
-            .map(|sig| Json(sig).into_response()),
+        SignRequest::ProxyBls(SignProxyRequest { pubkey: bls_pk, object_root }) => {
+            if !signing_manager.has_proxy_bls_for_module(&bls_pk, &module_id) {
+                return Err(SignerModuleError::UnknownProxySigner(bls_pk.to_vec()));
+            }
+
+            signing_manager
+                .sign_proxy_bls(&bls_pk, &object_root)
+                .await
+                .map(|sig| Json(sig).into_response())
+        }
         SignRequest::ProxyEcdsa(SignProxyRequest { pubkey: ecdsa_pk, object_root }) => {
+            if !signing_manager.has_proxy_ecdsa_for_module(&ecdsa_pk, &module_id) {
+                return Err(SignerModuleError::UnknownProxySigner(ecdsa_pk.to_vec()));
+            }
+
             signing_manager
                 .sign_proxy_ecdsa(&ecdsa_pk, &object_root)
                 .await

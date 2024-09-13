@@ -189,6 +189,24 @@ impl SigningManager {
         self.proxy_signers.bls_signers.contains_key(bls_pk)
     }
 
+    pub fn has_proxy_bls_for_module(&self, bls_pk: &BlsPublicKey, module_id: &ModuleId) -> bool {
+        match self.proxy_pubkeys_bls.get(module_id) {
+            Some(keys) => keys.contains(bls_pk),
+            None => false,
+        }
+    }
+
+    pub fn has_proxy_ecdsa_for_module(
+        &self,
+        ecdsa_pk: &EcdsaPublicKey,
+        module_id: &ModuleId,
+    ) -> bool {
+        match self.proxy_pubkeys_ecdsa.get(module_id) {
+            Some(keys) => keys.contains(ecdsa_pk),
+            None => false,
+        }
+    }
+
     pub fn get_delegation_bls(
         &self,
         pubkey: &BlsPublicKey,
