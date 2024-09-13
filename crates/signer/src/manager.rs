@@ -219,33 +219,27 @@ impl SigningManager {
         let proxy_bls = self.proxy_pubkeys_bls.get(&module_id).cloned().unwrap_or_default();
         let proxy_ecdsa = self.proxy_pubkeys_ecdsa.get(&module_id).cloned().unwrap_or_default();
 
-        let mut map: Vec<_> = consensus.into_iter().map(ConsensusProxyMap::new).collect();
+        let mut keys: Vec<_> = consensus.into_iter().map(ConsensusProxyMap::new).collect();
 
-        let keys = if proxy_bls.is_empty() && proxy_ecdsa.is_empty() {
-            map
-        } else {
-            for bls in proxy_bls {
-                let delegator = self.get_delegation_bls(&bls)?.message.delegator;
-                let entry = map
-                    .iter_mut()
-                    .find(|x| x.consensus == delegator)
-                    .ok_or_eyre("missing consensus")?;
+        for bls in proxy_bls {
+            let delegator = self.get_delegation_bls(&bls)?.message.delegator;
+            let entry = keys
+                .iter_mut()
+                .find(|x| x.consensus == delegator)
+                .ok_or_eyre("missing consensus")?;
 
-                entry.proxy_bls.push(bls);
-            }
+            entry.proxy_bls.push(bls);
+        }
 
-            for ecdsa in proxy_ecdsa {
-                let delegator = self.get_delegation_ecdsa(&ecdsa)?.message.delegator;
-                let entry = map
-                    .iter_mut()
-                    .find(|x| x.consensus == delegator)
-                    .ok_or_eyre("missing consensus")?;
+        for ecdsa in proxy_ecdsa {
+            let delegator = self.get_delegation_ecdsa(&ecdsa)?.message.delegator;
+            let entry = keys
+                .iter_mut()
+                .find(|x| x.consensus == delegator)
+                .ok_or_eyre("missing consensus")?;
 
-                entry.proxy_ecdsa.push(ecdsa);
-            }
-
-            map
-        };
+            entry.proxy_ecdsa.push(ecdsa);
+        }
 
         Ok(keys)
     }
