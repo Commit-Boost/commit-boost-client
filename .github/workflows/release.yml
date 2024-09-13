@@ -5,9 +5,6 @@ on:
     tags:
       - "v*"
 
-env:
-  BINARY_NAME: commit-boost
-
 permissions:
   contents: write
   packages: write
@@ -25,6 +22,13 @@ jobs:
             os: macos-latest
           - target: aarch64-apple-darwin
             os: macos-latest
+        names:
+          - binary: commit-boost
+            publish: commit-boost-cli
+          - binary: default-pbs
+            publish: commit-boost-pbs
+          - binary: signer-module
+            publish: commit-boost-signer
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -53,7 +57,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release --target ${{ matrix.target }} --bin ${{ env.BINARY_NAME }}
+          args: --release --target ${{ matrix.target }} --bin ${{ matrix.names.binary }}
         env:
           CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: gcc
 
@@ -61,20 +65,20 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           cd target/${{ matrix.target }}/release
-          tar -czvf ${{ env.BINARY_NAME }}-${{ github.ref_name }}-${{ matrix.target }}.tar.gz ${{ env.BINARY_NAME }}
-          mv ${{ env.BINARY_NAME }}-${{ github.ref_name }}-${{ matrix.target }}.tar.gz ../../../
+          tar -czvf ${{ matrix.names.publish }}-${{ github.ref_name }}-${{ matrix.target }}.tar.gz ${{ matrix.names.binary }}
+          mv ${{ matrix.names.publish }}-${{ github.ref_name }}-${{ matrix.target }}.tar.gz ../../../
 
       - name: Package binary (Windows)
         if: runner.os == 'Windows'
         run: |
           cd target/${{ matrix.target }}/release
-          7z a ${{ env.BINARY_NAME }}-${{ github.ref_name }}-${{ matrix.target }}.zip ${{ env.BINARY_NAME }}.exe
-          move ${{ env.BINARY_NAME }}-${{ github.ref_name }}-${{ matrix.target }}.zip ../../../
+          7z a ${{ matrix.names.publish }}-${{ github.ref_name }}-${{ matrix.target }}.zip ${{ matrix.names.binary }}.exe
+          move ${{ matrix.names.publish }}-${{ github.ref_name }}-${{ matrix.target }}.zip ../../../
 
       - name: Upload binary to release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ env.BINARY_NAME }}-${{ github.ref_name }}-${{ matrix.target }}.${{ runner.os == 'Windows' && 'zip' || 'tar.gz' }}
+          files: ${{ matrix.names.publish }}-${{ github.ref_name }}-${{ matrix.target }}.${{ runner.os == 'Windows' && 'zip' || 'tar.gz' }}
           draft: true
           token: ${{ secrets.GITHUB_TOKEN }}
 
