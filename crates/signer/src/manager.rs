@@ -216,8 +216,8 @@ impl SigningManager {
         module_id: &ModuleId,
     ) -> eyre::Result<Vec<ConsensusProxyMap>> {
         let consensus = self.consensus_pubkeys();
-        let proxy_bls = self.proxy_pubkeys_bls.get(&module_id).cloned().unwrap_or_default();
-        let proxy_ecdsa = self.proxy_pubkeys_ecdsa.get(&module_id).cloned().unwrap_or_default();
+        let proxy_bls = self.proxy_pubkeys_bls.get(module_id).cloned().unwrap_or_default();
+        let proxy_ecdsa = self.proxy_pubkeys_ecdsa.get(module_id).cloned().unwrap_or_default();
 
         let mut keys: Vec<_> = consensus.into_iter().map(ConsensusProxyMap::new).collect();
 
