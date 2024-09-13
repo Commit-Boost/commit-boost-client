@@ -110,7 +110,7 @@ pub fn load_pbs_config() -> Result<PbsModuleConfig> {
 
     let relay_clients =
         config.relays.into_iter().map(RelayClient::new).collect::<Result<Vec<_>>>()?;
-    let maybe_publiher = BuilderEventPublisher::new_from_env();
+    let maybe_publiher = BuilderEventPublisher::new_from_env()?;
 
     Ok(PbsModuleConfig {
         chain: config.chain,
@@ -144,7 +144,7 @@ pub fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleConfig,
 
     let relay_clients =
         cb_config.relays.into_iter().map(RelayClient::new).collect::<Result<Vec<_>>>()?;
-    let maybe_publiher = BuilderEventPublisher::new_from_env();
+    let maybe_publiher = BuilderEventPublisher::new_from_env()?;
 
     let signer_client = if cb_config.pbs.static_config.with_signer {
         // if custom pbs requires a signer client, load jwt

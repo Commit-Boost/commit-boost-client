@@ -3,9 +3,9 @@ use eyre::Result;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    constants::{SIGNER_IMAGE_DEFAULT, SIGNER_URL_ENV},
+    constants::SIGNER_IMAGE_DEFAULT,
     utils::{load_env_var, load_jwts},
-    CommitBoostConfig,
+    CommitBoostConfig, SIGNER_PORT_ENV,
 };
 use crate::{
     loader::SignerLoader,
@@ -38,7 +38,7 @@ impl StartSignerConfig {
         let config = CommitBoostConfig::from_env_path()?;
 
         let jwts = load_jwts()?;
-        let server_port = load_env_var(SIGNER_URL_ENV)?.parse()?;
+        let server_port = load_env_var(SIGNER_PORT_ENV)?.parse()?;
 
         Ok(StartSignerConfig {
             chain: config.chain,
