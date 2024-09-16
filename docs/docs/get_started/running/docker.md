@@ -3,11 +3,11 @@ description: Run Commit-Boost with Docker
 ---
 
 # Docker
-The `commit-boost` cli will generate a dynamic `docker-compose.yml` file using the provided `toml` config file. This is the recommended approach as Docker provides sandboxing of the containers from the rest of your system.
+The Commit-Boost CLI will generate a dynamic `docker-compose.yml` file using the provided `toml` config file. This is the recommended approach as Docker provides sandboxing of the containers from the rest of your system.
 
 ## Init
 
-After creating the `cb-config.toml` file, you can now run the Commit-Boost sidecar. First run:
+First run:
 ```bash
 commit-boost init --config cb-config.toml
 ```
@@ -23,11 +23,11 @@ To start Commit-Boost run:
 commit-boost start --docker cb.docker-compose.yml [--env .cb.env]
 ```
 
-This will start up the services including PBS, commit modules (if any), and metrics collection (if enabled).
+This will run `docker compose up` with the correct envs, and start up the services including PBS, commit modules (if any), and metrics collection (if enabled).
 
 The MEV-Boost server will be exposed at `pbs.port` from the config, `18550` in our example. You'll need to point your CL/Validator client to this port to be able to source blocks from the builder market.
 
-If enabled, this will also start a Prometheus server on port `9090` and a Grafana instance on port `3000`. In Grafana, you will also find some preset dabhboards already connected.
+If enabled, this will also start a Prometheus server on port `9090` and a Grafana instance on port `3000`. In Grafana, you will also find some preset dashboards already connected.
 
 
 ## Logs

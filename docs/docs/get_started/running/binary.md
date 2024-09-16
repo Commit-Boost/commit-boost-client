@@ -3,7 +3,6 @@ description: Run Commit-Boost modules natively
 ---
 
 # Binary
-It is also possible to run the native modules without using docker.
 
 :::warning
 Running the modules natively means you opt out of the security guarantees made by Docker and it's up to you how to setup and ensure the modules run safely
@@ -13,7 +12,7 @@ Running the modules natively means you opt out of the security guarantees made b
 ## Setup
 Get the binary of the module either by compiling from source or by downloading a [published release](https://github.com/Commit-Boost/commit-boost-client/releases).
 
-Modules need some environment variables to work correctly. Here is the complete list
+Modules need some environment variables to work correctly.
 
 ### Common
 - `CB_CONFIG`: required, path to the `toml` config file
@@ -45,7 +44,7 @@ Modules might also have additional envs required, which should be detailed by th
 
 ## Start
 
-After creating the `cb-config.toml` file, you need to setup the required envs and run the binary. For example:
+After creating the `cb-config.toml` file, setup the required envs and run the binary. For example:
 
 ```bash
 CB_CONFIG=./cb-config.toml commit-boost-pbs
