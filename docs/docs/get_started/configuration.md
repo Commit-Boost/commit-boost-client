@@ -4,7 +4,7 @@ description: Configure Commit-Boost
 
 # Configuration
 
-After the Commit-Boost CLI and the modules are setup as detailed in the previous section, you will need to create a `cb-config.toml` file, detailing all the services that you want to run. 
+Commit-Boost needs a configuration file detailing all the services that you want to run. Create a `cb-config.toml` and adjust it depending on which modules you plan to run.
 
 For a full explanation of all the fields, check out [here](https://github.com/Commit-Boost/commit-boost-client/blob/main/config.example.toml).
 
@@ -25,10 +25,12 @@ prometheus_config = "./docker/prometheus.yml"
 ```
 
 You can find a list of MEV-Boost Holesky relays [here](https://www.coincashew.com/coins/overview-eth/mev-boost/mev-relay-list#holesky-testnet-relays).
+After the sidecar is started, it will expose a port (`18550` in this example), that you need to point your CL to. This may be different depending on which CL you're running, check out [here](https://docs.flashbots.net/flashbots-mev-boost/getting-started/system-requirements#consensus-client-configuration-guides) for a list of configuration guides.
+
 Note that in this setup, the signer module will not be started.
 
 ## Custom module
-We currently provide a test module that needs to be built as a Docker image. To build the module run:
+We currently provide a test module that needs to be built locally. To build the module run:
 ```bash
 bash scripts/build_local_modules.sh
 ```
