@@ -74,8 +74,6 @@ spec:
           defaultMode: 0755
           name: {{ include "commit-boost.fullname" . }}
           items:
-            - key: prometheus.yaml
-              path: prometheus.yaml
             {{- if .Values.commitBoost.pbs.enable }}
             - key: config.pbs.toml
               path: config.pbs.toml

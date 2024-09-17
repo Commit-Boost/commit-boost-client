@@ -19,7 +19,7 @@ A Helm chart for Kubernetes
 | autoscaling.maxReplicas | int | `100` |  |
 | autoscaling.minReplicas | int | `1` |  |
 | autoscaling.targetCPUUtilizationPercentage | int | `80` |  |
-| commitBoost.pbs.config | string | `"chain = \"Holesky\"\n\n[pbs]\nport = 18550\n\n[[relays]]\nurl = \"https://0xafa4c6985aa049fb79dd37010438cfebeb0f2bd42b115b89dd678dab0670c1de38da0c4e9138c9290a398ecd9a0b3110@boost-relay-holesky.flashbots.net\"\n\n[metrics]\nprometheus_config = \"/config/prometheus.yaml\""` |  |
+| commitBoost.pbs.config | string | `"chain = \"Holesky\"\n\n[pbs]\nport = 18550\n\n[[relays]]\nurl = \"https://0xafa4c6985aa049fb79dd37010438cfebeb0f2bd42b115b89dd678dab0670c1de38da0c4e9138c9290a398ecd9a0b3110@boost-relay-holesky.flashbots.net\""` |  |
 | commitBoost.pbs.enable | bool | `true` |  |
 | fullnameOverride | string | `""` |  |
 | image.pullPolicy | string | `"IfNotPresent"` |  |
