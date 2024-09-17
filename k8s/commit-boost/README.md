@@ -1,6 +1,6 @@
 # commit-boost
 
-![Version: 0.0.3](https://img.shields.io/badge/Version-0.0.3-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: v0.2.0](https://img.shields.io/badge/AppVersion-v0.2.0-informational?style=flat-square)
+![Version: 0.0.4](https://img.shields.io/badge/Version-0.0.4-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: v0.2.0](https://img.shields.io/badge/AppVersion-v0.2.0-informational?style=flat-square)
 
 A Helm chart for Kubernetes
 
@@ -49,6 +49,7 @@ A Helm chart for Kubernetes
 | serviceAccount.create | bool | `true` |  |
 | serviceAccount.name | string | `""` |  |
 | serviceMonitor.enabled | bool | `true` |  |
+| serviceMonitor.honorLabels | bool | `true` |  |
 | serviceMonitor.path | string | `"/metrics"` |  |
 | serviceMonitor.scrapeInterval | string | `"30s"` |  |
 | tolerations | list | `[]` |  |

@@ -105,6 +105,8 @@ serviceMonitor:
   enabled: true
   scrapeInterval: 30s
   path: /metrics
+  honorLabels: true
+
 
 commitBoost:
   pbs:
