@@ -102,19 +102,9 @@ tolerations: []
 affinity: {}
 
 serviceMonitor:
-  enabled: false
-  additionalLabels: {}
-  namespace: ""
-  namespaceSelector: {}
-  # Default: scrape .Release.Namespace only
-  # To scrape all, use the following:
-  # namespaceSelector:
-  #   any: true
+  enabled: true
   scrapeInterval: 30s
-  # honorLabels: true
-  targetLabels: []
-  metricRelabelings: []
-  # path: /metrics
+  path: /metrics
 
 commitBoost:
   pbs:
