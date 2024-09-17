@@ -57,9 +57,7 @@ spec:
           env:
             - name: CB_CONFIG
               value: /config/config.pbs.toml
-            - name: ROLLING_DURATION
-              value: never
-            - name: METRICS_SERVER
+            - name: CB_METRICS_PORT
               value: '{{ .Values.service.metrics_port }}'
             - name: RUST_LOG
               value: info
