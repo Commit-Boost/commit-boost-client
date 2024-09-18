@@ -5,8 +5,8 @@
 
 use lazy_static::lazy_static;
 use prometheus::{
-    register_histogram_vec_with_registry, register_int_counter_vec_with_registry, HistogramVec,
-    IntCounterVec, Registry,
+    register_histogram_vec_with_registry, register_int_counter_vec_with_registry,
+    register_int_gauge_vec_with_registry, HistogramVec, IntCounterVec, IntGaugeVec, Registry,
 };
 
 lazy_static! {
@@ -28,6 +28,15 @@ lazy_static! {
         "relay_latency",
         "HTTP latency by relay",
         &["endpoint", "relay_id"],
+        PBS_METRICS_REGISTRY
+    )
+    .unwrap();
+
+    /// Latest slot for which relay delivered a header
+    pub static ref RELAY_LAST_SLOT: IntGaugeVec = register_int_gauge_vec_with_registry!(
+        "relay_last_slot",
+        "Latest slot for which relay delivered a header",
+        &["relay_id"],
         PBS_METRICS_REGISTRY
     )
     .unwrap();

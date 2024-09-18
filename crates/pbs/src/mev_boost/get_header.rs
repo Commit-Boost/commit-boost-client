@@ -25,7 +25,7 @@ use url::Url;
 
 use crate::{
     constants::{GET_HEADER_ENDPOINT_TAG, TIMEOUT_ERROR_CODE, TIMEOUT_ERROR_CODE_STR},
-    metrics::{RELAY_LATENCY, RELAY_STATUS_CODE},
+    metrics::{RELAY_LAST_SLOT, RELAY_LATENCY, RELAY_STATUS_CODE},
     state::{BuilderApiState, PbsState},
 };
 
@@ -79,7 +79,10 @@ pub async fn get_header<S: BuilderApiState>(
         let relay_id = relays[i].id.as_ref();
 
         match res {
-            Ok(Some(res)) => relay_bids.push(res),
+            Ok(Some(res)) => {
+                RELAY_LAST_SLOT.with_label_values(&[relay_id]).set(params.slot as i64);
+                relay_bids.push(res)
+            }
             Ok(_) => {}
             Err(err) if err.is_timeout() => error!(err = "Timed Out", relay_id),
             Err(err) => error!(?err, relay_id),

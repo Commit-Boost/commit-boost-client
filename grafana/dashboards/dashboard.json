@@ -18,16 +18,94 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
+  "id": 1,
   "links": [],
   "liveNow": true,
   "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cb_prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "red",
+            "mode": "thresholds"
+          },
+          "fieldMinMax": false,
+          "mappings": [],
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              {
+                "color": "yellow",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 100
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 11,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "id": 61,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.1.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cb_prometheus"
+          },
+          "disableTextWrap": false,
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "cb_pbs_relay_last_slot",
+          "format": "time_series",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": false,
+          "legendFormat": "{{relay_id}}",
+          "range": true,
+          "refId": "A",
+          "useBackend": false
+        }
+      ],
+      "title": "Last delivered slot",
+      "type": "stat"
+    },
     {
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 0
+        "y": 11
       },
       "id": 12,
       "panels": [],
@@ -103,7 +181,7 @@
         "h": 11,
         "w": 6,
         "x": 0,
-        "y": 1
+        "y": 12
       },
       "id": 11,
       "options": {
@@ -202,7 +280,7 @@
         "h": 11,
         "w": 6,
         "x": 6,
-        "y": 1
+        "y": 12
       },
       "id": 13,
       "options": {
@@ -301,7 +379,7 @@
         "h": 11,
         "w": 6,
         "x": 12,
-        "y": 1
+        "y": 12
       },
       "id": 43,
       "options": {
@@ -400,7 +478,7 @@
         "h": 11,
         "w": 6,
         "x": 18,
-        "y": 1
+        "y": 12
       },
       "id": 44,
       "options": {
@@ -500,7 +578,7 @@
         "h": 11,
         "w": 6,
         "x": 0,
-        "y": 12
+        "y": 23
       },
       "id": 20,
       "options": {
@@ -604,7 +682,7 @@
         "h": 11,
         "w": 6,
         "x": 6,
-        "y": 12
+        "y": 23
       },
       "id": 29,
       "options": {
@@ -708,7 +786,7 @@
         "h": 11,
         "w": 6,
         "x": 12,
-        "y": 12
+        "y": 23
       },
       "id": 30,
       "options": {
@@ -769,6 +847,11 @@
           },
           {
             "selected": false,
+            "text": "register_validator",
+            "value": "register_validator"
+          },
+          {
+            "selected": false,
             "text": "get_header",
             "value": "get_header"
           },
@@ -776,11 +859,6 @@
             "selected": false,
             "text": "submit_blinded_block",
             "value": "submit_blinded_block"
-          },
-          {
-            "selected": false,
-            "text": "register_validator",
-            "value": "register_validator"
           }
         ],
         "query": "register_validator, get_header, submit_blinded_block",
@@ -798,6 +876,6 @@
   "timezone": "browser",
   "title": "PBS Metrics",
   "uid": "cb_prometheus",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }
