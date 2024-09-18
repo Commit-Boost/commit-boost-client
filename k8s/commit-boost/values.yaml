@@ -7,7 +7,7 @@ replicaCount: 1
 image:
   repository: ghcr.io/commit-boost/pbs
   pullPolicy: IfNotPresent
-  tag: "v0.1.0"
+  tag: "v0.2.0"
 
 imagePullSecrets: []
 nameOverride: ""
@@ -102,19 +102,11 @@ tolerations: []
 affinity: {}
 
 serviceMonitor:
-  enabled: false
-  additionalLabels: {}
-  namespace: ""
-  namespaceSelector: {}
-  # Default: scrape .Release.Namespace only
-  # To scrape all, use the following:
-  # namespaceSelector:
-  #   any: true
+  enabled: true
   scrapeInterval: 30s
-  # honorLabels: true
-  targetLabels: []
-  metricRelabelings: []
-  # path: /metrics
+  path: /metrics
+  honorLabels: true
+
 
 commitBoost:
   pbs:
@@ -127,6 +119,3 @@ commitBoost:
 
       [[relays]]
       url = "https://0xafa4c6985aa049fb79dd37010438cfebeb0f2bd42b115b89dd678dab0670c1de38da0c4e9138c9290a398ecd9a0b3110@boost-relay-holesky.flashbots.net"
-
-      [metrics]
-      prometheus_config = "/config/prometheus.yaml"

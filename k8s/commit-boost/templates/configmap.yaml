@@ -9,5 +9,3 @@ data:
   config.pbs.toml: |-
     {{ .Values.commitBoost.pbs.config | nindent 4 }}
   {{- end }}
-
-  prometheus.yaml: ""

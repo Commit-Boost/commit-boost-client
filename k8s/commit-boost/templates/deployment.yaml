@@ -57,9 +57,7 @@ spec:
           env:
             - name: CB_CONFIG
               value: /config/config.pbs.toml
-            - name: ROLLING_DURATION
-              value: never
-            - name: METRICS_SERVER
+            - name: CB_METRICS_PORT
               value: '{{ .Values.service.metrics_port }}'
             - name: RUST_LOG
               value: info
@@ -76,8 +74,6 @@ spec:
           defaultMode: 0755
           name: {{ include "commit-boost.fullname" . }}
           items:
-            - key: prometheus.yaml
-              path: prometheus.yaml
             {{- if .Values.commitBoost.pbs.enable }}
             - key: config.pbs.toml
               path: config.pbs.toml
