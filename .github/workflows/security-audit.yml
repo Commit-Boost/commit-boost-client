@@ -8,6 +8,12 @@ on:
   schedule:
     - cron: '0 0 * * *'
 
+permissions:
+  issues: write
+  checks: write
+  pull-requests: read
+  contents: read
+
 jobs:
   security_audit:
     runs-on: ubuntu-latest
