@@ -8,6 +8,8 @@ use axum::http::HeaderValue;
 use blst::min_pk::{PublicKey, Signature};
 use rand::{distributions::Alphanumeric, Rng};
 use reqwest::header::HeaderMap;
+use serde::{de::DeserializeOwned, Serialize};
+use serde_json::Value;
 use tracing::Level;
 use tracing_appender::{non_blocking::WorkerGuard, rolling::Rotation};
 use tracing_subscriber::{fmt::Layer, prelude::*, EnvFilter};
@@ -58,6 +60,19 @@ pub fn eth_to_wei(eth: f64) -> U256 {
 }
 
 // Serde
+/// Test that the encoding and decoding works, returns the decoded struct
+pub fn test_encode_decode<T: Serialize + DeserializeOwned>(d: &str) -> T {
+    let decoded = serde_json::from_str::<T>(d).expect("deserialize");
+
+    // re-encode to make sure that different formats are ignored
+    let encoded = serde_json::to_string(&decoded).unwrap();
+    let original_v: Value = serde_json::from_str(d).unwrap();
+    let encoded_v: Value = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(original_v, encoded_v, "encode mismatch");
+
+    decoded
+}
+
 pub mod as_str {
     use std::{fmt::Display, str::FromStr};
 

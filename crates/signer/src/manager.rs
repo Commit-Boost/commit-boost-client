@@ -257,9 +257,9 @@ impl SigningManager {
 
 #[cfg(test)]
 mod tests {
+    use alloy::primitives::B256;
     use cb_common::signature::compute_signing_root;
     use lazy_static::lazy_static;
-    use tree_hash::Hash256;
 
     use super::*;
 
@@ -338,17 +338,16 @@ mod tests {
                 .unwrap();
             let proxy_pk = signed_delegation.message.proxy;
 
-            let data_root = Hash256::random();
-            let data_root_bytes = data_root.as_fixed_bytes();
+            let data_root = B256::random();
 
             let sig = signing_manager
-                .sign_proxy_bls(&proxy_pk.try_into().unwrap(), data_root_bytes)
+                .sign_proxy_bls(&proxy_pk.try_into().unwrap(), &data_root)
                 .await
                 .unwrap();
 
             // Verify signature
             let domain = compute_domain(CHAIN, COMMIT_BOOST_DOMAIN);
-            let signing_root = compute_signing_root(data_root_bytes.tree_hash_root().0, domain);
+            let signing_root = compute_signing_root(data_root.tree_hash_root().0, domain);
 
             let validation_result = verify_bls_signature(&proxy_pk, &signing_root, &sig);
 
@@ -417,17 +416,16 @@ mod tests {
                 .unwrap();
             let proxy_pk = signed_delegation.message.proxy;
 
-            let data_root = Hash256::random();
-            let data_root_bytes = data_root.as_fixed_bytes();
+            let data_root = B256::random();
 
             let sig = signing_manager
-                .sign_proxy_ecdsa(&proxy_pk.try_into().unwrap(), data_root_bytes)
+                .sign_proxy_ecdsa(&proxy_pk.try_into().unwrap(), &data_root)
                 .await
                 .unwrap();
 
             // Verify signature
             let domain = compute_domain(CHAIN, COMMIT_BOOST_DOMAIN);
-            let signing_root = compute_signing_root(data_root_bytes.tree_hash_root().0, domain);
+            let signing_root = compute_signing_root(data_root.tree_hash_root().0, domain);
 
             let validation_result = verify_ecdsa_signature(&proxy_pk, &signing_root, &sig);
 
