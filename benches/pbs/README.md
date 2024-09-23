@@ -90,13 +90,13 @@ docker rm --force mev_boost_bench
 #### Commit-Boost
 You can run the provided `docker-compose` file:
 ```bash
-commit-boost start --docker benches/pbs/bench.docker-compose.yml
+commit-boost-cli start --docker benches/pbs/bench.docker-compose.yml
 ```
-or regenerate it using `commit-boost init`.
+or regenerate it using `commit-boost-cli init`.
 
 To clean up after then benchmark, run:
 ```bash
-commit-boost stop --docker benches/pbs/bench.docker-compose.yml
+commit-boost-cli stop --docker benches/pbs/bench.docker-compose.yml
 ```
 
 ### Running the benchmark

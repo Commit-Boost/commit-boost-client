@@ -9,7 +9,7 @@ The Commit-Boost CLI will generate a dynamic `docker-compose.yml` file using the
 
 First run:
 ```bash
-commit-boost init --config cb-config.toml
+commit-boost-cli init --config cb-config.toml
 ```
 This will create up to three files:
 - `cb.docker-compose.yml`, which contains the full setup of the Commit-Boost services
@@ -20,7 +20,7 @@ This will create up to three files:
 
 To start Commit-Boost run:
 ```bash
-commit-boost start --docker cb.docker-compose.yml [--env .cb.env]
+commit-boost-cli start --docker cb.docker-compose.yml [--env .cb.env]
 ```
 
 This will run `docker compose up` with the correct envs, and start up the services including PBS, commit modules (if any), and metrics collection (if enabled).
@@ -34,7 +34,7 @@ If enabled, this will also start a Prometheus server on port `9090` and a Grafan
 
 To check logs, run:
 ```bash
-commit-boost logs
+commit-boost-cli logs
 ```
 This will currently show all logs from the different services via the Docker logs interface. Logs are also optionally saved to file, depending on your `[logs]` configuration.
 
@@ -42,6 +42,6 @@ This will currently show all logs from the different services via the Docker log
 
 To stop all the services and cleanup, simply run:
 ```bash
-commit-boost stop
+commit-boost-cli stop
 ```
 This will wind down all services and clear internal networks and file mounts.

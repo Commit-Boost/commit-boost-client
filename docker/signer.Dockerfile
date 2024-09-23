@@ -11,7 +11,7 @@ COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 
 COPY . .
-RUN cargo build --release --bin signer-module
+RUN cargo build --release --bin commit-boost-signer
 
 
 FROM debian:bookworm-slim AS runtime
@@ -25,8 +25,8 @@ RUN apt-get update && apt-get install -y \
   && apt-get clean autoclean \
   && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /app/target/release/signer-module /usr/local/bin
-ENTRYPOINT ["/usr/local/bin/signer-module"]
+COPY --from=builder /app/target/release/commit-boost-signer /usr/local/bin
+ENTRYPOINT ["/usr/local/bin/commit-boost-signer"]
 
 
 

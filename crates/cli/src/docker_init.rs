@@ -474,7 +474,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     }
 
     if envs.is_empty() {
-        println!("Run with:\n\t`commit-boost start --docker {:?}`", compose_path);
+        println!("Run with:\n\t`commit-boost-cli start --docker {:?}`", compose_path);
     } else {
         // write envs to .env file
         let envs_str = {
@@ -490,7 +490,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
         println!("Env file written to: {:?}", env_path);
 
         println!(
-            "Run with:\n\t`commit-boost start --docker {:?} --env {:?}`",
+            "Run with:\n\t`commit-boost-cli start --docker {:?} --env {:?}`",
             compose_path, env_path
         );
     }
