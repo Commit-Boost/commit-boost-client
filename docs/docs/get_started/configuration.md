@@ -69,3 +69,35 @@ A few things to note:
 - There is now a `[[modules]]` section which at a minimum needs to specify the module `id`, `type` and `docker_image`. Additional parameters needed for the business logic of the module will also be here,
 
 To learn more about developing modules, check out [here](/category/developing).
+
+## Vouch
+[Vouch](https://github.com/attestantio/vouch) is a multi-node validator client built by [Attestant](https://www.attestant.io/). Vouch is particular in that it also integrates a MEV-Boost client to interact with relays. The Commit-Boost PBS module is compatible with the Vouch `blockrelay` since it implements the Builder-API, just like relays do. For example, depending on your setup and preference, you may want to fetch headers from a given relay using Commit-Boost vs using the built-in Vouch `blockrelay`.
+
+### Configuration
+Get familiar on how to set up Vouch [here](https://github.com/attestantio/vouch/blob/master/docs/getting_started.md).
+
+You can setup Commit-Boost with Vouch in two ways.
+For simplicity, assume that in Vouch `blockrelay.listen-address: 127.0.0.0:19550` and in Commit-Boost `pbs.port = 18550`.
+
+#### Beacon Node to Vouch
+In this setup, the BN Builder-API endpoint will be pointing to the Vouch `blockrelay` (e.g. for Lighthouse you will need the flag `--builder=http://127.0.0.0:19550`). 
+
+Modify the `blockrelay.config` file to add Commit-Boost:
+```json
+"relays": {
+    "http://127.0.0.0:18550": {}
+}
+```
+
+#### Beacon Node to Commit Boost
+In this setup, the BN Builder-API endpoint will be pointing to the PBS module (e.g. for Lighthouse you will need the flag `--builder=http://127.0.0.0:18550`). 
+
+This will bypass the `blockrelay` entirely so make sure all relays are properly configured in the `[[relays]]` section.
+
+**Note**: this approach could also work if you have a multi-beacon-node setup, where some BNs fetch directly via Commit-Boost while others go through the `blockrelay`.
+
+### Notes
+- It's up to you to decide which relays will be connected via Commit-Boost (`[[relays]]` section in the `toml` config) and which via Vouch (additional entries in the `relays` field). Remember that any rate-limit will be shared across the two sidecars, if running on the same machine.
+- You may occasionally see a `timeout` error during registrations, especially if you're running a large number of validators in the same instance. This can resolve itself as registrations will be cleared later in the epoch when relays are less busy processing other registrations. Alternatively you can also adjust the `builderclient.timeout` option in `.vouch.yml`.
+
+
