@@ -92,12 +92,16 @@ const config = {
             title: 'Links',
             items: [
               {
-                label: 'Twitter',
+                label: 'Github',
+                href: 'https://github.com/Commit-Boost/commit-boost-client',
+              },
+              {
+                label: 'X (Twitter)',
                 href: 'https://x.com/Commit_Boost',
               },
               {
-                label: 'GitHub',
-                href: 'https://github.com/Commit-Boost/commit-boost-client',
+                label: 'Telegram',
+                href: 'https://t.me/+Pcs9bykxK3BiMzk5',
               },
             ],
           },

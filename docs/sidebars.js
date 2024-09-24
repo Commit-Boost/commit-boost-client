@@ -66,6 +66,25 @@ const sidebars = {
         'architecture/overview',
       ],
     },
+    {
+      type: 'html',
+      value: '<hr />',  // This adds a horizontal line separator
+    },
+    {
+      type: 'link',
+      label: 'Github',
+      href: 'https://github.com/Commit-Boost/commit-boost-client',
+    },
+    {
+      type: 'link',
+      label: 'X (Twitter)',
+      href: 'https://x.com/Commit_Boost',
+    },
+    {
+      type: 'link',
+      label: 'Telegram',
+      href: 'https://t.me/+Pcs9bykxK3BiMzk5',
+    },
   ],
 
   // But you can create a sidebar manually
