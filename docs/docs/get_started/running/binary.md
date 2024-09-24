@@ -34,7 +34,7 @@ For loading keys we currently support:
 - `CB_MODULE_ID`: required, unique id of the module
 
 #### Commit modules
-- `CB_SIGNER_URL`: requred, url to the signer module server
+- `CB_SIGNER_URL`: required, url to the signer module server
 - `CB_SIGNER_JWT`: required, jwt to use to for signature requests (needs to match what is in `CB_JWTS`)
 
 #### Events modules
