@@ -293,7 +293,7 @@ fn validate_header(
     let block_hash = signed_header.message.header.block_hash;
     let received_relay_pubkey = signed_header.message.pubkey;
     let tx_root = signed_header.message.header.transactions_root;
-    let value = signed_header.message.value();
+    let value = signed_header.message.value;
 
     if block_hash == B256::ZERO {
         return Err(ValidationError::EmptyBlockhash);
@@ -365,8 +365,7 @@ mod tests {
         .unwrap();
         let pubkey = BlsPublicKey::from_slice(&secret_key.sk_to_pk().to_bytes());
 
-        mock_header.message.header.transactions_root =
-            alloy::primitives::FixedBytes(EMPTY_TX_ROOT_HASH);
+        mock_header.message.header.transactions_root = EMPTY_TX_ROOT_HASH;
 
         assert_eq!(
             validate_header(
@@ -425,7 +424,7 @@ mod tests {
             Err(ValidationError::BidTooLow { min: min_bid, got: U256::ZERO })
         );
 
-        mock_header.message.set_value(U256::from(1));
+        mock_header.message.value = U256::from(1);
 
         mock_header.message.pubkey = pubkey;
 

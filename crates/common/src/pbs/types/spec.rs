@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use ssz_derive::{Decode, Encode};
 use ssz_types::typenum;
 
 pub trait EthSpec {
@@ -20,7 +19,7 @@ pub trait EthSpec {
     type BytesPerBlob: typenum::Unsigned + std::fmt::Debug;
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct DenebSpec;
 
 impl EthSpec for DenebSpec {

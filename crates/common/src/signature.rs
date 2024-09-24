@@ -1,5 +1,4 @@
 use alloy::rpc::types::beacon::{constants::BLS_DST_SIG, BlsPublicKey, BlsSignature};
-use ssz_derive::{Decode, Encode};
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
@@ -16,7 +15,7 @@ pub fn sign_message(secret_key: &BlsSecretKey, msg: &[u8]) -> BlsSignature {
 }
 
 pub fn compute_signing_root(object_root: [u8; 32], signing_domain: [u8; 32]) -> [u8; 32] {
-    #[derive(Default, Debug, Encode, Decode, TreeHash)]
+    #[derive(Default, Debug, TreeHash)]
     struct SigningData {
         object_root: [u8; 32],
         signing_domain: [u8; 32],
@@ -27,7 +26,7 @@ pub fn compute_signing_root(object_root: [u8; 32], signing_domain: [u8; 32]) -> 
 }
 
 pub fn compute_domain(chain: Chain, domain_mask: [u8; 4]) -> [u8; 32] {
-    #[derive(Debug, Encode, Decode, TreeHash)]
+    #[derive(Debug, TreeHash)]
     struct ForkData {
         fork_version: [u8; 4],
         genesis_validators_root: [u8; 32],

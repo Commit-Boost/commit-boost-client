@@ -4,15 +4,13 @@ use std::{
 };
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
 use tree_hash::{PackedEncoding, TreeHash};
 
 use super::spec::EthSpec;
 
 pub const BYTES_PER_COMMITMENT: usize = 48;
-#[derive(Clone, Encode, Decode, Eq, PartialEq)]
-#[ssz(struct_behaviour = "transparent")]
+#[derive(Clone, Eq, PartialEq)]
 pub struct KzgCommitment(pub [u8; BYTES_PER_COMMITMENT]);
 pub type KzgCommitments<T> =
     VariableList<KzgCommitment, <T as EthSpec>::MaxBlobCommitmentsPerBlock>;
@@ -98,8 +96,7 @@ impl FromStr for KzgCommitment {
 // PROOF
 const BYTES_PER_PROOF: usize = 48;
 
-#[derive(Debug, Clone, Encode, Decode)]
-#[ssz(struct_behaviour = "transparent")]
+#[derive(Debug, Clone)]
 pub struct KzgProof(pub [u8; BYTES_PER_PROOF]);
 pub type KzgProofs<T> = VariableList<KzgProof, <T as EthSpec>::MaxBlobCommitmentsPerBlock>;
 

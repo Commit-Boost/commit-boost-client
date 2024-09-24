@@ -7,12 +7,9 @@ publish = false
 
 [dependencies]
 # ethereum
-alloy = { workspace = true, features = ["ssz"] }
-ethereum_ssz.workspace = true
+alloy = { workspace = true }
 ssz_types.workspace = true
-ethereum_ssz_derive.workspace = true
 ethereum_serde_utils.workspace = true
-ethereum-types.workspace = true
 
 # networking
 axum.workspace = true

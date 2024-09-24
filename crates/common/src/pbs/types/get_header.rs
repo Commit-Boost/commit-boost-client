@@ -2,16 +2,12 @@ use alloy::{
     primitives::{B256, U256},
     rpc::types::beacon::{BlsPublicKey, BlsSignature},
 };
-use ethereum_types::U256 as EU256;
 use serde::{Deserialize, Serialize};
-use ssz_derive::{Decode, Encode};
 use tree_hash_derive::TreeHash;
 
 use super::{
-    execution_payload::ExecutionPayloadHeader,
-    kzg::KzgCommitments,
-    spec::DenebSpec,
-    utils::{as_dec_str, VersionedResponse},
+    execution_payload::ExecutionPayloadHeader, kzg::KzgCommitments, spec::DenebSpec,
+    utils::VersionedResponse,
 };
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
@@ -34,34 +30,23 @@ impl GetHeaderResponse {
     }
 
     pub fn value(&self) -> U256 {
-        self.data.message.value()
+        self.data.message.value
     }
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct SignedExecutionPayloadHeader {
     pub message: ExecutionPayloadHeaderMessage,
     pub signature: BlsSignature,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize, Encode, Decode, TreeHash)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, TreeHash)]
 pub struct ExecutionPayloadHeaderMessage {
     pub header: ExecutionPayloadHeader<DenebSpec>,
     pub blob_kzg_commitments: KzgCommitments<DenebSpec>,
-    #[serde(with = "as_dec_str")]
-    value: EU256,
+    #[serde(with = "serde_utils::quoted_u256")]
+    pub value: U256,
     pub pubkey: BlsPublicKey,
-}
-
-impl ExecutionPayloadHeaderMessage {
-    pub fn value(&self) -> U256 {
-        U256::from_limbs(self.value.0)
-    }
-
-    // FIMXE: only used in test
-    pub fn set_value(&mut self, value: U256) {
-        self.value = EU256::from_little_endian(&value.to_le_bytes::<32>())
-    }
 }
 
 #[cfg(test)]
@@ -71,6 +56,7 @@ mod tests {
     use super::GetHeaderResponse;
     use crate::{
         constants::APPLICATION_BUILDER_DOMAIN, signature::verify_signed_message, types::Chain,
+        utils::test_encode_decode,
     };
 
     #[test]
@@ -113,9 +99,9 @@ mod tests {
             }
         }"#;
 
-        let parsed = serde_json::from_str::<GetHeaderResponse>(&data).unwrap().data;
+        let parsed = test_encode_decode::<GetHeaderResponse>(&data).data;
 
-        assert_eq!(parsed.message.value(), U256::from(4293912964927787u64));
+        assert_eq!(parsed.message.value, U256::from(4293912964927787u64));
 
         assert!(verify_signed_message(
             Chain::Holesky,

@@ -3,8 +3,6 @@ use std::fmt::{self, Debug, Display, LowerHex};
 use alloy::rpc::types::beacon::BlsSignature;
 use derive_more::derive::From;
 use serde::{Deserialize, Serialize};
-use ssz::{Decode, Encode};
-use ssz_derive::{Decode, Encode};
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
@@ -16,17 +14,14 @@ use crate::{
     types::Chain,
 };
 
-pub trait PublicKey:
-    AsRef<[u8]> + Debug + Clone + Copy + Encode + Decode + TreeHash + Display + LowerHex
-{
-}
+pub trait PublicKey: AsRef<[u8]> + Debug + Clone + Copy + TreeHash + Display + LowerHex {}
 
 impl PublicKey for EcdsaPublicKey {}
 
 impl PublicKey for BlsPublicKey {}
 
 // GENERIC PROXY DELEGATION
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Encode, Decode, TreeHash)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TreeHash)]
 pub struct ProxyDelegation<T: PublicKey> {
     pub delegator: BlsPublicKey,
     pub proxy: T,

@@ -1,13 +1,12 @@
 use alloy::{primitives::B256, rpc::types::beacon::BlsSignature};
 use serde::{Deserialize, Serialize};
-use ssz_derive::{Decode, Encode};
 
 use super::{
     blinded_block_body::BlindedBeaconBlockBody, blobs_bundle::BlobsBundle,
     execution_payload::ExecutionPayload, spec::DenebSpec, utils::VersionedResponse,
 };
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 /// Sent to relays in submit_block
 pub struct SignedBlindedBeaconBlock {
     pub message: BlindedBeaconBlock,
@@ -20,7 +19,7 @@ impl SignedBlindedBeaconBlock {
     }
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct BlindedBeaconBlock {
     #[serde(with = "serde_utils::quoted_u64")]
     pub slot: u64,
@@ -34,7 +33,7 @@ pub struct BlindedBeaconBlock {
 /// Returned by relay in submit_block
 pub type SubmitBlindedBlockResponse = VersionedResponse<PayloadAndBlobs>;
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct PayloadAndBlobs {
     pub execution_payload: ExecutionPayload<DenebSpec>,
     pub blobs_bundle: Option<BlobsBundle<DenebSpec>>,
@@ -48,7 +47,10 @@ impl SubmitBlindedBlockResponse {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::{SignedBlindedBeaconBlock, SubmitBlindedBlockResponse};
+    use crate::utils::test_encode_decode;
 
     #[test]
     // this is from the builder api spec, but with sync_committee_bits fixed to
@@ -248,7 +250,7 @@ mod tests {
         "signature": "0x1b66ac1fb663c9bc59509846d6ec05345bd908eda73e670af888da41af171505cc411d61252fb6cb3fa0017b679f8bb2305b26a285fa2737f175668d0dff91cc1b66ac1fb663c9bc59509846d6ec05345bd908eda73e670af888da41af171505"
       }"#;
 
-        assert!(serde_json::from_str::<SignedBlindedBeaconBlock>(&data).is_ok());
+        test_encode_decode::<SignedBlindedBeaconBlock>(&data);
     }
 
     #[test]
@@ -535,7 +537,7 @@ mod tests {
               },
               "execution_payload_header": {
                 "parent_hash": "0xa330251430b91a6fb5342f30a1f527dc76499c03a411464235951dbd51b94d9f",
-                "fee_recipient": "0xf97e180c050e5Ab072211Ad2C213Eb5AEE4DF134",
+                "fee_recipient": "0xf97e180c050e5ab072211ad2c213eb5aee4df134",
                 "state_root": "0x079f2cc22a29388fd4fc20f451cbaa3ff39845d68b2c368ff7be314617418e38",
                 "receipts_root": "0xed980a4cf6df8ba330c14ed9fe0597ec20515f44e5a9adfd2f7b72aa14890996",
                 "logs_bloom": "0x0000000400000008000008000040000000000000000000001000104880000200000004000000400000000204000020002000000000000000000000000022000800000004000000000002000c000000000000000000000100000000000000000000000000000000000000000000000040000000000040000001000014000000010002104000000000000000000000000000000000000000000000000000000080020000000000000000002400000000000001000000000002000200102000000040100002000000000000000000000000000000000000000800000000000000000010000000000000000000000000000000000400002000000000000000200000",
@@ -562,19 +564,19 @@ mod tests {
           "signature": "0x8c3095fd9d3a18e43ceeb7648281e16bb03044839dffea796432c4e5a1372bef22c11a98a31e0c1c5389b98cc6d45917170a0f1634bcf152d896f360dc599fabba2ec4de77898b5dff080fa1628482bdbad5b37d2e64fea3d8721095186cfe50"
         }"#;
 
-        assert!(serde_json::from_str::<SignedBlindedBeaconBlock>(&data).is_ok());
+        test_encode_decode::<SignedBlindedBeaconBlock>(&data);
     }
 
     #[test]
     // this is from the builder api spec, but with blobs fixed to deserialize
     // correctly
     fn test_submit_blinded_block_response() {
-        let blob = alloy::primitives::hex::encode([1; 131072]);
-        let data = format!(
-            r#"{{
+        let blob = alloy::primitives::hex::encode_prefixed([1; 131072]);
+
+        let data = json!({
           "version": "deneb",
-          "data": {{
-            "execution_payload": {{
+          "data": {
+            "execution_payload": {
               "parent_hash":
         "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
               "fee_recipient": "0xabcf8e0d4e9587369b2301d0790347320302cc09",
@@ -598,15 +600,15 @@ mod tests {
                 "0x02f878831469668303f51d843b9ac9f9843b9aca0082520894c93269b73096998db66be0441e836d873535cb9c8894a19041886f000080c001a031cc29234036afbf9a1fb9476b463367cb1f957ac0b919b69bbc798436e604aaa018c4e9c3914eb27aadd0b91e10b18655739fcf8c1fc398763a9f1beecb8ddc86"
               ],
               "withdrawals": [
-                {{
+                {
                   "index": "1",
                   "validator_index": "1",
                   "address": "0xabcf8e0d4e9587369b2301d0790347320302cc09",
                   "amount": "32000000000"
-                }}
+                }
               ]
-            }},
-            "blobs_bundle": {{
+            },
+            "blobs_bundle": {
               "commitments": [
                 "0x8dab030c51e16e84be9caab84ee3d0b8bbec1db4a0e4de76439da8424d9b957370a10a78851f97e4b54d2ce1ab0d686f"
               ],
@@ -614,14 +616,12 @@ mod tests {
                 "0xb4021b0de10f743893d4f71e1bf830c019e832958efd6795baf2f83b8699a9eccc5dc99015d8d4d8ec370d0cc333c06a"
               ],
               "blobs": [
-                "0x{}"
+                blob
               ]
-            }}
-          }}
-        }}"#,
-            blob
-        );
+            }
+          }
+        }).to_string();
 
-        assert!(serde_json::from_str::<SubmitBlindedBlockResponse>(&data).is_ok());
+        test_encode_decode::<SubmitBlindedBlockResponse>(&data);
     }
 }

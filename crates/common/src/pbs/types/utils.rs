@@ -29,27 +29,6 @@ pub mod quoted_variable_list_u64 {
     }
 }
 
-pub mod as_dec_str {
-    use ethereum_types::U256;
-    use serde::Deserialize;
-
-    pub fn serialize<S>(data: &U256, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let s = data.to_string();
-        serializer.serialize_str(&s)
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<U256, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        U256::from_dec_str(&s).map_err(serde::de::Error::custom)
-    }
-}
-
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct VersionedResponse<T> {
     pub version: Version,

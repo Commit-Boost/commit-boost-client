@@ -67,50 +67,6 @@ impl TreeHash for EcdsaPublicKey {
     }
 }
 
-impl ssz::Encode for EcdsaPublicKey {
-    #[inline]
-    fn is_ssz_fixed_len() -> bool {
-        true
-    }
-
-    fn ssz_bytes_len(&self) -> usize {
-        Self::SIZE
-    }
-
-    #[inline]
-    fn ssz_fixed_len() -> usize {
-        Self::SIZE
-    }
-
-    #[inline]
-    fn ssz_append(&self, buf: &mut Vec<u8>) {
-        buf.extend_from_slice(&self.encoded)
-    }
-
-    #[inline]
-    fn as_ssz_bytes(&self) -> Vec<u8> {
-        self.encoded.to_vec()
-    }
-}
-
-impl ssz::Decode for EcdsaPublicKey {
-    fn is_ssz_fixed_len() -> bool {
-        true
-    }
-
-    fn ssz_fixed_len() -> usize {
-        Self::SIZE
-    }
-
-    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        let encoded = <[u8; 33]>::try_from(bytes).map_err(|_| {
-            ssz::DecodeError::InvalidByteLength { len: bytes.len(), expected: Self::SIZE }
-        })?;
-
-        Ok(EcdsaPublicKey { encoded })
-    }
-}
-
 impl From<EcdsaPublicKeyInner> for EcdsaPublicKey {
     fn from(value: EcdsaPublicKeyInner) -> Self {
         let encoded: [u8; Self::SIZE] = value.to_encoded_point(true).as_bytes().try_into().unwrap();
