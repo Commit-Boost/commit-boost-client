@@ -4,7 +4,7 @@ description: Overview of the architecture of Commit-Boost
 
 # Overview
 
-Below is schematic overview of Commit-Boost.
+Below is a schematic overview of Commit-Boost.
 
 Commit-Boost runs as a single sidecar composed of multiple modules:
 - Pbs Module with the [BuilderAPI](https://ethereum.github.io/builder-specs/) for [MEV Boost](https://docs.flashbots.net/flashbots-mev-boost/architecture-overview/specifications)
