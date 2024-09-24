@@ -51,10 +51,10 @@ You will need to build the CLI to create the `docker-compose` file:
 
 ```bash
 # Build the CLI
-cargo build --release --bin commit-boost
+cargo build --release --bin commit-boost-cli
 
 # Check that it works
-./target/release/commit-boost --version
+./target/release/commit-boost-cli --version
 ```
 
 and the modules as Docker images
@@ -73,10 +73,10 @@ This will create two local images called `commitboost_pbs_default` and `commitbo
 Alternatively, you can also build the modules from source and run them without Docker, in which case you can skip the CLI and only compile the modules:
 
 ```bash
-# Build the PBS module, this corresponds to commit-boost-pbs in the releases
-cargo build --release --bin default-pbs
+# Build the PBS module
+cargo build --release --bin commit-boost-pbs
 
-# Build the Signer module, this corresponds to commit-boost-signer in the releases
-cargo build --release --bin signer-module
+# Build the Signer module
+cargo build --release --bin commit-boost-signer
 ```
 

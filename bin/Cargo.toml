@@ -24,13 +24,13 @@ eyre.workspace = true
 color-eyre.workspace = true
 
 [[bin]]
-name = "commit-boost"
-path = "commit_boost.rs"
+name = "commit-boost-cli"
+path = "cli.rs"
 
 [[bin]]
-name = "default-pbs"
-path = "default_pbs.rs"
+name = "commit-boost-pbs"
+path = "pbs.rs"
 
 [[bin]]
-name = "signer-module"
-path = "signer_module.rs"
+name = "commit-boost-signer"
+path = "signer.rs"

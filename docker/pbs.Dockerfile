@@ -11,7 +11,7 @@ COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 
 COPY . .
-RUN cargo build --release --bin default-pbs
+RUN cargo build --release --bin commit-boost-pbs
 
 
 FROM debian:bookworm-slim AS runtime
@@ -25,8 +25,8 @@ RUN apt-get update && apt-get install -y \
   && apt-get clean autoclean \
   && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /app/target/release/default-pbs /usr/local/bin
-ENTRYPOINT ["/usr/local/bin/default-pbs"]
+COPY --from=builder /app/target/release/commit-boost-pbs /usr/local/bin
+ENTRYPOINT ["/usr/local/bin/commit-boost-pbs"]
 
 
 
