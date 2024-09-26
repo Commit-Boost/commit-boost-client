@@ -31,11 +31,16 @@ use crate::{
 
 /// Implements https://ethereum.github.io/builder-specs/#/Builder/getHeader
 /// Returns 200 if at least one relay returns 200, else 204
-pub async fn get_header<S: BuilderApiState>(
+pub async fn get_header<S, F>(
     params: GetHeaderParams,
     req_headers: HeaderMap,
     state: PbsState<S>,
-) -> eyre::Result<Option<GetHeaderResponse>> {
+    eval_bid: Option<F>,
+) -> eyre::Result<Option<GetHeaderResponse>>
+where
+    S: BuilderApiState,
+    F: Fn(&PbsState<S>, &GetHeaderResponse) -> bool,
+{
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
     let max_timeout_ms = state
         .pbs_config()
@@ -80,8 +85,10 @@ pub async fn get_header<S: BuilderApiState>(
 
         match res {
             Ok(Some(res)) => {
-                RELAY_LAST_SLOT.with_label_values(&[relay_id]).set(params.slot as i64);
-                relay_bids.push(res)
+                if eval_bid.as_ref().map_or(true, |f| f(&state, &res)) {
+                    RELAY_LAST_SLOT.with_label_values(&[relay_id]).set(params.slot as i64);
+                    relay_bids.push(res)
+                }
             }
             Ok(_) => {}
             Err(err) if err.is_timeout() => error!(err = "Timed Out", relay_id),

@@ -23,7 +23,13 @@ pub trait BuilderApi<S: BuilderApiState>: 'static {
         req_headers: HeaderMap,
         state: PbsState<S>,
     ) -> eyre::Result<Option<GetHeaderResponse>> {
-        mev_boost::get_header(params, req_headers, state).await
+        mev_boost::get_header::<S, fn(&PbsState<S>, &GetHeaderResponse) -> bool>(
+            params,
+            req_headers,
+            state,
+            None,
+        )
+        .await
     }
 
     /// https://ethereum.github.io/builder-specs/#/Builder/status
