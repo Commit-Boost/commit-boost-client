@@ -28,25 +28,14 @@ jobs:
           args: --all -- --check
 
   clippy:
-    name: Lint
+    name: Lint check
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v2
-
-      - name: Install stable toolchain with clippy available
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-          components: clippy
-
-      - name: Run cargo clippy
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: --all -- -D warnings
+        uses: actions/checkout@v4
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - run: cargo clippy --all -- -D warnings
   tests:
     name: Test
     runs-on: ubuntu-latest
