@@ -1,7 +1,10 @@
 # The main configuration file for the Commit-Boost sidecar.
 # Some fields are optional and can be omitted, in which case the default value, if present, will be used.
 
-# Chain spec id. Supported values: Mainnet, Holesky, Helder
+# Chain spec id. Supported values:
+# - a network id, supported values are: Mainnet, Holesky, Helder
+# - a path to a chain spec file, either in .json (e.g. as returned by the beacon endpoint /eth/v1/config/spec), or .yml format (see examples in tests/data)
+# - a custom object, e.g. chain = { genesis_time_secs = 1695902400, slot_time_secs = 12, genesis_fork_version = "0x01017000" }
 chain = "Holesky"
 
 # Configuration for the PBS module

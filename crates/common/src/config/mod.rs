@@ -4,13 +4,12 @@ use serde::{Deserialize, Serialize};
 use crate::types::Chain;
 
 mod constants;
+mod log;
 mod metrics;
 mod module;
 mod pbs;
 mod signer;
 mod utils;
-
-mod log;
 
 pub use constants::*;
 pub use log::*;
