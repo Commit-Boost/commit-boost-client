@@ -3,7 +3,7 @@
     "data": {
         "execution_payload": {
             "parent_hash": "0x7d1b19deda3378ae27947d8ad904886cde4600fe0f4d608c6ecd742d1ba8181b",
-            "fee_recipient": "0x32fdfd2ea08d916b8f4e73d057e99bc3358b2f4d",
+            "fee_recipient": "0x32FdfD2eA08d916B8f4e73d057E99bc3358b2F4D",
             "state_root": "0x60b508e5a6f505bc8e024a648fcf8c98278184fb674fb7c5544d6e3b196f9606",
             "receipts_root": "0x358fcd6d92db09e2273fb74eb3d62223aa4f0f77a9b92aec15295ddfdc134403",
             "logs_bloom": "0x140385010625042c0388589a111c20c068510a0010101250088d01160dd4d49020e0251504a140650484610000805800d0192104872406080101104105254900090020488226404b048d0a0b004409400119008354548454648004801820881500b51640020030d00800010402814891282000881408212c2000601801248440403520c100011413360180818049b0810520a0152821249bc0bd62014c66c021a2081181808810e000aa50a16092098102431303c184000492800010204860145102602a0380210105080019c160580a00122018100242002009914200006054081010220838261009142100e1348500293980192800b44ae3000444580c0004",
@@ -134,97 +134,97 @@
                 {
                     "index": "25404323",
                     "validator_index": "135466",
-                    "address": "0x9baa3244565d51d9c7897c0eb6679ed4890e536e",
+                    "address": "0x9baA3244565d51D9C7897c0EB6679eD4890e536E",
                     "amount": "6791519"
                 },
                 {
                     "index": "25404324",
                     "validator_index": "135467",
-                    "address": "0x9baa3244565d51d9c7897c0eb6679ed4890e536e",
+                    "address": "0x9baA3244565d51D9C7897c0EB6679eD4890e536E",
                     "amount": "6916089"
                 },
                 {
                     "index": "25404325",
                     "validator_index": "135468",
-                    "address": "0x9baa3244565d51d9c7897c0eb6679ed4890e536e",
+                    "address": "0x9baA3244565d51D9C7897c0EB6679eD4890e536E",
                     "amount": "6903258"
                 },
                 {
                     "index": "25404326",
                     "validator_index": "135469",
-                    "address": "0x9baa3244565d51d9c7897c0eb6679ed4890e536e",
+                    "address": "0x9baA3244565d51D9C7897c0EB6679eD4890e536E",
                     "amount": "6905481"
                 },
                 {
                     "index": "25404327",
                     "validator_index": "135470",
-                    "address": "0x9baa3244565d51d9c7897c0eb6679ed4890e536e",
+                    "address": "0x9baA3244565d51D9C7897c0EB6679eD4890e536E",
                     "amount": "6906478"
                 },
                 {
                     "index": "25404328",
                     "validator_index": "135471",
-                    "address": "0x9baa3244565d51d9c7897c0eb6679ed4890e536e",
+                    "address": "0x9baA3244565d51D9C7897c0EB6679eD4890e536E",
                     "amount": "6859379"
                 },
                 {
                     "index": "25404329",
                     "validator_index": "135472",
-                    "address": "0x9baa3244565d51d9c7897c0eb6679ed4890e536e",
+                    "address": "0x9baA3244565d51D9C7897c0EB6679eD4890e536E",
                     "amount": "6850481"
                 },
                 {
                     "index": "25404330",
                     "validator_index": "135473",
-                    "address": "0x9baa3244565d51d9c7897c0eb6679ed4890e536e",
+                    "address": "0x9baA3244565d51D9C7897c0EB6679eD4890e536E",
                     "amount": "6927834"
                 },
                 {
                     "index": "25404331",
                     "validator_index": "135474",
-                    "address": "0x9baa3244565d51d9c7897c0eb6679ed4890e536e",
+                    "address": "0x9baA3244565d51D9C7897c0EB6679eD4890e536E",
                     "amount": "6884689"
                 },
                 {
                     "index": "25404332",
                     "validator_index": "135475",
-                    "address": "0x9baa3244565d51d9c7897c0eb6679ed4890e536e",
+                    "address": "0x9baA3244565d51D9C7897c0EB6679eD4890e536E",
                     "amount": "6905196"
                 },
                 {
                     "index": "25404333",
                     "validator_index": "135476",
-                    "address": "0x9baa3244565d51d9c7897c0eb6679ed4890e536e",
+                    "address": "0x9baA3244565d51D9C7897c0EB6679eD4890e536E",
                     "amount": "6878941"
                 },
                 {
                     "index": "25404334",
                     "validator_index": "135477",
-                    "address": "0x9baa3244565d51d9c7897c0eb6679ed4890e536e",
+                    "address": "0x9baA3244565d51D9C7897c0EB6679eD4890e536E",
                     "amount": "6850202"
                 },
                 {
                     "index": "25404335",
                     "validator_index": "135478",
-                    "address": "0x9baa3244565d51d9c7897c0eb6679ed4890e536e",
+                    "address": "0x9baA3244565d51D9C7897c0EB6679eD4890e536E",
                     "amount": "6868123"
                 },
                 {
                     "index": "25404336",
                     "validator_index": "135479",
-                    "address": "0x9baa3244565d51d9c7897c0eb6679ed4890e536e",
+                    "address": "0x9baA3244565d51D9C7897c0EB6679eD4890e536E",
                     "amount": "6846854"
                 },
                 {
                     "index": "25404337",
                     "validator_index": "135480",
-                    "address": "0x9baa3244565d51d9c7897c0eb6679ed4890e536e",
+                    "address": "0x9baA3244565d51D9C7897c0EB6679eD4890e536E",
                     "amount": "6949024"
                 },
                 {
                     "index": "25404338",
                     "validator_index": "135481",
-                    "address": "0x9baa3244565d51d9c7897c0eb6679ed4890e536e",
+                    "address": "0x9baA3244565d51D9C7897c0EB6679eD4890e536E",
                     "amount": "6796446"
                 }
             ],
