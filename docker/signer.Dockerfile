@@ -1,4 +1,4 @@
-FROM lukemathwalker/cargo-chef:latest-rust-1 AS chef
+FROM lukemathwalker/cargo-chef:0.1.68-rust-bookworm AS chef
 WORKDIR /app
 
 FROM chef AS planner
@@ -14,7 +14,7 @@ COPY . .
 RUN cargo build --release --bin commit-boost-signer
 
 
-FROM debian:bookworm-slim AS runtime
+FROM debian:bookworm-20240904-slim AS runtime
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y \
