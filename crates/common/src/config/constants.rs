@@ -4,6 +4,9 @@
 pub const CONFIG_ENV: &str = "CB_CONFIG";
 pub const CONFIG_DEFAULT: &str = "/cb-config.toml";
 
+/// Path to the chain spec file
+pub const CHAIN_SPEC_ENV: &str = "CB_CHAIN_SPEC";
+
 /// Where to receive scrape requests from Prometheus
 pub const METRICS_PORT_ENV: &str = "CB_METRICS_PORT";
 

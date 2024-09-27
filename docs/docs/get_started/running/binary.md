@@ -16,6 +16,7 @@ Modules need some environment variables to work correctly.
 
 ### Common
 - `CB_CONFIG`: required, path to the `toml` config file
+- `CHAIN_SPEC_ENV`: optional, path to a chain spec file. This will override the `[chain]` field in the `toml` config
 - `CB_METRICS_PORT`: optional, port where to expose the `/metrics` endpoint for Prometheus
 - `CB_LOGS_DIR`: optional, directory to store logs. This will override the directory in the `toml` config
 

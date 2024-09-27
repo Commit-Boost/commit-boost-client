@@ -3,10 +3,10 @@ use std::{path::Path, vec};
 use cb_common::{
     config::{
         CommitBoostConfig, LogsSettings, ModuleKind, BUILDER_PORT_ENV, BUILDER_URLS_ENV,
-        CONFIG_DEFAULT, CONFIG_ENV, JWTS_ENV, LOGS_DIR_DEFAULT, LOGS_DIR_ENV, METRICS_PORT_ENV,
-        MODULE_ID_ENV, MODULE_JWT_ENV, PBS_MODULE_NAME, SIGNER_DEFAULT, SIGNER_DIR_KEYS_DEFAULT,
-        SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS, SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV,
-        SIGNER_MODULE_NAME, SIGNER_PORT_ENV, SIGNER_URL_ENV,
+        CHAIN_SPEC_ENV, CONFIG_DEFAULT, CONFIG_ENV, JWTS_ENV, LOGS_DIR_DEFAULT, LOGS_DIR_ENV,
+        METRICS_PORT_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, PBS_MODULE_NAME, SIGNER_DEFAULT,
+        SIGNER_DIR_KEYS_DEFAULT, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS, SIGNER_DIR_SECRETS_ENV,
+        SIGNER_KEYS_ENV, SIGNER_MODULE_NAME, SIGNER_PORT_ENV, SIGNER_URL_ENV,
     },
     loader::SignerLoader,
     types::ModuleId,
@@ -37,6 +37,7 @@ const SIGNER_NETWORK: &str = "signer_network";
 pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()> {
     println!("Initializing Commit-Boost with config file: {}", config_path);
     let cb_config = CommitBoostConfig::from_file(&config_path)?;
+    let chain_spec_path = CommitBoostConfig::chain_spec_file(&config_path);
 
     let metrics_enabled = cb_config.metrics.is_some();
     let log_to_file = cb_config.logs.is_some();
@@ -46,6 +47,17 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
     // config volume to pass to all services
     let config_volume = Volumes::Simple(format!("./{}:{}:ro", config_path, CONFIG_DEFAULT));
+    let chain_spec_volume = chain_spec_path.as_ref().and_then(|p| {
+        // this is ok since the config has already been loaded once
+        let file_name = p.file_name()?.to_str()?;
+        Some(Volumes::Simple(format!("{}:/{}:ro", p.display(), file_name)))
+    });
+
+    let chain_spec_env = chain_spec_path.and_then(|p| {
+        // this is ok since the config has already been loaded once
+        let file_name = p.file_name()?.to_str()?;
+        Some(get_env_val(CHAIN_SPEC_ENV, &format!("/{file_name}")))
+    });
 
     let mut jwts = IndexMap::new();
     // envs to write in .env file
@@ -105,6 +117,9 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                     // Set environment file
                     let env_file = module.env_file.map(EnvFile::Simple);
 
+                    if let Some((key, val)) = chain_spec_env.clone() {
+                        module_envs.insert(key, val);
+                    }
                     if metrics_enabled {
                         let (key, val) = get_env_uval(METRICS_PORT_ENV, metrics_port as u64);
                         module_envs.insert(key, val);
@@ -125,6 +140,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
                     // volumes
                     let mut module_volumes = vec![config_volume.clone()];
+                    module_volumes.extend(chain_spec_volume.clone());
                     module_volumes.extend(get_log_volume(&cb_config.logs, &module.id));
 
                     Service {
@@ -151,6 +167,9 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                         get_env_uval(BUILDER_PORT_ENV, builder_events_port),
                     ]);
 
+                    if let Some((key, val)) = chain_spec_env.clone() {
+                        module_envs.insert(key, val);
+                    }
                     if metrics_enabled {
                         let (key, val) = get_env_uval(METRICS_PORT_ENV, metrics_port as u64);
                         module_envs.insert(key, val);
@@ -169,6 +188,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
                     // volumes
                     let mut module_volumes = vec![config_volume.clone()];
+                    module_volumes.extend(chain_spec_volume.clone());
                     module_volumes.extend(get_log_volume(&cb_config.logs, &module.id));
 
                     Service {
@@ -197,6 +217,9 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
     let mut pbs_envs = IndexMap::from([get_env_val(CONFIG_ENV, CONFIG_DEFAULT)]);
 
+    if let Some((key, val)) = chain_spec_env.clone() {
+        pbs_envs.insert(key, val);
+    }
     if metrics_enabled {
         let (key, val) = get_env_uval(METRICS_PORT_ENV, metrics_port as u64);
         pbs_envs.insert(key, val);
@@ -213,6 +236,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
     // volumes
     let mut pbs_volumes = vec![config_volume.clone()];
+    pbs_volumes.extend(chain_spec_volume.clone());
     pbs_volumes.extend(get_log_volume(&cb_config.logs, PBS_MODULE_NAME));
 
     // networks
@@ -256,6 +280,9 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                 get_env_uval(SIGNER_PORT_ENV, signer_port as u64),
             ]);
 
+            if let Some((key, val)) = chain_spec_env.clone() {
+                signer_envs.insert(key, val);
+            }
             if metrics_enabled {
                 let (key, val) = get_env_uval(METRICS_PORT_ENV, metrics_port as u64);
                 signer_envs.insert(key, val);
@@ -270,6 +297,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
             // volumes
             let mut volumes = vec![config_volume.clone()];
+            volumes.extend(chain_spec_volume.clone());
 
             // TODO: generalize this, different loaders may not need volumes but eg ports
             match signer_config.loader {

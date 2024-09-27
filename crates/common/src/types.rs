@@ -140,7 +140,7 @@ impl<'de> Deserialize<'de> for Chain {
 
 /// Load a chain config from a spec file, such as returned by
 /// /eth/v1/config/spec ref: https://ethereum.github.io/beacon-APIs/#/Config/getSpec
-fn load_chain_from_file(path: PathBuf) -> eyre::Result<Chain> {
+pub fn load_chain_from_file(path: PathBuf) -> eyre::Result<Chain> {
     #[derive(Deserialize)]
     #[serde(rename_all = "UPPERCASE")]
     struct QuotedSpecFile {

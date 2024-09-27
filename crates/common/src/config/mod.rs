@@ -1,7 +1,9 @@
+use std::path::PathBuf;
+
 use eyre::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::types::Chain;
+use crate::types::{load_chain_from_file, Chain};
 
 mod constants;
 mod log;
@@ -43,9 +45,53 @@ impl CommitBoostConfig {
         Ok(config)
     }
 
+    // When loading the config from the environment, it's important that every path
+    // is replaced with the correct value if the config is loaded inside a container
     pub fn from_env_path() -> Result<Self> {
-        let config: Self = load_file_from_env(CONFIG_ENV)?;
+        let config = if let Ok(path) = std::env::var(CHAIN_SPEC_ENV) {
+            // if the chain spec file is set, load it separately
+            let chain: Chain = load_chain_from_file(path.parse()?)?;
+            let rest_config: HelperConfig = load_file_from_env(CONFIG_ENV)?;
+
+            CommitBoostConfig {
+                chain,
+                relays: rest_config.relays,
+                pbs: rest_config.pbs,
+                modules: rest_config.modules,
+                signer: rest_config.signer,
+                metrics: rest_config.metrics,
+                logs: rest_config.logs,
+            }
+        } else {
+            load_file_from_env(CONFIG_ENV)?
+        };
+
         config.validate()?;
         Ok(config)
     }
+
+    /// Returns the path to the chain spec file if any
+    pub fn chain_spec_file(path: &str) -> Option<PathBuf> {
+        match load_from_file::<ChainConfig>(path) {
+            Ok(config) => Some(config.chain),
+            Err(_) => None,
+        }
+    }
+}
+
+/// Helper struct to load the chain spec file
+#[derive(Deserialize)]
+struct ChainConfig {
+    chain: PathBuf,
+}
+
+/// Helper struct to load the rest of the config
+#[derive(Deserialize)]
+struct HelperConfig {
+    relays: Vec<RelayConfig>,
+    pbs: StaticPbsConfig,
+    modules: Option<Vec<StaticModuleConfig>>,
+    signer: Option<SignerConfig>,
+    metrics: Option<MetricsConfig>,
+    logs: Option<LogsSettings>,
 }
