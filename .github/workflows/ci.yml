@@ -62,5 +62,6 @@ jobs:
       - name: Run tests
         uses: actions-rs/cargo@v1
         with:
+          toolchain: stable
           command: test
           args: --all --verbose
