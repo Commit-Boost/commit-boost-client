@@ -154,7 +154,7 @@ fn load_chain_from_file(path: PathBuf) -> eyre::Result<Chain> {
     }
 
     impl QuotedSpecFile {
-        fn to_chain(self) -> eyre::Result<Chain> {
+        fn to_chain(&self) -> eyre::Result<Chain> {
             let genesis_fork_version: [u8; 4] = self.genesis_fork_version.as_ref().try_into()?;
 
             Ok(Chain::Custom {
@@ -175,7 +175,7 @@ fn load_chain_from_file(path: PathBuf) -> eyre::Result<Chain> {
     }
 
     impl SpecFile {
-        fn to_chain(self) -> Chain {
+        fn to_chain(&self) -> Chain {
             let genesis_fork_version: [u8; 4] = self.genesis_fork_version.to_be_bytes();
 
             Chain::Custom {

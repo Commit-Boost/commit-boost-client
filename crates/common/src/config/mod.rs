@@ -21,7 +21,6 @@ pub use utils::*;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CommitBoostConfig {
-    // TODO: generalize this with a spec file
     pub chain: Chain,
     pub relays: Vec<RelayConfig>,
     pub pbs: StaticPbsConfig,
