@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use alloy::rpc::types::beacon::relay::ValidatorRegistration;
 use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
-    pbs::{error::PbsError, RelayClient, HEADER_START_TIME_UNIX_MS},
+    pbs::{error::PbsError, RelayClient, HEADER_START_TIME_UNIX_MS, MAX_SIZE},
     utils::{get_user_agent_with_version, utcnow_ms},
 };
 use eyre::bail;
@@ -92,6 +92,9 @@ async fn send_register_validator(
         .inc();
 
     let response_bytes = res.bytes().await?;
+    if response_bytes.len() > MAX_SIZE {
+        return Err(PbsError::PayloadTooLarge { payload_size: response_bytes.len() });
+    }
     if !code.is_success() {
         let err = PbsError::RelayResponse {
             error_msg: String::from_utf8_lossy(&response_bytes).into_owned(),

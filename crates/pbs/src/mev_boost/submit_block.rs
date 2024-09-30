@@ -5,7 +5,7 @@ use cb_common::{
     pbs::{
         error::{PbsError, ValidationError},
         RelayClient, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse, HEADER_SLOT_UUID_KEY,
-        HEADER_START_TIME_UNIX_MS,
+        HEADER_START_TIME_UNIX_MS, MAX_SIZE,
     },
     utils::{get_user_agent_with_version, utcnow_ms},
 };
@@ -95,6 +95,10 @@ async fn send_submit_block(
         .inc();
 
     let response_bytes = res.bytes().await?;
+
+    if response_bytes.len() > MAX_SIZE {
+        return Err(PbsError::PayloadTooLarge { payload_size: response_bytes.len() });
+    }
     if !code.is_success() {
         let err = PbsError::RelayResponse {
             error_msg: String::from_utf8_lossy(&response_bytes).into_owned(),

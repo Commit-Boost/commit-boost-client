@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use axum::http::HeaderMap;
 use cb_common::{
-    pbs::{error::PbsError, RelayClient},
+    pbs::{error::PbsError, RelayClient, MAX_SIZE},
     utils::get_user_agent_with_version,
 };
 use futures::future::select_ok;
@@ -75,6 +75,9 @@ async fn send_relay_check(relay: &RelayClient, headers: HeaderMap) -> Result<(),
     RELAY_STATUS_CODE.with_label_values(&[code.as_str(), STATUS_ENDPOINT_TAG, &relay.id]).inc();
 
     let response_bytes = res.bytes().await?;
+    if response_bytes.len() > MAX_SIZE {
+        return Err(PbsError::PayloadTooLarge { payload_size: response_bytes.len() });
+    }
     if !code.is_success() {
         let err = PbsError::RelayResponse {
             error_msg: String::from_utf8_lossy(&response_bytes).into_owned(),

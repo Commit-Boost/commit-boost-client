@@ -11,7 +11,7 @@ use cb_common::{
     pbs::{
         error::{PbsError, ValidationError},
         GetHeaderParams, GetHeaderResponse, RelayClient, SignedExecutionPayloadHeader,
-        EMPTY_TX_ROOT_HASH, HEADER_SLOT_UUID_KEY, HEADER_START_TIME_UNIX_MS,
+        EMPTY_TX_ROOT_HASH, HEADER_SLOT_UUID_KEY, HEADER_START_TIME_UNIX_MS, MAX_SIZE,
     },
     signature::verify_signed_message,
     types::Chain,
@@ -244,13 +244,16 @@ async fn send_one_get_header(
     RELAY_STATUS_CODE.with_label_values(&[code.as_str(), GET_HEADER_ENDPOINT_TAG, &relay.id]).inc();
 
     let response_bytes = res.bytes().await?;
+    if response_bytes.len() > MAX_SIZE {
+        return Err(PbsError::PayloadTooLarge { payload_size: response_bytes.len() });
+    }
+
     if !code.is_success() {
         return Err(PbsError::RelayResponse {
             error_msg: String::from_utf8_lossy(&response_bytes).into_owned(),
             code: code.as_u16(),
         });
     };
-
     if code == StatusCode::NO_CONTENT {
         debug!(
             ?code,

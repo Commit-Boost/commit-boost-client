@@ -20,6 +20,9 @@ pub enum PbsError {
     #[error("relay response error. Code: {code}, err: {error_msg}")]
     RelayResponse { error_msg: String, code: u16 },
 
+    #[error("Response size exceeds 10MB! Got: {payload_size}")]
+    PayloadTooLarge { payload_size: usize },
+
     #[error("failed validating relay response: {0}")]
     Validation(#[from] ValidationError),
 

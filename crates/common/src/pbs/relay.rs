@@ -15,6 +15,9 @@ use super::{
     HEADER_VERSION_KEY, HEADER_VERSION_VALUE,
 };
 use crate::{config::RelayConfig, DEFAULT_REQUEST_TIMEOUT};
+
+pub const MAX_SIZE: usize = 10 * 1024 * 1024;
+
 /// A parsed entry of the relay url in the format: scheme://pubkey@host
 #[derive(Debug, Clone)]
 pub struct RelayEntry {
