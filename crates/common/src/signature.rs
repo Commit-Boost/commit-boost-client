@@ -25,6 +25,9 @@ pub fn compute_signing_root(object_root: [u8; 32], signing_domain: [u8; 32]) -> 
     signing_data.tree_hash_root().0
 }
 
+// NOTE: this currently works only for builder domain signatures and
+// verifications
+// ref: https://github.com/ralexstokes/ethereum-consensus/blob/cf3c404043230559660810bc0c9d6d5a8498d819/ethereum-consensus/src/builder/mod.rs#L26-L29
 pub fn compute_domain(chain: Chain, domain_mask: [u8; 4]) -> [u8; 32] {
     #[derive(Debug, TreeHash)]
     struct ForkData {
