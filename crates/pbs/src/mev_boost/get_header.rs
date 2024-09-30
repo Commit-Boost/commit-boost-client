@@ -11,7 +11,7 @@ use cb_common::{
     pbs::{
         error::{PbsError, ValidationError},
         GetHeaderParams, GetHeaderResponse, RelayClient, SignedExecutionPayloadHeader,
-        EMPTY_TX_ROOT_HASH, HEADER_SLOT_UUID_KEY, HEADER_START_TIME_UNIX_MS,
+        EMPTY_TX_ROOT_HASH, HEADER_SLOT_UUID_KEY, HEADER_START_TIME_UNIX_MS, MAX_SIZE,
     },
     signature::verify_signed_message,
     types::Chain,
@@ -220,7 +220,7 @@ async fn send_one_get_header(
     let start_request = Instant::now();
     let res = match relay
         .client
-        .get(req_config.url)
+        .get(req_config.url.clone())
         .timeout(Duration::from_millis(req_config.timeout_ms))
         .headers(req_config.headers)
         .send()
@@ -244,13 +244,20 @@ async fn send_one_get_header(
     RELAY_STATUS_CODE.with_label_values(&[code.as_str(), GET_HEADER_ENDPOINT_TAG, &relay.id]).inc();
 
     let response_bytes = res.bytes().await?;
+    if response_bytes.len() > MAX_SIZE {
+        warn!(
+            "Warning: Response size exceeds 10MB! URL: {}, Size: {} bytes",
+            req_config.url,
+            response_bytes.len()
+        );
+    }
+
     if !code.is_success() {
         return Err(PbsError::RelayResponse {
             error_msg: String::from_utf8_lossy(&response_bytes).into_owned(),
             code: code.as_u16(),
         });
     };
-
     if code == StatusCode::NO_CONTENT {
         debug!(
             ?code,
