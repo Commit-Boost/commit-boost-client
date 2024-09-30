@@ -7,7 +7,7 @@ use cb_common::{
 };
 use futures::future::select_ok;
 use reqwest::header::USER_AGENT;
-use tracing::{debug, error, warn};
+use tracing::{debug, error};
 
 use crate::{
     constants::{STATUS_ENDPOINT_TAG, TIMEOUT_ERROR_CODE_STR},
@@ -76,11 +76,7 @@ async fn send_relay_check(relay: &RelayClient, headers: HeaderMap) -> Result<(),
 
     let response_bytes = res.bytes().await?;
     if response_bytes.len() > MAX_SIZE {
-        warn!(
-            "Warning: Response size exceeds 10MB! URL: {}, Size: {} bytes",
-            url,
-            response_bytes.len()
-        );
+        return Err(PbsError::PayloadTooLarge { payload_size: response_bytes.len() });
     }
     if !code.is_success() {
         let err = PbsError::RelayResponse {

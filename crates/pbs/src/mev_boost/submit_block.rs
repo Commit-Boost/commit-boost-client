@@ -95,12 +95,9 @@ async fn send_submit_block(
         .inc();
 
     let response_bytes = res.bytes().await?;
+
     if response_bytes.len() > MAX_SIZE {
-        warn!(
-            "Warning: Response size exceeds 10MB! URL: {}, Size: {} bytes",
-            url,
-            response_bytes.len()
-        );
+        return Err(PbsError::PayloadTooLarge { payload_size: response_bytes.len() });
     }
     if !code.is_success() {
         let err = PbsError::RelayResponse {
