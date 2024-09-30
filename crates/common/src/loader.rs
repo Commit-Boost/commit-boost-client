@@ -25,7 +25,6 @@ pub enum SignerLoader {
 
 impl SignerLoader {
     pub fn load_keys(self) -> eyre::Result<Vec<ConsensusSigner>> {
-        // TODO: add flag to support also native loader
         self.load_from_env()
     }
 

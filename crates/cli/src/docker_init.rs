@@ -69,7 +69,6 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     // setup modules
     if let Some(modules_config) = cb_config.modules {
         for module in modules_config {
-            // TODO: support modules volumes and network
             let module_cid = format!("cb_{}", module.id.to_lowercase());
 
             if metrics_enabled {
@@ -130,7 +129,6 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                     Service {
                         container_name: Some(module_cid.clone()),
                         image: Some(module.docker_image),
-                        // TODO: allow service to open ports here
                         networks: Networks::Simple(module_networks),
                         volumes: module_volumes,
                         environment: Environment::KvPair(module_envs),
@@ -271,7 +269,6 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
             // volumes
             let mut volumes = vec![config_volume.clone()];
 
-            // TODO: generalize this, different loaders may not need volumes but eg ports
             match signer_config.loader {
                 SignerLoader::File { key_path } => {
                     volumes.push(Volumes::Simple(format!("./{}:{}:ro", key_path, SIGNER_DEFAULT)));
@@ -319,7 +316,6 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     }
 
     // setup metrics services
-    // TODO: make this metrics optional?
 
     let mut compose = Compose::default();
 
@@ -403,7 +399,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                     ),
                     grafana_data_volume,
                 ],
-                // TODO: re-enable logging here once we move away from docker logs
+                // disable verbose grafana logs
                 logging: Some(LoggingParameters { driver: Some("none".to_owned()), options: None }),
                 ..Service::default()
             };
@@ -453,7 +449,6 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     // write compose to file
     let compose_str = serde_yaml::to_string(&compose)?;
     let compose_path = Path::new(&output_dir).join(CB_COMPOSE_FILE);
-    // TODO: check if file exists already and avoid overwriting
     std::fs::write(&compose_path, compose_str)?;
     if !exposed_ports_warn.is_empty() {
         println!("\n");
@@ -468,7 +463,6 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     if !targets.is_empty() {
         let targets_str = serde_json::to_string_pretty(&targets)?;
         let targets_path = Path::new(&output_dir).join(CB_TARGETS_FILE);
-        // TODO: check if file exists already and avoid overwriting
         std::fs::write(&targets_path, targets_str)?;
         println!("Targets file written to: {:?}", targets_path);
     }
@@ -485,7 +479,6 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
             envs_str
         };
         let env_path = Path::new(&output_dir).join(CB_ENV_FILE);
-        // TODO: check if file exists already and avoid overwriting
         std::fs::write(&env_path, envs_str)?;
         println!("Env file written to: {:?}", env_path);
 

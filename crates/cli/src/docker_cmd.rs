@@ -99,7 +99,6 @@ pub fn handle_docker_stop(compose_path: String, env_path: String) -> Result<()> 
     Ok(())
 }
 
-// TODO: we shouldnt use docker logs
 pub fn handle_docker_logs(compose_path: String) -> Result<()> {
     println!("Querying Commit-Boost with compose file: {}", compose_path);
 
