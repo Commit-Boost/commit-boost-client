@@ -65,7 +65,7 @@ async fn send_submit_block(
     let start_request = Instant::now();
     let res = match relay
         .client
-        .post(url.clone())
+        .post(url)
         .timeout(Duration::from_millis(timeout_ms))
         .headers(headers)
         .json(&signed_blinded_block)

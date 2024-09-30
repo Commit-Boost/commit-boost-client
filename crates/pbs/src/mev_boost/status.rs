@@ -52,7 +52,7 @@ async fn send_relay_check(relay: &RelayClient, headers: HeaderMap) -> Result<(),
     let start_request = Instant::now();
     let res = match relay
         .client
-        .get(url.clone())
+        .get(url)
         .timeout(Duration::from_secs(30))
         .headers(headers)
         .send()

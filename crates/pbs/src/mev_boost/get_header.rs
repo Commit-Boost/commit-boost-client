@@ -220,7 +220,7 @@ async fn send_one_get_header(
     let start_request = Instant::now();
     let res = match relay
         .client
-        .get(req_config.url.clone())
+        .get(req_config.url)
         .timeout(Duration::from_millis(req_config.timeout_ms))
         .headers(req_config.headers)
         .send()

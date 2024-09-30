@@ -62,7 +62,7 @@ async fn send_register_validator(
     let start_request = Instant::now();
     let res = match relay
         .client
-        .post(url.clone())
+        .post(url)
         .timeout(Duration::from_millis(timeout_ms))
         .headers(headers)
         .json(&registrations)
