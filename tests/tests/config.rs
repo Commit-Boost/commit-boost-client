@@ -7,6 +7,6 @@ fn test_load_config() -> Result<()> {
 
     assert_eq!(config.chain, Chain::Holesky);
     assert!(config.relays[0].headers.is_some());
-    // TODO: add more
+
     Ok(())
 }
