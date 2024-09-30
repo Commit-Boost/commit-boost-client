@@ -156,6 +156,10 @@ impl<'de> Deserialize<'de> for Chain {
 
 /// Load a chain config from a spec file, such as returned by
 /// /eth/v1/config/spec ref: https://ethereum.github.io/beacon-APIs/#/Config/getSpec
+/// Try to load two formats:
+/// - JSON as return the getSpec endpoint, either with or without the `data`
+///   field
+/// - YAML as used e.g. in Kurtosis/Ethereum Package
 pub fn load_chain_from_file(path: PathBuf) -> eyre::Result<Chain> {
     #[derive(Deserialize)]
     #[serde(rename_all = "UPPERCASE")]
@@ -182,6 +186,11 @@ pub fn load_chain_from_file(path: PathBuf) -> eyre::Result<Chain> {
     }
 
     #[derive(Deserialize)]
+    struct SpecFileJson {
+        data: QuotedSpecFile,
+    }
+
+    #[derive(Deserialize)]
     #[serde(rename_all = "UPPERCASE")]
     struct SpecFile {
         min_genesis_time: u64,
@@ -200,11 +209,6 @@ pub fn load_chain_from_file(path: PathBuf) -> eyre::Result<Chain> {
                 genesis_fork_version,
             }
         }
-    }
-
-    #[derive(Deserialize)]
-    struct SpecFileJson {
-        data: QuotedSpecFile,
     }
 
     let file =
@@ -257,7 +261,7 @@ mod tests {
         path.pop();
         path.push("tests/data/holesky_spec_data.json");
 
-        let s = format!(r#"chain = {path:?}"#);
+        let s = format!("chain = {path:?}");
 
         let decoded: MockConfig = toml::from_str(&s).unwrap();
         assert_eq!(decoded.chain, Chain::Custom {
