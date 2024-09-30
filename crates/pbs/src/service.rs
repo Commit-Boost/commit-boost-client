@@ -22,10 +22,9 @@ impl PbsService {
         let address = SocketAddr::from(([0, 0, 0, 0], state.config.pbs_config.port));
         let events_subs =
             state.config.event_publiher.as_ref().map(|e| e.n_subscribers()).unwrap_or_default();
+        info!(?address, events_subs, chain =? state.config.chain, "Starting PBS service");
+
         let app = create_app_router::<S, A>(state);
-
-        info!(?address, events_subs, "Starting PBS service");
-
         let listener = TcpListener::bind(address).await.expect("failed tcp binding");
 
         axum::serve(listener, app).await.wrap_err("PBS server exited")

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use alloy::primitives::Bytes;
+use alloy::primitives::{hex, Bytes};
 use derive_more::{Deref, Display, From, Into};
 use eyre::{bail, Context};
 use serde::{Deserialize, Serialize};
@@ -25,12 +25,28 @@ pub struct ModuleId(pub String);
 #[serde(transparent)]
 pub struct Jwt(pub String);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Chain {
     Mainnet,
     Holesky,
     Helder,
     Custom { genesis_time_secs: u64, slot_time_secs: u64, genesis_fork_version: [u8; 4] },
+}
+
+impl std::fmt::Debug for Chain {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Mainnet => write!(f, "Mainnet"),
+            Self::Holesky => write!(f, "Holesky"),
+            Self::Helder => write!(f, "Helder"),
+            Self::Custom { genesis_time_secs, slot_time_secs, genesis_fork_version } => f
+                .debug_struct("Custom")
+                .field("genesis_time_secs", genesis_time_secs)
+                .field("slot_time_secs", slot_time_secs)
+                .field("genesis_fork_version", &hex::encode_prefixed(genesis_fork_version))
+                .finish(),
+        }
+    }
 }
 
 impl Chain {
