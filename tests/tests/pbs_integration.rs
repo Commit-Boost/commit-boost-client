@@ -36,7 +36,7 @@ fn to_pbs_config(chain: Chain, pbs_config: PbsConfig, relays: Vec<RelayClient>) 
         chain,
         pbs_config: Arc::new(pbs_config),
         signer_client: None,
-        event_publiher: None,
+        event_publisher: None,
         relays,
     }
 }

@@ -53,7 +53,7 @@ where
     S: BuilderApiState,
 {
     pub fn publish_event(&self, e: BuilderEvent) {
-        if let Some(publisher) = self.config.event_publiher.as_ref() {
+        if let Some(publisher) = self.config.event_publisher.as_ref() {
             publisher.publish(e);
         }
     }

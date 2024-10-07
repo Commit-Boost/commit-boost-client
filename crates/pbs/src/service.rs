@@ -21,7 +21,7 @@ impl PbsService {
     pub async fn run<S: BuilderApiState, A: BuilderApi<S>>(state: PbsState<S>) -> Result<()> {
         let address = SocketAddr::from(([0, 0, 0, 0], state.config.pbs_config.port));
         let events_subs =
-            state.config.event_publiher.as_ref().map(|e| e.n_subscribers()).unwrap_or_default();
+            state.config.event_publisher.as_ref().map(|e| e.n_subscribers()).unwrap_or_default();
         info!(?address, events_subs, chain =? state.config.chain, "Starting PBS service");
 
         let app = create_app_router::<S, A>(state);
