@@ -21,6 +21,7 @@ pub struct Jwt(pub String);
 pub enum Chain {
     Mainnet,
     Holesky,
+    Sepolia,
     Helder,
     Custom { genesis_time_secs: u64, slot_time_secs: u64, genesis_fork_version: [u8; 4] },
 }
@@ -30,6 +31,7 @@ impl std::fmt::Debug for Chain {
         match self {
             Self::Mainnet => write!(f, "Mainnet"),
             Self::Holesky => write!(f, "Holesky"),
+            Self::Sepolia => write!(f, "Sepolia"),
             Self::Helder => write!(f, "Helder"),
             Self::Custom { genesis_time_secs, slot_time_secs, genesis_fork_version } => f
                 .debug_struct("Custom")
@@ -46,6 +48,7 @@ impl Chain {
         match self {
             Chain::Mainnet => KnownChain::Mainnet.builder_domain(),
             Chain::Holesky => KnownChain::Holesky.builder_domain(),
+            Chain::Sepolia => KnownChain::Sepolia.builder_domain(),
             Chain::Helder => KnownChain::Helder.builder_domain(),
             Chain::Custom { .. } => compute_domain(*self, APPLICATION_BUILDER_DOMAIN),
         }
@@ -55,6 +58,7 @@ impl Chain {
         match self {
             Chain::Mainnet => KnownChain::Mainnet.genesis_fork_version(),
             Chain::Holesky => KnownChain::Holesky.genesis_fork_version(),
+            Chain::Sepolia => KnownChain::Sepolia.genesis_fork_version(),
             Chain::Helder => KnownChain::Helder.genesis_fork_version(),
             Chain::Custom { genesis_fork_version, .. } => *genesis_fork_version,
         }
@@ -64,6 +68,7 @@ impl Chain {
         match self {
             Chain::Mainnet => KnownChain::Mainnet.genesis_time_sec(),
             Chain::Holesky => KnownChain::Holesky.genesis_time_sec(),
+            Chain::Sepolia => KnownChain::Sepolia.genesis_time_sec(),
             Chain::Helder => KnownChain::Helder.genesis_time_sec(),
             Chain::Custom { genesis_time_secs, .. } => *genesis_time_secs,
         }
@@ -73,6 +78,7 @@ impl Chain {
         match self {
             Chain::Mainnet => KnownChain::Mainnet.slot_time_sec(),
             Chain::Holesky => KnownChain::Holesky.slot_time_sec(),
+            Chain::Sepolia => KnownChain::Sepolia.slot_time_sec(),
             Chain::Helder => KnownChain::Helder.slot_time_sec(),
             Chain::Custom { slot_time_secs, .. } => *slot_time_secs,
         }
@@ -85,6 +91,8 @@ pub enum KnownChain {
     Mainnet,
     #[serde(alias = "holesky")]
     Holesky,
+    #[serde(alias = "sepolia")]
+    Sepolia,
     #[serde(alias = "helder")]
     Helder,
 }
@@ -101,6 +109,10 @@ impl KnownChain {
                 0, 0, 0, 1, 91, 131, 162, 55, 89, 197, 96, 178, 208, 198, 69, 118, 225, 220, 252,
                 52, 234, 148, 196, 152, 143, 62, 13, 159, 119, 240, 83, 135,
             ],
+            KnownChain::Sepolia => [
+                0, 0, 0, 1, 211, 1, 7, 120, 205, 8, 238, 81, 75, 8, 254, 103, 182, 197, 3, 181, 16,
+                152, 122, 76, 228, 63, 66, 48, 109, 151, 198, 124,
+            ],
             KnownChain::Helder => [
                 0, 0, 0, 1, 148, 196, 26, 244, 132, 255, 247, 150, 73, 105, 224, 189, 217, 34, 248,
                 45, 255, 15, 75, 232, 122, 96, 208, 102, 76, 201, 209, 255,
@@ -110,9 +122,10 @@ impl KnownChain {
 
     pub fn genesis_fork_version(&self) -> [u8; 4] {
         match self {
-            KnownChain::Mainnet => [0u8; 4],
-            KnownChain::Holesky => [1, 1, 112, 0],
-            KnownChain::Helder => [16, 0, 0, 0],
+            KnownChain::Mainnet => hex!("00000000"),
+            KnownChain::Holesky => hex!("01017000"),
+            KnownChain::Sepolia => hex!("90000069"),
+            KnownChain::Helder => hex!("10000000"),
         }
     }
 
@@ -120,13 +133,17 @@ impl KnownChain {
         match self {
             KnownChain::Mainnet => 1606824023,
             KnownChain::Holesky => 1695902400,
+            KnownChain::Sepolia => 1655733600,
             KnownChain::Helder => 1718967660,
         }
     }
 
     pub fn slot_time_sec(&self) -> u64 {
         match self {
-            KnownChain::Mainnet | KnownChain::Holesky | KnownChain::Helder => 12,
+            KnownChain::Mainnet |
+            KnownChain::Holesky |
+            KnownChain::Sepolia |
+            KnownChain::Helder => 12,
         }
     }
 }
@@ -136,6 +153,7 @@ impl From<KnownChain> for Chain {
         match value {
             KnownChain::Mainnet => Chain::Mainnet,
             KnownChain::Holesky => Chain::Holesky,
+            KnownChain::Sepolia => Chain::Sepolia,
             KnownChain::Helder => Chain::Helder,
         }
     }
@@ -157,6 +175,7 @@ impl Serialize for Chain {
         let loader = match self {
             Chain::Mainnet => ChainLoader::Known(KnownChain::Mainnet),
             Chain::Holesky => ChainLoader::Known(KnownChain::Holesky),
+            Chain::Sepolia => ChainLoader::Known(KnownChain::Sepolia),
             Chain::Helder => ChainLoader::Known(KnownChain::Helder),
             Chain::Custom { genesis_time_secs, slot_time_secs, genesis_fork_version } => {
                 ChainLoader::Custom {
@@ -214,6 +233,10 @@ pub fn load_chain_from_file(path: PathBuf) -> eyre::Result<Chain> {
             let genesis_fork_version: [u8; 4] = self.genesis_fork_version.as_ref().try_into()?;
 
             Ok(Chain::Custom {
+                // note that this can be wrong, (e.g. it's wrong in mainnet). The correct
+                // value should come from /eth/v1/beacon/genesis
+                // more info here: https://kb.beaconcha.in/ethereum-staking/the-genesis-event
+                // FIXME
                 genesis_time_secs: self.min_genesis_time + self.genesis_delay,
                 slot_time_secs: self.seconds_per_slot,
                 genesis_fork_version,
@@ -289,26 +312,28 @@ mod tests {
     }
 
     #[test]
-    fn test_load_file_data_json() {
+    fn test_spec_mainnet_data_json() {
         let a = env!("CARGO_MANIFEST_DIR");
         let mut path = PathBuf::from(a);
 
         path.pop();
         path.pop();
-        path.push("tests/data/holesky_spec_data.json");
+        path.push("tests/data/mainnet_spec_data.json");
 
         let s = format!("chain = {path:?}");
 
         let decoded: MockConfig = toml::from_str(&s).unwrap();
-        assert_eq!(decoded.chain, Chain::Custom {
-            genesis_time_secs: KnownChain::Holesky.genesis_time_sec(),
-            slot_time_secs: KnownChain::Holesky.slot_time_sec(),
-            genesis_fork_version: KnownChain::Holesky.genesis_fork_version()
-        })
+
+        // see fixme in load_chain_from_file
+        assert_eq!(decoded.chain.slot_time_sec(), KnownChain::Mainnet.slot_time_sec());
+        assert_eq!(
+            decoded.chain.genesis_fork_version(),
+            KnownChain::Mainnet.genesis_fork_version()
+        );
     }
 
     #[test]
-    fn test_load_file_json() {
+    fn test_spec_holesky_json() {
         let a = env!("CARGO_MANIFEST_DIR");
         let mut path = PathBuf::from(a);
 
@@ -327,7 +352,26 @@ mod tests {
     }
 
     #[test]
-    fn test_load_file_yml() {
+    fn test_spec_sepolia_data_json() {
+        let a = env!("CARGO_MANIFEST_DIR");
+        let mut path = PathBuf::from(a);
+
+        path.pop();
+        path.pop();
+        path.push("tests/data/sepolia_spec_data.json");
+
+        let s = format!("chain = {path:?}");
+
+        let decoded: MockConfig = toml::from_str(&s).unwrap();
+        assert_eq!(decoded.chain, Chain::Custom {
+            genesis_time_secs: KnownChain::Sepolia.genesis_time_sec(),
+            slot_time_secs: KnownChain::Sepolia.slot_time_sec(),
+            genesis_fork_version: KnownChain::Sepolia.genesis_fork_version()
+        })
+    }
+
+    #[test]
+    fn test_spec_helder_yml() {
         let a = env!("CARGO_MANIFEST_DIR");
         let mut path = PathBuf::from(a);
 

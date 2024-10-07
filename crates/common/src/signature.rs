@@ -105,6 +105,10 @@ mod tests {
             Chain::Holesky.builder_domain()
         );
         assert_eq!(
+            compute_domain(Chain::Sepolia, APPLICATION_BUILDER_DOMAIN),
+            Chain::Sepolia.builder_domain()
+        );
+        assert_eq!(
             compute_domain(Chain::Helder, APPLICATION_BUILDER_DOMAIN),
             Chain::Helder.builder_domain()
         );
