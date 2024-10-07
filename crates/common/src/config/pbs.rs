@@ -97,7 +97,7 @@ pub struct PbsModuleConfig {
     /// Signer client to call Signer API
     pub signer_client: Option<SignerClient>,
     /// Event publisher
-    pub event_publiher: Option<BuilderEventPublisher>,
+    pub event_publisher: Option<BuilderEventPublisher>,
 }
 
 fn default_pbs() -> String {
@@ -117,7 +117,7 @@ pub fn load_pbs_config() -> Result<PbsModuleConfig> {
         pbs_config: Arc::new(config.pbs.pbs_config),
         relays: relay_clients,
         signer_client: None,
-        event_publiher: maybe_publiher,
+        event_publisher: maybe_publiher,
     })
 }
 
@@ -161,7 +161,7 @@ pub fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleConfig,
             pbs_config: Arc::new(cb_config.pbs.static_config.pbs_config),
             relays: relay_clients,
             signer_client,
-            event_publiher: maybe_publiher,
+            event_publisher: maybe_publiher,
         },
         cb_config.pbs.extra,
     ))
