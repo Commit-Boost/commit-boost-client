@@ -19,6 +19,7 @@ use cb_common::{
         },
     },
     config::StartSignerConfig,
+    constants::COMMIT_BOOST_VERSION,
     types::{Jwt, ModuleId},
 };
 use eyre::{Result, WrapErr};
@@ -50,7 +51,7 @@ impl SigningService {
             let module_ids: Vec<String> =
                 config.jwts.left_values().cloned().map(Into::into).collect();
 
-            info!(modules =? module_ids, port =? config.server_port, "Starting signing service");
+            info!(version = COMMIT_BOOST_VERSION, modules =? module_ids, port =? config.server_port, "Starting signing service");
         }
 
         let mut manager = SigningManager::new(config.chain);
