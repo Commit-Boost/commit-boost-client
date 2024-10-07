@@ -15,8 +15,6 @@ use crate::{
 
 pub struct PbsService;
 
-// TODO: add ServerMaxHeaderBytes
-
 impl PbsService {
     pub async fn run<S: BuilderApiState, A: BuilderApi<S>>(state: PbsState<S>) -> Result<()> {
         let address = SocketAddr::from(([0, 0, 0, 0], state.config.pbs_config.port));
