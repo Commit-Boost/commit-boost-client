@@ -110,7 +110,16 @@ async fn send_submit_block(
         return Err(err);
     };
 
-    let block_response: SubmitBlindedBlockResponse = serde_json::from_slice(&response_bytes)?;
+    let block_response = match serde_json::from_slice::<SubmitBlindedBlockResponse>(&response_bytes)
+    {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            return Err(PbsError::JsonDecode {
+                err,
+                raw: String::from_utf8_lossy(&response_bytes).into_owned(),
+            });
+        }
+    };
 
     debug!(
         latency = ?request_latency,

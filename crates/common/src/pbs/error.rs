@@ -14,13 +14,13 @@ pub enum PbsError {
     #[error("reqwest error: {0}")]
     Reqwest(#[from] reqwest::Error),
 
-    #[error("serde decode error: {0}")]
-    SerdeDecodeError(#[from] serde_json::Error),
+    #[error("json decode error: {err}, raw:\n{raw}")]
+    JsonDecode { err: serde_json::Error, raw: String },
 
     #[error("relay response error. Code: {code}, err: {error_msg}")]
     RelayResponse { error_msg: String, code: u16 },
 
-    #[error("Response size exceeds 10MB! Got: {payload_size}")]
+    #[error("response size exceeds 10MB! Got: {payload_size}")]
     PayloadTooLarge { payload_size: usize },
 
     #[error("failed validating relay response: {0}")]

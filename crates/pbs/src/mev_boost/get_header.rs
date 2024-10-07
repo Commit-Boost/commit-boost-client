@@ -264,7 +264,15 @@ async fn send_one_get_header(
         return Ok((start_request_time, None));
     }
 
-    let get_header_response: GetHeaderResponse = serde_json::from_slice(&response_bytes)?;
+    let get_header_response = match serde_json::from_slice::<GetHeaderResponse>(&response_bytes) {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            return Err(PbsError::JsonDecode {
+                err,
+                raw: String::from_utf8_lossy(&response_bytes).into_owned(),
+            });
+        }
+    };
 
     debug!(
         latency = ?request_latency,
