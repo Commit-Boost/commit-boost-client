@@ -23,7 +23,7 @@ async fn main() -> eyre::Result<()> {
             let client = BuilderEventClient::new(config.server_port, LogProcessor);
 
             if let Err(err) = client.run().await {
-                error!(?err, "Service failed");
+                error!(%err, "Service failed");
             }
         }
         Err(err) => {

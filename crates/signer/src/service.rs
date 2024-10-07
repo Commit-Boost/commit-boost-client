@@ -73,7 +73,7 @@ impl SigningService {
         let listener = TcpListener::bind(address).await.wrap_err("failed tcp binding")?;
 
         if let Err(err) = axum::serve(listener, app).await {
-            error!(?err, "Signing server exited")
+            error!(%err, "Signing server exited")
         }
         Ok(())
     }
