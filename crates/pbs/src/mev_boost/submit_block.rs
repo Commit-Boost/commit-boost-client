@@ -97,7 +97,7 @@ async fn send_submit_block(
     let response_bytes = res.bytes().await?;
 
     if response_bytes.len() > MAX_SIZE {
-        return Err(PbsError::PayloadTooLarge { payload_size: response_bytes.len() });
+        return Err(PbsError::PayloadTooLarge { max: MAX_SIZE, got: response_bytes.len() });
     }
     if !code.is_success() {
         let err = PbsError::RelayResponse {
