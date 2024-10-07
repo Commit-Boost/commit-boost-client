@@ -84,7 +84,7 @@ async fn send_relay_check(relay: &RelayClient, headers: HeaderMap) -> Result<(),
             code: code.as_u16(),
         };
 
-        error!(?err, "status failed");
+        error!(%err, "status failed");
         return Err(err);
     };
 

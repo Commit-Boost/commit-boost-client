@@ -85,7 +85,7 @@ pub async fn get_header<S: BuilderApiState>(
             }
             Ok(_) => {}
             Err(err) if err.is_timeout() => error!(err = "Timed Out", relay_id),
-            Err(err) => error!(?err, relay_id),
+            Err(err) => error!(%err, relay_id),
         }
     }
 
@@ -163,7 +163,7 @@ async fn send_timed_get_header(
                         }
                         Err(err) if err.is_timeout() => None,
                         Err(err) => {
-                            error!(?err, "TG: error sending header request");
+                            error!(%err, "TG: error sending header request");
                             None
                         }
                     })

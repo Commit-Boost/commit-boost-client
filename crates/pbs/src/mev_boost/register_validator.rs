@@ -102,7 +102,7 @@ async fn send_register_validator(
         };
 
         // error here since we check if any success aboves
-        error!(?err, "failed registration");
+        error!(%err, "failed registration");
         return Err(err);
     };
 

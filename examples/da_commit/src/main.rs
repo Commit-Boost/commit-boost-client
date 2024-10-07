@@ -120,7 +120,7 @@ async fn main() -> Result<()> {
             let service = DaCommitService { config };
 
             if let Err(err) = service.run().await {
-                error!(?err, "Service failed");
+                error!(%err, "Service failed");
             }
         }
         Err(err) => {

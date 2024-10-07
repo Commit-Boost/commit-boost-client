@@ -76,7 +76,7 @@ async fn send_relay_monitor_registrations(
     {
         Ok(res) => res,
         Err(err) => {
-            error!(?err, "failed monitor registration");
+            error!(%err, "failed monitor registration");
             return;
         }
     };
@@ -89,10 +89,10 @@ async fn send_relay_monitor_registrations(
                 debug!(?code, latency = ?request_latency, "relay monitor registration successful");
             } else {
                 let err = String::from_utf8_lossy(&response_bytes);
-                error!(?code, ?err, "failed monitor registration");
+                error!(?code, %err, "failed monitor registration");
             }
         }
 
-        Err(err) => error!(?err, "failed to decode monitor response"),
+        Err(err) => error!(%err, "failed to decode monitor response"),
     }
 }

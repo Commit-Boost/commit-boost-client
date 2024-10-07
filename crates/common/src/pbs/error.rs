@@ -14,7 +14,7 @@ pub enum PbsError {
     #[error("reqwest error: {0}")]
     Reqwest(#[from] reqwest::Error),
 
-    #[error("json decode error: {err}, raw:\n{raw}")]
+    #[error("json decode error: {err}, raw: {raw}")]
     JsonDecode { err: serde_json::Error, raw: String },
 
     #[error("relay response error. Code: {code}, err: {error_msg}")]

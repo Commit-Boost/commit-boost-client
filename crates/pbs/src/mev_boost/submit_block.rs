@@ -106,7 +106,7 @@ async fn send_submit_block(
         };
 
         // we request payload to all relays, but some may have not received it
-        warn!(?err, "failed to get payload (this might be ok if other relays have it)");
+        warn!(%err, "failed to get payload (this might be ok if other relays have it)");
         return Err(err);
     };
 

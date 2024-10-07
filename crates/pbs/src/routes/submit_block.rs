@@ -63,7 +63,7 @@ pub async fn handle_submit_block<S: BuilderApiState, A: BuilderApi<S>>(
                     relays: fault_relays,
                 });
             } else {
-                error!(?err, %block_hash, "CRITICAL: no payload delivered and no relay for block hash. Was getHeader even called?");
+                error!(%err, %block_hash, "CRITICAL: no payload delivered and no relay for block hash. Was getHeader even called?");
                 state.publish_event(BuilderEvent::MissedPayload {
                     block_hash,
                     relays: String::default(),
