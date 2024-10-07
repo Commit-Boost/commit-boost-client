@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 
+use cb_common::constants::COMMIT_BOOST_VERSION;
 use cb_metrics::provider::MetricsProvider;
 use eyre::{Context, Result};
 use prometheus::core::Collector;
@@ -20,7 +21,7 @@ impl PbsService {
         let address = SocketAddr::from(([0, 0, 0, 0], state.config.pbs_config.port));
         let events_subs =
             state.config.event_publisher.as_ref().map(|e| e.n_subscribers()).unwrap_or_default();
-        info!(?address, events_subs, chain =? state.config.chain, "Starting PBS service");
+        info!(version = COMMIT_BOOST_VERSION, ?address, events_subs, chain =? state.config.chain, "Starting PBS service");
 
         let app = create_app_router::<S, A>(state);
         let listener = TcpListener::bind(address).await.expect("failed tcp binding");

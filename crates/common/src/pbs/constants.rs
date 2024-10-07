@@ -1,3 +1,5 @@
+use crate::constants::COMMIT_BOOST_VERSION;
+
 pub const BUILDER_API_PATH: &str = "/eth/v1/builder";
 
 pub const GET_HEADER_PATH: &str = "/header/:slot/:parent_hash/:pubkey";
@@ -9,7 +11,7 @@ pub const SUBMIT_BLOCK_PATH: &str = "/blinded_blocks";
 
 pub const HEADER_SLOT_UUID_KEY: &str = "X-MEVBoost-SlotID";
 pub const HEADER_VERSION_KEY: &str = "X-CommitBoost-Version";
-pub const HEADER_VERSION_VALUE: &str = env!("CARGO_PKG_VERSION");
+pub const HEADER_VERSION_VALUE: &str = COMMIT_BOOST_VERSION;
 pub const HEADER_START_TIME_UNIX_MS: &str = "X-MEVBoost-StartTimeUnixMS";
 
 pub const BUILDER_EVENTS_PATH: &str = "/builder_events";
