@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use eyre::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::types::{load_chain_from_file, Chain};
+use crate::types::{load_chain_from_file, Chain, ChainLoader};
 
 mod constants;
 mod log;
@@ -73,7 +73,13 @@ impl CommitBoostConfig {
     /// Returns the path to the chain spec file if any
     pub fn chain_spec_file(path: &str) -> Option<PathBuf> {
         match load_from_file::<ChainConfig>(path) {
-            Ok(config) => Some(config.chain),
+            Ok(config) => {
+                if let ChainLoader::Path(path_buf) = config.chain {
+                    Some(path_buf)
+                } else {
+                    None
+                }
+            }
             Err(_) => None,
         }
     }
@@ -82,7 +88,7 @@ impl CommitBoostConfig {
 /// Helper struct to load the chain spec file
 #[derive(Deserialize)]
 struct ChainConfig {
-    chain: PathBuf,
+    chain: ChainLoader,
 }
 
 /// Helper struct to load the rest of the config

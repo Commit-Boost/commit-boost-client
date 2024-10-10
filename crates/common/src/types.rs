@@ -161,7 +161,7 @@ impl From<KnownChain> for Chain {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-enum ChainLoader {
+pub enum ChainLoader {
     Known(KnownChain),
     Path(PathBuf),
     Custom { genesis_time_secs: u64, slot_time_secs: u64, genesis_fork_version: Bytes },
