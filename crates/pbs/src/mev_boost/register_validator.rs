@@ -101,7 +101,7 @@ async fn send_register_validator(
             code: code.as_u16(),
         };
 
-        // error here since we check if any success aboves
+        // The error here since we check if any success above
         error!(%err, "failed registration");
         return Err(err);
     };

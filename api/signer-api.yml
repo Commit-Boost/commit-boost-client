@@ -186,7 +186,7 @@ paths:
                   scheme: "ecdsa"
       responses:
         "200":
-          description: Successs
+          description: Success
           content:
             application/json:
               schema:

@@ -65,7 +65,7 @@ impl<'de> Deserialize<'de> for FileKey {
         let s = String::deserialize(deserializer)?;
         let s = alloy::primitives::hex::decode(s.trim_start_matches("0x"))
             .map_err(de::Error::custom)?;
-        let bytes: [u8; 32] = s.try_into().map_err(|_| de::Error::custom("wrong lenght"))?;
+        let bytes: [u8; 32] = s.try_into().map_err(|_| de::Error::custom("wrong length"))?;
 
         Ok(FileKey { secret_key: bytes })
     }
