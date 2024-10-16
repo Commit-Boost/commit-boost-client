@@ -1,7 +1,7 @@
 apiVersion: 1
 
 datasources:
-  - name: cb-prometheus
+  - name: cb_prometheus
     type: prometheus
     uid: cb_prometheus
     access: proxy
