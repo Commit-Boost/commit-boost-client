@@ -9,7 +9,7 @@ use cb_common::{
 use eyre::bail;
 use futures::future::{join_all, select_ok};
 use reqwest::header::USER_AGENT;
-use tracing::{debug, error};
+use tracing::{debug, error, Instrument};
 
 use crate::{
     constants::{REGISTER_VALIDATOR_ENDPOINT_TAG, TIMEOUT_ERROR_CODE_STR},
@@ -33,12 +33,15 @@ pub async fn register_validator<S: BuilderApiState>(
     let relays = state.relays().to_vec();
     let mut handles = Vec::with_capacity(relays.len());
     for relay in relays {
-        handles.push(tokio::spawn(send_register_validator(
-            registrations.clone(),
-            relay,
-            send_headers.clone(),
-            state.pbs_config().timeout_register_validator_ms,
-        )));
+        handles.push(tokio::spawn(
+            send_register_validator(
+                registrations.clone(),
+                relay,
+                send_headers.clone(),
+                state.pbs_config().timeout_register_validator_ms,
+            )
+            .in_current_span(),
+        ));
     }
 
     if state.pbs_config().wait_all_registrations {
