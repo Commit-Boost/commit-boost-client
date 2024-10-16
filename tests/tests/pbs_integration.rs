@@ -20,6 +20,7 @@ use tracing::info;
 fn get_pbs_static_config(port: u16) -> PbsConfig {
     PbsConfig {
         port,
+        wait_all_registrations: true,
         relay_check: true,
         timeout_get_header_ms: u64::MAX,
         timeout_get_payload_ms: u64::MAX,

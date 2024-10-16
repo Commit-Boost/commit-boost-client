@@ -20,6 +20,9 @@ port = 18550
 # Whether to forward `status` calls to relays or skip and return 200
 # OPTIONAL, DEFAULT: true
 relay_check = true
+# Whether to return after the first successful registration, or wait for all relays to respond
+# OPTIONAL, DEFAULT: true
+wait_all_registrations = true
 # Timeout in milliseconds for the `get_header` call to relays. Note that the CL has also a timeout (e.g. 1 second) so
 # this should be lower than that, leaving some margin for overhead
 # OPTIONAL, DEFAULT: 950
