@@ -41,6 +41,9 @@ pub struct PbsConfig {
     /// Whether to forward `get_status` to relays or skip it
     #[serde(default = "default_bool::<true>")]
     pub relay_check: bool,
+    /// Whether to wait  for all registrations to complete before returning
+    #[serde(default = "default_bool::<true>")]
+    pub wait_all_registrations: bool,
     /// Timeout for get_header request in milliseconds
     #[serde(default = "default_u64::<{ DefaultTimeout::GET_HEADER_MS }>")]
     pub timeout_get_header_ms: u64,

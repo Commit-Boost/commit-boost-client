@@ -7,7 +7,7 @@ use cb_common::{
     utils::{get_user_agent_with_version, utcnow_ms},
 };
 use eyre::bail;
-use futures::future::join_all;
+use futures::future::{join_all, select_ok};
 use reqwest::header::USER_AGENT;
 use tracing::{debug, error};
 
@@ -30,30 +30,39 @@ pub async fn register_validator<S: BuilderApiState>(
         .insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from_str(&utcnow_ms().to_string())?);
     send_headers.insert(USER_AGENT, get_user_agent_with_version(&req_headers)?);
 
-    let relays = state.relays();
+    let relays = state.relays().to_vec();
     let mut handles = Vec::with_capacity(relays.len());
     for relay in relays {
-        handles.push(send_register_validator(
+        handles.push(tokio::spawn(send_register_validator(
             registrations.clone(),
             relay,
             send_headers.clone(),
             state.pbs_config().timeout_register_validator_ms,
-        ));
+        )));
     }
 
-    // await for all so we avoid cancelling any pending registrations
-    let results = join_all(handles).await;
-    if results.iter().any(|res| res.is_ok()) {
-        Ok(())
+    if state.pbs_config().wait_all_registrations {
+        // wait for all relays registrations to complete
+        let results = join_all(handles).await;
+        if results.into_iter().any(|res| res.is_ok_and(|res| res.is_ok())) {
+            Ok(())
+        } else {
+            bail!("No relay passed register_validator successfully")
+        }
     } else {
-        bail!("No relay passed register_validator successfully")
+        // return once first completes, others proceed in background
+        let result = select_ok(handles).await?;
+        match result.0 {
+            Ok(_) => Ok(()),
+            Err(_) => bail!("No relay passed register_validator successfully"),
+        }
     }
 }
 
 #[tracing::instrument(skip_all, name = "handler", fields(relay_id = relay.id.as_ref()))]
 async fn send_register_validator(
     registrations: Vec<ValidatorRegistration>,
-    relay: &RelayClient,
+    relay: RelayClient,
     headers: HeaderMap,
     timeout_ms: u64,
 ) -> Result<(), PbsError> {
