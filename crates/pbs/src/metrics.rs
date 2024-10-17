@@ -41,6 +41,17 @@ lazy_static! {
     )
     .unwrap();
 
+    /// Latest slot for which relay delivered a header
+    // Don't store slot number to avoid creating high cardinality, if needed can just aggregate for 12sec
+    pub static ref RELAY_HEADER_VALUE: IntGaugeVec = register_int_gauge_vec_with_registry!(
+        "relay_header_value",
+        "Header value in gwei delivered by relay",
+        &["relay_id"],
+        PBS_METRICS_REGISTRY
+    )
+    .unwrap();
+
+
     // TO BEACON NODE
     /// Status code returned to beacon node by endpoint
     pub static ref BEACON_NODE_STATUS: IntCounterVec = register_int_counter_vec_with_registry!(
