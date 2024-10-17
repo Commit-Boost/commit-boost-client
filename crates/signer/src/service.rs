@@ -22,7 +22,7 @@ use cb_common::{
     constants::COMMIT_BOOST_VERSION,
     types::{Jwt, ModuleId},
 };
-use eyre::{Result, WrapErr};
+use eyre::Result;
 use headers::{authorization::Bearer, Authorization};
 use tokio::{net::TcpListener, sync::RwLock};
 use tracing::{debug, error, info, warn};
@@ -71,11 +71,14 @@ impl SigningService {
             .route_layer(middleware::from_fn_with_state(state.clone(), jwt_auth));
 
         let address = SocketAddr::from(([0, 0, 0, 0], config.server_port));
-        let listener = TcpListener::bind(address).await.wrap_err("failed tcp binding")?;
+        let listener = TcpListener::bind(address).await?;
 
-        if let Err(err) = axum::serve(listener, app).await {
-            error!(%err, "Signing server exited")
-        }
+        tokio::spawn(async move {
+            if let Err(err) = axum::serve(listener, app).await {
+                error!(%err, "signing server unexpectedly stopped");
+            };
+        });
+
         Ok(())
     }
 }

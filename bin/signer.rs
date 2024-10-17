@@ -1,6 +1,6 @@
 use cb_common::{
     config::{StartSignerConfig, SIGNER_MODULE_NAME},
-    utils::initialize_tracing_log,
+    utils::{initialize_tracing_log, wait_for_signal},
 };
 use cb_signer::service::SigningService;
 use eyre::Result;
@@ -16,5 +16,7 @@ async fn main() -> Result<()> {
 
     let config = StartSignerConfig::load_from_env()?;
     let _guard = initialize_tracing_log(SIGNER_MODULE_NAME);
-    SigningService::run(config).await
+    SigningService::run(config).await?;
+
+    wait_for_signal().await
 }
