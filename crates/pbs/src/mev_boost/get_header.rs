@@ -280,8 +280,8 @@ async fn send_one_get_header(
 
     debug!(
         latency = ?request_latency,
-        block_hash = %get_header_response.block_hash(),
         value_eth = format_ether(get_header_response.value()),
+        block_hash = %get_header_response.block_hash(),
         "received new header"
     );
 
