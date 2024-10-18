@@ -21,7 +21,7 @@ pub mod prelude {
         get_header, get_status, register_validator, submit_block, BuilderApi, BuilderApiState,
         DefaultBuilderApi, PbsService, PbsState,
     };
-    // The TreeHash derive macro requires tree_hash:: as import
+    // The TreeHash derive macro requires tree_hash as import
     pub mod tree_hash {
         pub use tree_hash::*;
     }

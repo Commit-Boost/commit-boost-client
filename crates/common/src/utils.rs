@@ -246,3 +246,24 @@ pub fn get_user_agent_with_version(req_headers: &HeaderMap) -> eyre::Result<Head
     let ua = get_user_agent(req_headers);
     Ok(HeaderValue::from_str(&format!("commit-boost/{HEADER_VERSION_VALUE} {}", ua))?)
 }
+
+#[cfg(unix)]
+pub async fn wait_for_signal() -> eyre::Result<()> {
+    use tokio::signal::unix::{signal, SignalKind};
+
+    let mut sigint = signal(SignalKind::interrupt())?;
+    let mut sigterm = signal(SignalKind::terminate())?;
+
+    tokio::select! {
+        _ = sigint.recv() => {}
+        _ = sigterm.recv() => {}
+    }
+
+    Ok(())
+}
+
+#[cfg(windows)]
+pub async fn wait_for_signal() -> eyre::Result<()> {
+    tokio::signal::ctrl_c().await?;
+    Ok(())
+}
