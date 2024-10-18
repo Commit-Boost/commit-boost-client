@@ -25,7 +25,7 @@ use url::Url;
 
 use crate::{
     constants::{GET_HEADER_ENDPOINT_TAG, TIMEOUT_ERROR_CODE, TIMEOUT_ERROR_CODE_STR},
-    metrics::{RELAY_LAST_SLOT, RELAY_LATENCY, RELAY_STATUS_CODE},
+    metrics::{RELAY_HEADER_VALUE, RELAY_LAST_SLOT, RELAY_LATENCY, RELAY_STATUS_CODE},
     state::{BuilderApiState, PbsState},
 };
 
@@ -76,11 +76,15 @@ pub async fn get_header<S: BuilderApiState>(
     let results = join_all(handles).await;
     let mut relay_bids = Vec::with_capacity(relays.len());
     for (i, res) in results.into_iter().enumerate() {
-        let relay_id = relays[i].id.as_ref();
+        let relay_id = relays[i].id.as_str();
 
         match res {
             Ok(Some(res)) => {
                 RELAY_LAST_SLOT.with_label_values(&[relay_id]).set(params.slot as i64);
+                let value_gwei =
+                    (res.value() / U256::from(1_000_000_000)).try_into().unwrap_or_default();
+                RELAY_HEADER_VALUE.with_label_values(&[relay_id]).set(value_gwei);
+
                 relay_bids.push(res)
             }
             Ok(_) => {}
@@ -276,8 +280,8 @@ async fn send_one_get_header(
 
     debug!(
         latency = ?request_latency,
-        block_hash = %get_header_response.block_hash(),
         value_eth = format_ether(get_header_response.value()),
+        block_hash = %get_header_response.block_hash(),
         "received new header"
     );
 
