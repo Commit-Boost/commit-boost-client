@@ -4,6 +4,7 @@ use cb_common::{
 };
 use cb_signer::service::SigningService;
 use eyre::Result;
+use tracing::{error, info};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -16,7 +17,18 @@ async fn main() -> Result<()> {
 
     let config = StartSignerConfig::load_from_env()?;
     let _guard = initialize_tracing_log(SIGNER_MODULE_NAME);
-    SigningService::run(config).await?;
+    let server = SigningService::run(config);
 
-    wait_for_signal().await
+    tokio::select! {
+        maybe_err = server => {
+            if let Err(err) = maybe_err {
+                error!(%err, "signing server unexpectedly stopped");
+            }
+        },
+        _ = wait_for_signal() => {
+            info!("shutting down");
+        }
+    }
+
+    Ok(())
 }

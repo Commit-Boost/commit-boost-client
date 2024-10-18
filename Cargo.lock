@@ -1349,6 +1349,7 @@ dependencies = [
  "color-eyre",
  "eyre",
  "tokio",
+ "tracing",
  "tree_hash 0.8.0",
  "tree_hash_derive",
 ]

@@ -4,6 +4,7 @@ use cb_common::{
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use eyre::Result;
+use tracing::{error, info};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -19,7 +20,18 @@ async fn main() -> Result<()> {
 
     let state = PbsState::new(pbs_config);
     PbsService::init_metrics()?;
-    PbsService::run::<_, DefaultBuilderApi>(state).await?;
+    let server = PbsService::run::<_, DefaultBuilderApi>(state);
 
-    wait_for_signal().await
+    tokio::select! {
+        maybe_err = server => {
+            if let Err(err) = maybe_err {
+                error!(%err, "PBS service unexpectedly stopped");
+            }
+        },
+        _ = wait_for_signal() => {
+            info!("shutting down");
+        }
+    }
+
+    Ok(())
 }

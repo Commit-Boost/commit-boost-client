@@ -250,7 +250,6 @@ pub fn get_user_agent_with_version(req_headers: &HeaderMap) -> eyre::Result<Head
 #[cfg(unix)]
 pub async fn wait_for_signal() -> eyre::Result<()> {
     use tokio::signal::unix::{signal, SignalKind};
-    use tracing::info;
 
     let mut sigint = signal(SignalKind::interrupt())?;
     let mut sigterm = signal(SignalKind::terminate())?;
@@ -260,15 +259,11 @@ pub async fn wait_for_signal() -> eyre::Result<()> {
         _ = sigterm.recv() => {}
     }
 
-    info!("shutting down");
-
     Ok(())
 }
 
 #[cfg(windows)]
 pub async fn wait_for_signal() -> eyre::Result<()> {
     tokio::signal::ctrl_c().await?;
-    info!("shutting down");
-
     Ok(())
 }

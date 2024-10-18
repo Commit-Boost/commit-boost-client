@@ -2,10 +2,10 @@ use std::net::SocketAddr;
 
 use cb_common::constants::COMMIT_BOOST_VERSION;
 use cb_metrics::provider::MetricsProvider;
-use eyre::Result;
+use eyre::{Context, Result};
 use prometheus::core::Collector;
 use tokio::net::TcpListener;
-use tracing::{error, info};
+use tracing::info;
 
 use crate::{
     api::BuilderApi,
@@ -26,13 +26,7 @@ impl PbsService {
         let app = create_app_router::<S, A>(state);
         let listener = TcpListener::bind(address).await?;
 
-        tokio::spawn(async move {
-            if let Err(err) = axum::serve(listener, app).await {
-                error!(%err, "PBS service unexpectedly stopped");
-            };
-        });
-
-        Ok(())
+        axum::serve(listener, app).await.wrap_err("PBS server exited")
     }
 
     pub fn register_metric(c: Box<dyn Collector>) {
