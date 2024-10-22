@@ -269,7 +269,7 @@ components:
     EcdsaPubkey:
       type: string
       format: hex
-      pattern: "^0x[a-fA-F0-9]{64}$"
+      pattern: "^0x[a-fA-F0-9]{66}$"
       example: "0x023b2806b1b1dfa34dd90b01546906cef3e4c8e0fc0cba60480e9eb4d0a0828311"
     BlsSignature:
       type: string
