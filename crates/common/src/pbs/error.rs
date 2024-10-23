@@ -8,13 +8,13 @@ use crate::error::BlstErrorWrapper;
 
 #[derive(Debug, Error)]
 pub enum PbsError {
-    #[error("axum error: {0}")]
+    #[error("axum error: {0:?}")]
     AxumError(#[from] axum::Error),
 
-    #[error("reqwest error: {0}")]
+    #[error("reqwest error: {0:?}")]
     Reqwest(#[from] reqwest::Error),
 
-    #[error("json decode error: {err}, raw: {raw}")]
+    #[error("json decode error: {err:?}, raw: {raw}")]
     JsonDecode { err: serde_json::Error, raw: String },
 
     #[error("relay response error. Code: {code}, err: {error_msg}")]
