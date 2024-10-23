@@ -11,7 +11,7 @@ pub(crate) const TIMEOUT_ERROR_CODE_STR: &str = "555";
 /// any Ethereum upgrades in the near future
 pub(crate) const MAX_SIZE_SUBMIT_BLOCK: usize = 20 * 1024 * 1024;
 
-/// 1 KiB, headers are around 700 bytes + some buffer
-pub(crate) const MAX_SIZE_GET_HEADER: usize = 1024;
+/// 10 KiB, headers are around 700 bytes + buffer for encoding
+pub(crate) const MAX_SIZE_GET_HEADER: usize = 10 * 1024;
 
 pub(crate) const MAX_SIZE_DEFAULT: usize = 1024;
