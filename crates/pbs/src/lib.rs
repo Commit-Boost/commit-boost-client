@@ -6,6 +6,7 @@ mod mev_boost;
 mod routes;
 mod service;
 mod state;
+mod utils;
 
 pub use api::*;
 pub use mev_boost::*;

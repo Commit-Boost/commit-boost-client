@@ -5,7 +5,7 @@ use cb_common::{
     pbs::{
         error::{PbsError, ValidationError},
         RelayClient, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse, HEADER_SLOT_UUID_KEY,
-        HEADER_START_TIME_UNIX_MS, MAX_SIZE,
+        HEADER_START_TIME_UNIX_MS,
     },
     utils::{get_user_agent_with_version, utcnow_ms},
 };
@@ -14,9 +14,10 @@ use reqwest::header::USER_AGENT;
 use tracing::{debug, warn};
 
 use crate::{
-    constants::{SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG, TIMEOUT_ERROR_CODE_STR},
+    constants::{MAX_SIZE_SUBMIT_BLOCK, SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG, TIMEOUT_ERROR_CODE_STR},
     metrics::{RELAY_LATENCY, RELAY_STATUS_CODE},
     state::{BuilderApiState, PbsState},
+    utils::read_chunked_body_with_max,
 };
 
 /// Implements https://ethereum.github.io/builder-specs/#/Builder/submitBlindedBlock
@@ -94,18 +95,14 @@ async fn send_submit_block(
         .with_label_values(&[code.as_str(), SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG, &relay.id])
         .inc();
 
-    let response_bytes = res.bytes().await?;
-
-    if response_bytes.len() > MAX_SIZE {
-        return Err(PbsError::PayloadTooLarge { max: MAX_SIZE, got: response_bytes.len() });
-    }
+    let response_bytes = read_chunked_body_with_max(res, MAX_SIZE_SUBMIT_BLOCK).await?;
     if !code.is_success() {
         let err = PbsError::RelayResponse {
             error_msg: String::from_utf8_lossy(&response_bytes).into_owned(),
             code: code.as_u16(),
         };
 
-        // we request payload to all relays, but some may have not received it
+        // we requested the payload from all relays, but some may have not received it
         warn!(%err, "failed to get payload (this might be ok if other relays have it)");
         return Err(err);
     };
