@@ -24,6 +24,7 @@ use cb_common::{
     types::Chain,
     utils::blst_pubkey_to_alloy,
 };
+use cb_pbs::MAX_SIZE_SUBMIT_BLOCK;
 use tokio::net::TcpListener;
 use tracing::debug;
 use tree_hash::TreeHash;
@@ -41,6 +42,7 @@ pub async fn start_mock_relay_service(state: Arc<MockRelayState>, port: u16) -> 
 pub struct MockRelayState {
     pub chain: Chain,
     pub signer: BlsSecretKey,
+    large_body: bool,
     received_get_header: Arc<AtomicU64>,
     received_get_status: Arc<AtomicU64>,
     received_register_validator: Arc<AtomicU64>,
@@ -67,11 +69,16 @@ impl MockRelayState {
         Self {
             chain,
             signer,
+            large_body: false,
             received_get_header: Default::default(),
             received_get_status: Default::default(),
             received_register_validator: Default::default(),
             received_submit_block: Default::default(),
         }
+    }
+
+    pub fn with_large_body(self) -> Self {
+        Self { large_body: true, ..self }
     }
 }
 
@@ -119,6 +126,12 @@ async fn handle_register_validator(
 
 async fn handle_submit_block(State(state): State<Arc<MockRelayState>>) -> impl IntoResponse {
     state.received_submit_block.fetch_add(1, Ordering::Relaxed);
-    let response = SubmitBlindedBlockResponse::default();
+
+    let response = if state.large_body {
+        vec![1u8; 1 + MAX_SIZE_SUBMIT_BLOCK]
+    } else {
+        serde_json::to_vec(&SubmitBlindedBlockResponse::default()).unwrap()
+    };
+
     (StatusCode::OK, Json(response)).into_response()
 }

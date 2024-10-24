@@ -37,14 +37,7 @@ impl MockValidator {
 
         let registration: Vec<ValidatorRegistration> = vec![];
 
-        self.comm_boost
-            .client
-            .post(url)
-            .header("Content-Type", "application/json")
-            .body(serde_json::to_string(&registration).unwrap())
-            .send()
-            .await?
-            .error_for_status()?;
+        self.comm_boost.client.post(url).json(&registration).send().await?.error_for_status()?;
 
         Ok(())
     }
@@ -57,8 +50,7 @@ impl MockValidator {
         self.comm_boost
             .client
             .post(url)
-            .header("Content-Type", "application/json")
-            .body(serde_json::to_string(&signed_blinded_block).unwrap())
+            .json(&signed_blinded_block)
             .send()
             .await?
             .error_for_status()?;

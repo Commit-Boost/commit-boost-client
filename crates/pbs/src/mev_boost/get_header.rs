@@ -11,7 +11,7 @@ use cb_common::{
     pbs::{
         error::{PbsError, ValidationError},
         GetHeaderParams, GetHeaderResponse, RelayClient, SignedExecutionPayloadHeader,
-        EMPTY_TX_ROOT_HASH, HEADER_SLOT_UUID_KEY, HEADER_START_TIME_UNIX_MS, MAX_SIZE,
+        EMPTY_TX_ROOT_HASH, HEADER_SLOT_UUID_KEY, HEADER_START_TIME_UNIX_MS,
     },
     signature::verify_signed_message,
     types::Chain,
@@ -24,9 +24,12 @@ use tracing::{debug, error, warn, Instrument};
 use url::Url;
 
 use crate::{
-    constants::{GET_HEADER_ENDPOINT_TAG, TIMEOUT_ERROR_CODE, TIMEOUT_ERROR_CODE_STR},
+    constants::{
+        GET_HEADER_ENDPOINT_TAG, MAX_SIZE_GET_HEADER, TIMEOUT_ERROR_CODE, TIMEOUT_ERROR_CODE_STR,
+    },
     metrics::{RELAY_HEADER_VALUE, RELAY_LAST_SLOT, RELAY_LATENCY, RELAY_STATUS_CODE},
     state::{BuilderApiState, PbsState},
+    utils::read_chunked_body_with_max,
 };
 
 /// Implements https://ethereum.github.io/builder-specs/#/Builder/getHeader
@@ -247,11 +250,7 @@ async fn send_one_get_header(
     let code = res.status();
     RELAY_STATUS_CODE.with_label_values(&[code.as_str(), GET_HEADER_ENDPOINT_TAG, &relay.id]).inc();
 
-    let response_bytes = res.bytes().await?;
-    if response_bytes.len() > MAX_SIZE {
-        return Err(PbsError::PayloadTooLarge { max: MAX_SIZE, got: response_bytes.len() });
-    }
-
+    let response_bytes = read_chunked_body_with_max(res, MAX_SIZE_GET_HEADER).await?;
     if !code.is_success() {
         return Err(PbsError::RelayResponse {
             error_msg: String::from_utf8_lossy(&response_bytes).into_owned(),

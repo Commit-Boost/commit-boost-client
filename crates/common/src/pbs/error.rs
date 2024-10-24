@@ -8,20 +8,20 @@ use crate::error::BlstErrorWrapper;
 
 #[derive(Debug, Error)]
 pub enum PbsError {
-    #[error("axum error: {0}")]
+    #[error("axum error: {0:?}")]
     AxumError(#[from] axum::Error),
 
-    #[error("reqwest error: {0}")]
+    #[error("reqwest error: {0:?}")]
     Reqwest(#[from] reqwest::Error),
 
-    #[error("json decode error: {err}, raw: {raw}")]
+    #[error("json decode error: {err:?}, raw: {raw}")]
     JsonDecode { err: serde_json::Error, raw: String },
 
     #[error("relay response error. Code: {code}, err: {error_msg}")]
     RelayResponse { error_msg: String, code: u16 },
 
-    #[error("response size exceeds max size: max: {max} got: {got}")]
-    PayloadTooLarge { max: usize, got: usize },
+    #[error("response size exceeds max size: max: {max} raw: {raw}")]
+    PayloadTooLarge { max: usize, raw: String },
 
     #[error("failed validating relay response: {0}")]
     Validation(#[from] ValidationError),

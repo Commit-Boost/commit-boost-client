@@ -155,7 +155,36 @@ async fn test_submit_block() -> Result<()> {
     info!("Sending submit block");
     let res = mock_validator.do_submit_block().await;
 
-    assert!(res.is_ok());
+    assert!(res.is_err());
+    assert_eq!(mock_state.received_submit_block(), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_submit_block_too_large() -> Result<()> {
+    setup_test_env();
+    let signer = random_secret();
+    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk()).into();
+
+    let chain = Chain::Holesky;
+    let port = 3500;
+
+    let relays = vec![generate_mock_relay(port + 1, *pubkey)?];
+    let mock_state = Arc::new(MockRelayState::new(chain, signer).with_large_body());
+    tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 1));
+
+    let config = to_pbs_config(chain, get_pbs_static_config(port), relays);
+    let state = PbsState::new(config);
+    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+
+    // leave some time to start servers
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let mock_validator = MockValidator::new(port)?;
+    info!("Sending submit block");
+    let res = mock_validator.do_submit_block().await;
+
+    assert!(res.is_err());
     assert_eq!(mock_state.received_submit_block(), 1);
     Ok(())
 }
