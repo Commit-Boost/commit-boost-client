@@ -29,6 +29,8 @@ Modules need some environment variables to work correctly.
 For loading keys we currently support:
     - `CB_SIGNER_LOADER_FILE`: path to a `.json` with plaintext keys (for testing purposes only)
     - `CB_SIGNER_LOADER_KEYS_DIR` and `CB_SIGNER_LOADER_SECRETS_DIR`: paths to the `keys` and `secrets` directories (ERC-2335 style keystores as used in Lighthouse)
+For storing proxy keys we currently support:
+    - `CB_PROXY_STORE_DIR`: directory where proxy keys and delegations will be saved in plaintext (for testing purposes only)
 
 
 ### Modules
