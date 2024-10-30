@@ -8,8 +8,7 @@ use super::{
     CommitBoostConfig, SIGNER_PORT_ENV,
 };
 use crate::{
-    loader::SignerLoader,
-    store::ProxyStore,
+    signer::{ProxyStore, SignerLoader},
     types::{Chain, Jwt, ModuleId},
 };
 

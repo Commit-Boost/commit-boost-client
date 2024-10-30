@@ -7,14 +7,9 @@ use cb_common::{
         SignedProxyDelegationEcdsa,
     },
     signer::{
-        schemes::{
-            bls::BlsPublicKey,
-            ecdsa::{EcdsaPublicKey, EcdsaSignature},
-        },
-        types::{BlsProxySigner, EcdsaProxySigner, ProxySigners},
-        BlsSigner, ConsensusSigner, EcdsaSigner,
+        BlsProxySigner, BlsPublicKey, BlsSigner, ConsensusSigner, EcdsaProxySigner, EcdsaPublicKey,
+        EcdsaSignature, EcdsaSigner, ProxySigners, ProxyStore,
     },
-    store::ProxyStore,
     types::{Chain, ModuleId},
 };
 use eyre::OptionExt;
@@ -268,8 +263,7 @@ mod tests {
 
     mod test_proxy_bls {
         use cb_common::{
-            constants::COMMIT_BOOST_DOMAIN, signature::compute_domain,
-            signer::schemes::bls::verify_bls_signature,
+            constants::COMMIT_BOOST_DOMAIN, signature::compute_domain, signer::verify_bls_signature,
         };
 
         use super::*;
@@ -347,7 +341,7 @@ mod tests {
     mod test_proxy_ecdsa {
         use cb_common::{
             constants::COMMIT_BOOST_DOMAIN, signature::compute_domain,
-            signer::schemes::ecdsa::verify_ecdsa_signature,
+            signer::verify_ecdsa_signature,
         };
 
         use super::*;

@@ -4,7 +4,7 @@ use alloy::primitives::U256;
 use cb_common::{
     config::{PbsConfig, PbsModuleConfig},
     pbs::RelayClient,
-    signer::{schemes::bls::random_secret, BlsPublicKey},
+    signer::{random_secret, BlsPublicKey},
     types::Chain,
     utils::blst_pubkey_to_alloy,
 };

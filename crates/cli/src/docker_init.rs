@@ -8,7 +8,7 @@ use cb_common::{
         SIGNER_DIR_KEYS_DEFAULT, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS, SIGNER_DIR_SECRETS_ENV,
         SIGNER_KEYS_ENV, SIGNER_MODULE_NAME, SIGNER_PORT_ENV, SIGNER_URL_ENV,
     },
-    loader::SignerLoader,
+    signer::SignerLoader,
     types::ModuleId,
     utils::random_jwt,
 };

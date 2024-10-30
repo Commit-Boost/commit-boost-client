@@ -2,13 +2,10 @@ use std::collections::HashMap;
 
 use derive_more::derive::Deref;
 
-use super::EcdsaSigner;
+use super::{BlsPublicKey, EcdsaPublicKey, EcdsaSigner};
 use crate::{
     commit::request::{SignedProxyDelegationBls, SignedProxyDelegationEcdsa},
-    signer::{
-        schemes::{bls::BlsPublicKey, ecdsa::EcdsaPublicKey},
-        BlsSigner,
-    },
+    signer::BlsSigner,
 };
 
 // For extra safety and to avoid risking signing malicious messages, use a proxy

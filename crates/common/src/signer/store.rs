@@ -14,8 +14,8 @@ use crate::{
     },
     config::{load_env_var, PROXY_DIR_ENV},
     signer::{
-        types::{BlsProxySigner, EcdsaProxySigner, ProxySigners},
-        BlsPublicKey, BlsSigner, EcdsaPublicKey, EcdsaSigner,
+        BlsProxySigner, BlsPublicKey, BlsSigner, EcdsaProxySigner, EcdsaPublicKey, EcdsaSigner,
+        ProxySigners,
     },
     types::ModuleId,
 };

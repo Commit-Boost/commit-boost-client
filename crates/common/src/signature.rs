@@ -5,7 +5,7 @@ use tree_hash_derive::TreeHash;
 use crate::{
     constants::{COMMIT_BOOST_DOMAIN, GENESIS_VALIDATORS_ROOT},
     error::BlstErrorWrapper,
-    signer::{schemes::bls::verify_bls_signature, BlsSecretKey},
+    signer::{verify_bls_signature, BlsSecretKey},
     types::Chain,
 };
 
