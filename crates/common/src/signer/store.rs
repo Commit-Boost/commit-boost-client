@@ -95,6 +95,7 @@ impl ProxyStore {
         Ok(())
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn load_proxies(
         &self,
     ) -> eyre::Result<(
@@ -110,7 +111,7 @@ impl ProxyStore {
                 let mut ecdsa_map: HashMap<ModuleId, Vec<EcdsaPublicKey>> = HashMap::new();
 
                 // Iterate over the entries in the base directory
-                for entry in std::fs::read_dir(&proxy_dir)? {
+                for entry in std::fs::read_dir(proxy_dir)? {
                     let entry = entry?;
                     let module_path = entry.path();
 
