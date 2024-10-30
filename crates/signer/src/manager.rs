@@ -54,16 +54,36 @@ impl SigningManager {
         self.consensus_signers.insert(signer.pubkey(), signer);
     }
 
-    pub fn add_proxy_signer_bls(&mut self, proxy: BlsProxySigner, module_id: ModuleId) {
+    pub fn add_proxy_signer_bls(
+        &mut self,
+        proxy: BlsProxySigner,
+        module_id: ModuleId,
+    ) -> eyre::Result<()> {
+        if let Some(store) = &self.proxy_store {
+            store.store_proxy_bls(&module_id, &proxy)?;
+        }
+
         let proxy_pubkey = proxy.pubkey();
         self.proxy_signers.bls_signers.insert(proxy.pubkey(), proxy);
-        self.proxy_pubkeys_bls.entry(module_id).or_default().push(proxy_pubkey)
+        self.proxy_pubkeys_bls.entry(module_id).or_default().push(proxy_pubkey);
+
+        Ok(())
     }
 
-    pub fn add_proxy_signer_ecdsa(&mut self, proxy: EcdsaProxySigner, module_id: ModuleId) {
+    pub fn add_proxy_signer_ecdsa(
+        &mut self,
+        proxy: EcdsaProxySigner,
+        module_id: ModuleId,
+    ) -> eyre::Result<()> {
+        if let Some(store) = &self.proxy_store {
+            store.store_proxy_ecdsa(&module_id, &proxy)?;
+        }
+
         let proxy_pubkey = proxy.pubkey();
         self.proxy_signers.ecdsa_signers.insert(proxy.pubkey(), proxy);
-        self.proxy_pubkeys_ecdsa.entry(module_id).or_default().push(proxy_pubkey)
+        self.proxy_pubkeys_ecdsa.entry(module_id).or_default().push(proxy_pubkey);
+
+        Ok(())
     }
 
     pub async fn create_proxy_bls(
@@ -79,7 +99,8 @@ impl SigningManager {
         let delegation = SignedProxyDelegationBls { signature, message };
         let proxy_signer = BlsProxySigner { signer, delegation };
 
-        self.add_proxy_signer_bls(proxy_signer, module_id);
+        self.add_proxy_signer_bls(proxy_signer, module_id)
+            .map_err(|err| SignerModuleError::Internal(err.to_string()))?;
 
         Ok(delegation)
     }
@@ -97,7 +118,8 @@ impl SigningManager {
         let delegation = SignedProxyDelegationEcdsa { signature, message };
         let proxy_signer = EcdsaProxySigner { signer, delegation };
 
-        self.add_proxy_signer_ecdsa(proxy_signer, module_id);
+        self.add_proxy_signer_ecdsa(proxy_signer, module_id)
+            .map_err(|err| SignerModuleError::Internal(err.to_string()))?;
 
         Ok(delegation)
     }
@@ -233,6 +255,10 @@ impl SigningManager {
         }
 
         Ok(keys)
+    }
+
+    pub fn proxies(&self) -> &ProxySigners {
+        &self.proxy_signers
     }
 }
 

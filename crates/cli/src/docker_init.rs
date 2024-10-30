@@ -4,11 +4,12 @@ use cb_common::{
     config::{
         CommitBoostConfig, LogsSettings, ModuleKind, BUILDER_PORT_ENV, BUILDER_URLS_ENV,
         CHAIN_SPEC_ENV, CONFIG_DEFAULT, CONFIG_ENV, JWTS_ENV, LOGS_DIR_DEFAULT, LOGS_DIR_ENV,
-        METRICS_PORT_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, PBS_MODULE_NAME, SIGNER_DEFAULT,
-        SIGNER_DIR_KEYS_DEFAULT, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS, SIGNER_DIR_SECRETS_ENV,
-        SIGNER_KEYS_ENV, SIGNER_MODULE_NAME, SIGNER_PORT_ENV, SIGNER_URL_ENV,
+        METRICS_PORT_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, PBS_MODULE_NAME, PROXY_DIR_DEFAULT,
+        PROXY_DIR_ENV, SIGNER_DEFAULT, SIGNER_DIR_KEYS_DEFAULT, SIGNER_DIR_KEYS_ENV,
+        SIGNER_DIR_SECRETS_DEFAULT, SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV, SIGNER_MODULE_NAME,
+        SIGNER_PORT_ENV, SIGNER_URL_ENV,
     },
-    signer::SignerLoader,
+    signer::{ProxyStore, SignerLoader},
     types::ModuleId,
     utils::random_jwt,
 };
@@ -299,26 +300,46 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
             match signer_config.loader {
                 SignerLoader::File { key_path } => {
-                    volumes.push(Volumes::Simple(format!("./{}:{}:ro", key_path, SIGNER_DEFAULT)));
+                    volumes.push(Volumes::Simple(format!(
+                        "{}:{}:ro",
+                        key_path.display(),
+                        SIGNER_DEFAULT
+                    )));
                     let (k, v) = get_env_val(SIGNER_KEYS_ENV, SIGNER_DEFAULT);
                     signer_envs.insert(k, v);
                 }
                 SignerLoader::ValidatorsDir { keys_path, secrets_path } => {
                     volumes.push(Volumes::Simple(format!(
                         "{}:{}:ro",
-                        keys_path, SIGNER_DIR_KEYS_DEFAULT
+                        keys_path.display(),
+                        SIGNER_DIR_KEYS_DEFAULT
                     )));
                     let (k, v) = get_env_val(SIGNER_DIR_KEYS_ENV, SIGNER_DIR_KEYS_DEFAULT);
                     signer_envs.insert(k, v);
 
                     volumes.push(Volumes::Simple(format!(
                         "{}:{}:ro",
-                        secrets_path, SIGNER_DIR_SECRETS
+                        secrets_path.display(),
+                        SIGNER_DIR_SECRETS_DEFAULT
                     )));
-                    let (k, v) = get_env_val(SIGNER_DIR_SECRETS_ENV, SIGNER_DIR_SECRETS);
+                    let (k, v) = get_env_val(SIGNER_DIR_SECRETS_ENV, SIGNER_DIR_SECRETS_DEFAULT);
                     signer_envs.insert(k, v);
                 }
             };
+
+            if let Some(store) = signer_config.store {
+                match store {
+                    ProxyStore::File { proxy_dir } => {
+                        volumes.push(Volumes::Simple(format!(
+                            "{}:{}:rw",
+                            proxy_dir.display(),
+                            PROXY_DIR_DEFAULT
+                        )));
+                        let (k, v) = get_env_val(PROXY_DIR_ENV, PROXY_DIR_DEFAULT);
+                        signer_envs.insert(k, v);
+                    }
+                }
+            }
 
             volumes.extend(get_log_volume(&cb_config.logs, SIGNER_MODULE_NAME));
 

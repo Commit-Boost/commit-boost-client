@@ -9,9 +9,7 @@ use alloy::primitives::Bytes;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    commit::request::{
-        PublicKey, SignedProxyDelegation, SignedProxyDelegationBls, SignedProxyDelegationEcdsa,
-    },
+    commit::request::{PublicKey, SignedProxyDelegation},
     config::{load_env_var, PROXY_DIR_ENV},
     signer::{
         BlsProxySigner, BlsPublicKey, BlsSigner, EcdsaProxySigner, EcdsaPublicKey, EcdsaSigner,
@@ -30,7 +28,7 @@ struct KeyAndDelegation<T: PublicKey> {
 #[serde(untagged)]
 pub enum ProxyStore {
     /// Stores private keys in plaintext to a file, do not use in prod
-    File { key_path: PathBuf },
+    File { proxy_dir: PathBuf },
 }
 
 impl ProxyStore {
@@ -38,7 +36,7 @@ impl ProxyStore {
         Ok(match self {
             ProxyStore::File { .. } => {
                 let path = load_env_var(PROXY_DIR_ENV)?;
-                ProxyStore::File { key_path: PathBuf::from(path) }
+                ProxyStore::File { proxy_dir: PathBuf::from(path) }
             }
         })
     }
@@ -46,17 +44,16 @@ impl ProxyStore {
     pub fn store_proxy_bls(
         &self,
         module_id: &ModuleId,
-        signer: &BlsSigner,
-        delegation: SignedProxyDelegationBls,
+        proxy: &BlsProxySigner,
     ) -> eyre::Result<()> {
         match self {
-            ProxyStore::File { key_path } => {
-                let file_path = key_path
+            ProxyStore::File { proxy_dir } => {
+                let file_path = proxy_dir
                     .join(module_id.to_string())
                     .join("bls")
-                    .join(signer.pubkey().to_string());
-                let secret = Bytes::from(signer.secret());
-                let to_store = KeyAndDelegation { secret, delegation };
+                    .join(proxy.signer.pubkey().to_string());
+                let secret = Bytes::from(proxy.signer.secret());
+                let to_store = KeyAndDelegation { secret, delegation: proxy.delegation };
                 let content = serde_json::to_vec(&to_store)?;
 
                 if let Some(parent) = file_path.parent() {
@@ -74,17 +71,16 @@ impl ProxyStore {
     pub fn store_proxy_ecdsa(
         &self,
         module_id: &ModuleId,
-        signer: &EcdsaSigner,
-        delegation: SignedProxyDelegationEcdsa,
+        proxy: &EcdsaProxySigner,
     ) -> eyre::Result<()> {
         match self {
-            ProxyStore::File { key_path } => {
-                let file_path = key_path
+            ProxyStore::File { proxy_dir } => {
+                let file_path = proxy_dir
                     .join(module_id.to_string())
                     .join("ecdsa")
-                    .join(signer.pubkey().to_string());
-                let secret = Bytes::from(signer.secret());
-                let to_store = KeyAndDelegation { secret, delegation };
+                    .join(proxy.signer.pubkey().to_string());
+                let secret = Bytes::from(proxy.signer.secret());
+                let to_store = KeyAndDelegation { secret, delegation: proxy.delegation };
                 let content = serde_json::to_vec(&to_store)?;
 
                 if let Some(parent) = file_path.parent() {
@@ -107,14 +103,14 @@ impl ProxyStore {
         HashMap<ModuleId, Vec<EcdsaPublicKey>>,
     )> {
         match self {
-            ProxyStore::File { key_path } => {
+            ProxyStore::File { proxy_dir } => {
                 // HashMaps to store module_id -> content mappings
                 let mut proxy_signers = ProxySigners::default();
                 let mut bls_map: HashMap<ModuleId, Vec<BlsPublicKey>> = HashMap::new();
                 let mut ecdsa_map: HashMap<ModuleId, Vec<EcdsaPublicKey>> = HashMap::new();
 
                 // Iterate over the entries in the base directory
-                for entry in std::fs::read_dir(&key_path)? {
+                for entry in std::fs::read_dir(&proxy_dir)? {
                     let entry = entry?;
                     let module_path = entry.path();
 

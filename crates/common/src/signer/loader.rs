@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fs, path::PathBuf};
 
 use alloy::{primitives::hex::FromHex, rpc::types::beacon::BlsPublicKey};
 use eth2_keystore::Keystore;
@@ -15,11 +15,11 @@ use crate::{
 pub enum SignerLoader {
     /// Plain text, do not use in prod
     File {
-        key_path: String,
+        key_path: PathBuf,
     },
     ValidatorsDir {
-        keys_path: String,
-        secrets_path: String,
+        keys_path: PathBuf,
+        secrets_path: PathBuf,
     },
 }
 
