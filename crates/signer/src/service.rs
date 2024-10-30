@@ -54,9 +54,15 @@ impl SigningService {
             info!(version = COMMIT_BOOST_VERSION, modules =? module_ids, port =? config.server_port, "Starting signing service");
         }
 
-        let mut manager = SigningManager::new(config.chain);
+        let proxy_store = if let Some(store) = config.store {
+            Some(store.init_from_env()?)
+        } else {
+            warn!("Proxy store not configured. Proxies keys and delegations will not be persisted");
+            None
+        };
 
-        // TODO: load proxy keys, or pass already loaded?
+        let mut manager = SigningManager::new(config.chain, proxy_store)?;
+
         for signer in config.loader.load_keys()? {
             manager.add_consensus_signer(signer);
         }

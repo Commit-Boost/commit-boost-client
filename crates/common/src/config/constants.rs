@@ -42,6 +42,9 @@ pub const SIGNER_DIR_KEYS_DEFAULT: &str = "/keys";
 /// Path to `secrets` folder
 pub const SIGNER_DIR_SECRETS_ENV: &str = "CB_SIGNER_LOADER_SECRETS_DIR";
 pub const SIGNER_DIR_SECRETS: &str = "/secrets";
+/// Path to store proxies
+pub const PROXY_DIR_ENV: &str = "CB_PROXY_STORE_DIR";
+pub const PROXY_DIR: &str = "/proxies";
 
 ///////////////////////// MODULES /////////////////////////
 

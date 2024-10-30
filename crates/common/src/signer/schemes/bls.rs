@@ -57,6 +57,12 @@ impl BlsSigner {
         }
     }
 
+    pub fn secret(&self) -> [u8; 32] {
+        match self {
+            BlsSigner::Local(secret) => secret.clone().to_bytes(),
+        }
+    }
+
     pub async fn sign(&self, chain: Chain, object_root: [u8; 32]) -> BlsSignature {
         match self {
             BlsSigner::Local(sk) => sign_commit_boost_root(chain, sk, object_root),

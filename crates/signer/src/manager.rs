@@ -11,44 +11,20 @@ use cb_common::{
             bls::BlsPublicKey,
             ecdsa::{EcdsaPublicKey, EcdsaSignature},
         },
+        types::{BlsProxySigner, EcdsaProxySigner, ProxySigners},
         BlsSigner, ConsensusSigner, EcdsaSigner,
     },
+    store::ProxyStore,
     types::{Chain, ModuleId},
 };
-use derive_more::derive::Deref;
 use eyre::OptionExt;
 use tree_hash::TreeHash;
 
 use crate::error::SignerModuleError;
 
-// For extra safety and to avoid risking signing malicious messages, use a proxy
-// setup: proposer creates a new ephemeral keypair which will be used to sign
-// commit messages, it also signs a ProxyDelegation associating the new keypair
-// with its consensus pubkey When a new commit module starts, pass the
-// ProxyDelegation msg and then sign all future commit messages with the proxy
-// key for slashing the faulty message + proxy delegation can be used
-#[derive(Clone, Deref)]
-pub struct BlsProxySigner {
-    #[deref]
-    signer: BlsSigner,
-    delegation: SignedProxyDelegationBls,
-}
-
-#[derive(Clone, Deref)]
-pub struct EcdsaProxySigner {
-    #[deref]
-    signer: EcdsaSigner,
-    delegation: SignedProxyDelegationEcdsa,
-}
-
-#[derive(Default)]
-struct ProxySigners {
-    bls_signers: HashMap<BlsPublicKey, BlsProxySigner>,
-    ecdsa_signers: HashMap<EcdsaPublicKey, EcdsaProxySigner>,
-}
-
 pub struct SigningManager {
     chain: Chain,
+    proxy_store: Option<ProxyStore>,
     consensus_signers: HashMap<BlsPublicKey, ConsensusSigner>,
     proxy_signers: ProxySigners,
     /// Map of module ids to their associated proxy pubkeys.
@@ -59,14 +35,24 @@ pub struct SigningManager {
 }
 
 impl SigningManager {
-    pub fn new(chain: Chain) -> Self {
-        Self {
+    pub fn new(chain: Chain, proxy_store: Option<ProxyStore>) -> eyre::Result<Self> {
+        let mut manager = Self {
             chain,
+            proxy_store,
             consensus_signers: Default::default(),
             proxy_signers: Default::default(),
             proxy_pubkeys_bls: Default::default(),
             proxy_pubkeys_ecdsa: Default::default(),
+        };
+
+        if let Some(store) = &manager.proxy_store {
+            let (proxies, bls, ecdsa) = store.load_proxies()?;
+            manager.proxy_signers = proxies;
+            manager.proxy_pubkeys_bls = bls;
+            manager.proxy_pubkeys_ecdsa = ecdsa;
         }
+
+        Ok(manager)
     }
 
     pub fn add_consensus_signer(&mut self, signer: ConsensusSigner) {
@@ -270,7 +256,7 @@ mod tests {
     }
 
     fn init_signing_manager() -> (SigningManager, BlsPublicKey) {
-        let mut signing_manager = SigningManager::new(CHAIN);
+        let mut signing_manager = SigningManager::new(CHAIN, None).unwrap();
 
         let consensus_signer = ConsensusSigner::new_random();
         let consensus_pk = consensus_signer.pubkey();

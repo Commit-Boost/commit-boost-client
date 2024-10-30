@@ -162,6 +162,12 @@ impl EcdsaSigner {
         }
     }
 
+    pub fn secret(&self) -> Vec<u8> {
+        match self {
+            EcdsaSigner::Local(secret) => secret.to_bytes().to_vec(),
+        }
+    }
+
     pub async fn sign(&self, chain: Chain, object_root: [u8; 32]) -> EcdsaSignature {
         match self {
             EcdsaSigner::Local(sk) => {

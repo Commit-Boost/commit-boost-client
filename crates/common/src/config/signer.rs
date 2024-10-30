@@ -9,6 +9,7 @@ use super::{
 };
 use crate::{
     loader::SignerLoader,
+    store::ProxyStore,
     types::{Chain, Jwt, ModuleId},
 };
 
@@ -19,6 +20,8 @@ pub struct SignerConfig {
     pub docker_image: String,
     /// Which keys to load
     pub loader: SignerLoader,
+    /// How to store keys
+    pub store: Option<ProxyStore>,
 }
 
 fn default_signer() -> String {
@@ -29,6 +32,7 @@ fn default_signer() -> String {
 pub struct StartSignerConfig {
     pub chain: Chain,
     pub loader: SignerLoader,
+    pub store: Option<ProxyStore>,
     pub server_port: u16,
     pub jwts: BiHashMap<ModuleId, Jwt>,
 }
@@ -40,11 +44,14 @@ impl StartSignerConfig {
         let jwts = load_jwts()?;
         let server_port = load_env_var(SIGNER_PORT_ENV)?.parse()?;
 
+        let signer_config = config.signer.expect("Signer config is missing");
+
         Ok(StartSignerConfig {
             chain: config.chain,
-            loader: config.signer.expect("Signer config is missing").loader,
+            loader: signer_config.loader,
             server_port,
             jwts,
+            store: signer_config.store,
         })
     }
 }

@@ -1,4 +1,5 @@
 pub mod schemes;
+pub mod types;
 
 pub use schemes::{
     bls::{BlsPublicKey, BlsSecretKey, BlsSignature, BlsSigner},
