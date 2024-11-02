@@ -47,19 +47,27 @@ impl SigningService {
         if config.jwts.is_empty() {
             warn!("Signing service was started but no module is registered. Exiting");
             return Ok(());
-        } else {
-            let module_ids: Vec<String> =
-                config.jwts.left_values().cloned().map(Into::into).collect();
-
-            info!(version = COMMIT_BOOST_VERSION, modules =? module_ids, port =? config.server_port, "Starting signing service");
         }
 
-        let mut manager = SigningManager::new(config.chain);
+        let proxy_store = if let Some(store) = config.store {
+            Some(store.init_from_env()?)
+        } else {
+            warn!("Proxy store not configured. Proxies keys and delegations will not be persisted");
+            None
+        };
 
-        // TODO: load proxy keys, or pass already loaded?
+        let mut manager = SigningManager::new(config.chain, proxy_store)?;
+
         for signer in config.loader.load_keys()? {
             manager.add_consensus_signer(signer);
         }
+        let module_ids: Vec<String> = config.jwts.left_values().cloned().map(Into::into).collect();
+
+        let loaded_consensus = manager.consensus_pubkeys().len();
+        let proxies = manager.proxies();
+        let loaded_proxies = proxies.bls_signers.len() + proxies.ecdsa_signers.len();
+
+        info!(version = COMMIT_BOOST_VERSION, modules =? module_ids, port =? config.server_port, loaded_consensus, loaded_proxies, "Starting signing service");
 
         let state = SigningState { manager: RwLock::new(manager).into(), jwts: config.jwts.into() };
 

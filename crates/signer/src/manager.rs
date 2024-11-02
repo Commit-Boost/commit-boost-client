@@ -7,48 +7,19 @@ use cb_common::{
         SignedProxyDelegationEcdsa,
     },
     signer::{
-        schemes::{
-            bls::BlsPublicKey,
-            ecdsa::{EcdsaPublicKey, EcdsaSignature},
-        },
-        BlsSigner, ConsensusSigner, EcdsaSigner,
+        BlsProxySigner, BlsPublicKey, BlsSigner, ConsensusSigner, EcdsaProxySigner, EcdsaPublicKey,
+        EcdsaSignature, EcdsaSigner, ProxySigners, ProxyStore,
     },
     types::{Chain, ModuleId},
 };
-use derive_more::derive::Deref;
 use eyre::OptionExt;
 use tree_hash::TreeHash;
 
 use crate::error::SignerModuleError;
 
-// For extra safety and to avoid risking signing malicious messages, use a proxy
-// setup: proposer creates a new ephemeral keypair which will be used to sign
-// commit messages, it also signs a ProxyDelegation associating the new keypair
-// with its consensus pubkey When a new commit module starts, pass the
-// ProxyDelegation msg and then sign all future commit messages with the proxy
-// key for slashing the faulty message + proxy delegation can be used
-#[derive(Clone, Deref)]
-pub struct BlsProxySigner {
-    #[deref]
-    signer: BlsSigner,
-    delegation: SignedProxyDelegationBls,
-}
-
-#[derive(Clone, Deref)]
-pub struct EcdsaProxySigner {
-    #[deref]
-    signer: EcdsaSigner,
-    delegation: SignedProxyDelegationEcdsa,
-}
-
-#[derive(Default)]
-struct ProxySigners {
-    bls_signers: HashMap<BlsPublicKey, BlsProxySigner>,
-    ecdsa_signers: HashMap<EcdsaPublicKey, EcdsaProxySigner>,
-}
-
 pub struct SigningManager {
     chain: Chain,
+    proxy_store: Option<ProxyStore>,
     consensus_signers: HashMap<BlsPublicKey, ConsensusSigner>,
     proxy_signers: ProxySigners,
     /// Map of module ids to their associated proxy pubkeys.
@@ -59,30 +30,60 @@ pub struct SigningManager {
 }
 
 impl SigningManager {
-    pub fn new(chain: Chain) -> Self {
-        Self {
+    pub fn new(chain: Chain, proxy_store: Option<ProxyStore>) -> eyre::Result<Self> {
+        let mut manager = Self {
             chain,
+            proxy_store,
             consensus_signers: Default::default(),
             proxy_signers: Default::default(),
             proxy_pubkeys_bls: Default::default(),
             proxy_pubkeys_ecdsa: Default::default(),
+        };
+
+        if let Some(store) = &manager.proxy_store {
+            let (proxies, bls, ecdsa) = store.load_proxies()?;
+            manager.proxy_signers = proxies;
+            manager.proxy_pubkeys_bls = bls;
+            manager.proxy_pubkeys_ecdsa = ecdsa;
         }
+
+        Ok(manager)
     }
 
     pub fn add_consensus_signer(&mut self, signer: ConsensusSigner) {
         self.consensus_signers.insert(signer.pubkey(), signer);
     }
 
-    pub fn add_proxy_signer_bls(&mut self, proxy: BlsProxySigner, module_id: ModuleId) {
+    pub fn add_proxy_signer_bls(
+        &mut self,
+        proxy: BlsProxySigner,
+        module_id: ModuleId,
+    ) -> eyre::Result<()> {
+        if let Some(store) = &self.proxy_store {
+            store.store_proxy_bls(&module_id, &proxy)?;
+        }
+
         let proxy_pubkey = proxy.pubkey();
         self.proxy_signers.bls_signers.insert(proxy.pubkey(), proxy);
-        self.proxy_pubkeys_bls.entry(module_id).or_default().push(proxy_pubkey)
+        self.proxy_pubkeys_bls.entry(module_id).or_default().push(proxy_pubkey);
+
+        Ok(())
     }
 
-    pub fn add_proxy_signer_ecdsa(&mut self, proxy: EcdsaProxySigner, module_id: ModuleId) {
+    pub fn add_proxy_signer_ecdsa(
+        &mut self,
+        proxy: EcdsaProxySigner,
+        module_id: ModuleId,
+    ) -> eyre::Result<()> {
+        if let Some(store) = &self.proxy_store {
+            store.store_proxy_ecdsa(&module_id, &proxy)?;
+        }
+
         let proxy_pubkey = proxy.pubkey();
         self.proxy_signers.ecdsa_signers.insert(proxy.pubkey(), proxy);
-        self.proxy_pubkeys_ecdsa.entry(module_id).or_default().push(proxy_pubkey)
+        self.proxy_pubkeys_ecdsa.entry(module_id).or_default().push(proxy_pubkey);
+
+        Ok(())
     }
 
     pub async fn create_proxy_bls(
@@ -98,7 +99,8 @@ impl SigningManager {
         let delegation = SignedProxyDelegationBls { signature, message };
         let proxy_signer = BlsProxySigner { signer, delegation };
 
-        self.add_proxy_signer_bls(proxy_signer, module_id);
+        self.add_proxy_signer_bls(proxy_signer, module_id)
+            .map_err(|err| SignerModuleError::Internal(err.to_string()))?;
 
         Ok(delegation)
     }
@@ -116,7 +118,8 @@ impl SigningManager {
         let delegation = SignedProxyDelegationEcdsa { signature, message };
         let proxy_signer = EcdsaProxySigner { signer, delegation };
 
-        self.add_proxy_signer_ecdsa(proxy_signer, module_id);
+        self.add_proxy_signer_ecdsa(proxy_signer, module_id)
+            .map_err(|err| SignerModuleError::Internal(err.to_string()))?;
 
         Ok(delegation)
     }
@@ -253,6 +256,10 @@ impl SigningManager {
 
         Ok(keys)
     }
+
+    pub fn proxies(&self) -> &ProxySigners {
+        &self.proxy_signers
+    }
 }
 
 #[cfg(test)]
@@ -270,7 +277,7 @@ mod tests {
     }
 
     fn init_signing_manager() -> (SigningManager, BlsPublicKey) {
-        let mut signing_manager = SigningManager::new(CHAIN);
+        let mut signing_manager = SigningManager::new(CHAIN, None).unwrap();
 
         let consensus_signer = ConsensusSigner::new_random();
         let consensus_pk = consensus_signer.pubkey();
@@ -282,8 +289,7 @@ mod tests {
 
     mod test_proxy_bls {
         use cb_common::{
-            constants::COMMIT_BOOST_DOMAIN, signature::compute_domain,
-            signer::schemes::bls::verify_bls_signature,
+            constants::COMMIT_BOOST_DOMAIN, signature::compute_domain, signer::verify_bls_signature,
         };
 
         use super::*;
@@ -361,7 +367,7 @@ mod tests {
     mod test_proxy_ecdsa {
         use cb_common::{
             constants::COMMIT_BOOST_DOMAIN, signature::compute_domain,
-            signer::schemes::ecdsa::verify_ecdsa_signature,
+            signer::verify_ecdsa_signature,
         };
 
         use super::*;

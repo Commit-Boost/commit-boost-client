@@ -10,7 +10,7 @@ use crate::{
     constants::COMMIT_BOOST_DOMAIN,
     error::BlstErrorWrapper,
     signature::verify_signed_message,
-    signer::schemes::{bls::BlsPublicKey, ecdsa::EcdsaPublicKey},
+    signer::{BlsPublicKey, EcdsaPublicKey},
     types::Chain,
 };
 

@@ -15,10 +15,7 @@ use super::{
     },
 };
 use crate::{
-    signer::{
-        schemes::{bls::BlsPublicKey, ecdsa::EcdsaSignature},
-        EcdsaPublicKey,
-    },
+    signer::{BlsPublicKey, EcdsaPublicKey, EcdsaSignature},
     DEFAULT_REQUEST_TIMEOUT,
 };
 

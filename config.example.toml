@@ -102,6 +102,12 @@ key_path = "./keys.example.json"
 # keys_path = ""
 # ValidatorsDir: path to the secrets directory
 # secrets_path = ""
+# Configuration for how the Signer module should store proxy delegations. Currently one type of store is supported:
+#   - File: store keys and delegations from a plain text file (unsafe, use only for testing purposes)
+# OPTIONAL, if missing proxies are lost on restart
+[signer.store]
+# File: path to the keys file
+proxy_dir = "./proxies"
 
 # Commit-Boost can optionally run "modules" which extend the capabilities of the sidecar.
 # Currently, two types of modules are supported:
