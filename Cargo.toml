@@ -16,7 +16,7 @@ resolver = "2"
 
 [workspace.package]
 version = "0.3.1"
-rust-version = "1.76"
+rust-version = "1.80.0"
 edition = "2021"
 
 [workspace.dependencies]
@@ -27,31 +27,31 @@ cb-pbs = { path = "crates/pbs" }
 cb-signer = { path = "crates/signer" }
 
 # ethereum
-alloy = { version = "0.3.6", features = [
+alloy = { version = "0.5.4", features = [
     "rpc-types-beacon",
     "serde",
     "ssz",
     "getrandom",
 ] }
-ssz_types = "0.8"
+ssz_types = "0.8.0"
 ethereum_serde_utils = "0.7.0"
 
 # networking
-axum = { version = "0.7.5", features = ["macros"] }
-axum-extra = { version = "0.9.3", features = ["typed-header"] }
-reqwest = { version = "0.12.4", features = ["json", "stream"] }
+axum = { version = "0.7.7", features = ["macros"] }
+axum-extra = { version = "0.9.4", features = ["typed-header"] }
+reqwest = { version = "0.12.9", features = ["json", "stream"] }
 headers = "0.4.0"
 
 # async / threads
-tokio = { version = "1.37.0", features = ["full"] }
-futures = "0.3.30"
-async-trait = "0.1.80"
-dashmap = "5.5.3"
+tokio = { version = "1.41.0", features = ["full"] }
+futures = "0.3.31"
+async-trait = "0.1.83"
+dashmap = "6.1.0"
 
 # serialization
-toml = "0.8.13"
-serde = { version = "1.0.202", features = ["derive"] }
-serde_json = "1.0.117"
+toml = "0.8.19"
+serde = { version = "1.0.214", features = ["derive"] }
+serde_json = "1.0.132"
 serde_yaml = "0.9.33"
 
 # telemetry
@@ -61,26 +61,26 @@ tracing-appender = "0.2.3"
 prometheus = "0.13.4"
 
 # crypto
-blst = "0.3.11"
-tree_hash = "0.8"
-tree_hash_derive = "0.8"
-eth2_keystore = { git = "https://github.com/sigp/lighthouse", rev = "9e12c21f268c80a3f002ae0ca27477f9f512eb6f" }
-k256 = "0.13"
+blst = "0.3.13"
+tree_hash = "0.8.0"
+tree_hash_derive = "0.8.0"
+eth2_keystore = { git = "https://github.com/sigp/lighthouse", rev = "2e0eb6d1b8705bbda2ba56eb195d9cc7c6575e95" }
+k256 = "0.13.4"
 
 # docker
-docker-compose-types = "0.12.0"
+docker-compose-types = "0.15.0"
 
 # misc
-clap = { version = "4.5.4", features = ["derive", "env"] }
-thiserror = "1.0.61"
+clap = { version = "4.5.20", features = ["derive", "env"] }
+thiserror = "1.0.68"
 color-eyre = "0.6.3"
 eyre = "0.6.12"
-url = { version = "2.5.0", features = ["serde"] }
-uuid = { version = "1.8.0", features = ["v4", "fast-rng", "serde"] }
+url = { version = "2.5.3", features = ["serde"] }
+uuid = { version = "1.11.0", features = ["v4", "fast-rng", "serde"] }
 typenum = "1.17.0"
 rand = "0.8.5"
 dotenvy = "0.15.7"
-indexmap = "2.2.6"
+indexmap = "2.6.0"
 lazy_static = "1.5.0"
 bimap = { version = "0.6.3", features = ["serde"] }
 derive_more = { version = "1.0.0", features = [
