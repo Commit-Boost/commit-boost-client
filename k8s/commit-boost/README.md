@@ -49,10 +49,11 @@ A Helm chart for Kubernetes
 | serviceAccount.create | bool | `true` |  |
 | serviceAccount.name | string | `""` |  |
 | serviceMonitor.additionalLabels | object | `{}` |  |
-| serviceMonitor.enabled | bool | `false` |  |
+| serviceMonitor.enabled | bool | `true` |  |
 | serviceMonitor.metricRelabelings | list | `[]` |  |
 | serviceMonitor.namespace | string | `""` |  |
 | serviceMonitor.namespaceSelector | object | `{}` |  |
+| serviceMonitor.path | string | `"/metrics"` |  |
 | serviceMonitor.scrapeInterval | string | `"30s"` |  |
 | serviceMonitor.targetLabels | list | `[]` |  |
 | tolerations | list | `[]` |  |
