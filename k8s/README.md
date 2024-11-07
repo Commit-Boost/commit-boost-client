@@ -6,7 +6,7 @@ chart directory, edit the `values.yaml` configuration file to your
 liking, then:
 
 ```
-helm install commit-boost . -f myvalues.yaml
+helm install commit-boost . -f values.yaml
 ```
 
 By default the PBS service should be available on port `18550`, you
