@@ -37,6 +37,7 @@ timeout_register_validator_ms = 3000
 # OPTIONAL, DEFAULT: false
 skip_sigverify = false
 # Minimum bid in ETH that will be accepted from `get_header`
+# Can be specified as a float or a string for extra precision (e.g. "0.01")
 # OPTIONAL, DEFAULT: 0.0
 min_bid_eth = 0.0
 # List of URLs of relay monitors to send registrations to

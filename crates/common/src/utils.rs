@@ -49,11 +49,7 @@ pub fn utcnow_ns() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() as u64
 }
 
-// Formatting
 pub const WEI_PER_ETH: u64 = 1_000_000_000_000_000_000;
-pub fn wei_to_eth(wei: &U256) -> f64 {
-    wei.to_string().parse::<f64>().unwrap_or_default() / WEI_PER_ETH as f64
-}
 pub fn eth_to_wei(eth: f64) -> U256 {
     U256::from((eth * WEI_PER_ETH as f64).floor())
 }
@@ -96,16 +92,19 @@ pub mod as_str {
 }
 
 pub mod as_eth_str {
-    use alloy::primitives::U256;
+    use alloy::primitives::{
+        utils::{format_ether, parse_ether},
+        U256,
+    };
     use serde::Deserialize;
 
-    use super::{eth_to_wei, wei_to_eth};
+    use super::eth_to_wei;
 
     pub fn serialize<S>(data: &U256, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        let s = wei_to_eth(data).to_string();
+        let s = format_ether(*data);
         serializer.serialize_str(&s)
     }
 
@@ -113,8 +112,22 @@ pub mod as_eth_str {
     where
         D: serde::Deserializer<'de>,
     {
-        let s = f64::deserialize(deserializer)?;
-        Ok(eth_to_wei(s))
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum StringOrF64 {
+            Str(String),
+            F64(f64),
+        }
+
+        let value = StringOrF64::deserialize(deserializer)?;
+        let wei = match value {
+            StringOrF64::Str(s) => {
+                parse_ether(&s).map_err(|_| serde::de::Error::custom("invalid eth amount"))?
+            }
+            StringOrF64::F64(f) => eth_to_wei(f),
+        };
+
+        Ok(wei)
     }
 }
 
