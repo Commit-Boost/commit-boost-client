@@ -12,8 +12,11 @@ use super::{
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 pub struct GetHeaderParams {
+    /// The slot to request the header for
     pub slot: u64,
+    /// The parent hash of the block to request the header for
     pub parent_hash: B256,
+    /// The pubkey of the validator that is requesting the header
     pub pubkey: BlsPublicKey,
 }
 

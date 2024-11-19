@@ -16,8 +16,11 @@ impl MockValidator {
         Ok(Self { comm_boost: generate_mock_relay(port, BlsPublicKey::default())? })
     }
 
-    pub async fn do_get_header(&self) -> Result<(), Error> {
-        let url = self.comm_boost.get_header_url(0, B256::ZERO, BlsPublicKey::ZERO).unwrap();
+    pub async fn do_get_header(&self, pubkey: Option<BlsPublicKey>) -> Result<(), Error> {
+        let url = self
+            .comm_boost
+            .get_header_url(0, B256::ZERO, pubkey.unwrap_or(BlsPublicKey::ZERO))
+            .unwrap();
         let res = self.comm_boost.client.get(url).send().await?.bytes().await?;
         assert!(serde_json::from_slice::<GetHeaderResponse>(&res).is_ok());
 

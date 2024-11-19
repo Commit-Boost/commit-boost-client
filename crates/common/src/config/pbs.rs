@@ -6,17 +6,23 @@ use std::{
     sync::Arc,
 };
 
-use alloy::primitives::{utils::format_ether, U256};
+use alloy::{
+    primitives::{utils::format_ether, U256},
+    rpc::types::beacon::BlsPublicKey,
+};
 use eyre::{ensure, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use url::Url;
 
 use super::{
-    constants::PBS_IMAGE_DEFAULT, load_optional_env_var, CommitBoostConfig, PBS_ENDPOINT_ENV,
+    constants::PBS_IMAGE_DEFAULT, load_optional_env_var, CommitBoostConfig, RuntimeMuxConfig,
+    PBS_ENDPOINT_ENV,
 };
 use crate::{
     commit::client::SignerClient,
-    config::{load_env_var, load_file_from_env, CONFIG_ENV, MODULE_JWT_ENV, SIGNER_URL_ENV},
+    config::{
+        load_env_var, load_file_from_env, PbsMuxes, CONFIG_ENV, MODULE_JWT_ENV, SIGNER_URL_ENV,
+    },
     pbs::{
         BuilderEventPublisher, DefaultTimeout, RelayClient, RelayEntry, DEFAULT_PBS_PORT,
         LATE_IN_SLOT_TIME_MS,
@@ -43,6 +49,12 @@ pub struct RelayConfig {
     pub target_first_request_ms: Option<u64>,
     /// Frequency in ms to send get_header requests
     pub frequency_get_header_ms: Option<u64>,
+}
+
+impl RelayConfig {
+    pub fn id(&self) -> &str {
+        self.id.as_deref().unwrap_or(self.entry.id.as_str())
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -149,6 +161,8 @@ pub struct PbsModuleConfig {
     pub signer_client: Option<SignerClient>,
     /// Event publisher
     pub event_publisher: Option<BuilderEventPublisher>,
+    /// Muxes config
+    pub muxes: Option<HashMap<BlsPublicKey, RuntimeMuxConfig>>,
 }
 
 fn default_pbs() -> String {
@@ -158,6 +172,7 @@ fn default_pbs() -> String {
 /// Loads the default pbs config, i.e. with no signer client or custom data
 pub fn load_pbs_config() -> Result<PbsModuleConfig> {
     let config = CommitBoostConfig::from_env_path()?;
+    config.validate()?;
 
     // use endpoint from env if set, otherwise use default host and port
     let endpoint = if let Some(endpoint) = load_optional_env_var(PBS_ENDPOINT_ENV) {
@@ -166,6 +181,10 @@ pub fn load_pbs_config() -> Result<PbsModuleConfig> {
         SocketAddr::from((config.pbs.pbs_config.host, config.pbs.pbs_config.port))
     };
 
+    let muxes = match config.muxes {
+        Some(muxes) => Some(muxes.validate_and_fill(&config.pbs.pbs_config, &config.relays)?),
+        None => None,
+    };
     let relay_clients =
         config.relays.into_iter().map(RelayClient::new).collect::<Result<Vec<_>>>()?;
     let maybe_publiher = BuilderEventPublisher::new_from_env()?;
@@ -177,6 +196,7 @@ pub fn load_pbs_config() -> Result<PbsModuleConfig> {
         relays: relay_clients,
         signer_client: None,
         event_publisher: maybe_publiher,
+        muxes,
     })
 }
 
@@ -195,6 +215,7 @@ pub fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleConfig,
         chain: Chain,
         relays: Vec<RelayConfig>,
         pbs: CustomPbsConfig<U>,
+        muxes: Option<PbsMuxes>,
     }
 
     // load module config including the extra data (if any)
@@ -209,6 +230,13 @@ pub fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleConfig,
             cb_config.pbs.static_config.pbs_config.host,
             cb_config.pbs.static_config.pbs_config.port,
         ))
+    };
+
+    let muxes = match cb_config.muxes {
+        Some(muxes) => Some(
+            muxes.validate_and_fill(&cb_config.pbs.static_config.pbs_config, &cb_config.relays)?,
+        ),
+        None => None,
     };
 
     let relay_clients =
@@ -232,6 +260,7 @@ pub fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleConfig,
             relays: relay_clients,
             signer_client,
             event_publisher: maybe_publiher,
+            muxes,
         },
         cb_config.pbs.extra,
     ))
