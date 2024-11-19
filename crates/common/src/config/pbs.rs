@@ -3,7 +3,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use alloy::primitives::U256;
-use eyre::Result;
+use eyre::{ensure, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use url::Url;
 
@@ -70,6 +70,20 @@ pub struct PbsConfig {
 impl PbsConfig {
     /// Validate PBS config parameters
     pub fn validate(&self) -> Result<()> {
+        // timeouts must be positive
+        ensure!(self.timeout_get_header_ms > 0, "timeout_get_header_ms must be greater than 0");
+        ensure!(self.timeout_get_payload_ms > 0, "timeout_get_payload_ms must be greater than 0");
+        ensure!(
+            self.timeout_register_validator_ms > 0,
+            "timeout_register_validator_ms must be greater than 0"
+        );
+        ensure!(self.late_in_slot_time_ms > 0, "late_in_slot_time_ms must be greater than 0");
+
+        ensure!(
+            self.timeout_get_header_ms < self.late_in_slot_time_ms,
+            "timeout_get_header_ms must be less than late_in_slot_time_ms"
+        );
+
         Ok(())
     }
 }
