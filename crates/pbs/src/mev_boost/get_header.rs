@@ -165,8 +165,14 @@ async fn send_timed_get_header(
                     // ignore join error and timeouts, log other errors
                     res.ok().and_then(|inner_res| match inner_res {
                         Ok(maybe_header) => {
-                            n_headers += 1;
-                            Some(maybe_header)
+                            if maybe_header.1.is_some() {
+                                n_headers += 1;
+                                Some(maybe_header)
+                            } else {
+                                // filter out 204 responses that are returned if the request
+                                // is after the relay cutoff
+                                None
+                            }
                         }
                         Err(err) if err.is_timeout() => None,
                         Err(err) => {
