@@ -181,10 +181,11 @@ pub fn load_pbs_config() -> Result<PbsModuleConfig> {
         SocketAddr::from((config.pbs.pbs_config.host, config.pbs.pbs_config.port))
     };
 
-    let muxes = match config.muxes {
-        Some(muxes) => Some(muxes.validate_and_fill(&config.pbs.pbs_config, &config.relays)?),
-        None => None,
-    };
+    let muxes = config
+        .muxes
+        .map(|muxes| muxes.validate_and_fill(&config.pbs.pbs_config, &config.relays))
+        .transpose()?;
+
     let relay_clients =
         config.relays.into_iter().map(RelayClient::new).collect::<Result<Vec<_>>>()?;
     let maybe_publiher = BuilderEventPublisher::new_from_env()?;

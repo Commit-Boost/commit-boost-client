@@ -41,7 +41,7 @@ impl PbsMuxes {
 
         let mut configs = HashMap::new();
         // fill the configs using the default pbs config and relay entries
-        for mux in self.muxes.into_iter() {
+        for mux in self.muxes {
             ensure!(!mux.relays.is_empty(), "mux config must have at least one relay");
             ensure!(
                 !mux.validator_pubkeys.is_empty(),
