@@ -50,7 +50,7 @@ pub fn utcnow_ns() -> u64 {
 }
 
 // Formatting
-const WEI_PER_ETH: u64 = 1_000_000_000_000_000_000;
+pub const WEI_PER_ETH: u64 = 1_000_000_000_000_000_000;
 pub fn wei_to_eth(wei: &U256) -> f64 {
     wei.to_string().parse::<f64>().unwrap_or_default() / WEI_PER_ETH as f64
 }

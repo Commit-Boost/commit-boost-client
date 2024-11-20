@@ -2,8 +2,8 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use alloy::primitives::U256;
-use eyre::Result;
+use alloy::primitives::{utils::format_ether, U256};
+use eyre::{ensure, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use url::Url;
 
@@ -13,7 +13,7 @@ use crate::{
     config::{load_env_var, load_file_from_env, CONFIG_ENV, MODULE_JWT_ENV, SIGNER_URL_ENV},
     pbs::{BuilderEventPublisher, DefaultTimeout, RelayClient, RelayEntry, LATE_IN_SLOT_TIME_MS},
     types::Chain,
-    utils::{as_eth_str, default_bool, default_u256, default_u64},
+    utils::{as_eth_str, default_bool, default_u256, default_u64, WEI_PER_ETH},
 };
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -70,6 +70,25 @@ pub struct PbsConfig {
 impl PbsConfig {
     /// Validate PBS config parameters
     pub fn validate(&self) -> Result<()> {
+        // timeouts must be positive
+        ensure!(self.timeout_get_header_ms > 0, "timeout_get_header_ms must be greater than 0");
+        ensure!(self.timeout_get_payload_ms > 0, "timeout_get_payload_ms must be greater than 0");
+        ensure!(
+            self.timeout_register_validator_ms > 0,
+            "timeout_register_validator_ms must be greater than 0"
+        );
+        ensure!(self.late_in_slot_time_ms > 0, "late_in_slot_time_ms must be greater than 0");
+
+        ensure!(
+            self.timeout_get_header_ms < self.late_in_slot_time_ms,
+            "timeout_get_header_ms must be less than late_in_slot_time_ms"
+        );
+
+        ensure!(
+            self.min_bid_wei < U256::from(WEI_PER_ETH),
+            format!("min bid is too high: {} ETH", format_ether(self.min_bid_wei))
+        );
+
         Ok(())
     }
 }
