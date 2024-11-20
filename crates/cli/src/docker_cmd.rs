@@ -19,19 +19,23 @@ macro_rules! run_docker_compose {
                         if !output.status.success() {
                             let stderr = str::from_utf8(&output.stderr).unwrap_or("");
                             if stderr.contains("permission denied") {
-                                println!("Warning: Permission denied. Try running with sudo.");
+                                eprintln!("Warning: Permission denied. Try running with sudo.");
+                                std::process::exit(1);
                             } else {
-                                println!("Command failed with error: {}", stderr);
+                                eprintln!("Command failed with error: {}", stderr);
+                                std::process::exit(1);
                             }
                         }
                     }
                     Err(e) => {
-                        println!("Failed to execute command: {}", e);
+                        eprintln!("Failed to execute command: {}", e);
+                        std::process::exit(1);
                     }
                 }
             }
             None => {
-                println!("Neither `docker compose` nor `docker-compose` were found on your operating system.");
+                eprintln!("Neither `docker compose` nor `docker-compose` were found on your operating system.");
+                std::process::exit(1);
             }
         }
     }};
