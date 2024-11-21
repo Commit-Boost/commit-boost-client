@@ -10,7 +10,7 @@ pub enum PbsClientError {
 impl PbsClientError {
     pub fn status_code(&self) -> StatusCode {
         match self {
-            PbsClientError::NoResponse => StatusCode::SERVICE_UNAVAILABLE,
+            PbsClientError::NoResponse => StatusCode::BAD_GATEWAY,
             PbsClientError::NoPayload => StatusCode::BAD_GATEWAY,
         }
     }
