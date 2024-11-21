@@ -1,19 +1,30 @@
 //! Configuration for the PBS module
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    net::{Ipv4Addr, SocketAddr},
+    sync::Arc,
+};
 
 use alloy::primitives::{utils::format_ether, U256};
 use eyre::{ensure, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use url::Url;
 
-use super::{constants::PBS_IMAGE_DEFAULT, CommitBoostConfig};
+use super::{
+    constants::PBS_IMAGE_DEFAULT, load_optional_env_var, CommitBoostConfig, PBS_ENDPOINT_ENV,
+};
 use crate::{
     commit::client::SignerClient,
     config::{load_env_var, load_file_from_env, CONFIG_ENV, MODULE_JWT_ENV, SIGNER_URL_ENV},
-    pbs::{BuilderEventPublisher, DefaultTimeout, RelayClient, RelayEntry, LATE_IN_SLOT_TIME_MS},
+    pbs::{
+        BuilderEventPublisher, DefaultTimeout, RelayClient, RelayEntry, DEFAULT_PBS_PORT,
+        LATE_IN_SLOT_TIME_MS,
+    },
     types::Chain,
-    utils::{as_eth_str, default_bool, default_u256, default_u64, WEI_PER_ETH},
+    utils::{
+        as_eth_str, default_bool, default_host, default_u16, default_u256, default_u64, WEI_PER_ETH,
+    },
 };
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -36,7 +47,11 @@ pub struct RelayConfig {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PbsConfig {
+    /// Host to receive BuilderAPI calls from beacon node
+    #[serde(default = "default_host")]
+    pub host: Ipv4Addr,
     /// Port to receive BuilderAPI calls from beacon node
+    #[serde(default = "default_u16::<DEFAULT_PBS_PORT>")]
     pub port: u16,
     /// Whether to forward `get_status` to relays or skip it
     #[serde(default = "default_bool::<true>")]
@@ -112,6 +127,8 @@ pub struct StaticPbsConfig {
 pub struct PbsModuleConfig {
     /// Chain spec
     pub chain: Chain,
+    /// Endpoint to receive BuilderAPI calls from beacon node
+    pub endpoint: SocketAddr,
     /// Pbs default config
     pub pbs_config: Arc<PbsConfig>,
     /// List of relays
@@ -130,12 +147,20 @@ fn default_pbs() -> String {
 pub fn load_pbs_config() -> Result<PbsModuleConfig> {
     let config = CommitBoostConfig::from_env_path()?;
 
+    // use endpoint from env if set, otherwise use default host and port
+    let endpoint = if let Some(endpoint) = load_optional_env_var(PBS_ENDPOINT_ENV) {
+        endpoint.parse()?
+    } else {
+        SocketAddr::from((config.pbs.pbs_config.host, config.pbs.pbs_config.port))
+    };
+
     let relay_clients =
         config.relays.into_iter().map(RelayClient::new).collect::<Result<Vec<_>>>()?;
     let maybe_publiher = BuilderEventPublisher::new_from_env()?;
 
     Ok(PbsModuleConfig {
         chain: config.chain,
+        endpoint,
         pbs_config: Arc::new(config.pbs.pbs_config),
         relays: relay_clients,
         signer_client: None,
@@ -164,6 +189,16 @@ pub fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleConfig,
     let cb_config: StubConfig<T> = load_file_from_env(CONFIG_ENV)?;
     cb_config.pbs.static_config.pbs_config.validate()?;
 
+    // use endpoint from env if set, otherwise use default host and port
+    let endpoint = if let Some(endpoint) = load_optional_env_var(PBS_ENDPOINT_ENV) {
+        endpoint.parse()?
+    } else {
+        SocketAddr::from((
+            cb_config.pbs.static_config.pbs_config.host,
+            cb_config.pbs.static_config.pbs_config.port,
+        ))
+    };
+
     let relay_clients =
         cb_config.relays.into_iter().map(RelayClient::new).collect::<Result<Vec<_>>>()?;
     let maybe_publiher = BuilderEventPublisher::new_from_env()?;
@@ -180,6 +215,7 @@ pub fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleConfig,
     Ok((
         PbsModuleConfig {
             chain: cb_config.chain,
+            endpoint,
             pbs_config: Arc::new(cb_config.pbs.static_config.pbs_config),
             relays: relay_clients,
             signer_client,

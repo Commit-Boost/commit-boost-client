@@ -48,7 +48,7 @@ impl CommitBoostConfig {
     // When loading the config from the environment, it's important that every path
     // is replaced with the correct value if the config is loaded inside a container
     pub fn from_env_path() -> Result<Self> {
-        let config = if let Ok(path) = std::env::var(CHAIN_SPEC_ENV) {
+        let config = if let Some(path) = load_optional_env_var(CHAIN_SPEC_ENV) {
             // if the chain spec file is set, load it separately
             let chain: Chain = load_chain_from_file(path.parse()?)?;
             let rest_config: HelperConfig = load_file_from_env(CONFIG_ENV)?;

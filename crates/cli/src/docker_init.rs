@@ -1,13 +1,17 @@
-use std::{path::Path, vec};
+use std::{
+    net::{Ipv4Addr, SocketAddr},
+    path::Path,
+    vec,
+};
 
 use cb_common::{
     config::{
         CommitBoostConfig, LogsSettings, ModuleKind, BUILDER_PORT_ENV, BUILDER_URLS_ENV,
         CHAIN_SPEC_ENV, CONFIG_DEFAULT, CONFIG_ENV, JWTS_ENV, LOGS_DIR_DEFAULT, LOGS_DIR_ENV,
-        METRICS_PORT_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, PBS_MODULE_NAME, PROXY_DIR_DEFAULT,
-        PROXY_DIR_ENV, SIGNER_DEFAULT, SIGNER_DIR_KEYS_DEFAULT, SIGNER_DIR_KEYS_ENV,
-        SIGNER_DIR_SECRETS_DEFAULT, SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV, SIGNER_MODULE_NAME,
-        SIGNER_PORT_ENV, SIGNER_URL_ENV,
+        METRICS_PORT_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, PBS_ENDPOINT_ENV, PBS_MODULE_NAME,
+        PROXY_DIR_DEFAULT, PROXY_DIR_ENV, SIGNER_DEFAULT, SIGNER_DIR_KEYS_DEFAULT,
+        SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS_DEFAULT, SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV,
+        SIGNER_MODULE_NAME, SIGNER_PORT_ENV, SIGNER_URL_ENV,
     },
     signer::{ProxyStore, SignerLoader},
     types::ModuleId,
@@ -233,6 +237,19 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
         pbs_envs.insert(k, v);
     }
 
+    // ports
+    let host_endpoint =
+        SocketAddr::from((cb_config.pbs.pbs_config.host, cb_config.pbs.pbs_config.port));
+    let ports = Ports::Short(vec![format!("{}:{}", host_endpoint, cb_config.pbs.pbs_config.port)]);
+    exposed_ports_warn
+        .push(format!("pbs has an exported port on {}", cb_config.pbs.pbs_config.port));
+
+    // inside the container expose on 0.0.0.0
+    let container_endpoint =
+        SocketAddr::from((Ipv4Addr::UNSPECIFIED, cb_config.pbs.pbs_config.port));
+    let (key, val) = get_env_val(PBS_ENDPOINT_ENV, &container_endpoint.to_string());
+    pbs_envs.insert(key, val);
+
     // volumes
     let mut pbs_volumes = vec![config_volume.clone()];
     pbs_volumes.extend(chain_spec_volume.clone());
@@ -245,16 +262,10 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
         Networks::default()
     };
 
-    exposed_ports_warn
-        .push(format!("pbs has an exported port on {}", cb_config.pbs.pbs_config.port));
-
     let pbs_service = Service {
         container_name: Some("cb_pbs".to_owned()),
         image: Some(cb_config.pbs.docker_image),
-        ports: Ports::Short(vec![format!(
-            "{}:{}",
-            cb_config.pbs.pbs_config.port, cb_config.pbs.pbs_config.port
-        )]),
+        ports,
         networks: pbs_networs,
         volumes: pbs_volumes,
         environment: Environment::KvPair(pbs_envs),
@@ -540,17 +551,17 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     Ok(())
 }
 
-// FOO=${FOO}
+/// FOO=${FOO}
 fn get_env_same(k: &str) -> (String, Option<SingleValue>) {
     get_env_interp(k, k)
 }
 
-// FOO=${BAR}
+/// FOO=${BAR}
 fn get_env_interp(k: &str, v: &str) -> (String, Option<SingleValue>) {
     get_env_val(k, &format!("${{{v}}}"))
 }
 
-// FOO=bar
+/// FOO=bar
 fn get_env_val(k: &str, v: &str) -> (String, Option<SingleValue>) {
     (k.into(), Some(SingleValue::String(v.into())))
 }
