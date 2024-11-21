@@ -35,7 +35,7 @@ pub struct SigningService;
 
 #[derive(Clone)]
 struct SigningState {
-    /// Mananger handling different signing methods
+    /// Manager handling different signing methods
     manager: Arc<RwLock<SigningManager>>,
     /// Map of JWTs to module ids. This also acts as registry of all modules
     /// running
