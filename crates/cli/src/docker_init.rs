@@ -419,7 +419,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
             image: Some("prom/prometheus:latest".to_owned()),
             volumes: vec![prom_volume, targets_volume, data_volume],
             // to inspect prometheus from localhost
-            ports: Ports::Short(vec!["9090:9090".to_owned()]),
+            ports: Ports::Short(vec![format!("{}:9090", metrics_config.host)]),
             networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
             ..Service::default()
         };
@@ -446,7 +446,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
             let grafana_service = Service {
                 container_name: Some("cb_grafana".to_owned()),
                 image: Some("grafana/grafana:latest".to_owned()),
-                ports: Ports::Short(vec!["3000:3000".to_owned()]),
+                ports: Ports::Short(vec![format!("{}:3000", metrics_config.host)]),
                 networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
                 depends_on: DependsOnOptions::Simple(vec!["cb_prometheus".to_owned()]),
                 environment: Environment::List(vec!["GF_SECURITY_ADMIN_PASSWORD=admin".to_owned()]),
@@ -486,7 +486,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                 Some(Service {
                     container_name: Some("cb_cadvisor".to_owned()),
                     image: Some("gcr.io/cadvisor/cadvisor".to_owned()),
-                    ports: Ports::Short(vec![format!("{cadvisor_port}:8080")]),
+                    ports: Ports::Short(vec![format!("{}:8080", metrics_config.host)]),
                     networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
                     volumes: vec![
                         Volumes::Simple("/var/run/docker.sock:/var/run/docker.sock:ro".to_owned()),

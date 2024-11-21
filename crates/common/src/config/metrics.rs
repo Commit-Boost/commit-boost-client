@@ -1,11 +1,16 @@
+use std::net::Ipv4Addr;
+
 use eyre::Result;
 use serde::{Deserialize, Serialize};
 
 use super::{constants::METRICS_PORT_ENV, load_optional_env_var};
-use crate::utils::default_bool;
+use crate::utils::{default_bool, default_host};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MetricsConfig {
+    /// Host for prometheus, grafana, and cadvisor
+    #[serde(default = "default_host")]
+    pub host: Ipv4Addr,
     /// Path to prometheus config file
     pub prometheus_config: String,
     /// Whether to start the grafana service
