@@ -78,12 +78,17 @@ where
     pub fn pbs_config(&self) -> &PbsConfig {
         &self.config.pbs_config
     }
+
     pub fn relays(&self) -> &[RelayClient] {
         &self.config.relays
     }
 
     pub fn has_monitors(&self) -> bool {
         !self.config.pbs_config.relay_monitors.is_empty()
+    }
+
+    pub fn extra_validation_enabled(&self) -> bool {
+        self.config.pbs_config.extra_validation_enabled
     }
 
     /// Add some bids to the cache, the bids are all assumed to be for the

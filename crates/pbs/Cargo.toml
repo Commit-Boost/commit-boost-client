@@ -21,6 +21,7 @@ tokio.workspace = true
 futures.workspace = true
 async-trait.workspace = true
 dashmap.workspace = true
+parking_lot.workspace = true
 
 # serialization
 serde_json.workspace = true
