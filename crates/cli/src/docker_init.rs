@@ -439,6 +439,9 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
         // grafana
         if metrics_config.use_grafana {
             exposed_ports_warn.push("grafana has an exported port on 3000".to_string());
+            exposed_ports_warn.push(
+                "Grafana has the default admin password of 'admin'. Login to change it".to_string(),
+            );
 
             let grafana_data_volume =
                 Volumes::Simple(format!("{}:/var/lib/grafana", GRAFANA_DATA_VOLUME));
