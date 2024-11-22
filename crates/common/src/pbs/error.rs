@@ -69,4 +69,13 @@ pub enum ValidationError {
 
     #[error("failed signature verification: {0:?}")]
     Sigverify(#[from] BlstErrorWrapper),
+
+    #[error("wrong timestamp: expected {expected} got {got}")]
+    TimestampMismatch { expected: u64, got: u64 },
+
+    #[error("wrong block number: parent: {parent} header: {header}")]
+    BlockNumberMismatch { parent: u64, header: u64 },
+
+    #[error("invalid gas limit: parent: {parent} header: {header}")]
+    GasLimit { parent: u64, header: u64 },
 }

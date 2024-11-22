@@ -80,6 +80,11 @@ pub struct PbsConfig {
     /// How late in the slot we consider to be "late"
     #[serde(default = "default_u64::<LATE_IN_SLOT_TIME_MS>")]
     pub late_in_slot_time_ms: u64,
+    /// Enable extra validation of get_header responses
+    #[serde(default = "default_bool::<false>")]
+    pub extra_validation_enabled: bool,
+    /// Execution Layer RPC url to use for extra validation
+    pub rpc_url: Option<Url>,
 }
 
 impl PbsConfig {
@@ -103,6 +108,13 @@ impl PbsConfig {
             self.min_bid_wei < U256::from(WEI_PER_ETH),
             format!("min bid is too high: {} ETH", format_ether(self.min_bid_wei))
         );
+
+        if self.extra_validation_enabled {
+            ensure!(
+                self.rpc_url.is_some(),
+                "rpc_url is required if extra_validation_enabled is true"
+            );
+        }
 
         Ok(())
     }

@@ -1,12 +1,15 @@
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use alloy::{
     primitives::{utils::format_ether, B256, U256},
-    rpc::types::beacon::BlsPublicKey,
+    providers::Provider,
+    rpc::types::{beacon::BlsPublicKey, Block, BlockTransactionsKind},
 };
 use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
-    config::PbsConfig,
     constants::APPLICATION_BUILDER_DOMAIN,
     pbs::{
         error::{PbsError, ValidationError},
@@ -15,9 +18,10 @@ use cb_common::{
     },
     signature::verify_signed_message,
     types::Chain,
-    utils::{get_user_agent_with_version, ms_into_slot, utcnow_ms},
+    utils::{get_user_agent_with_version, ms_into_slot, timestamp_of_slot_start_sec, utcnow_ms},
 };
 use futures::future::join_all;
+use parking_lot::RwLock;
 use reqwest::{header::USER_AGENT, StatusCode};
 use tokio::time::sleep;
 use tracing::{debug, error, warn, Instrument};
@@ -29,7 +33,7 @@ use crate::{
     },
     metrics::{RELAY_HEADER_VALUE, RELAY_LAST_SLOT, RELAY_LATENCY, RELAY_STATUS_CODE},
     state::{BuilderApiState, PbsState},
-    utils::read_chunked_body_with_max,
+    utils::{check_gas_limit, read_chunked_body_with_max},
 };
 
 /// Implements https://ethereum.github.io/builder-specs/#/Builder/getHeader
@@ -39,6 +43,13 @@ pub async fn get_header<S: BuilderApiState>(
     req_headers: HeaderMap,
     state: PbsState<S>,
 ) -> eyre::Result<Option<GetHeaderResponse>> {
+    let parent_block = Arc::new(RwLock::new(None));
+    if state.extra_validation_enabled() {
+        if let Some(rpc_url) = state.pbs_config().rpc_url.clone() {
+            tokio::spawn(fetch_parent_block(rpc_url, params.parent_hash, parent_block.clone()));
+        }
+    }
+
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
     let max_timeout_ms = state
         .pbs_config()
@@ -69,10 +80,15 @@ pub async fn get_header<S: BuilderApiState>(
             params,
             relay.clone(),
             state.config.chain,
-            state.pbs_config(),
             send_headers.clone(),
             ms_into_slot,
             max_timeout_ms,
+            ValidationContext {
+                skip_sigverify: state.pbs_config().skip_sigverify,
+                min_bid_wei: state.pbs_config().min_bid_wei,
+                extra_validation_enabled: state.extra_validation_enabled(),
+                parent_block: parent_block.clone(),
+            },
         ));
     }
 
@@ -99,15 +115,41 @@ pub async fn get_header<S: BuilderApiState>(
     Ok(state.add_bids(params.slot, relay_bids))
 }
 
+/// Fetch the parent block from the RPC URL for extra validation of the header.
+/// Extra validation will be skipped if:
+/// - relay returns header before parent block is fetched
+/// - parent block is not found, eg because of a RPC delay
+#[tracing::instrument(skip_all, name = "parent_block_fetch")]
+async fn fetch_parent_block(
+    rpc_url: Url,
+    parent_hash: B256,
+    parent_block: Arc<RwLock<Option<Block>>>,
+) {
+    let provider = alloy::providers::ProviderBuilder::new().on_http(rpc_url).to_owned();
+
+    debug!(%parent_hash, "fetching parent block");
+
+    match provider.get_block_by_hash(parent_hash, BlockTransactionsKind::Hashes).await {
+        Ok(maybe_block) => {
+            debug!(block_found = maybe_block.is_some(), "fetched parent block");
+            let mut guard = parent_block.write();
+            *guard = maybe_block;
+        }
+        Err(err) => {
+            error!(%err, "fetch failed");
+        }
+    }
+}
+
 #[tracing::instrument(skip_all, name = "handler", fields(relay_id = relay.id.as_ref()))]
 async fn send_timed_get_header(
     params: GetHeaderParams,
     relay: RelayClient,
     chain: Chain,
-    pbs_config: &PbsConfig,
     headers: HeaderMap,
     ms_into_slot: u64,
     mut timeout_left_ms: u64,
+    validation: ValidationContext,
 ) -> Result<Option<GetHeaderResponse>, PbsError> {
     let url = relay.get_header_url(params.slot, params.parent_hash, params.pubkey)?;
 
@@ -136,13 +178,12 @@ async fn send_timed_get_header(
                         params,
                         relay.clone(),
                         chain,
-                        pbs_config.skip_sigverify,
-                        pbs_config.min_bid_wei,
-                        RequestConfig {
+                        RequestContext {
                             timeout_ms: timeout_left_ms,
                             url: url.clone(),
                             headers: headers.clone(),
                         },
+                        validation.clone(),
                     )
                     .in_current_span(),
                 ));
@@ -202,27 +243,33 @@ async fn send_timed_get_header(
         params,
         relay,
         chain,
-        pbs_config.skip_sigverify,
-        pbs_config.min_bid_wei,
-        RequestConfig { timeout_ms: timeout_left_ms, url, headers },
+        RequestContext { timeout_ms: timeout_left_ms, url, headers },
+        validation,
     )
     .await
     .map(|(_, maybe_header)| maybe_header)
 }
 
-struct RequestConfig {
+struct RequestContext {
     url: Url,
     timeout_ms: u64,
     headers: HeaderMap,
+}
+
+#[derive(Clone)]
+struct ValidationContext {
+    skip_sigverify: bool,
+    min_bid_wei: U256,
+    extra_validation_enabled: bool,
+    parent_block: Arc<RwLock<Option<Block>>>,
 }
 
 async fn send_one_get_header(
     params: GetHeaderParams,
     relay: RelayClient,
     chain: Chain,
-    skip_sigverify: bool,
-    min_bid_wei: U256,
-    mut req_config: RequestConfig,
+    mut req_config: RequestContext,
+    validation: ValidationContext,
 ) -> Result<(u64, Option<GetHeaderResponse>), PbsError> {
     // the timestamp in the header is the consensus block time which is fixed,
     // use the beginning of the request as proxy to make sure we use only the
@@ -295,9 +342,19 @@ async fn send_one_get_header(
         chain,
         relay.pubkey(),
         params.parent_hash,
-        skip_sigverify,
-        min_bid_wei,
+        validation.skip_sigverify,
+        validation.min_bid_wei,
+        params.slot,
     )?;
+
+    if validation.extra_validation_enabled {
+        let parent_block = validation.parent_block.read();
+        if let Some(parent_block) = parent_block.as_ref() {
+            extra_validation(parent_block, &get_header_response.data)?;
+        } else {
+            warn!("parent block not found, skipping extra validation");
+        }
+    }
 
     Ok((start_request_time, Some(get_header_response)))
 }
@@ -309,6 +366,7 @@ fn validate_header(
     parent_hash: B256,
     skip_sig_verify: bool,
     minimum_bid_wei: U256,
+    slot: u64,
 ) -> Result<(), ValidationError> {
     let block_hash = signed_header.message.header.block_hash;
     let received_relay_pubkey = signed_header.message.pubkey;
@@ -341,6 +399,14 @@ fn validate_header(
         });
     }
 
+    let expected_timestamp = timestamp_of_slot_start_sec(slot, chain);
+    if expected_timestamp != signed_header.message.header.timestamp {
+        return Err(ValidationError::TimestampMismatch {
+            expected: expected_timestamp,
+            got: signed_header.message.header.timestamp,
+        })
+    }
+
     if !skip_sig_verify {
         verify_signed_message(
             chain,
@@ -351,6 +417,27 @@ fn validate_header(
         )
         .map_err(ValidationError::Sigverify)?;
     }
+
+    Ok(())
+}
+
+fn extra_validation(
+    parent_block: &Block,
+    signed_header: &SignedExecutionPayloadHeader,
+) -> Result<(), ValidationError> {
+    if signed_header.message.header.block_number != parent_block.header.number + 1 {
+        return Err(ValidationError::BlockNumberMismatch {
+            parent: parent_block.header.number,
+            header: signed_header.message.header.block_number,
+        });
+    }
+
+    if !check_gas_limit(signed_header.message.header.gas_limit, parent_block.header.gas_limit) {
+        return Err(ValidationError::GasLimit {
+            parent: parent_block.header.number,
+            header: signed_header.message.header.block_number,
+        });
+    };
 
     Ok(())
 }
@@ -366,6 +453,7 @@ mod tests {
         pbs::{error::ValidationError, SignedExecutionPayloadHeader, EMPTY_TX_ROOT_HASH},
         signature::sign_builder_message,
         types::Chain,
+        utils::timestamp_of_slot_start_sec,
     };
 
     use super::validate_header;
@@ -374,6 +462,7 @@ mod tests {
     fn test_validate_header() {
         let mut mock_header = SignedExecutionPayloadHeader::default();
 
+        let slot = 5;
         let parent_hash = B256::from_slice(&[1; 32]);
         let chain = Chain::Holesky;
         let min_bid = U256::from(10);
@@ -394,7 +483,8 @@ mod tests {
                 BlsPublicKey::default(),
                 parent_hash,
                 false,
-                min_bid
+                min_bid,
+                slot,
             ),
             Err(ValidationError::EmptyBlockhash)
         );
@@ -408,7 +498,8 @@ mod tests {
                 BlsPublicKey::default(),
                 parent_hash,
                 false,
-                min_bid
+                min_bid,
+                slot,
             ),
             Err(ValidationError::ParentHashMismatch {
                 expected: parent_hash,
@@ -425,7 +516,8 @@ mod tests {
                 BlsPublicKey::default(),
                 parent_hash,
                 false,
-                min_bid
+                min_bid,
+                slot,
             ),
             Err(ValidationError::EmptyTxRoot)
         );
@@ -439,7 +531,8 @@ mod tests {
                 BlsPublicKey::default(),
                 parent_hash,
                 false,
-                min_bid
+                min_bid,
+                slot,
             ),
             Err(ValidationError::BidTooLow { min: min_bid, got: U256::ZERO })
         );
@@ -455,19 +548,32 @@ mod tests {
                 BlsPublicKey::default(),
                 parent_hash,
                 false,
-                min_bid
+                min_bid,
+                slot,
             ),
             Err(ValidationError::PubkeyMismatch { expected: BlsPublicKey::default(), got: pubkey })
         );
 
+        let expected = timestamp_of_slot_start_sec(slot, chain);
+        assert_eq!(
+            validate_header(&mock_header, chain, pubkey, parent_hash, false, min_bid, slot,),
+            Err(ValidationError::TimestampMismatch { expected, got: 0 })
+        );
+
+        mock_header.message.header.timestamp = expected;
+
         assert!(matches!(
-            validate_header(&mock_header, chain, pubkey, parent_hash, false, min_bid),
+            validate_header(&mock_header, chain, pubkey, parent_hash, false, min_bid, slot),
             Err(ValidationError::Sigverify(_))
         ));
-        assert!(validate_header(&mock_header, chain, pubkey, parent_hash, true, min_bid).is_ok());
+        assert!(
+            validate_header(&mock_header, chain, pubkey, parent_hash, true, min_bid, slot).is_ok()
+        );
 
         mock_header.signature = sign_builder_message(chain, &secret_key, &mock_header.message);
 
-        assert!(validate_header(&mock_header, chain, pubkey, parent_hash, false, min_bid).is_ok())
+        assert!(
+            validate_header(&mock_header, chain, pubkey, parent_hash, false, min_bid, slot).is_ok()
+        )
     }
 }
