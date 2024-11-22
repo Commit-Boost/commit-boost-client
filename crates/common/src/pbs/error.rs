@@ -34,6 +34,11 @@ impl PbsError {
     pub fn is_timeout(&self) -> bool {
         matches!(self, PbsError::Reqwest(err) if err.is_timeout())
     }
+
+    /// Whether the error is retryable in requests to relays
+    pub fn should_retry(&self) -> bool {
+        matches!(self, PbsError::RelayResponse { .. } | PbsError::Reqwest { .. })
+    }
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
