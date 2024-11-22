@@ -26,6 +26,11 @@ RUN apt-get update && apt-get install -y \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/target/release/commit-boost-signer /usr/local/bin
+
+RUN groupadd -g 10001 commitboost && \
+  useradd -u 10001 -g commitboost -s /sbin/nologin commitboost
+USER commitboost
+
 ENTRYPOINT ["/usr/local/bin/commit-boost-signer"]
 
 
