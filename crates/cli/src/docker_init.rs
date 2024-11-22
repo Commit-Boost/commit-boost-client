@@ -416,7 +416,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
         let prometheus_service = Service {
             container_name: Some("cb_prometheus".to_owned()),
-            image: Some("prom/prometheus:latest".to_owned()),
+            image: Some("prom/prometheus:v3.0.0".to_owned()),
             volumes: vec![prom_volume, targets_volume, data_volume],
             // to inspect prometheus from localhost
             ports: Ports::Short(vec![format!("{}:9090", metrics_config.host)]),
@@ -448,7 +448,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
             let grafana_service = Service {
                 container_name: Some("cb_grafana".to_owned()),
-                image: Some("grafana/grafana:latest".to_owned()),
+                image: Some("grafana/grafana:11.3.1".to_owned()),
                 ports: Ports::Short(vec![format!("{}:3000", metrics_config.host)]),
                 networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
                 depends_on: DependsOnOptions::Simple(vec!["cb_prometheus".to_owned()]),
