@@ -45,8 +45,8 @@ pub async fn get_header<S: BuilderApiState>(
 ) -> eyre::Result<Option<GetHeaderResponse>> {
     let parent_block = Arc::new(RwLock::new(None));
     if state.extra_validation_enabled() {
-        if let Some(el_rpc_url) = state.pbs_config().el_rpc_url.clone() {
-            tokio::spawn(fetch_parent_block(el_rpc_url, params.parent_hash, parent_block.clone()));
+        if let Some(rpc_url) = state.pbs_config().rpc_url.clone() {
+            tokio::spawn(fetch_parent_block(rpc_url, params.parent_hash, parent_block.clone()));
         }
     }
 

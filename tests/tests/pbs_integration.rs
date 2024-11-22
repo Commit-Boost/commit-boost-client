@@ -36,7 +36,7 @@ fn get_pbs_static_config(port: u16) -> PbsConfig {
         late_in_slot_time_ms: u64::MAX,
         relay_monitors: vec![],
         extra_validation_enabled: false,
-        el_rpc_url: None,
+        rpc_url: None,
     }
 }
 

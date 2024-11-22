@@ -83,8 +83,8 @@ pub struct PbsConfig {
     /// Enable extra validation of get_header responses
     #[serde(default = "default_bool::<false>")]
     pub extra_validation_enabled: bool,
-    /// EL RPC url to use for extra validation
-    pub el_rpc_url: Option<Url>,
+    /// Execution Layer RPC url to use for extra validation
+    pub rpc_url: Option<Url>,
 }
 
 impl PbsConfig {
@@ -111,8 +111,8 @@ impl PbsConfig {
 
         if self.extra_validation_enabled {
             ensure!(
-                self.el_rpc_url.is_some(),
-                "el_rpc_url is required if extra_validation_enabled is true"
+                self.rpc_url.is_some(),
+                "rpc_url is required if extra_validation_enabled is true"
             );
         }
 

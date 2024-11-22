@@ -52,12 +52,12 @@ relay_monitors = []
 # to force local building and miniminzing the risk of missed slots. See also the timing games section below
 # OPTIONAL, DEFAULT: 2000
 late_in_slot_time_ms = 2000
-# Whether to enable extra validation of get_header responses, if this is enabled you need to set `el_rpc_url`
+# Whether to enable extra validation of get_header responses, if this is enabled you need to set `rpc_url`
 # OPTIONAL, DEFAULT: false
 extra_validation_enabled = false
-# EL RPC url to use for extra validation
+# Execution Layer RPC url to use for extra validation
 # OPTIONAL
-el_rpc_url = "http://abc.xyz"
+rpc_url = "http://abc.xyz"
 
 # The PBS module needs one or more [[relays]] as defined below.
 [[relays]]
