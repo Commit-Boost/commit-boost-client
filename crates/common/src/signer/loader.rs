@@ -1,9 +1,10 @@
-use std::{fs, path::PathBuf};
+use std::{ffi::OsStr, fs, path::PathBuf};
 
 use alloy::{primitives::hex::FromHex, rpc::types::beacon::BlsPublicKey};
 use eth2_keystore::Keystore;
-use eyre::{eyre, Context};
+use eyre::{eyre, Context, OptionExt};
 use serde::{de, Deserialize, Deserializer, Serialize};
+use tracing::{error, warn};
 
 use crate::{
     config::{load_env_var, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV},
@@ -20,7 +21,14 @@ pub enum SignerLoader {
     ValidatorsDir {
         keys_path: PathBuf,
         secrets_path: PathBuf,
+        format: ValidatorKeysFormat,
     },
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum ValidatorKeysFormat {
+    Lighthouse,
+    Teku,
 }
 
 impl SignerLoader {
@@ -42,12 +50,24 @@ impl SignerLoader {
                     .collect::<Result<_, _>>()
                     .context("failed to load signers")?
             }
-            SignerLoader::ValidatorsDir { .. } => {
+            SignerLoader::ValidatorsDir { keys_path, secrets_path, format } => {
                 // TODO: hacky way to load for now, we should support reading the
                 // definitions.yml file
-                let keys_path = load_env_var(SIGNER_DIR_KEYS_ENV)?;
-                let secrets_path = load_env_var(SIGNER_DIR_SECRETS_ENV)?;
-                load_secrets_and_keys(keys_path, secrets_path).context("failed to load signers")?
+                let keys_path = load_env_var(SIGNER_DIR_KEYS_ENV).unwrap_or(
+                    keys_path.to_str().ok_or_eyre("Missing signer keys path")?.to_string(),
+                );
+                let secrets_path = load_env_var(SIGNER_DIR_SECRETS_ENV).unwrap_or(
+                    secrets_path.to_str().ok_or_eyre("Missing signer secrets path")?.to_string(),
+                );
+
+                match format {
+                    ValidatorKeysFormat::Lighthouse => {
+                        load_from_lighthouse_format(keys_path, secrets_path)
+                            .context("failed to load signers")?
+                    }
+                    ValidatorKeysFormat::Teku => load_from_teku_format(keys_path, secrets_path)
+                        .context("failed to load signers")?,
+                }
             }
         })
     }
@@ -71,7 +91,7 @@ impl<'de> Deserialize<'de> for FileKey {
     }
 }
 
-fn load_secrets_and_keys(
+fn load_from_lighthouse_format(
     keys_path: String,
     secrets_path: String,
 ) -> eyre::Result<Vec<ConsensusSigner>> {
@@ -101,9 +121,47 @@ fn load_secrets_and_keys(
     Ok(signers)
 }
 
+fn load_from_teku_format(
+    keys_path: String,
+    secrets_path: String,
+) -> eyre::Result<Vec<ConsensusSigner>> {
+    let entries = fs::read_dir(keys_path.clone())?;
+    let mut signers = Vec::new();
+
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+
+        if path.is_dir() {
+            warn!("Path {path:?} is a dir");
+            continue;
+        }
+
+        let file_name = path
+            .file_name()
+            .map(OsStr::to_str)
+            .flatten()
+            .ok_or_eyre("File name not valid")?
+            .rsplit_once(".")
+            .ok_or_eyre("File doesn't have extension")?
+            .0;
+
+        match load_one(
+            format!("{keys_path}/{file_name}.json"),
+            format!("{secrets_path}/{file_name}.txt"),
+        ) {
+            Ok(signer) => signers.push(signer),
+            Err(e) => warn!("Sign load error: {e}"),
+        }
+    }
+
+    Ok(signers)
+}
+
 fn load_one(ks_path: String, pw_path: String) -> eyre::Result<ConsensusSigner> {
     let keystore = Keystore::from_json_file(ks_path).map_err(|_| eyre!("failed reading json"))?;
-    let password = fs::read(pw_path)?;
+    let password =
+        fs::read(pw_path.clone()).map_err(|e| eyre!("Failed to read password ({pw_path}): {e}"))?;
     let key =
         keystore.decrypt_keypair(&password).map_err(|_| eyre!("failed decrypting keypair"))?;
     ConsensusSigner::new_from_bytes(key.sk.serialize().as_bytes())
