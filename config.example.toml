@@ -15,7 +15,11 @@ docker_image = "ghcr.io/commit-boost/pbs:latest"
 # Whether to enable the PBS module to request signatures from the Signer module (not used in the default PBS image)
 # OPTIONAL, DEFAULT: false
 with_signer = false
+# Host to receive BuilderAPI calls from beacon node
+# OPTIONAL, DEFAULT: 127.0.0.1
+host = "127.0.0.1"
 # Port to receive BuilderAPI calls from beacon node
+# OPTIONAL, DEFAULT: 18550
 port = 18550
 # Whether to forward `status` calls to relays or skip and return 200
 # OPTIONAL, DEFAULT: true
@@ -138,6 +142,9 @@ SOME_ENV_VAR = "some_value"
 # Configuration for how metrics should be collected and scraped
 # OPTIONAL, skip metrics collection if missing
 [metrics]
+# Host for prometheus, grafana, and cadvisor
+# OPTIONAL, DEFAULT: 127.0.0.1
+host = "127.0.0.1"
 # Path to a `prometheus.yml` file to use in Prometheus. If using a custom config file, be sure to add a
 # file discovery section as follows:
 # ```yml

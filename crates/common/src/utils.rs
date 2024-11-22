@@ -1,4 +1,7 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    net::Ipv4Addr,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use alloy::{
     primitives::U256,
@@ -135,8 +138,16 @@ pub const fn default_u64<const U: u64>() -> u64 {
     U
 }
 
+pub const fn default_u16<const U: u16>() -> u16 {
+    U
+}
+
 pub const fn default_bool<const U: bool>() -> bool {
     U
+}
+
+pub const fn default_host() -> Ipv4Addr {
+    Ipv4Addr::LOCALHOST
 }
 
 pub const fn default_u256() -> U256 {
