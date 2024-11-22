@@ -520,6 +520,15 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
         }
         println!("\n");
     }
+    // if file logging is enabled, warn about permissions
+    if let Some(logs_config) = cb_config.logs {
+        let log_dir = logs_config.log_dir_path;
+        println!(
+            "Warning: file logging is enabled, you may need to update permissions for the logs directory. e.g. with:\n\t`sudo chown -R 10001:10001 {}`",
+            log_dir.display()
+        );
+    }
+
     println!("Compose file written to: {:?}", compose_path);
 
     // write prometheus targets to file
