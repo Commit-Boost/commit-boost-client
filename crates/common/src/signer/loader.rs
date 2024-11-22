@@ -4,6 +4,7 @@ use alloy::{primitives::hex::FromHex, rpc::types::beacon::BlsPublicKey};
 use eth2_keystore::Keystore;
 use eyre::{eyre, Context};
 use serde::{de, Deserialize, Deserializer, Serialize};
+use tracing::warn;
 
 use crate::{
     config::{load_env_var, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV},
@@ -90,11 +91,14 @@ fn load_secrets_and_keys(
                     let ks_path = format!("{}/{}/voting-keystore.json", keys_path, maybe_pubkey);
                     let pw_path = format!("{}/{}", secrets_path, pubkey);
 
-                    if let Ok(signer) = load_one(ks_path, pw_path) {
-                        signers.push(signer);
+                    match load_one(ks_path, pw_path) {
+                        Ok(signer) => signers.push(signer),
+                        Err(e) => warn!("Failed to load signer for pubkey: {}, err: {}", pubkey, e),
                     }
+                } else {
+                    warn!("Invalid pubkey: {}", maybe_pubkey);
                 }
-            };
+            }
         }
     }
 
