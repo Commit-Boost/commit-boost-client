@@ -324,7 +324,7 @@ fn validate_header(
         return Err(ValidationError::EmptyTxRoot);
     }
 
-    if value <= minimum_bid_wei {
+    if value < minimum_bid_wei {
         return Err(ValidationError::BidTooLow { min: minimum_bid_wei, got: value });
     }
 
@@ -370,7 +370,7 @@ mod tests {
 
         let parent_hash = B256::from_slice(&[1; 32]);
         let chain = Chain::Holesky;
-        let min_bid = U256::ZERO;
+        let min_bid = U256::from(10);
 
         let secret_key = min_pk::SecretKey::from_bytes(&[
             0, 136, 227, 100, 165, 57, 106, 129, 181, 15, 235, 189, 200, 120, 70, 99, 251, 144,
@@ -438,7 +438,7 @@ mod tests {
             Err(ValidationError::BidTooLow { min: min_bid, got: U256::ZERO })
         );
 
-        mock_header.message.value = U256::from(1);
+        mock_header.message.value = U256::from(11);
 
         mock_header.message.pubkey = pubkey;
 
