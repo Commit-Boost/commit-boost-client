@@ -19,7 +19,7 @@ macro_rules! run_docker_compose {
                         if !output.status.success() {
                             let stderr = str::from_utf8(&output.stderr).unwrap_or("");
                             if stderr.contains("permission denied") {
-                                eprintln!("Warning: Permission denied. Try running with sudo.");
+                                eprintln!("Warning: Permission denied. Follow Docker's official post-installation steps to add your user to the docker group: https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user");
                                 std::process::exit(1);
                             } else {
                                 eprintln!("Command failed with error: {}", stderr);
