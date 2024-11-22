@@ -70,7 +70,7 @@ async fn submit_block_with_timeout(
         let start_request = Instant::now();
         match send_submit_block(
             url.clone(),
-            &signed_blinded_block,
+            signed_blinded_block,
             relay,
             headers.clone(),
             remaining_timeout_ms,
