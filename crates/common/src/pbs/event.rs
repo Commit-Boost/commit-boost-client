@@ -31,7 +31,13 @@ pub enum BuilderEvent {
     GetStatusResponse,
     SubmitBlockRequest(Box<SignedBlindedBeaconBlock>),
     SubmitBlockResponse(Box<SubmitBlindedBlockResponse>),
-    MissedPayload { block_hash: B256, relays: String },
+    MissedPayload {
+        /// Hash for the block for which no payload was received
+        block_hash: B256,
+        /// Relays which delivered the header but for which no payload was
+        /// received
+        missing_relays: String,
+    },
     RegisterValidatorRequest(Vec<ValidatorRegistration>),
     RegisterValidatorResponse,
 }
