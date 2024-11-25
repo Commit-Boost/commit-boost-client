@@ -9,6 +9,7 @@ mod constants;
 mod log;
 mod metrics;
 mod module;
+mod mux;
 mod pbs;
 mod signer;
 mod utils;
@@ -17,6 +18,7 @@ pub use constants::*;
 pub use log::*;
 pub use metrics::*;
 pub use module::*;
+pub use mux::*;
 pub use pbs::*;
 pub use signer::*;
 pub use utils::*;
@@ -26,6 +28,8 @@ pub struct CommitBoostConfig {
     pub chain: Chain,
     pub relays: Vec<RelayConfig>,
     pub pbs: StaticPbsConfig,
+    #[serde(flatten)]
+    pub muxes: Option<PbsMuxes>,
     pub modules: Option<Vec<StaticModuleConfig>>,
     pub signer: Option<SignerConfig>,
     pub metrics: Option<MetricsConfig>,
@@ -57,6 +61,7 @@ impl CommitBoostConfig {
                 chain,
                 relays: rest_config.relays,
                 pbs: rest_config.pbs,
+                muxes: rest_config.muxes,
                 modules: rest_config.modules,
                 signer: rest_config.signer,
                 metrics: rest_config.metrics,
@@ -96,6 +101,8 @@ struct ChainConfig {
 struct HelperConfig {
     relays: Vec<RelayConfig>,
     pbs: StaticPbsConfig,
+    #[serde(flatten)]
+    muxes: Option<PbsMuxes>,
     modules: Option<Vec<StaticModuleConfig>>,
     signer: Option<SignerConfig>,
     metrics: Option<MetricsConfig>,

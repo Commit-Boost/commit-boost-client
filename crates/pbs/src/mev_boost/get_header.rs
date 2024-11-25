@@ -51,15 +51,22 @@ pub async fn get_header<S: BuilderApiState>(
     }
 
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
-    let max_timeout_ms = state
-        .pbs_config()
+    let (pbs_config, relays, is_mux) = state.mux_config_and_relays(&params.pubkey);
+
+    if is_mux {
+        debug!(pubkey = %params.pubkey, relays = relays.len(), "using mux config");
+    } else {
+        debug!(pubkey = %params.pubkey, relays = relays.len(), "using default config");
+    }
+
+    let max_timeout_ms = pbs_config
         .timeout_get_header_ms
-        .min(state.pbs_config().late_in_slot_time_ms.saturating_sub(ms_into_slot));
+        .min(pbs_config.late_in_slot_time_ms.saturating_sub(ms_into_slot));
 
     if max_timeout_ms == 0 {
         warn!(
             ms_into_slot,
-            threshold = state.pbs_config().late_in_slot_time_ms,
+            threshold = pbs_config.late_in_slot_time_ms,
             "late in slot, skipping relay requests"
         );
 
@@ -73,7 +80,6 @@ pub async fn get_header<S: BuilderApiState>(
     send_headers.insert(HEADER_SLOT_UUID_KEY, HeaderValue::from_str(&slot_uuid.to_string())?);
     send_headers.insert(USER_AGENT, get_user_agent_with_version(&req_headers)?);
 
-    let relays = state.relays();
     let mut handles = Vec::with_capacity(relays.len());
     for relay in relays.iter() {
         handles.push(send_timed_get_header(

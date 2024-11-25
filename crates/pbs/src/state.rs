@@ -82,6 +82,18 @@ where
     pub fn relays(&self) -> &[RelayClient] {
         &self.config.relays
     }
+    /// Returns the PBS config and relay clients for the given validator pubkey.
+    /// If the pubkey is not found in any mux, the default configs are
+    /// returned
+    pub fn mux_config_and_relays(
+        &self,
+        pubkey: &BlsPublicKey,
+    ) -> (&PbsConfig, &[RelayClient], bool) {
+        match self.config.muxes.as_ref().and_then(|muxes| muxes.get(pubkey)) {
+            Some(mux) => (&mux.config, mux.relays.as_slice(), true),
+            None => (self.pbs_config(), self.relays(), false),
+        }
+    }
 
     pub fn has_monitors(&self) -> bool {
         !self.config.pbs_config.relay_monitors.is_empty()
