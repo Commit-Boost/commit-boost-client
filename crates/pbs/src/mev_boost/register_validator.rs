@@ -10,6 +10,7 @@ use eyre::bail;
 use futures::future::{join_all, select_ok};
 use reqwest::header::USER_AGENT;
 use tracing::{debug, error, Instrument};
+use url::Url;
 
 use crate::{
     constants::{MAX_SIZE_DEFAULT, REGISTER_VALIDATOR_ENDPOINT_TAG, TIMEOUT_ERROR_CODE_STR},
@@ -35,7 +36,7 @@ pub async fn register_validator<S: BuilderApiState>(
     let mut handles = Vec::with_capacity(relays.len());
     for relay in relays {
         handles.push(tokio::spawn(
-            send_register_validator(
+            send_register_validator_with_timeout(
                 registrations.clone(),
                 relay,
                 send_headers.clone(),
@@ -63,15 +64,61 @@ pub async fn register_validator<S: BuilderApiState>(
     }
 }
 
-#[tracing::instrument(skip_all, name = "handler", fields(relay_id = relay.id.as_ref()))]
-async fn send_register_validator(
+/// Register validator to relay, retry connection errors until the
+/// given timeout has passed
+async fn send_register_validator_with_timeout(
     registrations: Vec<ValidatorRegistration>,
     relay: RelayClient,
     headers: HeaderMap,
     timeout_ms: u64,
 ) -> Result<(), PbsError> {
     let url = relay.register_validator_url()?;
+    let mut remaining_timeout_ms = timeout_ms;
+    let mut retry = 0;
+    let mut backoff = Duration::from_millis(250);
 
+    loop {
+        let start_request = Instant::now();
+        match send_register_validator(
+            url.clone(),
+            &registrations,
+            &relay,
+            headers.clone(),
+            remaining_timeout_ms,
+            retry,
+        )
+        .await
+        {
+            Ok(_) => return Ok(()),
+
+            Err(err) if err.should_retry() => {
+                tokio::time::sleep(backoff).await;
+                backoff += Duration::from_millis(250);
+
+                remaining_timeout_ms =
+                    timeout_ms.saturating_sub(start_request.elapsed().as_millis() as u64);
+
+                if remaining_timeout_ms == 0 {
+                    return Err(err);
+                }
+            }
+
+            Err(err) => return Err(err),
+        };
+
+        retry += 1;
+    }
+}
+
+#[tracing::instrument(skip_all, name = "handler", fields(relay_id = relay.id.as_ref(), retry = retry))]
+async fn send_register_validator(
+    url: Url,
+    registrations: &[ValidatorRegistration],
+    relay: &RelayClient,
+    headers: HeaderMap,
+    timeout_ms: u64,
+    retry: u32,
+) -> Result<(), PbsError> {
     let start_request = Instant::now();
     let res = match relay
         .client
@@ -111,7 +158,7 @@ async fn send_register_validator(
             code: code.as_u16(),
         };
 
-        // error here since we check if any success aboves
+        // error here since we check if any success above
         error!(%err, "failed registration");
         return Err(err);
     };

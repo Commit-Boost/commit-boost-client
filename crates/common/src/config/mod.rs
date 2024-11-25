@@ -3,12 +3,13 @@ use std::path::PathBuf;
 use eyre::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::types::{load_chain_from_file, Chain, ChainLoader};
+use crate::types::{load_chain_from_file, Chain, ChainLoader, ForkVersion};
 
 mod constants;
 mod log;
 mod metrics;
 mod module;
+mod mux;
 mod pbs;
 mod signer;
 mod utils;
@@ -17,6 +18,7 @@ pub use constants::*;
 pub use log::*;
 pub use metrics::*;
 pub use module::*;
+pub use mux::*;
 pub use pbs::*;
 pub use signer::*;
 pub use utils::*;
@@ -26,6 +28,8 @@ pub struct CommitBoostConfig {
     pub chain: Chain,
     pub relays: Vec<RelayConfig>,
     pub pbs: StaticPbsConfig,
+    #[serde(flatten)]
+    pub muxes: Option<PbsMuxes>,
     pub modules: Option<Vec<StaticModuleConfig>>,
     pub signer: Option<SignerConfig>,
     pub metrics: Option<MetricsConfig>,
@@ -48,22 +52,35 @@ impl CommitBoostConfig {
     // When loading the config from the environment, it's important that every path
     // is replaced with the correct value if the config is loaded inside a container
     pub fn from_env_path() -> Result<Self> {
-        let config = if let Ok(path) = std::env::var(CHAIN_SPEC_ENV) {
-            // if the chain spec file is set, load it separately
-            let chain: Chain = load_chain_from_file(path.parse()?)?;
-            let rest_config: HelperConfig = load_file_from_env(CONFIG_ENV)?;
+        let helper_config: HelperConfig = load_file_from_env(CONFIG_ENV)?;
 
-            CommitBoostConfig {
-                chain,
-                relays: rest_config.relays,
-                pbs: rest_config.pbs,
-                modules: rest_config.modules,
-                signer: rest_config.signer,
-                metrics: rest_config.metrics,
-                logs: rest_config.logs,
+        let chain = match helper_config.chain {
+            ChainLoader::Path { path, genesis_time_secs } => {
+                // check if the file path is overridden by env var
+                let (slot_time_secs, genesis_fork_version) =
+                    if let Some(path) = load_optional_env_var(CHAIN_SPEC_ENV) {
+                        load_chain_from_file(path.parse()?)?
+                    } else {
+                        load_chain_from_file(path)?
+                    };
+                Chain::Custom { genesis_time_secs, slot_time_secs, genesis_fork_version }
             }
-        } else {
-            load_file_from_env(CONFIG_ENV)?
+            ChainLoader::Known(known) => Chain::from(known),
+            ChainLoader::Custom { genesis_time_secs, slot_time_secs, genesis_fork_version } => {
+                let genesis_fork_version: ForkVersion = genesis_fork_version.as_ref().try_into()?;
+                Chain::Custom { genesis_time_secs, slot_time_secs, genesis_fork_version }
+            }
+        };
+
+        let config = CommitBoostConfig {
+            chain,
+            relays: helper_config.relays,
+            pbs: helper_config.pbs,
+            muxes: helper_config.muxes,
+            modules: helper_config.modules,
+            signer: helper_config.signer,
+            metrics: helper_config.metrics,
+            logs: helper_config.logs,
         };
 
         config.validate()?;
@@ -74,8 +91,8 @@ impl CommitBoostConfig {
     pub fn chain_spec_file(path: &str) -> Option<PathBuf> {
         match load_from_file::<ChainConfig>(path) {
             Ok(config) => {
-                if let ChainLoader::Path(path_buf) = config.chain {
-                    Some(path_buf)
+                if let ChainLoader::Path { path, genesis_time_secs: _ } = config.chain {
+                    Some(path)
                 } else {
                     None
                 }
@@ -94,8 +111,11 @@ struct ChainConfig {
 /// Helper struct to load the rest of the config
 #[derive(Deserialize)]
 struct HelperConfig {
+    chain: ChainLoader,
     relays: Vec<RelayConfig>,
     pbs: StaticPbsConfig,
+    #[serde(flatten)]
+    muxes: Option<PbsMuxes>,
     modules: Option<Vec<StaticModuleConfig>>,
     signer: Option<SignerConfig>,
     metrics: Option<MetricsConfig>,

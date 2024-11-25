@@ -1,4 +1,7 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    net::Ipv4Addr,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use alloy::{
     primitives::U256,
@@ -22,9 +25,11 @@ use crate::{
 
 const MILLIS_PER_SECOND: u64 = 1_000;
 
+pub fn timestamp_of_slot_start_sec(slot: u64, chain: Chain) -> u64 {
+    chain.genesis_time_sec() + slot * chain.slot_time_sec()
+}
 pub fn timestamp_of_slot_start_millis(slot: u64, chain: Chain) -> u64 {
-    let seconds_since_genesis = chain.genesis_time_sec() + slot * chain.slot_time_sec();
-    seconds_since_genesis * MILLIS_PER_SECOND
+    timestamp_of_slot_start_sec(slot, chain) * MILLIS_PER_SECOND
 }
 pub fn ms_into_slot(slot: u64, chain: Chain) -> u64 {
     let slot_start_ms = timestamp_of_slot_start_millis(slot, chain);
@@ -135,8 +140,16 @@ pub const fn default_u64<const U: u64>() -> u64 {
     U
 }
 
+pub const fn default_u16<const U: u16>() -> u16 {
+    U
+}
+
 pub const fn default_bool<const U: bool>() -> bool {
     U
+}
+
+pub const fn default_host() -> Ipv4Addr {
+    Ipv4Addr::LOCALHOST
 }
 
 pub const fn default_u256() -> U256 {

@@ -49,7 +49,7 @@ pub async fn handle_submit_block<S: BuilderApiState, A: BuilderApi<S>>(
 
         Err(err) => {
             if let Some(fault_pubkeys) = state.get_relays_by_block_hash(slot, block_hash) {
-                let fault_relays = state
+                let missing_relays = state
                     .relays()
                     .iter()
                     .filter(|relay| fault_pubkeys.contains(&relay.pubkey()))
@@ -57,16 +57,13 @@ pub async fn handle_submit_block<S: BuilderApiState, A: BuilderApi<S>>(
                     .collect::<Vec<_>>()
                     .join(",");
 
-                error!(%err, %block_hash, fault_relays, "CRITICAL: no payload received from relays");
-                state.publish_event(BuilderEvent::MissedPayload {
-                    block_hash,
-                    relays: fault_relays,
-                });
+                error!(%err, %block_hash, missing_relays, "CRITICAL: no payload received from relays");
+                state.publish_event(BuilderEvent::MissedPayload { block_hash, missing_relays });
             } else {
                 error!(%err, %block_hash, "CRITICAL: no payload delivered and no relay for block hash. Was getHeader even called?");
                 state.publish_event(BuilderEvent::MissedPayload {
                     block_hash,
-                    relays: String::default(),
+                    missing_relays: String::default(),
                 });
             };
 

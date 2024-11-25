@@ -19,7 +19,7 @@ use crate::{config::RelayConfig, DEFAULT_REQUEST_TIMEOUT};
 /// A parsed entry of the relay url in the format: scheme://pubkey@host
 #[derive(Debug, Clone)]
 pub struct RelayEntry {
-    /// Default if of the relay, the hostname of the url
+    /// Default ID of the relay, the hostname of the url
     pub id: String,
     /// Public key of the relay
     pub pubkey: BlsPublicKey,
@@ -42,8 +42,9 @@ impl<'de> Deserialize<'de> for RelayEntry {
         D: serde::Deserializer<'de>,
     {
         let url = Url::deserialize(deserializer)?;
-        let pubkey = BlsPublicKey::from_hex(url.username()).map_err(serde::de::Error::custom)?;
         let id = url.host().ok_or(serde::de::Error::custom("missing host"))?.to_string();
+        let pubkey = BlsPublicKey::from_hex(url.username())
+            .map_err(|_| serde::de::Error::custom("invalid BLS pubkey"))?;
 
         Ok(RelayEntry { pubkey, url, id })
     }
@@ -79,11 +80,7 @@ impl RelayClient {
             .timeout(DEFAULT_REQUEST_TIMEOUT)
             .build()?;
 
-        Ok(Self {
-            id: Arc::new(config.id.clone().unwrap_or(config.entry.id.clone())),
-            client,
-            config: Arc::new(config),
-        })
+        Ok(Self { id: Arc::new(config.id().to_owned()), client, config: Arc::new(config) })
     }
 
     pub fn pubkey(&self) -> BlsPublicKey {

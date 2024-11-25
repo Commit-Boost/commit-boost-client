@@ -68,10 +68,12 @@ dependencies = [
  "alloy-core",
  "alloy-eips",
  "alloy-genesis",
+ "alloy-network",
  "alloy-provider",
  "alloy-rpc-client",
  "alloy-rpc-types",
  "alloy-serde",
+ "alloy-transport",
  "alloy-transport-http",
 ]
 
@@ -1185,6 +1187,7 @@ dependencies = [
  "eyre",
  "futures",
  "lazy_static",
+ "parking_lot",
  "prometheus",
  "reqwest",
  "serde_json",

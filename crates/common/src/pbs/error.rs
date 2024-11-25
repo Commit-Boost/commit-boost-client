@@ -34,6 +34,11 @@ impl PbsError {
     pub fn is_timeout(&self) -> bool {
         matches!(self, PbsError::Reqwest(err) if err.is_timeout())
     }
+
+    /// Whether the error is retryable in requests to relays
+    pub fn should_retry(&self) -> bool {
+        matches!(self, PbsError::RelayResponse { .. } | PbsError::Reqwest { .. })
+    }
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -69,4 +74,13 @@ pub enum ValidationError {
 
     #[error("failed signature verification: {0:?}")]
     Sigverify(#[from] BlstErrorWrapper),
+
+    #[error("wrong timestamp: expected {expected} got {got}")]
+    TimestampMismatch { expected: u64, got: u64 },
+
+    #[error("wrong block number: parent: {parent} header: {header}")]
+    BlockNumberMismatch { parent: u64, header: u64 },
+
+    #[error("invalid gas limit: parent: {parent} header: {header}")]
+    GasLimit { parent: u64, header: u64 },
 }

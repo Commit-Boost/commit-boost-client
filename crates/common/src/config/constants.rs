@@ -1,4 +1,4 @@
-///////////////////////// COMMMON /////////////////////////
+///////////////////////// COMMON /////////////////////////
 
 /// Path to the main toml config file
 pub const CONFIG_ENV: &str = "CB_CONFIG";
@@ -21,6 +21,9 @@ pub const PBS_MODULE_NAME: &str = "pbs";
 
 /// Urls the pbs modules should post events to (comma separated)
 pub const BUILDER_URLS_ENV: &str = "CB_BUILDER_URLS";
+
+/// Where to receive BuilderAPI calls from beacon node
+pub const PBS_ENDPOINT_ENV: &str = "CB_PBS_ENDPOINT";
 
 ///////////////////////// SIGNER /////////////////////////
 

@@ -1,14 +1,18 @@
-use std::{path::Path, vec};
+use std::{
+    net::{Ipv4Addr, SocketAddr},
+    path::Path,
+    vec,
+};
 
 use cb_common::{
     config::{
         CommitBoostConfig, LogsSettings, ModuleKind, BUILDER_PORT_ENV, BUILDER_URLS_ENV,
         CHAIN_SPEC_ENV, CONFIG_DEFAULT, CONFIG_ENV, JWTS_ENV, LOGS_DIR_DEFAULT, LOGS_DIR_ENV,
-        METRICS_PORT_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, PBS_MODULE_NAME, PROXY_DIR_DEFAULT,
-        PROXY_DIR_ENV, SIGNER_DEFAULT, SIGNER_DIR_FORMAT_DEFAULT, SIGNER_DIR_FORMAT_ENV,
-        SIGNER_DIR_KEYS_DEFAULT, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS_DEFAULT,
-        SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV, SIGNER_MODULE_NAME, SIGNER_PORT_ENV,
-        SIGNER_URL_ENV,
+        METRICS_PORT_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, PBS_ENDPOINT_ENV, PBS_MODULE_NAME,
+        PROXY_DIR_DEFAULT, PROXY_DIR_ENV, SIGNER_DEFAULT, SIGNER_DIR_FORMAT_DEFAULT,
+        SIGNER_DIR_FORMAT_ENV, SIGNER_DIR_KEYS_DEFAULT, SIGNER_DIR_KEYS_ENV,
+        SIGNER_DIR_SECRETS_DEFAULT, SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV, SIGNER_MODULE_NAME,
+        SIGNER_PORT_ENV, SIGNER_URL_ENV,
     },
     signer::{ProxyStore, SignerLoader},
     types::ModuleId,
@@ -234,6 +238,19 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
         pbs_envs.insert(k, v);
     }
 
+    // ports
+    let host_endpoint =
+        SocketAddr::from((cb_config.pbs.pbs_config.host, cb_config.pbs.pbs_config.port));
+    let ports = Ports::Short(vec![format!("{}:{}", host_endpoint, cb_config.pbs.pbs_config.port)]);
+    exposed_ports_warn
+        .push(format!("pbs has an exported port on {}", cb_config.pbs.pbs_config.port));
+
+    // inside the container expose on 0.0.0.0
+    let container_endpoint =
+        SocketAddr::from((Ipv4Addr::UNSPECIFIED, cb_config.pbs.pbs_config.port));
+    let (key, val) = get_env_val(PBS_ENDPOINT_ENV, &container_endpoint.to_string());
+    pbs_envs.insert(key, val);
+
     // volumes
     let mut pbs_volumes = vec![config_volume.clone()];
     pbs_volumes.extend(chain_spec_volume.clone());
@@ -246,16 +263,10 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
         Networks::default()
     };
 
-    exposed_ports_warn
-        .push(format!("pbs has an exported port on {}", cb_config.pbs.pbs_config.port));
-
     let pbs_service = Service {
         container_name: Some("cb_pbs".to_owned()),
         image: Some(cb_config.pbs.docker_image),
-        ports: Ports::Short(vec![format!(
-            "{}:{}",
-            cb_config.pbs.pbs_config.port, cb_config.pbs.pbs_config.port
-        )]),
+        ports,
         networks: pbs_networs,
         volumes: pbs_volumes,
         environment: Environment::KvPair(pbs_envs),
@@ -409,10 +420,10 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
         let prometheus_service = Service {
             container_name: Some("cb_prometheus".to_owned()),
-            image: Some("prom/prometheus:latest".to_owned()),
+            image: Some("prom/prometheus:v3.0.0".to_owned()),
             volumes: vec![prom_volume, targets_volume, data_volume],
             // to inspect prometheus from localhost
-            ports: Ports::Short(vec!["9090:9090".to_owned()]),
+            ports: Ports::Short(vec![format!("{}:9090:9090", metrics_config.host)]),
             networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
             ..Service::default()
         };
@@ -432,14 +443,17 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
         // grafana
         if metrics_config.use_grafana {
             exposed_ports_warn.push("grafana has an exported port on 3000".to_string());
+            exposed_ports_warn.push(
+                "Grafana has the default admin password of 'admin'. Login to change it".to_string(),
+            );
 
             let grafana_data_volume =
                 Volumes::Simple(format!("{}:/var/lib/grafana", GRAFANA_DATA_VOLUME));
 
             let grafana_service = Service {
                 container_name: Some("cb_grafana".to_owned()),
-                image: Some("grafana/grafana:latest".to_owned()),
-                ports: Ports::Short(vec!["3000:3000".to_owned()]),
+                image: Some("grafana/grafana:11.3.1".to_owned()),
+                ports: Ports::Short(vec![format!("{}:3000:3000", metrics_config.host)]),
                 networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
                 depends_on: DependsOnOptions::Simple(vec!["cb_prometheus".to_owned()]),
                 environment: Environment::List(vec!["GF_SECURITY_ADMIN_PASSWORD=admin".to_owned()]),
@@ -479,7 +493,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                 Some(Service {
                     container_name: Some("cb_cadvisor".to_owned()),
                     image: Some("gcr.io/cadvisor/cadvisor".to_owned()),
-                    ports: Ports::Short(vec![format!("{cadvisor_port}:8080")]),
+                    ports: Ports::Short(vec![format!("{}:8080:8080", metrics_config.host)]),
                     networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
                     volumes: vec![
                         Volumes::Simple("/var/run/docker.sock:/var/run/docker.sock:ro".to_owned()),
@@ -510,6 +524,15 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
         }
         println!("\n");
     }
+    // if file logging is enabled, warn about permissions
+    if let Some(logs_config) = cb_config.logs {
+        let log_dir = logs_config.log_dir_path;
+        println!(
+            "Warning: file logging is enabled, you may need to update permissions for the logs directory. e.g. with:\n\t`sudo chown -R 10001:10001 {}`",
+            log_dir.display()
+        );
+    }
+
     println!("Compose file written to: {:?}", compose_path);
 
     // write prometheus targets to file
@@ -544,17 +567,17 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     Ok(())
 }
 
-// FOO=${FOO}
+/// FOO=${FOO}
 fn get_env_same(k: &str) -> (String, Option<SingleValue>) {
     get_env_interp(k, k)
 }
 
-// FOO=${BAR}
+/// FOO=${BAR}
 fn get_env_interp(k: &str, v: &str) -> (String, Option<SingleValue>) {
     get_env_val(k, &format!("${{{v}}}"))
 }
 
-// FOO=bar
+/// FOO=bar
 fn get_env_val(k: &str, v: &str) -> (String, Option<SingleValue>) {
     (k.into(), Some(SingleValue::String(v.into())))
 }
