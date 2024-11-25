@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use eyre::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::types::{load_chain_from_file, Chain, ChainLoader};
+use crate::types::{load_chain_from_file, Chain, ChainLoader, ForkVersion};
 
 mod constants;
 mod log;
@@ -67,7 +67,7 @@ impl CommitBoostConfig {
             }
             ChainLoader::Known(known) => Chain::from(known),
             ChainLoader::Custom { genesis_time_secs, slot_time_secs, genesis_fork_version } => {
-                let genesis_fork_version: [u8; 4] = genesis_fork_version.as_ref().try_into()?;
+                let genesis_fork_version: ForkVersion = genesis_fork_version.as_ref().try_into()?;
                 Chain::Custom { genesis_time_secs, slot_time_secs, genesis_fork_version }
             }
         };

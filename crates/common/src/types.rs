@@ -23,8 +23,10 @@ pub enum Chain {
     Holesky,
     Sepolia,
     Helder,
-    Custom { genesis_time_secs: u64, slot_time_secs: u64, genesis_fork_version: [u8; 4] },
+    Custom { genesis_time_secs: u64, slot_time_secs: u64, genesis_fork_version: ForkVersion },
 }
+
+pub type ForkVersion = [u8; 4];
 
 impl std::fmt::Debug for Chain {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -54,7 +56,7 @@ impl Chain {
         }
     }
 
-    pub fn genesis_fork_version(&self) -> [u8; 4] {
+    pub fn genesis_fork_version(&self) -> ForkVersion {
         match self {
             Chain::Mainnet => KnownChain::Mainnet.genesis_fork_version(),
             Chain::Holesky => KnownChain::Holesky.genesis_fork_version(),
@@ -120,7 +122,7 @@ impl KnownChain {
         }
     }
 
-    pub fn genesis_fork_version(&self) -> [u8; 4] {
+    pub fn genesis_fork_version(&self) -> ForkVersion {
         match self {
             KnownChain::Mainnet => hex!("00000000"),
             KnownChain::Holesky => hex!("01017000"),
@@ -216,7 +218,7 @@ impl<'de> Deserialize<'de> for Chain {
                 Ok(Chain::Custom { genesis_time_secs, slot_time_secs, genesis_fork_version })
             }
             ChainLoader::Custom { genesis_time_secs, slot_time_secs, genesis_fork_version } => {
-                let genesis_fork_version: [u8; 4] =
+                let genesis_fork_version: ForkVersion =
                     genesis_fork_version.as_ref().try_into().map_err(serde::de::Error::custom)?;
                 Ok(Chain::Custom { genesis_time_secs, slot_time_secs, genesis_fork_version })
             }
@@ -230,7 +232,7 @@ impl<'de> Deserialize<'de> for Chain {
 /// - JSON as return the getSpec endpoint, either with or without the `data`
 ///   field
 /// - YAML as used e.g. in Kurtosis/Ethereum Package
-pub fn load_chain_from_file(path: PathBuf) -> eyre::Result<(u64, [u8; 4])> {
+pub fn load_chain_from_file(path: PathBuf) -> eyre::Result<(u64, ForkVersion)> {
     #[derive(Deserialize)]
     #[serde(rename_all = "UPPERCASE")]
     struct QuotedSpecFile {
@@ -240,8 +242,9 @@ pub fn load_chain_from_file(path: PathBuf) -> eyre::Result<(u64, [u8; 4])> {
     }
 
     impl QuotedSpecFile {
-        fn to_chain(&self) -> eyre::Result<(u64, [u8; 4])> {
-            let genesis_fork_version: [u8; 4] = self.genesis_fork_version.as_ref().try_into()?;
+        fn to_chain(&self) -> eyre::Result<(u64, ForkVersion)> {
+            let genesis_fork_version: ForkVersion =
+                self.genesis_fork_version.as_ref().try_into()?;
             Ok((self.seconds_per_slot, genesis_fork_version))
         }
     }
@@ -259,8 +262,8 @@ pub fn load_chain_from_file(path: PathBuf) -> eyre::Result<(u64, [u8; 4])> {
     }
 
     impl SpecFile {
-        fn to_chain(&self) -> (u64, [u8; 4]) {
-            let genesis_fork_version: [u8; 4] = self.genesis_fork_version.to_be_bytes();
+        fn to_chain(&self) -> (u64, ForkVersion) {
+            let genesis_fork_version: ForkVersion = self.genesis_fork_version.to_be_bytes();
             (self.seconds_per_slot, genesis_fork_version)
         }
     }
@@ -315,11 +318,11 @@ mod tests {
         path.pop();
         path.push("tests/data/mainnet_spec_data.json");
 
-        let s = format!("chain = {path:?}");
+        let s = format!("chain = {{ genesis_time_secs = 1, path = {path:?}}}");
 
         let decoded: MockConfig = toml::from_str(&s).unwrap();
 
-        // see fixme in load_chain_from_file
+        assert_eq!(decoded.chain.genesis_time_sec(), 1);
         assert_eq!(decoded.chain.slot_time_sec(), KnownChain::Mainnet.slot_time_sec());
         assert_eq!(
             decoded.chain.genesis_fork_version(),
@@ -336,11 +339,11 @@ mod tests {
         path.pop();
         path.push("tests/data/holesky_spec.json");
 
-        let s = format!("chain = {path:?}");
+        let s = format!("chain = {{ genesis_time_secs = 1, path = {path:?}}}");
 
         let decoded: MockConfig = toml::from_str(&s).unwrap();
         assert_eq!(decoded.chain, Chain::Custom {
-            genesis_time_secs: KnownChain::Holesky.genesis_time_sec(),
+            genesis_time_secs: 1,
             slot_time_secs: KnownChain::Holesky.slot_time_sec(),
             genesis_fork_version: KnownChain::Holesky.genesis_fork_version()
         })
@@ -355,11 +358,11 @@ mod tests {
         path.pop();
         path.push("tests/data/sepolia_spec_data.json");
 
-        let s = format!("chain = {path:?}");
+        let s = format!("chain = {{ genesis_time_secs = 1, path = {path:?}}}");
 
         let decoded: MockConfig = toml::from_str(&s).unwrap();
         assert_eq!(decoded.chain, Chain::Custom {
-            genesis_time_secs: KnownChain::Sepolia.genesis_time_sec(),
+            genesis_time_secs: 1,
             slot_time_secs: KnownChain::Sepolia.slot_time_sec(),
             genesis_fork_version: KnownChain::Sepolia.genesis_fork_version()
         })
@@ -374,11 +377,11 @@ mod tests {
         path.pop();
         path.push("tests/data/helder_spec.yml");
 
-        let s = format!("chain = {path:?}");
+        let s = format!("chain = {{ genesis_time_secs = 1, path = {path:?}}}");
 
         let decoded: MockConfig = toml::from_str(&s).unwrap();
         assert_eq!(decoded.chain, Chain::Custom {
-            genesis_time_secs: KnownChain::Helder.genesis_time_sec(),
+            genesis_time_secs: 1,
             slot_time_secs: KnownChain::Helder.slot_time_sec(),
             genesis_fork_version: KnownChain::Helder.genesis_fork_version()
         })
