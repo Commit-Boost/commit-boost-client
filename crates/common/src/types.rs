@@ -163,8 +163,19 @@ impl From<KnownChain> for Chain {
 #[serde(untagged)]
 pub enum ChainLoader {
     Known(KnownChain),
-    Path(PathBuf),
-    Custom { genesis_time_secs: u64, slot_time_secs: u64, genesis_fork_version: Bytes },
+    Path {
+        /// Genesis time as returned in /eth/v1/beacon/genesis
+        genesis_time_secs: u64,
+        /// Path to the genesis spec, as returned by /eth/v1/config/spec
+        /// either in JSON or YAML format
+        path: PathBuf,
+    },
+    Custom {
+        /// Genesis time as returned in /eth/v1/beacon/genesis
+        genesis_time_secs: u64,
+        slot_time_secs: u64,
+        genesis_fork_version: Bytes,
+    },
 }
 
 impl Serialize for Chain {
@@ -199,7 +210,11 @@ impl<'de> Deserialize<'de> for Chain {
 
         match loader {
             ChainLoader::Known(known) => Ok(Chain::from(known)),
-            ChainLoader::Path(path) => load_chain_from_file(path).map_err(serde::de::Error::custom),
+            ChainLoader::Path { genesis_time_secs, path } => {
+                let (slot_time_secs, genesis_fork_version) =
+                    load_chain_from_file(path).map_err(serde::de::Error::custom)?;
+                Ok(Chain::Custom { genesis_time_secs, slot_time_secs, genesis_fork_version })
+            }
             ChainLoader::Custom { genesis_time_secs, slot_time_secs, genesis_fork_version } => {
                 let genesis_fork_version: [u8; 4] =
                     genesis_fork_version.as_ref().try_into().map_err(serde::de::Error::custom)?;
@@ -209,38 +224,25 @@ impl<'de> Deserialize<'de> for Chain {
     }
 }
 
-/// Load a chain config from a spec file, such as returned by
-/// /eth/v1/config/spec ref: https://ethereum.github.io/beacon-APIs/#/Config/getSpec
+/// Returns seconds_per_slot and genesis_fork_version from a spec, such as
+/// returned by /eth/v1/config/spec ref: https://ethereum.github.io/beacon-APIs/#/Config/getSpec
 /// Try to load two formats:
 /// - JSON as return the getSpec endpoint, either with or without the `data`
 ///   field
 /// - YAML as used e.g. in Kurtosis/Ethereum Package
-pub fn load_chain_from_file(path: PathBuf) -> eyre::Result<Chain> {
+pub fn load_chain_from_file(path: PathBuf) -> eyre::Result<(u64, [u8; 4])> {
     #[derive(Deserialize)]
     #[serde(rename_all = "UPPERCASE")]
     struct QuotedSpecFile {
-        #[serde(with = "serde_utils::quoted_u64")]
-        min_genesis_time: u64,
-        #[serde(with = "serde_utils::quoted_u64")]
-        genesis_delay: u64,
         #[serde(with = "serde_utils::quoted_u64")]
         seconds_per_slot: u64,
         genesis_fork_version: Bytes,
     }
 
     impl QuotedSpecFile {
-        fn to_chain(&self) -> eyre::Result<Chain> {
+        fn to_chain(&self) -> eyre::Result<(u64, [u8; 4])> {
             let genesis_fork_version: [u8; 4] = self.genesis_fork_version.as_ref().try_into()?;
-
-            Ok(Chain::Custom {
-                // note that this can be wrong, (e.g. it's wrong in mainnet). The correct
-                // value should come from /eth/v1/beacon/genesis
-                // more info here: https://kb.beaconcha.in/ethereum-staking/the-genesis-event
-                // FIXME
-                genesis_time_secs: self.min_genesis_time + self.genesis_delay,
-                slot_time_secs: self.seconds_per_slot,
-                genesis_fork_version,
-            })
+            Ok((self.seconds_per_slot, genesis_fork_version))
         }
     }
 
@@ -252,21 +254,14 @@ pub fn load_chain_from_file(path: PathBuf) -> eyre::Result<Chain> {
     #[derive(Deserialize)]
     #[serde(rename_all = "UPPERCASE")]
     struct SpecFile {
-        min_genesis_time: u64,
-        genesis_delay: u64,
         seconds_per_slot: u64,
         genesis_fork_version: u32,
     }
 
     impl SpecFile {
-        fn to_chain(&self) -> Chain {
+        fn to_chain(&self) -> (u64, [u8; 4]) {
             let genesis_fork_version: [u8; 4] = self.genesis_fork_version.to_be_bytes();
-
-            Chain::Custom {
-                genesis_time_secs: self.min_genesis_time + self.genesis_delay,
-                slot_time_secs: self.seconds_per_slot,
-                genesis_fork_version,
-            }
+            (self.seconds_per_slot, genesis_fork_version)
         }
     }
 
