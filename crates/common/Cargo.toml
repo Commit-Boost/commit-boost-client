@@ -35,6 +35,11 @@ tree_hash.workspace = true
 tree_hash_derive.workspace = true
 eth2_keystore.workspace = true
 k256.workspace = true
+aes = "0.8"
+ctr = "0.9.2"
+cipher = "0.4"
+pbkdf2 = "0.12.2"
+sha2 = "0.10.8"
 
 # misc
 thiserror.workspace = true
@@ -43,3 +48,7 @@ url.workspace = true
 rand.workspace = true
 bimap.workspace = true
 derive_more.workspace = true
+
+unicode-normalization = "0.1.24"
+hex = "0.4"
+base64 = "0.22.1"

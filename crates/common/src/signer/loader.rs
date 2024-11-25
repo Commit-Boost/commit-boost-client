@@ -1,15 +1,25 @@
-use std::{ffi::OsStr, fs, path::PathBuf};
-
+use aes::cipher::{KeyIvInit, StreamCipher};
+use aes::Aes128;
 use alloy::{primitives::hex::FromHex, rpc::types::beacon::BlsPublicKey};
+use base64::prelude::BASE64_STANDARD;
+use base64::Engine;
 use eth2_keystore::Keystore;
 use eyre::{eyre, Context, OptionExt};
+use pbkdf2::hmac;
 use serde::{de, Deserialize, Deserializer, Serialize};
-use tracing::warn;
+use std::fs::File;
+use std::io::BufReader;
+use std::{ffi::OsStr, fs, path::PathBuf};
+use tracing::{error, info, warn};
+use unicode_normalization::UnicodeNormalization;
 
+use crate::signer::types2::Signers;
 use crate::{
     config::{load_env_var, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV},
     signer::ConsensusSigner,
 };
+
+use super::types2::PrismKeystore;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(untagged)]
@@ -29,6 +39,7 @@ pub enum SignerLoader {
 pub enum ValidatorKeysFormat {
     Lighthouse,
     Teku,
+    Prysm,
 }
 
 impl SignerLoader {
@@ -66,6 +77,8 @@ impl SignerLoader {
                             .context("failed to load signers")?
                     }
                     ValidatorKeysFormat::Teku => load_from_teku_format(keys_path, secrets_path)
+                        .context("failed to load signers")?,
+                    ValidatorKeysFormat::Prysm => load_from_prysm_format(keys_path, secrets_path)
                         .context("failed to load signers")?,
                 }
             }
@@ -156,6 +169,50 @@ fn load_from_teku_format(
             Ok(signer) => signers.push(signer),
             Err(e) => warn!("Sign load error: {e}"),
         }
+    }
+
+    Ok(signers)
+}
+
+fn load_from_prysm_format(
+    keys_path: String,
+    secrets_path: String,
+) -> eyre::Result<Vec<ConsensusSigner>> {
+    let file = File::open(keys_path).unwrap();
+    let reader = BufReader::new(file);
+    let prism_keystore: PrismKeystore = serde_json::from_reader(reader).unwrap();
+
+    let pass = fs::read_to_string(secrets_path).unwrap();
+    let norm_pass = pass
+        .nfkd()
+        .collect::<String>()
+        .bytes()
+        .filter(|x| (*x > 0x1F && *x < 0x7F) || *x > 0x9F)
+        .collect::<Vec<u8>>();
+
+    let salt = hex::decode(prism_keystore.crypto.kdf.params.salt).unwrap();
+    let mut key = [0u8; 32];
+    pbkdf2::pbkdf2::<hmac::Hmac<sha2::Sha256>>(
+        &norm_pass,
+        &salt,
+        prism_keystore.crypto.kdf.params.c,
+        &mut key,
+    )
+    .unwrap();
+
+    let iv = hex::decode(prism_keystore.crypto.cipher.params.iv).unwrap();
+    let ciphertext = hex::decode(prism_keystore.crypto.cipher.message).unwrap(); // Example encrypted text
+
+    let mut cipher = ctr::Ctr128BE::<Aes128>::new_from_slices(&key[..16], &iv).unwrap();
+
+    let mut buf = [0u8; 285];
+    cipher.apply_keystream_b2b(&ciphertext, &mut buf).unwrap();
+
+    let list: Signers = serde_json::from_slice(&buf).unwrap();
+    let mut signers = Vec::new();
+    for pk in list.private_keys.iter() {
+        signers
+            .push(ConsensusSigner::new_from_bytes(&BASE64_STANDARD.decode(pk).unwrap()).unwrap());
     }
 
     Ok(signers)
