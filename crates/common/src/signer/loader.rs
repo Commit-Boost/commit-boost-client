@@ -1,25 +1,22 @@
 use aes::cipher::{KeyIvInit, StreamCipher};
 use aes::Aes128;
 use alloy::{primitives::hex::FromHex, rpc::types::beacon::BlsPublicKey};
-use base64::prelude::BASE64_STANDARD;
-use base64::Engine;
 use eth2_keystore::Keystore;
 use eyre::{eyre, Context, OptionExt};
-use pbkdf2::hmac;
+use pbkdf2::{hmac, pbkdf2};
 use serde::{de, Deserialize, Deserializer, Serialize};
 use std::fs::File;
 use std::io::BufReader;
 use std::{ffi::OsStr, fs, path::PathBuf};
-use tracing::{error, info, warn};
+use tracing::warn;
 use unicode_normalization::UnicodeNormalization;
 
-use crate::signer::types2::Signers;
 use crate::{
     config::{load_env_var, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV},
     signer::ConsensusSigner,
 };
 
-use super::types2::PrismKeystore;
+use super::{PrysmDecryptedKeystore, PrysmKeystore};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(untagged)]
@@ -174,45 +171,67 @@ fn load_from_teku_format(
     Ok(signers)
 }
 
+/// Prysm's keystore is a json file with the keys encrypted with a password,
+/// among with some metadata to decrypt them.
+/// Once decrypted, the keys have the following structure:
+/// ```json
+/// {
+///     "private_keys": [
+///         "sk1_base64_encoded",
+///         "sk2_base64_encoded",
+///         ...
+///     ],
+///     "public_keys": [
+///         "pk1_base64_encoded",
+///         "pk2_base64_encoded",
+///         ...
+///     ]
+/// }
+/// ```
 fn load_from_prysm_format(
-    keys_path: String,
-    secrets_path: String,
+    accounts_path: String,
+    password_path: String,
 ) -> eyre::Result<Vec<ConsensusSigner>> {
-    let file = File::open(keys_path).unwrap();
-    let reader = BufReader::new(file);
-    let prism_keystore: PrismKeystore = serde_json::from_reader(reader).unwrap();
+    let accounts_file = File::open(accounts_path)?;
+    let accounts_reader = BufReader::new(accounts_file);
+    let keystore: PrysmKeystore =
+        serde_json::from_reader(accounts_reader).map_err(|e| eyre!("Failed reading json: {e}"))?;
 
-    let pass = fs::read_to_string(secrets_path).unwrap();
-    let norm_pass = pass
+    let password = fs::read_to_string(password_path)?;
+    // Normalized as required by EIP-2335
+    // (https://eips.ethereum.org/EIPS/eip-2335#password-requirements)
+    let normalized_password = password
         .nfkd()
         .collect::<String>()
         .bytes()
-        .filter(|x| (*x > 0x1F && *x < 0x7F) || *x > 0x9F)
+        .filter(|char| (*char > 0x1F && *char < 0x7F) || *char > 0x9F)
         .collect::<Vec<u8>>();
 
-    let salt = hex::decode(prism_keystore.crypto.kdf.params.salt).unwrap();
-    let mut key = [0u8; 32];
-    pbkdf2::pbkdf2::<hmac::Hmac<sha2::Sha256>>(
-        &norm_pass,
-        &salt,
-        prism_keystore.crypto.kdf.params.c,
-        &mut key,
-    )
-    .unwrap();
+    let mut decryption_key = [0u8; 32];
+    pbkdf2::<hmac::Hmac<sha2::Sha256>>(
+        &normalized_password,
+        &keystore.salt,
+        keystore.c,
+        &mut decryption_key,
+    )?;
 
-    let iv = hex::decode(prism_keystore.crypto.cipher.params.iv).unwrap();
-    let ciphertext = hex::decode(prism_keystore.crypto.cipher.message).unwrap(); // Example encrypted text
+    let ciphertext = keystore.message;
 
-    let mut cipher = ctr::Ctr128BE::<Aes128>::new_from_slices(&key[..16], &iv).unwrap();
+    let mut cipher = ctr::Ctr128BE::<Aes128>::new_from_slices(&decryption_key[..16], &keystore.iv)
+        .map_err(|_| eyre!("Invalid key or nonce"))?;
 
-    let mut buf = [0u8; 285];
-    cipher.apply_keystream_b2b(&ciphertext, &mut buf).unwrap();
+    let mut buf = vec![0u8; ciphertext.len()].into_boxed_slice();
+    cipher
+        .apply_keystream_b2b(&ciphertext, &mut buf)
+        .map_err(|_| eyre!("Failed decrypting accounts"))?;
 
-    let list: Signers = serde_json::from_slice(&buf).unwrap();
-    let mut signers = Vec::new();
-    for pk in list.private_keys.iter() {
-        signers
-            .push(ConsensusSigner::new_from_bytes(&BASE64_STANDARD.decode(pk).unwrap()).unwrap());
+    let decrypted_keystore: PrysmDecryptedKeystore =
+        serde_json::from_slice(&buf).map_err(|e| eyre!("Failed reading json: {e}"))?;
+    let mut signers = Vec::with_capacity(decrypted_keystore.private_keys.len());
+
+    for key in decrypted_keystore.private_keys {
+        let signer = ConsensusSigner::new_from_bytes(&key)?;
+        signers.push(signer);
     }
 
     Ok(signers)
