@@ -41,6 +41,7 @@ pub enum SignerLoader {
 pub enum ValidatorKeysFormat {
     Lighthouse,
     Teku,
+    Lodestar,
     Prysm,
 }
 
@@ -73,16 +74,16 @@ impl SignerLoader {
                     secrets_path.to_str().ok_or_eyre("Missing signer secrets path")?.to_string(),
                 );
 
-                match format {
+                return match format {
                     ValidatorKeysFormat::Lighthouse => {
                         load_from_lighthouse_format(keys_path, secrets_path)
-                            .context("failed to load signers")?
                     }
-                    ValidatorKeysFormat::Teku => load_from_teku_format(keys_path, secrets_path)
-                        .context("failed to load signers")?,
-                    ValidatorKeysFormat::Prysm => load_from_prysm_format(keys_path, secrets_path)
-                        .context("failed to load signers")?,
-                }
+                    ValidatorKeysFormat::Teku => load_from_teku_format(keys_path, secrets_path),
+                    ValidatorKeysFormat::Lodestar => {
+                        load_from_lodestar_format(keys_path, secrets_path)
+                    }
+                    ValidatorKeysFormat::Prysm => load_from_prysm_format(keys_path, secrets_path),
+                };
             }
         })
     }
@@ -166,6 +167,34 @@ fn load_from_teku_format(
         match load_one(
             format!("{keys_path}/{file_name}.json"),
             format!("{secrets_path}/{file_name}.txt"),
+        ) {
+            Ok(signer) => signers.push(signer),
+            Err(e) => warn!("Sign load error: {e}"),
+        }
+    }
+
+    Ok(signers)
+}
+
+fn load_from_lodestar_format(
+    keys_path: String,
+    password_path: String,
+) -> eyre::Result<Vec<ConsensusSigner>> {
+    let entries = fs::read_dir(keys_path.clone())?;
+    let mut signers = Vec::new();
+
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+
+        if path.is_dir() {
+            warn!("Path {path:?} is a dir");
+            continue;
+        }
+
+        match load_one(
+            path.as_os_str().to_str().ok_or_eyre("message")?.to_string(),
+            password_path.clone(),
         ) {
             Ok(signer) => signers.push(signer),
             Err(e) => warn!("Sign load error: {e}"),
