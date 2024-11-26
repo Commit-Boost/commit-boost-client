@@ -192,10 +192,15 @@ fn load_from_lodestar_format(
             continue;
         }
 
-        match load_one(
-            path.as_os_str().to_str().ok_or_eyre("message")?.to_string(),
-            password_path.clone(),
-        ) {
+        let key_path = match path.as_os_str().to_str() {
+            Some(key_path) => key_path,
+            None => {
+                warn!("Path {path:?} cannot be converted to string");
+                continue;
+            }
+        };
+
+        match load_one(key_path.to_string(), password_path.clone()) {
             Ok(signer) => signers.push(signer),
             Err(e) => warn!("Sign load error: {e}"),
         }
