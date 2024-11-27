@@ -125,10 +125,12 @@ headers = { X-MyCustomHeader = "ADifferentCustomValue" }
 docker_image = "ghcr.io/commit-boost/signer:latest"
 # Configuration for how the Signer module should load validator keys. Currently two types of loaders are supported:
 #   - File: load keys from a plain text file (unsafe, use only for testing purposes)
-#   - ValidatorsDir: load keys from a `keys` and `secrets` folder (ERC-2335 style keystores as used in Lighthouse)
+#   - ValidatorsDir: load keys from a `keys` and `secrets` file/folder (ERC-2335 style keystores)
 [signer.loader]
 # File: path to the keys file
 key_path = "./keys.example.json"
+# ValidatorsDir: format of the keystore (Lighthouse, Prysm, Teku or Lodestar)
+# format = "Lighthouse"
 # ValidatorsDir: path to the keys directory
 # keys_path = ""
 # ValidatorsDir: path to the secrets directory
