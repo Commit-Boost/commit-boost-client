@@ -132,7 +132,8 @@ impl MuxConfig {
     pub fn loader_env(&self) -> Option<(String, String, String)> {
         self.loader.as_ref().map(|loader| match loader {
             MuxKeysLoader::File(path_buf) => {
-                let path = path_buf.to_str().expect(&format!("invalid path: {:?}", path_buf));
+                let path =
+                    path_buf.to_str().unwrap_or_else(|| panic!("invalid path: {:?}", path_buf));
                 let internal_path = get_mux_path(&self.id);
 
                 (get_mux_env(&self.id), path.to_owned(), internal_path)
