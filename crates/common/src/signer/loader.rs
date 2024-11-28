@@ -38,6 +38,7 @@ pub enum SignerLoader {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "lowercase")]
 pub enum ValidatorKeysFormat {
     Lighthouse,
     Teku,
@@ -180,7 +181,7 @@ fn load_from_lodestar_format(
     keys_path: String,
     password_path: String,
 ) -> eyre::Result<Vec<ConsensusSigner>> {
-    let entries = fs::read_dir(keys_path.clone())?;
+    let entries = fs::read_dir(keys_path)?;
     let mut signers = Vec::new();
 
     for entry in entries {
