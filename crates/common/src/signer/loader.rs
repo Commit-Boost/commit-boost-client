@@ -105,7 +105,7 @@ fn load_secrets_and_keys(
     Ok(signers)
 }
 
-fn load_one(ks_path: String, pw_path: String) -> eyre::Result<ConsensusSigner> {
+pub fn load_one(ks_path: String, pw_path: String) -> eyre::Result<ConsensusSigner> {
     let keystore = Keystore::from_json_file(ks_path).map_err(|_| eyre!("failed reading json"))?;
     let password = fs::read(pw_path)?;
     let key =

@@ -9,7 +9,8 @@ use cb_common::{
         CommitBoostConfig, LogsSettings, ModuleKind, BUILDER_PORT_ENV, BUILDER_URLS_ENV,
         CHAIN_SPEC_ENV, CONFIG_DEFAULT, CONFIG_ENV, JWTS_ENV, LOGS_DIR_DEFAULT, LOGS_DIR_ENV,
         METRICS_PORT_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, PBS_ENDPOINT_ENV, PBS_MODULE_NAME,
-        PROXY_DIR_DEFAULT, PROXY_DIR_ENV, SIGNER_DEFAULT, SIGNER_DIR_KEYS_DEFAULT,
+        PROXY_DIR_DEFAULT, PROXY_DIR_ENV, PROXY_DIR_KEYS_DEFAULT, PROXY_DIR_KEYS_ENV,
+        PROXY_DIR_SECRETS_DEFAULT, PROXY_DIR_SECRETS_ENV, SIGNER_DEFAULT, SIGNER_DIR_KEYS_DEFAULT,
         SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS_DEFAULT, SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV,
         SIGNER_MODULE_NAME, SIGNER_PORT_ENV, SIGNER_URL_ENV,
     },
@@ -347,6 +348,23 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                             PROXY_DIR_DEFAULT
                         )));
                         let (k, v) = get_env_val(PROXY_DIR_ENV, PROXY_DIR_DEFAULT);
+                        signer_envs.insert(k, v);
+                    }
+                    ProxyStore::ERC2335 { keys_path, secrets_path } => {
+                        volumes.push(Volumes::Simple(format!(
+                            "{}:{}:rw",
+                            keys_path.display(),
+                            PROXY_DIR_KEYS_DEFAULT
+                        )));
+                        let (k, v) = get_env_val(PROXY_DIR_KEYS_ENV, PROXY_DIR_KEYS_DEFAULT);
+                        signer_envs.insert(k, v);
+
+                        volumes.push(Volumes::Simple(format!(
+                            "{}:{}:rw",
+                            secrets_path.display(),
+                            PROXY_DIR_SECRETS_DEFAULT
+                        )));
+                        let (k, v) = get_env_val(PROXY_DIR_SECRETS_ENV, PROXY_DIR_SECRETS_DEFAULT);
                         signer_envs.insert(k, v);
                     }
                 }

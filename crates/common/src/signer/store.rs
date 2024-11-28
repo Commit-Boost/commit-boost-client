@@ -3,20 +3,28 @@ use std::{
     fs::{create_dir_all, read_to_string},
     io::Write,
     path::PathBuf,
+    str::FromStr,
 };
 
-use alloy::primitives::Bytes;
+use alloy::{
+    primitives::{Bytes, FixedBytes},
+    rpc::types::beacon::constants::BLS_SIGNATURE_BYTES_LEN,
+};
 use serde::{Deserialize, Serialize};
+use serde_utils::hex;
+use tracing::warn;
 
 use crate::{
-    commit::request::{PublicKey, SignedProxyDelegation},
-    config::{load_env_var, PROXY_DIR_ENV},
+    commit::request::{ProxyDelegation, PublicKey, SignedProxyDelegation},
+    config::{load_env_var, PROXY_DIR_ENV, PROXY_DIR_KEYS_ENV, PROXY_DIR_SECRETS_ENV},
     signer::{
         BlsProxySigner, BlsPublicKey, BlsSigner, EcdsaProxySigner, EcdsaPublicKey, EcdsaSigner,
         ProxySigners,
     },
     types::ModuleId,
 };
+
+use super::load_one;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct KeyAndDelegation<T: PublicKey> {
@@ -28,7 +36,13 @@ struct KeyAndDelegation<T: PublicKey> {
 #[serde(untagged)]
 pub enum ProxyStore {
     /// Stores private keys in plaintext to a file, do not use in prod
-    File { proxy_dir: PathBuf },
+    File {
+        proxy_dir: PathBuf,
+    },
+    ERC2335 {
+        keys_path: PathBuf,
+        secrets_path: PathBuf,
+    },
 }
 
 impl ProxyStore {
@@ -37,6 +51,12 @@ impl ProxyStore {
             ProxyStore::File { .. } => {
                 let path = load_env_var(PROXY_DIR_ENV)?;
                 ProxyStore::File { proxy_dir: PathBuf::from(path) }
+            }
+            ProxyStore::ERC2335 { .. } => {
+                let keys_path = PathBuf::from_str(&load_env_var(PROXY_DIR_KEYS_ENV)?)?;
+                let secrets_path = PathBuf::from_str(&load_env_var(PROXY_DIR_SECRETS_ENV)?)?;
+
+                ProxyStore::ERC2335 { keys_path, secrets_path }
             }
         })
     }
@@ -63,6 +83,7 @@ impl ProxyStore {
                 let mut file = std::fs::File::create(file_path)?;
                 file.write_all(content.as_ref())?;
             }
+            ProxyStore::ERC2335 { keys_path, secrets_path } => {}
         }
 
         Ok(())
@@ -90,6 +111,7 @@ impl ProxyStore {
                 let mut file = std::fs::File::create(file_path)?;
                 file.write_all(content.as_ref())?;
             }
+            ProxyStore::ERC2335 { keys_path, secrets_path } => {}
         }
 
         Ok(())
@@ -181,6 +203,83 @@ impl ProxyStore {
                     }
                 }
 
+                Ok((proxy_signers, bls_map, ecdsa_map))
+            }
+            ProxyStore::ERC2335 { keys_path, secrets_path } => {
+                let mut proxy_signers = ProxySigners::default();
+                let mut bls_map: HashMap<ModuleId, Vec<BlsPublicKey>> = HashMap::new();
+                let mut ecdsa_map: HashMap<ModuleId, Vec<EcdsaPublicKey>> = HashMap::new();
+
+                for entry in std::fs::read_dir(keys_path)? {
+                    let entry = entry?;
+                    let consensus_key_path = entry.path();
+                    let consensus_pubkey =
+                        match hex::decode(&entry.file_name().to_string_lossy().to_string()) {
+                            Ok(pubkey) => BlsPublicKey::from(FixedBytes::from_slice(&pubkey)),
+                            Err(e) => {
+                                warn!("Failed to parse consensus pubkey: {e}");
+                                continue;
+                            }
+                        };
+
+                    if consensus_key_path.is_file() {
+                        warn!("{consensus_key_path:?} is a file");
+                        continue;
+                    }
+
+                    for entry in std::fs::read_dir(&consensus_key_path)? {
+                        let entry = entry?;
+                        let path = entry.path();
+                        let file_name = entry.file_name().to_string_lossy().to_string();
+                        let module_id = match file_name.rsplit_once(".") {
+                            Some((module_id, ext)) if ext == "json" => module_id,
+                            _ => continue,
+                        };
+
+                        if path.is_dir() {
+                            warn!("{path:?} is a directory");
+                            continue;
+                        }
+
+                        let signer = load_one(
+                            path.to_string_lossy().to_string(),
+                            secrets_path
+                                .join(format!("{consensus_pubkey:#x}"))
+                                .join(&module_id)
+                                .to_string_lossy()
+                                .to_string(),
+                        )?;
+
+                        let delegation_signature = match std::fs::read_to_string(
+                            consensus_key_path.join(format!("{module_id}.sig")),
+                        ) {
+                            Ok(sig) => sig,
+                            Err(e) => {
+                                warn!("Failed to read delegation signature: {e}");
+                                continue;
+                            }
+                        };
+                        let delegation_signature =
+                            FixedBytes::<BLS_SIGNATURE_BYTES_LEN>::from_str(&delegation_signature)?;
+
+                        let proxy_signer = BlsProxySigner {
+                            signer: signer.clone(),
+                            delegation: SignedProxyDelegation::<BlsPublicKey> {
+                                message: ProxyDelegation {
+                                    delegator: consensus_pubkey,
+                                    proxy: signer.pubkey(),
+                                },
+                                signature: delegation_signature,
+                            },
+                        };
+
+                        proxy_signers.bls_signers.insert(signer.pubkey(), proxy_signer);
+                        bls_map
+                            .entry(ModuleId(module_id.into()))
+                            .or_default()
+                            .push(signer.pubkey());
+                    }
+                }
                 Ok((proxy_signers, bls_map, ecdsa_map))
             }
         }
