@@ -51,12 +51,12 @@ pub async fn get_header<S: BuilderApiState>(
     }
 
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
-    let (pbs_config, relays, is_mux) = state.mux_config_and_relays(&params.pubkey);
+    let (pbs_config, relays, maybe_mux_id) = state.mux_config_and_relays(&params.pubkey);
 
-    if is_mux {
-        debug!(pubkey = %params.pubkey, relays = relays.len(), "using mux config");
+    if let Some(mux_id) = maybe_mux_id {
+        debug!(mux_id, relays = relays.len(), pubkey = %params.pubkey, "using mux config");
     } else {
-        debug!(pubkey = %params.pubkey, relays = relays.len(), "using default config");
+        debug!(relays = relays.len(), pubkey = %params.pubkey, "using default config");
     }
 
     let max_timeout_ms = pbs_config

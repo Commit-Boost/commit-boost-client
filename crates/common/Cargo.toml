@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 # ethereum
-alloy = { workspace = true }
+alloy.workspace = true
 ssz_types.workspace = true
 ethereum_serde_utils.workspace = true
 

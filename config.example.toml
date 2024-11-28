@@ -103,11 +103,17 @@ frequency_get_header_ms = 300
 # - the mux is only used for get header requests
 # - if any value is missing from the mux config, the default value from the main config will be used
 [[mux]]
-# Which validator pubkeys to match against this mux config
+# Unique ID for the mux config
+id = "test_mux"
+# Which validator pubkeys to match against this mux config. This can be empty or omitted if a loader is specified. 
+# Any keys loaded via the loader will be added to this list.
 validator_pubkeys = [
     "0x80c7f782b2467c5898c5516a8b6595d75623960b4afc4f71ee07d40985d20e117ba35e7cd352a3e75fb85a8668a3b745",
     "0xa119589bb33ef52acbb8116832bec2b58fca590fe5c85eac5d3230b44d5bc09fe73ccd21f88eab31d6de16194d17782e",
 ]
+# Path to a file containing a list of validator pubkeys
+# OPTIONAL
+loader = "./mux_keys.example.json"
 timeout_get_header_ms = 900
 late_in_slot_time_ms = 1500
 # For each mux, one or more [[pbs_mux.relays]] can be defined, which will be used for the matching validator pubkeys
