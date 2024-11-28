@@ -288,7 +288,14 @@ fn load_one(ks_path: String, pw_path: String) -> eyre::Result<ConsensusSigner> {
 #[cfg(test)]
 mod tests {
 
-    use super::FileKey;
+    use alloy::{hex, primitives::FixedBytes};
+
+    use crate::signer::{
+        loader::{load_from_prysm_format, load_from_teku_format},
+        BlsPublicKey, BlsSigner,
+    };
+
+    use super::{load_from_lighthouse_format, load_from_lodestar_format, FileKey};
 
     #[test]
     fn test_decode() {
@@ -304,5 +311,82 @@ mod tests {
         let decoded: Vec<FileKey> = serde_json::from_str(d).unwrap();
 
         assert_eq!(decoded[0].secret_key, s)
+    }
+
+    fn test_correct_load(signers: Vec<BlsSigner>) {
+        assert_eq!(signers.len(), 2);
+        assert!(signers.iter().any(|s| s.pubkey() == BlsPublicKey::from(FixedBytes::new(
+            hex!("883827193f7627cd04e621e1e8d56498362a52b2a30c9a1c72036eb935c4278dee23d38a24d2f7dda62689886f0c39f4")
+        ))));
+        assert!(signers.iter().any(|s| s.pubkey() == BlsPublicKey::from(FixedBytes::new(
+            hex!("b3a22e4a673ac7a153ab5b3c17a4dbef55f7e47210b20c0cbb0e66df5b36bb49ef808577610b034172e955d2312a61b9")
+        ))));
+    }
+
+    #[test]
+    fn test_load_lighthouse() {
+        let result = load_from_lighthouse_format(
+            "../../tests/data/keystores/keys".into(),
+            "../../tests/data/keystores/secrets".into(),
+        );
+
+        assert!(result.is_ok());
+
+        test_correct_load(result.unwrap());
+    }
+
+    #[test]
+    fn test_load_teku() {
+        let result = load_from_teku_format(
+            "../../tests/data/keystores/teku-keys".into(),
+            "../../tests/data/keystores/teku-secrets".into(),
+        );
+
+        assert!(result.is_ok());
+
+        test_correct_load(result.unwrap());
+    }
+
+    #[test]
+    fn test_load_prysm() {
+        let result = load_from_prysm_format(
+            "../../tests/data/keystores/prysm/direct/accounts/all-accounts.keystore.json".into(),
+            "../../tests/data/keystores/prysm/empty_pass".into(),
+        );
+
+        assert!(result.is_ok());
+
+        test_correct_load(result.unwrap());
+    }
+
+    #[test]
+    fn test_load_lodestar() {
+        let result = load_from_lodestar_format(
+            "../../tests/data/keystores/teku-keys/".into(),
+            "../../tests/data/keystores/secrets/0x883827193f7627cd04e621e1e8d56498362a52b2a30c9a1c72036eb935c4278dee23d38a24d2f7dda62689886f0c39f4".into()
+        );
+
+        assert!(result.is_ok());
+
+        let signers = result.unwrap();
+
+        assert_eq!(signers.len(), 1);
+        assert!(signers[0].pubkey() == BlsPublicKey::from(FixedBytes::new(
+            hex!("883827193f7627cd04e621e1e8d56498362a52b2a30c9a1c72036eb935c4278dee23d38a24d2f7dda62689886f0c39f4")
+        )));
+
+        let result = load_from_lodestar_format(
+            "../../tests/data/keystores/teku-keys/".into(),
+            "../../tests/data/keystores/secrets/0xb3a22e4a673ac7a153ab5b3c17a4dbef55f7e47210b20c0cbb0e66df5b36bb49ef808577610b034172e955d2312a61b9".into()
+        );
+
+        assert!(result.is_ok());
+
+        let signers = result.unwrap();
+
+        assert_eq!(signers.len(), 1);
+        assert!(signers[0].pubkey() == BlsPublicKey::from(FixedBytes::new(
+            hex!("b3a22e4a673ac7a153ab5b3c17a4dbef55f7e47210b20c0cbb0e66df5b36bb49ef808577610b034172e955d2312a61b9")
+        )));
     }
 }
