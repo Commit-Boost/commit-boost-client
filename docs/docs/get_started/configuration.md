@@ -36,7 +36,7 @@ To start the signer module, you need to include its parameters in the config fil
 ```toml
 [signer]
 [signer.loader]
-format = "Lighthouse"
+format = "lighthouse"
 keys_path = "/path/to/keys"
 secrets_path = "/path/to.secrets"
 ```
@@ -62,7 +62,7 @@ We currently support Lighthouse, Prysm, Teku and Lodestar's keystores so it's ea
   ```toml
   [signer]
   [signer.loader]
-  format = "Lighthouse"
+  format = "lighthouse"
   keys_path = "keys"
   secrets_path = "secrets"
   ```
@@ -85,7 +85,7 @@ We currently support Lighthouse, Prysm, Teku and Lodestar's keystores so it's ea
   ```toml
   [signer]
   [signer.loader]
-  format = "Prysm"
+  format = "prysm"
   keys_path = "wallet/direct/accounts/all-accounts.keystore.json"
   secrets_path = "secrets/password.txt"
   ```
@@ -108,7 +108,7 @@ We currently support Lighthouse, Prysm, Teku and Lodestar's keystores so it's ea
   ```toml
   [signer]
   [signer.loader]
-  format = "Teku"
+  format = "teku"
   keys_path = "keys"
   secrets_path = "secrets"
   ```
@@ -130,7 +130,7 @@ We currently support Lighthouse, Prysm, Teku and Lodestar's keystores so it's ea
   ```toml
   [signer]
   [signer.loader]
-  format = "Lodestar"
+  format = "lodestar"
   keys_path = "keys"
   secrets_path = "secrets/password.txt"
   ```
@@ -158,7 +158,7 @@ url = ""
 
 [signer]
 [signer.loader]
-format = "Lighthouse"
+format = "lighthouse"
 keys_path = "/path/to/keys"
 secrets_path = "/path/to.secrets"
 
