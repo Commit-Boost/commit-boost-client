@@ -1157,7 +1157,6 @@ dependencies = [
  "eth2_keystore",
  "ethereum_serde_utils 0.7.0",
  "eyre",
- "hex",
  "k256",
  "pbkdf2 0.12.2",
  "rand",
