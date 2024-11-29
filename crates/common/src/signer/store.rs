@@ -11,7 +11,6 @@ use alloy::{
     rpc::types::beacon::constants::BLS_SIGNATURE_BYTES_LEN,
 };
 use serde::{Deserialize, Serialize};
-use serde_utils::hex;
 use tracing::warn;
 
 use crate::{
@@ -213,14 +212,15 @@ impl ProxyStore {
                 for entry in std::fs::read_dir(keys_path)? {
                     let entry = entry?;
                     let consensus_key_path = entry.path();
-                    let consensus_pubkey =
-                        match hex::decode(&entry.file_name().to_string_lossy().to_string()) {
-                            Ok(pubkey) => BlsPublicKey::from(FixedBytes::from_slice(&pubkey)),
-                            Err(e) => {
-                                warn!("Failed to parse consensus pubkey: {e}");
-                                continue;
-                            }
-                        };
+                    let consensus_pubkey = match FixedBytes::from_str(
+                        &entry.file_name().to_string_lossy().to_string(),
+                    ) {
+                        Ok(bytes) => BlsPublicKey::from(bytes),
+                        Err(e) => {
+                            warn!("Failed to parse consensus pubkey: {e}");
+                            continue;
+                        }
+                    };
 
                     if consensus_key_path.is_file() {
                         warn!("{consensus_key_path:?} is a file");
@@ -253,14 +253,12 @@ impl ProxyStore {
                         let delegation_signature = match std::fs::read_to_string(
                             consensus_key_path.join(format!("{module_id}.sig")),
                         ) {
-                            Ok(sig) => sig,
+                            Ok(sig) => FixedBytes::<BLS_SIGNATURE_BYTES_LEN>::from_str(&sig)?,
                             Err(e) => {
                                 warn!("Failed to read delegation signature: {e}");
                                 continue;
                             }
                         };
-                        let delegation_signature =
-                            FixedBytes::<BLS_SIGNATURE_BYTES_LEN>::from_str(&delegation_signature)?;
 
                         let proxy_signer = BlsProxySigner {
                             signer: signer.clone(),
