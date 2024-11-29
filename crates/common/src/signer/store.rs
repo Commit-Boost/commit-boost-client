@@ -7,9 +7,19 @@ use std::{
 };
 
 use alloy::{
+    hex,
     primitives::{Bytes, FixedBytes},
     rpc::types::beacon::constants::BLS_SIGNATURE_BYTES_LEN,
 };
+use eth2_keystore::{
+    default_kdf,
+    json_keystore::{
+        Aes128Ctr, ChecksumModule, Cipher, CipherModule, Crypto, JsonKeystore, KdfModule,
+        Sha256Checksum,
+    },
+    Uuid, IV_SIZE, SALT_SIZE,
+};
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
@@ -82,7 +92,65 @@ impl ProxyStore {
                 let mut file = std::fs::File::create(file_path)?;
                 file.write_all(content.as_ref())?;
             }
-            ProxyStore::ERC2335 { keys_path, secrets_path } => {}
+            ProxyStore::ERC2335 { keys_path, secrets_path } => {
+                let password_bytes: [u8; 32] = rand::thread_rng().gen();
+                let password = hex::encode(password_bytes);
+
+                let pass_path =
+                    secrets_path.join(format!("{:#x}", proxy.delegation.message.delegator));
+                std::fs::create_dir_all(&pass_path)?;
+                let pass_path = pass_path.join(format!("{}", &module_id.0));
+                let mut pass_file = std::fs::File::create(&pass_path)?;
+                pass_file.write_all(password.as_bytes())?;
+
+                let sig_path = keys_path.join(format!("{:#x}", proxy.delegation.message.delegator));
+                std::fs::create_dir_all(&sig_path)?;
+                let sig_path = sig_path.join(format!("{}.sig", &module_id.0));
+
+                let mut sig_file = std::fs::File::create(sig_path)?;
+                sig_file.write_all(format!("{:#x}", proxy.delegation.signature).as_bytes())?;
+
+                let salt: [u8; SALT_SIZE] = rand::thread_rng().gen();
+                let iv: [u8; IV_SIZE] = rand::thread_rng().gen();
+                let kdf = default_kdf(salt.to_vec());
+                let cipher = Cipher::Aes128Ctr(Aes128Ctr { iv: iv.to_vec().into() });
+                let (cipher_text, checksum) =
+                    eth2_keystore::encrypt(&proxy.secret(), password.as_bytes(), &kdf, &cipher)
+                        .map_err(|_| eyre::eyre!("Error encrypting key"))?;
+
+                let keystore = JsonKeystore {
+                    crypto: Crypto {
+                        kdf: KdfModule {
+                            function: kdf.function(),
+                            params: kdf,
+                            message: eth2_keystore::json_keystore::EmptyString,
+                        },
+                        checksum: ChecksumModule {
+                            function: Sha256Checksum::function(),
+                            params: eth2_keystore::json_keystore::EmptyMap,
+                            message: checksum.to_vec().into(),
+                        },
+                        cipher: CipherModule {
+                            function: cipher.function(),
+                            params: cipher,
+                            message: cipher_text.into(),
+                        },
+                    },
+                    uuid: Uuid::new_v4(),
+                    path: None,
+                    pubkey: format!("{:x}", proxy.pubkey()),
+                    version: eth2_keystore::json_keystore::Version::V4,
+                    description: Some(format!("{:#x}", proxy.pubkey())),
+                    name: None,
+                };
+
+                let json_path =
+                    keys_path.join(format!("{:#x}", proxy.delegation.message.delegator));
+                std::fs::create_dir_all(&json_path)?;
+                let json_path = json_path.join(format!("{}.json", &module_id.0));
+                let mut json_file = std::fs::File::create(&json_path)?;
+                json_file.write_all(serde_json::to_string(&keystore)?.as_bytes())?;
+            }
         }
 
         Ok(())
