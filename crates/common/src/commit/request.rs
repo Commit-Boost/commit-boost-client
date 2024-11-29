@@ -1,4 +1,7 @@
-use std::fmt::{self, Debug, Display, LowerHex};
+use std::{
+    fmt::{self, Debug, Display, LowerHex},
+    str::FromStr,
+};
 
 use alloy::rpc::types::beacon::BlsSignature;
 use derive_more::derive::From;
@@ -131,6 +134,27 @@ pub enum EncryptionScheme {
     Bls,
     #[serde(rename = "ecdsa")]
     Ecdsa,
+}
+
+impl ToString for EncryptionScheme {
+    fn to_string(&self) -> String {
+        match self {
+            EncryptionScheme::Bls => "bls".to_string(),
+            EncryptionScheme::Ecdsa => "ecdsa".to_string(),
+        }
+    }
+}
+
+impl FromStr for EncryptionScheme {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "bls" => Ok(EncryptionScheme::Bls),
+            "ecdsa" => Ok(EncryptionScheme::Ecdsa),
+            _ => Err(format!("Unknown scheme: {s}")),
+        }
+    }
 }
 
 // TODO(David): This struct shouldn't be visible to module authors

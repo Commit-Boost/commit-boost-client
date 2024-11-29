@@ -1,7 +1,7 @@
 use std::{fs, path::PathBuf};
 
 use alloy::{primitives::hex::FromHex, rpc::types::beacon::BlsPublicKey};
-use eth2_keystore::Keystore;
+use eth2_keystore::{json_keystore::JsonKeystore, Keystore};
 use eyre::{eyre, Context};
 use serde::{de, Deserialize, Deserializer, Serialize};
 use tracing::warn;
@@ -10,6 +10,8 @@ use crate::{
     config::{load_env_var, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV},
     signer::ConsensusSigner,
 };
+
+use super::{BlsSigner, EcdsaSigner};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(untagged)]
@@ -105,12 +107,26 @@ fn load_secrets_and_keys(
     Ok(signers)
 }
 
-pub fn load_one(ks_path: String, pw_path: String) -> eyre::Result<ConsensusSigner> {
+fn load_one(ks_path: String, pw_path: String) -> eyre::Result<ConsensusSigner> {
     let keystore = Keystore::from_json_file(ks_path).map_err(|_| eyre!("failed reading json"))?;
     let password = fs::read(pw_path)?;
     let key =
         keystore.decrypt_keypair(&password).map_err(|_| eyre!("failed decrypting keypair"))?;
     ConsensusSigner::new_from_bytes(key.sk.serialize().as_bytes())
+}
+
+pub fn load_bls_signer(keys_path: PathBuf, secrets_path: PathBuf) -> eyre::Result<BlsSigner> {
+    load_one(keys_path.to_string_lossy().to_string(), secrets_path.to_string_lossy().to_string())
+}
+
+pub fn load_ecdsa_signer(keys_path: PathBuf, secrets_path: PathBuf) -> eyre::Result<EcdsaSigner> {
+    let key_file = std::fs::File::open(keys_path.to_string_lossy().to_string())?;
+    let key_reader = std::io::BufReader::new(key_file);
+    let keystore: JsonKeystore = serde_json::from_reader(key_reader)?;
+    let password = std::fs::read(secrets_path)?;
+    let decrypted_password = eth2_keystore::decrypt(&password, &keystore.crypto).unwrap();
+
+    EcdsaSigner::new_from_bytes(decrypted_password.as_bytes())
 }
 
 #[cfg(test)]
