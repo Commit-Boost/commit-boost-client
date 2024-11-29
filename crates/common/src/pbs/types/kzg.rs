@@ -94,7 +94,7 @@ impl FromStr for KzgCommitment {
 }
 
 // PROOF
-const BYTES_PER_PROOF: usize = 48;
+pub const BYTES_PER_PROOF: usize = 48;
 
 #[derive(Debug, Clone)]
 pub struct KzgProof(pub [u8; BYTES_PER_PROOF]);
