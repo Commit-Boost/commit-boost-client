@@ -457,3 +457,205 @@ fn store_erc2335_key<T: PublicKey>(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod test {
+    use hex::FromHex;
+    use tree_hash::TreeHash;
+
+    use super::*;
+    use crate::{
+        commit::request::{ProxyDelegationBls, SignedProxyDelegationBls},
+        signer::ConsensusSigner,
+        types::Chain,
+    };
+
+    #[tokio::test]
+    async fn test_erc2335_storage_format() {
+        let tmp_path = std::env::temp_dir();
+        let keys_path = tmp_path.join("keys");
+        let secrets_path = tmp_path.join("secrets");
+        let store = ProxyStore::ERC2335 {
+            keys_path: keys_path.clone(),
+            secrets_path: secrets_path.clone(),
+        };
+
+        let module_id = ModuleId("TEST_MODULE".to_string());
+        let consensus_signer = ConsensusSigner::new_from_bytes(&hex!(
+            "0088e364a5396a81b50febbdc8784663fb9089b5e67cbdc173991a00c587673f"
+        ))
+        .unwrap();
+        let proxy_signer = BlsSigner::new_from_bytes(&hex!(
+            "13000f8b3d7747e7754022720d33d5b506490429f3d593162f00e254f97d2940"
+        ))
+        .unwrap();
+
+        let message = ProxyDelegationBls {
+            delegator: consensus_signer.pubkey(),
+            proxy: proxy_signer.pubkey(),
+        };
+        let signature = consensus_signer.sign(Chain::Mainnet, message.tree_hash_root().0).await;
+        let delegation = SignedProxyDelegationBls { signature, message };
+        let proxy_signer = BlsProxySigner { signer: proxy_signer, delegation };
+
+        store.store_proxy_bls(&module_id, &proxy_signer).unwrap();
+
+        let json_path = keys_path
+            .join(consensus_signer.pubkey().to_string())
+            .join("TEST_MODULE")
+            .join("BLS")
+            .join(format!("{}.json", proxy_signer.pubkey().to_string()));
+        let sig_path = keys_path
+            .join(consensus_signer.pubkey().to_string())
+            .join("TEST_MODULE")
+            .join("BLS")
+            .join(format!("{}.sig", proxy_signer.pubkey().to_string()));
+        let pass_path = secrets_path
+            .join(consensus_signer.pubkey().to_string())
+            .join("TEST_MODULE")
+            .join("BLS")
+            .join(proxy_signer.pubkey().to_string());
+
+        assert!(json_path.exists());
+        assert!(sig_path.exists());
+        assert!(pass_path.exists());
+
+        let keystore: JsonKeystore = serde_json::de::from_str(
+            &std::fs::read_to_string(
+                keys_path
+                    .join(consensus_signer.pubkey().to_string())
+                    .join("TEST_MODULE")
+                    .join("bls")
+                    .join(format!("{}.json", proxy_signer.pubkey().to_string())),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(keystore.pubkey, proxy_signer.pubkey().to_string().trim_start_matches("0x"));
+
+        let sig = FixedBytes::from_hex(std::fs::read_to_string(sig_path).unwrap());
+        assert!(sig.is_ok());
+        assert_eq!(sig.unwrap(), signature);
+    }
+
+    #[test]
+    fn test_erc2335_load() {
+        let keys_path = Path::new("../../tests/data/proxy/keys").to_path_buf();
+        let secrets_path = Path::new("../../tests/data/proxy/secrets").to_path_buf();
+        let store = ProxyStore::ERC2335 {
+            keys_path: keys_path.clone(),
+            secrets_path: secrets_path.clone(),
+        };
+
+        let (proxy_signers, bls_keys, ecdsa_keys) = store.load_proxies().unwrap();
+        assert_eq!(bls_keys.len(), 1);
+        assert_eq!(ecdsa_keys.len(), 0);
+        assert_eq!(proxy_signers.bls_signers.len(), 1);
+        assert_eq!(proxy_signers.ecdsa_signers.len(), 0);
+
+        let proxy_key = BlsPublicKey::from(
+            FixedBytes::from_hex(
+                "a77084280678d9f1efe4ef47a3d62af27872ce82db19a35ee012c4fd5478e6b1123b8869032ba18b2383e8873294f0ba"
+            ).unwrap()
+        );
+        let consensus_key = BlsPublicKey::from(
+            FixedBytes::from_hex(
+                "ac5e059177afc33263e95d0be0690138b9a1d79a6e19018086a0362e0c30a50bf9e05a08cb44785724d0b2718c5c7118"
+            ).unwrap()
+        );
+
+        let proxy_signer = proxy_signers.bls_signers.get(&proxy_key);
+
+        assert!(proxy_signer.is_some());
+        let proxy_signer = proxy_signer.unwrap();
+
+        assert_eq!(
+            proxy_signer.delegation.signature,
+            FixedBytes::from_hex(
+                std::fs::read_to_string(
+                    keys_path
+                        .join(consensus_key.to_string())
+                        .join("TEST_MODULE")
+                        .join("bls")
+                        .join(format!("{proxy_key}.sig"))
+                )
+                .unwrap()
+            )
+            .unwrap()
+        );
+        assert_eq!(proxy_signer.delegation.message.delegator, consensus_key);
+        assert_eq!(proxy_signer.delegation.message.proxy, proxy_key);
+
+        assert!(bls_keys
+            .get(&ModuleId("TEST_MODULE".into()))
+            .is_some_and(|keys| keys.contains(&proxy_key)));
+    }
+
+    #[tokio::test]
+    async fn test_erc2335_store_and_load() {
+        let tmp_path = std::env::temp_dir();
+        let keys_path = tmp_path.join("keys");
+        let secrets_path = tmp_path.join("secrets");
+        let store = ProxyStore::ERC2335 {
+            keys_path: keys_path.clone(),
+            secrets_path: secrets_path.clone(),
+        };
+
+        let module_id = ModuleId("TEST_MODULE".to_string());
+        let consensus_signer = ConsensusSigner::new_from_bytes(&hex!(
+            "0088e364a5396a81b50febbdc8784663fb9089b5e67cbdc173991a00c587673f"
+        ))
+        .unwrap();
+        let proxy_signer = BlsSigner::new_from_bytes(&hex!(
+            "13000f8b3d7747e7754022720d33d5b506490429f3d593162f00e254f97d2940"
+        ))
+        .unwrap();
+
+        let message = ProxyDelegationBls {
+            delegator: consensus_signer.pubkey(),
+            proxy: proxy_signer.pubkey(),
+        };
+        let signature = consensus_signer.sign(Chain::Mainnet, message.tree_hash_root().0).await;
+        let delegation = SignedProxyDelegationBls { signature, message };
+        let proxy_signer = BlsProxySigner { signer: proxy_signer, delegation };
+
+        store.store_proxy_bls(&module_id, &proxy_signer).unwrap();
+
+        let load_result = store.load_proxies();
+        assert!(load_result.is_ok());
+
+        let (proxy_signers, bls_keys, ecdsa_keys) = load_result.unwrap();
+
+        assert_eq!(bls_keys.len(), 1);
+        assert_eq!(ecdsa_keys.len(), 0);
+        assert_eq!(proxy_signers.bls_signers.len(), 1);
+        assert_eq!(proxy_signers.ecdsa_signers.len(), 0);
+
+        let loaded_proxy_signer = proxy_signers.bls_signers.get(&proxy_signer.pubkey());
+
+        assert!(loaded_proxy_signer.is_some());
+        let loaded_proxy_signer = loaded_proxy_signer.unwrap();
+
+        assert_eq!(
+            loaded_proxy_signer.delegation.signature,
+            FixedBytes::from_hex(
+                std::fs::read_to_string(
+                    keys_path
+                        .join(consensus_signer.pubkey().to_string())
+                        .join("TEST_MODULE")
+                        .join("bls")
+                        .join(format!("{}.sig", proxy_signer.pubkey().to_string()))
+                )
+                .unwrap()
+            )
+            .unwrap()
+        );
+        assert_eq!(loaded_proxy_signer.delegation.message.delegator, consensus_signer.pubkey());
+        assert_eq!(loaded_proxy_signer.delegation.message.proxy, proxy_signer.pubkey());
+
+        assert!(bls_keys
+            .get(&ModuleId("TEST_MODULE".into()))
+            .is_some_and(|keys| keys.contains(&proxy_signer.pubkey())));
+    }
+}
