@@ -218,7 +218,11 @@ async fn test_mux() -> Result<()> {
     tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 2));
 
     let mut config = to_pbs_config(chain, get_pbs_static_config(port), relays);
-    let mux = RuntimeMuxConfig { config: config.pbs_config.clone(), relays: vec![mux_relay] };
+    let mux = RuntimeMuxConfig {
+        id: String::from("test"),
+        config: config.pbs_config.clone(),
+        relays: vec![mux_relay],
+    };
 
     let validator_pubkey = blst_pubkey_to_alloy(&random_secret().sk_to_pk());
 

@@ -25,6 +25,8 @@ pub const BUILDER_URLS_ENV: &str = "CB_BUILDER_URLS";
 /// Where to receive BuilderAPI calls from beacon node
 pub const PBS_ENDPOINT_ENV: &str = "CB_PBS_ENDPOINT";
 
+pub const MUX_PATH_ENV: &str = "CB_MUX_PATH";
+
 ///////////////////////// SIGNER /////////////////////////
 
 pub const SIGNER_IMAGE_DEFAULT: &str = "ghcr.io/commit-boost/signer:latest";

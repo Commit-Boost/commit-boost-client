@@ -220,6 +220,17 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     }
 
     let mut pbs_envs = IndexMap::from([get_env_val(CONFIG_ENV, CONFIG_DEFAULT)]);
+    let mut pbs_volumes = vec![config_volume.clone()];
+
+    if let Some(mux_config) = cb_config.muxes {
+        for mux in mux_config.muxes.iter() {
+            if let Some((env_name, actual_path, internal_path)) = mux.loader_env() {
+                let (key, val) = get_env_val(&env_name, &internal_path);
+                pbs_envs.insert(key, val);
+                pbs_volumes.push(Volumes::Simple(format!("{}:{}:ro", actual_path, internal_path)));
+            }
+        }
+    }
 
     if let Some((key, val)) = chain_spec_env.clone() {
         pbs_envs.insert(key, val);
@@ -252,7 +263,6 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     pbs_envs.insert(key, val);
 
     // volumes
-    let mut pbs_volumes = vec![config_volume.clone()];
     pbs_volumes.extend(chain_spec_volume.clone());
     pbs_volumes.extend(get_log_volume(&cb_config.logs, PBS_MODULE_NAME));
 
@@ -320,7 +330,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                     let (k, v) = get_env_val(SIGNER_KEYS_ENV, SIGNER_DEFAULT);
                     signer_envs.insert(k, v);
                 }
-                SignerLoader::ValidatorsDir { keys_path, secrets_path } => {
+                SignerLoader::ValidatorsDir { keys_path, secrets_path, format: _ } => {
                     volumes.push(Volumes::Simple(format!(
                         "{}:{}:ro",
                         keys_path.display(),

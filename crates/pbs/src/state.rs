@@ -88,10 +88,10 @@ where
     pub fn mux_config_and_relays(
         &self,
         pubkey: &BlsPublicKey,
-    ) -> (&PbsConfig, &[RelayClient], bool) {
+    ) -> (&PbsConfig, &[RelayClient], Option<&str>) {
         match self.config.muxes.as_ref().and_then(|muxes| muxes.get(pubkey)) {
-            Some(mux) => (&mux.config, mux.relays.as_slice(), true),
-            None => (self.pbs_config(), self.relays(), false),
+            Some(mux) => (&mux.config, mux.relays.as_slice(), Some(&mux.id)),
+            None => (self.pbs_config(), self.relays(), None),
         }
     }
 
