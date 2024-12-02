@@ -85,15 +85,22 @@ To persist proxy keys across restarts, you must enable the proxy store in the co
   ├── <keys_path>
   │   └── <CONSENSUS_PUBLIC_KEY>
   │       └── <MODULE_ID>
-  │           ├── bls.json
-  │           ├── bls.sig
-  │           ├── ecdsa.json
-  │           └── ecdsa.sig
+  │           ├── bls/
+  │           │   ├── <PROXY_PUBLIC_KEY1>.json
+  │           │   ├── <PROXY_PUBLIC_KEY1>.sig
+  │           │   ├── <PROXY_PUBLIC_KEY2>.json
+  │           │   └── <PROXY_PUBLIC_KEY2>.sig
+  │           └── ecdsa/
+  │               ├── <PROXY_PUBLIC_KEY3>.json
+  │               └── <PROXY_PUBLIC_KEY3>.sig
   └── <secrets_path>
       └── <CONSENSUS_PUBLIC_KEY>
           └── <MODULE_ID>
-              ├── bls
+              ├── bls/
+              │   ├── <PROXY_PUBLIC_KEY1>
+              │   └── <PROXY_PUBLIC_KEY2>
               └── ecdsa
+                  └── <PROXY_PUBLIC_KEY3>
   ```
 
   #### Configuration
@@ -104,7 +111,7 @@ To persist proxy keys across restarts, you must enable the proxy store in the co
   secrets_path = "path/to/secrets"
   ```
 
-  Where the `bls.json` and `ecdsa.json` files contain ERC-2335 keystore, the `bls.sig` and `ecdsa.sig` files contain the signature of the delegation, and `bls` and `ecdsa` files contain the password to decrypt the keystores.
+  Where the `<PROXY_PUBLIC_KEY>.json` files contain ERC-2335 keystore, the `<PROXY_PUBLIC_KEY>.sig` files contain the signature of the delegation, and `<PROXY_PUBLIC_KEY>` files contain the password to decrypt the keystores.
 </details>
 
 ## Custom module

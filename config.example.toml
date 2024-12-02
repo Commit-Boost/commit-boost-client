@@ -135,7 +135,7 @@ key_path = "./keys.example.json"
 # secrets_path = ""
 # Configuration for how the Signer module should store proxy delegations. Supported types of store are:
 #   - File: store keys and delegations from a plain text file (unsafe, use only for testing purposes)
-#   - ERC2335: store keys and delegations safely using ERC-2335 style keystores. More details can be found in the docs ()
+#   - ERC2335: store keys and delegations safely using ERC-2335 style keystores. More details can be found in the docs (https://commit-boost.github.io/commit-boost-client/get_started/configuration#proxy-keys-store)
 # OPTIONAL, if missing proxies are lost on restart
 [signer.store]
 # File: path to the keys file
