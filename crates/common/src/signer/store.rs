@@ -265,100 +265,113 @@ impl ProxyStore {
                             continue;
                         }
 
-                        for entry in std::fs::read_dir(&module_path)? {
-                            let entry = entry?;
-                            let path = entry.path();
-                            let scheme: EncryptionScheme = match entry
-                                .file_name()
-                                .to_string_lossy()
-                                .to_string()
-                                .rsplit_once(".")
-                            {
-                                Some((scheme, ext)) if ext == "json" => {
-                                    EncryptionScheme::from_str(scheme)
-                                        .map_err(|e| eyre::eyre!(e))?
+                        let bls_path = module_path.join("bls");
+                        if let Ok(bls_keys) = std::fs::read_dir(&bls_path) {
+                            for entry in bls_keys {
+                                let entry = entry?;
+                                let path = entry.path();
+
+                                if !path.is_file()
+                                    || !path.extension().is_some_and(|ext| ext == "json")
+                                {
+                                    continue;
                                 }
-                                _ => continue,
-                            };
 
-                            match scheme {
-                                EncryptionScheme::Bls => {
-                                    let signer = load_bls_signer(
-                                        path,
-                                        secrets_path
-                                            .join(format!("{consensus_pubkey:#x}"))
-                                            .join(&module_id)
-                                            .join("bls"),
-                                    )?;
+                                let name = entry.file_name().to_string_lossy().to_string();
+                                let name = name.trim_end_matches(".json");
 
-                                    let delegation_signature = match std::fs::read_to_string(
-                                        module_path.join("bls.sig"),
-                                    ) {
-                                        Ok(sig) => {
-                                            FixedBytes::<BLS_SIGNATURE_BYTES_LEN>::from_str(&sig)?
-                                        }
-                                        Err(e) => {
-                                            warn!("Failed to read delegation signature: {e}");
-                                            continue;
-                                        }
-                                    };
+                                let signer = load_bls_signer(
+                                    path,
+                                    secrets_path
+                                        .join(consensus_pubkey.to_string())
+                                        .join(&module_id)
+                                        .join("bls")
+                                        .join(name),
+                                )
+                                .map_err(|e| eyre::eyre!("Error loading BLS signer: {e}"))?;
 
-                                    let proxy_signer = BlsProxySigner {
-                                        signer: signer.clone(),
-                                        delegation: SignedProxyDelegation {
-                                            message: ProxyDelegation {
-                                                delegator: consensus_pubkey,
-                                                proxy: signer.pubkey(),
-                                            },
-                                            signature: delegation_signature,
+                                let delegation_signature = match std::fs::read_to_string(
+                                    bls_path.join(format!("{name}.sig")),
+                                ) {
+                                    Ok(sig) => {
+                                        FixedBytes::<BLS_SIGNATURE_BYTES_LEN>::from_str(&sig)?
+                                    }
+                                    Err(e) => {
+                                        warn!("Failed to read delegation signature: {e}");
+                                        continue;
+                                    }
+                                };
+
+                                let proxy_signer = BlsProxySigner {
+                                    signer: signer.clone(),
+                                    delegation: SignedProxyDelegation {
+                                        message: ProxyDelegation {
+                                            delegator: consensus_pubkey,
+                                            proxy: signer.pubkey(),
                                         },
-                                    };
+                                        signature: delegation_signature,
+                                    },
+                                };
 
-                                    proxy_signers.bls_signers.insert(signer.pubkey(), proxy_signer);
-                                    bls_map
-                                        .entry(ModuleId(module_id.clone().into()))
-                                        .or_default()
-                                        .push(signer.pubkey());
+                                proxy_signers.bls_signers.insert(signer.pubkey(), proxy_signer);
+                                bls_map
+                                    .entry(ModuleId(module_id.clone().into()))
+                                    .or_default()
+                                    .push(signer.pubkey());
+                            }
+                        }
+
+                        let ecdsa_path = module_path.join("ecdsa");
+                        if let Ok(ecdsa_keys) = std::fs::read_dir(&ecdsa_path) {
+                            for entry in ecdsa_keys {
+                                let entry = entry?;
+                                let path = entry.path();
+
+                                if !path.is_file()
+                                    || !path.extension().is_some_and(|ext| ext == "json")
+                                {
+                                    continue;
                                 }
-                                EncryptionScheme::Ecdsa => {
-                                    let signer = load_ecdsa_signer(
-                                        path,
-                                        secrets_path
-                                            .join(format!("{consensus_pubkey:#x}"))
-                                            .join(&module_id)
-                                            .join("ecdsa"),
-                                    )?;
-                                    let delegation_signature = match std::fs::read_to_string(
-                                        module_path.join("ecdsa.sig"),
-                                    ) {
-                                        Ok(sig) => {
-                                            FixedBytes::<BLS_SIGNATURE_BYTES_LEN>::from_str(&sig)?
-                                        }
-                                        Err(e) => {
-                                            warn!("Failed to read delegation signature: {e}");
-                                            continue;
-                                        }
-                                    };
 
-                                    let proxy_signer = EcdsaProxySigner {
-                                        signer: signer.clone(),
-                                        delegation: SignedProxyDelegation {
-                                            message: ProxyDelegation {
-                                                delegator: consensus_pubkey,
-                                                proxy: signer.pubkey(),
-                                            },
-                                            signature: delegation_signature,
+                                let name = entry.file_name().to_string_lossy().to_string();
+                                let name = name.trim_end_matches(".json");
+
+                                let signer = load_ecdsa_signer(
+                                    path,
+                                    secrets_path
+                                        .join(format!("{consensus_pubkey:#x}"))
+                                        .join(&module_id)
+                                        .join("ecdsa")
+                                        .join(name),
+                                )?;
+                                let delegation_signature = match std::fs::read_to_string(
+                                    ecdsa_path.join(format!("{name}.sig")),
+                                ) {
+                                    Ok(sig) => {
+                                        FixedBytes::<BLS_SIGNATURE_BYTES_LEN>::from_str(&sig)?
+                                    }
+                                    Err(e) => {
+                                        warn!("Failed to read delegation signature: {e}",);
+                                        continue;
+                                    }
+                                };
+
+                                let proxy_signer = EcdsaProxySigner {
+                                    signer: signer.clone(),
+                                    delegation: SignedProxyDelegation {
+                                        message: ProxyDelegation {
+                                            delegator: consensus_pubkey,
+                                            proxy: signer.pubkey(),
                                         },
-                                    };
+                                        signature: delegation_signature,
+                                    },
+                                };
 
-                                    proxy_signers
-                                        .ecdsa_signers
-                                        .insert(signer.pubkey(), proxy_signer);
-                                    ecdsa_map
-                                        .entry(ModuleId(module_id.clone().into()))
-                                        .or_default()
-                                        .push(signer.pubkey());
-                                }
+                                proxy_signers.ecdsa_signers.insert(signer.pubkey(), proxy_signer);
+                                ecdsa_map
+                                    .entry(ModuleId(module_id.clone().into()))
+                                    .or_default()
+                                    .push(signer.pubkey());
                             }
                         }
                     }
@@ -377,23 +390,29 @@ fn store_erc2335_key<T: PublicKey>(
     secrets_path: &PathBuf,
     scheme: EncryptionScheme,
 ) -> eyre::Result<()> {
+    let proxy_pubkey = delegation.message.proxy;
+
     let password_bytes: [u8; 32] = rand::thread_rng().gen();
     let password = hex::encode(password_bytes);
 
-    let pass_path =
-        secrets_path.join(format!("{:#x}", delegation.message.delegator)).join(&module_id.0);
+    let pass_path = secrets_path
+        .join(delegation.message.delegator.to_string())
+        .join(&module_id.0)
+        .join(scheme.to_string());
     std::fs::create_dir_all(&pass_path)?;
-    let pass_path = pass_path.join(scheme.to_string());
+    let pass_path = pass_path.join(proxy_pubkey.to_string());
     let mut pass_file = std::fs::File::create(&pass_path)?;
     pass_file.write_all(password.as_bytes())?;
 
-    let sig_path =
-        keys_path.join(format!("{:#x}", delegation.message.delegator)).join(&module_id.0);
+    let sig_path = keys_path
+        .join(delegation.message.delegator.to_string())
+        .join(&module_id.0)
+        .join(scheme.to_string());
     std::fs::create_dir_all(&sig_path)?;
-    let sig_path = sig_path.join(format!("{}.sig", scheme.to_string()));
+    let sig_path = sig_path.join(format!("{}.sig", proxy_pubkey.to_string()));
 
     let mut sig_file = std::fs::File::create(sig_path)?;
-    sig_file.write_all(format!("{:#x}", delegation.signature).as_bytes())?;
+    sig_file.write_all(delegation.signature.to_string().as_bytes())?;
 
     let salt: [u8; SALT_SIZE] = rand::thread_rng().gen();
     let iv: [u8; IV_SIZE] = rand::thread_rng().gen();
@@ -425,14 +444,16 @@ fn store_erc2335_key<T: PublicKey>(
         path: None,
         pubkey: format!("{:x}", delegation.message.proxy),
         version: eth2_keystore::json_keystore::Version::V4,
-        description: Some(format!("{:#x}", delegation.message.proxy)),
+        description: Some(delegation.message.proxy.to_string()),
         name: None,
     };
 
-    let json_path =
-        keys_path.join(format!("{:#x}", delegation.message.delegator)).join(&module_id.0);
+    let json_path = keys_path
+        .join(delegation.message.delegator.to_string())
+        .join(&module_id.0)
+        .join(scheme.to_string());
     std::fs::create_dir_all(&json_path)?;
-    let json_path = json_path.join(format!("{}.json", scheme.to_string()));
+    let json_path = json_path.join(format!("{}.json", proxy_pubkey));
     let mut json_file = std::fs::File::create(&json_path)?;
     json_file.write_all(serde_json::to_string(&keystore)?.as_bytes())?;
 
