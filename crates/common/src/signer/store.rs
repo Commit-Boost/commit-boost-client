@@ -470,6 +470,7 @@ mod test {
         types::Chain,
     };
 
+    #[tokio::test]
     async fn test_erc2335_storage_format() {
         let tmp_path = std::env::temp_dir().join("test_erc2335_storage_format");
         let keys_path = tmp_path.join("keys");
@@ -502,34 +503,25 @@ mod test {
         let json_path = keys_path
             .join(consensus_signer.pubkey().to_string())
             .join("TEST_MODULE")
-            .join("BLS")
+            .join("bls")
             .join(format!("{}.json", proxy_signer.pubkey().to_string()));
         let sig_path = keys_path
             .join(consensus_signer.pubkey().to_string())
             .join("TEST_MODULE")
-            .join("BLS")
+            .join("bls")
             .join(format!("{}.sig", proxy_signer.pubkey().to_string()));
         let pass_path = secrets_path
             .join(consensus_signer.pubkey().to_string())
             .join("TEST_MODULE")
-            .join("BLS")
+            .join("bls")
             .join(proxy_signer.pubkey().to_string());
 
         assert!(json_path.exists());
         assert!(sig_path.exists());
         assert!(pass_path.exists());
 
-        let keystore: JsonKeystore = serde_json::de::from_str(
-            &std::fs::read_to_string(
-                keys_path
-                    .join(consensus_signer.pubkey().to_string())
-                    .join("TEST_MODULE")
-                    .join("bls")
-                    .join(format!("{}.json", proxy_signer.pubkey().to_string())),
-            )
-            .unwrap(),
-        )
-        .unwrap();
+        let keystore: JsonKeystore =
+            serde_json::de::from_str(&std::fs::read_to_string(json_path).unwrap()).unwrap();
 
         assert_eq!(keystore.pubkey, proxy_signer.pubkey().to_string().trim_start_matches("0x"));
 
@@ -538,6 +530,7 @@ mod test {
         assert_eq!(sig.unwrap(), signature);
     }
 
+    #[test]
     fn test_erc2335_load() {
         let keys_path = Path::new("../../tests/data/proxy/keys").to_path_buf();
         let secrets_path = Path::new("../../tests/data/proxy/secrets").to_path_buf();
@@ -590,6 +583,7 @@ mod test {
             .is_some_and(|keys| keys.contains(&proxy_key)));
     }
 
+    #[tokio::test]
     async fn test_erc2335_store_and_load() {
         let tmp_path = std::env::temp_dir().join("test_erc2335_store_and_load");
         let keys_path = tmp_path.join("keys");
@@ -654,12 +648,5 @@ mod test {
         assert!(bls_keys
             .get(&ModuleId("TEST_MODULE".into()))
             .is_some_and(|keys| keys.contains(&proxy_signer.pubkey())));
-    }
-
-    #[tokio::test]
-    async fn test_erc2335_store() {
-        test_erc2335_storage_format().await;
-        test_erc2335_load();
-        test_erc2335_store_and_load().await;
     }
 }
