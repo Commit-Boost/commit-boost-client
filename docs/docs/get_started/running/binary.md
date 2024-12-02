@@ -22,7 +22,8 @@ Modules need some environment variables to work correctly.
 
 ### PBS Module
 - `CB_BUILDER_URLS`: optional, comma-separated list of urls to `events` modules where to post builder events
-
+- `CB_PBS_ENDPOINT`: optional, override the endpoint where the PBS module will open the port for the beacon node
+- `CB_MUX_PATH_{ID}`: optional, override where to load mux validator keys for mux with id=\{ID\}
 ### Signer Module
 - `CB_JWTS`: required, comma-separated list of `MODULE_ID=JWT` to process signature requests
 - `CB_SIGNER_PORT`: required, port to open the signer server on
