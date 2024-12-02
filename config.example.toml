@@ -131,13 +131,23 @@ headers = { X-MyCustomHeader = "ADifferentCustomValue" }
 docker_image = "ghcr.io/commit-boost/signer:latest"
 # Configuration for how the Signer module should load validator keys. Currently two types of loaders are supported:
 #   - File: load keys from a plain text file (unsafe, use only for testing purposes)
-#   - ValidatorsDir: load keys from a `keys` and `secrets` folder (ERC-2335 style keystores as used in Lighthouse)
+#   - ValidatorsDir: load keys from a `keys` and `secrets` file/folder (ERC-2335 style keystores). More details can be found in the docs (https://commit-boost.github.io/commit-boost-client/get_started/configuration/)
 [signer.loader]
 # File: path to the keys file
 key_path = "./keys.example.json"
-# ValidatorsDir: path to the keys directory
+# ValidatorsDir: format of the keystore (lighthouse, prysm, teku or lodestar)
+# format = "lighthouse"
+# ValidatorsDir: full path to the keys directory
+# For lighthouse, it's de path to the directory where the `<pubkey>/voting-keystore.json` directories are located.
+# For prysm, it's the path to the `all-accounts.keystore.json` file.
+# For teku, it's the path to the directory where all `<pubkey>.json` files are located.
+# For lodestar, it's the path to the directory where all `<pubkey>.json` files are located.
 # keys_path = ""
-# ValidatorsDir: path to the secrets directory
+# ValidatorsDir: full path to the secrets file/directory
+# For lighthouse, it's de path to the directory where the `<pubkey>.json` files are located.
+# For prysm, it's the path to the file containing the wallet decryption password.
+# For teku, it's the path to the directory where all `<pubkey>.txt` files are located.
+# For lodestar, it's the path to the file containing the decryption password.
 # secrets_path = ""
 # Configuration for how the Signer module should store proxy delegations. Currently one type of store is supported:
 #   - File: store keys and delegations from a plain text file (unsafe, use only for testing purposes)

@@ -29,7 +29,7 @@ Modules need some environment variables to work correctly.
 - `CB_SIGNER_PORT`: required, port to open the signer server on
 For loading keys we currently support:
     - `CB_SIGNER_LOADER_FILE`: path to a `.json` with plaintext keys (for testing purposes only)
-    - `CB_SIGNER_LOADER_KEYS_DIR` and `CB_SIGNER_LOADER_SECRETS_DIR`: paths to the `keys` and `secrets` directories (ERC-2335 style keystores as used in Lighthouse)
+    - `CB_SIGNER_LOADER_FORMAT`, `CB_SIGNER_LOADER_KEYS_DIR` and `CB_SIGNER_LOADER_SECRETS_DIR`: paths to the `keys` and `secrets` directories or files (ERC-2335 style keystores, see [Signer config](../configuration/#signer-module) for more info)
 For storing proxy keys we currently support:
     - `CB_PROXY_STORE_DIR`: directory where proxy keys and delegations will be saved in plaintext (for testing purposes only)
 
@@ -55,5 +55,4 @@ CB_CONFIG=./cb-config.toml commit-boost-pbs
 ```
 
 ## Security
-Running the modules natively means you opt out of the security guarantees made by Docker and it's up to you how to setup and ensure the modules run safely. 
-
+Running the modules natively means you opt out of the security guarantees made by Docker and it's up to you how to setup and ensure the modules run safely.

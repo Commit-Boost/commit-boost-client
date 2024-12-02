@@ -329,7 +329,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                     let (k, v) = get_env_val(SIGNER_KEYS_ENV, SIGNER_DEFAULT);
                     signer_envs.insert(k, v);
                 }
-                SignerLoader::ValidatorsDir { keys_path, secrets_path } => {
+                SignerLoader::ValidatorsDir { keys_path, secrets_path, format: _ } => {
                     volumes.push(Volumes::Simple(format!(
                         "{}:{}:ro",
                         keys_path.display(),
