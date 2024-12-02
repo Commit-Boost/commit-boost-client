@@ -293,12 +293,11 @@ mod tests {
 
     use alloy::{hex, primitives::FixedBytes};
 
+    use super::{load_from_lighthouse_format, load_from_lodestar_format, FileKey};
     use crate::signer::{
         loader::{load_from_prysm_format, load_from_teku_format},
         BlsPublicKey, BlsSigner,
     };
-
-    use super::{load_from_lighthouse_format, load_from_lodestar_format, FileKey};
 
     #[test]
     fn test_decode() {
