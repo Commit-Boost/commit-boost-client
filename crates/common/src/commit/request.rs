@@ -136,11 +136,11 @@ pub enum EncryptionScheme {
     Ecdsa,
 }
 
-impl ToString for EncryptionScheme {
-    fn to_string(&self) -> String {
+impl Display for EncryptionScheme {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            EncryptionScheme::Bls => "bls".to_string(),
-            EncryptionScheme::Ecdsa => "ecdsa".to_string(),
+            EncryptionScheme::Bls => write!(f, "bls"),
+            EncryptionScheme::Ecdsa => write!(f, "ecdsa"),
         }
     }
 }

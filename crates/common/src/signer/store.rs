@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     fs::{create_dir_all, read_to_string},
     io::Write,
-    path::PathBuf,
+    path::{Path, PathBuf},
     str::FromStr,
 };
 
@@ -23,6 +23,7 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
+use super::{load_bls_signer, load_ecdsa_signer};
 use crate::{
     commit::request::{EncryptionScheme, ProxyDelegation, PublicKey, SignedProxyDelegation},
     config::{load_env_var, PROXY_DIR_ENV, PROXY_DIR_KEYS_ENV, PROXY_DIR_SECRETS_ENV},
@@ -32,8 +33,6 @@ use crate::{
     },
     types::ModuleId,
 };
-
-use super::{load_bls_signer, load_ecdsa_signer};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct KeyAndDelegation<T: PublicKey> {
@@ -240,15 +239,14 @@ impl ProxyStore {
                 for entry in std::fs::read_dir(keys_path)? {
                     let entry = entry?;
                     let consensus_key_path = entry.path();
-                    let consensus_pubkey = match FixedBytes::from_str(
-                        &entry.file_name().to_string_lossy().to_string(),
-                    ) {
-                        Ok(bytes) => BlsPublicKey::from(bytes),
-                        Err(e) => {
-                            warn!("Failed to parse consensus pubkey: {e}");
-                            continue;
-                        }
-                    };
+                    let consensus_pubkey =
+                        match FixedBytes::from_str(&entry.file_name().to_string_lossy()) {
+                            Ok(bytes) => BlsPublicKey::from(bytes),
+                            Err(e) => {
+                                warn!("Failed to parse consensus pubkey: {e}");
+                                continue;
+                            }
+                        };
 
                     if !consensus_key_path.is_dir() {
                         warn!("{consensus_key_path:?} is not a directory");
@@ -271,8 +269,8 @@ impl ProxyStore {
                                 let entry = entry?;
                                 let path = entry.path();
 
-                                if !path.is_file()
-                                    || !path.extension().is_some_and(|ext| ext == "json")
+                                if !path.is_file() ||
+                                    !path.extension().is_some_and(|ext| ext == "json")
                                 {
                                     continue;
                                 }
@@ -315,7 +313,7 @@ impl ProxyStore {
 
                                 proxy_signers.bls_signers.insert(signer.pubkey(), proxy_signer);
                                 bls_map
-                                    .entry(ModuleId(module_id.clone().into()))
+                                    .entry(ModuleId(module_id.clone()))
                                     .or_default()
                                     .push(signer.pubkey());
                             }
@@ -327,8 +325,8 @@ impl ProxyStore {
                                 let entry = entry?;
                                 let path = entry.path();
 
-                                if !path.is_file()
-                                    || !path.extension().is_some_and(|ext| ext == "json")
+                                if !path.is_file() ||
+                                    !path.extension().is_some_and(|ext| ext == "json")
                                 {
                                     continue;
                                 }
@@ -369,7 +367,7 @@ impl ProxyStore {
 
                                 proxy_signers.ecdsa_signers.insert(signer.pubkey(), proxy_signer);
                                 ecdsa_map
-                                    .entry(ModuleId(module_id.clone().into()))
+                                    .entry(ModuleId(module_id.clone()))
                                     .or_default()
                                     .push(signer.pubkey());
                             }
@@ -386,8 +384,8 @@ fn store_erc2335_key<T: PublicKey>(
     module_id: &ModuleId,
     delegation: SignedProxyDelegation<T>,
     secret: Vec<u8>,
-    keys_path: &PathBuf,
-    secrets_path: &PathBuf,
+    keys_path: &Path,
+    secrets_path: &Path,
     scheme: EncryptionScheme,
 ) -> eyre::Result<()> {
     let proxy_pubkey = delegation.message.proxy;
@@ -409,7 +407,7 @@ fn store_erc2335_key<T: PublicKey>(
         .join(&module_id.0)
         .join(scheme.to_string());
     std::fs::create_dir_all(&sig_path)?;
-    let sig_path = sig_path.join(format!("{}.sig", proxy_pubkey.to_string()));
+    let sig_path = sig_path.join(format!("{}.sig", proxy_pubkey));
 
     let mut sig_file = std::fs::File::create(sig_path)?;
     sig_file.write_all(delegation.signature.to_string().as_bytes())?;

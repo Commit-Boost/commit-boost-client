@@ -6,12 +6,11 @@ use eyre::{eyre, Context};
 use serde::{de, Deserialize, Deserializer, Serialize};
 use tracing::warn;
 
+use super::{BlsSigner, EcdsaSigner};
 use crate::{
     config::{load_env_var, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV},
     signer::ConsensusSigner,
 };
-
-use super::{BlsSigner, EcdsaSigner};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(untagged)]
