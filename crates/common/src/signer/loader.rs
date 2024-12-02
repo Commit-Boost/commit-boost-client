@@ -38,11 +38,14 @@ pub enum SignerLoader {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "lowercase")]
 pub enum ValidatorKeysFormat {
+    #[serde(alias = "lighthouse")]
     Lighthouse,
+    #[serde(alias = "teku")]
     Teku,
+    #[serde(alias = "lodestar")]
     Lodestar,
+    #[serde(alias = "prysm")]
     Prysm,
 }
 
