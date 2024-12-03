@@ -136,6 +136,7 @@ pub enum EncryptionScheme {
 // TODO(David): This struct shouldn't be visible to module authors
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GenerateProxyRequest {
+    #[serde(rename = "pubkey")]
     pub consensus_pubkey: BlsPublicKey,
     pub scheme: EncryptionScheme,
 }

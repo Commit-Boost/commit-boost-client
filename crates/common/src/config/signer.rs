@@ -13,14 +13,23 @@ use crate::{
 };
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct SignerConfig {
-    /// Docker image of the module
-    #[serde(default = "default_signer")]
-    pub docker_image: String,
-    /// Which keys to load
-    pub loader: SignerLoader,
-    /// How to store keys
-    pub store: Option<ProxyStore>,
+#[serde(rename_all = "snake_case")]
+pub enum SignerConfig {
+    /// Local signer module
+    Local {
+        /// Docker image of the module
+        #[serde(default = "default_signer")]
+        docker_image: String,
+        /// Which keys to load
+        loader: SignerLoader,
+        /// How to store keys
+        store: Option<ProxyStore>,
+    },
+    /// Remote signer module with compatible API
+    Remote {
+        /// Complete url of the base API endpoint
+        url: String,
+    },
 }
 
 fn default_signer() -> String {
@@ -43,14 +52,12 @@ impl StartSignerConfig {
         let jwts = load_jwts()?;
         let server_port = load_env_var(SIGNER_PORT_ENV)?.parse()?;
 
-        let signer_config = config.signer.expect("Signer config is missing");
-
-        Ok(StartSignerConfig {
-            chain: config.chain,
-            loader: signer_config.loader,
-            server_port,
-            jwts,
-            store: signer_config.store,
-        })
+        match config.signer {
+            Some(SignerConfig::Local { loader, store, .. }) => {
+                Ok(StartSignerConfig { chain: config.chain, loader, server_port, jwts, store })
+            }
+            Some(SignerConfig::Remote { .. }) => Err(eyre::eyre!("Remote signer configured")),
+            None => Err(eyre::eyre!("Signer config is missing")),
+        }
     }
 }
