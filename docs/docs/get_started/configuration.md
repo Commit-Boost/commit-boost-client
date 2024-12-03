@@ -31,17 +31,20 @@ Note that in this setup, the signer module will not be started.
 
 ## Signer module
 
-To start the signer module, you need to include its parameters in the config file:
+Commit-Boost supports both local and remote signers. The signer module is responsible for signing the transactions that other modules generates.
+
+### Local signer
+
+To start a local signer module, you need to include its parameters in the config file
 
 ```toml
-[signer]
-[signer.loader]
+[signer.local.loader]
 format = "lighthouse"
 keys_path = "/path/to/keys"
 secrets_path = "/path/to.secrets"
 ```
 
-We currently support Lighthouse, Prysm, Teku and Lodestar's keystores so it's easier to load the keys. We're working on adding support for additional keystores, including remote signers. These are the expected file structures for each format:
+We currently support Lighthouse, Prysm, Teku and Lodestar's keystores so it's easier to load the keys. We're working on adding support for additional keystores. These are the expected file structures for each format:
 
 <details>
   <summary>Lighthouse</summary>
@@ -61,7 +64,7 @@ We currently support Lighthouse, Prysm, Teku and Lodestar's keystores so it's ea
   #### Config:
   ```toml
   [signer]
-  [signer.loader]
+  [signer.local.loader]
   format = "lighthouse"
   keys_path = "keys"
   secrets_path = "secrets"
@@ -84,7 +87,7 @@ We currently support Lighthouse, Prysm, Teku and Lodestar's keystores so it's ea
   #### Config:
   ```toml
   [signer]
-  [signer.loader]
+  [signer.local.loader]
   format = "prysm"
   keys_path = "wallet/direct/accounts/all-accounts.keystore.json"
   secrets_path = "secrets/password.txt"
@@ -107,7 +110,7 @@ We currently support Lighthouse, Prysm, Teku and Lodestar's keystores so it's ea
   #### Config:
   ```toml
   [signer]
-  [signer.loader]
+  [signer.local.loader]
   format = "teku"
   keys_path = "keys"
   secrets_path = "secrets"
@@ -128,8 +131,7 @@ We currently support Lighthouse, Prysm, Teku and Lodestar's keystores so it's ea
 
   #### Config:
   ```toml
-  [signer]
-  [signer.loader]
+  [signer.local.loader]
   format = "lodestar"
   keys_path = "keys"
   secrets_path = "secrets/password.txt"
@@ -140,6 +142,16 @@ We currently support Lighthouse, Prysm, Teku and Lodestar's keystores so it's ea
   :::
 </details>
 
+### Remote signer
+
+You might choose to use an external service to sign the transactions. For now, we support Web3Signer but we're working on adding support for additional signers.
+
+The parameters needed for the remote signer are:
+
+```toml
+[signer.remote]
+url = "https://remote.signer.url"
+```
 
 ## Custom module
 We currently provide a test module that needs to be built locally. To build the module run:
