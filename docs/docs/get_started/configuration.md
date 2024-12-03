@@ -31,7 +31,7 @@ Note that in this setup, the signer module will not be started.
 
 ## Signer module
 
-Commit-Boost supports both local and remote signers. The signer module is responsible for signing the transactions that other modules generates.
+Commit-Boost supports both local and remote signers. The signer module is responsible for signing the transactions that other modules generates. Please note that only one signer at a time is allowed.
 
 ### Local signer
 
