@@ -105,7 +105,7 @@ frequency_get_header_ms = 300
 [[mux]]
 # Unique ID for the mux config
 id = "test_mux"
-# Which validator pubkeys to match against this mux config. This can be empty or omitted if a loader is specified. 
+# Which validator pubkeys to match against this mux config. This can be empty or omitted if a loader is specified.
 # Any keys loaded via the loader will be added to this list.
 validator_pubkeys = [
     "0x80c7f782b2467c5898c5516a8b6595d75623960b4afc4f71ee07d40985d20e117ba35e7cd352a3e75fb85a8668a3b745",
@@ -124,15 +124,24 @@ id = "example-relay"
 headers = { X-MyCustomHeader = "ADifferentCustomValue" }
 
 # Configuration for the Signer Module, only required if any `commit` module is present, or if `pbs.with_signer = true`
+# Currently two types of Signer modules are supported (only one can be used at a time):
+#   - Remote: a remote Web3Signer instance
+#   - Local: a local Signer module
+# More details on the docs (https://commit-boost.github.io/commit-boost-client/get_started/configuration/#local-signer)
 # OPTIONAL
-[signer]
+# Remote:
+# [signer.remote]
+# URL of the Web3Signer instance
+# url = "https://remote.signer.url"
+# Local:
+[signer.local]
 # Docker image to use for the Signer module.
 # OPTIONAL, DEFAULT: ghcr.io/commit-boost/signer:latest
 docker_image = "ghcr.io/commit-boost/signer:latest"
 # Configuration for how the Signer module should load validator keys. Currently two types of loaders are supported:
 #   - File: load keys from a plain text file (unsafe, use only for testing purposes)
 #   - ValidatorsDir: load keys from a `keys` and `secrets` file/folder (ERC-2335 style keystores). More details can be found in the docs (https://commit-boost.github.io/commit-boost-client/get_started/configuration/)
-[signer.loader]
+[signer.local.loader]
 # File: path to the keys file
 key_path = "./keys.example.json"
 # ValidatorsDir: format of the keystore (lighthouse, prysm, teku or lodestar)
@@ -153,7 +162,7 @@ key_path = "./keys.example.json"
 #   - File: store keys and delegations from a plain text file (unsafe, use only for testing purposes)
 #   - ERC2335: store keys and delegations safely using ERC-2335 style keystores. More details can be found in the docs (https://commit-boost.github.io/commit-boost-client/get_started/configuration#proxy-keys-store)
 # OPTIONAL, if missing proxies are lost on restart
-[signer.store]
+[signer.local.store]
 # File: path to the keys file
 proxy_dir = "./proxies"
 # ERC2335: path to the keys directory

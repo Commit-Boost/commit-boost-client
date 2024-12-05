@@ -29,19 +29,22 @@ After the sidecar is started, it will expose a port (`18550` in this example), t
 
 Note that in this setup, the signer module will not be started.
 
-## Signer Module
+## Signer module
 
-To start the signer module, you need to include its parameters in the config file:
+Commit-Boost supports both local and remote signers. The signer module is responsible for signing the transactions that other modules generates. Please note that only one signer at a time is allowed.
+
+### Local signer
+
+To start a local signer module, you need to include its parameters in the config file
 
 ```toml
-[signer]
-[signer.loader]
+[signer.local.loader]
 format = "lighthouse"
 keys_path = "/path/to/keys"
 secrets_path = "/path/to.secrets"
 ```
 
-We currently support Lighthouse, Prysm, Teku and Lodestar's keystores so it's easier to load the keys. We're working on adding support for additional keystores, including remote signers. These are the expected file structures for each format:
+We currently support Lighthouse, Prysm, Teku and Lodestar's keystores so it's easier to load the keys. We're working on adding support for additional keystores. These are the expected file structures for each format:
 
 <details>
   <summary>Lighthouse</summary>
@@ -61,7 +64,7 @@ We currently support Lighthouse, Prysm, Teku and Lodestar's keystores so it's ea
   #### Config:
   ```toml
   [signer]
-  [signer.loader]
+  [signer.local.loader]
   format = "lighthouse"
   keys_path = "keys"
   secrets_path = "secrets"
@@ -69,76 +72,75 @@ We currently support Lighthouse, Prysm, Teku and Lodestar's keystores so it's ea
 </details>
 
 <details>
-    <summary>Prysm</summary>
+  <summary>Prysm</summary>
 
-    #### File structure:
-    ```
-    ├── wallet
-    │   └── direct
-    │       └── accounts
-    │           └──all-accounts.keystore.json
-    └── secrets
-        └── password.txt
-    ```
+  #### File structure:
+  ```
+  ├── wallet
+  │   └── direct
+  │       └── accounts
+  │           └──all-accounts.keystore.json
+  └── secrets
+      └── password.txt
+  ```
 
-    #### Config:
-    ```toml
-    [signer]
-    [signer.loader]
-    format = "prysm"
-    keys_path = "wallet/direct/accounts/all-accounts.keystore.json"
-    secrets_path = "secrets/password.txt"
-    ```
-  </details>
+  #### Config:
+  ```toml
+  [signer]
+  [signer.local.loader]
+  format = "prysm"
+  keys_path = "wallet/direct/accounts/all-accounts.keystore.json"
+  secrets_path = "secrets/password.txt"
+  ```
+</details>
 
-  <details>
-    <summary>Teku</summary>
+<details>
+  <summary>Teku</summary>
 
-    #### File structure:
-    ```
-    ├── keys
-    │   ├── <PUBLIC_KEY_1>.json
-    │   └── <PUBLIC_KEY_2>.json
-    └── secrets
-        ├── <PUBLIC_KEY_1>.txt
-        └── <PUBLIC_KEY_2>.txt
-    ```
+  #### File structure:
+  ```
+  ├── keys
+  │   ├── <PUBLIC_KEY_1>.json
+  │   └── <PUBLIC_KEY_2>.json
+  └── secrets
+      ├── <PUBLIC_KEY_1>.txt
+      └── <PUBLIC_KEY_2>.txt
+  ```
 
-    #### Config:
-    ```toml
-    [signer]
-    [signer.loader]
-    format = "teku"
-    keys_path = "keys"
-    secrets_path = "secrets"
-    ```
-  </details>
+  #### Config:
+  ```toml
+  [signer]
+  [signer.local.loader]
+  format = "teku"
+  keys_path = "keys"
+  secrets_path = "secrets"
+  ```
+</details>
 
-  <details>
-    <summary>Lodestar</summary>
+<details>
+  <summary>Lodestar</summary>
 
-    #### File structure:
-    ```
-    ├── keys
-    │   ├── <PUBLIC_KEY_1>.json
-    │   └── <PUBLIC_KEY_2>.json
-    └── secrets
-        └── password.txt
-    ```
+  #### File structure:
+  ```
+  ├── keys
+  │   ├── <PUBLIC_KEY_1>.json
+  │   └── <PUBLIC_KEY_2>.json
+  └── secrets
+      └── password.txt
+  ```
 
-    #### Config:
-    ```toml
-    [signer]
-    [signer.loader]
-    format = "lodestar"
-    keys_path = "keys"
-    secrets_path = "secrets/password.txt"
-    ```
+  #### Config:
+  ```toml
+  [signer.local.loader]
+  format = "lodestar"
+  keys_path = "keys"
+  secrets_path = "secrets/password.txt"
+  ```
 
-    :::note
-    All keys have the same password stored in `secrets/password.txt`
-    :::
-  </details>
+  :::note
+  All keys have the same password stored in `secrets/password.txt`
+  :::
+</details>
 
 ### Proxy keys store
 
@@ -164,7 +166,7 @@ To persist proxy keys across restarts, you must enable the proxy store in the co
   #### Configuration
 
   ```toml
-  [signer.store]
+  [signer.local.store]
   proxy_dir = "path/to/proxy_dir"
   ```
 
@@ -215,13 +217,24 @@ To persist proxy keys across restarts, you must enable the proxy store in the co
   #### Configuration
 
   ```toml
-  [signer.store]
+  [signer.local.store]
   keys_path = "path/to/keys"
   secrets_path = "path/to/secrets"
   ```
 
   Where the `<PROXY_PUBLIC_KEY>.json` files contain ERC-2335 keystore, the `<PROXY_PUBLIC_KEY>.sig` files contain the signature of the delegation, and `<PROXY_PUBLIC_KEY>` files contain the password to decrypt the keystores.
 </details>
+
+### Remote signer
+
+You might choose to use an external service to sign the transactions. For now, we support Web3Signer but we're working on adding support for additional signers.
+
+The parameters needed for the remote signer are:
+
+```toml
+[signer.remote]
+url = "https://remote.signer.url"
+```
 
 ## Custom module
 We currently provide a test module that needs to be built locally. To build the module run:

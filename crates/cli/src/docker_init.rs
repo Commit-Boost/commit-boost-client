@@ -6,13 +6,14 @@ use std::{
 
 use cb_common::{
     config::{
-        CommitBoostConfig, LogsSettings, ModuleKind, BUILDER_PORT_ENV, BUILDER_URLS_ENV,
-        CHAIN_SPEC_ENV, CONFIG_DEFAULT, CONFIG_ENV, JWTS_ENV, LOGS_DIR_DEFAULT, LOGS_DIR_ENV,
-        METRICS_PORT_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, PBS_ENDPOINT_ENV, PBS_MODULE_NAME,
-        PROXY_DIR_DEFAULT, PROXY_DIR_ENV, PROXY_DIR_KEYS_DEFAULT, PROXY_DIR_KEYS_ENV,
-        PROXY_DIR_SECRETS_DEFAULT, PROXY_DIR_SECRETS_ENV, SIGNER_DEFAULT, SIGNER_DIR_KEYS_DEFAULT,
-        SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS_DEFAULT, SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV,
-        SIGNER_MODULE_NAME, SIGNER_PORT_ENV, SIGNER_URL_ENV,
+        CommitBoostConfig, LogsSettings, ModuleKind, SignerConfig, BUILDER_PORT_ENV,
+        BUILDER_URLS_ENV, CHAIN_SPEC_ENV, CONFIG_DEFAULT, CONFIG_ENV, JWTS_ENV, LOGS_DIR_DEFAULT,
+        LOGS_DIR_ENV, METRICS_PORT_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, PBS_ENDPOINT_ENV,
+        PBS_MODULE_NAME, PROXY_DIR_DEFAULT, PROXY_DIR_ENV, PROXY_DIR_KEYS_DEFAULT,
+        PROXY_DIR_KEYS_ENV, PROXY_DIR_SECRETS_DEFAULT, PROXY_DIR_SECRETS_ENV, SIGNER_DEFAULT,
+        SIGNER_DIR_KEYS_DEFAULT, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS_DEFAULT,
+        SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV, SIGNER_MODULE_NAME, SIGNER_PORT_ENV,
+        SIGNER_URL_ENV,
     },
     signer::{ProxyStore, SignerLoader},
     types::ModuleId,
@@ -75,7 +76,11 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
     // address for signer API communication
     let signer_port = 20000;
-    let signer_server = format!("http://cb_signer:{signer_port}");
+    let signer_server = if let Some(SignerConfig::Remote { url }) = &cb_config.signer {
+        url.to_string()
+    } else {
+        format!("http://cb_signer:{signer_port}")
+    };
 
     let builder_events_port = 30000;
     let mut builder_events_modules = Vec::new();
@@ -150,9 +155,10 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
                     // depends_on
                     let mut module_dependencies = IndexMap::new();
-                    module_dependencies.insert("cb_signer".into(), DependsCondition {
-                        condition: "service_healthy".into(),
-                    });
+                    module_dependencies.insert(
+                        "cb_signer".into(),
+                        DependsCondition { condition: "service_healthy".into() },
+                    );
 
                     Service {
                         container_name: Some(module_cid.clone()),
@@ -160,7 +166,11 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                         networks: Networks::Simple(module_networks),
                         volumes: module_volumes,
                         environment: Environment::KvPair(module_envs),
-                        depends_on: DependsOnOptions::Conditional(module_dependencies),
+                        depends_on: if let Some(SignerConfig::Remote { .. }) = &cb_config.signer {
+                            DependsOnOptions::Simple(vec![])
+                        } else {
+                            DependsOnOptions::Conditional(module_dependencies)
+                        },
                         env_file,
                         ..Service::default()
                     }
@@ -292,7 +302,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     services.insert("cb_pbs".to_owned(), Some(pbs_service));
 
     // setup signer service
-    if let Some(signer_config) = cb_config.signer {
+    if let Some(SignerConfig::Local { docker_image, loader, store }) = cb_config.signer {
         if needs_signer_module {
             if metrics_enabled {
                 targets.push(PrometheusTargetConfig {
@@ -326,7 +336,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
             let mut volumes = vec![config_volume.clone()];
             volumes.extend(chain_spec_volume.clone());
 
-            match signer_config.loader {
+            match loader {
                 SignerLoader::File { key_path } => {
                     volumes.push(Volumes::Simple(format!(
                         "{}:{}:ro",
@@ -355,7 +365,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                 }
             };
 
-            if let Some(store) = signer_config.store {
+            if let Some(store) = store {
                 match store {
                     ProxyStore::File { proxy_dir } => {
                         volumes.push(Volumes::Simple(format!(
@@ -396,7 +406,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
             let signer_service = Service {
                 container_name: Some("cb_signer".to_owned()),
-                image: Some(signer_config.docker_image),
+                image: Some(docker_image),
                 networks: Networks::Simple(signer_networks),
                 volumes,
                 environment: Environment::KvPair(signer_envs),
@@ -415,7 +425,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
             services.insert("cb_signer".to_owned(), Some(signer_service));
         }
-    } else if needs_signer_module {
+    } else if cb_config.signer.is_none() && needs_signer_module {
         panic!("Signer module required but no signer config provided");
     }
 
