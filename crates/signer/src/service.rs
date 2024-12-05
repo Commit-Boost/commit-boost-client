@@ -22,13 +22,19 @@ use cb_common::{
     constants::COMMIT_BOOST_VERSION,
     types::{Jwt, ModuleId},
 };
+use cb_metrics::provider::MetricsProvider;
 use eyre::{Context, Result};
 use headers::{authorization::Bearer, Authorization};
+use prometheus::core::Collector;
 use tokio::{net::TcpListener, sync::RwLock};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-use crate::{error::SignerModuleError, manager::SigningManager};
+use crate::{
+    error::SignerModuleError,
+    manager::SigningManager,
+    metrics::{uri_to_tag, SIGNER_METRICS_REGISTRY, SIGNER_STATUS},
+};
 
 /// Implements the Signer API and provides a service for signing requests
 pub struct SigningService;
@@ -70,18 +76,28 @@ impl SigningService {
         info!(version = COMMIT_BOOST_VERSION, modules =? module_ids, port =? config.server_port, loaded_consensus, loaded_proxies, "Starting signing service");
 
         let state = SigningState { manager: RwLock::new(manager).into(), jwts: config.jwts.into() };
+        SigningService::init_metrics()?;
 
         let app = axum::Router::new()
             .route(REQUEST_SIGNATURE_PATH, post(handle_request_signature))
             .route(GET_PUBKEYS_PATH, get(handle_get_pubkeys))
             .route(GENERATE_PROXY_KEY_PATH, post(handle_generate_proxy))
             .with_state(state.clone())
-            .route_layer(middleware::from_fn_with_state(state.clone(), jwt_auth));
+            .route_layer(middleware::from_fn_with_state(state.clone(), jwt_auth))
+            .route_layer(middleware::from_fn(log_request));
 
         let address = SocketAddr::from(([0, 0, 0, 0], config.server_port));
         let listener = TcpListener::bind(address).await?;
 
         axum::serve(listener, app).await.wrap_err("signer server exited")
+    }
+
+    pub fn register_metric(c: Box<dyn Collector>) {
+        SIGNER_METRICS_REGISTRY.register(c).expect("failed to register metric");
+    }
+
+    pub fn init_metrics() -> Result<()> {
+        MetricsProvider::load_and_run(SIGNER_METRICS_REGISTRY.clone())
     }
 }
 
@@ -102,6 +118,13 @@ async fn jwt_auth(
     req.extensions_mut().insert(module_id.clone());
 
     Ok(next.run(req).await)
+}
+
+async fn log_request(req: Request, next: Next) -> Result<Response, SignerModuleError> {
+    let url = &req.uri().clone();
+    let response = next.run(req).await;
+    SIGNER_STATUS.with_label_values(&[&response.status().as_str(), uri_to_tag(url)]).inc();
+    Ok(response)
 }
 
 /// Implements get_pubkeys from the Signer API
