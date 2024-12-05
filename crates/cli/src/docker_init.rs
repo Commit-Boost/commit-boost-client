@@ -19,9 +19,9 @@ use cb_common::{
     utils::random_jwt,
 };
 use docker_compose_types::{
-    Compose, ComposeVolume, DependsOnOptions, EnvFile, Environment, Labels, LoggingParameters,
-    MapOrEmpty, NetworkSettings, Networks, Ports, Service, Services, SingleValue, TopLevelVolumes,
-    Volumes,
+    Compose, ComposeVolume, DependsCondition, DependsOnOptions, EnvFile, Environment, Healthcheck,
+    HealthcheckTest, Labels, LoggingParameters, MapOrEmpty, NetworkSettings, Networks, Ports,
+    Service, Services, SingleValue, TopLevelVolumes, Volumes,
 };
 use eyre::Result;
 use indexmap::IndexMap;
@@ -148,13 +148,19 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                     module_volumes.extend(chain_spec_volume.clone());
                     module_volumes.extend(get_log_volume(&cb_config.logs, &module.id));
 
+                    // depends_on
+                    let mut module_dependencies = IndexMap::new();
+                    module_dependencies.insert("cb_signer".into(), DependsCondition {
+                        condition: "service_healthy".into(),
+                    });
+
                     Service {
                         container_name: Some(module_cid.clone()),
                         image: Some(module.docker_image),
                         networks: Networks::Simple(module_networks),
                         volumes: module_volumes,
                         environment: Environment::KvPair(module_envs),
-                        depends_on: DependsOnOptions::Simple(vec!["cb_signer".to_owned()]),
+                        depends_on: DependsOnOptions::Conditional(module_dependencies),
                         env_file,
                         ..Service::default()
                     }
@@ -394,6 +400,16 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                 networks: Networks::Simple(signer_networks),
                 volumes,
                 environment: Environment::KvPair(signer_envs),
+                healthcheck: Some(Healthcheck {
+                    test: Some(HealthcheckTest::Single(
+                        "curl -f http://localhost:20000/status".into(),
+                    )),
+                    interval: Some("5s".into()),
+                    timeout: Some("5s".into()),
+                    retries: 5,
+                    start_period: Some("0s".into()),
+                    disable: false,
+                }),
                 ..Service::default()
             };
 
