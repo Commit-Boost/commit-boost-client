@@ -1,6 +1,7 @@
 use bimap::BiHashMap;
-use eyre::Result;
+use eyre::{bail, Result};
 use serde::{Deserialize, Serialize};
+use url::Url;
 
 use super::{
     constants::SIGNER_IMAGE_DEFAULT,
@@ -28,7 +29,7 @@ pub enum SignerConfig {
     /// Remote signer module with compatible API
     Remote {
         /// Complete url of the base API endpoint
-        url: String,
+        url: Url,
     },
 }
 
@@ -57,7 +58,7 @@ impl StartSignerConfig {
                 Ok(StartSignerConfig { chain: config.chain, loader, server_port, jwts, store })
             }
             Some(SignerConfig::Remote { .. }) => bail!("Remote signer configured"),
-            None => Err(eyre::eyre!("Signer config is missing")),
+            None => bail!("Signer config is missing"),
         }
     }
 }

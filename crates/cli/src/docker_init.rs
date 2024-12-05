@@ -75,9 +75,9 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     // address for signer API communication
     let signer_port = 20000;
     let signer_server = if let Some(SignerConfig::Remote { url }) = &cb_config.signer {
-        url
+        url.to_string()
     } else {
-        &format!("http://cb_signer:{signer_port}")
+        format!("http://cb_signer:{signer_port}")
     };
 
     let builder_events_port = 30000;
@@ -112,7 +112,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                         get_env_val(MODULE_ID_ENV, &module.id),
                         get_env_val(CONFIG_ENV, CONFIG_DEFAULT),
                         get_env_interp(MODULE_JWT_ENV, &jwt_name),
-                        get_env_val(SIGNER_URL_ENV, signer_server),
+                        get_env_val(SIGNER_URL_ENV, &signer_server),
                     ]);
 
                     // Pass on the env variables
