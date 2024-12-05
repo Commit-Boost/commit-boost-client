@@ -19,6 +19,7 @@ use eth2_keystore::{
     },
     Uuid, IV_SIZE, SALT_SIZE,
 };
+use eyre::OptionExt;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
@@ -56,13 +57,22 @@ pub enum ProxyStore {
 impl ProxyStore {
     pub fn init_from_env(self) -> eyre::Result<Self> {
         Ok(match self {
-            ProxyStore::File { .. } => {
-                let path = load_env_var(PROXY_DIR_ENV)?;
+            ProxyStore::File { proxy_dir } => {
+                let path = load_env_var(PROXY_DIR_ENV)
+                    .unwrap_or(proxy_dir.to_str().ok_or_eyre("Missing proxy dir")?.to_string());
                 ProxyStore::File { proxy_dir: PathBuf::from(path) }
             }
-            ProxyStore::ERC2335 { .. } => {
-                let keys_path = PathBuf::from_str(&load_env_var(PROXY_DIR_KEYS_ENV)?)?;
-                let secrets_path = PathBuf::from_str(&load_env_var(PROXY_DIR_SECRETS_ENV)?)?;
+            ProxyStore::ERC2335 { keys_path, secrets_path } => {
+                let keys_path = if let Ok(path) = load_env_var(PROXY_DIR_KEYS_ENV) {
+                    PathBuf::from_str(&path)?
+                } else {
+                    keys_path
+                };
+                let secrets_path = if let Ok(path) = load_env_var(PROXY_DIR_SECRETS_ENV) {
+                    PathBuf::from_str(&path)?
+                } else {
+                    secrets_path
+                };
 
                 ProxyStore::ERC2335 { keys_path, secrets_path }
             }
