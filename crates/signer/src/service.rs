@@ -123,7 +123,7 @@ async fn jwt_auth(
 async fn log_request(req: Request, next: Next) -> Result<Response, SignerModuleError> {
     let url = &req.uri().clone();
     let response = next.run(req).await;
-    SIGNER_STATUS.with_label_values(&[&response.status().as_str(), uri_to_tag(url)]).inc();
+    SIGNER_STATUS.with_label_values(&[response.status().as_str(), uri_to_tag(url)]).inc();
     Ok(response)
 }
 
