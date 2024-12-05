@@ -56,7 +56,7 @@ impl StartSignerConfig {
             Some(SignerConfig::Local { loader, store, .. }) => {
                 Ok(StartSignerConfig { chain: config.chain, loader, server_port, jwts, store })
             }
-            Some(SignerConfig::Remote { .. }) => Err(eyre::eyre!("Remote signer configured")),
+            Some(SignerConfig::Remote { .. }) => bail!("Remote signer configured"),
             None => Err(eyre::eyre!("Signer config is missing")),
         }
     }
