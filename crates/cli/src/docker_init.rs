@@ -9,18 +9,20 @@ use cb_common::{
         CommitBoostConfig, LogsSettings, ModuleKind, SignerConfig, BUILDER_PORT_ENV,
         BUILDER_URLS_ENV, CHAIN_SPEC_ENV, CONFIG_DEFAULT, CONFIG_ENV, JWTS_ENV, LOGS_DIR_DEFAULT,
         LOGS_DIR_ENV, METRICS_PORT_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, PBS_ENDPOINT_ENV,
-        PBS_MODULE_NAME, PROXY_DIR_DEFAULT, PROXY_DIR_ENV, SIGNER_DEFAULT, SIGNER_DIR_KEYS_DEFAULT,
-        SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS_DEFAULT, SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV,
-        SIGNER_MODULE_NAME, SIGNER_PORT_ENV, SIGNER_URL_ENV,
+        PBS_MODULE_NAME, PROXY_DIR_DEFAULT, PROXY_DIR_ENV, PROXY_DIR_KEYS_DEFAULT,
+        PROXY_DIR_KEYS_ENV, PROXY_DIR_SECRETS_DEFAULT, PROXY_DIR_SECRETS_ENV, SIGNER_DEFAULT,
+        SIGNER_DIR_KEYS_DEFAULT, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS_DEFAULT,
+        SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV, SIGNER_MODULE_NAME, SIGNER_PORT_ENV,
+        SIGNER_URL_ENV,
     },
     signer::{ProxyStore, SignerLoader},
     types::ModuleId,
     utils::random_jwt,
 };
 use docker_compose_types::{
-    Compose, ComposeVolume, DependsOnOptions, EnvFile, Environment, Labels, LoggingParameters,
-    MapOrEmpty, NetworkSettings, Networks, Ports, Service, Services, SingleValue, TopLevelVolumes,
-    Volumes,
+    Compose, ComposeVolume, DependsCondition, DependsOnOptions, EnvFile, Environment, Healthcheck,
+    HealthcheckTest, Labels, LoggingParameters, MapOrEmpty, NetworkSettings, Networks, Ports,
+    Service, Services, SingleValue, TopLevelVolumes, Volumes,
 };
 use eyre::Result;
 use indexmap::IndexMap;
@@ -151,6 +153,12 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                     module_volumes.extend(chain_spec_volume.clone());
                     module_volumes.extend(get_log_volume(&cb_config.logs, &module.id));
 
+                    // depends_on
+                    let mut module_dependencies = IndexMap::new();
+                    module_dependencies.insert("cb_signer".into(), DependsCondition {
+                        condition: "service_healthy".into(),
+                    });
+
                     Service {
                         container_name: Some(module_cid.clone()),
                         image: Some(module.docker_image),
@@ -160,7 +168,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                         depends_on: if let Some(SignerConfig::Remote { .. }) = &cb_config.signer {
                             DependsOnOptions::Simple(vec![])
                         } else {
-                            DependsOnOptions::Simple(vec!["cb_signer".to_owned()])
+                            DependsOnOptions::Conditional(module_dependencies)
                         },
                         env_file,
                         ..Service::default()
@@ -367,6 +375,23 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                         let (k, v) = get_env_val(PROXY_DIR_ENV, PROXY_DIR_DEFAULT);
                         signer_envs.insert(k, v);
                     }
+                    ProxyStore::ERC2335 { keys_path, secrets_path } => {
+                        volumes.push(Volumes::Simple(format!(
+                            "{}:{}:rw",
+                            keys_path.display(),
+                            PROXY_DIR_KEYS_DEFAULT
+                        )));
+                        let (k, v) = get_env_val(PROXY_DIR_KEYS_ENV, PROXY_DIR_KEYS_DEFAULT);
+                        signer_envs.insert(k, v);
+
+                        volumes.push(Volumes::Simple(format!(
+                            "{}:{}:rw",
+                            secrets_path.display(),
+                            PROXY_DIR_SECRETS_DEFAULT
+                        )));
+                        let (k, v) = get_env_val(PROXY_DIR_SECRETS_ENV, PROXY_DIR_SECRETS_DEFAULT);
+                        signer_envs.insert(k, v);
+                    }
                 }
             }
 
@@ -384,6 +409,16 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                 networks: Networks::Simple(signer_networks),
                 volumes,
                 environment: Environment::KvPair(signer_envs),
+                healthcheck: Some(Healthcheck {
+                    test: Some(HealthcheckTest::Single(format!(
+                        "curl -f http://localhost:{signer_port}/status"
+                    ))),
+                    interval: Some("5s".into()),
+                    timeout: Some("5s".into()),
+                    retries: 5,
+                    start_period: Some("0s".into()),
+                    disable: false,
+                }),
                 ..Service::default()
             };
 

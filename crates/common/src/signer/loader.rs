@@ -10,14 +10,14 @@ use aes::{
     Aes128,
 };
 use alloy::{primitives::hex::FromHex, rpc::types::beacon::BlsPublicKey};
-use eth2_keystore::Keystore;
+use eth2_keystore::{json_keystore::JsonKeystore, Keystore};
 use eyre::{eyre, Context, OptionExt};
 use pbkdf2::{hmac, pbkdf2};
 use serde::{de, Deserialize, Deserializer, Serialize};
 use tracing::warn;
 use unicode_normalization::UnicodeNormalization;
 
-use super::{PrysmDecryptedKeystore, PrysmKeystore};
+use super::{BlsSigner, EcdsaSigner, PrysmDecryptedKeystore, PrysmKeystore};
 use crate::{
     config::{load_env_var, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV},
     signer::ConsensusSigner,
@@ -56,8 +56,10 @@ impl SignerLoader {
 
     pub fn load_from_env(self) -> eyre::Result<Vec<ConsensusSigner>> {
         Ok(match self {
-            SignerLoader::File { .. } => {
-                let path = load_env_var(SIGNER_KEYS_ENV)?;
+            SignerLoader::File { key_path } => {
+                let path = load_env_var(SIGNER_KEYS_ENV).unwrap_or(
+                    key_path.to_str().ok_or_eyre("Missing signer key path")?.to_string(),
+                );
                 let file = std::fs::read_to_string(path)
                     .unwrap_or_else(|_| panic!("Unable to find keys file"));
 
@@ -286,6 +288,20 @@ fn load_one(ks_path: String, pw_path: String) -> eyre::Result<ConsensusSigner> {
     let key =
         keystore.decrypt_keypair(&password).map_err(|_| eyre!("failed decrypting keypair"))?;
     ConsensusSigner::new_from_bytes(key.sk.serialize().as_bytes())
+}
+
+pub fn load_bls_signer(keys_path: PathBuf, secrets_path: PathBuf) -> eyre::Result<BlsSigner> {
+    load_one(keys_path.to_string_lossy().to_string(), secrets_path.to_string_lossy().to_string())
+}
+
+pub fn load_ecdsa_signer(keys_path: PathBuf, secrets_path: PathBuf) -> eyre::Result<EcdsaSigner> {
+    let key_file = std::fs::File::open(keys_path.to_string_lossy().to_string())?;
+    let key_reader = std::io::BufReader::new(key_file);
+    let keystore: JsonKeystore = serde_json::from_reader(key_reader)?;
+    let password = std::fs::read(secrets_path)?;
+    let decrypted_password = eth2_keystore::decrypt(&password, &keystore.crypto).unwrap();
+
+    EcdsaSigner::new_from_bytes(decrypted_password.as_bytes())
 }
 
 #[cfg(test)]
