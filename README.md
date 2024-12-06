@@ -72,6 +72,9 @@ docker_image = "my_commit_module"
 
 For a more detailed example check out [here](/examples/da_commit) and our docs on how to [setup Commit-Boost](https://commit-boost.github.io/commit-boost-client/get_started/overview) for development.
 
+## Audit
+Commit Boost received an audit from [Sigma Prime](https://sigmaprime.io/). Find the report [here](/audit/Sigma_Prime_Commit_Boost_Client_Security_Assessment_Report_v2_0.pdf).
+
 ## Acknowledgements
 - [MEV boost](https://github.com/flashbots/mev-boost)
 - [Reth](https://github.com/paradigmxyz/reth)
