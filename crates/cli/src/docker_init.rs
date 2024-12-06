@@ -410,9 +410,9 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                 volumes,
                 environment: Environment::KvPair(signer_envs),
                 healthcheck: Some(Healthcheck {
-                    test: Some(HealthcheckTest::Single(
-                        "curl -f http://localhost:20000/status".into(),
-                    )),
+                    test: Some(HealthcheckTest::Single(format!(
+                        "curl -f http://localhost:{signer_port}/status"
+                    ))),
                     interval: Some("5s".into()),
                     timeout: Some("5s".into()),
                     retries: 5,
