@@ -166,9 +166,9 @@ key_path = "./keys.example.json"
 # File: path to the keys file
 proxy_dir = "./proxies"
 # ERC2335: path to the keys directory
-# keys_path = ""
+# keys_path = "./tests/data/proxy/keys"
 # ERC2335: path to the secrets directory
-# secrets_path = ""
+# secrets_path = "./tests/data/proxy/secrets"
 
 # Commit-Boost can optionally run "modules" which extend the capabilities of the sidecar.
 # Currently, two types of modules are supported:
