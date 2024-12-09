@@ -4,11 +4,10 @@ description: Configure Commit-Boost
 
 # Configuration
 
-Commit-Boost needs a configuration file detailing all the services that you want to run. Create a `cb-config.toml` and adjust it depending on which modules you plan to run.
+Commit-Boost needs a configuration file detailing all the services that you want to run. Create a `cb-config.toml` and modify it depending on which modules you plan to run.
 
-For a full explanation of all the fields, check out [here](https://github.com/Commit-Boost/commit-boost-client/blob/main/config.example.toml).
-
-For some additional examples on config presets, check out [here](https://github.com/Commit-Boost/commit-boost-client/tree/main/configs).
+- For a full explanation of all the fields, check out [here](https://github.com/Commit-Boost/commit-boost-client/blob/main/config.example.toml).
+- For some additional examples on config presets, check out [here](https://github.com/Commit-Boost/commit-boost-client/tree/main/configs).
 
 ## Minimal PBS setup on Holesky
 ```toml
@@ -27,7 +26,9 @@ prometheus_config = "./docker/prometheus.yml"
 You can find a list of MEV-Boost Holesky relays [here](https://www.coincashew.com/coins/overview-eth/mev-boost/mev-relay-list#holesky-testnet-relays).
 After the sidecar is started, it will expose a port (`18550` in this example), that you need to point your CL to. This may be different depending on which CL you're running, check out [here](https://docs.flashbots.net/flashbots-mev-boost/getting-started/system-requirements#consensus-client-configuration-guides) for a list of configuration guides.
 
-Note that in this setup, the signer module will not be started.
+:::note
+In this setup, the signer module will not be started.
+:::
 
 ## Signer module
 
@@ -131,6 +132,7 @@ We currently support Lighthouse, Prysm, Teku and Lodestar's keystores so it's ea
 
   #### Config:
   ```toml
+  [signer]
   [signer.local.loader]
   format = "lodestar"
   keys_path = "keys"
@@ -188,7 +190,7 @@ To persist proxy keys across restarts, you must enable the proxy store in the co
 <details>
   <summary>ERC2335</summary>
 
-  The keys are stored in a ERC-2335 style keystore, among with a password. This way, you can safely share the keys directory so without the password they are useless.
+  The keys are stored in a ERC-2335 style keystore, along with a password. This way, you can safely share the keys directory as without the password they are useless.
 
   #### File structure
 
@@ -279,7 +281,7 @@ A few things to note:
 To learn more about developing modules, check out [here](/category/developing).
 
 ## Vouch
-[Vouch](https://github.com/attestantio/vouch) is a multi-node validator client built by [Attestant](https://www.attestant.io/). Vouch is particular in that it also integrates a MEV-Boost client to interact with relays. The Commit-Boost PBS module is compatible with the Vouch `blockrelay` since it implements the Builder-API, just like relays do. For example, depending on your setup and preference, you may want to fetch headers from a given relay using Commit-Boost vs using the built-in Vouch `blockrelay`.
+[Vouch](https://github.com/attestantio/vouch) is a multi-node validator client built by [Attestant](https://www.attestant.io/). Vouch is particular in that it also integrates an MEV-Boost client to interact with relays. The Commit-Boost PBS module is compatible with the Vouch `blockrelay` since it implements the same Builder-API as relays. For example, depending on your setup and preference, you may want to fetch headers from a given relay using Commit-Boost vs using the built-in Vouch `blockrelay`.
 
 ### Configuration
 Get familiar on how to set up Vouch [here](https://github.com/attestantio/vouch/blob/master/docs/getting_started.md).
@@ -302,7 +304,9 @@ In this setup, the BN Builder-API endpoint will be pointing to the PBS module (e
 
 This will bypass the `blockrelay` entirely so make sure all relays are properly configured in the `[[relays]]` section.
 
-**Note**: this approach could also work if you have a multi-beacon-node setup, where some BNs fetch directly via Commit-Boost while others go through the `blockrelay`.
+:::note
+This approach could also work if you have a multi-beacon-node setup, where some BNs fetch directly via Commit-Boost while others go through the `blockrelay`.
+:::
 
 ### Notes
 - It's up to you to decide which relays will be connected via Commit-Boost (`[[relays]]` section in the `toml` config) and which via Vouch (additional entries in the `relays` field). Remember that any rate-limit will be shared across the two sidecars, if running on the same machine.
