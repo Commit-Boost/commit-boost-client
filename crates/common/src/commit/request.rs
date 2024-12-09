@@ -1,4 +1,7 @@
-use std::fmt::{self, Debug, Display, LowerHex};
+use std::{
+    fmt::{self, Debug, Display, LowerHex},
+    str::FromStr,
+};
 
 use alloy::rpc::types::beacon::BlsSignature;
 use derive_more::derive::From;
@@ -133,9 +136,31 @@ pub enum EncryptionScheme {
     Ecdsa,
 }
 
+impl Display for EncryptionScheme {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            EncryptionScheme::Bls => write!(f, "bls"),
+            EncryptionScheme::Ecdsa => write!(f, "ecdsa"),
+        }
+    }
+}
+
+impl FromStr for EncryptionScheme {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "bls" => Ok(EncryptionScheme::Bls),
+            "ecdsa" => Ok(EncryptionScheme::Ecdsa),
+            _ => Err(format!("Unknown scheme: {s}")),
+        }
+    }
+}
+
 // TODO(David): This struct shouldn't be visible to module authors
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GenerateProxyRequest {
+    #[serde(rename = "pubkey")]
     pub consensus_pubkey: BlsPublicKey,
     pub scheme: EncryptionScheme,
 }

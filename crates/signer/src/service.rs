@@ -12,7 +12,9 @@ use axum_extra::TypedHeader;
 use bimap::BiHashMap;
 use cb_common::{
     commit::{
-        constants::{GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, REQUEST_SIGNATURE_PATH},
+        constants::{
+            GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, REQUEST_SIGNATURE_PATH, STATUS_PATH,
+        },
         request::{
             EncryptionScheme, GenerateProxyRequest, GetPubkeysResponse, SignConsensusRequest,
             SignProxyRequest, SignRequest,
@@ -85,11 +87,14 @@ impl SigningService {
             .with_state(state.clone())
             .route_layer(middleware::from_fn_with_state(state.clone(), jwt_auth))
             .route_layer(middleware::from_fn(log_request));
+        let status_router = axum::Router::new().route(STATUS_PATH, get(handle_status));
 
         let address = SocketAddr::from(([0, 0, 0, 0], config.server_port));
         let listener = TcpListener::bind(address).await?;
 
-        axum::serve(listener, app).await.wrap_err("signer server exited")
+        axum::serve(listener, axum::Router::new().merge(app).merge(status_router))
+            .await
+            .wrap_err("signer server exited")
     }
 
     pub fn register_metric(c: Box<dyn Collector>) {
@@ -125,6 +130,11 @@ async fn log_request(req: Request, next: Next) -> Result<Response, SignerModuleE
     let response = next.run(req).await;
     SIGNER_STATUS.with_label_values(&[response.status().as_str(), uri_to_tag(url)]).inc();
     Ok(response)
+}
+
+/// Status endpoint for the Signer API
+async fn handle_status() -> Result<impl IntoResponse, SignerModuleError> {
+    Ok((StatusCode::OK, "OK"))
 }
 
 /// Implements get_pubkeys from the Signer API

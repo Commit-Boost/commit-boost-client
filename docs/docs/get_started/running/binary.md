@@ -32,6 +32,7 @@ For loading keys we currently support:
     - `CB_SIGNER_LOADER_FORMAT`, `CB_SIGNER_LOADER_KEYS_DIR` and `CB_SIGNER_LOADER_SECRETS_DIR`: paths to the `keys` and `secrets` directories or files (ERC-2335 style keystores, see [Signer config](../configuration/#signer-module) for more info)
 For storing proxy keys we currently support:
     - `CB_PROXY_STORE_DIR`: directory where proxy keys and delegations will be saved in plaintext (for testing purposes only)
+    - `CB_PROXY_KEYS_DIR` and `CB_PROXY_SECRETS_DIR`: paths to the `keys` and `secrets` directories (ERC-2335 style keystores, see [Signer config](../configuration#proxy-keys-store) for more info)
 
 
 ### Modules
