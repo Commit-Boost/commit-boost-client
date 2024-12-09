@@ -97,11 +97,7 @@ impl SigningService {
             .wrap_err("signer server exited")
     }
 
-    pub fn register_metric(c: Box<dyn Collector>) {
-        SIGNER_METRICS_REGISTRY.register(c).expect("failed to register metric");
-    }
-
-    pub fn init_metrics() -> Result<()> {
+    fn init_metrics() -> Result<()> {
         MetricsProvider::load_and_run(SIGNER_METRICS_REGISTRY.clone())
     }
 }
