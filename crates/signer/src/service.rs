@@ -125,6 +125,7 @@ async fn jwt_auth(
     Ok(next.run(req).await)
 }
 
+/// Requests logging middleware layer
 async fn log_request(req: Request, next: Next) -> Result<Response, SignerModuleError> {
     let url = &req.uri().clone();
     let response = next.run(req).await;

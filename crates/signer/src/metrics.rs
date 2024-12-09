@@ -1,4 +1,4 @@
-//! Metrics for PBS module
+//! Metrics for Signer module
 
 use axum::http::Uri;
 use cb_common::commit::constants::{
