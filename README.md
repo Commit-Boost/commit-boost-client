@@ -23,7 +23,6 @@ For more information on how to run Commit-Boost, check out our [docs](https://co
 For more information on how to develop a module on Commit-Boost, check out our [docs](https://commit-boost.github.io/commit-boost-client/category/developing).
 
 ### Example
-> **_NOTE:_**  The code is unaudited and NOT ready for production. All APIs are subject to change
 
 A basic commit module with Commit-Boost.
 
