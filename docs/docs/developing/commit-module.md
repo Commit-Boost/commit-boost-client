@@ -6,11 +6,6 @@ sidebar_position: 2
 
 While a module can be written in any language, we currently provide some utilities for Rust, with the goal of supporting more generalized APIs and simplify development in languages other than Rust.
 
-:::note
-Commit-Boost is still in alpha development, all APIs are subject to change
-:::
-
-
 In Rust, we provide utilities to load and run modules. Simply add to your `Cargo.toml`:
 ```toml
 commit-boost = { git = "https://github.com/Commit-Boost/commit-boost-client", rev = "..." }
