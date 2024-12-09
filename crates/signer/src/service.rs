@@ -27,7 +27,6 @@ use cb_common::{
 use cb_metrics::provider::MetricsProvider;
 use eyre::{Context, Result};
 use headers::{authorization::Bearer, Authorization};
-use prometheus::core::Collector;
 use tokio::{net::TcpListener, sync::RwLock};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
