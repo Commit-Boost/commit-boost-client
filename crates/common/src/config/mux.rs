@@ -5,11 +5,11 @@ use std::{
 };
 
 use alloy::rpc::types::beacon::BlsPublicKey;
-use eyre::{bail, ensure, eyre, Context};
+use eyre::{bail, ensure, Context};
 use serde::{Deserialize, Serialize};
 
 use super::{load_optional_env_var, PbsConfig, RelayConfig, MUX_PATH_ENV};
-use crate::pbs::{RelayClient, RelayEntry};
+use crate::pbs::RelayClient;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct PbsMuxes {
@@ -29,7 +29,6 @@ impl PbsMuxes {
     pub fn validate_and_fill(
         self,
         default_pbs: &PbsConfig,
-        default_relays: &[RelayConfig],
     ) -> eyre::Result<HashMap<BlsPublicKey, RuntimeMuxConfig>> {
         let mut muxes = self.muxes;
 
@@ -61,33 +60,8 @@ impl PbsMuxes {
             );
 
             let mut relay_clients = Vec::with_capacity(mux.relays.len());
-            for partial_relay in mux.relays.into_iter() {
-                // create a new config overriding only the missing fields
-                let partial_id = partial_relay.id()?;
-                // assume that there is always a relay defined in the default config. If this
-                // becomes too much of a burden, we can change this to allow defining relays
-                // that are exclusively used by a mux
-                let default_relay = default_relays
-                    .iter()
-                    .find(|r| r.id() == partial_id)
-                    .ok_or_else(|| eyre!("default relay config not found for: {}", partial_id))?;
-
-                let full_config = RelayConfig {
-                    id: Some(partial_id.to_string()),
-                    entry: partial_relay.entry.unwrap_or(default_relay.entry.clone()),
-                    headers: partial_relay.headers.or(default_relay.headers.clone()),
-                    enable_timing_games: partial_relay
-                        .enable_timing_games
-                        .unwrap_or(default_relay.enable_timing_games),
-                    target_first_request_ms: partial_relay
-                        .target_first_request_ms
-                        .or(default_relay.target_first_request_ms),
-                    frequency_get_header_ms: partial_relay
-                        .frequency_get_header_ms
-                        .or(default_relay.frequency_get_header_ms),
-                };
-
-                relay_clients.push(RelayClient::new(full_config)?);
+            for config in mux.relays.into_iter() {
+                relay_clients.push(RelayClient::new(config)?);
             }
 
             let config = PbsConfig {
@@ -117,7 +91,7 @@ pub struct MuxConfig {
     /// Identifier for this mux config
     pub id: String,
     /// Relays to use for this mux config
-    pub relays: Vec<PartialRelayConfig>,
+    pub relays: Vec<RelayConfig>,
     /// Which validator pubkeys to match against this mux config
     #[serde(default)]
     pub validator_pubkeys: Vec<BlsPublicKey>,
@@ -139,33 +113,6 @@ impl MuxConfig {
                 (get_mux_env(&self.id), path.to_owned(), internal_path)
             }
         })
-    }
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-/// A relay config with all optional fields. See [`RelayConfig`] for the
-/// description of the fields.
-pub struct PartialRelayConfig {
-    pub id: Option<String>,
-    #[serde(rename = "url")]
-    pub entry: Option<RelayEntry>,
-    pub headers: Option<HashMap<String, String>>,
-    pub enable_timing_games: Option<bool>,
-    pub target_first_request_ms: Option<u64>,
-    pub frequency_get_header_ms: Option<u64>,
-}
-
-impl PartialRelayConfig {
-    pub fn id(&self) -> eyre::Result<&str> {
-        match &self.id {
-            Some(id) => Ok(id.as_str()),
-            None => {
-                let entry = self.entry.as_ref().ok_or_else(|| {
-                    eyre!("relays in [[mux]] need to specifify either an `id` or a `url`")
-                })?;
-                Ok(entry.id.as_str())
-            }
-        }
     }
 }
 

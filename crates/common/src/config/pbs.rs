@@ -181,10 +181,8 @@ pub fn load_pbs_config() -> Result<PbsModuleConfig> {
         SocketAddr::from((config.pbs.pbs_config.host, config.pbs.pbs_config.port))
     };
 
-    let muxes = config
-        .muxes
-        .map(|muxes| muxes.validate_and_fill(&config.pbs.pbs_config, &config.relays))
-        .transpose()?;
+    let muxes =
+        config.muxes.map(|muxes| muxes.validate_and_fill(&config.pbs.pbs_config)).transpose()?;
 
     let relay_clients =
         config.relays.into_iter().map(RelayClient::new).collect::<Result<Vec<_>>>()?;
@@ -234,9 +232,7 @@ pub fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleConfig,
     };
 
     let muxes = match cb_config.muxes {
-        Some(muxes) => Some(
-            muxes.validate_and_fill(&cb_config.pbs.static_config.pbs_config, &cb_config.relays)?,
-        ),
+        Some(muxes) => Some(muxes.validate_and_fill(&cb_config.pbs.static_config.pbs_config)?),
         None => None,
     };
 
