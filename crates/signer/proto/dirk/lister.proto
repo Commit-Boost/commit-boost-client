@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package v1;
+
+import "google/api/annotations.proto";
+import "endpoint.proto";
+import "responsestate.proto";
+
+option csharp_namespace = "Eth2Signer.v1";
+option php_namespace = "Eth2Signer\\v1";
+option go_package = "github.com/wealdtech/eth2-signer-api/pb/v1";
+option java_package = "com.wealdtech.eth2signerapi.v1";
+option java_multiple_files = true;
+option java_outer_classname = "ListerProto";
+
+service Lister {
+  rpc ListAccounts(ListAccountsRequest) returns (ListAccountsResponse) {
+    option (google.api.http) = {
+      get: "/v1/lister/listaccounts"
+    };
+  }
+}
+
+message ListAccountsRequest {
+  repeated string paths = 1;
+}
+
+message ListAccountsResponse {
+  ResponseState state = 1;
+  repeated Account Accounts = 2;
+  repeated DistributedAccount DistributedAccounts = 3;
+}
+
+message Account {
+  string name = 1;
+  bytes public_key = 2;
+  bytes uuid = 3;
+}
+
+message DistributedAccount {
+  string name = 1;
+  bytes public_key = 2;
+  repeated Endpoint participants = 3;
+  uint32 signing_threshold = 4;
+  bytes uuid = 5;
+  bytes composite_public_key = 6;
+}

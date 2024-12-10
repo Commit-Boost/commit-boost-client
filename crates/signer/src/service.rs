@@ -1,5 +1,6 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, str::FromStr, sync::Arc};
 
+use alloy::transports::http::reqwest::Url;
 use axum::{
     extract::{Request, State},
     http::StatusCode,
@@ -32,10 +33,13 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::{
+    dirk::{DirkClient, DirkConfig},
     error::SignerModuleError,
     manager::SigningManager,
     metrics::{uri_to_tag, SIGNER_METRICS_REGISTRY, SIGNER_STATUS},
 };
+
+use tonic::transport::{Certificate, Identity};
 
 /// Implements the Signer API and provides a service for signing requests
 pub struct SigningService;
@@ -47,6 +51,8 @@ struct SigningState {
     /// Map of JWTs to module ids. This also acts as registry of all modules
     /// running
     jwts: Arc<BiHashMap<ModuleId, Jwt>>,
+    /// Dirk settings
+    dirk: Option<DirkClient>,
 }
 
 impl SigningService {
@@ -76,7 +82,25 @@ impl SigningService {
 
         info!(version = COMMIT_BOOST_VERSION, modules =? module_ids, port =? config.server_port, loaded_consensus, loaded_proxies, "Starting signing service");
 
-        let state = SigningState { manager: RwLock::new(manager).into(), jwts: config.jwts.into() };
+        let state = SigningState {
+            manager: RwLock::new(manager).into(),
+            jwts: config.jwts.into(),
+            dirk: Some(
+                DirkClient::new_from_config(DirkConfig {
+                    url: Url::from_str("https://localhost:9091").unwrap(),
+                    client_cert: Identity::from_pem(
+                        std::fs::read_to_string("client1.crt").unwrap(),
+                        std::fs::read_to_string("client1.key").unwrap(),
+                    ),
+                    cert_auth: Some(Certificate::from_pem(
+                        std::fs::read_to_string("dirk_authority.crt").unwrap(),
+                    )),
+                    server_domain: Some("server.example.com".into()),
+                })
+                .await
+                .unwrap(),
+            ),
+        };
         SigningService::init_metrics()?;
 
         let app = axum::Router::new()
@@ -142,12 +166,16 @@ async fn handle_get_pubkeys(
 
     debug!(event = "get_pubkeys", ?req_id, "New request");
 
-    let signing_manager = state.manager.read().await;
-    let map = signing_manager
-        .get_consensus_proxy_maps(&module_id)
-        .map_err(|err| SignerModuleError::Internal(err.to_string()))?;
+    let keys = if let Some(dirk) = state.dirk {
+        dirk.get_pubkeys(module_id).await.map_err(|e| SignerModuleError::Internal(e.to_string()))?
+    } else {
+        let signing_manager = state.manager.read().await;
+        signing_manager
+            .get_consensus_proxy_maps(&module_id)
+            .map_err(|err| SignerModuleError::Internal(err.to_string()))?
+    };
 
-    let res = GetPubkeysResponse { keys: map };
+    let res = GetPubkeysResponse { keys };
 
     Ok((StatusCode::OK, Json(res)).into_response())
 }

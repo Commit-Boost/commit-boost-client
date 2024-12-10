@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package v1;
+
+option csharp_namespace = "Eth2Signer.v1";
+option php_namespace = "Eth2Signer\\v1";
+option go_package = "github.com/wealdtech/eth2-signer-api/pb/v1";
+option java_package = "com.wealdtech.eth2signerapi.v1";
+option java_multiple_files = true;
+option java_outer_classname = "EndpointProto";
+
+message Endpoint {
+  uint64 id = 1;
+  string name = 2;
+  uint32 port = 3;
+}

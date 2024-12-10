@@ -1,0 +1,86 @@
+syntax = "proto3";
+
+package v1;
+
+import "google/api/annotations.proto";
+import "eth2.proto";
+import "responsestate.proto";
+
+option csharp_namespace = "Eth2Signer.v1";
+option php_namespace = "Eth2Signer\\v1";
+option go_package = "github.com/wealdtech/eth2-signer-api/pb/v1";
+option java_package = "com.wealdtech.eth2signerapi.v1";
+option java_multiple_files = true;
+option java_outer_classname = "SignerProto";
+
+service Signer {
+  rpc Sign(SignRequest) returns (SignResponse) {
+    option (google.api.http) = {
+      get: "/v1/signer/sign"
+    };
+  }
+  rpc Multisign(MultisignRequest) returns (MultisignResponse) {
+    option (google.api.http) = {
+      get: "/v1/signer/multisign"
+    };
+  }
+  rpc SignBeaconAttestation(SignBeaconAttestationRequest) returns (SignResponse) { 
+    option (google.api.http) = {
+      get: "/v1/signer/signbeaconattestation"
+    };
+  }
+  rpc SignBeaconAttestations(SignBeaconAttestationsRequest) returns (MultisignResponse) {
+    option (google.api.http) = {
+      get: "/v1/signer/signbeaconattestations"
+    };
+  }
+  rpc SignBeaconProposal(SignBeaconProposalRequest) returns (SignResponse) { 
+    option (google.api.http) = {
+      get: "/v1/signer/signbeaconproposal"
+    };
+  }
+}
+
+message SignRequest {
+  oneof id {
+    bytes public_key = 1;
+    string account = 2;
+  }
+  bytes data = 3;
+  bytes domain = 4;
+}
+
+message MultisignRequest {
+  repeated SignRequest requests = 1;
+}
+
+message SignBeaconAttestationRequest {
+  oneof id {
+    bytes public_key = 1;
+    string account = 2;
+  }
+  bytes domain = 3;
+  AttestationData data = 4;
+}
+
+message SignBeaconAttestationsRequest {
+  repeated SignBeaconAttestationRequest requests = 1;
+}
+
+message SignBeaconProposalRequest {
+  oneof id {
+    bytes public_key = 1;
+    string account = 2;
+  }
+  bytes domain = 3;
+  BeaconBlockHeader data = 4;
+}
+
+message SignResponse {
+  ResponseState state = 1;
+  bytes signature = 2;
+}
+
+message MultisignResponse {
+  repeated SignResponse responses = 1;
+}

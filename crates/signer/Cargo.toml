@@ -37,3 +37,14 @@ uuid.workspace = true
 bimap.workspace = true
 lazy_static.workspace = true
 derive_more.workspace = true
+
+tonic = { version = "0.12.3", features = [
+    "tls",
+    "channel",
+    "prost",
+    "codegen",
+] }
+prost = "0.13.4"
+
+[build-dependencies]
+tonic-build = "0.12.3"

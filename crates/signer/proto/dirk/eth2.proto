@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package v1;
+
+option csharp_namespace = "Eth2Signer.v1";
+option php_namespace = "Eth2Signer\\v1";
+option go_package = "github.com/wealdtech/eth2-signer-api/pb/v1";
+option java_package = "com.wealdtech.eth2signerapi.v1";
+option java_multiple_files = true;
+option java_outer_classname = "Eth2Proto";
+
+// AttestationData is defined at https://github.com/ethereum/eth2.0-specs/blob/dev/specs/phase0/beacon-chain.md#attestationdata
+message AttestationData {
+  uint64 slot = 1;
+  uint64 committee_index = 2;
+  bytes beacon_block_root = 3;
+  Checkpoint source = 4;
+  Checkpoint target = 5;
+}
+
+// Checkpoint is defined at https://github.com/ethereum/eth2.0-specs/blob/dev/specs/phase0/beacon-chain.md#checkpoint
+message Checkpoint {
+  uint64 epoch = 1;
+  bytes root = 2;
+}
+
+// BeaconBlockheader is defined at https://github.com/ethereum/eth2.0-specs/blob/dev/specs/phase0/beacon-chain.md#beaconblockheader
+message BeaconBlockHeader {
+  uint64 slot = 1;
+  uint64 proposer_index = 2;
+  bytes parent_root = 3;
+  bytes state_root = 4;
+  bytes body_root = 5;
+}

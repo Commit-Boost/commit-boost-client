@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package v1;
+
+option csharp_namespace = "Eth2Signer.v1";
+option php_namespace = "Eth2Signer\\v1";
+option go_package = "github.com/wealdtech/eth2-signer-api/pb/v1";
+option java_package = "com.wealdtech.eth2signerapi.v1";
+option java_multiple_files = true;
+option java_outer_classname = "ResponseStateProto";
+
+enum ResponseState {
+  // UNKNOWN occurs when no information about the response is available.
+  UNKNOWN = 0;
+  // SUCCEEDED occurs when a request was successful.
+  SUCCEEDED = 1;
+  // DENIED occurs when a request was denied.
+  DENIED = 2;
+  // FAILED occurs when a request failed to complete.
+  FAILED = 3;
+}
