@@ -37,7 +37,7 @@ timeout_get_payload_ms = 4000
 # Timeout in milliseconds for the `register_validator` call to relays.
 # OPTIONAL, DEFAULT: 3000
 timeout_register_validator_ms = 3000
-# Whether to skip signature verification of headers against the relay pubkey
+# Whether to skip signature verification of headers and pubkey matching against the relay pubkey
 # OPTIONAL, DEFAULT: false
 skip_sigverify = false
 # Minimum bid in ETH that will be accepted from `get_header`

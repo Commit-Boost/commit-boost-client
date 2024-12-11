@@ -398,22 +398,22 @@ fn validate_header(
         return Err(ValidationError::BidTooLow { min: minimum_bid_wei, got: value });
     }
 
-    if expected_relay_pubkey != received_relay_pubkey {
-        return Err(ValidationError::PubkeyMismatch {
-            expected: expected_relay_pubkey,
-            got: received_relay_pubkey,
-        });
-    }
-
     let expected_timestamp = timestamp_of_slot_start_sec(slot, chain);
     if expected_timestamp != signed_header.message.header.timestamp {
         return Err(ValidationError::TimestampMismatch {
             expected: expected_timestamp,
             got: signed_header.message.header.timestamp,
-        })
+        });
     }
 
     if !skip_sig_verify {
+        if expected_relay_pubkey != received_relay_pubkey {
+            return Err(ValidationError::PubkeyMismatch {
+                expected: expected_relay_pubkey,
+                got: received_relay_pubkey,
+            });
+        }
+
         verify_signed_message(
             chain,
             &received_relay_pubkey,
@@ -545,6 +545,13 @@ mod tests {
 
         mock_header.message.value = U256::from(11);
 
+        let expected = timestamp_of_slot_start_sec(slot, chain);
+        assert_eq!(
+            validate_header(&mock_header, chain, pubkey, parent_hash, false, min_bid, slot,),
+            Err(ValidationError::TimestampMismatch { expected, got: 0 })
+        );
+
+        mock_header.message.header.timestamp = expected;
         mock_header.message.pubkey = pubkey;
 
         assert_eq!(
@@ -560,14 +567,6 @@ mod tests {
             Err(ValidationError::PubkeyMismatch { expected: BlsPublicKey::default(), got: pubkey })
         );
 
-        let expected = timestamp_of_slot_start_sec(slot, chain);
-        assert_eq!(
-            validate_header(&mock_header, chain, pubkey, parent_hash, false, min_bid, slot,),
-            Err(ValidationError::TimestampMismatch { expected, got: 0 })
-        );
-
-        mock_header.message.header.timestamp = expected;
-
         assert!(matches!(
             validate_header(&mock_header, chain, pubkey, parent_hash, false, min_bid, slot),
             Err(ValidationError::Sigverify(_))
@@ -580,6 +579,6 @@ mod tests {
 
         assert!(
             validate_header(&mock_header, chain, pubkey, parent_hash, false, min_bid, slot).is_ok()
-        )
+        );
     }
 }
