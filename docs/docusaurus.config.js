@@ -59,12 +59,12 @@ const config = {
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
       // Replace with your project's social card
-      image: 'img/logo.jpg',
+      image: 'img/icon.png',
       navbar: {
         title: 'Commit Boost',
         logo: {
-          alt: 'Commit Boost Logo',
-          src: 'img/logo.jpg',
+          alt: 'Commit Boost Icon',
+          src: 'img/icon.png',
         },
         items: [
           { to: '/', label: 'Docs', position: 'left' },
@@ -111,6 +111,7 @@ const config = {
       prism: {
         theme: prismThemes.github,
         darkTheme: prismThemes.dracula,
+        additionalLanguages: ['bash','toml'],
       },
     }),
 };
