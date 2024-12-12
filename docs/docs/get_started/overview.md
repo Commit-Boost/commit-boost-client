@@ -24,7 +24,7 @@ The modules are also published at [each release](https://github.com/orgs/Commit-
 
 ### From source
 Requirements:
-- Rust 1.80
+- Rust 1.83
 
 :::note
 Run `rustup update` to update Rust and Cargo to the latest version

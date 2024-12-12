@@ -16,7 +16,7 @@ resolver = "2"
 
 [workspace.package]
 version = "0.4.0"
-rust-version = "1.80"
+rust-version = "1.83"
 edition = "2021"
 
 [workspace.dependencies]
@@ -27,7 +27,7 @@ cb-pbs = { path = "crates/pbs" }
 cb-signer = { path = "crates/signer" }
 
 # ethereum
-alloy = { version = "0.5.4", features = [
+alloy = { version = "0.8.0", features = [
     "rpc-types-beacon",
     "serde",
     "ssz",
