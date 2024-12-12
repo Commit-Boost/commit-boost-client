@@ -38,9 +38,7 @@ const METRICS_NETWORK: &str = "monitoring_network";
 const SIGNER_NETWORK: &str = "signer_network";
 
 /// Builds the docker compose file for the Commit-Boost services
-
 // TODO: do more validation for paths, images, etc
-
 pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()> {
     println!("Initializing Commit-Boost with config file: {}", config_path);
     let cb_config = CommitBoostConfig::from_file(&config_path)?;
