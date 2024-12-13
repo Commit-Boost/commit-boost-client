@@ -46,6 +46,18 @@ impl std::fmt::Debug for Chain {
 }
 
 impl Chain {
+    pub fn id(&self) -> u64 {
+        match self {
+            Chain::Mainnet => KnownChain::Mainnet.id(),
+            Chain::Holesky => KnownChain::Holesky.id(),
+            Chain::Sepolia => KnownChain::Sepolia.id(),
+            Chain::Helder => KnownChain::Helder.id(),
+            Chain::Custom { .. } => {
+                unimplemented!("chain id is not supported on custom chains, plase file an issue")
+            }
+        }
+    }
+
     pub fn builder_domain(&self) -> [u8; 32] {
         match self {
             Chain::Mainnet => KnownChain::Mainnet.builder_domain(),
@@ -101,6 +113,15 @@ pub enum KnownChain {
 
 // Constants
 impl KnownChain {
+    pub fn id(&self) -> u64 {
+        match self {
+            KnownChain::Mainnet => 1,
+            KnownChain::Holesky => 17000,
+            KnownChain::Sepolia => 11155111,
+            KnownChain::Helder => 167000,
+        }
+    }
+
     pub fn builder_domain(&self) -> [u8; 32] {
         match self {
             KnownChain::Mainnet => [

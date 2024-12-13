@@ -8,6 +8,7 @@ use std::{
 
 use alloy::{
     primitives::{utils::format_ether, U256},
+    providers::{Provider, ProviderBuilder},
     rpc::types::beacon::BlsPublicKey,
 };
 use eyre::{ensure, Result};
@@ -101,7 +102,7 @@ pub struct PbsConfig {
 
 impl PbsConfig {
     /// Validate PBS config parameters
-    pub fn validate(&self) -> Result<()> {
+    pub async fn validate(&self, chain: Chain) -> Result<()> {
         // timeouts must be positive
         ensure!(self.timeout_get_header_ms > 0, "timeout_get_header_ms must be greater than 0");
         ensure!(self.timeout_get_payload_ms > 0, "timeout_get_payload_ms must be greater than 0");
@@ -126,6 +127,21 @@ impl PbsConfig {
                 self.rpc_url.is_some(),
                 "rpc_url is required if extra_validation_enabled is true"
             );
+        }
+
+        if let Some(rpc_url) = &self.rpc_url {
+            // TODO: remove this once we support chain ids for custom chains
+            if !matches!(chain, Chain::Custom { .. }) {
+                let provider = ProviderBuilder::new().on_http(rpc_url.clone());
+                let chain_id = provider.get_chain_id().await?;
+                ensure!(
+                    chain_id == chain.id(),
+                    "Rpc url is for the wrong chain, expected: {} ({:?}) got {}",
+                    chain.id(),
+                    chain,
+                    chain_id
+                );
+            }
         }
 
         Ok(())
@@ -170,9 +186,9 @@ fn default_pbs() -> String {
 }
 
 /// Loads the default pbs config, i.e. with no signer client or custom data
-pub fn load_pbs_config() -> Result<PbsModuleConfig> {
+pub async fn load_pbs_config() -> Result<PbsModuleConfig> {
     let config = CommitBoostConfig::from_env_path()?;
-    config.validate()?;
+    config.validate().await?;
 
     // use endpoint from env if set, otherwise use default host and port
     let endpoint = if let Some(endpoint) = load_optional_env_var(PBS_ENDPOINT_ENV) {
@@ -181,8 +197,13 @@ pub fn load_pbs_config() -> Result<PbsModuleConfig> {
         SocketAddr::from((config.pbs.pbs_config.host, config.pbs.pbs_config.port))
     };
 
-    let muxes =
-        config.muxes.map(|muxes| muxes.validate_and_fill(&config.pbs.pbs_config)).transpose()?;
+    let muxes = match config.muxes {
+        Some(muxes) => {
+            let mux_configs = muxes.validate_and_fill(config.chain, &config.pbs.pbs_config).await?;
+            Some(mux_configs)
+        }
+        None => None,
+    };
 
     let relay_clients =
         config.relays.into_iter().map(RelayClient::new).collect::<Result<Vec<_>>>()?;
@@ -200,7 +221,7 @@ pub fn load_pbs_config() -> Result<PbsModuleConfig> {
 }
 
 /// Loads a custom pbs config, i.e. with signer client and/or custom data
-pub fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleConfig, T)> {
+pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleConfig, T)> {
     #[derive(Debug, Deserialize)]
     struct CustomPbsConfig<U> {
         #[serde(flatten)]
@@ -219,7 +240,7 @@ pub fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleConfig,
 
     // load module config including the extra data (if any)
     let cb_config: StubConfig<T> = load_file_from_env(CONFIG_ENV)?;
-    cb_config.pbs.static_config.pbs_config.validate()?;
+    cb_config.pbs.static_config.pbs_config.validate(cb_config.chain).await?;
 
     // use endpoint from env if set, otherwise use default host and port
     let endpoint = if let Some(endpoint) = load_optional_env_var(PBS_ENDPOINT_ENV) {
@@ -232,7 +253,11 @@ pub fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleConfig,
     };
 
     let muxes = match cb_config.muxes {
-        Some(muxes) => Some(muxes.validate_and_fill(&cb_config.pbs.static_config.pbs_config)?),
+        Some(muxes) => Some(
+            muxes
+                .validate_and_fill(cb_config.chain, &cb_config.pbs.static_config.pbs_config)
+                .await?,
+        ),
         None => None,
     };
 
