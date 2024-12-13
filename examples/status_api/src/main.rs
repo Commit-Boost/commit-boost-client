@@ -81,7 +81,7 @@ async fn handle_check(State(state): State<PbsState<MyBuilderState>>) -> Response
 async fn main() -> Result<()> {
     color_eyre::install()?;
 
-    let (pbs_config, extra) = load_pbs_custom_config::<ExtraConfig>()?;
+    let (pbs_config, extra) = load_pbs_custom_config::<ExtraConfig>().await?;
     let _guard = initialize_pbs_tracing_log()?;
 
     let custom_state = MyBuilderState::from_config(extra);

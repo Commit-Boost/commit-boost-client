@@ -28,6 +28,7 @@ cb-signer = { path = "crates/signer" }
 
 # ethereum
 alloy = { version = "0.8.0", features = [
+    "full",
     "rpc-types-beacon",
     "serde",
     "ssz",

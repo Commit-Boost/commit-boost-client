@@ -39,9 +39,11 @@ const SIGNER_NETWORK: &str = "signer_network";
 
 /// Builds the docker compose file for the Commit-Boost services
 // TODO: do more validation for paths, images, etc
-pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()> {
+pub async fn handle_docker_init(config_path: String, output_dir: String) -> Result<()> {
     println!("Initializing Commit-Boost with config file: {}", config_path);
     let cb_config = CommitBoostConfig::from_file(&config_path)?;
+    cb_config.validate().await?;
+
     let chain_spec_path = CommitBoostConfig::chain_spec_file(&config_path);
 
     let metrics_enabled = cb_config.metrics.is_some();
