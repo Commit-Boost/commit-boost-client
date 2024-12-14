@@ -94,7 +94,7 @@ commit-boost-cli start --docker benches/pbs/bench.docker-compose.yml
 ```
 or regenerate it using `commit-boost-cli init`.
 
-To clean up after then benchmark, run:
+To clean up after the benchmark, run:
 ```bash
 commit-boost-cli stop --docker benches/pbs/bench.docker-compose.yml
 ```
