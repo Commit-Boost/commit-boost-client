@@ -22,6 +22,7 @@ RUN apt-get update && apt-get install -y \
   ca-certificates \
   libssl3 \
   libssl-dev \
+  curl \
   && apt-get clean autoclean \
   && rm -rf /var/lib/apt/lists/*
 
