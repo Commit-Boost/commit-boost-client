@@ -4,7 +4,7 @@ use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
     pbs::{
         error::{PbsError, ValidationError},
-        RelayClient, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse, HEADER_SLOT_UUID_KEY,
+        RelayClient, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
         HEADER_START_TIME_UNIX_MS,
     },
     utils::{get_user_agent_with_version, utcnow_ms},
@@ -27,11 +27,8 @@ pub async fn submit_block<S: BuilderApiState>(
     req_headers: HeaderMap,
     state: PbsState<S>,
 ) -> eyre::Result<SubmitBlindedBlockResponse> {
-    let (_, slot_uuid) = state.get_slot_and_uuid();
-
     // prepare headers
     let mut send_headers = HeaderMap::new();
-    send_headers.insert(HEADER_SLOT_UUID_KEY, HeaderValue::from_str(&slot_uuid.to_string())?);
     send_headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(utcnow_ms()));
     send_headers.insert(USER_AGENT, get_user_agent_with_version(&req_headers)?);
 

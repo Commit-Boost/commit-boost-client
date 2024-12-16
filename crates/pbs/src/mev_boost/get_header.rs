@@ -14,7 +14,7 @@ use cb_common::{
     pbs::{
         error::{PbsError, ValidationError},
         GetHeaderParams, GetHeaderResponse, RelayClient, SignedExecutionPayloadHeader,
-        EMPTY_TX_ROOT_HASH, HEADER_SLOT_UUID_KEY, HEADER_START_TIME_UNIX_MS,
+        EMPTY_TX_ROOT_HASH, HEADER_START_TIME_UNIX_MS,
     },
     signature::verify_signed_message,
     types::Chain,
@@ -73,11 +73,8 @@ pub async fn get_header<S: BuilderApiState>(
         return Ok(None);
     }
 
-    let (_, slot_uuid) = state.get_slot_and_uuid();
-
     // prepare headers, except for start time which is set in `send_one_get_header`
     let mut send_headers = HeaderMap::new();
-    send_headers.insert(HEADER_SLOT_UUID_KEY, HeaderValue::from_str(&slot_uuid.to_string())?);
     send_headers.insert(USER_AGENT, get_user_agent_with_version(&req_headers)?);
 
     let mut handles = Vec::with_capacity(relays.len());
@@ -118,7 +115,9 @@ pub async fn get_header<S: BuilderApiState>(
         }
     }
 
-    Ok(state.add_bids(params.slot, relay_bids))
+    let max_bid = relay_bids.into_iter().max_by_key(|bid| bid.value());
+
+    Ok(max_bid)
 }
 
 /// Fetch the parent block from the RPC URL for extra validation of the header.
