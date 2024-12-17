@@ -8,9 +8,6 @@
 
 A new Ethereum validator sidecar focused on standardizing the last mile of communication between validators and third-party protocols.
 
-[Docs](https://commit-boost.github.io/commit-boost-client/)
-
-
 ## Overview
 Commit-Boost is a modular sidecar that allows Ethereum validators to opt-in to different commitment protocols
 
