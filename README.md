@@ -1,13 +1,13 @@
 # Commit-Boost
 
-[![Ci](https://github.com/Commit-Boost/commit-boost-client/actions/workflows/ci.yml/badge.svg)][https://github.com/Commit-Boost/commit-boost-client/actions/workflows/ci.yml]
-[![Docs](https://github.com/Commit-Boost/commit-boost-client/actions/workflows/docs.yml/badge.svg)][https://github.com/Commit-Boost/commit-boost-client/actions/workflows/docs.yml]
-[![Chat](https://img.shields.io/endpoint?color=neon&logo=telegram&label=chat&url=https%3A%2F%2Ftg.sumanjay.workers.dev%2F%2BPcs9bykxK3BiMzk5)][https://t.me/+Pcs9bykxK3BiMzk5]
-[![X](https://img.shields.io/twitter/follow/Commit_Boost)][https://x.com/Commit_Boost]
+[![Ci](https://github.com/Commit-Boost/commit-boost-client/actions/workflows/ci.yml/badge.svg)](https://github.com/Commit-Boost/commit-boost-client/actions/workflows/ci.yml)
+[![Docs](https://github.com/Commit-Boost/commit-boost-client/actions/workflows/docs.yml/badge.svg)](https://github.com/Commit-Boost/commit-boost-client/actions/workflows/docs.yml)
+[![Chat](https://img.shields.io/endpoint?color=neon&logo=telegram&label=chat&url=https%3A%2F%2Ftg.sumanjay.workers.dev%2F%2BPcs9bykxK3BiMzk5)](https://t.me/+Pcs9bykxK3BiMzk5)
+[![X](https://img.shields.io/twitter/follow/Commit_Boost)](https://x.com/Commit_Boost)
 
 A new Ethereum validator sidecar focused on standardizing the last mile of communication between validators and third-party protocols.
 
-[Docs](https://commit-boost.github.io/commit-boost-client/) |
+[Docs](https://commit-boost.github.io/commit-boost-client/)
 
 
 ## Overview
