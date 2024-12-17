@@ -1,4 +1,4 @@
-# Commit boost on k8s
+# Commit-Boost on k8s
 
 Currently, only the PBS module is supported and it can be used as a
 drop-in replacement to mev-boost. To quickly install it, from the

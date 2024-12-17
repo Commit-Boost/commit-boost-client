@@ -1,6 +1,6 @@
 use clap::Parser;
 
-/// Main entry point of the Commit Boost CLI
+/// Main entry point of the Commit-Boost CLI
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     color_eyre::install()?;

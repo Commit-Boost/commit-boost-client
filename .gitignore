@@ -14,3 +14,4 @@ cb.docker-compose.yml
 targets.json
 .idea/
 logs
+.vscode/

@@ -39,7 +39,7 @@ Modules need some environment variables to work correctly.
 
 #### Commit modules
 - `CB_SIGNER_URL`: required, url to the signer module server.
-- `CB_SIGNER_JWT`: required, jwt to use to for signature requests (needs to match what is in `CB_JWTS`).
+- `CB_SIGNER_JWT`: required, jwt to use for signature requests (needs to match what is in `CB_JWTS`).
 
 #### Events modules
 - `CB_BUILDER_PORT`: required, port to open to receive builder events from the PBS module.
