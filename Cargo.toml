@@ -10,7 +10,9 @@ members = [
 
     "tests",
     "benches/*",
-    "examples/*",
+    "examples/builder_log",
+    "examples/da_commit",
+    "examples/status_api",
 ]
 resolver = "2"
 
