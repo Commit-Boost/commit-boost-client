@@ -15,6 +15,7 @@ use cb_common::{
         SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV, SIGNER_MODULE_NAME, SIGNER_PORT_ENV,
         SIGNER_URL_ENV,
     },
+    pbs::{BUILDER_API_PATH, GET_STATUS_PATH},
     signer::{ProxyStore, SignerLoader},
     types::ModuleId,
     utils::random_jwt,
@@ -295,6 +296,17 @@ pub async fn handle_docker_init(config_path: String, output_dir: String) -> Resu
         networks: pbs_networs,
         volumes: pbs_volumes,
         environment: Environment::KvPair(pbs_envs),
+        healthcheck: Some(Healthcheck {
+            test: Some(HealthcheckTest::Single(format!(
+                "curl -f http://localhost:{}{}{}",
+                cb_config.pbs.pbs_config.port, BUILDER_API_PATH, GET_STATUS_PATH
+            ))),
+            interval: Some("30s".into()),
+            timeout: Some("5s".into()),
+            retries: 3,
+            start_period: Some("5s".into()),
+            disable: false,
+        }),
         ..Service::default()
     };
 
@@ -413,10 +425,10 @@ pub async fn handle_docker_init(config_path: String, output_dir: String) -> Resu
                     test: Some(HealthcheckTest::Single(format!(
                         "curl -f http://localhost:{signer_port}/status"
                     ))),
-                    interval: Some("5s".into()),
+                    interval: Some("30s".into()),
                     timeout: Some("5s".into()),
-                    retries: 5,
-                    start_period: Some("0s".into()),
+                    retries: 3,
+                    start_period: Some("5s".into()),
                     disable: false,
                 }),
                 ..Service::default()
