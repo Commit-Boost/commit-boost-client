@@ -1,4 +1,4 @@
-use std::net::Ipv4Addr;
+use std::{net::Ipv4Addr, path::PathBuf};
 
 use eyre::Result;
 use serde::{Deserialize, Serialize};
@@ -16,6 +16,8 @@ pub struct MetricsConfig {
     /// Whether to start the grafana service
     #[serde(default = "default_bool::<true>")]
     pub use_grafana: bool,
+    /// Path to grafana config folder
+    pub grafana_path: Option<PathBuf>,
     /// Whether to start the cadvisor service
     #[serde(default = "default_bool::<true>")]
     pub use_cadvisor: bool,
