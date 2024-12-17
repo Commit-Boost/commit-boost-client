@@ -299,7 +299,7 @@ Modify the `blockrelay.config` file to add Commit-Boost:
 }
 ```
 
-#### Beacon Node to Commit Boost
+#### Beacon Node to Commit-Boost
 In this setup, the BN Builder-API endpoint will be pointing to the PBS module (e.g. for Lighthouse you will need the flag `--builder=http://127.0.0.0:18550`).
 
 This will bypass the `blockrelay` entirely so make sure all relays are properly configured in the `[[relays]]` section.

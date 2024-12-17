@@ -26,7 +26,7 @@ Commit-Boost is a modular sidecar that allows Ethereum validators to opt-in to d
 - [Developers](https://commit-boost.github.io/commit-boost-client/category/developing). Check out also the [examples](/examples)
 
 ## Audit
-Commit Boost received an audit from [Sigma Prime](https://sigmaprime.io/). Find the report [here](/audit/Sigma_Prime_Commit_Boost_Client_Security_Assessment_Report_v2_0.pdf).
+Commit-Boost received an audit from [Sigma Prime](https://sigmaprime.io/). Find the report [here](/audit/Sigma_Prime_Commit_Boost_Client_Security_Assessment_Report_v2_0.pdf).
 
 ## Acknowledgements
 - [MEV boost](https://github.com/flashbots/mev-boost)
