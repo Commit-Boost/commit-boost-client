@@ -53,7 +53,7 @@ impl Chain {
             Chain::Sepolia => KnownChain::Sepolia.id(),
             Chain::Helder => KnownChain::Helder.id(),
             Chain::Custom { .. } => {
-                unimplemented!("chain id is not supported on custom chains, plase file an issue")
+                unimplemented!("chain id is not supported on custom chains, please file an issue")
             }
         }
     }
