@@ -108,7 +108,7 @@ Based on the `bench-config.toml` file, this will simulate multiple calls to each
 
 ## Results
 ### Get Header
-For each `get_header` call we measure the latency. Note that this latency also includes some small network overhead, and the internal overhead of the mock relay. The assumption is these overheads are ~constants across test cases. This also means that a single latency measurement is not significative, but only useful to be compared across test cases.
+For each `get_header` call we measure the latency. Note that this latency also includes some small network overhead, and the internal overhead of the mock relay. The assumption is these overheads are ~constants across test cases. This also means that a single latency measurement is not significant, but only useful to be compared across test cases.
 
 
 ```bash
