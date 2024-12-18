@@ -27,7 +27,6 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
     Path(params): Path<GetHeaderParams>,
 ) -> Result<impl IntoResponse, PbsClientError> {
     state.publish_event(BuilderEvent::GetHeaderRequest(params));
-    state.get_or_update_slot_uuid(params.slot);
 
     let ua = get_user_agent(&req_headers);
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);

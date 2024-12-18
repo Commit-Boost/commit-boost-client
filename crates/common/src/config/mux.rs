@@ -216,10 +216,7 @@ async fn fetch_lido_registry_keys(
     chain: Chain,
     node_operator_id: U256,
 ) -> eyre::Result<Vec<BlsPublicKey>> {
-    debug!(
-        "loading operator keys from Lido registry: chain={:?}, node_operator_id={}",
-        chain, node_operator_id
-    );
+    debug!(?chain, %node_operator_id, "loading operator keys from Lido registry");
 
     let provider = ProviderBuilder::new().on_http(rpc_url);
     let registry_address = lido_registry_address(chain)?;
@@ -263,7 +260,7 @@ async fn fetch_lido_registry_keys(
     }
 
     ensure!(keys.len() == total_keys as usize, "expected {total_keys} keys, got {}", keys.len());
-    let unique: Vec<_> = keys.iter().collect::<HashSet<_>>().into_iter().collect();
+    let unique = keys.iter().collect::<HashSet<_>>();
     ensure!(unique.len() == keys.len(), "found duplicate keys in registry");
 
     Ok(keys)
