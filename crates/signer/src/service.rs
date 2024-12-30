@@ -1,6 +1,5 @@
-use std::{net::SocketAddr, str::FromStr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc};
 
-use alloy::transports::http::reqwest::Url;
 use axum::{
     extract::{Request, State},
     http::StatusCode,
@@ -33,13 +32,11 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::{
-    dirk::{DirkClient, DirkConfig},
+    dirk::{v1::sign_request::Id as SignerId, DirkClient},
     error::SignerModuleError,
     manager::SigningManager,
     metrics::{uri_to_tag, SIGNER_METRICS_REGISTRY, SIGNER_STATUS},
 };
-
-use tonic::transport::{Certificate, Identity};
 
 /// Implements the Signer API and provides a service for signing requests
 pub struct SigningService;
@@ -71,8 +68,10 @@ impl SigningService {
 
         let mut manager = SigningManager::new(config.chain, proxy_store)?;
 
-        for signer in config.loader.load_keys()? {
-            manager.add_consensus_signer(signer);
+        if let Some(loader) = config.loader {
+            for signer in loader.load_keys()? {
+                manager.add_consensus_signer(signer);
+            }
         }
         let module_ids: Vec<String> = config.jwts.left_values().cloned().map(Into::into).collect();
 
@@ -85,21 +84,10 @@ impl SigningService {
         let state = SigningState {
             manager: RwLock::new(manager).into(),
             jwts: config.jwts.into(),
-            dirk: Some(
-                DirkClient::new_from_config(DirkConfig {
-                    url: Url::from_str("https://localhost:9091").unwrap(),
-                    client_cert: Identity::from_pem(
-                        std::fs::read_to_string("client1.crt").unwrap(),
-                        std::fs::read_to_string("client1.key").unwrap(),
-                    ),
-                    cert_auth: Some(Certificate::from_pem(
-                        std::fs::read_to_string("dirk_authority.crt").unwrap(),
-                    )),
-                    server_domain: Some("server.example.com".into()),
-                })
-                .await
-                .unwrap(),
-            ),
+            dirk: match config.dirk {
+                Some(dirk) => Some(DirkClient::new_from_config(dirk).await?),
+                None => None,
+            },
         };
         SigningService::init_metrics()?;
 
@@ -192,34 +180,46 @@ async fn handle_request_signature(
 
     let signing_manager = state.manager.read().await;
 
-    let signature_response = match request {
-        SignRequest::Consensus(SignConsensusRequest { pubkey, object_root }) => signing_manager
-            .sign_consensus(&pubkey, &object_root)
+    let object_root = match request {
+        SignRequest::Consensus(SignConsensusRequest { object_root, .. }) => object_root,
+        SignRequest::ProxyBls(SignProxyRequest { object_root, .. }) => object_root,
+        SignRequest::ProxyEcdsa(SignProxyRequest { object_root, .. }) => object_root,
+    };
+    let signature_response = if let Some(dirk) = state.dirk {
+        dirk.request_signature(SignerId::Account("wallet1/account1".to_string()), object_root)
             .await
-            .map(|sig| Json(sig).into_response()),
-        SignRequest::ProxyBls(SignProxyRequest { pubkey: bls_pk, object_root }) => {
-            if !signing_manager.has_proxy_bls_for_module(&bls_pk, &module_id) {
-                return Err(SignerModuleError::UnknownProxySigner(bls_pk.to_vec()));
-            }
-
-            signing_manager
-                .sign_proxy_bls(&bls_pk, &object_root)
+            .map(|sig| Json(sig).into_response())
+            .map_err(|e| SignerModuleError::Internal(e.to_string()))
+    } else {
+        match request {
+            SignRequest::Consensus(SignConsensusRequest { pubkey, object_root }) => signing_manager
+                .sign_consensus(&pubkey, &object_root)
                 .await
-                .map(|sig| Json(sig).into_response())
-        }
-        SignRequest::ProxyEcdsa(SignProxyRequest { pubkey: ecdsa_pk, object_root }) => {
-            if !signing_manager.has_proxy_ecdsa_for_module(&ecdsa_pk, &module_id) {
-                return Err(SignerModuleError::UnknownProxySigner(ecdsa_pk.to_vec()));
+                .map(|sig| Json(sig).into_response()),
+            SignRequest::ProxyBls(SignProxyRequest { pubkey: bls_pk, object_root }) => {
+                if !signing_manager.has_proxy_bls_for_module(&bls_pk, &module_id) {
+                    return Err(SignerModuleError::UnknownProxySigner(bls_pk.to_vec()));
+                }
+
+                signing_manager
+                    .sign_proxy_bls(&bls_pk, &object_root)
+                    .await
+                    .map(|sig| Json(sig).into_response())
             }
+            SignRequest::ProxyEcdsa(SignProxyRequest { pubkey: ecdsa_pk, object_root }) => {
+                if !signing_manager.has_proxy_ecdsa_for_module(&ecdsa_pk, &module_id) {
+                    return Err(SignerModuleError::UnknownProxySigner(ecdsa_pk.to_vec()));
+                }
 
-            signing_manager
-                .sign_proxy_ecdsa(&ecdsa_pk, &object_root)
-                .await
-                .map(|sig| Json(sig).into_response())
+                signing_manager
+                    .sign_proxy_ecdsa(&ecdsa_pk, &object_root)
+                    .await
+                    .map(|sig| Json(sig).into_response())
+            }
         }
-    }?;
+    };
 
-    Ok(signature_response)
+    Ok(signature_response?)
 }
 
 async fn handle_generate_proxy(
