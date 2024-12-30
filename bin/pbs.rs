@@ -14,9 +14,9 @@ async fn main() -> Result<()> {
     if std::env::var_os("RUST_BACKTRACE").is_none() {
         std::env::set_var("RUST_BACKTRACE", "1");
     }
-
-    let pbs_config = load_pbs_config()?;
     let _guard = initialize_pbs_tracing_log();
+
+    let pbs_config = load_pbs_config().await?;
 
     let state = PbsState::new(pbs_config);
     PbsService::init_metrics()?;

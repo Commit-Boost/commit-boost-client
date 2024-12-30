@@ -38,14 +38,13 @@ pub struct CommitBoostConfig {
 
 impl CommitBoostConfig {
     /// Validate config
-    pub fn validate(&self) -> Result<()> {
-        self.pbs.pbs_config.validate()?;
+    pub async fn validate(&self) -> Result<()> {
+        self.pbs.pbs_config.validate(self.chain).await?;
         Ok(())
     }
 
     pub fn from_file(path: &str) -> Result<Self> {
         let config: Self = load_from_file(path)?;
-        config.validate()?;
         Ok(config)
     }
 
@@ -83,7 +82,6 @@ impl CommitBoostConfig {
             logs: helper_config.logs,
         };
 
-        config.validate()?;
         Ok(config)
     }
 

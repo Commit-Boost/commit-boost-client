@@ -18,7 +18,7 @@ use tracing_appender::{non_blocking::WorkerGuard, rolling::Rotation};
 use tracing_subscriber::{fmt::Layer, prelude::*, EnvFilter};
 
 use crate::{
-    config::{LogsSettings, LOGS_DIR_DEFAULT, PBS_MODULE_NAME},
+    config::{load_optional_env_var, LogsSettings, LOGS_DIR_DEFAULT, PBS_MODULE_NAME},
     pbs::HEADER_VERSION_VALUE,
     types::Chain,
 };
@@ -165,13 +165,13 @@ pub fn initialize_tracing_log(module_id: &str) -> eyre::Result<WorkerGuard> {
     let settings = settings.unwrap_or_default();
 
     // Log level for stdout
-    let stdout_log_level = match settings.log_level.parse::<Level>() {
-        Ok(f) => f,
-        Err(_) => {
-            eprintln!("Invalid RUST_LOG value {}, defaulting to info", settings.log_level);
-            Level::INFO
-        }
+
+    let stdout_log_level = if let Some(log_level) = load_optional_env_var("RUST_LOG") {
+        log_level.parse::<Level>().expect("invalid RUST_LOG value")
+    } else {
+        settings.log_level.parse::<Level>().expect("invalid log_level value in settings")
     };
+
     let stdout_filter = format_crates_filter(Level::INFO.as_str(), stdout_log_level.as_str());
 
     if use_file_logs {

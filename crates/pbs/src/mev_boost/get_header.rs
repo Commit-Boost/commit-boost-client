@@ -14,7 +14,7 @@ use cb_common::{
     pbs::{
         error::{PbsError, ValidationError},
         GetHeaderParams, GetHeaderResponse, RelayClient, SignedExecutionPayloadHeader,
-        EMPTY_TX_ROOT_HASH, HEADER_SLOT_UUID_KEY, HEADER_START_TIME_UNIX_MS,
+        EMPTY_TX_ROOT_HASH, HEADER_START_TIME_UNIX_MS,
     },
     signature::verify_signed_message,
     types::Chain,
@@ -73,11 +73,8 @@ pub async fn get_header<S: BuilderApiState>(
         return Ok(None);
     }
 
-    let (_, slot_uuid) = state.get_slot_and_uuid();
-
     // prepare headers, except for start time which is set in `send_one_get_header`
     let mut send_headers = HeaderMap::new();
-    send_headers.insert(HEADER_SLOT_UUID_KEY, HeaderValue::from_str(&slot_uuid.to_string())?);
     send_headers.insert(USER_AGENT, get_user_agent_with_version(&req_headers)?);
 
     let mut handles = Vec::with_capacity(relays.len());
@@ -118,7 +115,9 @@ pub async fn get_header<S: BuilderApiState>(
         }
     }
 
-    Ok(state.add_bids(params.slot, relay_bids))
+    let max_bid = relay_bids.into_iter().max_by_key(|bid| bid.value());
+
+    Ok(max_bid)
 }
 
 /// Fetch the parent block from the RPC URL for extra validation of the header.
@@ -398,22 +397,22 @@ fn validate_header(
         return Err(ValidationError::BidTooLow { min: minimum_bid_wei, got: value });
     }
 
-    if expected_relay_pubkey != received_relay_pubkey {
-        return Err(ValidationError::PubkeyMismatch {
-            expected: expected_relay_pubkey,
-            got: received_relay_pubkey,
-        });
-    }
-
     let expected_timestamp = timestamp_of_slot_start_sec(slot, chain);
     if expected_timestamp != signed_header.message.header.timestamp {
         return Err(ValidationError::TimestampMismatch {
             expected: expected_timestamp,
             got: signed_header.message.header.timestamp,
-        })
+        });
     }
 
     if !skip_sig_verify {
+        if expected_relay_pubkey != received_relay_pubkey {
+            return Err(ValidationError::PubkeyMismatch {
+                expected: expected_relay_pubkey,
+                got: received_relay_pubkey,
+            });
+        }
+
         verify_signed_message(
             chain,
             &received_relay_pubkey,
@@ -545,6 +544,13 @@ mod tests {
 
         mock_header.message.value = U256::from(11);
 
+        let expected = timestamp_of_slot_start_sec(slot, chain);
+        assert_eq!(
+            validate_header(&mock_header, chain, pubkey, parent_hash, false, min_bid, slot,),
+            Err(ValidationError::TimestampMismatch { expected, got: 0 })
+        );
+
+        mock_header.message.header.timestamp = expected;
         mock_header.message.pubkey = pubkey;
 
         assert_eq!(
@@ -560,14 +566,6 @@ mod tests {
             Err(ValidationError::PubkeyMismatch { expected: BlsPublicKey::default(), got: pubkey })
         );
 
-        let expected = timestamp_of_slot_start_sec(slot, chain);
-        assert_eq!(
-            validate_header(&mock_header, chain, pubkey, parent_hash, false, min_bid, slot,),
-            Err(ValidationError::TimestampMismatch { expected, got: 0 })
-        );
-
-        mock_header.message.header.timestamp = expected;
-
         assert!(matches!(
             validate_header(&mock_header, chain, pubkey, parent_hash, false, min_bid, slot),
             Err(ValidationError::Sigverify(_))
@@ -580,6 +578,6 @@ mod tests {
 
         assert!(
             validate_header(&mock_header, chain, pubkey, parent_hash, false, min_bid, slot).is_ok()
-        )
+        );
     }
 }

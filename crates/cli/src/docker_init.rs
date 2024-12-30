@@ -15,6 +15,7 @@ use cb_common::{
         SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV, SIGNER_MODULE_NAME, SIGNER_PORT_ENV,
         SIGNER_URL_ENV,
     },
+    pbs::{BUILDER_API_PATH, GET_STATUS_PATH},
     signer::{ProxyStore, SignerLoader},
     types::ModuleId,
     utils::random_jwt,
@@ -38,12 +39,12 @@ const METRICS_NETWORK: &str = "monitoring_network";
 const SIGNER_NETWORK: &str = "signer_network";
 
 /// Builds the docker compose file for the Commit-Boost services
-
 // TODO: do more validation for paths, images, etc
-
-pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()> {
+pub async fn handle_docker_init(config_path: String, output_dir: String) -> Result<()> {
     println!("Initializing Commit-Boost with config file: {}", config_path);
     let cb_config = CommitBoostConfig::from_file(&config_path)?;
+    cb_config.validate().await?;
+
     let chain_spec_path = CommitBoostConfig::chain_spec_file(&config_path);
 
     let metrics_enabled = cb_config.metrics.is_some();
@@ -85,7 +86,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     let builder_events_port = 30000;
     let mut builder_events_modules = Vec::new();
 
-    let mut exposed_ports_warn = Vec::new();
+    let mut warnings = Vec::new();
 
     let mut needs_signer_module = cb_config.pbs.with_signer;
 
@@ -268,8 +269,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     let host_endpoint =
         SocketAddr::from((cb_config.pbs.pbs_config.host, cb_config.pbs.pbs_config.port));
     let ports = Ports::Short(vec![format!("{}:{}", host_endpoint, cb_config.pbs.pbs_config.port)]);
-    exposed_ports_warn
-        .push(format!("pbs has an exported port on {}", cb_config.pbs.pbs_config.port));
+    warnings.push(format!("pbs has an exported port on {}", cb_config.pbs.pbs_config.port));
 
     // inside the container expose on 0.0.0.0
     let container_endpoint =
@@ -295,6 +295,17 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
         networks: pbs_networs,
         volumes: pbs_volumes,
         environment: Environment::KvPair(pbs_envs),
+        healthcheck: Some(Healthcheck {
+            test: Some(HealthcheckTest::Single(format!(
+                "curl -f http://localhost:{}{}{}",
+                cb_config.pbs.pbs_config.port, BUILDER_API_PATH, GET_STATUS_PATH
+            ))),
+            interval: Some("30s".into()),
+            timeout: Some("5s".into()),
+            retries: 3,
+            start_period: Some("5s".into()),
+            disable: false,
+        }),
         ..Service::default()
     };
 
@@ -413,10 +424,10 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                     test: Some(HealthcheckTest::Single(format!(
                         "curl -f http://localhost:{signer_port}/status"
                     ))),
-                    interval: Some("5s".into()),
+                    interval: Some("30s".into()),
                     timeout: Some("5s".into()),
-                    retries: 5,
-                    start_period: Some("0s".into()),
+                    retries: 3,
+                    start_period: Some("5s".into()),
                     disable: false,
                 }),
                 ..Service::default()
@@ -454,7 +465,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
     if let Some(metrics_config) = cb_config.metrics {
         // prometheus
-        exposed_ports_warn.push("prometheus has an exported port on 9090".to_string());
+        warnings.push("prometheus has an exported port on 9090".to_string());
 
         let prom_volume = Volumes::Simple(format!(
             "{}:/etc/prometheus/prometheus.yml",
@@ -491,13 +502,30 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
         // grafana
         if metrics_config.use_grafana {
-            exposed_ports_warn.push("grafana has an exported port on 3000".to_string());
-            exposed_ports_warn.push(
+            warnings.push("grafana has an exported port on 3000".to_string());
+            warnings.push(
                 "Grafana has the default admin password of 'admin'. Login to change it".to_string(),
             );
 
             let grafana_data_volume =
-                Volumes::Simple(format!("{}:/var/lib/grafana", GRAFANA_DATA_VOLUME));
+                vec![Volumes::Simple(format!("{}:/var/lib/grafana", GRAFANA_DATA_VOLUME))];
+
+            let grafana_source_volumes = if let Some(path) = metrics_config.grafana_path {
+                vec![
+                    Volumes::Simple(format!(
+                        "{}:/etc/grafana/provisioning/dashboards",
+                        path.join("dashboards").display()
+                    )),
+                    Volumes::Simple(format!(
+                        "{}:/etc/grafana/provisioning/datasources",
+                        path.join("datasources").display()
+                    )),
+                ]
+            } else {
+                vec![]
+            };
+
+            let grafana_volumes = [grafana_data_volume, grafana_source_volumes].concat();
 
             let grafana_service = Service {
                 container_name: Some("cb_grafana".to_owned()),
@@ -506,15 +534,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                 networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
                 depends_on: DependsOnOptions::Simple(vec!["cb_prometheus".to_owned()]),
                 environment: Environment::List(vec!["GF_SECURITY_ADMIN_PASSWORD=admin".to_owned()]),
-                volumes: vec![
-                    Volumes::Simple(
-                        "./grafana/dashboards:/etc/grafana/provisioning/dashboards".to_owned(),
-                    ),
-                    Volumes::Simple(
-                        "./grafana/datasources:/etc/grafana/provisioning/datasources".to_owned(),
-                    ),
-                    grafana_data_volume,
-                ],
+                volumes: grafana_volumes,
                 // disable verbose grafana logs
                 logging: Some(LoggingParameters { driver: Some("none".to_owned()), options: None }),
                 ..Service::default()
@@ -535,7 +555,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
         // cadvisor
         if metrics_config.use_cadvisor {
-            exposed_ports_warn.push("cadvisor has an exported port on 8080".to_string());
+            warnings.push("cadvisor has an exported port on 8080".to_string());
 
             services.insert(
                 "cb_cadvisor".to_owned(),
@@ -566,9 +586,9 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     let compose_str = serde_yaml::to_string(&compose)?;
     let compose_path = Path::new(&output_dir).join(CB_COMPOSE_FILE);
     std::fs::write(&compose_path, compose_str)?;
-    if !exposed_ports_warn.is_empty() {
+    if !warnings.is_empty() {
         println!("\n");
-        for exposed_port in exposed_ports_warn {
+        for exposed_port in warnings {
             println!("Warning: {}", exposed_port);
         }
         println!("\n");

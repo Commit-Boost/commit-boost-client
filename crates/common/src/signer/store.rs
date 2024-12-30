@@ -280,7 +280,7 @@ impl ProxyStore {
                                 let path = entry.path();
 
                                 if !path.is_file() ||
-                                    !path.extension().is_some_and(|ext| ext == "json")
+                                    path.extension().is_none_or(|ext| ext != "json")
                                 {
                                     continue;
                                 }
@@ -336,7 +336,7 @@ impl ProxyStore {
                                 let path = entry.path();
 
                                 if !path.is_file() ||
-                                    !path.extension().is_some_and(|ext| ext == "json")
+                                    path.extension().is_none_or(|ext| ext != "json")
                                 {
                                     continue;
                                 }

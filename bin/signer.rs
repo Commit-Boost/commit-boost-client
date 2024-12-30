@@ -14,9 +14,9 @@ async fn main() -> Result<()> {
     if std::env::var_os("RUST_BACKTRACE").is_none() {
         std::env::set_var("RUST_BACKTRACE", "1");
     }
+    let _guard = initialize_tracing_log(SIGNER_MODULE_NAME);
 
     let config = StartSignerConfig::load_from_env()?;
-    let _guard = initialize_tracing_log(SIGNER_MODULE_NAME);
     let server = SigningService::run(config);
 
     tokio::select! {
