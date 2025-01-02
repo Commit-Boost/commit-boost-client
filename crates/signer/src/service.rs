@@ -155,13 +155,17 @@ async fn handle_get_pubkeys(
 
     debug!(event = "get_pubkeys", ?req_id, "New request");
 
-    let keys = if let Some(dirk) = state.dirk {
-        dirk.get_pubkeys(module_id).await.map_err(|e| SignerModuleError::Internal(e.to_string()))?
-    } else {
-        let signing_manager = state.manager.read().await;
-        signing_manager
-            .get_consensus_proxy_maps(&module_id)
-            .map_err(|err| SignerModuleError::Internal(err.to_string()))?
+    let keys = match state.dirk {
+        Some(dirk) => dirk
+            .get_pubkeys(module_id)
+            .await
+            .map_err(|e| SignerModuleError::Internal(e.to_string()))?,
+        None => {
+            let signing_manager = state.manager.read().await;
+            signing_manager
+                .get_consensus_proxy_maps(&module_id)
+                .map_err(|err| SignerModuleError::Internal(err.to_string()))?
+        }
     };
 
     let res = GetPubkeysResponse { keys };
@@ -181,21 +185,22 @@ async fn handle_request_signature(
 
     let signing_manager = state.manager.read().await;
 
-    let object_root = match request {
-        SignRequest::Consensus(SignConsensusRequest { object_root, .. }) => object_root,
-        SignRequest::ProxyBls(SignProxyRequest { object_root, .. }) => object_root,
-        SignRequest::ProxyEcdsa(SignProxyRequest { object_root, .. }) => object_root,
-    };
-    let signature_response = if let Some(dirk) = state.dirk {
-        dirk.request_signature(
-            compute_domain(signing_manager.chain, COMMIT_BOOST_DOMAIN),
-            object_root,
-        )
-        .await
-        .map(|sig| Json(sig).into_response())
-        .map_err(|e| SignerModuleError::Internal(e.to_string()))
-    } else {
-        match request {
+    let signature_response = match state.dirk {
+        Some(dirk) => match request {
+            SignRequest::Consensus(SignConsensusRequest { object_root, .. }) => dirk
+                .request_signature(
+                    compute_domain(signing_manager.chain, COMMIT_BOOST_DOMAIN),
+                    object_root,
+                )
+                .await
+                .map(|sig| Json(sig).into_response())
+                .map_err(|e| SignerModuleError::Internal(e.to_string())),
+            _ => {
+                error!("Proxy sign request not supported with Dirk");
+                Err(SignerModuleError::DirkNotSupported)
+            }
+        },
+        None => match request {
             SignRequest::Consensus(SignConsensusRequest { pubkey, object_root }) => signing_manager
                 .sign_consensus(&pubkey, &object_root)
                 .await
@@ -220,7 +225,7 @@ async fn handle_request_signature(
                     .await
                     .map(|sig| Json(sig).into_response())
             }
-        }
+        },
     };
 
     Ok(signature_response?)
@@ -236,6 +241,7 @@ async fn handle_generate_proxy(
     debug!(event = "generate_proxy", module_id=?module_id, ?req_id, "New request");
 
     if state.dirk.is_some() {
+        error!("Generate proxy not supported with Dirk");
         return Err(SignerModuleError::DirkNotSupported);
     }
 
