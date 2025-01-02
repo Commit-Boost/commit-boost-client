@@ -18,7 +18,7 @@ use tree_hash::TreeHash;
 use crate::error::SignerModuleError;
 
 pub struct SigningManager {
-    chain: Chain,
+    pub chain: Chain,
     proxy_store: Option<ProxyStore>,
     consensus_signers: HashMap<BlsPublicKey, ConsensusSigner>,
     proxy_signers: ProxySigners,

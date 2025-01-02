@@ -21,7 +21,8 @@ use cb_common::{
         },
     },
     config::StartSignerConfig,
-    constants::COMMIT_BOOST_VERSION,
+    constants::{COMMIT_BOOST_DOMAIN, COMMIT_BOOST_VERSION},
+    signature::compute_domain,
     types::{Jwt, ModuleId},
 };
 use cb_metrics::provider::MetricsProvider;
@@ -32,7 +33,7 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::{
-    dirk::{v1::sign_request::Id as SignerId, DirkClient},
+    dirk::DirkClient,
     error::SignerModuleError,
     manager::SigningManager,
     metrics::{uri_to_tag, SIGNER_METRICS_REGISTRY, SIGNER_STATUS},
@@ -186,10 +187,13 @@ async fn handle_request_signature(
         SignRequest::ProxyEcdsa(SignProxyRequest { object_root, .. }) => object_root,
     };
     let signature_response = if let Some(dirk) = state.dirk {
-        dirk.request_signature(SignerId::Account("wallet1/account1".to_string()), object_root)
-            .await
-            .map(|sig| Json(sig).into_response())
-            .map_err(|e| SignerModuleError::Internal(e.to_string()))
+        dirk.request_signature(
+            compute_domain(signing_manager.chain, COMMIT_BOOST_DOMAIN),
+            object_root,
+        )
+        .await
+        .map(|sig| Json(sig).into_response())
+        .map_err(|e| SignerModuleError::Internal(e.to_string()))
     } else {
         match request {
             SignRequest::Consensus(SignConsensusRequest { pubkey, object_root }) => signing_manager
