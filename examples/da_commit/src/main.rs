@@ -33,6 +33,12 @@ struct DaCommitService {
 #[derive(Debug, Deserialize)]
 struct ExtraConfig {
     sleep_secs: u64,
+    #[serde(default = "default_delegation")]
+    use_delegation_keys: bool,
+}
+
+fn default_delegation() -> bool {
+    true
 }
 
 impl DaCommitService {
@@ -45,25 +51,36 @@ impl DaCommitService {
         let pubkey = pubkeys.first().ok_or_eyre("no key available")?.consensus;
         info!("Registered validator {pubkey}");
 
-        let proxy_delegation_bls = self.config.signer_client.generate_proxy_key_bls(pubkey).await?;
-        info!("Obtained a BLS proxy delegation:\n{proxy_delegation_bls}");
-        let proxy_bls = proxy_delegation_bls.message.proxy;
+        if self.config.extra.use_delegation_keys {
+            let proxy_delegation_bls =
+                self.config.signer_client.generate_proxy_key_bls(pubkey).await?;
+            info!("Obtained a BLS proxy delegation:\n{proxy_delegation_bls}");
+            let proxy_bls = proxy_delegation_bls.message.proxy;
 
-        let proxy_delegation_ecdsa =
-            self.config.signer_client.generate_proxy_key_ecdsa(pubkey).await?;
-        info!("Obtained an ECDSA proxy delegation:\n{proxy_delegation_ecdsa}");
-        let proxy_ecdsa = proxy_delegation_ecdsa.message.proxy;
+            let proxy_delegation_ecdsa =
+                self.config.signer_client.generate_proxy_key_ecdsa(pubkey).await?;
+            info!("Obtained an ECDSA proxy delegation:\n{proxy_delegation_ecdsa}");
+            let proxy_ecdsa = proxy_delegation_ecdsa.message.proxy;
 
-        let mut data = 0;
+            let mut data = 0;
 
-        loop {
-            self.send_request(data, pubkey, proxy_bls, proxy_ecdsa).await?;
-            sleep(Duration::from_secs(self.config.extra.sleep_secs)).await;
-            data += 1;
+            loop {
+                self.send_multiple_requests(data, pubkey, proxy_bls, proxy_ecdsa).await?;
+                sleep(Duration::from_secs(self.config.extra.sleep_secs)).await;
+                data += 1;
+            }
+        } else {
+            let mut data = 0;
+
+            loop {
+                self.send_request(data, pubkey).await?;
+                sleep(Duration::from_secs(self.config.extra.sleep_secs)).await;
+                data += 1;
+            }
         }
     }
 
-    pub async fn send_request(
+    pub async fn send_multiple_requests(
         &self,
         data: u64,
         pubkey: BlsPublicKey,
@@ -91,6 +108,19 @@ impl DaCommitService {
         info!("Proposer commitment (consensus): {}", signature);
         info!("Proposer commitment (proxy BLS): {}", proxy_signature_bls);
         info!("Proposer commitment (proxy ECDSA): {}", proxy_signature_ecdsa);
+
+        SIG_RECEIVED_COUNTER.inc();
+
+        Ok(())
+    }
+
+    pub async fn send_request(&self, data: u64, pubkey: BlsPublicKey) -> Result<()> {
+        let datagram = Datagram { data };
+
+        let request = SignConsensusRequest::builder(pubkey).with_msg(&datagram);
+        let signature = self.config.signer_client.request_consensus_signature(request).await?;
+
+        info!("Proposer commitment (consensus): {}", signature);
 
         SIG_RECEIVED_COUNTER.inc();
 
