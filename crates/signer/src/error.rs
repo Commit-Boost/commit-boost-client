@@ -16,6 +16,9 @@ pub enum SignerModuleError {
     #[error("unknown proxy signer: 0x{}", hex::encode(.0))]
     UnknownProxySigner(Vec<u8>),
 
+    #[error("Dirk signer does not support this operation")]
+    DirkNotSupported,
+
     #[error("internal error {0}")]
     Internal(String),
 }
@@ -26,6 +29,7 @@ impl IntoResponse for SignerModuleError {
             SignerModuleError::Unauthorized => StatusCode::UNAUTHORIZED,
             SignerModuleError::UnknownConsensusSigner(_) => StatusCode::NOT_FOUND,
             SignerModuleError::UnknownProxySigner(_) => StatusCode::NOT_FOUND,
+            SignerModuleError::DirkNotSupported => StatusCode::BAD_REQUEST,
             SignerModuleError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
 

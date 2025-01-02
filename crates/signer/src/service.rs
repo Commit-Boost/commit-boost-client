@@ -235,6 +235,10 @@ async fn handle_generate_proxy(
 
     debug!(event = "generate_proxy", module_id=?module_id, ?req_id, "New request");
 
+    if state.dirk.is_some() {
+        return Err(SignerModuleError::DirkNotSupported);
+    }
+
     let mut signing_manager = state.manager.write().await;
 
     let response = match request.scheme {
