@@ -13,6 +13,7 @@ use super::{
     CommitBoostConfig, SIGNER_PORT_ENV,
 };
 use crate::{
+    config::{SIGNER_DIRK_CA_CERT_ENV, SIGNER_DIRK_CERT_ENV, SIGNER_DIRK_KEY_ENV},
     signer::{ProxyStore, SignerLoader},
     types::{Chain, Jwt, ModuleId},
 };
@@ -32,14 +33,25 @@ pub enum SignerConfig {
     },
     /// Remote signer module with compatible API like Web3Signer
     Remote {
-        /// Complete url of the base API endpoint
+        /// Complete URL of the base API endpoint
         url: Url,
     },
     Dirk {
+        /// Docker image of the module
+        #[serde(default = "default_signer")]
+        docker_image: String,
+        /// Complete URL of a Dirk gateway
         url: Url,
+        /// Path to the client certificate
         cert_path: PathBuf,
+        /// Path to the client key
         key_path: PathBuf,
-        wallet: String,
+        /// Account to use in format `wallet/account`
+        account: String,
+        /// Path to the CA certificate
+        ca_cert_path: Option<PathBuf>,
+        /// Domain name of the server to use in TLS verification
+        server_domain: Option<String>,
     },
 }
 
@@ -50,6 +62,7 @@ fn default_signer() -> String {
 #[derive(Clone, Debug)]
 pub struct DirkConfig {
     pub url: Url,
+    pub account: String,
     pub client_cert: Identity,
     pub cert_auth: Option<Certificate>,
     pub server_domain: Option<String>,
@@ -82,24 +95,48 @@ impl StartSignerConfig {
                 store,
                 dirk: None,
             }),
-            Some(SignerConfig::Dirk { url, cert_path, key_path, wallet: _ }) => {
+            Some(SignerConfig::Dirk {
+                url,
+                cert_path,
+                key_path,
+                account,
+                ca_cert_path,
+                server_domain,
+                ..
+            }) => {
+                let cert_path = load_env_var(SIGNER_DIRK_CERT_ENV)
+                    .map(|path| PathBuf::from(path))
+                    .unwrap_or(cert_path);
+                let key_path = load_env_var(SIGNER_DIRK_KEY_ENV)
+                    .map(|path| PathBuf::from(path))
+                    .unwrap_or(key_path);
+                let ca_cert_path = load_env_var(SIGNER_DIRK_CA_CERT_ENV)
+                    .map(|path| PathBuf::from(path))
+                    .ok()
+                    .or(ca_cert_path);
+
                 Ok(StartSignerConfig {
                     chain: config.chain,
-                    loader: None,
                     server_port,
                     jwts,
+                    loader: None,
                     store: None,
                     dirk: Some(DirkConfig {
                         url,
+                        account,
                         client_cert: Identity::from_pem(
                             std::fs::read_to_string(cert_path)?,
                             std::fs::read_to_string(key_path)?,
                         ),
-                        cert_auth: None,
-                        server_domain: None,
+                        cert_auth: match ca_cert_path {
+                            Some(path) => {
+                                Some(Certificate::from_pem(std::fs::read_to_string(path)?))
+                            }
+                            None => None,
+                        },
+                        server_domain,
                     }),
                 })
-                // Ok(StartSignerConfig {chain: config.chain, server_port, jwts, dirk})
             }
             Some(SignerConfig::Remote { .. }) => bail!("Remote signer configured"),
             None => bail!("Signer config is missing"),
