@@ -16,13 +16,13 @@ use crate::proto::v1::{
 };
 
 #[derive(Clone, Debug)]
-pub struct DirkClient {
+pub struct DirkManager {
     chain: Chain,
     channel: Channel,
     wallet: String,
 }
 
-impl DirkClient {
+impl DirkManager {
     pub async fn new_from_config(chain: Chain, config: DirkConfig) -> eyre::Result<Self> {
         let mut tls_config = ClientTlsConfig::new().identity(config.client_cert);
 

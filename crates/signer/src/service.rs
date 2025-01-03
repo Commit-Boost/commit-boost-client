@@ -16,8 +16,8 @@ use cb_common::{
             GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, REQUEST_SIGNATURE_PATH, STATUS_PATH,
         },
         request::{
-            ConsensusProxyMap, EncryptionScheme, GenerateProxyRequest, GetPubkeysResponse,
-            SignConsensusRequest, SignProxyRequest, SignRequest,
+            EncryptionScheme, GenerateProxyRequest, GetPubkeysResponse, SignConsensusRequest,
+            SignProxyRequest, SignRequest,
         },
     },
     config::StartSignerConfig,
@@ -32,55 +32,13 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::{
-    dirk::DirkClient,
     error::SignerModuleError,
-    manager::LocalSigningManager,
+    manager::{dirk::DirkManager, local::LocalSigningManager, SigningManager},
     metrics::{uri_to_tag, SIGNER_METRICS_REGISTRY, SIGNER_STATUS},
 };
 
 /// Implements the Signer API and provides a service for signing requests
 pub struct SigningService;
-
-#[derive(Clone)]
-pub enum SigningManager {
-    Local(Arc<RwLock<LocalSigningManager>>),
-    Dirk(DirkClient),
-}
-
-impl SigningManager {
-    /// Amount of consensus signers available
-    pub async fn available_consensus_signers(&self) -> eyre::Result<usize> {
-        match self {
-            SigningManager::Local(manager) => Ok(manager.read().await.consensus_pubkeys().len()),
-            SigningManager::Dirk(dirk) => Ok(dirk.get_pubkeys().await?.len()),
-        }
-    }
-
-    /// Amount of proxy signers available
-    pub async fn available_proxy_signers(&self) -> eyre::Result<usize> {
-        match self {
-            SigningManager::Local(manager) => {
-                let proxies = manager.read().await.proxies().clone();
-                Ok(proxies.bls_signers.len() + proxies.ecdsa_signers.len())
-            }
-            SigningManager::Dirk(dirk) => Ok(dirk.get_proxy_pubkeys().await?.len()),
-        }
-    }
-
-    pub async fn get_consensus_proxy_maps(
-        &self,
-        module_id: &ModuleId,
-    ) -> eyre::Result<Vec<ConsensusProxyMap>> {
-        match self {
-            SigningManager::Local(local_manager) => {
-                local_manager.read().await.get_consensus_proxy_maps(module_id)
-            }
-            SigningManager::Dirk(dirk_manager) => {
-                dirk_manager.get_consensus_proxy_maps(module_id).await
-            }
-        }
-    }
-}
 
 #[derive(Clone)]
 struct SigningState {
@@ -103,7 +61,7 @@ impl SigningService {
         let state = match &config.dirk {
             Some(dirk) => SigningState {
                 manager: SigningManager::Dirk(
-                    DirkClient::new_from_config(config.chain, dirk.clone()).await?,
+                    DirkManager::new_from_config(config.chain, dirk.clone()).await?,
                 ),
                 jwts: config.jwts.into(),
             },
