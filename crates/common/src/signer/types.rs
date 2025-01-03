@@ -34,7 +34,7 @@ pub struct EcdsaProxySigner {
     pub delegation: SignedProxyDelegationEcdsa,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct ProxySigners {
     pub bls_signers: HashMap<BlsPublicKey, BlsProxySigner>,
     pub ecdsa_signers: HashMap<EcdsaPublicKey, EcdsaProxySigner>,

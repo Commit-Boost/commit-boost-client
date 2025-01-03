@@ -2,8 +2,10 @@ use alloy::primitives::FixedBytes;
 use cb_common::{
     commit::request::{ConsensusProxyMap, ProxyDelegation, SignedProxyDelegation},
     config::DirkConfig,
+    constants::COMMIT_BOOST_DOMAIN,
+    signature::compute_domain,
     signer::{BlsPublicKey, BlsSignature},
-    types::ModuleId,
+    types::{Chain, ModuleId},
 };
 use tonic::transport::{Channel, ClientTlsConfig};
 
@@ -15,12 +17,13 @@ use crate::proto::v1::{
 
 #[derive(Clone, Debug)]
 pub struct DirkClient {
+    chain: Chain,
     channel: Channel,
     wallet: String,
 }
 
 impl DirkClient {
-    pub async fn new_from_config(config: DirkConfig) -> Result<Self, eyre::Error> {
+    pub async fn new_from_config(chain: Chain, config: DirkConfig) -> eyre::Result<Self> {
         let mut tls_config = ClientTlsConfig::new().identity(config.client_cert);
 
         if let Some(ca) = config.cert_auth {
@@ -39,7 +42,7 @@ impl DirkClient {
             .await
             .map_err(|e| eyre::eyre!("Couldn't connect to Dirk: {e}"))?;
 
-        Ok(Self { channel, wallet: config.wallet })
+        Ok(Self { chain, channel, wallet: config.wallet })
     }
 
     async fn list_accounts(&self) -> eyre::Result<Vec<DirkAccount>> {
@@ -55,16 +58,30 @@ impl DirkClient {
         Ok(pubkeys_response.into_inner().accounts)
     }
 
-    pub async fn get_pubkeys(&self) -> eyre::Result<Vec<ConsensusProxyMap>> {
+    pub async fn get_pubkeys(&self) -> eyre::Result<Vec<BlsPublicKey>> {
         let accounts = self.list_accounts().await?;
 
         let keys = accounts
             .iter()
             .filter_map(|account| {
                 if account.name == format!("{}/consensus", self.wallet.clone()) {
-                    Some(ConsensusProxyMap::new(BlsPublicKey::from(FixedBytes::from_slice(
-                        &account.public_key,
-                    ))))
+                    Some(BlsPublicKey::from(FixedBytes::from_slice(&account.public_key)))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        Ok(keys)
+    }
+
+    pub async fn get_proxy_pubkeys(&self) -> eyre::Result<Vec<BlsPublicKey>> {
+        let accounts = self.list_accounts().await?;
+
+        let keys = accounts
+            .iter()
+            .filter_map(|account| {
+                if account.name == format!("{}/consensus", self.wallet.clone()) {
+                    Some(BlsPublicKey::from(FixedBytes::from_slice(&account.public_key)))
                 } else {
                     None
                 }
@@ -102,7 +119,7 @@ impl DirkClient {
         &self,
         module_id: ModuleId,
         consensus_pubkey: BlsPublicKey,
-    ) -> Result<SignedProxyDelegation<BlsPublicKey>, eyre::Error> {
+    ) -> eyre::Result<SignedProxyDelegation<BlsPublicKey>> {
         let uuid = uuid::Uuid::new_v4();
 
         let mut client = AccountManagerClient::new(self.channel.clone());
@@ -138,15 +155,16 @@ impl DirkClient {
         })
     }
 
-    async fn request_signature(
+    pub async fn request_signature(
         &self,
-        signer_id: SignerId,
-        domain: [u8; 32],
+        pubkey: BlsPublicKey,
         object_root: [u8; 32],
-    ) -> Result<BlsSignature, eyre::Error> {
+    ) -> eyre::Result<BlsSignature> {
+        let domain = compute_domain(self.chain, COMMIT_BOOST_DOMAIN);
+
         let mut signer_client = SignerClient::new(self.channel.clone());
         let sign_request = tonic::Request::new(SignRequest {
-            id: Some(signer_id),
+            id: Some(SignerId::PublicKey(pubkey.to_vec())),
             domain: domain.to_vec(),
             data: object_root.to_vec(),
         });
@@ -157,27 +175,5 @@ impl DirkClient {
         }
 
         Ok(BlsSignature::from(FixedBytes::from_slice(&sign_response.into_inner().signature)))
-    }
-
-    pub async fn request_consensus_signature(
-        &self,
-        domain: [u8; 32],
-        object_root: [u8; 32],
-    ) -> eyre::Result<BlsSignature> {
-        self.request_signature(
-            SignerId::Account(format!("{}/consensus", self.wallet.clone())),
-            domain,
-            object_root,
-        )
-        .await
-    }
-
-    pub async fn request_proxy_bls_signature(
-        &self,
-        bls_key: &BlsPublicKey,
-        domain: [u8; 32],
-        object_root: [u8; 32],
-    ) -> eyre::Result<BlsSignature> {
-        self.request_signature(SignerId::PublicKey(bls_key.0.to_vec()), domain, object_root).await
     }
 }

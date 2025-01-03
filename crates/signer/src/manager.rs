@@ -17,7 +17,8 @@ use tree_hash::TreeHash;
 
 use crate::error::SignerModuleError;
 
-pub struct SigningManager {
+#[derive(Clone)]
+pub struct LocalSigningManager {
     pub chain: Chain,
     proxy_store: Option<ProxyStore>,
     consensus_signers: HashMap<BlsPublicKey, ConsensusSigner>,
@@ -29,7 +30,7 @@ pub struct SigningManager {
     proxy_pubkeys_ecdsa: HashMap<ModuleId, Vec<EcdsaPublicKey>>,
 }
 
-impl SigningManager {
+impl LocalSigningManager {
     pub fn new(chain: Chain, proxy_store: Option<ProxyStore>) -> eyre::Result<Self> {
         let mut manager = Self {
             chain,
@@ -276,8 +277,8 @@ mod tests {
         static ref MODULE_ID: ModuleId = ModuleId("SAMPLE_MODULE".to_string());
     }
 
-    fn init_signing_manager() -> (SigningManager, BlsPublicKey) {
-        let mut signing_manager = SigningManager::new(CHAIN, None).unwrap();
+    fn init_signing_manager() -> (LocalSigningManager, BlsPublicKey) {
+        let mut signing_manager = LocalSigningManager::new(CHAIN, None).unwrap();
 
         let consensus_signer = ConsensusSigner::new_random();
         let consensus_pk = consensus_signer.pubkey();
