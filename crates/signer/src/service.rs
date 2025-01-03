@@ -157,7 +157,7 @@ async fn handle_get_pubkeys(
 
     let keys = match state.dirk {
         Some(dirk) => dirk
-            .get_pubkeys(module_id)
+            .get_consensus_proxy_maps(&module_id)
             .await
             .map_err(|e| SignerModuleError::Internal(e.to_string()))?,
         None => {
@@ -188,7 +188,16 @@ async fn handle_request_signature(
     let signature_response = match state.dirk {
         Some(dirk) => match request {
             SignRequest::Consensus(SignConsensusRequest { object_root, .. }) => dirk
-                .request_signature(
+                .request_consensus_signature(
+                    compute_domain(signing_manager.chain, COMMIT_BOOST_DOMAIN),
+                    object_root,
+                )
+                .await
+                .map(|sig| Json(sig).into_response())
+                .map_err(|e| SignerModuleError::Internal(e.to_string())),
+            SignRequest::ProxyBls(SignProxyRequest { pubkey: bls_pk, object_root }) => dirk
+                .request_proxy_bls_signature(
+                    &bls_pk,
                     compute_domain(signing_manager.chain, COMMIT_BOOST_DOMAIN),
                     object_root,
                 )
@@ -196,7 +205,7 @@ async fn handle_request_signature(
                 .map(|sig| Json(sig).into_response())
                 .map_err(|e| SignerModuleError::Internal(e.to_string())),
             _ => {
-                error!("Proxy sign request not supported with Dirk");
+                error!("ECDSA proxy sign request not supported with Dirk");
                 Err(SignerModuleError::DirkNotSupported)
             }
         },
@@ -240,23 +249,37 @@ async fn handle_generate_proxy(
 
     debug!(event = "generate_proxy", module_id=?module_id, ?req_id, "New request");
 
-    if state.dirk.is_some() {
-        error!("Generate proxy not supported with Dirk");
-        return Err(SignerModuleError::DirkNotSupported);
-    }
+    let response = match state.dirk {
+        Some(dirk) => match request.scheme {
+            EncryptionScheme::Bls => {
+                let proxy_delegation = dirk
+                    .generate_proxy_key(module_id, request.consensus_pubkey)
+                    .await
+                    .map_err(|e| SignerModuleError::Internal(e.to_string()))?;
+                Json(proxy_delegation).into_response()
+            }
+            EncryptionScheme::Ecdsa => {
+                error!("ECDSA proxy generation not supported with Dirk");
+                return Err(SignerModuleError::DirkNotSupported);
+            }
+        },
+        None => {
+            let mut signing_manager = state.manager.write().await;
 
-    let mut signing_manager = state.manager.write().await;
-
-    let response = match request.scheme {
-        EncryptionScheme::Bls => {
-            let proxy_delegation =
-                signing_manager.create_proxy_bls(module_id, request.consensus_pubkey).await?;
-            Json(proxy_delegation).into_response()
-        }
-        EncryptionScheme::Ecdsa => {
-            let proxy_delegation =
-                signing_manager.create_proxy_ecdsa(module_id, request.consensus_pubkey).await?;
-            Json(proxy_delegation).into_response()
+            match request.scheme {
+                EncryptionScheme::Bls => {
+                    let proxy_delegation = signing_manager
+                        .create_proxy_bls(module_id, request.consensus_pubkey)
+                        .await?;
+                    Json(proxy_delegation).into_response()
+                }
+                EncryptionScheme::Ecdsa => {
+                    let proxy_delegation = signing_manager
+                        .create_proxy_ecdsa(module_id, request.consensus_pubkey)
+                        .await?;
+                    Json(proxy_delegation).into_response()
+                }
+            }
         }
     };
 
