@@ -179,7 +179,7 @@ async fn handle_request_signature(
 
     debug!(event = "request_signature", ?module_id, ?req_id, "New request");
 
-    let response = match state.manager {
+    match state.manager {
         SigningManager::Local(local_manager) => match request {
             SignRequest::Consensus(SignConsensusRequest { object_root, pubkey }) => local_manager
                 .read()
@@ -225,9 +225,7 @@ async fn handle_request_signature(
                 Err(SignerModuleError::DirkNotSupported)
             }
         },
-    };
-
-    response
+    }
 }
 
 async fn handle_generate_proxy(
@@ -239,7 +237,7 @@ async fn handle_generate_proxy(
 
     debug!(event = "generate_proxy", module_id=?module_id, ?req_id, "New request");
 
-    let response = match state.manager {
+    match state.manager {
         SigningManager::Local(local_manager) => match request.scheme {
             EncryptionScheme::Bls => local_manager
                 .write()
@@ -267,7 +265,5 @@ async fn handle_generate_proxy(
                 Err(SignerModuleError::DirkNotSupported)
             }
         },
-    };
-
-    response
+    }
 }

@@ -104,16 +104,12 @@ impl StartSignerConfig {
                 server_domain,
                 ..
             }) => {
-                let cert_path = load_env_var(SIGNER_DIRK_CERT_ENV)
-                    .map(|path| PathBuf::from(path))
-                    .unwrap_or(cert_path);
-                let key_path = load_env_var(SIGNER_DIRK_KEY_ENV)
-                    .map(|path| PathBuf::from(path))
-                    .unwrap_or(key_path);
-                let ca_cert_path = load_env_var(SIGNER_DIRK_CA_CERT_ENV)
-                    .map(|path| PathBuf::from(path))
-                    .ok()
-                    .or(ca_cert_path);
+                let cert_path =
+                    load_env_var(SIGNER_DIRK_CERT_ENV).map(PathBuf::from).unwrap_or(cert_path);
+                let key_path =
+                    load_env_var(SIGNER_DIRK_KEY_ENV).map(PathBuf::from).unwrap_or(key_path);
+                let ca_cert_path =
+                    load_env_var(SIGNER_DIRK_CA_CERT_ENV).map(PathBuf::from).ok().or(ca_cert_path);
 
                 Ok(StartSignerConfig {
                     chain: config.chain,

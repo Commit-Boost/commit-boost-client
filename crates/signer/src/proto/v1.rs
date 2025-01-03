@@ -24,7 +24,8 @@ impl ResponseState {
     /// String value of the enum field names used in the ProtoBuf definition.
     ///
     /// The values are not transformed in any way and thus are considered stable
-    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    /// (if the ProtoBuf definition does not change) and safe for programmatic
+    /// use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
             Self::Unknown => "UNKNOWN",
@@ -89,10 +90,9 @@ pub mod lister_client {
         dead_code,
         missing_docs,
         clippy::wildcard_imports,
-        clippy::let_unit_value,
+        clippy::let_unit_value
     )]
-    use tonic::codegen::*;
-    use tonic::codegen::http::Uri;
+    use tonic::codegen::{http::Uri, *};
     #[derive(Debug, Clone)]
     pub struct ListerClient<T> {
         inner: tonic::client::Grpc<T>,
@@ -136,16 +136,15 @@ pub mod lister_client {
                     <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
                 >,
             >,
-            <T as tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
-            >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
+            <T as tonic::codegen::Service<http::Request<tonic::body::BoxBody>>>::Error:
+                Into<StdError> + std::marker::Send + std::marker::Sync,
         {
             ListerClient::new(InterceptedService::new(inner, interceptor))
         }
         /// Compress requests with the given encoding.
         ///
-        /// This requires the server to support it otherwise it might respond with an
-        /// error.
+        /// This requires the server to support it otherwise it might respond
+        /// with an error.
         #[must_use]
         pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
             self.inner = self.inner.send_compressed(encoding);
@@ -176,18 +175,11 @@ pub mod lister_client {
         pub async fn list_accounts(
             &mut self,
             request: impl tonic::IntoRequest<super::ListAccountsRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::ListAccountsResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+        ) -> std::result::Result<tonic::Response<super::ListAccountsResponse>, tonic::Status>
+        {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/v1.Lister/ListAccounts");
             let mut req = request.into_request();
@@ -247,10 +239,9 @@ pub mod account_manager_client {
         dead_code,
         missing_docs,
         clippy::wildcard_imports,
-        clippy::let_unit_value,
+        clippy::let_unit_value
     )]
-    use tonic::codegen::*;
-    use tonic::codegen::http::Uri;
+    use tonic::codegen::{http::Uri, *};
     #[derive(Debug, Clone)]
     pub struct AccountManagerClient<T> {
         inner: tonic::client::Grpc<T>,
@@ -294,16 +285,15 @@ pub mod account_manager_client {
                     <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
                 >,
             >,
-            <T as tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
-            >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
+            <T as tonic::codegen::Service<http::Request<tonic::body::BoxBody>>>::Error:
+                Into<StdError> + std::marker::Send + std::marker::Sync,
         {
             AccountManagerClient::new(InterceptedService::new(inner, interceptor))
         }
         /// Compress requests with the given encoding.
         ///
-        /// This requires the server to support it otherwise it might respond with an
-        /// error.
+        /// This requires the server to support it otherwise it might respond
+        /// with an error.
         #[must_use]
         pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
             self.inner = self.inner.send_compressed(encoding);
@@ -334,18 +324,11 @@ pub mod account_manager_client {
         pub async fn unlock(
             &mut self,
             request: impl tonic::IntoRequest<super::UnlockAccountRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::UnlockAccountResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+        ) -> std::result::Result<tonic::Response<super::UnlockAccountResponse>, tonic::Status>
+        {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/v1.AccountManager/Unlock");
             let mut req = request.into_request();
@@ -355,18 +338,11 @@ pub mod account_manager_client {
         pub async fn lock(
             &mut self,
             request: impl tonic::IntoRequest<super::LockAccountRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::LockAccountResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+        ) -> std::result::Result<tonic::Response<super::LockAccountResponse>, tonic::Status>
+        {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/v1.AccountManager/Lock");
             let mut req = request.into_request();
@@ -376,25 +352,14 @@ pub mod account_manager_client {
         pub async fn generate(
             &mut self,
             request: impl tonic::IntoRequest<super::GenerateRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::GenerateResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+        ) -> std::result::Result<tonic::Response<super::GenerateResponse>, tonic::Status> {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/v1.AccountManager/Generate",
-            );
+            let path = http::uri::PathAndQuery::from_static("/v1.AccountManager/Generate");
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("v1.AccountManager", "Generate"));
+            req.extensions_mut().insert(GrpcMethod::new("v1.AccountManager", "Generate"));
             self.inner.unary(req, path, codec).await
         }
     }
@@ -521,10 +486,9 @@ pub mod signer_client {
         dead_code,
         missing_docs,
         clippy::wildcard_imports,
-        clippy::let_unit_value,
+        clippy::let_unit_value
     )]
-    use tonic::codegen::*;
-    use tonic::codegen::http::Uri;
+    use tonic::codegen::{http::Uri, *};
     #[derive(Debug, Clone)]
     pub struct SignerClient<T> {
         inner: tonic::client::Grpc<T>,
@@ -568,16 +532,15 @@ pub mod signer_client {
                     <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
                 >,
             >,
-            <T as tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
-            >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
+            <T as tonic::codegen::Service<http::Request<tonic::body::BoxBody>>>::Error:
+                Into<StdError> + std::marker::Send + std::marker::Sync,
         {
             SignerClient::new(InterceptedService::new(inner, interceptor))
         }
         /// Compress requests with the given encoding.
         ///
-        /// This requires the server to support it otherwise it might respond with an
-        /// error.
+        /// This requires the server to support it otherwise it might respond
+        /// with an error.
         #[must_use]
         pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
             self.inner = self.inner.send_compressed(encoding);
@@ -609,14 +572,9 @@ pub mod signer_client {
             &mut self,
             request: impl tonic::IntoRequest<super::SignRequest>,
         ) -> std::result::Result<tonic::Response<super::SignResponse>, tonic::Status> {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/v1.Signer/Sign");
             let mut req = request.into_request();
@@ -626,18 +584,10 @@ pub mod signer_client {
         pub async fn multisign(
             &mut self,
             request: impl tonic::IntoRequest<super::MultisignRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::MultisignResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+        ) -> std::result::Result<tonic::Response<super::MultisignResponse>, tonic::Status> {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/v1.Signer/Multisign");
             let mut req = request.into_request();
@@ -648,66 +598,39 @@ pub mod signer_client {
             &mut self,
             request: impl tonic::IntoRequest<super::SignBeaconAttestationRequest>,
         ) -> std::result::Result<tonic::Response<super::SignResponse>, tonic::Status> {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/v1.Signer/SignBeaconAttestation",
-            );
+            let path = http::uri::PathAndQuery::from_static("/v1.Signer/SignBeaconAttestation");
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("v1.Signer", "SignBeaconAttestation"));
+            req.extensions_mut().insert(GrpcMethod::new("v1.Signer", "SignBeaconAttestation"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn sign_beacon_attestations(
             &mut self,
             request: impl tonic::IntoRequest<super::SignBeaconAttestationsRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::MultisignResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+        ) -> std::result::Result<tonic::Response<super::MultisignResponse>, tonic::Status> {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/v1.Signer/SignBeaconAttestations",
-            );
+            let path = http::uri::PathAndQuery::from_static("/v1.Signer/SignBeaconAttestations");
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("v1.Signer", "SignBeaconAttestations"));
+            req.extensions_mut().insert(GrpcMethod::new("v1.Signer", "SignBeaconAttestations"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn sign_beacon_proposal(
             &mut self,
             request: impl tonic::IntoRequest<super::SignBeaconProposalRequest>,
         ) -> std::result::Result<tonic::Response<super::SignResponse>, tonic::Status> {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/v1.Signer/SignBeaconProposal",
-            );
+            let path = http::uri::PathAndQuery::from_static("/v1.Signer/SignBeaconProposal");
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("v1.Signer", "SignBeaconProposal"));
+            req.extensions_mut().insert(GrpcMethod::new("v1.Signer", "SignBeaconProposal"));
             self.inner.unary(req, path, codec).await
         }
     }
