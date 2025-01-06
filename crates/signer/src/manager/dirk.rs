@@ -19,7 +19,7 @@ use crate::proto::v1::{
 pub struct DirkManager {
     chain: Chain,
     channel: Channel,
-    wallet: String,
+    wallets: Vec<String>,
 }
 
 impl DirkManager {
@@ -42,14 +42,14 @@ impl DirkManager {
             .await
             .map_err(|e| eyre::eyre!("Couldn't connect to Dirk: {e}"))?;
 
-        Ok(Self { chain, channel, wallet: config.wallet })
+        Ok(Self { chain, channel, wallets: config.wallets })
     }
 
-    async fn list_accounts(&self) -> eyre::Result<Vec<DirkAccount>> {
+    async fn get_all_accounts(&self) -> eyre::Result<Vec<DirkAccount>> {
         let mut client = ListerClient::new(self.channel.clone());
         let pubkeys_request =
-            tonic::Request::new(ListAccountsRequest { paths: vec![self.wallet.clone()] });
-        let pubkeys_response = client.list_accounts(pubkeys_request).await.unwrap();
+            tonic::Request::new(ListAccountsRequest { paths: self.wallets.clone() });
+        let pubkeys_response = client.list_accounts(pubkeys_request).await?;
 
         if pubkeys_response.get_ref().state() != ResponseState::Succeeded {
             eyre::bail!("Get pubkeys request failed".to_string());
@@ -58,61 +58,91 @@ impl DirkManager {
         Ok(pubkeys_response.into_inner().accounts)
     }
 
-    pub async fn get_pubkeys(&self) -> eyre::Result<Vec<BlsPublicKey>> {
-        let accounts = self.list_accounts().await?;
+    async fn get_pubkey_wallet(&self, pubkey: BlsPublicKey) -> eyre::Result<Option<String>> {
+        let accounts = self.get_all_accounts().await?;
 
-        let keys = accounts
-            .iter()
-            .filter_map(|account| {
-                if account.name == format!("{}/consensus", self.wallet.clone()) {
-                    Some(BlsPublicKey::from(FixedBytes::from_slice(&account.public_key)))
-                } else {
-                    None
-                }
-            })
-            .collect();
-        Ok(keys)
+        for account in accounts {
+            if account.public_key == pubkey.to_vec() {
+                return Ok(Some(account.name));
+            }
+        }
+
+        Ok(None)
     }
 
-    pub async fn get_proxy_pubkeys(&self) -> eyre::Result<Vec<BlsPublicKey>> {
-        let accounts = self.list_accounts().await?;
+    pub async fn consensus_pubkeys(&self) -> eyre::Result<Vec<BlsPublicKey>> {
+        let accounts = self.get_all_accounts().await?;
 
-        let keys = accounts
+        let expected_accounts: Vec<String> =
+            self.wallets.iter().map(|wallet| format!("{wallet}/consensus")).collect();
+
+        Ok(accounts
             .iter()
             .filter_map(|account| {
-                if account.name == format!("{}/consensus", self.wallet.clone()) {
+                if expected_accounts.contains(&account.name) {
                     Some(BlsPublicKey::from(FixedBytes::from_slice(&account.public_key)))
                 } else {
                     None
                 }
             })
-            .collect();
-        Ok(keys)
+            .collect())
+    }
+
+    pub async fn proxies(&self) -> eyre::Result<Vec<BlsPublicKey>> {
+        let accounts = self.get_all_accounts().await?;
+
+        Ok(accounts
+            .iter()
+            .filter_map(|account| {
+                let wallet = account.name.split_once("/")?.0;
+                if self.wallets.contains(&wallet.to_string())
+                    && account.name != format!("{wallet}/consensus")
+                {
+                    Some(BlsPublicKey::from(FixedBytes::from_slice(&account.public_key)))
+                } else {
+                    None
+                }
+            })
+            .collect())
     }
 
     pub async fn get_consensus_proxy_maps(
         &self,
         module_id: &ModuleId,
     ) -> eyre::Result<Vec<ConsensusProxyMap>> {
-        let accounts = self.list_accounts().await?;
+        let accounts = self.get_all_accounts().await?;
 
-        let consensus_pubkey = accounts
-            .iter()
-            .find(|account| account.name == format!("{}/consensus", self.wallet.clone()))
-            .map(|account| BlsPublicKey::from(FixedBytes::from_slice(&account.public_key)))
-            .ok_or_else(|| eyre::eyre!("No consensus key found"))?;
+        let mut proxy_maps = Vec::new();
 
-        let proxy_keys = accounts
-            .iter()
-            .filter(|account| account.name.starts_with(&format!("{}/{module_id}/", self.wallet)))
-            .map(|account| BlsPublicKey::from(FixedBytes::from_slice(&account.public_key)))
-            .collect::<Vec<BlsPublicKey>>();
+        for wallet in self.wallets.iter() {
+            let Some(consensus_key) = accounts.iter().find_map(|account| {
+                if account.name == format!("{wallet}/consensus") {
+                    Some(BlsPublicKey::from(FixedBytes::from_slice(&account.public_key)))
+                } else {
+                    None
+                }
+            }) else {
+                continue;
+            };
 
-        Ok(vec![ConsensusProxyMap {
-            consensus: consensus_pubkey,
-            proxy_bls: proxy_keys,
-            proxy_ecdsa: vec![],
-        }])
+            let proxy_keys = accounts
+                .iter()
+                .filter_map(|account| {
+                    if account.name.starts_with(&format!("{wallet}/{module_id}")) {
+                        Some(BlsPublicKey::from(FixedBytes::from_slice(&account.public_key)))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<BlsPublicKey>>();
+            proxy_maps.push(ConsensusProxyMap {
+                consensus: consensus_key,
+                proxy_bls: proxy_keys,
+                proxy_ecdsa: vec![],
+            });
+        }
+
+        Ok(proxy_maps)
     }
 
     pub async fn generate_proxy_key(
@@ -122,9 +152,14 @@ impl DirkManager {
     ) -> eyre::Result<SignedProxyDelegation<BlsPublicKey>> {
         let uuid = uuid::Uuid::new_v4();
 
+        let wallet = self
+            .get_pubkey_wallet(consensus_pubkey)
+            .await?
+            .ok_or(eyre::eyre!("Consensus public key not found"))?;
+
         let mut client = AccountManagerClient::new(self.channel.clone());
         let generate_request = tonic::Request::new(GenerateRequest {
-            account: format!("{}/{module_id}/{uuid}", self.wallet),
+            account: format!("{wallet}/{module_id}/{uuid}"),
             passphrase: vec![0x73, 0x65, 0x63, 0x72, 0x65, 0x74], // "secret"
             participants: 1,
             signing_threshold: 1,
@@ -140,7 +175,7 @@ impl DirkManager {
 
         let mut unlock_client = AccountManagerClient::new(self.channel.clone());
         let unlock_request = tonic::Request::new(UnlockAccountRequest {
-            account: format!("{}/{module_id}/{uuid}", self.wallet),
+            account: format!("{wallet}/{module_id}/{uuid}"),
             passphrase: vec![0x73, 0x65, 0x63, 0x72, 0x65, 0x74], // "secret"
         });
 
@@ -169,7 +204,7 @@ impl DirkManager {
             data: object_root.to_vec(),
         });
 
-        let sign_response = signer_client.sign(sign_request).await.unwrap();
+        let sign_response = signer_client.sign(sign_request).await?;
         if sign_response.get_ref().state() != ResponseState::Succeeded {
             eyre::bail!("Sign request failed");
         }
