@@ -186,7 +186,7 @@ impl DirkManager {
 
         Ok(SignedProxyDelegation {
             message: ProxyDelegation { delegator: consensus_pubkey, proxy: proxy_key },
-            signature: BlsSignature::random(),
+            signature: BlsSignature::ZERO,
         })
     }
 
