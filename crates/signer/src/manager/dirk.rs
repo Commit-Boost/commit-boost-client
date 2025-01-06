@@ -95,8 +95,8 @@ impl DirkManager {
             .iter()
             .filter_map(|account| {
                 let wallet = account.name.split_once("/")?.0;
-                if self.wallets.contains(&wallet.to_string())
-                    && account.name != format!("{wallet}/consensus")
+                if self.wallets.contains(&wallet.to_string()) &&
+                    account.name != format!("{wallet}/consensus")
                 {
                     Some(BlsPublicKey::from(FixedBytes::from_slice(&account.public_key)))
                 } else {
