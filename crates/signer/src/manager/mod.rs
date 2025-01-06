@@ -29,7 +29,8 @@ impl SigningManager {
     pub async fn available_proxy_signers(&self) -> eyre::Result<usize> {
         match self {
             SigningManager::Local(local_manager) => {
-                let proxies = local_manager.read().await.proxies().clone();
+                let manager = local_manager.read().await;
+                let proxies = manager.proxies();
                 Ok(proxies.bls_signers.len() + proxies.ecdsa_signers.len())
             }
             SigningManager::Dirk(dirk_manager) => Ok(dirk_manager.proxies().await?.len()),

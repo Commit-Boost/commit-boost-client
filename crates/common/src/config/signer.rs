@@ -1,11 +1,11 @@
 use std::path::PathBuf;
 
-use alloy::transports::http::reqwest::Url;
 use bimap::BiHashMap;
 use eyre::{bail, Result};
 use serde::{Deserialize, Serialize};
 use tonic::transport::{Certificate, Identity};
 use tracing::info;
+use url::Url;
 
 use super::{
     constants::SIGNER_IMAGE_DEFAULT,

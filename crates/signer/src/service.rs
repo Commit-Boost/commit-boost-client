@@ -58,10 +58,10 @@ impl SigningService {
 
         let module_ids: Vec<String> = config.jwts.left_values().cloned().map(Into::into).collect();
 
-        let state = match &config.dirk {
+        let state = match config.dirk {
             Some(dirk) => SigningState {
                 manager: SigningManager::Dirk(
-                    DirkManager::new_from_config(config.chain, dirk.clone()).await?,
+                    DirkManager::new_from_config(config.chain, dirk).await?,
                 ),
                 jwts: config.jwts.into(),
             },

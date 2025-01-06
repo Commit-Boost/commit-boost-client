@@ -252,8 +252,8 @@ wallets = ["wallet1", "wallet2"]
 
 # Optional parameters
 docker_image = "ghcr.io/commit-boost/signer:latest"
-ca_cert_path = "/path/to/ca.crt",
-server_domain = "server.example.com",
+ca_cert_path = "/path/to/ca.crt"
+server_domain = "server.example.com"
 ```
 
 - `cert_path` and `key_path` are the paths to the client certificate and key used to authenticate with Dirk.
