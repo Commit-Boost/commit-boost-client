@@ -127,8 +127,9 @@ id = "mux-relay-1"
 url = "http://0xa119589bb33ef52acbb8116832bec2b58fca590fe5c85eac5d3230b44d5bc09fe73ccd21f88eab31d6de16194d17782e@def.xyz"
 
 # Configuration for the Signer Module, only required if any `commit` module is present, or if `pbs.with_signer = true`
-# Currently two types of Signer modules are supported (only one can be used at a time):
+# Currently three types of Signer modules are supported (only one can be used at a time):
 #   - Remote: a remote Web3Signer instance
+#   - Dirk: a remote Dirk instance
 #   - Local: a local Signer module
 # More details on the docs (https://commit-boost.github.io/commit-boost-client/get_started/configuration/#local-signer)
 # OPTIONAL
@@ -136,6 +137,25 @@ url = "http://0xa119589bb33ef52acbb8116832bec2b58fca590fe5c85eac5d3230b44d5bc09f
 # [signer.remote]
 # URL of the Web3Signer instance
 # url = "https://remote.signer.url"
+# Dirk:
+# [signer.dirk]
+# Docker image to use for the Signer module.
+# OPTIONAL, DEFAULT: ghcr.io/commit-boost/signer:latest
+# docker_image = "ghcr.io/commit-boost/signer:latest"
+# Complete URL of a Dirk gateway
+# url = "https://dirk.gateway.url"
+# Path to the client certificate to authenticate with Dirk
+# cert_path = "/path/to/client.crt"
+# Path to the client key
+# key_path = "/path/to/client.key"
+# Wallets to use. Each wallet should have a `wallet/consensus` account
+# wallets = ["wallet1", "wallet2"]
+# Path to the CA certificate that signed the Dirk server certificate
+# OPTIONAL
+# ca_cert_path = "/path/to/ca.crt"
+# Domain name of the server to use in TLS verification, if different from the URL
+# OPTIONAL
+# server_domain = "server.example.com"
 # Local:
 [signer.local]
 # Docker image to use for the Signer module.

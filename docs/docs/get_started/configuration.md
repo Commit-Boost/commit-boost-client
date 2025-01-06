@@ -229,14 +229,35 @@ To persist proxy keys across restarts, you must enable the proxy store in the co
 
 ### Remote signer
 
-You might choose to use an external service to sign the transactions. For now, we support Web3Signer but we're working on adding support for additional signers.
+You might choose to use an external service to sign the transactions. For now, two type of remote signers are supported: Web3Signer and Dirk.
 
-The parameters needed for the remote signer are:
+#### Web3Signer
+
+Web3Signer implements the same API that Commit-Boost, so there's no need to setup a Signer module. The parameters needed for the remote signer are:
 
 ```toml
 [signer.remote]
 url = "https://remote.signer.url"
 ```
+
+#### Dirk
+
+Dirk is a distributed key management system that can be used to sign transactions. In this case the Signer module is needed as an intermediary between the modules and Dirk. The following parameters are needed:
+
+```toml
+url = "https://dirk.gateway.url"
+cert_path = "/path/to/client.crt"
+key_path = "/path/to/client.key"
+wallets = ["wallet1", "wallet2"]
+
+# Optional parameters
+docker_image = "ghcr.io/commit-boost/signer:latest"
+ca_cert_path = "/path/to/ca.crt",
+server_domain = "server.example.com",
+```
+
+- `cert_path` and `key_path` are the paths to the client certificate and key used to authenticate with Dirk.
+- `wallets` is a list of wallets that the Signer module will use to sign transactions. Each wallet should have a `<WALLET_NAME>/consensus` account which will be used as the consensus key. Generated proxy keys will be stored in `<WALLET_NAME>/<MODULE_ID>/<UUID>`.
 
 ## Custom module
 We currently provide a test module that needs to be built locally. To build the module run:
