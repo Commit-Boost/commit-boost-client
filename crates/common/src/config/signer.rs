@@ -13,10 +13,7 @@ use super::{
     CommitBoostConfig, SIGNER_PORT_ENV,
 };
 use crate::{
-    config::{
-        SIGNER_DIRK_CA_CERT_ENV, SIGNER_DIRK_CERT_ENV, SIGNER_DIRK_DIR_SECRETS_ENV,
-        SIGNER_DIRK_KEY_ENV,
-    },
+    config::{DIRK_CA_CERT_ENV, DIRK_CERT_ENV, DIRK_DIR_SECRETS_ENV, DIRK_KEY_ENV},
     signer::{ProxyStore, SignerLoader},
     types::{Chain, Jwt, ModuleId},
 };
@@ -116,15 +113,12 @@ impl StartSignerConfig {
                 unlock,
                 ..
             }) => {
-                let cert_path =
-                    load_env_var(SIGNER_DIRK_CERT_ENV).map(PathBuf::from).unwrap_or(cert_path);
-                let key_path =
-                    load_env_var(SIGNER_DIRK_KEY_ENV).map(PathBuf::from).unwrap_or(key_path);
-                let secrets_path = load_env_var(SIGNER_DIRK_DIR_SECRETS_ENV)
-                    .map(PathBuf::from)
-                    .unwrap_or(secrets_path);
+                let cert_path = load_env_var(DIRK_CERT_ENV).map(PathBuf::from).unwrap_or(cert_path);
+                let key_path = load_env_var(DIRK_KEY_ENV).map(PathBuf::from).unwrap_or(key_path);
+                let secrets_path =
+                    load_env_var(DIRK_DIR_SECRETS_ENV).map(PathBuf::from).unwrap_or(secrets_path);
                 let ca_cert_path =
-                    load_env_var(SIGNER_DIRK_CA_CERT_ENV).map(PathBuf::from).ok().or(ca_cert_path);
+                    load_env_var(DIRK_CA_CERT_ENV).map(PathBuf::from).ok().or(ca_cert_path);
 
                 Ok(StartSignerConfig {
                     chain: config.chain,
