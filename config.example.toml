@@ -150,12 +150,17 @@ url = "http://0xa119589bb33ef52acbb8116832bec2b58fca590fe5c85eac5d3230b44d5bc09f
 # key_path = "/path/to/client.key"
 # Wallets to use. Each wallet should have a `wallet/consensus` account
 # wallets = ["wallet1", "wallet2"]
+# Path to the secrets directory where the accounts passwords are stored
+# secrets_path = "/path/to/secrets"
 # Path to the CA certificate that signed the Dirk server certificate
 # OPTIONAL
 # ca_cert_path = "/path/to/ca.crt"
 # Domain name of the server to use in TLS verification, if different from the URL
 # OPTIONAL
 # server_domain = "server.example.com"
+# Whether to try to unlock the accounts on sign failure
+# OPTIONAL, DEFAULT: false
+# unlock = false
 # Local:
 [signer.local]
 # Docker image to use for the Signer module.

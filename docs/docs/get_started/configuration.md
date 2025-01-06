@@ -249,15 +249,19 @@ url = "https://dirk.gateway.url"
 cert_path = "/path/to/client.crt"
 key_path = "/path/to/client.key"
 wallets = ["wallet1", "wallet2"]
+secrets_path = "/path/to/secrets"
 
 # Optional parameters
 docker_image = "ghcr.io/commit-boost/signer:latest"
 ca_cert_path = "/path/to/ca.crt"
 server_domain = "server.example.com"
+unlock = false
 ```
 
 - `cert_path` and `key_path` are the paths to the client certificate and key used to authenticate with Dirk.
 - `wallets` is a list of wallets that the Signer module will use to sign transactions. Each wallet should have a `<WALLET_NAME>/consensus` account which will be used as the consensus key. Generated proxy keys will be stored in `<WALLET_NAME>/<MODULE_ID>/<UUID>`.
+- `secrets_path` is the path to the folder containing the passwords of the accounts. Generated proxy accounts secrets will be stored in `<secrets_path>/<WALLET_NAME>/<MODULE_ID>/<UUID>`.
+- `unlock` is an optional parameter that can be set to `true` if you want to try to unlock the wallets on sign failure. Default is `false`.
 
 ## Custom module
 We currently provide a test module that needs to be built locally. To build the module run:
