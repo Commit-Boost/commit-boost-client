@@ -35,14 +35,14 @@ spec:
         - name: {{ .Chart.Name }}-pbs
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          image: "{{ .Values.commitBoost.pbs.image.repository }}:{{ .Values.commitBoost.pbs.image.tag }}"
+          imagePullPolicy: {{ .Values.commitBoost.pbs.image.pullPolicy }}
           ports:
             - name: http-pbs
-              containerPort: {{ .Values.service.port }}
+              containerPort: {{ .Values.commitBoost.pbs.config.pbs.port }}
               protocol: TCP
             - name: http-metrics
-              containerPort: {{ .Values.service.metrics_port }}
+              containerPort: {{ .Values.commitBoost.pbs.config.metrics.server_port }}
               protocol: TCP
           livenessProbe:
             httpGet:
@@ -58,9 +58,13 @@ spec:
             - name: CB_CONFIG
               value: /config/config.pbs.toml
             - name: CB_METRICS_PORT
-              value: '{{ .Values.service.metrics_port }}'
+              value: "{{ .Values.commitBoost.pbs.config.metrics.server_port }}"
+            - name: ROLLING_DURATION
+              value: never
             - name: RUST_LOG
               value: info
+            - name: CB_PBS_ENDPOINT
+              value: "0.0.0.0:{{ .Values.commitBoost.pbs.config.pbs.port }}"
           volumeMounts:
             - name: commit-boost-configs
               mountPath: /config
