@@ -233,7 +233,7 @@ You might choose to use an external service to sign the transactions. For now, t
 
 #### Web3Signer
 
-Web3Signer implements the same API that Commit-Boost, so there's no need to setup a Signer module. The parameters needed for the remote signer are:
+Web3Signer implements the same API as Commit-Boost, so there's no need to set up a Signer module. The parameters needed for the remote signer are:
 
 ```toml
 [signer.remote]
