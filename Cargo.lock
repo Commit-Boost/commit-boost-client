@@ -1394,6 +1394,7 @@ dependencies = [
  "lazy_static",
  "prometheus",
  "prost",
+ "rand",
  "thiserror 1.0.69",
  "tokio",
  "tonic",

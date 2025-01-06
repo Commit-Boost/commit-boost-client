@@ -6,16 +6,7 @@ use std::{
 
 use cb_common::{
     config::{
-        CommitBoostConfig, LogsSettings, ModuleKind, SignerConfig, BUILDER_PORT_ENV,
-        BUILDER_URLS_ENV, CHAIN_SPEC_ENV, CONFIG_DEFAULT, CONFIG_ENV, JWTS_ENV, LOGS_DIR_DEFAULT,
-        LOGS_DIR_ENV, METRICS_PORT_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, PBS_ENDPOINT_ENV,
-        PBS_MODULE_NAME, PROXY_DIR_DEFAULT, PROXY_DIR_ENV, PROXY_DIR_KEYS_DEFAULT,
-        PROXY_DIR_KEYS_ENV, PROXY_DIR_SECRETS_DEFAULT, PROXY_DIR_SECRETS_ENV, SIGNER_DEFAULT,
-        SIGNER_DIRK_CA_CERT_DEFAULT, SIGNER_DIRK_CA_CERT_ENV, SIGNER_DIRK_CERT_DEFAULT,
-        SIGNER_DIRK_CERT_ENV, SIGNER_DIRK_KEY_DEFAULT, SIGNER_DIRK_KEY_ENV,
-        SIGNER_DIR_KEYS_DEFAULT, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS_DEFAULT,
-        SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV, SIGNER_MODULE_NAME, SIGNER_PORT_ENV,
-        SIGNER_URL_ENV,
+        CommitBoostConfig, LogsSettings, ModuleKind, SignerConfig, BUILDER_PORT_ENV, BUILDER_URLS_ENV, CHAIN_SPEC_ENV, CONFIG_DEFAULT, CONFIG_ENV, JWTS_ENV, LOGS_DIR_DEFAULT, LOGS_DIR_ENV, METRICS_PORT_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, PBS_ENDPOINT_ENV, PBS_MODULE_NAME, PROXY_DIR_DEFAULT, PROXY_DIR_ENV, PROXY_DIR_KEYS_DEFAULT, PROXY_DIR_KEYS_ENV, PROXY_DIR_SECRETS_DEFAULT, PROXY_DIR_SECRETS_ENV, SIGNER_DEFAULT, SIGNER_DIRK_CA_CERT_DEFAULT, SIGNER_DIRK_CA_CERT_ENV, SIGNER_DIRK_CERT_DEFAULT, SIGNER_DIRK_CERT_ENV, SIGNER_DIRK_DIR_SECRETS_DEFAULT, SIGNER_DIRK_DIR_SECRETS_ENV, SIGNER_DIRK_KEY_DEFAULT, SIGNER_DIRK_KEY_ENV, SIGNER_DIR_KEYS_DEFAULT, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS_DEFAULT, SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV, SIGNER_MODULE_NAME, SIGNER_PORT_ENV, SIGNER_URL_ENV
     },
     pbs::{BUILDER_API_PATH, GET_STATUS_PATH},
     signer::{ProxyStore, SignerLoader},
@@ -441,7 +432,14 @@ pub async fn handle_docker_init(config_path: String, output_dir: String) -> Resu
                 services.insert("cb_signer".to_owned(), Some(signer_service));
             }
         }
-        Some(SignerConfig::Dirk { docker_image, cert_path, key_path, ca_cert_path, .. }) => {
+        Some(SignerConfig::Dirk {
+            docker_image,
+            cert_path,
+            key_path,
+            secrets_path,
+            ca_cert_path,
+            ..
+        }) => {
             if needs_signer_module {
                 if metrics_enabled {
                     targets.push(PrometheusTargetConfig {
@@ -456,6 +454,7 @@ pub async fn handle_docker_init(config_path: String, output_dir: String) -> Resu
                     get_env_uval(SIGNER_PORT_ENV, signer_port as u64),
                     get_env_val(SIGNER_DIRK_CERT_ENV, SIGNER_DIRK_CERT_DEFAULT),
                     get_env_val(SIGNER_DIRK_KEY_ENV, SIGNER_DIRK_KEY_DEFAULT),
+                    get_env_val(SIGNER_DIRK_DIR_SECRETS_ENV, SIGNER_DIRK_DIR_SECRETS_DEFAULT),
                 ]);
 
                 if let Some((key, val)) = chain_spec_env.clone() {
@@ -485,6 +484,11 @@ pub async fn handle_docker_init(config_path: String, output_dir: String) -> Resu
                         "{}:{}:ro",
                         key_path.display(),
                         SIGNER_DIRK_KEY_DEFAULT
+                    )),
+                    Volumes::Simple(format!(
+                        "{}:{}",
+                        secrets_path.display(),
+                        SIGNER_DIRK_DIR_SECRETS_DEFAULT
                     )),
                 ];
                 volumes.extend(chain_spec_volume.clone());

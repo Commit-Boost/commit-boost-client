@@ -1,4 +1,6 @@
-use alloy::primitives::FixedBytes;
+use std::{fs, path::PathBuf};
+
+use alloy::{hex, primitives::FixedBytes};
 use cb_common::{
     commit::request::{ConsensusProxyMap, ProxyDelegation, SignedProxyDelegation},
     config::DirkConfig,
@@ -7,6 +9,7 @@ use cb_common::{
     signer::{BlsPublicKey, BlsSignature},
     types::{Chain, ModuleId},
 };
+use rand::Rng;
 use tonic::transport::{Channel, ClientTlsConfig};
 use tracing::info;
 
@@ -22,6 +25,7 @@ pub struct DirkManager {
     channel: Channel,
     wallets: Vec<String>,
     unlock: bool,
+    secrets_path: PathBuf,
 }
 
 impl DirkManager {
@@ -44,7 +48,13 @@ impl DirkManager {
             .await
             .map_err(|e| eyre::eyre!("Couldn't connect to Dirk: {e}"))?;
 
-        Ok(Self { chain, channel, wallets: config.wallets, unlock: config.unlock })
+        Ok(Self {
+            chain,
+            channel,
+            wallets: config.wallets,
+            unlock: config.unlock,
+            secrets_path: config.secrets_path,
+        })
     }
 
     async fn get_all_accounts(&self) -> eyre::Result<Vec<DirkAccount>> {
@@ -159,6 +169,29 @@ impl DirkManager {
         Ok(proxy_maps)
     }
 
+    /// Generate a random password of 64 hex-characters
+    fn random_password() -> String {
+        let password_bytes: [u8; 32] = rand::thread_rng().gen();
+        hex::encode(password_bytes)
+    }
+
+    /// Read the password for an account from a file
+    fn read_password(&self, account: String) -> eyre::Result<String> {
+        fs::read_to_string(self.secrets_path.join(account))
+            .map_err(|e| eyre::eyre!("Couldn't read password: {e}"))
+    }
+
+    /// Store the password for an account in a file
+    fn store_password(&self, account: String, password: String) -> eyre::Result<()> {
+        fs::create_dir_all(
+            self.secrets_path
+                .join(account.rsplit_once("/").ok_or(eyre::eyre!("Invalid account name"))?.0),
+        )
+        .map_err(|e| eyre::eyre!("Couldn't write password: {e}"))?;
+        fs::write(self.secrets_path.join(account), password)
+            .map_err(|e| eyre::eyre!("Couldn't write password: {e}"))
+    }
+
     async fn unlock_account(&self, account: String, password: String) -> eyre::Result<()> {
         let mut client = AccountManagerClient::new(self.channel.clone());
         let unlock_request = tonic::Request::new(UnlockAccountRequest {
@@ -186,10 +219,13 @@ impl DirkManager {
             .await?
             .ok_or(eyre::eyre!("Consensus public key not found"))?;
 
+        let account_name = format!("{wallet}/{module_id}/{uuid}");
+        let new_password = Self::random_password();
+
         let mut client = AccountManagerClient::new(self.channel.clone());
         let generate_request = tonic::Request::new(GenerateRequest {
-            account: format!("{wallet}/{module_id}/{uuid}"),
-            passphrase: vec![0x73, 0x65, 0x63, 0x72, 0x65, 0x74], // "secret"
+            account: account_name.clone(),
+            passphrase: new_password.as_bytes().to_vec(),
             participants: 1,
             signing_threshold: 1,
         });
@@ -199,10 +235,12 @@ impl DirkManager {
             eyre::bail!("Generate request failed");
         }
 
+        self.store_password(account_name.clone(), new_password.clone())?;
+
         let proxy_key =
             BlsPublicKey::from(FixedBytes::from_slice(&generate_response.into_inner().public_key));
 
-        self.unlock_account(format!("{wallet}/{module_id}/{uuid}"), "secret".to_string()).await?;
+        self.unlock_account(account_name, new_password).await?;
 
         Ok(SignedProxyDelegation {
             message: ProxyDelegation { delegator: consensus_pubkey, proxy: proxy_key },
@@ -226,15 +264,17 @@ impl DirkManager {
 
         let sign_response = signer_client.sign(sign_request).await?;
 
-        let sign_response =
-            if sign_response.get_ref().state() == ResponseState::Denied && self.unlock {
+        // Retry if unlock config is set
+        let sign_response = match sign_response.get_ref().state() {
+            ResponseState::Denied if self.unlock => {
                 info!("Account {pubkey:#} may be locked, unlocking and retrying...");
 
                 let account_name = self
                     .get_pubkey_account(pubkey)
                     .await?
                     .ok_or(eyre::eyre!("Public key not found"))?;
-                self.unlock_account(account_name, "secret".to_string()).await?;
+                self.unlock_account(account_name.clone(), self.read_password(account_name)?)
+                    .await?;
 
                 let sign_request = tonic::Request::new(SignRequest {
                     id: Some(SignerId::PublicKey(pubkey.to_vec())),
@@ -242,9 +282,9 @@ impl DirkManager {
                     data: object_root.to_vec(),
                 });
                 signer_client.sign(sign_request).await?
-            } else {
-                sign_response
-            };
+            }
+            _ => sign_response,
+        };
 
         if sign_response.get_ref().state() != ResponseState::Succeeded {
             eyre::bail!("Sign request failed");

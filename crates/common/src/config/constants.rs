@@ -54,6 +54,9 @@ pub const SIGNER_DIRK_KEY_ENV: &str = "CB_SIGNER_DIRK_KEY_FILE";
 pub const SIGNER_DIRK_KEY_DEFAULT: &str = "/certificates/dirk.key";
 pub const SIGNER_DIRK_CA_CERT_ENV: &str = "CB_SIGNER_DIRK_CA_CERT_FILE";
 pub const SIGNER_DIRK_CA_CERT_DEFAULT: &str = "/certificates/ca.crt";
+/// Path to Dirk `secrets` folder
+pub const SIGNER_DIRK_DIR_SECRETS_ENV: &str = "CB_SIGNER_DIRK_SECRETS_DIR";
+pub const SIGNER_DIRK_DIR_SECRETS_DEFAULT: &str = "/dirk_secrets";
 /// Path to store proxies with plaintext keys (testing only)
 pub const PROXY_DIR_ENV: &str = "CB_PROXY_STORE_DIR";
 pub const PROXY_DIR_DEFAULT: &str = "/proxies";

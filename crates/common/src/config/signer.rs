@@ -13,7 +13,10 @@ use super::{
     CommitBoostConfig, SIGNER_PORT_ENV,
 };
 use crate::{
-    config::{SIGNER_DIRK_CA_CERT_ENV, SIGNER_DIRK_CERT_ENV, SIGNER_DIRK_KEY_ENV},
+    config::{
+        SIGNER_DIRK_CA_CERT_ENV, SIGNER_DIRK_CERT_ENV, SIGNER_DIRK_DIR_SECRETS_ENV,
+        SIGNER_DIRK_KEY_ENV,
+    },
     signer::{ProxyStore, SignerLoader},
     types::{Chain, Jwt, ModuleId},
 };
@@ -48,6 +51,8 @@ pub enum SignerConfig {
         key_path: PathBuf,
         /// Wallets to use. Each wallet should have a `wallet/consensus` account
         wallets: Vec<String>,
+        /// Path to where the account passwords are stored
+        secrets_path: PathBuf,
         /// Path to the CA certificate
         ca_cert_path: Option<PathBuf>,
         /// Domain name of the server to use in TLS verification
@@ -67,6 +72,7 @@ pub struct DirkConfig {
     pub url: Url,
     pub wallets: Vec<String>,
     pub client_cert: Identity,
+    pub secrets_path: PathBuf,
     pub cert_auth: Option<Certificate>,
     pub server_domain: Option<String>,
     pub unlock: bool,
@@ -104,6 +110,7 @@ impl StartSignerConfig {
                 cert_path,
                 key_path,
                 wallets,
+                secrets_path,
                 ca_cert_path,
                 server_domain,
                 unlock,
@@ -113,6 +120,9 @@ impl StartSignerConfig {
                     load_env_var(SIGNER_DIRK_CERT_ENV).map(PathBuf::from).unwrap_or(cert_path);
                 let key_path =
                     load_env_var(SIGNER_DIRK_KEY_ENV).map(PathBuf::from).unwrap_or(key_path);
+                let secrets_path = load_env_var(SIGNER_DIRK_DIR_SECRETS_ENV)
+                    .map(PathBuf::from)
+                    .unwrap_or(secrets_path);
                 let ca_cert_path =
                     load_env_var(SIGNER_DIRK_CA_CERT_ENV).map(PathBuf::from).ok().or(ca_cert_path);
 
@@ -129,6 +139,7 @@ impl StartSignerConfig {
                             std::fs::read_to_string(cert_path)?,
                             std::fs::read_to_string(key_path)?,
                         ),
+                        secrets_path,
                         cert_auth: match ca_cert_path {
                             Some(path) => {
                                 Some(Certificate::from_pem(std::fs::read_to_string(path)?))
