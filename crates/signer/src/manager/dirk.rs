@@ -8,6 +8,7 @@ use cb_common::{
     types::{Chain, ModuleId},
 };
 use tonic::transport::{Channel, ClientTlsConfig};
+use tracing::info;
 
 use crate::proto::v1::{
     account_manager_client::AccountManagerClient, lister_client::ListerClient,
@@ -20,6 +21,7 @@ pub struct DirkManager {
     chain: Chain,
     channel: Channel,
     wallets: Vec<String>,
+    unlock: bool,
 }
 
 impl DirkManager {
@@ -42,7 +44,7 @@ impl DirkManager {
             .await
             .map_err(|e| eyre::eyre!("Couldn't connect to Dirk: {e}"))?;
 
-        Ok(Self { chain, channel, wallets: config.wallets })
+        Ok(Self { chain, channel, wallets: config.wallets, unlock: config.unlock })
     }
 
     async fn get_all_accounts(&self) -> eyre::Result<Vec<DirkAccount>> {
@@ -58,7 +60,7 @@ impl DirkManager {
         Ok(pubkeys_response.into_inner().accounts)
     }
 
-    async fn get_pubkey_wallet(&self, pubkey: BlsPublicKey) -> eyre::Result<Option<String>> {
+    async fn get_pubkey_account(&self, pubkey: BlsPublicKey) -> eyre::Result<Option<String>> {
         let accounts = self.get_all_accounts().await?;
 
         for account in accounts {
@@ -68,6 +70,18 @@ impl DirkManager {
         }
 
         Ok(None)
+    }
+
+    async fn get_pubkey_wallet(&self, pubkey: BlsPublicKey) -> eyre::Result<Option<String>> {
+        let account = self.get_pubkey_account(pubkey).await?;
+
+        if let Some(account) = account {
+            Ok(Some(
+                account.split_once("/").ok_or(eyre::eyre!("Invalid account name"))?.0.to_string(),
+            ))
+        } else {
+            Ok(None)
+        }
     }
 
     pub async fn consensus_pubkeys(&self) -> eyre::Result<Vec<BlsPublicKey>> {
@@ -145,6 +159,21 @@ impl DirkManager {
         Ok(proxy_maps)
     }
 
+    async fn unlock_account(&self, account: String, password: String) -> eyre::Result<()> {
+        let mut client = AccountManagerClient::new(self.channel.clone());
+        let unlock_request = tonic::Request::new(UnlockAccountRequest {
+            account,
+            passphrase: password.as_bytes().to_vec(),
+        });
+
+        let unlock_response = client.unlock(unlock_request).await?;
+        if unlock_response.get_ref().state() != ResponseState::Succeeded {
+            eyre::bail!("Unlock request failed");
+        }
+
+        Ok(())
+    }
+
     pub async fn generate_proxy_key(
         &self,
         module_id: ModuleId,
@@ -173,16 +202,7 @@ impl DirkManager {
         let proxy_key =
             BlsPublicKey::from(FixedBytes::from_slice(&generate_response.into_inner().public_key));
 
-        let mut unlock_client = AccountManagerClient::new(self.channel.clone());
-        let unlock_request = tonic::Request::new(UnlockAccountRequest {
-            account: format!("{wallet}/{module_id}/{uuid}"),
-            passphrase: vec![0x73, 0x65, 0x63, 0x72, 0x65, 0x74], // "secret"
-        });
-
-        let unlock_response = unlock_client.unlock(unlock_request).await?;
-        if unlock_response.get_ref().state() != ResponseState::Succeeded {
-            eyre::bail!("Unlock request failed");
-        }
+        self.unlock_account(format!("{wallet}/{module_id}/{uuid}"), "secret".to_string()).await?;
 
         Ok(SignedProxyDelegation {
             message: ProxyDelegation { delegator: consensus_pubkey, proxy: proxy_key },
@@ -205,6 +225,27 @@ impl DirkManager {
         });
 
         let sign_response = signer_client.sign(sign_request).await?;
+
+        let sign_response =
+            if sign_response.get_ref().state() == ResponseState::Denied && self.unlock {
+                info!("Account {pubkey:#} may be locked, unlocking and retrying...");
+
+                let account_name = self
+                    .get_pubkey_account(pubkey)
+                    .await?
+                    .ok_or(eyre::eyre!("Public key not found"))?;
+                self.unlock_account(account_name, "secret".to_string()).await?;
+
+                let sign_request = tonic::Request::new(SignRequest {
+                    id: Some(SignerId::PublicKey(pubkey.to_vec())),
+                    domain: domain.to_vec(),
+                    data: object_root.to_vec(),
+                });
+                signer_client.sign(sign_request).await?
+            } else {
+                sign_response
+            };
+
         if sign_response.get_ref().state() != ResponseState::Succeeded {
             eyre::bail!("Sign request failed");
         }

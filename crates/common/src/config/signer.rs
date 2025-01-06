@@ -52,6 +52,9 @@ pub enum SignerConfig {
         ca_cert_path: Option<PathBuf>,
         /// Domain name of the server to use in TLS verification
         server_domain: Option<String>,
+        /// Whether to unlock the accounts in case they are locked
+        #[serde(default)]
+        unlock: bool,
     },
 }
 
@@ -66,6 +69,7 @@ pub struct DirkConfig {
     pub client_cert: Identity,
     pub cert_auth: Option<Certificate>,
     pub server_domain: Option<String>,
+    pub unlock: bool,
 }
 
 #[derive(Debug)]
@@ -102,6 +106,7 @@ impl StartSignerConfig {
                 wallets,
                 ca_cert_path,
                 server_domain,
+                unlock,
                 ..
             }) => {
                 let cert_path =
@@ -131,6 +136,7 @@ impl StartSignerConfig {
                             None => None,
                         },
                         server_domain,
+                        unlock,
                     }),
                 })
             }
