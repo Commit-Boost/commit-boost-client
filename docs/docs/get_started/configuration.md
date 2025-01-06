@@ -229,7 +229,7 @@ To persist proxy keys across restarts, you must enable the proxy store in the co
 
 ### Remote signer
 
-You might choose to use an external service to sign the transactions. For now, two type of remote signers are supported: Web3Signer and Dirk.
+You might choose to use an external service to sign the transactions. For now, two types of remote signers are supported: Web3Signer and Dirk.
 
 #### Web3Signer
 
