@@ -16,7 +16,7 @@ alloy.workspace = true
 axum.workspace = true
 axum-extra.workspace = true
 headers.workspace = true
-tonic = { version = "0.12.3", features = ["tls", "channel", "prost"] }
+tonic.workspace = true
 prost = "0.13.4"
 
 # async / threads
