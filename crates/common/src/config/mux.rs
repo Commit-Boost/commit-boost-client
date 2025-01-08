@@ -300,7 +300,7 @@ async fn fetch_ssv_pubkeys(
         pubkeys.extend(response.validators.iter().map(|v| v.pubkey).collect::<Vec<BlsPublicKey>>());
         page += 1;
 
-        if response.validators.is_empty() || response.validators.len() < MAX_PER_PAGE {
+        if response.validators.len() < MAX_PER_PAGE {
             ensure!(
                 pubkeys.len() == response.pagination.total,
                 "expected {} keys, got {}",
