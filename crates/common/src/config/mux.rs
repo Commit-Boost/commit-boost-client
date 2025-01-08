@@ -149,6 +149,8 @@ pub enum MuxKeysLoader {
 pub enum NORegistry {
     #[serde(alias = "lido")]
     Lido,
+    #[serde(alias = "ssv")]
+    SSV,
 }
 
 impl MuxKeysLoader {
@@ -175,6 +177,9 @@ impl MuxKeysLoader {
                     };
 
                     fetch_lido_registry_keys(rpc_url, chain, U256::from(*node_operator_id)).await
+                }
+                NORegistry::SSV => {
+                    fetch_ssv_registry_keys(chain, U256::from(*node_operator_id)).await
                 }
             },
         }
@@ -264,6 +269,71 @@ async fn fetch_lido_registry_keys(
     ensure!(unique.len() == keys.len(), "found duplicate keys in registry");
 
     Ok(keys)
+}
+
+async fn fetch_ssv_registry_keys(
+    chain: Chain,
+    node_operator_id: U256,
+) -> eyre::Result<Vec<BlsPublicKey>> {
+    const MAX_PER_PAGE: usize = 100;
+
+    let chain_name = match chain {
+        Chain::Mainnet => "mainnet",
+        Chain::Holesky => "holesky",
+        _ => bail!("SSV network is not supported for chain: {chain:?}"),
+    };
+
+    let client = reqwest::Client::new();
+    let mut pubkeys: Vec<BlsPublicKey> = vec![];
+    let mut page = 1;
+
+    loop {
+        let response = client
+            .get(format!(
+                "https://api.ssv.network/api/v4/{}/validators/in_operator/{}?perPage={}&page={}",
+                chain_name, node_operator_id, MAX_PER_PAGE, page
+            ))
+            .send()
+            .await
+            .map_err(|e| eyre::eyre!("Error sending request to SSV network: {e}"))?
+            .json::<SSVResponse>()
+            .await?;
+
+        pubkeys.extend(response.validators.iter().map(|v| v.pubkey).collect::<Vec<BlsPublicKey>>());
+        page += 1;
+
+        if response.validators.is_empty() || response.validators.len() < MAX_PER_PAGE {
+            ensure!(
+                pubkeys.len() == response.pagination.total,
+                "expected {} keys, got {}",
+                response.pagination.total,
+                pubkeys.len()
+            );
+            break;
+        }
+    }
+
+    let unique = pubkeys.iter().collect::<HashSet<_>>();
+    ensure!(unique.len() == pubkeys.len(), "found duplicate keys in registry");
+
+    Ok(pubkeys)
+}
+
+#[derive(Deserialize)]
+struct SSVResponse {
+    validators: Vec<SSVValidator>,
+    pagination: SSVPagination,
+}
+
+#[derive(Deserialize)]
+struct SSVValidator {
+    #[serde(rename = "public_key")]
+    pubkey: BlsPublicKey,
+}
+
+#[derive(Deserialize)]
+struct SSVPagination {
+    total: usize,
 }
 
 #[cfg(test)]
