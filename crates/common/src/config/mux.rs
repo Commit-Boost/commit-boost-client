@@ -178,9 +178,7 @@ impl MuxKeysLoader {
 
                     fetch_lido_registry_keys(rpc_url, chain, U256::from(*node_operator_id)).await
                 }
-                NORegistry::SSV => {
-                    fetch_ssv_registry_keys(chain, U256::from(*node_operator_id)).await
-                }
+                NORegistry::SSV => fetch_ssv_pubkeys(chain, U256::from(*node_operator_id)).await,
             },
         }
     }
@@ -271,7 +269,7 @@ async fn fetch_lido_registry_keys(
     Ok(keys)
 }
 
-async fn fetch_ssv_registry_keys(
+async fn fetch_ssv_pubkeys(
     chain: Chain,
     node_operator_id: U256,
 ) -> eyre::Result<Vec<BlsPublicKey>> {
@@ -380,7 +378,7 @@ mod tests {
         let chain = Chain::Holesky;
         let node_operator_id = U256::from(200);
 
-        let pubkeys = fetch_ssv_registry_keys(chain, node_operator_id).await?;
+        let pubkeys = fetch_ssv_pubkeys(chain, node_operator_id).await?;
 
         assert_eq!(pubkeys.len(), 3);
 
