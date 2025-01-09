@@ -177,9 +177,9 @@ async fn send_submit_block(
 
     if let Some(blobs) = &block_response.data.blobs_bundle {
         let expected_committments = &signed_blinded_block.message.body.blob_kzg_commitments;
-        if expected_committments.len() != blobs.blobs.len()
-            || expected_committments.len() != blobs.commitments.len()
-            || expected_committments.len() != blobs.proofs.len()
+        if expected_committments.len() != blobs.blobs.len() ||
+            expected_committments.len() != blobs.commitments.len() ||
+            expected_committments.len() != blobs.proofs.len()
         {
             return Err(PbsError::Validation(ValidationError::KzgCommitments {
                 expected_blobs: expected_committments.len(),

@@ -44,7 +44,8 @@ where
     }
 
     /// Returns all the relays (including those in muxes)
-    /// DO NOT use this through the PBS module, use [`PbsState::mux_config_and_relays`] instead
+    /// DO NOT use this through the PBS module, use
+    /// [`PbsState::mux_config_and_relays`] instead
     pub fn all_relays(&self) -> &[RelayClient] {
         &self.config.all_relays
     }

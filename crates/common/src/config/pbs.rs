@@ -173,8 +173,9 @@ pub struct PbsModuleConfig {
     pub pbs_config: Arc<PbsConfig>,
     /// List of default relays
     pub relays: Vec<RelayClient>,
-    /// List of all default relays plus additional relays from muxes (based on URL)
-    /// DO NOT use this for get_header calls, use `relays` or `muxes` instead
+    /// List of all default relays plus additional relays from muxes (based on
+    /// URL) DO NOT use this for get_header calls, use `relays` or `muxes`
+    /// instead
     pub all_relays: Vec<RelayClient>,
     /// Signer client to call Signer API
     pub signer_client: Option<SignerClient>,
@@ -222,8 +223,9 @@ pub async fn load_pbs_config() -> Result<PbsModuleConfig> {
     }
 
     // insert default relays after to make sure we keep these as defaults,
-    // this means we override timing games which is ok since this won't be used for get_header
-    // we also override headers if the same relays has two definitions (in muxes and default)
+    // this means we override timing games which is ok since this won't be used for
+    // get_header we also override headers if the same relays has two
+    // definitions (in muxes and default)
     for relay in relay_clients.iter() {
         all_relays.insert(&relay.config.entry.url, relay.clone());
     }
@@ -297,8 +299,9 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
     }
 
     // insert default relays after to make sure we keep these as defaults,
-    // this also means we override timing games which is ok since this won't be used for get header
-    // we also override headers if the same relays has two definitions (in muxes and default)
+    // this also means we override timing games which is ok since this won't be used
+    // for get header we also override headers if the same relays has two
+    // definitions (in muxes and default)
     for relay in relay_clients.iter() {
         all_relays.insert(&relay.config.entry.url, relay.clone());
     }
