@@ -293,7 +293,7 @@ async fn fetch_ssv_pubkeys(
             ))
             .send()
             .await
-            .map_err(|e| eyre::eyre!("Error sending request to SSV network: {e}"))?
+            .map_err(|e| eyre::eyre!("Error sending request to SSV network API: {e}"))?
             .json::<SSVResponse>()
             .await?;
 
