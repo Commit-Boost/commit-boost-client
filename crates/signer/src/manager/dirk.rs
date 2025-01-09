@@ -87,7 +87,13 @@ impl DirkManager {
 
         if let Some(account) = account {
             Ok(Some(
-                account.split_once("/").ok_or(eyre::eyre!("Invalid account name"))?.0.to_string(),
+                account
+                    .split_once("/")
+                    .ok_or(eyre::eyre!(
+                        "Invalid account name: {account}. It must be in format wallet/account"
+                    ))?
+                    .0
+                    .to_string(),
             ))
         } else {
             Ok(None)
