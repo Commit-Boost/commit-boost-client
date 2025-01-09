@@ -257,5 +257,15 @@ async fn test_mux() -> Result<()> {
     assert!(res.is_ok());
     assert_eq!(mock_state.received_get_status(), 3); // default + 2 mux relays were used
 
+    let res = mock_validator.do_register_validator().await;
+
+    assert!(res.is_ok());
+    assert_eq!(mock_state.received_register_validator(), 3); // default + 2 mux relays were used
+
+    let res = mock_validator.do_submit_block().await;
+
+    assert!(res.is_err());
+    assert_eq!(mock_state.received_submit_block(), 3); // default + 2 mux relays were used
+
     Ok(())
 }
