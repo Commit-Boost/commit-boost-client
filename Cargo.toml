@@ -46,7 +46,7 @@ axum-extra = { version = "0.9.3", features = ["typed-header"] }
 reqwest = { version = "0.12.4", features = ["json", "stream"] }
 headers = "0.4.0"
 tonic = { version = "0.12.3", features = ["tls", "channel", "prost"] }
-
+prost = "0.13.4"
 
 # async / threads
 tokio = { version = "1.37.0", features = ["full"] }
