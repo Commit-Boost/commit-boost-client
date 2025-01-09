@@ -110,7 +110,7 @@ impl DirkManager {
             .iter()
             .filter_map(|account| {
                 if expected_accounts.contains(&account.name) {
-                    Some(BlsPublicKey::from(FixedBytes::from_slice(&account.public_key)))
+                    BlsPublicKey::try_from(account.public_key.as_slice()).ok()
                 } else {
                     None
                 }
@@ -128,7 +128,7 @@ impl DirkManager {
                 if self.wallets.contains(&wallet.to_string()) &&
                     account.name != format!("{wallet}/consensus")
                 {
-                    Some(BlsPublicKey::from(FixedBytes::from_slice(&account.public_key)))
+                    BlsPublicKey::try_from(account.public_key.as_slice()).ok()
                 } else {
                     None
                 }
@@ -147,7 +147,7 @@ impl DirkManager {
         for wallet in self.wallets.iter() {
             let Some(consensus_key) = accounts.iter().find_map(|account| {
                 if account.name == format!("{wallet}/consensus") {
-                    Some(BlsPublicKey::from(FixedBytes::from_slice(&account.public_key)))
+                    BlsPublicKey::try_from(account.public_key.as_slice()).ok()
                 } else {
                     None
                 }
@@ -159,7 +159,7 @@ impl DirkManager {
                 .iter()
                 .filter_map(|account| {
                     if account.name.starts_with(&format!("{wallet}/{module_id}")) {
-                        Some(BlsPublicKey::from(FixedBytes::from_slice(&account.public_key)))
+                        BlsPublicKey::try_from(account.public_key.as_slice()).ok()
                     } else {
                         None
                     }
@@ -244,7 +244,7 @@ impl DirkManager {
         self.store_password(account_name.clone(), new_password.clone())?;
 
         let proxy_key =
-            BlsPublicKey::from(FixedBytes::from_slice(&generate_response.into_inner().public_key));
+            BlsPublicKey::try_from(generate_response.into_inner().public_key.as_slice())?;
 
         self.unlock_account(account_name, new_password).await?;
 
@@ -296,6 +296,8 @@ impl DirkManager {
             eyre::bail!("Sign request failed");
         }
 
-        Ok(BlsSignature::from(FixedBytes::from_slice(&sign_response.into_inner().signature)))
+        Ok(BlsSignature::from(FixedBytes::try_from(
+            sign_response.into_inner().signature.as_slice(),
+        )?))
     }
 }

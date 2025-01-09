@@ -36,6 +36,14 @@ impl AsRef<[u8]> for BlsPublicKey {
     }
 }
 
+impl TryFrom<&[u8]> for BlsPublicKey {
+    type Error = core::array::TryFromSliceError;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        Ok(Self { inner: value.try_into()? })
+    }
+}
+
 #[derive(Clone)]
 pub enum BlsSigner {
     Local(BlsSecretKey),
