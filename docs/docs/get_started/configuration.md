@@ -252,7 +252,6 @@ wallets = ["wallet1", "wallet2"]
 secrets_path = "/path/to/secrets"
 
 # Optional parameters
-docker_image = "ghcr.io/commit-boost/signer:latest"
 ca_cert_path = "/path/to/ca.crt"
 server_domain = "server.example.com"
 unlock = false

@@ -131,17 +131,17 @@ url = "http://0xa119589bb33ef52acbb8116832bec2b58fca590fe5c85eac5d3230b44d5bc09f
 #   - Remote: a remote Web3Signer instance
 #   - Dirk: a remote Dirk instance
 #   - Local: a local Signer module
-# More details on the docs (https://commit-boost.github.io/commit-boost-client/get_started/configuration/#local-signer)
-# OPTIONAL
-# Remote:
+# More details on the docs (https://commit-boost.github.io/commit-boost-client/get_started/configuration/#signer-module)
+# Docker image to use for the Signer module.
+# OPTIONAL, DEFAULT: ghcr.io/commit-boost/signer:latest
+# [signer]
+# docker_image = "ghcr.io/commit-boost/signer:latest"
+# For Remote signer:
 # [signer.remote]
 # URL of the Web3Signer instance
 # url = "https://remote.signer.url"
-# Dirk:
+# For Dirk signer:
 # [signer.dirk]
-# Docker image to use for the Signer module.
-# OPTIONAL, DEFAULT: ghcr.io/commit-boost/signer:latest
-# docker_image = "ghcr.io/commit-boost/signer:latest"
 # Complete URL of a Dirk gateway
 # url = "https://dirk.gateway.url"
 # Path to the client certificate to authenticate with Dirk
@@ -161,11 +161,7 @@ url = "http://0xa119589bb33ef52acbb8116832bec2b58fca590fe5c85eac5d3230b44d5bc09f
 # Whether to try to unlock the accounts on sign failure
 # OPTIONAL, DEFAULT: false
 # unlock = false
-# Local:
-[signer.local]
-# Docker image to use for the Signer module.
-# OPTIONAL, DEFAULT: ghcr.io/commit-boost/signer:latest
-docker_image = "ghcr.io/commit-boost/signer:latest"
+# For Local signer:
 # Configuration for how the Signer module should load validator keys. Currently two types of loaders are supported:
 #   - File: load keys from a plain text file (unsafe, use only for testing purposes)
 #   - ValidatorsDir: load keys from a `keys` and `secrets` file/folder (ERC-2335 style keystores). More details can be found in the docs (https://commit-boost.github.io/commit-boost-client/get_started/configuration/)

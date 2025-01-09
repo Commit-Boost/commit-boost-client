@@ -1,10 +1,9 @@
 use std::path::PathBuf;
 
 use bimap::BiHashMap;
-use eyre::{bail, Result};
+use eyre::{bail, OptionExt, Result};
 use serde::{Deserialize, Serialize};
 use tonic::transport::{Certificate, Identity};
-use tracing::info;
 use url::Url;
 
 use super::{
@@ -20,12 +19,24 @@ use crate::{
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
-pub enum SignerConfig {
+pub struct SignerConfig {
+    /// Docker image of the module
+    #[serde(default = "default_signer")]
+    pub docker_image: String,
+    /// Inner type-specific configuration
+    #[serde(flatten)]
+    pub inner: SignerType,
+}
+
+fn default_signer() -> String {
+    SIGNER_IMAGE_DEFAULT.to_string()
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum SignerType {
     /// Local signer module
     Local {
-        /// Docker image of the module
-        #[serde(default = "default_signer")]
-        docker_image: String,
         /// Which keys to load
         loader: SignerLoader,
         /// How to store keys
@@ -36,10 +47,8 @@ pub enum SignerConfig {
         /// Complete URL of the base API endpoint
         url: Url,
     },
+    /// Dirk remote signer module
     Dirk {
-        /// Docker image of the module
-        #[serde(default = "default_signer")]
-        docker_image: String,
         /// Complete URL of a Dirk gateway
         url: Url,
         /// Path to the client certificate
@@ -58,10 +67,6 @@ pub enum SignerConfig {
         #[serde(default)]
         unlock: bool,
     },
-}
-
-fn default_signer() -> String {
-    SIGNER_IMAGE_DEFAULT.to_string()
 }
 
 #[derive(Clone, Debug)]
@@ -87,14 +92,15 @@ pub struct StartSignerConfig {
 
 impl StartSignerConfig {
     pub fn load_from_env() -> Result<Self> {
-        info!("Loading from env");
         let config = CommitBoostConfig::from_env_path()?;
 
         let jwts = load_jwts()?;
         let server_port = load_env_var(SIGNER_PORT_ENV)?.parse()?;
 
-        match config.signer {
-            Some(SignerConfig::Local { loader, store, .. }) => Ok(StartSignerConfig {
+        let signer = config.signer.ok_or_eyre("Signer config is missing")?.inner;
+
+        match signer {
+            SignerType::Local { loader, store, .. } => Ok(StartSignerConfig {
                 chain: config.chain,
                 loader: Some(loader),
                 server_port,
@@ -102,7 +108,8 @@ impl StartSignerConfig {
                 store,
                 dirk: None,
             }),
-            Some(SignerConfig::Dirk {
+
+            SignerType::Dirk {
                 url,
                 cert_path,
                 key_path,
@@ -112,7 +119,7 @@ impl StartSignerConfig {
                 server_domain,
                 unlock,
                 ..
-            }) => {
+            } => {
                 let cert_path = load_env_var(DIRK_CERT_ENV).map(PathBuf::from).unwrap_or(cert_path);
                 let key_path = load_env_var(DIRK_KEY_ENV).map(PathBuf::from).unwrap_or(key_path);
                 let secrets_path =
@@ -145,8 +152,10 @@ impl StartSignerConfig {
                     }),
                 })
             }
-            Some(SignerConfig::Remote { .. }) => bail!("Remote signer configured"),
-            None => bail!("Signer config is missing"),
+
+            SignerType::Remote { .. } => {
+                bail!("Remote signer configured")
+            }
         }
     }
 }

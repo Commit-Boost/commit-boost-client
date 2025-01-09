@@ -6,7 +6,7 @@ use std::{
 
 use cb_common::{
     config::{
-        CommitBoostConfig, LogsSettings, ModuleKind, SignerConfig, BUILDER_PORT_ENV,
+        CommitBoostConfig, LogsSettings, ModuleKind, SignerConfig, SignerType, BUILDER_PORT_ENV,
         BUILDER_URLS_ENV, CHAIN_SPEC_ENV, CONFIG_DEFAULT, CONFIG_ENV, DIRK_CA_CERT_DEFAULT,
         DIRK_CA_CERT_ENV, DIRK_CERT_DEFAULT, DIRK_CERT_ENV, DIRK_DIR_SECRETS_DEFAULT,
         DIRK_DIR_SECRETS_ENV, DIRK_KEY_DEFAULT, DIRK_KEY_ENV, JWTS_ENV, LOGS_DIR_DEFAULT,
@@ -79,11 +79,12 @@ pub async fn handle_docker_init(config_path: String, output_dir: String) -> Resu
 
     // address for signer API communication
     let signer_port = 20000;
-    let signer_server = if let Some(SignerConfig::Remote { url }) = &cb_config.signer {
-        url.to_string()
-    } else {
-        format!("http://cb_signer:{signer_port}")
-    };
+    let signer_server =
+        if let Some(SignerConfig { inner: SignerType::Remote { url }, .. }) = &cb_config.signer {
+            url.to_string()
+        } else {
+            format!("http://cb_signer:{signer_port}")
+        };
 
     let builder_events_port = 30000;
     let mut builder_events_modules = Vec::new();
@@ -168,7 +169,11 @@ pub async fn handle_docker_init(config_path: String, output_dir: String) -> Resu
                         networks: Networks::Simple(module_networks),
                         volumes: module_volumes,
                         environment: Environment::KvPair(module_envs),
-                        depends_on: if let Some(SignerConfig::Remote { .. }) = &cb_config.signer {
+                        depends_on: if let Some(SignerConfig {
+                            inner: SignerType::Remote { .. },
+                            ..
+                        }) = &cb_config.signer
+                        {
                             DependsOnOptions::Simple(vec![])
                         } else {
                             DependsOnOptions::Conditional(module_dependencies)
@@ -313,9 +318,13 @@ pub async fn handle_docker_init(config_path: String, output_dir: String) -> Resu
 
     services.insert("cb_pbs".to_owned(), Some(pbs_service));
 
+    let Some(signer_config) = cb_config.signer else {
+        panic!("Signer module required but no signer config provided");
+    };
+
     // setup signer service
-    match cb_config.signer {
-        Some(SignerConfig::Local { docker_image, loader, store }) => {
+    match signer_config.inner {
+        SignerType::Local { loader, store } => {
             if needs_signer_module {
                 if metrics_enabled {
                     targets.push(PrometheusTargetConfig {
@@ -421,7 +430,7 @@ pub async fn handle_docker_init(config_path: String, output_dir: String) -> Resu
 
                 let signer_service = Service {
                     container_name: Some("cb_signer".to_owned()),
-                    image: Some(docker_image),
+                    image: Some(signer_config.docker_image),
                     networks: Networks::Simple(signer_networks),
                     volumes,
                     environment: Environment::KvPair(signer_envs),
@@ -441,14 +450,7 @@ pub async fn handle_docker_init(config_path: String, output_dir: String) -> Resu
                 services.insert("cb_signer".to_owned(), Some(signer_service));
             }
         }
-        Some(SignerConfig::Dirk {
-            docker_image,
-            cert_path,
-            key_path,
-            secrets_path,
-            ca_cert_path,
-            ..
-        }) => {
+        SignerType::Dirk { cert_path, key_path, secrets_path, ca_cert_path, .. } => {
             if needs_signer_module {
                 if metrics_enabled {
                     targets.push(PrometheusTargetConfig {
@@ -513,7 +515,7 @@ pub async fn handle_docker_init(config_path: String, output_dir: String) -> Resu
 
                 let signer_service = Service {
                     container_name: Some("cb_signer".to_owned()),
-                    image: Some(docker_image),
+                    image: Some(signer_config.docker_image),
                     networks: Networks::Simple(signer_networks),
                     volumes,
                     environment: Environment::KvPair(signer_envs),
@@ -533,8 +535,8 @@ pub async fn handle_docker_init(config_path: String, output_dir: String) -> Resu
                 services.insert("cb_signer".to_owned(), Some(signer_service));
             }
         }
-        _ => {
-            panic!("Signer module required but no signer config provided");
+        SignerType::Remote { .. } => {
+            panic!("Signer module required but remote config provided");
         }
     }
 
