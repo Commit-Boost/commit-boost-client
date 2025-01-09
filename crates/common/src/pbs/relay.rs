@@ -50,7 +50,7 @@ impl<'de> Deserialize<'de> for RelayEntry {
     }
 }
 
-/// A client to interact with a relay, safe to share across threads
+/// A client to interact with a relay, safe to share across threads and cheaply cloneable
 #[derive(Debug, Clone)]
 pub struct RelayClient {
     /// ID of the relay

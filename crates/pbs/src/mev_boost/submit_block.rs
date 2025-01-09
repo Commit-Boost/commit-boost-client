@@ -32,7 +32,7 @@ pub async fn submit_block<S: BuilderApiState>(
     send_headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(utcnow_ms()));
     send_headers.insert(USER_AGENT, get_user_agent_with_version(&req_headers)?);
 
-    let relays = state.relays();
+    let relays = state.all_relays();
     let mut handles = Vec::with_capacity(relays.len());
     for relay in relays.iter() {
         handles.push(Box::pin(submit_block_with_timeout(
@@ -177,9 +177,9 @@ async fn send_submit_block(
 
     if let Some(blobs) = &block_response.data.blobs_bundle {
         let expected_committments = &signed_blinded_block.message.body.blob_kzg_commitments;
-        if expected_committments.len() != blobs.blobs.len() ||
-            expected_committments.len() != blobs.commitments.len() ||
-            expected_committments.len() != blobs.proofs.len()
+        if expected_committments.len() != blobs.blobs.len()
+            || expected_committments.len() != blobs.commitments.len()
+            || expected_committments.len() != blobs.proofs.len()
         {
             return Err(PbsError::Validation(ValidationError::KzgCommitments {
                 expected_blobs: expected_committments.len(),

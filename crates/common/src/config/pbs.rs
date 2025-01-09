@@ -171,8 +171,11 @@ pub struct PbsModuleConfig {
     pub endpoint: SocketAddr,
     /// Pbs default config
     pub pbs_config: Arc<PbsConfig>,
-    /// List of relays
+    /// List of default relays
     pub relays: Vec<RelayClient>,
+    /// List of all default relays plus additional relays from muxes (based on URL)
+    /// DO NOT use this for get_header calls, use `relays` or `muxes` instead
+    pub all_relays: Vec<RelayClient>,
     /// Signer client to call Signer API
     pub signer_client: Option<SignerClient>,
     /// Event publisher
@@ -208,12 +211,31 @@ pub async fn load_pbs_config() -> Result<PbsModuleConfig> {
     let relay_clients =
         config.relays.into_iter().map(RelayClient::new).collect::<Result<Vec<_>>>()?;
     let maybe_publiher = BuilderEventPublisher::new_from_env()?;
+    let mut all_relays = HashMap::with_capacity(relay_clients.len());
+
+    if let Some(muxes) = &muxes {
+        for (_, mux) in muxes.iter() {
+            for relay in mux.relays.iter() {
+                all_relays.insert(&relay.config.entry.url, relay.clone());
+            }
+        }
+    }
+
+    // insert default relays after to make sure we keep these as defaults,
+    // this means we override timing games which is ok since this won't be used for get_header
+    // we also override headers if the same relays has two definitions (in muxes and default)
+    for relay in relay_clients.iter() {
+        all_relays.insert(&relay.config.entry.url, relay.clone());
+    }
+
+    let all_relays = all_relays.into_values().collect();
 
     Ok(PbsModuleConfig {
         chain: config.chain,
         endpoint,
         pbs_config: Arc::new(config.pbs.pbs_config),
         relays: relay_clients,
+        all_relays,
         signer_client: None,
         event_publisher: maybe_publiher,
         muxes,
@@ -264,6 +286,24 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
     let relay_clients =
         cb_config.relays.into_iter().map(RelayClient::new).collect::<Result<Vec<_>>>()?;
     let maybe_publiher = BuilderEventPublisher::new_from_env()?;
+    let mut all_relays = HashMap::with_capacity(relay_clients.len());
+
+    if let Some(muxes) = &muxes {
+        for (_, mux) in muxes.iter() {
+            for relay in mux.relays.iter() {
+                all_relays.insert(&relay.config.entry.url, relay.clone());
+            }
+        }
+    }
+
+    // insert default relays after to make sure we keep these as defaults,
+    // this also means we override timing games which is ok since this won't be used for get header
+    // we also override headers if the same relays has two definitions (in muxes and default)
+    for relay in relay_clients.iter() {
+        all_relays.insert(&relay.config.entry.url, relay.clone());
+    }
+
+    let all_relays = all_relays.into_values().collect();
 
     let signer_client = if cb_config.pbs.static_config.with_signer {
         // if custom pbs requires a signer client, load jwt
@@ -280,6 +320,7 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
             endpoint,
             pbs_config: Arc::new(cb_config.pbs.static_config.pbs_config),
             relays: relay_clients,
+            all_relays,
             signer_client,
             event_publisher: maybe_publiher,
             muxes,
