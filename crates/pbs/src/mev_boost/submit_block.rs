@@ -32,7 +32,7 @@ pub async fn submit_block<S: BuilderApiState>(
     send_headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(utcnow_ms()));
     send_headers.insert(USER_AGENT, get_user_agent_with_version(&req_headers)?);
 
-    let relays = state.relays();
+    let relays = state.all_relays();
     let mut handles = Vec::with_capacity(relays.len());
     for relay in relays.iter() {
         handles.push(Box::pin(submit_block_with_timeout(

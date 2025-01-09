@@ -43,9 +43,13 @@ where
         &self.config.pbs_config
     }
 
-    pub fn relays(&self) -> &[RelayClient] {
-        &self.config.relays
+    /// Returns all the relays (including those in muxes)
+    /// DO NOT use this through the PBS module, use
+    /// [`PbsState::mux_config_and_relays`] instead
+    pub fn all_relays(&self) -> &[RelayClient] {
+        &self.config.all_relays
     }
+
     /// Returns the PBS config and relay clients for the given validator pubkey.
     /// If the pubkey is not found in any mux, the default configs are
     /// returned
@@ -55,7 +59,8 @@ where
     ) -> (&PbsConfig, &[RelayClient], Option<&str>) {
         match self.config.muxes.as_ref().and_then(|muxes| muxes.get(pubkey)) {
             Some(mux) => (&mux.config, mux.relays.as_slice(), Some(&mux.id)),
-            None => (self.pbs_config(), self.relays(), None),
+            // return only the default relays if there's no match
+            None => (self.pbs_config(), &self.config.relays, None),
         }
     }
 

@@ -31,7 +31,7 @@ pub async fn get_status<S: BuilderApiState>(
         let mut send_headers = HeaderMap::new();
         send_headers.insert(USER_AGENT, get_user_agent_with_version(&req_headers)?);
 
-        let relays = state.relays();
+        let relays = state.all_relays();
         let mut handles = Vec::with_capacity(relays.len());
         for relay in relays {
             handles.push(Box::pin(send_relay_check(relay, send_headers.clone())));
