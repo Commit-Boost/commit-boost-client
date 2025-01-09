@@ -149,6 +149,8 @@ pub enum MuxKeysLoader {
 pub enum NORegistry {
     #[serde(alias = "lido")]
     Lido,
+    #[serde(alias = "ssv")]
+    SSV,
 }
 
 impl MuxKeysLoader {
@@ -176,6 +178,7 @@ impl MuxKeysLoader {
 
                     fetch_lido_registry_keys(rpc_url, chain, U256::from(*node_operator_id)).await
                 }
+                NORegistry::SSV => fetch_ssv_pubkeys(chain, U256::from(*node_operator_id)).await,
             },
         }
     }
@@ -266,6 +269,71 @@ async fn fetch_lido_registry_keys(
     Ok(keys)
 }
 
+async fn fetch_ssv_pubkeys(
+    chain: Chain,
+    node_operator_id: U256,
+) -> eyre::Result<Vec<BlsPublicKey>> {
+    const MAX_PER_PAGE: usize = 100;
+
+    let chain_name = match chain {
+        Chain::Mainnet => "mainnet",
+        Chain::Holesky => "holesky",
+        _ => bail!("SSV network is not supported for chain: {chain:?}"),
+    };
+
+    let client = reqwest::Client::new();
+    let mut pubkeys: Vec<BlsPublicKey> = vec![];
+    let mut page = 1;
+
+    loop {
+        let response = client
+            .get(format!(
+                "https://api.ssv.network/api/v4/{}/validators/in_operator/{}?perPage={}&page={}",
+                chain_name, node_operator_id, MAX_PER_PAGE, page
+            ))
+            .send()
+            .await
+            .map_err(|e| eyre::eyre!("Error sending request to SSV network API: {e}"))?
+            .json::<SSVResponse>()
+            .await?;
+
+        pubkeys.extend(response.validators.iter().map(|v| v.pubkey).collect::<Vec<BlsPublicKey>>());
+        page += 1;
+
+        if response.validators.len() < MAX_PER_PAGE {
+            ensure!(
+                pubkeys.len() == response.pagination.total,
+                "expected {} keys, got {}",
+                response.pagination.total,
+                pubkeys.len()
+            );
+            break;
+        }
+    }
+
+    let unique = pubkeys.iter().collect::<HashSet<_>>();
+    ensure!(unique.len() == pubkeys.len(), "found duplicate keys in registry");
+
+    Ok(pubkeys)
+}
+
+#[derive(Deserialize)]
+struct SSVResponse {
+    validators: Vec<SSVValidator>,
+    pagination: SSVPagination,
+}
+
+#[derive(Deserialize)]
+struct SSVValidator {
+    #[serde(rename = "public_key")]
+    pubkey: BlsPublicKey,
+}
+
+#[derive(Deserialize)]
+struct SSVPagination {
+    total: usize,
+}
+
 #[cfg(test)]
 mod tests {
     use alloy::{primitives::U256, providers::ProviderBuilder};
@@ -301,6 +369,18 @@ mod tests {
         }
 
         assert_eq!(vec.len(), LIMIT);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_ssv_network_fetch() -> eyre::Result<()> {
+        let chain = Chain::Holesky;
+        let node_operator_id = U256::from(200);
+
+        let pubkeys = fetch_ssv_pubkeys(chain, node_operator_id).await?;
+
+        assert_eq!(pubkeys.len(), 3);
 
         Ok(())
     }
