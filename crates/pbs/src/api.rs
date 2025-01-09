@@ -45,7 +45,7 @@ pub trait BuilderApi<S: BuilderApiState>: 'static {
         registrations: Vec<ValidatorRegistration>,
         req_headers: HeaderMap,
         state: PbsState<S>,
-    ) -> eyre::Result<()> {
+    ) -> eyre::Result<usize> {
         mev_boost::register_validator(registrations, req_headers, state).await
     }
 }

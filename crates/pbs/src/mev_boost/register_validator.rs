@@ -25,7 +25,7 @@ pub async fn register_validator<S: BuilderApiState>(
     registrations: Vec<ValidatorRegistration>,
     req_headers: HeaderMap,
     state: PbsState<S>,
-) -> eyre::Result<()> {
+) -> eyre::Result<usize> {
     // prepare headers
     let mut send_headers = HeaderMap::new();
     send_headers
@@ -49,8 +49,10 @@ pub async fn register_validator<S: BuilderApiState>(
     if state.pbs_config().wait_all_registrations {
         // wait for all relays registrations to complete
         let results = join_all(handles).await;
-        if results.into_iter().any(|res| res.is_ok_and(|res| res.is_ok())) {
-            Ok(())
+        let successful = results.iter().flatten().filter(|res| res.is_ok()).count();
+
+        if successful > 0 {
+            Ok(successful)
         } else {
             bail!("No relay passed register_validator successfully")
         }
@@ -58,7 +60,7 @@ pub async fn register_validator<S: BuilderApiState>(
         // return once first completes, others proceed in background
         let result = select_ok(handles).await?;
         match result.0 {
-            Ok(_) => Ok(()),
+            Ok(_) => Ok(1),
             Err(_) => bail!("No relay passed register_validator successfully"),
         }
     }

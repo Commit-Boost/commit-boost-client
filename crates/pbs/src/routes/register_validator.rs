@@ -39,20 +39,27 @@ pub async fn handle_register_validator<S: BuilderApiState, A: BuilderApi<S>>(
         }
     }
 
-    if let Err(err) = A::register_validator(registrations, req_headers, state.clone()).await {
-        state.publish_event(BuilderEvent::RegisterValidatorResponse);
-        error!(%err, "all relays failed registration");
+    match A::register_validator(registrations, req_headers, state.clone()).await {
+        Ok(num_successful) => {
+            if state.pbs_config().wait_all_registrations {
+                info!(num_registrations = num_successful, "register validator successful");
+            } else {
+                info!("register validator successful in at least one relay");
+            }
 
-        let err = PbsClientError::NoResponse;
-        BEACON_NODE_STATUS
-            .with_label_values(&[err.status_code().as_str(), REGISTER_VALIDATOR_ENDPOINT_TAG])
-            .inc();
-        Err(err)
-    } else {
-        info!("register validator successful");
+            BEACON_NODE_STATUS.with_label_values(&["200", REGISTER_VALIDATOR_ENDPOINT_TAG]).inc();
+            Ok(StatusCode::OK)
+        }
+        Err(err) => {
+            state.publish_event(BuilderEvent::RegisterValidatorResponse);
+            error!(%err, "all relays failed registration");
 
-        BEACON_NODE_STATUS.with_label_values(&["200", REGISTER_VALIDATOR_ENDPOINT_TAG]).inc();
-        Ok(StatusCode::OK)
+            let err = PbsClientError::NoResponse;
+            BEACON_NODE_STATUS
+                .with_label_values(&[err.status_code().as_str(), REGISTER_VALIDATOR_ENDPOINT_TAG])
+                .inc();
+            Err(err)
+        }
     }
 }
 
