@@ -13,7 +13,8 @@ use bimap::BiHashMap;
 use cb_common::{
     commit::{
         constants::{
-            GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, REQUEST_SIGNATURE_PATH, STATUS_PATH,
+            GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, RELOAD_PATH, REQUEST_SIGNATURE_PATH,
+            STATUS_PATH,
         },
         request::{
             EncryptionScheme, GenerateProxyRequest, GetPubkeysResponse, SignConsensusRequest,
@@ -83,6 +84,7 @@ impl SigningService {
             .route(REQUEST_SIGNATURE_PATH, post(handle_request_signature))
             .route(GET_PUBKEYS_PATH, get(handle_get_pubkeys))
             .route(GENERATE_PROXY_KEY_PATH, post(handle_generate_proxy))
+            .route(RELOAD_PATH, post(handle_reload))
             .with_state(state.clone())
             .route_layer(middleware::from_fn_with_state(state.clone(), jwt_auth))
             .route_layer(middleware::from_fn(log_request));
@@ -219,4 +221,31 @@ async fn handle_generate_proxy(
     };
 
     Ok(response)
+}
+
+async fn handle_reload(
+    State(state): State<SigningState>,
+) -> Result<impl IntoResponse, SignerModuleError> {
+    let config = StartSignerConfig::load_from_env()
+        .map_err(|err| SignerModuleError::Internal(err.to_string()))?;
+
+    let proxy_store = if let Some(store) = config.store {
+        Some(store.init_from_env().map_err(|err| SignerModuleError::Internal(err.to_string()))?)
+    } else {
+        warn!("Proxy store not configured. Proxies keys and delegations will not be persisted");
+        None
+    };
+
+    let mut new_manager = SigningManager::new(config.chain, proxy_store)
+        .map_err(|err| SignerModuleError::Internal(err.to_string()))?;
+
+    for signer in
+        config.loader.load_keys().map_err(|err| SignerModuleError::Internal(err.to_string()))?
+    {
+        new_manager.add_consensus_signer(signer);
+    }
+
+    *state.manager.write().await = new_manager;
+
+    Ok((StatusCode::OK, "OK"))
 }
