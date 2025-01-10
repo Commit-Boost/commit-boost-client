@@ -22,6 +22,8 @@ jobs:
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
+        with:
+          submodules: true
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Install protoc
@@ -33,6 +35,8 @@ jobs:
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
+        with:
+          submodules: true
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Install protoc
