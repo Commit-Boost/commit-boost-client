@@ -5,6 +5,7 @@ use axum::{http::StatusCode, response::IntoResponse};
 pub enum PbsClientError {
     NoResponse,
     NoPayload,
+    Internal(String),
 }
 
 impl PbsClientError {
@@ -12,15 +13,17 @@ impl PbsClientError {
         match self {
             PbsClientError::NoResponse => StatusCode::BAD_GATEWAY,
             PbsClientError::NoPayload => StatusCode::BAD_GATEWAY,
+            PbsClientError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }
 
 impl IntoResponse for PbsClientError {
     fn into_response(self) -> axum::response::Response {
-        let msg = match self {
-            PbsClientError::NoResponse => "no response from relays",
-            PbsClientError::NoPayload => "no payload from relays",
+        let msg = match &self {
+            PbsClientError::NoResponse => "no response from relays".to_string(),
+            PbsClientError::NoPayload => "no payload from relays".to_string(),
+            PbsClientError::Internal(msg) => msg.clone(),
         };
 
         (self.status_code(), msg).into_response()

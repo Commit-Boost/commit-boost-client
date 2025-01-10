@@ -2,7 +2,7 @@ use cb_common::{
     config::load_pbs_config,
     utils::{initialize_pbs_tracing_log, wait_for_signal},
 };
-use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
+use cb_pbs::{DefaultBuilderApi, InnerPbsState, PbsService};
 use eyre::Result;
 use tracing::{error, info};
 
@@ -18,7 +18,7 @@ async fn main() -> Result<()> {
 
     let pbs_config = load_pbs_config().await?;
 
-    let state = PbsState::new(pbs_config);
+    let state: InnerPbsState = InnerPbsState::new(pbs_config);
     PbsService::init_metrics()?;
     let server = PbsService::run::<_, DefaultBuilderApi>(state);
 

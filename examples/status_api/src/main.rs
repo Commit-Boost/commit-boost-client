@@ -58,7 +58,10 @@ struct MyBuilderApi;
 
 #[async_trait]
 impl BuilderApi<MyBuilderState> for MyBuilderApi {
-    async fn get_status(req_headers: HeaderMap, state: PbsState<MyBuilderState>) -> Result<()> {
+    async fn get_status(
+        req_headers: HeaderMap,
+        state: InnerPbsState<MyBuilderState>,
+    ) -> Result<()> {
         state.data.inc();
         info!("THIS IS A CUSTOM LOG");
         CHECK_RECEIVED_COUNTER.inc();
@@ -73,7 +76,10 @@ impl BuilderApi<MyBuilderState> for MyBuilderApi {
 }
 
 async fn handle_check(State(state): State<PbsState<MyBuilderState>>) -> Response {
-    (StatusCode::OK, format!("Received {count} status requests!", count = state.data.get()))
+    (
+        StatusCode::OK,
+        format!("Received {count} status requests!", count = state.inner.write().await.data.get()),
+    )
         .into_response()
 }
 
@@ -85,7 +91,7 @@ async fn main() -> Result<()> {
     let _guard = initialize_pbs_tracing_log()?;
 
     let custom_state = MyBuilderState::from_config(extra);
-    let state = PbsState::new(pbs_config).with_data(custom_state);
+    let state = InnerPbsState::new(pbs_config).with_data(custom_state);
 
     PbsService::register_metric(Box::new(CHECK_RECEIVED_COUNTER.clone()));
     PbsService::init_metrics()?;

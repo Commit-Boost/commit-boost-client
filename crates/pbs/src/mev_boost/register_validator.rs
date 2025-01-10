@@ -15,7 +15,7 @@ use url::Url;
 use crate::{
     constants::{MAX_SIZE_DEFAULT, REGISTER_VALIDATOR_ENDPOINT_TAG, TIMEOUT_ERROR_CODE_STR},
     metrics::{RELAY_LATENCY, RELAY_STATUS_CODE},
-    state::{BuilderApiState, PbsState},
+    state::{BuilderApiState, InnerPbsState},
     utils::read_chunked_body_with_max,
 };
 
@@ -24,7 +24,7 @@ use crate::{
 pub async fn register_validator<S: BuilderApiState>(
     registrations: Vec<ValidatorRegistration>,
     req_headers: HeaderMap,
-    state: PbsState<S>,
+    state: InnerPbsState<S>,
 ) -> eyre::Result<()> {
     // prepare headers
     let mut send_headers = HeaderMap::new();

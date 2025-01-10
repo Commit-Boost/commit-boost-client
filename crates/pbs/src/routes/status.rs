@@ -17,6 +17,8 @@ pub async fn handle_get_status<S: BuilderApiState, A: BuilderApi<S>>(
     req_headers: HeaderMap,
     State(state): State<PbsState<S>>,
 ) -> Result<impl IntoResponse, PbsClientError> {
+    let state = state.inner.read().await;
+
     state.publish_event(BuilderEvent::GetStatusEvent);
 
     let ua = get_user_agent(&req_headers);

@@ -32,7 +32,7 @@ use crate::{
         GET_HEADER_ENDPOINT_TAG, MAX_SIZE_GET_HEADER, TIMEOUT_ERROR_CODE, TIMEOUT_ERROR_CODE_STR,
     },
     metrics::{RELAY_HEADER_VALUE, RELAY_LAST_SLOT, RELAY_LATENCY, RELAY_STATUS_CODE},
-    state::{BuilderApiState, PbsState},
+    state::{BuilderApiState, InnerPbsState},
     utils::{check_gas_limit, read_chunked_body_with_max},
 };
 
@@ -41,7 +41,7 @@ use crate::{
 pub async fn get_header<S: BuilderApiState>(
     params: GetHeaderParams,
     req_headers: HeaderMap,
-    state: PbsState<S>,
+    state: InnerPbsState<S>,
 ) -> eyre::Result<Option<GetHeaderResponse>> {
     let parent_block = Arc::new(RwLock::new(None));
     if state.extra_validation_enabled() {

@@ -25,6 +25,7 @@ pub async fn handle_register_validator<S: BuilderApiState, A: BuilderApi<S>>(
     req_headers: HeaderMap,
     Json(registrations): Json<Vec<ValidatorRegistration>>,
 ) -> Result<impl IntoResponse, PbsClientError> {
+    let state = state.inner.write().await;
     trace!(?registrations);
     state.publish_event(BuilderEvent::RegisterValidatorRequest(registrations.clone()));
 
