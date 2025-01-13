@@ -254,6 +254,38 @@ paths:
                     type: string
                     example: "Internal error"
 
+  /signer/v1/reload:
+    post:
+      summary: Reload the signer with the latest configuration in the config file
+      tags:
+        - Signer
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Success
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "OK"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                properties:
+                  code:
+                    type: number
+                    example: 500
+                  message:
+                    type: string
+                    example: "Internal error"
+
 components:
   securitySchemes:
     BearerAuth:
