@@ -26,7 +26,8 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
     req_headers: HeaderMap,
     Path(params): Path<GetHeaderParams>,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    let state = state.inner.write().await;
+    let state = state.inner.read().await;
+
     state.publish_event(BuilderEvent::GetHeaderRequest(params));
 
     let ua = get_user_agent(&req_headers);
