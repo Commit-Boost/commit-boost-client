@@ -230,21 +230,40 @@ async fn handle_reload(
 
     debug!(event = "reload", ?req_id, "New request");
 
-    let config = StartSignerConfig::load_from_env()
-        .map_err(|err| SignerModuleError::Internal(err.to_string()))?;
+    let config = match StartSignerConfig::load_from_env() {
+        Ok(config) => config,
+        Err(err) => {
+            error!(event = "reload", ?req_id, error = ?err, "Failed to reload config");
+            return Err(SignerModuleError::Internal("failed to reload config".to_string()));
+        }
+    };
 
     let proxy_store = if let Some(store) = config.store {
-        Some(store.init_from_env().map_err(|err| SignerModuleError::Internal(err.to_string()))?)
+        let store = store.init_from_env();
+        match store {
+            Ok(store) => Some(store),
+            Err(err) => {
+                error!(event = "reload", ?req_id, error = ?err, "Failed to reload proxy store");
+                return Err(SignerModuleError::Internal("failed to reload config".to_string()));
+            }
+        }
     } else {
         warn!("Proxy store not configured. Proxies keys and delegations will not be persisted");
         None
     };
 
-    let mut new_manager = SigningManager::new(config.chain, proxy_store)
-        .map_err(|err| SignerModuleError::Internal(err.to_string()))?;
+    let mut new_manager = match SigningManager::new(config.chain, proxy_store) {
+        Ok(manager) => manager,
+        Err(err) => {
+            error!(event = "reload", ?req_id, error = ?err, "Failed to reload manager");
+            return Err(SignerModuleError::Internal("failed to reload config".to_string()));
+        }
+    };
 
-    for signer in
-        config.loader.load_keys().map_err(|err| SignerModuleError::Internal(err.to_string()))?
+    for signer in config
+        .loader
+        .load_keys()
+        .map_err(|_| SignerModuleError::Internal("failed to reload config".to_string()))?
     {
         new_manager.add_consensus_signer(signer);
     }
