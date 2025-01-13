@@ -18,7 +18,7 @@ async fn main() -> Result<()> {
 
     let pbs_config = load_pbs_config().await?;
 
-    let state: InnerPbsState = InnerPbsState::new(pbs_config);
+    let state = InnerPbsState::new(pbs_config);
     PbsService::init_metrics()?;
     let server = PbsService::run::<_, DefaultBuilderApi>(state);
 

@@ -22,7 +22,7 @@ pub fn create_app_router<S: BuilderApiState, A: BuilderApi<S>>(state: PbsState<S
         .route(GET_STATUS_PATH, get(handle_get_status::<S, A>))
         .route(REGISTER_VALIDATOR_PATH, post(handle_register_validator::<S, A>))
         .route(SUBMIT_BLOCK_PATH, post(handle_submit_block::<S, A>))
-        .route(RELOAD_PATH, post(handle_reload::<S>));
+        .route(RELOAD_PATH, post(handle_reload::<S, A>));
 
     let builder_api = Router::new().nest(BUILDER_API_PATH, builder_routes);
 

@@ -1,24 +1,45 @@
-use axum::{extract::State, response::IntoResponse};
-use cb_common::config::load_pbs_config;
+use axum::{extract::State, http::HeaderMap, response::IntoResponse};
+use cb_common::{pbs::BuilderEvent, utils::get_user_agent};
 use reqwest::StatusCode;
+use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::{
     error::PbsClientError,
+    metrics::BEACON_NODE_STATUS,
     state::{BuilderApiState, PbsState},
-    InnerPbsState,
+    BuilderApi, RELOAD_ENDPOINT_TAG,
 };
 
 #[tracing::instrument(skip_all, name = "reload", fields(req_id = %Uuid::new_v4()))]
-pub async fn handle_reload<S: BuilderApiState>(
+pub async fn handle_reload<S: BuilderApiState, A: BuilderApi<S>>(
+    req_headers: HeaderMap,
     State(state): State<PbsState<S>>,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    let pbs_config = load_pbs_config()
-        .await
-        .map_err(|err| PbsClientError::Internal(format!("Cannot parse new config: {err}")))?;
-    let new_state = InnerPbsState::new(pbs_config).with_data(state.inner.read().await.data.clone());
+    let inner_state = state.inner.read().await.clone();
 
-    *state.inner.write().await = new_state;
+    inner_state.publish_event(BuilderEvent::ReloadEvent);
 
-    Ok(StatusCode::OK)
+    let ua = get_user_agent(&req_headers);
+
+    info!(ua, relay_check = inner_state.config.pbs_config.relay_check);
+
+    match A::reload(state.clone()).await {
+        Ok(_) => {
+            state.inner.read().await.publish_event(BuilderEvent::ReloadResponse);
+            info!("config reload successful");
+
+            BEACON_NODE_STATUS.with_label_values(&["200", RELOAD_ENDPOINT_TAG]).inc();
+            Ok((StatusCode::OK, "OK"))
+        }
+        Err(err) => {
+            error!(%err, "config reload failed");
+
+            let err = PbsClientError::Internal("Config reload failed".to_string());
+            BEACON_NODE_STATUS
+                .with_label_values(&[err.status_code().as_str(), RELOAD_ENDPOINT_TAG])
+                .inc();
+            Err(err)
+        }
+    }
 }

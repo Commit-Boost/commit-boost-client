@@ -226,6 +226,10 @@ async fn handle_generate_proxy(
 async fn handle_reload(
     State(state): State<SigningState>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
+    let req_id = Uuid::new_v4();
+
+    debug!(event = "reload", ?req_id, "New request");
+
     let config = StartSignerConfig::load_from_env()
         .map_err(|err| SignerModuleError::Internal(err.to_string()))?;
 
