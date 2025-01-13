@@ -68,6 +68,16 @@ impl BuilderApi<MyBuilderState> for MyBuilderApi {
         get_status(req_headers, state).await
     }
 
+    async fn reload(state: PbsState<MyBuilderState>) -> Result<()> {
+        let (pbs_config, extra_config) = load_pbs_custom_config::<ExtraConfig>().await?;
+        let mut data = state.inner.read().await.data.clone();
+        data.inc_amount = extra_config.inc_amount;
+
+        *state.inner.write().await = InnerPbsState::new(pbs_config).with_data(data);
+
+        Ok(())
+    }
+
     fn extra_routes() -> Option<Router<PbsState<MyBuilderState>>> {
         let mut router = Router::new();
         router = router.route("/check", get(handle_check));
