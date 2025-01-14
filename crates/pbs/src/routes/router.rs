@@ -13,10 +13,10 @@ use super::{
 };
 use crate::{
     api::BuilderApi,
-    state::{BuilderApiState, PbsState},
+    state::{BuilderApiState, PbsStateGuard},
 };
 
-pub fn create_app_router<S: BuilderApiState, A: BuilderApi<S>>(state: PbsState<S>) -> Router {
+pub fn create_app_router<S: BuilderApiState, A: BuilderApi<S>>(state: PbsStateGuard<S>) -> Router {
     let builder_routes = Router::new()
         .route(GET_HEADER_PATH, get(handle_get_header::<S, A>))
         .route(GET_STATUS_PATH, get(handle_get_status::<S, A>))

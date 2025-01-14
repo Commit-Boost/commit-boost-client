@@ -7,7 +7,7 @@ use cb_common::{
 use cb_metrics::provider::MetricsProvider;
 use eyre::{bail, Context, Result};
 use prometheus::core::Collector;
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, sync::RwLock};
 use tracing::info;
 use url::Url;
 
@@ -15,19 +15,19 @@ use crate::{
     api::BuilderApi,
     metrics::PBS_METRICS_REGISTRY,
     routes::create_app_router,
-    state::{BuilderApiState, InnerPbsState, PbsState},
+    state::{BuilderApiState, PbsState},
 };
 
 pub struct PbsService;
 
 impl PbsService {
-    pub async fn run<S: BuilderApiState, A: BuilderApi<S>>(state: InnerPbsState<S>) -> Result<()> {
+    pub async fn run<S: BuilderApiState, A: BuilderApi<S>>(state: PbsState<S>) -> Result<()> {
         let addr = state.config.endpoint;
         let events_subs =
             state.config.event_publisher.as_ref().map(|e| e.n_subscribers()).unwrap_or_default();
         info!(version = COMMIT_BOOST_VERSION, ?addr, events_subs, chain =? state.config.chain, "starting PBS service");
 
-        let app = create_app_router::<S, A>(PbsState::new(state));
+        let app = create_app_router::<S, A>(RwLock::new(state).into());
         let listener = TcpListener::bind(addr).await?;
 
         let task =

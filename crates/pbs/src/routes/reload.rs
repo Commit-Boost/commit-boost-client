@@ -7,16 +7,16 @@ use uuid::Uuid;
 use crate::{
     error::PbsClientError,
     metrics::BEACON_NODE_STATUS,
-    state::{BuilderApiState, PbsState},
+    state::{BuilderApiState, PbsStateGuard},
     BuilderApi, RELOAD_ENDPOINT_TAG,
 };
 
 #[tracing::instrument(skip_all, name = "reload", fields(req_id = %Uuid::new_v4()))]
 pub async fn handle_reload<S: BuilderApiState, A: BuilderApi<S>>(
     req_headers: HeaderMap,
-    State(state): State<PbsState<S>>,
+    State(state): State<PbsStateGuard<S>>,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    let inner_state = state.inner.read().await.clone();
+    let inner_state = state.read().await.clone();
 
     inner_state.publish_event(BuilderEvent::ReloadEvent);
 
@@ -26,7 +26,7 @@ pub async fn handle_reload<S: BuilderApiState, A: BuilderApi<S>>(
 
     match A::reload(state.clone()).await {
         Ok(_) => {
-            state.inner.read().await.publish_event(BuilderEvent::ReloadResponse);
+            state.read().await.publish_event(BuilderEvent::ReloadResponse);
             info!("config reload successful");
 
             BEACON_NODE_STATUS.with_label_values(&["200", RELOAD_ENDPOINT_TAG]).inc();

@@ -17,7 +17,7 @@ use url::Url;
 use crate::{
     constants::{MAX_SIZE_SUBMIT_BLOCK, SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG, TIMEOUT_ERROR_CODE_STR},
     metrics::{RELAY_LATENCY, RELAY_STATUS_CODE},
-    state::{BuilderApiState, InnerPbsState},
+    state::{BuilderApiState, PbsState},
     utils::read_chunked_body_with_max,
 };
 
@@ -25,7 +25,7 @@ use crate::{
 pub async fn submit_block<S: BuilderApiState>(
     signed_blinded_block: SignedBlindedBeaconBlock,
     req_headers: HeaderMap,
-    state: InnerPbsState<S>,
+    state: PbsState<S>,
 ) -> eyre::Result<SubmitBlindedBlockResponse> {
     // prepare headers
     let mut send_headers = HeaderMap::new();

@@ -58,37 +58,34 @@ struct MyBuilderApi;
 
 #[async_trait]
 impl BuilderApi<MyBuilderState> for MyBuilderApi {
-    async fn get_status(
-        req_headers: HeaderMap,
-        state: InnerPbsState<MyBuilderState>,
-    ) -> Result<()> {
+    async fn get_status(req_headers: HeaderMap, state: PbsState<MyBuilderState>) -> Result<()> {
         state.data.inc();
         info!("THIS IS A CUSTOM LOG");
         CHECK_RECEIVED_COUNTER.inc();
         get_status(req_headers, state).await
     }
 
-    async fn reload(state: PbsState<MyBuilderState>) -> Result<()> {
+    async fn reload(state: PbsStateGuard<MyBuilderState>) -> Result<()> {
         let (pbs_config, extra_config) = load_pbs_custom_config::<ExtraConfig>().await?;
-        let mut data = state.inner.read().await.data.clone();
+        let mut data = state.read().await.data.clone();
         data.inc_amount = extra_config.inc_amount;
 
-        *state.inner.write().await = InnerPbsState::new(pbs_config).with_data(data);
+        *state.write().await = PbsState::new(pbs_config).with_data(data);
 
         Ok(())
     }
 
-    fn extra_routes() -> Option<Router<PbsState<MyBuilderState>>> {
+    fn extra_routes() -> Option<Router<PbsStateGuard<MyBuilderState>>> {
         let mut router = Router::new();
         router = router.route("/check", get(handle_check));
         Some(router)
     }
 }
 
-async fn handle_check(State(state): State<PbsState<MyBuilderState>>) -> Response {
+async fn handle_check(State(state): State<PbsStateGuard<MyBuilderState>>) -> Response {
     (
         StatusCode::OK,
-        format!("Received {count} status requests!", count = state.inner.write().await.data.get()),
+        format!("Received {count} status requests!", count = state.read().await.data.get()),
     )
         .into_response()
 }
@@ -101,7 +98,7 @@ async fn main() -> Result<()> {
     let _guard = initialize_pbs_tracing_log()?;
 
     let custom_state = MyBuilderState::from_config(extra);
-    let state = InnerPbsState::new(pbs_config).with_data(custom_state);
+    let state = PbsState::new(pbs_config).with_data(custom_state);
 
     PbsService::register_metric(Box::new(CHECK_RECEIVED_COUNTER.clone()));
     PbsService::init_metrics()?;

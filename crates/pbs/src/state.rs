@@ -10,42 +10,30 @@ use tokio::sync::RwLock;
 pub trait BuilderApiState: Clone + Sync + Send + 'static {}
 impl BuilderApiState for () {}
 
-#[derive(Clone)]
-pub struct PbsState<S: BuilderApiState = ()> {
-    pub inner: Arc<RwLock<InnerPbsState<S>>>,
-}
-
-impl<S> PbsState<S>
-where
-    S: BuilderApiState,
-{
-    pub fn new(state: InnerPbsState<S>) -> Self {
-        Self { inner: Arc::new(RwLock::new(state)) }
-    }
-}
+pub type PbsStateGuard<S> = Arc<RwLock<PbsState<S>>>;
 
 /// Config for the Pbs module. It can be extended by adding extra data to the
 /// state for modules that need it
 // TODO: consider remove state from the PBS module altogether
 #[derive(Clone)]
-pub struct InnerPbsState<S: BuilderApiState = ()> {
+pub struct PbsState<S: BuilderApiState = ()> {
     /// Config data for the Pbs service
     pub config: PbsModuleConfig,
     /// Opaque extra data for library use
     pub data: S,
 }
 
-impl InnerPbsState<()> {
+impl PbsState<()> {
     pub fn new(config: PbsModuleConfig) -> Self {
         Self { config, data: () }
     }
 
-    pub fn with_data<S: BuilderApiState>(self, data: S) -> InnerPbsState<S> {
-        InnerPbsState { data, config: self.config }
+    pub fn with_data<S: BuilderApiState>(self, data: S) -> PbsState<S> {
+        PbsState { data, config: self.config }
     }
 }
 
-impl<S> InnerPbsState<S>
+impl<S> PbsState<S>
 where
     S: BuilderApiState,
 {

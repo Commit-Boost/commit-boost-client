@@ -12,7 +12,7 @@ use tracing::{debug, error};
 use crate::{
     constants::{MAX_SIZE_DEFAULT, STATUS_ENDPOINT_TAG, TIMEOUT_ERROR_CODE_STR},
     metrics::{RELAY_LATENCY, RELAY_STATUS_CODE},
-    state::{BuilderApiState, InnerPbsState},
+    state::{BuilderApiState, PbsState},
     utils::read_chunked_body_with_max,
 };
 
@@ -21,7 +21,7 @@ use crate::{
 /// relay returns 200
 pub async fn get_status<S: BuilderApiState>(
     req_headers: HeaderMap,
-    state: InnerPbsState<S>,
+    state: PbsState<S>,
 ) -> eyre::Result<()> {
     // If no relay check, return early
     if !state.config.pbs_config.relay_check {

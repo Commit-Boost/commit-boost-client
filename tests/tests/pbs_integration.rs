@@ -14,7 +14,7 @@ use cb_common::{
     types::Chain,
     utils::blst_pubkey_to_alloy,
 };
-use cb_pbs::{DefaultBuilderApi, InnerPbsState, PbsService};
+use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
     mock_relay::{start_mock_relay_service, MockRelayState},
     mock_validator::MockValidator,
@@ -68,7 +68,7 @@ async fn test_get_header() -> Result<()> {
     tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 1));
 
     let config = to_pbs_config(chain, get_pbs_static_config(port), vec![mock_relay]);
-    let state = InnerPbsState::new(config);
+    let state = PbsState::new(config);
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
     // leave some time to start servers
@@ -99,7 +99,7 @@ async fn test_get_status() -> Result<()> {
     tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 2));
 
     let config = to_pbs_config(chain, get_pbs_static_config(port), relays);
-    let state = InnerPbsState::new(config);
+    let state = PbsState::new(config);
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
     // leave some time to start servers
@@ -128,7 +128,7 @@ async fn test_register_validators() -> Result<()> {
     tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 1));
 
     let config = to_pbs_config(chain, get_pbs_static_config(port), relays);
-    let state = InnerPbsState::new(config);
+    let state = PbsState::new(config);
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
     // leave some time to start servers
@@ -157,7 +157,7 @@ async fn test_submit_block() -> Result<()> {
     tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 1));
 
     let config = to_pbs_config(chain, get_pbs_static_config(port), relays);
-    let state = InnerPbsState::new(config);
+    let state = PbsState::new(config);
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
     // leave some time to start servers
@@ -186,7 +186,7 @@ async fn test_submit_block_too_large() -> Result<()> {
     tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 1));
 
     let config = to_pbs_config(chain, get_pbs_static_config(port), relays);
-    let state = InnerPbsState::new(config);
+    let state = PbsState::new(config);
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
     // leave some time to start servers
@@ -233,7 +233,7 @@ async fn test_mux() -> Result<()> {
 
     config.muxes = Some(HashMap::from([(validator_pubkey, mux)]));
 
-    let state = InnerPbsState::new(config);
+    let state = PbsState::new(config);
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
     // leave some time to start servers
