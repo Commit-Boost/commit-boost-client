@@ -16,13 +16,13 @@ pub async fn handle_reload<S: BuilderApiState, A: BuilderApi<S>>(
     req_headers: HeaderMap,
     State(state): State<PbsStateGuard<S>>,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    let inner_state = state.read().await.clone();
+    let prev_state = state.read().await.clone();
 
-    inner_state.publish_event(BuilderEvent::ReloadEvent);
+    prev_state.publish_event(BuilderEvent::ReloadEvent);
 
     let ua = get_user_agent(&req_headers);
 
-    info!(ua, relay_check = inner_state.config.pbs_config.relay_check);
+    info!(ua, relay_check = prev_state.config.pbs_config.relay_check);
 
     match A::reload(state.clone()).await {
         Ok(_) => {
