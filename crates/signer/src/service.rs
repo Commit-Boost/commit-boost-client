@@ -84,9 +84,9 @@ impl SigningService {
             .route(REQUEST_SIGNATURE_PATH, post(handle_request_signature))
             .route(GET_PUBKEYS_PATH, get(handle_get_pubkeys))
             .route(GENERATE_PROXY_KEY_PATH, post(handle_generate_proxy))
+            .route_layer(middleware::from_fn_with_state(state.clone(), jwt_auth))
             .route(RELOAD_PATH, post(handle_reload))
             .with_state(state.clone())
-            .route_layer(middleware::from_fn_with_state(state.clone(), jwt_auth))
             .route_layer(middleware::from_fn(log_request));
         let status_router = axum::Router::new().route(STATUS_PATH, get(handle_status));
 
