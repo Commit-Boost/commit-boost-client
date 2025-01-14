@@ -26,7 +26,7 @@ use cb_common::{
     types::{Jwt, ModuleId},
 };
 use cb_metrics::provider::MetricsProvider;
-use eyre::{Context, Result};
+use eyre::{bail, Context};
 use headers::{authorization::Bearer, Authorization};
 use tokio::{net::TcpListener, sync::RwLock};
 use tracing::{debug, error, info, warn};
@@ -57,18 +57,14 @@ impl SigningService {
             return Ok(());
         }
 
-        let proxy_store = if let Some(store) = config.store {
-            Some(store.init_from_env()?)
-        } else {
-            warn!("Proxy store not configured. Proxies keys and delegations will not be persisted");
-            None
+        let manager = match start_manager(&config) {
+            Ok(manager) => manager,
+            Err(err) => {
+                error!(error = ?err, "Failed to start signing manager");
+                bail!(err);
+            }
         };
 
-        let mut manager = SigningManager::new(config.chain, proxy_store)?;
-
-        for signer in config.loader.load_keys()? {
-            manager.add_consensus_signer(signer);
-        }
         let module_ids: Vec<String> = config.jwts.left_values().cloned().map(Into::into).collect();
 
         let loaded_consensus = manager.consensus_pubkeys().len();
@@ -98,7 +94,7 @@ impl SigningService {
             .wrap_err("signer server exited")
     }
 
-    fn init_metrics() -> Result<()> {
+    fn init_metrics() -> eyre::Result<()> {
         MetricsProvider::load_and_run(SIGNER_METRICS_REGISTRY.clone())
     }
 }
@@ -238,21 +234,7 @@ async fn handle_reload(
         }
     };
 
-    let proxy_store = if let Some(store) = config.store {
-        let store = store.init_from_env();
-        match store {
-            Ok(store) => Some(store),
-            Err(err) => {
-                error!(event = "reload", ?req_id, error = ?err, "Failed to reload proxy store");
-                return Err(SignerModuleError::Internal("failed to reload config".to_string()));
-            }
-        }
-    } else {
-        warn!("Proxy store not configured. Proxies keys and delegations will not be persisted");
-        None
-    };
-
-    let mut new_manager = match SigningManager::new(config.chain, proxy_store) {
+    let new_manager = match start_manager(&config) {
         Ok(manager) => manager,
         Err(err) => {
             error!(event = "reload", ?req_id, error = ?err, "Failed to reload manager");
@@ -260,15 +242,24 @@ async fn handle_reload(
         }
     };
 
-    for signer in config
-        .loader
-        .load_keys()
-        .map_err(|_| SignerModuleError::Internal("failed to reload config".to_string()))?
-    {
-        new_manager.add_consensus_signer(signer);
-    }
-
     *state.manager.write().await = new_manager;
 
     Ok((StatusCode::OK, "OK"))
+}
+
+fn start_manager(config: &StartSignerConfig) -> eyre::Result<SigningManager> {
+    let proxy_store = if let Some(store) = config.store.clone() {
+        Some(store.init_from_env()?)
+    } else {
+        warn!("Proxy store not configured. Proxies keys and delegations will not be persisted");
+        None
+    };
+
+    let mut manager = SigningManager::new(config.chain, proxy_store)?;
+
+    for signer in config.loader.clone().load_keys()? {
+        manager.add_consensus_signer(signer);
+    }
+
+    Ok(manager)
 }
