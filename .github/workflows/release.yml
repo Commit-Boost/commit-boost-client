@@ -94,7 +94,7 @@ jobs:
           7z a ${{ matrix.name }}-${{ github.ref_name }}-${{ matrix.target }}.zip target\${{ matrix.target }}\release\${{ matrix.name }}.exe
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}-${{ github.ref_name }}-${{ matrix.target }}
           path: |
@@ -176,7 +176,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           path: ./artifacts
 
