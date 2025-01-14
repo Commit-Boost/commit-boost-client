@@ -21,10 +21,23 @@ use crate::proto::v1::{
 };
 
 #[derive(Clone, Debug)]
+struct Account {
+    wallet: String,
+    name: String,
+    public_key: Option<BlsPublicKey>,
+}
+
+impl Account {
+    pub fn complete_name(&self) -> String {
+        format!("{}/{}", self.wallet, self.name)
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct DirkManager {
     chain: Chain,
     channel: Channel,
-    wallets: Vec<String>,
+    accounts: Vec<Account>,
     unlock: bool,
     secrets_path: PathBuf,
     proxy_store: Option<ProxyStore>,
@@ -50,10 +63,51 @@ impl DirkManager {
             .await
             .map_err(|e| eyre::eyre!("Couldn't connect to Dirk: {e}"))?;
 
+        let dirk_accounts = get_accounts_in_wallets(
+            channel.clone(),
+            config
+                .accounts
+                .iter()
+                .filter_map(|account| Some(account.split_once("/")?.0.to_string()))
+                .collect(),
+        )
+        .await?;
+
+        let mut accounts = Vec::with_capacity(config.accounts.len());
+        for account in config.accounts {
+            let (wallet, name) = account.split_once("/").ok_or(eyre::eyre!(
+                "Invalid account name: {account}. It must be in format wallet/account"
+            ))?;
+            let public_key = dirk_accounts.iter().find_map(|a| {
+                if a.name == account {
+                    BlsPublicKey::try_from(a.public_key.as_slice()).ok()
+                } else {
+                    None
+                }
+            });
+
+            accounts.push(Account {
+                wallet: wallet.to_string(),
+                name: name.to_string(),
+                public_key,
+            });
+        }
+        let wallets =
+            accounts.iter().map(|account| account.wallet.clone()).collect::<Vec<String>>();
+        let dirk_accounts = get_accounts_in_wallets(channel.clone(), wallets).await?;
+        for account in accounts.iter_mut() {
+            if let Some(dirk_account) =
+                dirk_accounts.iter().find(|a| a.name == account.complete_name())
+            {
+                account.public_key =
+                    Some(BlsPublicKey::try_from(dirk_account.public_key.as_slice())?);
+            }
+        }
+
         Ok(Self {
             chain,
             channel,
-            wallets: config.wallets,
+            accounts,
             unlock: config.unlock,
             secrets_path: config.secrets_path,
             proxy_store: None,
@@ -64,77 +118,81 @@ impl DirkManager {
         Ok(Self { proxy_store: Some(proxy_store), ..self })
     }
 
+    /// Get all available accounts in the `self.accounts` wallets
     async fn get_all_accounts(&self) -> eyre::Result<Vec<DirkAccount>> {
-        let mut client = ListerClient::new(self.channel.clone());
-        let pubkeys_request =
-            tonic::Request::new(ListAccountsRequest { paths: self.wallets.clone() });
-        let pubkeys_response = client.list_accounts(pubkeys_request).await?;
-
-        if pubkeys_response.get_ref().state() != ResponseState::Succeeded {
-            eyre::bail!("Get pubkeys request failed".to_string());
-        }
-
-        Ok(pubkeys_response.into_inner().accounts)
+        get_accounts_in_wallets(
+            self.channel.clone(),
+            self.accounts.iter().map(|account| account.wallet.clone()).collect::<Vec<String>>(),
+        )
+        .await
     }
 
+    /// Get the complete account name (`wallet/account`) for a public key.
+    /// Returns `Ok(None)` if the account was not found.
+    /// Returns `Err` if there was a communication error with Dirk.
     async fn get_pubkey_account(&self, pubkey: BlsPublicKey) -> eyre::Result<Option<String>> {
-        let accounts = self.get_all_accounts().await?;
+        match self
+            .accounts
+            .iter()
+            .find(|account| account.public_key.is_some_and(|account_pk| account_pk == pubkey))
+        {
+            Some(account) => Ok(Some(account.complete_name())),
+            None => {
+                let accounts = self.get_all_accounts().await?;
 
-        for account in accounts {
-            if account.public_key == pubkey.to_vec() {
-                return Ok(Some(account.name));
+                for account in accounts {
+                    if account.public_key == pubkey.to_vec() {
+                        return Ok(Some(account.name));
+                    }
+                }
+
+                Ok(None)
             }
         }
-
-        Ok(None)
     }
 
-    async fn get_pubkey_wallet(&self, pubkey: BlsPublicKey) -> eyre::Result<Option<String>> {
-        let account = self.get_pubkey_account(pubkey).await?;
+    /// Returns the public keys of the config-registered accounts
+    pub async fn consensus_pubkeys(&self) -> eyre::Result<Vec<BlsPublicKey>> {
+        let registered_pubkeys = self
+            .accounts
+            .iter()
+            .filter_map(|account| account.public_key)
+            .collect::<Vec<BlsPublicKey>>();
 
-        if let Some(account) = account {
-            Ok(Some(
-                account
-                    .split_once("/")
-                    .ok_or(eyre::eyre!(
-                        "Invalid account name: {account}. It must be in format wallet/account"
-                    ))?
-                    .0
-                    .to_string(),
-            ))
+        if registered_pubkeys.len() == self.accounts.len() {
+            Ok(registered_pubkeys)
         } else {
-            Ok(None)
+            let accounts = self.get_all_accounts().await?;
+
+            let expected_accounts: Vec<String> =
+                self.accounts.iter().map(|account| account.complete_name()).collect();
+
+            Ok(accounts
+                .iter()
+                .filter_map(|account| {
+                    if expected_accounts.contains(&account.name) {
+                        BlsPublicKey::try_from(account.public_key.as_slice()).ok()
+                    } else {
+                        None
+                    }
+                })
+                .collect())
         }
     }
 
-    pub async fn consensus_pubkeys(&self) -> eyre::Result<Vec<BlsPublicKey>> {
-        let accounts = self.get_all_accounts().await?;
-
-        let expected_accounts: Vec<String> =
-            self.wallets.iter().map(|wallet| format!("{wallet}/consensus")).collect();
-
-        Ok(accounts
-            .iter()
-            .filter_map(|account| {
-                if expected_accounts.contains(&account.name) {
-                    BlsPublicKey::try_from(account.public_key.as_slice()).ok()
-                } else {
-                    None
-                }
-            })
-            .collect())
-    }
-
+    /// Returns the public keys of all the proxy accounts found in Dirk.
+    /// An account is considered a proxy if its name has the format
+    /// `consensus_account/module_id/uuid`, where `consensus_account` is the
+    /// name of a config-registered account.
     pub async fn proxies(&self) -> eyre::Result<Vec<BlsPublicKey>> {
         let accounts = self.get_all_accounts().await?;
 
         Ok(accounts
             .iter()
             .filter_map(|account| {
-                let wallet = account.name.split_once("/")?.0;
-                if self.wallets.contains(&wallet.to_string()) &&
-                    account.name != format!("{wallet}/consensus")
-                {
+                if self.accounts.iter().any(|consensus_account| {
+                    account.name.starts_with(&format!("{}/", consensus_account.complete_name()))
+                }) {
                     BlsPublicKey::try_from(account.public_key.as_slice()).ok()
                 } else {
                     None
@@ -143,6 +201,11 @@ impl DirkManager {
             .collect())
     }
 
+    /// Returns a mapping of the proxy accounts' pubkeys by consensus account,
+    /// for a given module.
+    /// An account is considered a proxy if its name has the format
+    /// `consensus_account/module_id/uuid`, where `consensus_account` is the
+    /// name of a config-registered account.
     pub async fn get_consensus_proxy_maps(
         &self,
         module_id: &ModuleId,
@@ -151,21 +214,18 @@ impl DirkManager {
 
         let mut proxy_maps = Vec::new();
 
-        for wallet in self.wallets.iter() {
-            let Some(consensus_key) = accounts.iter().find_map(|account| {
-                if account.name == format!("{wallet}/consensus") {
-                    BlsPublicKey::try_from(account.public_key.as_slice()).ok()
-                } else {
-                    None
-                }
-            }) else {
+        for consensus_account in self.accounts.iter() {
+            let Some(consensus_key) = consensus_account.public_key else {
                 continue;
             };
 
             let proxy_keys = accounts
                 .iter()
                 .filter_map(|account| {
-                    if account.name.starts_with(&format!("{wallet}/{module_id}")) {
+                    if account
+                        .name
+                        .starts_with(&format!("{}/{module_id}/", consensus_account.complete_name()))
+                    {
                         BlsPublicKey::try_from(account.public_key.as_slice()).ok()
                     } else {
                         None
@@ -227,12 +287,22 @@ impl DirkManager {
     ) -> eyre::Result<SignedProxyDelegation<BlsPublicKey>> {
         let uuid = uuid::Uuid::new_v4();
 
-        let wallet = self
-            .get_pubkey_wallet(consensus_pubkey)
+        let consensus_account = self
+            .get_pubkey_account(consensus_pubkey)
             .await?
             .ok_or(eyre::eyre!("Consensus public key not found"))?;
 
-        let account_name = format!("{wallet}/{module_id}/{uuid}");
+        if !self
+            .accounts
+            .iter()
+            .map(|account| account.complete_name())
+            .collect::<Vec<String>>()
+            .contains(&consensus_account)
+        {
+            eyre::bail!("Consensus public key is not from a registered account");
+        }
+
+        let account_name = format!("{consensus_account}/{module_id}/{uuid}");
         let new_password = Self::random_password();
 
         let mut client = AccountManagerClient::new(self.channel.clone());
@@ -313,4 +383,20 @@ impl DirkManager {
             sign_response.into_inner().signature.as_slice(),
         )?))
     }
+}
+
+/// Get the accounts for the wallets passed as argument
+async fn get_accounts_in_wallets(
+    channel: Channel,
+    wallets: Vec<String>,
+) -> eyre::Result<Vec<DirkAccount>> {
+    let mut client = ListerClient::new(channel);
+    let pubkeys_request = tonic::Request::new(ListAccountsRequest { paths: wallets });
+    let pubkeys_response = client.list_accounts(pubkeys_request).await?;
+
+    if pubkeys_response.get_ref().state() != ResponseState::Succeeded {
+        eyre::bail!("Get pubkeys request failed".to_string());
+    }
+
+    Ok(pubkeys_response.into_inner().accounts)
 }

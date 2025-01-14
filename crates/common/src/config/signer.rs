@@ -55,8 +55,8 @@ pub enum SignerType {
         cert_path: PathBuf,
         /// Path to the client key
         key_path: PathBuf,
-        /// Wallets to use. Each wallet should have a `wallet/consensus` account
-        wallets: Vec<String>,
+        /// Accounts used as consensus keys
+        accounts: Vec<String>,
         /// Path to where the account passwords are stored
         secrets_path: PathBuf,
         /// Path to the CA certificate
@@ -74,7 +74,7 @@ pub enum SignerType {
 #[derive(Clone, Debug)]
 pub struct DirkConfig {
     pub url: Url,
-    pub wallets: Vec<String>,
+    pub accounts: Vec<String>,
     pub client_cert: Identity,
     pub secrets_path: PathBuf,
     pub cert_auth: Option<Certificate>,
@@ -115,7 +115,7 @@ impl StartSignerConfig {
                 url,
                 cert_path,
                 key_path,
-                wallets,
+                accounts,
                 secrets_path,
                 ca_cert_path,
                 server_domain,
@@ -138,7 +138,7 @@ impl StartSignerConfig {
                     store,
                     dirk: Some(DirkConfig {
                         url,
-                        wallets,
+                        accounts,
                         client_cert: Identity::from_pem(
                             std::fs::read_to_string(cert_path)?,
                             std::fs::read_to_string(key_path)?,
