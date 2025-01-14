@@ -1,4 +1,4 @@
-///////////////////////// COMMMON /////////////////////////
+///////////////////////// COMMON /////////////////////////
 
 /// Path to the main toml config file
 pub const CONFIG_ENV: &str = "CB_CONFIG";
@@ -22,6 +22,11 @@ pub const PBS_MODULE_NAME: &str = "pbs";
 /// Urls the pbs modules should post events to (comma separated)
 pub const BUILDER_URLS_ENV: &str = "CB_BUILDER_URLS";
 
+/// Where to receive BuilderAPI calls from beacon node
+pub const PBS_ENDPOINT_ENV: &str = "CB_PBS_ENDPOINT";
+
+pub const MUX_PATH_ENV: &str = "CB_MUX_PATH";
+
 ///////////////////////// SIGNER /////////////////////////
 
 pub const SIGNER_IMAGE_DEFAULT: &str = "ghcr.io/commit-boost/signer:latest";
@@ -42,9 +47,15 @@ pub const SIGNER_DIR_KEYS_DEFAULT: &str = "/keys";
 /// Path to `secrets` folder
 pub const SIGNER_DIR_SECRETS_ENV: &str = "CB_SIGNER_LOADER_SECRETS_DIR";
 pub const SIGNER_DIR_SECRETS_DEFAULT: &str = "/secrets";
-/// Path to store proxies
+/// Path to store proxies with plaintext keys (testing only)
 pub const PROXY_DIR_ENV: &str = "CB_PROXY_STORE_DIR";
 pub const PROXY_DIR_DEFAULT: &str = "/proxies";
+/// Path to store proxy keys
+pub const PROXY_DIR_KEYS_ENV: &str = "CB_PROXY_KEYS_DIR";
+pub const PROXY_DIR_KEYS_DEFAULT: &str = "/proxy_keys";
+/// Path to store proxy secrets
+pub const PROXY_DIR_SECRETS_ENV: &str = "CB_PROXY_SECRETS_DIR";
+pub const PROXY_DIR_SECRETS_DEFAULT: &str = "/proxy_secrets";
 
 ///////////////////////// MODULES /////////////////////////
 

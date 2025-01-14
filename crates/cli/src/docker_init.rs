@@ -1,22 +1,29 @@
-use std::{path::Path, vec};
+use std::{
+    net::{Ipv4Addr, SocketAddr},
+    path::Path,
+    vec,
+};
 
 use cb_common::{
     config::{
-        CommitBoostConfig, LogsSettings, ModuleKind, BUILDER_PORT_ENV, BUILDER_URLS_ENV,
-        CHAIN_SPEC_ENV, CONFIG_DEFAULT, CONFIG_ENV, JWTS_ENV, LOGS_DIR_DEFAULT, LOGS_DIR_ENV,
-        METRICS_PORT_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, PBS_MODULE_NAME, PROXY_DIR_DEFAULT,
-        PROXY_DIR_ENV, SIGNER_DEFAULT, SIGNER_DIR_KEYS_DEFAULT, SIGNER_DIR_KEYS_ENV,
-        SIGNER_DIR_SECRETS_DEFAULT, SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV, SIGNER_MODULE_NAME,
-        SIGNER_PORT_ENV, SIGNER_URL_ENV,
+        CommitBoostConfig, LogsSettings, ModuleKind, SignerConfig, BUILDER_PORT_ENV,
+        BUILDER_URLS_ENV, CHAIN_SPEC_ENV, CONFIG_DEFAULT, CONFIG_ENV, JWTS_ENV, LOGS_DIR_DEFAULT,
+        LOGS_DIR_ENV, METRICS_PORT_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, PBS_ENDPOINT_ENV,
+        PBS_MODULE_NAME, PROXY_DIR_DEFAULT, PROXY_DIR_ENV, PROXY_DIR_KEYS_DEFAULT,
+        PROXY_DIR_KEYS_ENV, PROXY_DIR_SECRETS_DEFAULT, PROXY_DIR_SECRETS_ENV, SIGNER_DEFAULT,
+        SIGNER_DIR_KEYS_DEFAULT, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS_DEFAULT,
+        SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV, SIGNER_MODULE_NAME, SIGNER_PORT_ENV,
+        SIGNER_URL_ENV,
     },
+    pbs::{BUILDER_API_PATH, GET_STATUS_PATH},
     signer::{ProxyStore, SignerLoader},
     types::ModuleId,
     utils::random_jwt,
 };
 use docker_compose_types::{
-    Compose, ComposeVolume, DependsOnOptions, EnvFile, Environment, Labels, LoggingParameters,
-    MapOrEmpty, NetworkSettings, Networks, Ports, Service, Services, SingleValue, TopLevelVolumes,
-    Volumes,
+    Compose, ComposeVolume, DependsCondition, DependsOnOptions, EnvFile, Environment, Healthcheck,
+    HealthcheckTest, Labels, LoggingParameters, MapOrEmpty, NetworkSettings, Networks, Ports,
+    Service, Services, SingleValue, TopLevelVolumes, Volumes,
 };
 use eyre::Result;
 use indexmap::IndexMap;
@@ -32,12 +39,12 @@ const METRICS_NETWORK: &str = "monitoring_network";
 const SIGNER_NETWORK: &str = "signer_network";
 
 /// Builds the docker compose file for the Commit-Boost services
-
 // TODO: do more validation for paths, images, etc
-
-pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()> {
+pub async fn handle_docker_init(config_path: String, output_dir: String) -> Result<()> {
     println!("Initializing Commit-Boost with config file: {}", config_path);
     let cb_config = CommitBoostConfig::from_file(&config_path)?;
+    cb_config.validate().await?;
+
     let chain_spec_path = CommitBoostConfig::chain_spec_file(&config_path);
 
     let metrics_enabled = cb_config.metrics.is_some();
@@ -70,12 +77,16 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
     // address for signer API communication
     let signer_port = 20000;
-    let signer_server = format!("http://cb_signer:{signer_port}");
+    let signer_server = if let Some(SignerConfig::Remote { url }) = &cb_config.signer {
+        url.to_string()
+    } else {
+        format!("http://cb_signer:{signer_port}")
+    };
 
     let builder_events_port = 30000;
     let mut builder_events_modules = Vec::new();
 
-    let mut exposed_ports_warn = Vec::new();
+    let mut warnings = Vec::new();
 
     let mut needs_signer_module = cb_config.pbs.with_signer;
 
@@ -143,13 +154,23 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                     module_volumes.extend(chain_spec_volume.clone());
                     module_volumes.extend(get_log_volume(&cb_config.logs, &module.id));
 
+                    // depends_on
+                    let mut module_dependencies = IndexMap::new();
+                    module_dependencies.insert("cb_signer".into(), DependsCondition {
+                        condition: "service_healthy".into(),
+                    });
+
                     Service {
                         container_name: Some(module_cid.clone()),
                         image: Some(module.docker_image),
                         networks: Networks::Simple(module_networks),
                         volumes: module_volumes,
                         environment: Environment::KvPair(module_envs),
-                        depends_on: DependsOnOptions::Simple(vec!["cb_signer".to_owned()]),
+                        depends_on: if let Some(SignerConfig::Remote { .. }) = &cb_config.signer {
+                            DependsOnOptions::Simple(vec![])
+                        } else {
+                            DependsOnOptions::Conditional(module_dependencies)
+                        },
                         env_file,
                         ..Service::default()
                     }
@@ -215,6 +236,17 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     }
 
     let mut pbs_envs = IndexMap::from([get_env_val(CONFIG_ENV, CONFIG_DEFAULT)]);
+    let mut pbs_volumes = vec![config_volume.clone()];
+
+    if let Some(mux_config) = cb_config.muxes {
+        for mux in mux_config.muxes.iter() {
+            if let Some((env_name, actual_path, internal_path)) = mux.loader_env() {
+                let (key, val) = get_env_val(&env_name, &internal_path);
+                pbs_envs.insert(key, val);
+                pbs_volumes.push(Volumes::Simple(format!("{}:{}:ro", actual_path, internal_path)));
+            }
+        }
+    }
 
     if let Some((key, val)) = chain_spec_env.clone() {
         pbs_envs.insert(key, val);
@@ -233,8 +265,19 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
         pbs_envs.insert(k, v);
     }
 
+    // ports
+    let host_endpoint =
+        SocketAddr::from((cb_config.pbs.pbs_config.host, cb_config.pbs.pbs_config.port));
+    let ports = Ports::Short(vec![format!("{}:{}", host_endpoint, cb_config.pbs.pbs_config.port)]);
+    warnings.push(format!("pbs has an exported port on {}", cb_config.pbs.pbs_config.port));
+
+    // inside the container expose on 0.0.0.0
+    let container_endpoint =
+        SocketAddr::from((Ipv4Addr::UNSPECIFIED, cb_config.pbs.pbs_config.port));
+    let (key, val) = get_env_val(PBS_ENDPOINT_ENV, &container_endpoint.to_string());
+    pbs_envs.insert(key, val);
+
     // volumes
-    let mut pbs_volumes = vec![config_volume.clone()];
     pbs_volumes.extend(chain_spec_volume.clone());
     pbs_volumes.extend(get_log_volume(&cb_config.logs, PBS_MODULE_NAME));
 
@@ -245,26 +288,31 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
         Networks::default()
     };
 
-    exposed_ports_warn
-        .push(format!("pbs has an exported port on {}", cb_config.pbs.pbs_config.port));
-
     let pbs_service = Service {
         container_name: Some("cb_pbs".to_owned()),
         image: Some(cb_config.pbs.docker_image),
-        ports: Ports::Short(vec![format!(
-            "{}:{}",
-            cb_config.pbs.pbs_config.port, cb_config.pbs.pbs_config.port
-        )]),
+        ports,
         networks: pbs_networs,
         volumes: pbs_volumes,
         environment: Environment::KvPair(pbs_envs),
+        healthcheck: Some(Healthcheck {
+            test: Some(HealthcheckTest::Single(format!(
+                "curl -f http://localhost:{}{}{}",
+                cb_config.pbs.pbs_config.port, BUILDER_API_PATH, GET_STATUS_PATH
+            ))),
+            interval: Some("30s".into()),
+            timeout: Some("5s".into()),
+            retries: 3,
+            start_period: Some("5s".into()),
+            disable: false,
+        }),
         ..Service::default()
     };
 
     services.insert("cb_pbs".to_owned(), Some(pbs_service));
 
     // setup signer service
-    if let Some(signer_config) = cb_config.signer {
+    if let Some(SignerConfig::Local { docker_image, loader, store }) = cb_config.signer {
         if needs_signer_module {
             if metrics_enabled {
                 targets.push(PrometheusTargetConfig {
@@ -298,7 +346,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
             let mut volumes = vec![config_volume.clone()];
             volumes.extend(chain_spec_volume.clone());
 
-            match signer_config.loader {
+            match loader {
                 SignerLoader::File { key_path } => {
                     volumes.push(Volumes::Simple(format!(
                         "{}:{}:ro",
@@ -308,7 +356,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                     let (k, v) = get_env_val(SIGNER_KEYS_ENV, SIGNER_DEFAULT);
                     signer_envs.insert(k, v);
                 }
-                SignerLoader::ValidatorsDir { keys_path, secrets_path } => {
+                SignerLoader::ValidatorsDir { keys_path, secrets_path, format: _ } => {
                     volumes.push(Volumes::Simple(format!(
                         "{}:{}:ro",
                         keys_path.display(),
@@ -327,7 +375,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                 }
             };
 
-            if let Some(store) = signer_config.store {
+            if let Some(store) = store {
                 match store {
                     ProxyStore::File { proxy_dir } => {
                         volumes.push(Volumes::Simple(format!(
@@ -336,6 +384,23 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
                             PROXY_DIR_DEFAULT
                         )));
                         let (k, v) = get_env_val(PROXY_DIR_ENV, PROXY_DIR_DEFAULT);
+                        signer_envs.insert(k, v);
+                    }
+                    ProxyStore::ERC2335 { keys_path, secrets_path } => {
+                        volumes.push(Volumes::Simple(format!(
+                            "{}:{}:rw",
+                            keys_path.display(),
+                            PROXY_DIR_KEYS_DEFAULT
+                        )));
+                        let (k, v) = get_env_val(PROXY_DIR_KEYS_ENV, PROXY_DIR_KEYS_DEFAULT);
+                        signer_envs.insert(k, v);
+
+                        volumes.push(Volumes::Simple(format!(
+                            "{}:{}:rw",
+                            secrets_path.display(),
+                            PROXY_DIR_SECRETS_DEFAULT
+                        )));
+                        let (k, v) = get_env_val(PROXY_DIR_SECRETS_ENV, PROXY_DIR_SECRETS_DEFAULT);
                         signer_envs.insert(k, v);
                     }
                 }
@@ -351,16 +416,26 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
             let signer_service = Service {
                 container_name: Some("cb_signer".to_owned()),
-                image: Some(signer_config.docker_image),
+                image: Some(docker_image),
                 networks: Networks::Simple(signer_networks),
                 volumes,
                 environment: Environment::KvPair(signer_envs),
+                healthcheck: Some(Healthcheck {
+                    test: Some(HealthcheckTest::Single(format!(
+                        "curl -f http://localhost:{signer_port}/status"
+                    ))),
+                    interval: Some("30s".into()),
+                    timeout: Some("5s".into()),
+                    retries: 3,
+                    start_period: Some("5s".into()),
+                    disable: false,
+                }),
                 ..Service::default()
             };
 
             services.insert("cb_signer".to_owned(), Some(signer_service));
         }
-    } else if needs_signer_module {
+    } else if cb_config.signer.is_none() && needs_signer_module {
         panic!("Signer module required but no signer config provided");
     }
 
@@ -390,7 +465,7 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
     if let Some(metrics_config) = cb_config.metrics {
         // prometheus
-        exposed_ports_warn.push("prometheus has an exported port on 9090".to_string());
+        warnings.push("prometheus has an exported port on 9090".to_string());
 
         let prom_volume = Volumes::Simple(format!(
             "{}:/etc/prometheus/prometheus.yml",
@@ -405,10 +480,10 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
         let prometheus_service = Service {
             container_name: Some("cb_prometheus".to_owned()),
-            image: Some("prom/prometheus:latest".to_owned()),
+            image: Some("prom/prometheus:v3.0.0".to_owned()),
             volumes: vec![prom_volume, targets_volume, data_volume],
             // to inspect prometheus from localhost
-            ports: Ports::Short(vec!["9090:9090".to_owned()]),
+            ports: Ports::Short(vec![format!("{}:9090:9090", metrics_config.host)]),
             networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
             ..Service::default()
         };
@@ -427,27 +502,39 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
         // grafana
         if metrics_config.use_grafana {
-            exposed_ports_warn.push("grafana has an exported port on 3000".to_string());
+            warnings.push("grafana has an exported port on 3000".to_string());
+            warnings.push(
+                "Grafana has the default admin password of 'admin'. Login to change it".to_string(),
+            );
 
             let grafana_data_volume =
-                Volumes::Simple(format!("{}:/var/lib/grafana", GRAFANA_DATA_VOLUME));
+                vec![Volumes::Simple(format!("{}:/var/lib/grafana", GRAFANA_DATA_VOLUME))];
+
+            let grafana_source_volumes = if let Some(path) = metrics_config.grafana_path {
+                vec![
+                    Volumes::Simple(format!(
+                        "{}:/etc/grafana/provisioning/dashboards",
+                        path.join("dashboards").display()
+                    )),
+                    Volumes::Simple(format!(
+                        "{}:/etc/grafana/provisioning/datasources",
+                        path.join("datasources").display()
+                    )),
+                ]
+            } else {
+                vec![]
+            };
+
+            let grafana_volumes = [grafana_data_volume, grafana_source_volumes].concat();
 
             let grafana_service = Service {
                 container_name: Some("cb_grafana".to_owned()),
-                image: Some("grafana/grafana:latest".to_owned()),
-                ports: Ports::Short(vec!["3000:3000".to_owned()]),
+                image: Some("grafana/grafana:11.3.1".to_owned()),
+                ports: Ports::Short(vec![format!("{}:3000:3000", metrics_config.host)]),
                 networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
                 depends_on: DependsOnOptions::Simple(vec!["cb_prometheus".to_owned()]),
                 environment: Environment::List(vec!["GF_SECURITY_ADMIN_PASSWORD=admin".to_owned()]),
-                volumes: vec![
-                    Volumes::Simple(
-                        "./grafana/dashboards:/etc/grafana/provisioning/dashboards".to_owned(),
-                    ),
-                    Volumes::Simple(
-                        "./grafana/datasources:/etc/grafana/provisioning/datasources".to_owned(),
-                    ),
-                    grafana_data_volume,
-                ],
+                volumes: grafana_volumes,
                 // disable verbose grafana logs
                 logging: Some(LoggingParameters { driver: Some("none".to_owned()), options: None }),
                 ..Service::default()
@@ -468,14 +555,14 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
 
         // cadvisor
         if metrics_config.use_cadvisor {
-            exposed_ports_warn.push("cadvisor has an exported port on 8080".to_string());
+            warnings.push("cadvisor has an exported port on 8080".to_string());
 
             services.insert(
                 "cb_cadvisor".to_owned(),
                 Some(Service {
                     container_name: Some("cb_cadvisor".to_owned()),
                     image: Some("gcr.io/cadvisor/cadvisor".to_owned()),
-                    ports: Ports::Short(vec![format!("{cadvisor_port}:8080")]),
+                    ports: Ports::Short(vec![format!("{}:8080:8080", metrics_config.host)]),
                     networks: Networks::Simple(vec![METRICS_NETWORK.to_owned()]),
                     volumes: vec![
                         Volumes::Simple("/var/run/docker.sock:/var/run/docker.sock:ro".to_owned()),
@@ -499,13 +586,22 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     let compose_str = serde_yaml::to_string(&compose)?;
     let compose_path = Path::new(&output_dir).join(CB_COMPOSE_FILE);
     std::fs::write(&compose_path, compose_str)?;
-    if !exposed_ports_warn.is_empty() {
+    if !warnings.is_empty() {
         println!("\n");
-        for exposed_port in exposed_ports_warn {
+        for exposed_port in warnings {
             println!("Warning: {}", exposed_port);
         }
         println!("\n");
     }
+    // if file logging is enabled, warn about permissions
+    if let Some(logs_config) = cb_config.logs {
+        let log_dir = logs_config.log_dir_path;
+        println!(
+            "Warning: file logging is enabled, you may need to update permissions for the logs directory. e.g. with:\n\t`sudo chown -R 10001:10001 {}`",
+            log_dir.display()
+        );
+    }
+
     println!("Compose file written to: {:?}", compose_path);
 
     // write prometheus targets to file
@@ -540,17 +636,17 @@ pub fn handle_docker_init(config_path: String, output_dir: String) -> Result<()>
     Ok(())
 }
 
-// FOO=${FOO}
+/// FOO=${FOO}
 fn get_env_same(k: &str) -> (String, Option<SingleValue>) {
     get_env_interp(k, k)
 }
 
-// FOO=${BAR}
+/// FOO=${BAR}
 fn get_env_interp(k: &str, v: &str) -> (String, Option<SingleValue>) {
     get_env_val(k, &format!("${{{v}}}"))
 }
 
-// FOO=bar
+/// FOO=bar
 fn get_env_val(k: &str, v: &str) -> (String, Option<SingleValue>) {
     (k.into(), Some(SingleValue::String(v.into())))
 }

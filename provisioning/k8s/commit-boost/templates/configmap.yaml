@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "commit-boost.fullname" . }}
+  labels:
+    {{- include "commit-boost.labels" . | nindent 4 }}
+data:
+  {{- if .Values.commitBoost.pbs.enable }}
+  # Currently toToml doesn't handle properly integer conversions, it
+  # translates them to floats with a trailing ".0" leading to commit-boost
+  # crashing at start. We have three possible approaches to fix this:
+  #
+  # 1. Do not use toToml and manually convert all config fields from yaml to
+  #    toml, this means the chart won't be in sync with evolutions of
+  #    commit-boost,
+  #
+  # 2. Have commit-boost handle floats as integers in the config parsing, this
+  #    would likely be confusing for everyone else using commit-boost,
+  #
+  # 3. Introduce a temporary hack to remove trailing .0 from the toml output. This
+  #    is the current temporary approach taken. It's dangerous because it might
+  #    remove ".0" from other places where it's actually needed.
+  #
+  # We use 3) for now considering https://github.com/helm/helm/pull/13534 is likely
+  # to be part of a new Helm version.
+  config.pbs.toml: |-
+  {{ .Values.commitBoost.pbs.config | toToml | replace ".0" "" | nindent 4 }}
+  {{- end }}

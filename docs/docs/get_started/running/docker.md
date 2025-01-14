@@ -3,7 +3,7 @@ description: Run Commit-Boost with Docker
 ---
 
 # Docker
-The Commit-Boost CLI will generate a dynamic `docker-compose.yml` file using the provided `toml` config file. This is the recommended approach as Docker provides sandboxing of the containers from the rest of your system.
+The Commit-Boost CLI will generate a dynamic `docker-compose.yml` file using the provided `.toml` config file. This is the recommended approach as Docker provides sandboxing of the containers from the rest of your system.
 
 ## Init
 
@@ -12,9 +12,9 @@ First run:
 commit-boost-cli init --config cb-config.toml
 ```
 This will create up to three files:
-- `cb.docker-compose.yml`, which contains the full setup of the Commit-Boost services
-- `.cb.env`, with local env variables, including JWTs for modules, only created if the signer module is enabled
-- `target.json`, which enables dynamic discovery of services for metrics scraping via Prometheus, only created if metrics are enabled
+- `cb.docker-compose.yml` which contains the full setup of the Commit-Boost services.
+- `.cb.env` with local env variables, including JWTs for modules, only created if the signer module is enabled.
+- `target.json` which enables dynamic discovery of services for metrics scraping via Prometheus, only created if metrics are enabled.
 
 ## Start
 

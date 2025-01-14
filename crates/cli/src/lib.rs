@@ -73,7 +73,7 @@ impl Args {
 
         match self.cmd {
             Command::Init { config_path, output_path } => {
-                docker_init::handle_docker_init(config_path, output_path)
+                docker_init::handle_docker_init(config_path, output_path).await
             }
 
             Command::Start { compose_path, env_path } => {

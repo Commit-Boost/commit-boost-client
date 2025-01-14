@@ -1,9 +1,12 @@
 # Commit-Boost
 
-A new Ethereum validator sidecar focused on standardizing the last mile of communication between validators and third-party protocols.
+[![Ci](https://github.com/Commit-Boost/commit-boost-client/actions/workflows/ci.yml/badge.svg)](https://github.com/Commit-Boost/commit-boost-client/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/docs-latest-blue.svg)](https://commit-boost.github.io/commit-boost-client/)
+[![Release](https://img.shields.io/github/v/release/Commit-Boost/commit-boost-client)](https://github.com/Commit-Boost/commit-boost-client/releases)
+[![Chat](https://img.shields.io/endpoint?color=neon&logo=telegram&label=chat&url=https%3A%2F%2Ftg.sumanjay.workers.dev%2F%2BPcs9bykxK3BiMzk5)](https://t.me/+Pcs9bykxK3BiMzk5)
+[![X](https://img.shields.io/twitter/follow/Commit_Boost)](https://x.com/Commit_Boost)
 
-[Docs](https://commit-boost.github.io/commit-boost-client/) |
-[X (Twitter)](https://x.com/Commit_Boost)
+A new Ethereum validator sidecar focused on standardizing the last mile of communication between validators and third-party protocols.
 
 ## Overview
 Commit-Boost is a modular sidecar that allows Ethereum validators to opt-in to different commitment protocols
@@ -13,64 +16,17 @@ Commit-Boost is a modular sidecar that allows Ethereum validators to opt-in to d
 - Out-of-the-box support for metrics reporting and dashboards to have clear insight into what is happening in your validator
 - Plug-in system to add custom modules, e.g. receive a notification on Telegram if a relay fails to deliver a block
 
-For more information on how to run Commit-Boost, check out our [docs](https://commit-boost.github.io/commit-boost-client/get_started/overview).
-
 ### For developers
 - A modular platform to develop and distribute proposer commitments protocols
 - A single API to interact with validators
 - Support for hard-forks and new protocol requirements
 
-For more information on how to develop a module on Commit-Boost, check out our [docs](https://commit-boost.github.io/commit-boost-client/category/developing).
+## Get started
+- [Node operators](https://commit-boost.github.io/commit-boost-client/category/get-started)
+- [Developers](https://commit-boost.github.io/commit-boost-client/category/developing). Check out also the [examples](/examples)
 
-### Example
-> **_NOTE:_**  The code is unaudited and NOT ready for production. All APIs are subject to change
-
-A basic commit module with Commit-Boost.
-
-Add the `commit-boost` crate to your `Cargo.toml`:
-
-```toml
-commit-boost = { git = "https://github.com/Commit-Boost/commit-boost-client", rev = "..." }
-```
-
-Then in `main.rs`:
-
-```rust
-use commit_boost::prelude::*;
-
-#[derive(Debug, TreeHash)]
-struct Datagram {
-    data: u64,
-}
-
-#[tokio::main]
-async fn main() {
-    let config = load_commit_module_config::<()>().unwrap();
-    let pubkeys = config.signer_client.get_pubkeys().await.unwrap().keys;
-
-    let pubkey = *pubkeys.consensus.first().unwrap().consensus;
-
-    let datagram = Datagram { data: 42 };
-    let request = SignConsensusRequest::builder(pubkey).with_msg(&datagram);
-    let signature = config
-        .signer_client
-        .request_consensus_signature(&request)
-        .await
-        .unwrap();
-
-    println!("Data: {datagram:?} - Commitment: {signature}");
-}
-```
-
-Finally, create a Docker image with your binary, e.g. `my_commit_module`, and add it to the `cb-config.toml` file:
-
-```toml
-[[modules]]
-id = "MY_MODULE"
-docker_image = "my_commit_module"
-```
-
-For a more detailed example check out [here](/examples/da_commit) and our docs on how to [setup Commit-Boost](https://commit-boost.github.io/commit-boost-client/get_started/overview) for development.
+## Audit
+Commit-Boost received an audit from [Sigma Prime](https://sigmaprime.io/). Find the report [here](/audit/Sigma_Prime_Commit_Boost_Client_Security_Assessment_Report_v2_0.pdf).
 
 ## Acknowledgements
 - [MEV boost](https://github.com/flashbots/mev-boost)

@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 # ethereum
-alloy = { workspace = true }
+alloy.workspace = true
 ssz_types.workspace = true
 ethereum_serde_utils.workspace = true
 
@@ -35,6 +35,11 @@ tree_hash.workspace = true
 tree_hash_derive.workspace = true
 eth2_keystore.workspace = true
 k256.workspace = true
+aes.workspace = true
+ctr.workspace = true
+cipher.workspace = true
+pbkdf2.workspace = true
+sha2.workspace = true
 
 # misc
 thiserror.workspace = true
@@ -43,3 +48,6 @@ url.workspace = true
 rand.workspace = true
 bimap.workspace = true
 derive_more.workspace = true
+
+unicode-normalization.workspace = true
+base64.workspace = true

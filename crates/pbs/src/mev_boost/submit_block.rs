@@ -4,7 +4,7 @@ use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
     pbs::{
         error::{PbsError, ValidationError},
-        RelayClient, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse, HEADER_SLOT_UUID_KEY,
+        RelayClient, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
         HEADER_START_TIME_UNIX_MS,
     },
     utils::{get_user_agent_with_version, utcnow_ms},
@@ -12,6 +12,7 @@ use cb_common::{
 use futures::future::select_ok;
 use reqwest::header::USER_AGENT;
 use tracing::{debug, warn};
+use url::Url;
 
 use crate::{
     constants::{MAX_SIZE_SUBMIT_BLOCK, SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG, TIMEOUT_ERROR_CODE_STR},
@@ -26,22 +27,19 @@ pub async fn submit_block<S: BuilderApiState>(
     req_headers: HeaderMap,
     state: PbsState<S>,
 ) -> eyre::Result<SubmitBlindedBlockResponse> {
-    let (_, slot_uuid) = state.get_slot_and_uuid();
-
     // prepare headers
     let mut send_headers = HeaderMap::new();
-    send_headers.insert(HEADER_SLOT_UUID_KEY, HeaderValue::from_str(&slot_uuid.to_string())?);
     send_headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(utcnow_ms()));
     send_headers.insert(USER_AGENT, get_user_agent_with_version(&req_headers)?);
 
-    let relays = state.relays();
+    let relays = state.all_relays();
     let mut handles = Vec::with_capacity(relays.len());
     for relay in relays.iter() {
-        handles.push(Box::pin(send_submit_block(
+        handles.push(Box::pin(submit_block_with_timeout(
             &signed_blinded_block,
             relay,
             send_headers.clone(),
-            state.config.pbs_config.timeout_get_payload_ms,
+            state.pbs_config().timeout_get_payload_ms,
         )));
     }
 
@@ -52,17 +50,63 @@ pub async fn submit_block<S: BuilderApiState>(
     }
 }
 
-// submits blinded signed block and expects the execution payload + blobs bundle
-// back
-#[tracing::instrument(skip_all, name = "handler", fields(relay_id = relay.id.as_ref()))]
-async fn send_submit_block(
+/// Submit blinded block to relay, retry connection errors until the
+/// given timeout has passed
+async fn submit_block_with_timeout(
     signed_blinded_block: &SignedBlindedBeaconBlock,
     relay: &RelayClient,
     headers: HeaderMap,
     timeout_ms: u64,
 ) -> Result<SubmitBlindedBlockResponse, PbsError> {
     let url = relay.submit_block_url()?;
+    let mut remaining_timeout_ms = timeout_ms;
+    let mut retry = 0;
+    let mut backoff = Duration::from_millis(250);
 
+    loop {
+        let start_request = Instant::now();
+        match send_submit_block(
+            url.clone(),
+            signed_blinded_block,
+            relay,
+            headers.clone(),
+            remaining_timeout_ms,
+            retry,
+        )
+        .await
+        {
+            Ok(response) => return Ok(response),
+
+            Err(err) if err.should_retry() => {
+                tokio::time::sleep(backoff).await;
+                backoff += Duration::from_millis(250);
+
+                remaining_timeout_ms =
+                    timeout_ms.saturating_sub(start_request.elapsed().as_millis() as u64);
+
+                if remaining_timeout_ms == 0 {
+                    return Err(err);
+                }
+            }
+
+            Err(err) => return Err(err),
+        };
+
+        retry += 1;
+    }
+}
+
+// submits blinded signed block and expects the execution payload + blobs bundle
+// back
+#[tracing::instrument(skip_all, name = "handler", fields(relay_id = relay.id.as_ref(), retry = retry))]
+async fn send_submit_block(
+    url: Url,
+    signed_blinded_block: &SignedBlindedBeaconBlock,
+    relay: &RelayClient,
+    headers: HeaderMap,
+    timeout_ms: u64,
+    retry: u32,
+) -> Result<SubmitBlindedBlockResponse, PbsError> {
     let start_request = Instant::now();
     let res = match relay
         .client

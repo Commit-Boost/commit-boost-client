@@ -19,19 +19,23 @@ macro_rules! run_docker_compose {
                         if !output.status.success() {
                             let stderr = str::from_utf8(&output.stderr).unwrap_or("");
                             if stderr.contains("permission denied") {
-                                println!("Warning: Permission denied. Try running with sudo.");
+                                eprintln!("Warning: Permission denied. Follow Docker's official post-installation steps to add your user to the docker group: https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user");
+                                std::process::exit(1);
                             } else {
-                                println!("Command failed with error: {}", stderr);
+                                eprintln!("Command failed with error: {}", stderr);
+                                std::process::exit(1);
                             }
                         }
                     }
                     Err(e) => {
-                        println!("Failed to execute command: {}", e);
+                        eprintln!("Failed to execute command: {}", e);
+                        std::process::exit(1);
                     }
                 }
             }
             None => {
-                println!("Neither `docker compose` nor `docker-compose` were found on your operating system.");
+                eprintln!("Neither `docker compose` nor `docker-compose` were found on your operating system.");
+                std::process::exit(1);
             }
         }
     }};
@@ -74,6 +78,7 @@ fn is_command_available(command: &str) -> bool {
 
 pub fn handle_docker_start(compose_path: String, env_path: Option<String>) -> Result<()> {
     println!("Starting Commit-Boost with compose file: {}", compose_path);
+    windows_not_supported();
 
     // load env file if present
     if let Some(env_path) = env_path {
@@ -89,6 +94,7 @@ pub fn handle_docker_start(compose_path: String, env_path: Option<String>) -> Re
 
 pub fn handle_docker_stop(compose_path: String, env_path: String) -> Result<()> {
     println!("Stopping Commit-Boost with compose file: {}", compose_path);
+    windows_not_supported();
 
     // load env file
     dotenvy::from_filename_override(env_path)?;
@@ -101,9 +107,21 @@ pub fn handle_docker_stop(compose_path: String, env_path: String) -> Result<()> 
 
 pub fn handle_docker_logs(compose_path: String) -> Result<()> {
     println!("Querying Commit-Boost with compose file: {}", compose_path);
+    windows_not_supported();
 
     // start docker compose
     run_docker_compose!(compose_path, "logs", "-f");
 
     Ok(())
 }
+
+#[cfg(target_os = "windows")]
+fn windows_not_supported() {
+    eprintln!(
+        "Windows is currently only partially supported, please run `docker compose` manually and consider filing an issue at https://github.com/Commit-Boost/commit-boost-client"
+    );
+    std::process::exit(1);
+}
+
+#[cfg(not(target_os = "windows"))]
+fn windows_not_supported() {}

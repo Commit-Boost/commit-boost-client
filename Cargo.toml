@@ -10,13 +10,15 @@ members = [
 
     "tests",
     "benches/*",
-    "examples/*",
+    "examples/builder_log",
+    "examples/da_commit",
+    "examples/status_api",
 ]
 resolver = "2"
 
 [workspace.package]
-version = "0.3.1"
-rust-version = "1.76"
+version = "0.5.0"
+rust-version = "1.83"
 edition = "2021"
 
 [workspace.dependencies]
@@ -27,11 +29,13 @@ cb-pbs = { path = "crates/pbs" }
 cb-signer = { path = "crates/signer" }
 
 # ethereum
-alloy = { version = "0.3.6", features = [
+alloy = { version = "0.8.0", features = [
+    "full",
     "rpc-types-beacon",
     "serde",
     "ssz",
     "getrandom",
+    "providers",
 ] }
 ssz_types = "0.8"
 ethereum_serde_utils = "0.7.0"
@@ -47,12 +51,15 @@ tokio = { version = "1.37.0", features = ["full"] }
 futures = "0.3.30"
 async-trait = "0.1.80"
 dashmap = "5.5.3"
+parking_lot = "0.12.3"
 
 # serialization
 toml = "0.8.13"
 serde = { version = "1.0.202", features = ["derive"] }
 serde_json = "1.0.117"
 serde_yaml = "0.9.33"
+base64 = "0.22.1"
+unicode-normalization = "0.1.24"
 
 # telemetry
 tracing = "0.1.40"
@@ -66,6 +73,11 @@ tree_hash = "0.8"
 tree_hash_derive = "0.8"
 eth2_keystore = { git = "https://github.com/sigp/lighthouse", rev = "9e12c21f268c80a3f002ae0ca27477f9f512eb6f" }
 k256 = "0.13"
+aes = "0.8"
+ctr = "0.9.2"
+cipher = "0.4"
+pbkdf2 = "0.12.2"
+sha2 = "0.10.8"
 
 # docker
 docker-compose-types = "0.12.0"

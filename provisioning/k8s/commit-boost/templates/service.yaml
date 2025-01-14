@@ -1,0 +1,21 @@
+{{- if .Values.commitBoost.pbs.enable }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "commit-boost.fullname" . }}
+  labels:
+    {{- include "commit-boost.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.commitBoost.pbs.config.pbs.port}}
+      name: http-pbs
+      targetPort: http-pbs
+      protocol: TCP
+    - port: {{ .Values.commitBoost.pbs.config.metrics.server_port}}
+      protocol: TCP
+      name: http-metrics
+      targetPort: http-metrics
+  selector:
+    {{- include "commit-boost.selectorLabels" . | nindent 4 }}
+{{- end }}

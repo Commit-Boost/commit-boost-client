@@ -1,0 +1,56 @@
+[
+    {
+        "constant": true,
+        "inputs": [
+            {
+                "name": "_nodeOperatorId",
+                "type": "uint256"
+            }
+        ],
+        "name": "getTotalSigningKeyCount",
+        "outputs": [
+            {
+                "name": "",
+                "type": "uint256"
+            }
+        ],
+        "payable": false,
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "constant": true,
+        "inputs": [
+            {
+                "name": "_nodeOperatorId",
+                "type": "uint256"
+            },
+            {
+                "name": "_offset",
+                "type": "uint256"
+            },
+            {
+                "name": "_limit",
+                "type": "uint256"
+            }
+        ],
+        "name": "getSigningKeys",
+        "outputs": [
+            {
+                "name": "pubkeys",
+                "type": "bytes"
+            },
+            {
+                "name": "signatures",
+                "type": "bytes"
+            },
+            {
+                "name": "used",
+                "type": "bool[]"
+            }
+        ],
+        "payable": false,
+        "stateMutability": "view",
+        "type": "function"
+    }
+]

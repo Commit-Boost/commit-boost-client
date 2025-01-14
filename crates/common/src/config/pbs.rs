@@ -1,19 +1,37 @@
 //! Configuration for the PBS module
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    net::{Ipv4Addr, SocketAddr},
+    sync::Arc,
+};
 
-use alloy::primitives::U256;
-use eyre::Result;
+use alloy::{
+    primitives::{utils::format_ether, U256},
+    providers::{Provider, ProviderBuilder},
+    rpc::types::beacon::BlsPublicKey,
+};
+use eyre::{ensure, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use url::Url;
 
-use super::{constants::PBS_IMAGE_DEFAULT, CommitBoostConfig};
+use super::{
+    constants::PBS_IMAGE_DEFAULT, load_optional_env_var, CommitBoostConfig, RuntimeMuxConfig,
+    PBS_ENDPOINT_ENV,
+};
 use crate::{
     commit::client::SignerClient,
-    config::{load_env_var, load_file_from_env, CONFIG_ENV, MODULE_JWT_ENV, SIGNER_URL_ENV},
-    pbs::{BuilderEventPublisher, DefaultTimeout, RelayClient, RelayEntry, LATE_IN_SLOT_TIME_MS},
+    config::{
+        load_env_var, load_file_from_env, PbsMuxes, CONFIG_ENV, MODULE_JWT_ENV, SIGNER_URL_ENV,
+    },
+    pbs::{
+        BuilderEventPublisher, DefaultTimeout, RelayClient, RelayEntry, DEFAULT_PBS_PORT,
+        LATE_IN_SLOT_TIME_MS,
+    },
     types::Chain,
-    utils::{as_eth_str, default_bool, default_u256, default_u64},
+    utils::{
+        as_eth_str, default_bool, default_host, default_u16, default_u256, default_u64, WEI_PER_ETH,
+    },
 };
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -34,9 +52,19 @@ pub struct RelayConfig {
     pub frequency_get_header_ms: Option<u64>,
 }
 
+impl RelayConfig {
+    pub fn id(&self) -> &str {
+        self.id.as_deref().unwrap_or(self.entry.id.as_str())
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PbsConfig {
+    /// Host to receive BuilderAPI calls from beacon node
+    #[serde(default = "default_host")]
+    pub host: Ipv4Addr,
     /// Port to receive BuilderAPI calls from beacon node
+    #[serde(default = "default_u16::<DEFAULT_PBS_PORT>")]
     pub port: u16,
     /// Whether to forward `get_status` to relays or skip it
     #[serde(default = "default_bool::<true>")]
@@ -65,11 +93,57 @@ pub struct PbsConfig {
     /// How late in the slot we consider to be "late"
     #[serde(default = "default_u64::<LATE_IN_SLOT_TIME_MS>")]
     pub late_in_slot_time_ms: u64,
+    /// Enable extra validation of get_header responses
+    #[serde(default = "default_bool::<false>")]
+    pub extra_validation_enabled: bool,
+    /// Execution Layer RPC url to use for extra validation
+    pub rpc_url: Option<Url>,
 }
 
 impl PbsConfig {
     /// Validate PBS config parameters
-    pub fn validate(&self) -> Result<()> {
+    pub async fn validate(&self, chain: Chain) -> Result<()> {
+        // timeouts must be positive
+        ensure!(self.timeout_get_header_ms > 0, "timeout_get_header_ms must be greater than 0");
+        ensure!(self.timeout_get_payload_ms > 0, "timeout_get_payload_ms must be greater than 0");
+        ensure!(
+            self.timeout_register_validator_ms > 0,
+            "timeout_register_validator_ms must be greater than 0"
+        );
+        ensure!(self.late_in_slot_time_ms > 0, "late_in_slot_time_ms must be greater than 0");
+
+        ensure!(
+            self.timeout_get_header_ms < self.late_in_slot_time_ms,
+            "timeout_get_header_ms must be less than late_in_slot_time_ms"
+        );
+
+        ensure!(
+            self.min_bid_wei < U256::from(WEI_PER_ETH),
+            format!("min bid is too high: {} ETH", format_ether(self.min_bid_wei))
+        );
+
+        if self.extra_validation_enabled {
+            ensure!(
+                self.rpc_url.is_some(),
+                "rpc_url is required if extra_validation_enabled is true"
+            );
+        }
+
+        if let Some(rpc_url) = &self.rpc_url {
+            // TODO: remove this once we support chain ids for custom chains
+            if !matches!(chain, Chain::Custom { .. }) {
+                let provider = ProviderBuilder::new().on_http(rpc_url.clone());
+                let chain_id = provider.get_chain_id().await?;
+                ensure!(
+                    chain_id == chain.id(),
+                    "Rpc url is for the wrong chain, expected: {} ({:?}) got {}",
+                    chain.id(),
+                    chain,
+                    chain_id
+                );
+            }
+        }
+
         Ok(())
     }
 }
@@ -93,14 +167,22 @@ pub struct StaticPbsConfig {
 pub struct PbsModuleConfig {
     /// Chain spec
     pub chain: Chain,
+    /// Endpoint to receive BuilderAPI calls from beacon node
+    pub endpoint: SocketAddr,
     /// Pbs default config
     pub pbs_config: Arc<PbsConfig>,
-    /// List of relays
+    /// List of default relays
     pub relays: Vec<RelayClient>,
+    /// List of all default relays plus additional relays from muxes (based on
+    /// URL) DO NOT use this for get_header calls, use `relays` or `muxes`
+    /// instead
+    pub all_relays: Vec<RelayClient>,
     /// Signer client to call Signer API
     pub signer_client: Option<SignerClient>,
     /// Event publisher
     pub event_publisher: Option<BuilderEventPublisher>,
+    /// Muxes config
+    pub muxes: Option<HashMap<BlsPublicKey, RuntimeMuxConfig>>,
 }
 
 fn default_pbs() -> String {
@@ -108,24 +190,62 @@ fn default_pbs() -> String {
 }
 
 /// Loads the default pbs config, i.e. with no signer client or custom data
-pub fn load_pbs_config() -> Result<PbsModuleConfig> {
+pub async fn load_pbs_config() -> Result<PbsModuleConfig> {
     let config = CommitBoostConfig::from_env_path()?;
+    config.validate().await?;
+
+    // use endpoint from env if set, otherwise use default host and port
+    let endpoint = if let Some(endpoint) = load_optional_env_var(PBS_ENDPOINT_ENV) {
+        endpoint.parse()?
+    } else {
+        SocketAddr::from((config.pbs.pbs_config.host, config.pbs.pbs_config.port))
+    };
+
+    let muxes = match config.muxes {
+        Some(muxes) => {
+            let mux_configs = muxes.validate_and_fill(config.chain, &config.pbs.pbs_config).await?;
+            Some(mux_configs)
+        }
+        None => None,
+    };
 
     let relay_clients =
         config.relays.into_iter().map(RelayClient::new).collect::<Result<Vec<_>>>()?;
     let maybe_publiher = BuilderEventPublisher::new_from_env()?;
+    let mut all_relays = HashMap::with_capacity(relay_clients.len());
+
+    if let Some(muxes) = &muxes {
+        for (_, mux) in muxes.iter() {
+            for relay in mux.relays.iter() {
+                all_relays.insert(&relay.config.entry.url, relay.clone());
+            }
+        }
+    }
+
+    // insert default relays after to make sure we keep these as defaults,
+    // this means we override timing games which is ok since this won't be used for
+    // get_header we also override headers if the same relays has two
+    // definitions (in muxes and default)
+    for relay in relay_clients.iter() {
+        all_relays.insert(&relay.config.entry.url, relay.clone());
+    }
+
+    let all_relays = all_relays.into_values().collect();
 
     Ok(PbsModuleConfig {
         chain: config.chain,
+        endpoint,
         pbs_config: Arc::new(config.pbs.pbs_config),
         relays: relay_clients,
+        all_relays,
         signer_client: None,
         event_publisher: maybe_publiher,
+        muxes,
     })
 }
 
 /// Loads a custom pbs config, i.e. with signer client and/or custom data
-pub fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleConfig, T)> {
+pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleConfig, T)> {
     #[derive(Debug, Deserialize)]
     struct CustomPbsConfig<U> {
         #[serde(flatten)]
@@ -139,15 +259,54 @@ pub fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleConfig,
         chain: Chain,
         relays: Vec<RelayConfig>,
         pbs: CustomPbsConfig<U>,
+        muxes: Option<PbsMuxes>,
     }
 
     // load module config including the extra data (if any)
     let cb_config: StubConfig<T> = load_file_from_env(CONFIG_ENV)?;
-    cb_config.pbs.static_config.pbs_config.validate()?;
+    cb_config.pbs.static_config.pbs_config.validate(cb_config.chain).await?;
+
+    // use endpoint from env if set, otherwise use default host and port
+    let endpoint = if let Some(endpoint) = load_optional_env_var(PBS_ENDPOINT_ENV) {
+        endpoint.parse()?
+    } else {
+        SocketAddr::from((
+            cb_config.pbs.static_config.pbs_config.host,
+            cb_config.pbs.static_config.pbs_config.port,
+        ))
+    };
+
+    let muxes = match cb_config.muxes {
+        Some(muxes) => Some(
+            muxes
+                .validate_and_fill(cb_config.chain, &cb_config.pbs.static_config.pbs_config)
+                .await?,
+        ),
+        None => None,
+    };
 
     let relay_clients =
         cb_config.relays.into_iter().map(RelayClient::new).collect::<Result<Vec<_>>>()?;
     let maybe_publiher = BuilderEventPublisher::new_from_env()?;
+    let mut all_relays = HashMap::with_capacity(relay_clients.len());
+
+    if let Some(muxes) = &muxes {
+        for (_, mux) in muxes.iter() {
+            for relay in mux.relays.iter() {
+                all_relays.insert(&relay.config.entry.url, relay.clone());
+            }
+        }
+    }
+
+    // insert default relays after to make sure we keep these as defaults,
+    // this also means we override timing games which is ok since this won't be used
+    // for get header we also override headers if the same relays has two
+    // definitions (in muxes and default)
+    for relay in relay_clients.iter() {
+        all_relays.insert(&relay.config.entry.url, relay.clone());
+    }
+
+    let all_relays = all_relays.into_values().collect();
 
     let signer_client = if cb_config.pbs.static_config.with_signer {
         // if custom pbs requires a signer client, load jwt
@@ -161,10 +320,13 @@ pub fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleConfig,
     Ok((
         PbsModuleConfig {
             chain: cb_config.chain,
+            endpoint,
             pbs_config: Arc::new(cb_config.pbs.static_config.pbs_config),
             relays: relay_clients,
+            all_relays,
             signer_client,
             event_publisher: maybe_publiher,
+            muxes,
         },
         cb_config.pbs.extra,
     ))

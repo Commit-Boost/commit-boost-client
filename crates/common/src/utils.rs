@@ -1,4 +1,7 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    net::Ipv4Addr,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use alloy::{
     primitives::U256,
@@ -15,16 +18,18 @@ use tracing_appender::{non_blocking::WorkerGuard, rolling::Rotation};
 use tracing_subscriber::{fmt::Layer, prelude::*, EnvFilter};
 
 use crate::{
-    config::{LogsSettings, LOGS_DIR_DEFAULT, PBS_MODULE_NAME},
+    config::{load_optional_env_var, LogsSettings, LOGS_DIR_DEFAULT, PBS_MODULE_NAME},
     pbs::HEADER_VERSION_VALUE,
     types::Chain,
 };
 
 const MILLIS_PER_SECOND: u64 = 1_000;
 
+pub fn timestamp_of_slot_start_sec(slot: u64, chain: Chain) -> u64 {
+    chain.genesis_time_sec() + slot * chain.slot_time_sec()
+}
 pub fn timestamp_of_slot_start_millis(slot: u64, chain: Chain) -> u64 {
-    let seconds_since_genesis = chain.genesis_time_sec() + slot * chain.slot_time_sec();
-    seconds_since_genesis * MILLIS_PER_SECOND
+    timestamp_of_slot_start_sec(slot, chain) * MILLIS_PER_SECOND
 }
 pub fn ms_into_slot(slot: u64, chain: Chain) -> u64 {
     let slot_start_ms = timestamp_of_slot_start_millis(slot, chain);
@@ -49,11 +54,7 @@ pub fn utcnow_ns() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() as u64
 }
 
-// Formatting
-const WEI_PER_ETH: u64 = 1_000_000_000_000_000_000;
-pub fn wei_to_eth(wei: &U256) -> f64 {
-    wei.to_string().parse::<f64>().unwrap_or_default() / WEI_PER_ETH as f64
-}
+pub const WEI_PER_ETH: u64 = 1_000_000_000_000_000_000;
 pub fn eth_to_wei(eth: f64) -> U256 {
     U256::from((eth * WEI_PER_ETH as f64).floor())
 }
@@ -96,16 +97,19 @@ pub mod as_str {
 }
 
 pub mod as_eth_str {
-    use alloy::primitives::U256;
+    use alloy::primitives::{
+        utils::{format_ether, parse_ether},
+        U256,
+    };
     use serde::Deserialize;
 
-    use super::{eth_to_wei, wei_to_eth};
+    use super::eth_to_wei;
 
     pub fn serialize<S>(data: &U256, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        let s = wei_to_eth(data).to_string();
+        let s = format_ether(*data);
         serializer.serialize_str(&s)
     }
 
@@ -113,8 +117,22 @@ pub mod as_eth_str {
     where
         D: serde::Deserializer<'de>,
     {
-        let s = f64::deserialize(deserializer)?;
-        Ok(eth_to_wei(s))
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum StringOrF64 {
+            Str(String),
+            F64(f64),
+        }
+
+        let value = StringOrF64::deserialize(deserializer)?;
+        let wei = match value {
+            StringOrF64::Str(s) => {
+                parse_ether(&s).map_err(|_| serde::de::Error::custom("invalid eth amount"))?
+            }
+            StringOrF64::F64(f) => eth_to_wei(f),
+        };
+
+        Ok(wei)
     }
 }
 
@@ -122,8 +140,16 @@ pub const fn default_u64<const U: u64>() -> u64 {
     U
 }
 
+pub const fn default_u16<const U: u16>() -> u16 {
+    U
+}
+
 pub const fn default_bool<const U: bool>() -> bool {
     U
+}
+
+pub const fn default_host() -> Ipv4Addr {
+    Ipv4Addr::LOCALHOST
 }
 
 pub const fn default_u256() -> U256 {
@@ -139,13 +165,13 @@ pub fn initialize_tracing_log(module_id: &str) -> eyre::Result<WorkerGuard> {
     let settings = settings.unwrap_or_default();
 
     // Log level for stdout
-    let stdout_log_level = match settings.log_level.parse::<Level>() {
-        Ok(f) => f,
-        Err(_) => {
-            eprintln!("Invalid RUST_LOG value {}, defaulting to info", settings.log_level);
-            Level::INFO
-        }
+
+    let stdout_log_level = if let Some(log_level) = load_optional_env_var("RUST_LOG") {
+        log_level.parse::<Level>().expect("invalid RUST_LOG value")
+    } else {
+        settings.log_level.parse::<Level>().expect("invalid log_level value in settings")
     };
+
     let stdout_filter = format_crates_filter(Level::INFO.as_str(), stdout_log_level.as_str());
 
     if use_file_logs {
