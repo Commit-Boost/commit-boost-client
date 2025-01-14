@@ -17,6 +17,7 @@ reqwest.workspace = true
 
 # async / threads
 tokio.workspace = true
+async-trait.workspace = true
 
 # serialization
 toml.workspace = true
