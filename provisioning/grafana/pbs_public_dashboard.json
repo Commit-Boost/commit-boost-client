@@ -15,7 +15,7 @@
       "type": "grafana",
       "id": "grafana",
       "name": "Grafana",
-      "version": "11.1.0"
+      "version": "11.3.1"
     },
     {
       "type": "datasource",
@@ -67,6 +67,118 @@
       "fieldConfig": {
         "defaults": {
           "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 79,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "text": {
+          "titleSize": 25
+        },
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.3.1",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "cb_pbs_info",
+          "legendFormat": "__auto",
+          "range": true,
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_CB_PROMETHEUS}"
+          }
+        }
+      ],
+      "title": "Info",
+      "transformations": [
+        {
+          "id": "reduce",
+          "options": {
+            "includeTimeField": false,
+            "labelsToFields": true,
+            "mode": "seriesToRows",
+            "reducers": [
+              "lastNotNull"
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Field": true,
+              "Last *": true,
+              "__name__": true,
+              "instance": true,
+              "job": true
+            },
+            "includeByName": {},
+            "indexByName": {
+              "Field": 0,
+              "Last *": 7,
+              "__name__": 1,
+              "commit": 4,
+              "instance": 5,
+              "job": 6,
+              "network": 2,
+              "version": 3
+            },
+            "renameByName": {
+              "commit": "Commit hash",
+              "network": "Network",
+              "version": "Version"
+            }
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_CB_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
             "fixedColor": "red",
             "mode": "thresholds"
           },
@@ -92,7 +204,7 @@
         "h": 11,
         "w": 6,
         "x": 0,
-        "y": 0
+        "y": 6
       },
       "id": 61,
       "options": {
@@ -112,7 +224,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "11.1.0",
+      "pluginVersion": "11.3.1",
       "targets": [
         {
           "datasource": {
@@ -167,7 +279,7 @@
         "h": 11,
         "w": 6,
         "x": 6,
-        "y": 0
+        "y": 6
       },
       "id": 78,
       "options": {
@@ -187,7 +299,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "11.1.0",
+      "pluginVersion": "11.3.1",
       "targets": [
         {
           "datasource": {
@@ -217,12 +329,11 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 11
+        "y": 17
       },
       "id": 12,
       "panels": [],
       "repeat": "endpoint",
-      "repeatDirection": "h",
       "title": "$endpoint calls",
       "type": "row"
     },
@@ -243,6 +354,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -293,7 +405,7 @@
         "h": 11,
         "w": 6,
         "x": 0,
-        "y": 12
+        "y": 18
       },
       "id": 11,
       "options": {
@@ -308,6 +420,7 @@
           "sort": "none"
         }
       },
+      "pluginVersion": "11.3.1",
       "targets": [
         {
           "datasource": {
@@ -342,6 +455,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -392,7 +506,7 @@
         "h": 11,
         "w": 6,
         "x": 6,
-        "y": 12
+        "y": 18
       },
       "id": 13,
       "options": {
@@ -407,6 +521,7 @@
           "sort": "none"
         }
       },
+      "pluginVersion": "11.3.1",
       "targets": [
         {
           "datasource": {
@@ -441,6 +556,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -491,7 +607,7 @@
         "h": 11,
         "w": 6,
         "x": 12,
-        "y": 12
+        "y": 18
       },
       "id": 43,
       "options": {
@@ -506,6 +622,7 @@
           "sort": "none"
         }
       },
+      "pluginVersion": "11.3.1",
       "targets": [
         {
           "datasource": {
@@ -540,6 +657,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -590,7 +708,7 @@
         "h": 11,
         "w": 6,
         "x": 18,
-        "y": 12
+        "y": 18
       },
       "id": 44,
       "options": {
@@ -605,6 +723,7 @@
           "sort": "none"
         }
       },
+      "pluginVersion": "11.3.1",
       "targets": [
         {
           "datasource": {
@@ -639,6 +758,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -690,7 +810,7 @@
         "h": 11,
         "w": 6,
         "x": 0,
-        "y": 23
+        "y": 29
       },
       "id": 20,
       "options": {
@@ -705,6 +825,7 @@
           "sort": "none"
         }
       },
+      "pluginVersion": "11.3.1",
       "targets": [
         {
           "datasource": {
@@ -743,6 +864,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -794,7 +916,7 @@
         "h": 11,
         "w": 6,
         "x": 6,
-        "y": 23
+        "y": 29
       },
       "id": 29,
       "options": {
@@ -809,6 +931,7 @@
           "sort": "none"
         }
       },
+      "pluginVersion": "11.3.1",
       "targets": [
         {
           "datasource": {
@@ -847,6 +970,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -898,7 +1022,7 @@
         "h": 11,
         "w": 6,
         "x": 12,
-        "y": 23
+        "y": 29
       },
       "id": 30,
       "options": {
@@ -913,6 +1037,7 @@
           "sort": "none"
         }
       },
+      "pluginVersion": "11.3.1",
       "targets": [
         {
           "datasource": {
@@ -936,27 +1061,19 @@
     }
   ],
   "refresh": "5m",
-  "schemaVersion": 39,
+  "schemaVersion": 40,
   "tags": [],
   "templating": {
     "list": [
       {
         "current": {
-          "selected": false,
-          "text": "All",
+          "text": "$__all",
           "value": "$__all"
         },
         "description": "BuilderAPI endpoint",
-        "hide": 0,
         "includeAll": true,
-        "multi": false,
         "name": "endpoint",
         "options": [
-          {
-            "selected": true,
-            "text": "All",
-            "value": "$__all"
-          },
           {
             "selected": false,
             "text": "register_validator",
@@ -974,8 +1091,6 @@
           }
         ],
         "query": "register_validator, get_header, submit_blinded_block",
-        "queryValue": "",
-        "skipUrlSync": false,
         "type": "custom"
       }
     ]
@@ -988,6 +1103,6 @@
   "timezone": "browser",
   "title": "PBS Metrics",
   "uid": "cb_pbs_metrics",
-  "version": 1,
+  "version": 4,
   "weekStart": ""
 }

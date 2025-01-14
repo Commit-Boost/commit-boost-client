@@ -1,8 +1,9 @@
 use std::time::Duration;
 
 use cb_common::{
-    constants::COMMIT_BOOST_VERSION,
+    constants::{COMMIT_BOOST_COMMIT, COMMIT_BOOST_VERSION},
     pbs::{BUILDER_API_PATH, GET_STATUS_PATH},
+    types::Chain,
 };
 use cb_metrics::provider::MetricsProvider;
 use eyre::{bail, Context, Result};
@@ -25,7 +26,7 @@ impl PbsService {
         let addr = state.config.endpoint;
         let events_subs =
             state.config.event_publisher.as_ref().map(|e| e.n_subscribers()).unwrap_or_default();
-        info!(version = COMMIT_BOOST_VERSION, ?addr, events_subs, chain =? state.config.chain, "starting PBS service");
+        info!(version = COMMIT_BOOST_VERSION, commit = COMMIT_BOOST_COMMIT, ?addr, events_subs, chain =? state.config.chain, "starting PBS service");
 
         let app = create_app_router::<S, A>(state);
         let listener = TcpListener::bind(addr).await?;
@@ -52,7 +53,7 @@ impl PbsService {
         PBS_METRICS_REGISTRY.register(c).expect("failed to register metric");
     }
 
-    pub fn init_metrics() -> Result<()> {
-        MetricsProvider::load_and_run(PBS_METRICS_REGISTRY.clone())
+    pub fn init_metrics(network: Chain) -> Result<()> {
+        MetricsProvider::load_and_run(network, PBS_METRICS_REGISTRY.clone())
     }
 }
