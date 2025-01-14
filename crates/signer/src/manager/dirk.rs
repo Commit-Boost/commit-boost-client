@@ -6,12 +6,13 @@ use cb_common::{
     config::DirkConfig,
     constants::COMMIT_BOOST_DOMAIN,
     signature::compute_domain,
-    signer::{BlsPublicKey, BlsSignature},
+    signer::{BlsPublicKey, BlsSignature, ProxyStore},
     types::{Chain, ModuleId},
 };
 use rand::Rng;
 use tonic::transport::{Channel, ClientTlsConfig};
 use tracing::info;
+use tree_hash::TreeHash;
 
 use crate::proto::v1::{
     account_manager_client::AccountManagerClient, lister_client::ListerClient,
@@ -26,6 +27,7 @@ pub struct DirkManager {
     wallets: Vec<String>,
     unlock: bool,
     secrets_path: PathBuf,
+    proxy_store: Option<ProxyStore>,
 }
 
 impl DirkManager {
@@ -54,7 +56,12 @@ impl DirkManager {
             wallets: config.wallets,
             unlock: config.unlock,
             secrets_path: config.secrets_path,
+            proxy_store: None,
         })
+    }
+
+    pub fn with_proxy_store(self, proxy_store: ProxyStore) -> eyre::Result<Self> {
+        Ok(Self { proxy_store: Some(proxy_store), ..self })
     }
 
     async fn get_all_accounts(&self) -> eyre::Result<Vec<DirkAccount>> {
@@ -248,10 +255,16 @@ impl DirkManager {
 
         self.unlock_account(account_name, new_password).await?;
 
-        Ok(SignedProxyDelegation {
-            message: ProxyDelegation { delegator: consensus_pubkey, proxy: proxy_key },
-            signature: BlsSignature::ZERO,
-        })
+        let message = ProxyDelegation { delegator: consensus_pubkey, proxy: proxy_key };
+        let signature =
+            self.request_signature(consensus_pubkey, message.tree_hash_root().0).await?;
+        let delegation = SignedProxyDelegation { message, signature };
+
+        if let Some(store) = &self.proxy_store {
+            store.store_proxy_bls_delegation(&module_id, &delegation)?;
+        }
+
+        Ok(delegation)
     }
 
     pub async fn request_signature(

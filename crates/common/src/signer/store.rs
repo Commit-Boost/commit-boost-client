@@ -153,6 +153,32 @@ impl ProxyStore {
         Ok(())
     }
 
+    pub fn store_proxy_bls_delegation(
+        &self,
+        module_id: &ModuleId,
+        delegation: &SignedProxyDelegation<BlsPublicKey>,
+    ) -> eyre::Result<()> {
+        let base_path = match self {
+            ProxyStore::File { proxy_dir } => proxy_dir,
+            ProxyStore::ERC2335 { keys_path, .. } => keys_path,
+        };
+        let file_path = base_path
+            .join("delegations")
+            .join(module_id.to_string())
+            .join("bls")
+            .join(delegation.message.proxy.to_string());
+        let content = serde_json::to_vec(&delegation)?;
+
+        if let Some(parent) = file_path.parent() {
+            create_dir_all(parent)?;
+        }
+
+        let mut file = std::fs::File::create(file_path)?;
+        file.write_all(content.as_ref())?;
+
+        Ok(())
+    }
+
     #[allow(clippy::type_complexity)]
     pub fn load_proxies(
         &self,

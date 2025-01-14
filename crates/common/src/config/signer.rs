@@ -66,6 +66,8 @@ pub enum SignerType {
         /// Whether to unlock the accounts in case they are locked
         #[serde(default)]
         unlock: bool,
+        /// How to store proxy keys
+        store: Option<ProxyStore>,
     },
 }
 
@@ -118,6 +120,7 @@ impl StartSignerConfig {
                 ca_cert_path,
                 server_domain,
                 unlock,
+                store,
                 ..
             } => {
                 let cert_path = load_env_var(DIRK_CERT_ENV).map(PathBuf::from).unwrap_or(cert_path);
@@ -132,7 +135,7 @@ impl StartSignerConfig {
                     server_port,
                     jwts,
                     loader: None,
-                    store: None,
+                    store,
                     dirk: Some(DirkConfig {
                         url,
                         wallets,

@@ -59,12 +59,17 @@ impl SigningService {
         let module_ids: Vec<String> = config.jwts.left_values().cloned().map(Into::into).collect();
 
         let state = match config.dirk {
-            Some(dirk) => SigningState {
-                manager: SigningManager::Dirk(
-                    DirkManager::new_from_config(config.chain, dirk).await?,
-                ),
-                jwts: config.jwts.into(),
-            },
+            Some(dirk) => {
+                let mut dirk_manager = DirkManager::new_from_config(config.chain, dirk).await?;
+                if let Some(store) = config.store {
+                    dirk_manager = dirk_manager.with_proxy_store(store.init_from_env()?)?;
+                }
+
+                SigningState {
+                    manager: SigningManager::Dirk(dirk_manager),
+                    jwts: config.jwts.into(),
+                }
+            }
             None => {
                 let proxy_store = if let Some(store) = config.store {
                     Some(store.init_from_env()?)
