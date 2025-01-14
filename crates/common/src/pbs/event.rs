@@ -1,8 +1,8 @@
 use std::net::SocketAddr;
 
 use alloy::{primitives::B256, rpc::types::beacon::relay::ValidatorRegistration};
+use async_trait::async_trait;
 use axum::{
-    async_trait,
     extract::State,
     response::{IntoResponse, Response},
     routing::post,

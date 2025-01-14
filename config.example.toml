@@ -114,9 +114,11 @@ validator_pubkeys = [
 # Path to a file containing a list of validator pubkeys or details of a registry to load keys from.
 # Supported registries:
 #   - Lido: NodeOperatorsRegistry
+#   - SSV: SSV API
 # OPTIONAL
 loader = "./tests/data/mux_keys.example.json"
 # loader = { registry = "lido", node_operator_id = 8 }
+# loader = { registry = "ssv", node_operator_id = 8 }
 timeout_get_header_ms = 900
 late_in_slot_time_ms = 1500
 # For each mux, one or more [[mux.relays]] can be defined, which will be used for the matching validator pubkeys

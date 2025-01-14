@@ -32,7 +32,7 @@ pub async fn register_validator<S: BuilderApiState>(
         .insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from_str(&utcnow_ms().to_string())?);
     send_headers.insert(USER_AGENT, get_user_agent_with_version(&req_headers)?);
 
-    let relays = state.relays().to_vec();
+    let relays = state.all_relays().to_vec();
     let mut handles = Vec::with_capacity(relays.len());
     for relay in relays {
         handles.push(tokio::spawn(
