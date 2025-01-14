@@ -35,7 +35,7 @@ pub async fn handle_reload<S: BuilderApiState, A: BuilderApi<S>>(
         Err(err) => {
             error!(%err, "config reload failed");
 
-            let err = PbsClientError::Internal("Config reload failed".to_string());
+            let err = PbsClientError::Internal;
             BEACON_NODE_STATUS
                 .with_label_values(&[err.status_code().as_str(), RELOAD_ENDPOINT_TAG])
                 .inc();
