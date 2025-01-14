@@ -21,10 +21,10 @@ pub fn create_app_router<S: BuilderApiState, A: BuilderApi<S>>(state: PbsStateGu
         .route(GET_HEADER_PATH, get(handle_get_header::<S, A>))
         .route(GET_STATUS_PATH, get(handle_get_status::<S, A>))
         .route(REGISTER_VALIDATOR_PATH, post(handle_register_validator::<S, A>))
-        .route(SUBMIT_BLOCK_PATH, post(handle_submit_block::<S, A>))
-        .route(RELOAD_PATH, post(handle_reload::<S, A>));
+        .route(SUBMIT_BLOCK_PATH, post(handle_submit_block::<S, A>));
+    let reload_router = Router::new().route(RELOAD_PATH, post(handle_reload::<S, A>));
 
-    let builder_api = Router::new().nest(BUILDER_API_PATH, builder_routes);
+    let builder_api = Router::new().nest(BUILDER_API_PATH, builder_routes).merge(reload_router);
 
     let app = if let Some(extra_routes) = A::extra_routes() {
         builder_api.merge(extra_routes)
