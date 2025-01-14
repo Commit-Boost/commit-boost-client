@@ -450,7 +450,7 @@ pub async fn handle_docker_init(config_path: String, output_dir: String) -> Resu
                 services.insert("cb_signer".to_owned(), Some(signer_service));
             }
         }
-        SignerType::Dirk { cert_path, key_path, secrets_path, ca_cert_path, .. } => {
+        SignerType::Dirk { cert_path, key_path, secrets_path, ca_cert_path, store, .. } => {
             if needs_signer_module {
                 if metrics_enabled {
                     targets.push(PrometheusTargetConfig {
@@ -505,6 +505,22 @@ pub async fn handle_docker_init(config_path: String, output_dir: String) -> Resu
                     )));
                     let (key, val) = get_env_val(DIRK_CA_CERT_ENV, DIRK_CA_CERT_DEFAULT);
                     signer_envs.insert(key, val);
+                }
+
+                match store {
+                    Some(ProxyStore::File { proxy_dir }) => {
+                        volumes.push(Volumes::Simple(format!(
+                            "{}:{}",
+                            proxy_dir.display(),
+                            PROXY_DIR_DEFAULT
+                        )));
+                        let (key, val) = get_env_val(PROXY_DIR_ENV, PROXY_DIR_DEFAULT);
+                        signer_envs.insert(key, val);
+                    }
+                    Some(ProxyStore::ERC2335 { .. }) => {
+                        panic!("ERC2335 store not supported with Dirk signer");
+                    }
+                    None => {}
                 }
 
                 // networks
