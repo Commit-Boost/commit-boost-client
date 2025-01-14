@@ -5,6 +5,7 @@ info:
   description: API that allows commit modules to request generic signatures from validators
 tags:
   - name: Signer
+  - name: Management
 paths:
   /signer/v1/get_pubkeys:
     get:
@@ -254,13 +255,24 @@ paths:
                     type: string
                     example: "Internal error"
 
-  /signer/v1/reload:
+  /status:
+    get:
+      summary: Get the status of the Signer API module
+      tags:
+        - Management
+      responses:
+        "200":
+          description: Success
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "OK"
+  /reload:
     post:
       summary: Reload the signer with the latest configuration in the config file
       tags:
-        - Signer
-      security:
-        - BearerAuth: []
+        - Management
       responses:
         "200":
           description: Success
