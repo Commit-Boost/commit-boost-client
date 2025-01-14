@@ -67,6 +67,118 @@
       "fieldConfig": {
         "defaults": {
           "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 79,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "text": {
+          "titleSize": 25
+        },
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.3.1",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "cb_signer_info",
+          "legendFormat": "__auto",
+          "range": true,
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_CB_PROMETHEUS}"
+          }
+        }
+      ],
+      "title": "Info",
+      "transformations": [
+        {
+          "id": "reduce",
+          "options": {
+            "includeTimeField": false,
+            "labelsToFields": true,
+            "mode": "seriesToRows",
+            "reducers": [
+              "lastNotNull"
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Field": true,
+              "Last *": true,
+              "__name__": true,
+              "instance": true,
+              "job": true
+            },
+            "includeByName": {},
+            "indexByName": {
+              "Field": 0,
+              "Last *": 7,
+              "__name__": 1,
+              "commit": 4,
+              "instance": 5,
+              "job": 6,
+              "network": 2,
+              "version": 3
+            },
+            "renameByName": {
+              "commit": "Commit hash",
+              "network": "Network",
+              "version": "Version"
+            }
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_CB_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
             "fixedColor": "red",
             "mode": "thresholds"
           },
@@ -88,7 +200,7 @@
         "h": 6,
         "w": 6,
         "x": 0,
-        "y": 0
+        "y": 6
       },
       "id": 21,
       "options": {
@@ -160,7 +272,7 @@
         "h": 6,
         "w": 6,
         "x": 6,
-        "y": 0
+        "y": 6
       },
       "id": 22,
       "options": {
@@ -209,7 +321,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 6
+        "y": 12
       },
       "id": 23,
       "panels": [],
@@ -285,7 +397,7 @@
         "h": 11,
         "w": 12,
         "x": 0,
-        "y": 7
+        "y": 13
       },
       "id": 24,
       "options": {
@@ -386,7 +498,7 @@
         "h": 11,
         "w": 12,
         "x": 12,
-        "y": 7
+        "y": 13
       },
       "id": 25,
       "options": {
@@ -463,6 +575,6 @@
   "timezone": "browser",
   "title": "Signer Metrics",
   "uid": "cb_signer_metrics",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }

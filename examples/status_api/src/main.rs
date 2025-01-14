@@ -82,13 +82,14 @@ async fn main() -> Result<()> {
     color_eyre::install()?;
 
     let (pbs_config, extra) = load_pbs_custom_config::<ExtraConfig>().await?;
+    let chain = pbs_config.chain;
     let _guard = initialize_pbs_tracing_log()?;
 
     let custom_state = MyBuilderState::from_config(extra);
     let state = PbsState::new(pbs_config).with_data(custom_state);
 
     PbsService::register_metric(Box::new(CHECK_RECEIVED_COUNTER.clone()));
-    PbsService::init_metrics()?;
+    PbsService::init_metrics(chain)?;
 
     PbsService::run::<MyBuilderState, MyBuilderApi>(state).await
 }

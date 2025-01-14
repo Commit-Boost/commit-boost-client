@@ -105,7 +105,7 @@ async fn main() -> Result<()> {
     // Remember to register all your metrics before starting the process
     MY_CUSTOM_REGISTRY.register(Box::new(SIG_RECEIVED_COUNTER.clone()))?;
     // Spin up a server that exposes the /metrics endpoint to Prometheus
-    MetricsProvider::load_and_run(MY_CUSTOM_REGISTRY.clone())?;
+    MetricsProvider::load_and_run(Chain::Mainnet, MY_CUSTOM_REGISTRY.clone())?;
 
     match load_commit_module_config::<ExtraConfig>() {
         Ok(config) => {
