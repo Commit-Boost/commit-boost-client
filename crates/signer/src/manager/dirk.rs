@@ -11,7 +11,7 @@ use cb_common::{
 };
 use rand::Rng;
 use tonic::transport::{Channel, ClientTlsConfig};
-use tracing::info;
+use tracing::{info, trace};
 use tree_hash::TreeHash;
 
 use crate::{
@@ -57,6 +57,8 @@ impl DirkManager {
         if let Some(server_domain) = config.server_domain {
             tls_config = tls_config.domain_name(server_domain);
         }
+
+        trace!(url=%config.url, "Stablishing connection with Dirk");
 
         let channel = Channel::from_shared(config.url.to_string())
             .map_err(|_| eyre::eyre!("Invalid Dirk URL"))?
@@ -293,6 +295,8 @@ impl DirkManager {
         account: String,
         password: String,
     ) -> Result<(), SignerModuleError> {
+        trace!(account, "Sending AccountManager/Unlock request to Dirk");
+
         let mut client = AccountManagerClient::new(self.channel.clone());
         let unlock_request = tonic::Request::new(UnlockAccountRequest {
             account: account.clone(),
@@ -335,6 +339,8 @@ impl DirkManager {
 
         let account_name = format!("{consensus_account}/{module_id}/{uuid}");
         let new_password = Self::random_password();
+
+        trace!(account = account_name, "Sending AccountManager/Generate request to Dirk");
 
         let mut client = AccountManagerClient::new(self.channel.clone());
         let generate_request = tonic::Request::new(GenerateRequest {
@@ -383,6 +389,13 @@ impl DirkManager {
     ) -> Result<BlsSignature, SignerModuleError> {
         let domain = compute_domain(self.chain, COMMIT_BOOST_DOMAIN);
 
+        trace!(
+            %pubkey,
+            object_root = hex::encode(object_root),
+            domain = hex::encode(domain),
+            "Sending Signer/Sign request to Dirk"
+        );
+
         let mut signer_client = SignerClient::new(self.channel.clone());
         let sign_request = tonic::Request::new(SignRequest {
             id: Some(SignerId::PublicKey(pubkey.to_vec())),
@@ -409,6 +422,13 @@ impl DirkManager {
                     self.read_password(account_name.clone())?,
                 )
                 .await?;
+
+                trace!(
+                    %pubkey,
+                    object_root = hex::encode(object_root),
+                    domain = hex::encode(domain),
+                    "Sending Signer/Sign request to Dirk"
+                );
 
                 let sign_request = tonic::Request::new(SignRequest {
                     id: Some(SignerId::PublicKey(pubkey.to_vec())),
@@ -439,6 +459,8 @@ async fn get_accounts_in_wallets(
     channel: Channel,
     wallets: Vec<String>,
 ) -> Result<Vec<DirkAccount>, SignerModuleError> {
+    trace!(?wallets, "Sending Lister/ListAccounts request to Dirk");
+
     let mut client = ListerClient::new(channel);
     let pubkeys_request = tonic::Request::new(ListAccountsRequest { paths: wallets });
     let pubkeys_response = client
