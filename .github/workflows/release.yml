@@ -37,6 +37,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: "stable"
+          fetch-depth: 0
+
+      - name: Log commit hash
+        run: |
+          echo "Releasing commit: $(git rev-parse HEAD)"
 
       - name: Cache Cargo registry
         uses: actions/cache@v3
@@ -94,7 +99,7 @@ jobs:
           7z a ${{ matrix.name }}-${{ github.ref_name }}-${{ matrix.target }}.zip target\${{ matrix.target }}\release\${{ matrix.name }}.exe
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}-${{ github.ref_name }}-${{ matrix.target }}
           path: |
@@ -107,6 +112,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: "stable"
+          fetch-depth: 0
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -141,6 +147,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: "stable"
+          fetch-depth: 0
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -176,7 +183,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           path: ./artifacts
 

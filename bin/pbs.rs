@@ -18,8 +18,8 @@ async fn main() -> Result<()> {
 
     let pbs_config = load_pbs_config().await?;
 
+    PbsService::init_metrics(pbs_config.chain)?;
     let state = PbsState::new(pbs_config);
-    PbsService::init_metrics()?;
     let server = PbsService::run::<_, DefaultBuilderApi>(state);
 
     tokio::select! {
