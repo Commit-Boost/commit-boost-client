@@ -130,6 +130,10 @@ impl StartSignerConfig {
                 let ca_cert_path =
                     load_env_var(DIRK_CA_CERT_ENV).map(PathBuf::from).ok().or(ca_cert_path);
 
+                if let Some(ProxyStore::ERC2335 { .. }) = store {
+                    bail!("ERC2335 store is not supported with Dirk signer")
+                }
+
                 Ok(StartSignerConfig {
                     chain: config.chain,
                     server_port,
