@@ -85,19 +85,19 @@ impl Display for SignRequest {
                 f,
                 "Consensus(pubkey: {}, object_root: {})",
                 req.pubkey,
-                hex::encode(&req.object_root)
+                hex::encode(req.object_root)
             ),
             SignRequest::ProxyBls(req) => write!(
                 f,
                 "BLS(pubkey: {}, object_root: {})",
                 req.pubkey,
-                hex::encode(&req.object_root)
+                hex::encode(req.object_root)
             ),
             SignRequest::ProxyEcdsa(req) => write!(
                 f,
                 "ECDSA(pubkey: {}, object_root: {})",
                 req.pubkey,
-                hex::encode(&req.object_root)
+                hex::encode(req.object_root)
             ),
         }
     }
