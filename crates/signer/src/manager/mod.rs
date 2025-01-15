@@ -5,6 +5,8 @@ use dirk::DirkManager;
 use local::LocalSigningManager;
 use tokio::sync::RwLock;
 
+use crate::error::SignerModuleError;
+
 pub mod dirk;
 pub mod local;
 
@@ -40,7 +42,7 @@ impl SigningManager {
     pub async fn get_consensus_proxy_maps(
         &self,
         module_id: &ModuleId,
-    ) -> eyre::Result<Vec<ConsensusProxyMap>> {
+    ) -> Result<Vec<ConsensusProxyMap>, SignerModuleError> {
         match self {
             SigningManager::Local(local_manager) => {
                 local_manager.read().await.get_consensus_proxy_maps(module_id)

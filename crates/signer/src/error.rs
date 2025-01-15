@@ -16,23 +16,32 @@ pub enum SignerModuleError {
     #[error("unknown proxy signer: 0x{}", hex::encode(.0))]
     UnknownProxySigner(Vec<u8>),
 
+    #[error("Dirk communication error: {0}")]
+    DirkCommunicationError(String),
+
     #[error("Dirk signer does not support this operation")]
     DirkNotSupported,
 
-    #[error("internal error {0}")]
+    #[error("internal error: {0}")]
     Internal(String),
 }
 
 impl IntoResponse for SignerModuleError {
     fn into_response(self) -> Response {
-        let status = match self {
-            SignerModuleError::Unauthorized => StatusCode::UNAUTHORIZED,
-            SignerModuleError::UnknownConsensusSigner(_) => StatusCode::NOT_FOUND,
-            SignerModuleError::UnknownProxySigner(_) => StatusCode::NOT_FOUND,
-            SignerModuleError::DirkNotSupported => StatusCode::BAD_REQUEST,
-            SignerModuleError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
-        };
-
-        (status, self.to_string()).into_response()
+        match self {
+            SignerModuleError::Unauthorized => (StatusCode::UNAUTHORIZED, self.to_string()),
+            SignerModuleError::UnknownConsensusSigner(_) => {
+                (StatusCode::NOT_FOUND, self.to_string())
+            }
+            SignerModuleError::UnknownProxySigner(_) => (StatusCode::NOT_FOUND, self.to_string()),
+            SignerModuleError::DirkCommunicationError(_) => {
+                (StatusCode::BAD_GATEWAY, "Dirk communication error".to_string())
+            }
+            SignerModuleError::DirkNotSupported => (StatusCode::BAD_REQUEST, self.to_string()),
+            SignerModuleError::Internal(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string())
+            }
+        }
+        .into_response()
     }
 }

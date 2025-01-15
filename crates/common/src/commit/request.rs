@@ -3,7 +3,7 @@ use std::{
     str::FromStr,
 };
 
-use alloy::rpc::types::beacon::BlsSignature;
+use alloy::{hex, rpc::types::beacon::BlsSignature};
 use derive_more::derive::From;
 use serde::{Deserialize, Serialize};
 use tree_hash::TreeHash;
@@ -76,6 +76,31 @@ pub enum SignRequest {
     Consensus(SignConsensusRequest),
     ProxyBls(SignProxyRequest<BlsPublicKey>),
     ProxyEcdsa(SignProxyRequest<EcdsaPublicKey>),
+}
+
+impl Display for SignRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SignRequest::Consensus(req) => write!(
+                f,
+                "Consensus(pubkey: {}, object_root: {})",
+                req.pubkey,
+                hex::encode(&req.object_root)
+            ),
+            SignRequest::ProxyBls(req) => write!(
+                f,
+                "BLS(pubkey: {}, object_root: {})",
+                req.pubkey,
+                hex::encode(&req.object_root)
+            ),
+            SignRequest::ProxyEcdsa(req) => write!(
+                f,
+                "ECDSA(pubkey: {}, object_root: {})",
+                req.pubkey,
+                hex::encode(&req.object_root)
+            ),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

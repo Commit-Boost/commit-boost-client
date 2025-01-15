@@ -14,10 +14,13 @@ use tonic::transport::{Channel, ClientTlsConfig};
 use tracing::info;
 use tree_hash::TreeHash;
 
-use crate::proto::v1::{
-    account_manager_client::AccountManagerClient, lister_client::ListerClient,
-    sign_request::Id as SignerId, signer_client::SignerClient, Account as DirkAccount,
-    GenerateRequest, ListAccountsRequest, ResponseState, SignRequest, UnlockAccountRequest,
+use crate::{
+    error::SignerModuleError::{self, DirkCommunicationError},
+    proto::v1::{
+        account_manager_client::AccountManagerClient, lister_client::ListerClient,
+        sign_request::Id as SignerId, signer_client::SignerClient, Account as DirkAccount,
+        GenerateRequest, ListAccountsRequest, ResponseState, SignRequest, UnlockAccountRequest,
+    },
 };
 
 #[derive(Clone, Debug)]
@@ -119,7 +122,7 @@ impl DirkManager {
     }
 
     /// Get all available accounts in the `self.accounts` wallets
-    async fn get_all_accounts(&self) -> eyre::Result<Vec<DirkAccount>> {
+    async fn get_all_accounts(&self) -> Result<Vec<DirkAccount>, SignerModuleError> {
         get_accounts_in_wallets(
             self.channel.clone(),
             self.accounts.iter().map(|account| account.wallet.clone()).collect::<Vec<String>>(),
@@ -130,7 +133,10 @@ impl DirkManager {
     /// Get the complete account name (`wallet/account`) for a public key.
     /// Returns `Ok(None)` if the account was not found.
     /// Returns `Err` if there was a communication error with Dirk.
-    async fn get_pubkey_account(&self, pubkey: BlsPublicKey) -> eyre::Result<Option<String>> {
+    async fn get_pubkey_account(
+        &self,
+        pubkey: BlsPublicKey,
+    ) -> Result<Option<String>, SignerModuleError> {
         match self
             .accounts
             .iter()
@@ -209,7 +215,7 @@ impl DirkManager {
     pub async fn get_consensus_proxy_maps(
         &self,
         module_id: &ModuleId,
-    ) -> eyre::Result<Vec<ConsensusProxyMap>> {
+    ) -> Result<Vec<ConsensusProxyMap>, SignerModuleError> {
         let accounts = self.get_all_accounts().await?;
 
         let mut proxy_maps = Vec::new();
@@ -249,32 +255,57 @@ impl DirkManager {
     }
 
     /// Read the password for an account from a file
-    fn read_password(&self, account: String) -> eyre::Result<String> {
-        fs::read_to_string(self.secrets_path.join(account))
-            .map_err(|e| eyre::eyre!("Couldn't read password: {e}"))
+    fn read_password(&self, account: String) -> Result<String, SignerModuleError> {
+        fs::read_to_string(self.secrets_path.join(account.clone())).map_err(|err| {
+            SignerModuleError::Internal(format!(
+                "error reading password for account '{account}': {err}"
+            ))
+        })
     }
 
     /// Store the password for an account in a file
-    fn store_password(&self, account: String, password: String) -> eyre::Result<()> {
-        fs::create_dir_all(
-            self.secrets_path
-                .join(account.rsplit_once("/").ok_or(eyre::eyre!("Invalid account name"))?.0),
-        )
-        .map_err(|e| eyre::eyre!("Couldn't write password: {e}"))?;
-        fs::write(self.secrets_path.join(account), password)
-            .map_err(|e| eyre::eyre!("Couldn't write password: {e}"))
+    fn store_password(&self, account: String, password: String) -> Result<(), SignerModuleError> {
+        let account_dir = self
+            .secrets_path
+            .join(
+                account
+                    .rsplit_once("/")
+                    .ok_or(SignerModuleError::Internal(format!(
+                        "account name '{account}' is invalid"
+                    )))?
+                    .0,
+            )
+            .to_string_lossy()
+            .to_string();
+
+        fs::create_dir_all(account_dir.clone()).map_err(|err| {
+            SignerModuleError::Internal(format!("error creating dir '{account_dir}': {err}"))
+        })?;
+        fs::write(self.secrets_path.join(account.clone()), password).map_err(|err| {
+            SignerModuleError::Internal(format!(
+                "error writing password for account '{account}': {err}"
+            ))
+        })
     }
 
-    async fn unlock_account(&self, account: String, password: String) -> eyre::Result<()> {
+    async fn unlock_account(
+        &self,
+        account: String,
+        password: String,
+    ) -> Result<(), SignerModuleError> {
         let mut client = AccountManagerClient::new(self.channel.clone());
         let unlock_request = tonic::Request::new(UnlockAccountRequest {
-            account,
+            account: account.clone(),
             passphrase: password.as_bytes().to_vec(),
         });
 
-        let unlock_response = client.unlock(unlock_request).await?;
+        let unlock_response = client.unlock(unlock_request).await.map_err(|err| {
+            DirkCommunicationError(format!("error unlocking account '{account}': {err}"))
+        })?;
         if unlock_response.get_ref().state() != ResponseState::Succeeded {
-            eyre::bail!("Unlock request failed");
+            return Err(DirkCommunicationError(format!(
+                "unlock request for '{account}' returned error"
+            )));
         }
 
         Ok(())
@@ -284,13 +315,13 @@ impl DirkManager {
         &self,
         module_id: ModuleId,
         consensus_pubkey: BlsPublicKey,
-    ) -> eyre::Result<SignedProxyDelegation<BlsPublicKey>> {
+    ) -> Result<SignedProxyDelegation<BlsPublicKey>, SignerModuleError> {
         let uuid = uuid::Uuid::new_v4();
 
         let consensus_account = self
             .get_pubkey_account(consensus_pubkey)
             .await?
-            .ok_or(eyre::eyre!("Consensus public key not found"))?;
+            .ok_or(SignerModuleError::UnknownConsensusSigner(consensus_pubkey.to_vec()))?;
 
         if !self
             .accounts
@@ -299,7 +330,7 @@ impl DirkManager {
             .collect::<Vec<String>>()
             .contains(&consensus_account)
         {
-            eyre::bail!("Consensus public key is not from a registered account");
+            return Err(SignerModuleError::UnknownConsensusSigner(consensus_pubkey.to_vec()))?;
         }
 
         let account_name = format!("{consensus_account}/{module_id}/{uuid}");
@@ -313,15 +344,21 @@ impl DirkManager {
             signing_threshold: 1,
         });
 
-        let generate_response = client.generate(generate_request).await?;
+        let generate_response = client
+            .generate(generate_request)
+            .await
+            .map_err(|err| DirkCommunicationError(format!("error on generate request: {err}")))?;
+
         if generate_response.get_ref().state() != ResponseState::Succeeded {
-            eyre::bail!("Generate request failed");
+            return Err(DirkCommunicationError("generate request returned error".to_string()));
         }
 
         self.store_password(account_name.clone(), new_password.clone())?;
 
         let proxy_key =
-            BlsPublicKey::try_from(generate_response.into_inner().public_key.as_slice())?;
+            BlsPublicKey::try_from(generate_response.into_inner().public_key.as_slice()).map_err(
+                |_| DirkCommunicationError("return value is not a valid public key".to_string()),
+            )?;
 
         self.unlock_account(account_name, new_password).await?;
 
@@ -331,7 +368,9 @@ impl DirkManager {
         let delegation = SignedProxyDelegation { message, signature };
 
         if let Some(store) = &self.proxy_store {
-            store.store_proxy_bls_delegation(&module_id, &delegation)?;
+            store.store_proxy_bls_delegation(&module_id, &delegation).map_err(|err| {
+                SignerModuleError::Internal(format!("error storing delegation signature: {err}"))
+            })?;
         }
 
         Ok(delegation)
@@ -341,7 +380,7 @@ impl DirkManager {
         &self,
         pubkey: BlsPublicKey,
         object_root: [u8; 32],
-    ) -> eyre::Result<BlsSignature> {
+    ) -> Result<BlsSignature, SignerModuleError> {
         let domain = compute_domain(self.chain, COMMIT_BOOST_DOMAIN);
 
         let mut signer_client = SignerClient::new(self.channel.clone());
@@ -351,37 +390,47 @@ impl DirkManager {
             data: object_root.to_vec(),
         });
 
-        let sign_response = signer_client.sign(sign_request).await?;
+        let sign_response = signer_client
+            .sign(sign_request)
+            .await
+            .map_err(|err| DirkCommunicationError(format!("error on sign request: {err}")))?;
 
         // Retry if unlock config is set
         let sign_response = match sign_response.get_ref().state() {
             ResponseState::Denied if self.unlock => {
-                info!("Account {pubkey:#} may be locked, unlocking and retrying...");
+                info!("Failed to sign message, account {pubkey:#} may be locked. Unlocking and retrying.");
 
                 let account_name = self
                     .get_pubkey_account(pubkey)
                     .await?
-                    .ok_or(eyre::eyre!("Public key not found"))?;
-                self.unlock_account(account_name.clone(), self.read_password(account_name)?)
-                    .await?;
+                    .ok_or(SignerModuleError::UnknownConsensusSigner(pubkey.to_vec()))?;
+                self.unlock_account(
+                    account_name.clone(),
+                    self.read_password(account_name.clone())?,
+                )
+                .await?;
 
                 let sign_request = tonic::Request::new(SignRequest {
                     id: Some(SignerId::PublicKey(pubkey.to_vec())),
                     domain: domain.to_vec(),
                     data: object_root.to_vec(),
                 });
-                signer_client.sign(sign_request).await?
+                signer_client.sign(sign_request).await.map_err(|err| {
+                    DirkCommunicationError(format!("error on sign request: {err}"))
+                })?
             }
             _ => sign_response,
         };
 
         if sign_response.get_ref().state() != ResponseState::Succeeded {
-            eyre::bail!("Sign request failed");
+            return Err(DirkCommunicationError("sign request returned error".to_string()));
         }
 
-        Ok(BlsSignature::from(FixedBytes::try_from(
-            sign_response.into_inner().signature.as_slice(),
-        )?))
+        Ok(BlsSignature::from(
+            FixedBytes::try_from(sign_response.into_inner().signature.as_slice()).map_err(
+                |_| DirkCommunicationError("return value is not a valid signature".to_string()),
+            )?,
+        ))
     }
 }
 
@@ -389,13 +438,16 @@ impl DirkManager {
 async fn get_accounts_in_wallets(
     channel: Channel,
     wallets: Vec<String>,
-) -> eyre::Result<Vec<DirkAccount>> {
+) -> Result<Vec<DirkAccount>, SignerModuleError> {
     let mut client = ListerClient::new(channel);
     let pubkeys_request = tonic::Request::new(ListAccountsRequest { paths: wallets });
-    let pubkeys_response = client.list_accounts(pubkeys_request).await?;
+    let pubkeys_response = client
+        .list_accounts(pubkeys_request)
+        .await
+        .map_err(|err| DirkCommunicationError(format!("error listing accounts: {err}")))?;
 
     if pubkeys_response.get_ref().state() != ResponseState::Succeeded {
-        eyre::bail!("Get pubkeys request failed".to_string());
+        return Err(DirkCommunicationError("list accounts request returned error".to_string()));
     }
 
     Ok(pubkeys_response.into_inner().accounts)

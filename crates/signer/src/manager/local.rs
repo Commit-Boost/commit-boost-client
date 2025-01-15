@@ -12,7 +12,6 @@ use cb_common::{
     },
     types::{Chain, ModuleId},
 };
-use eyre::OptionExt;
 use tree_hash::TreeHash;
 
 use crate::error::SignerModuleError;
@@ -227,7 +226,7 @@ impl LocalSigningManager {
     pub fn get_consensus_proxy_maps(
         &self,
         module_id: &ModuleId,
-    ) -> eyre::Result<Vec<ConsensusProxyMap>> {
+    ) -> Result<Vec<ConsensusProxyMap>, SignerModuleError> {
         let consensus = self.consensus_pubkeys();
         let proxy_bls = self.proxy_pubkeys_bls.get(module_id).cloned().unwrap_or_default();
         let proxy_ecdsa = self.proxy_pubkeys_ecdsa.get(module_id).cloned().unwrap_or_default();
@@ -239,7 +238,7 @@ impl LocalSigningManager {
             let entry = keys
                 .iter_mut()
                 .find(|x| x.consensus == delegator)
-                .ok_or_eyre("missing consensus")?;
+                .ok_or(SignerModuleError::Internal("missing consensus".to_string()))?;
 
             entry.proxy_bls.push(bls);
         }
@@ -249,7 +248,7 @@ impl LocalSigningManager {
             let entry = keys
                 .iter_mut()
                 .find(|x| x.consensus == delegator)
-                .ok_or_eyre("missing consensus")?;
+                .ok_or(SignerModuleError::Internal("missing consensus".to_string()))?;
 
             entry.proxy_ecdsa.push(ecdsa);
         }
