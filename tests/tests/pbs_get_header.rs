@@ -1,5 +1,3 @@
-mod common;
-
 use std::{
     sync::Arc,
     time::Duration,
@@ -14,7 +12,7 @@ use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
     mock_relay::{start_mock_relay_service, MockRelayState},
     mock_validator::MockValidator,
-    utils::{generate_mock_relay, setup_test_env},
+    utils::{generate_mock_relay, setup_test_env, to_pbs_config, get_pbs_static_config},
 };
 use eyre::Result;
 use tracing::info;
@@ -32,7 +30,7 @@ async fn test_get_header() -> Result<()> {
     let mock_relay = generate_mock_relay(port + 1, *pubkey)?;
     tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 1));
 
-    let config = common::to_pbs_config(chain, common::get_pbs_static_config(port), vec![mock_relay]);
+    let config = to_pbs_config(chain, get_pbs_static_config(port), vec![mock_relay]);
     let state = PbsState::new(config);
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
@@ -42,6 +40,7 @@ async fn test_get_header() -> Result<()> {
     let mock_validator = MockValidator::new(port)?;
     info!("Sending get header");
     let res = mock_validator.do_get_header(None).await;
+    dbg!(&res);
 
     assert!(res.is_ok());
     assert_eq!(mock_state.received_get_header(), 1);

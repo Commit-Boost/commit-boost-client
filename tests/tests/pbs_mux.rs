@@ -1,5 +1,3 @@
-mod common;
-
 use std::{
     collections::HashMap,
     sync::Arc,
@@ -13,7 +11,7 @@ use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
     mock_relay::{start_mock_relay_service, MockRelayState},
     mock_validator::MockValidator,
-    utils::{generate_mock_relay, setup_test_env},
+    utils::{generate_mock_relay, setup_test_env, to_pbs_config, get_pbs_static_config},
 };
 use eyre::Result;
 use tracing::info;
@@ -37,7 +35,7 @@ async fn test_mux() -> Result<()> {
     tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 3));
 
     let relays = vec![default_relay.clone()];
-    let mut config = common::to_pbs_config(chain, common::get_pbs_static_config(port), relays);
+    let mut config = to_pbs_config(chain, get_pbs_static_config(port), relays);
     config.all_relays = vec![mux_relay_1.clone(), mux_relay_2.clone(), default_relay.clone()];
 
     let mux = RuntimeMuxConfig {
