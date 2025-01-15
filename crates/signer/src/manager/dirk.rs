@@ -258,7 +258,7 @@ impl DirkManager {
 
     /// Read the password for an account from a file
     fn read_password(&self, account: String) -> Result<String, SignerModuleError> {
-        fs::read_to_string(self.secrets_path.join(account.clone())).map_err(|err| {
+        fs::read_to_string(self.secrets_path.join(format!("{account}.pass"))).map_err(|err| {
             SignerModuleError::Internal(format!(
                 "error reading password for account '{account}': {err}"
             ))
@@ -283,7 +283,7 @@ impl DirkManager {
         fs::create_dir_all(account_dir.clone()).map_err(|err| {
             SignerModuleError::Internal(format!("error creating dir '{account_dir}': {err}"))
         })?;
-        fs::write(self.secrets_path.join(account.clone()), password).map_err(|err| {
+        fs::write(self.secrets_path.join(format!("{account}.pass")), password).map_err(|err| {
             SignerModuleError::Internal(format!(
                 "error writing password for account '{account}': {err}"
             ))

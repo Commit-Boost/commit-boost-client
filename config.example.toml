@@ -150,8 +150,8 @@ url = "http://0xa119589bb33ef52acbb8116832bec2b58fca590fe5c85eac5d3230b44d5bc09f
 # cert_path = "/path/to/client.crt"
 # Path to the client key
 # key_path = "/path/to/client.key"
-# Wallets to use. Each wallet should have a `wallet/consensus` account
-# wallets = ["wallet1", "wallet2"]
+# Accounts to use as consensus keys.
+# accounts = ["wallet1/accountX", "wallet2/accountY"]
 # Path to the secrets directory where the accounts passwords are stored
 # secrets_path = "/path/to/secrets"
 # Path to the CA certificate that signed the Dirk server certificate
@@ -163,6 +163,10 @@ url = "http://0xa119589bb33ef52acbb8116832bec2b58fca590fe5c85eac5d3230b44d5bc09f
 # Whether to try to unlock the accounts on sign failure
 # OPTIONAL, DEFAULT: false
 # unlock = false
+# Configuration for how the Signer module should store proxy delegations.
+# OPTIONAL
+# [signer.dirk.store]
+# proxy_dir = "/path/to/proxies"
 # For Local signer:
 # Configuration for how the Signer module should load validator keys. Currently two types of loaders are supported:
 #   - File: load keys from a plain text file (unsafe, use only for testing purposes)

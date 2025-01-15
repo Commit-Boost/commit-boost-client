@@ -245,6 +245,7 @@ url = "https://remote.signer.url"
 Dirk is a distributed key management system that can be used to sign transactions. In this case the Signer module is needed as an intermediary between the modules and Dirk. The following parameters are needed:
 
 ```toml
+[signer.dirk]
 url = "https://dirk.gateway.url"
 cert_path = "/path/to/client.crt"
 key_path = "/path/to/client.key"
@@ -259,8 +260,19 @@ unlock = false
 
 - `cert_path` and `key_path` are the paths to the client certificate and key used to authenticate with Dirk.
 - `accounts` is a list of accounts that the Signer module will consider as the consensus keys. Each account has the format `<WALLET_NAME>/<ACCOUNT>`. Accounts can be from different wallets. Generated proxy keys will have format `<WALLET_NAME>/<ACCOUNT>/<MODULE_ID>/<UUID>`.
-- `secrets_path` is the path to the folder containing the passwords of the accounts. Passwords must be in plain text in files with structure `<secret_path>/<WALLET_NAME>/<ACCOUNT>`. Generated proxy accounts secrets will be stored in `<secrets_path>/<WALLET_NAME>/<MODULE_ID>/<UUID>`.
+- `secrets_path` is the path to the folder containing the passwords of the accounts. Passwords must be in plain text in files with structure `<secret_path>/<WALLET_NAME>/<ACCOUNT>.pass`. Generated proxy accounts passwords will be stored in `<secrets_path>/<WALLET_NAME>/<ACCOUNT>/<MODULE_ID>/<UUID>.pass`.
 - `unlock` is an optional parameter that can be set to `true` if you want to try to unlock the wallets on sign failure. Default is `false`.
+
+Additionally, you can set a proxy store so that the delegation signatures for generated proxy keys are stored locally. As these signatures are not sensitive, the only supported store type is `File`:
+
+```toml
+[signer.dirk.store]
+proxy_dir = "/path/to/proxy_dir"
+```
+
+Delegation signatures will be stored in files with the format `<proxy_dir>/delegations/<MODULE_ID>/<PROXY_KEY>.sig`.
+
+A full example of a config file with Dirk can be found [here](https://github.com/Commit-Boost/commit-boost-client/blob/main/examples/configs/dirk_signer.toml).
 
 ## Custom module
 We currently provide a test module that needs to be built locally. To build the module run:

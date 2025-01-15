@@ -166,7 +166,7 @@ impl ProxyStore {
             .join("delegations")
             .join(module_id.to_string())
             .join("bls")
-            .join(delegation.message.proxy.to_string());
+            .join(format!("{}.sig", delegation.message.proxy));
         let content = serde_json::to_vec(&delegation)?;
 
         if let Some(parent) = file_path.parent() {

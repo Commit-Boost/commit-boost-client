@@ -13,9 +13,12 @@ docker_image = "commitboost_signer"
 url = "https://gateway.dirk.url"
 cert_path = "/path/to/client.crt"
 key_path = "/path/to/client.key"
-wallets = ["validator1", "validator2"]
+accounts = ["wallet1/accountX", "wallet2/accountY"]
 secrets_path = "./dirk_secrets"
 unlock = true
+
+[signer.dirk.store]
+proxy_dir = "/path/to/proxies"
 
 [[modules]]
 id = "DA_COMMIT"
