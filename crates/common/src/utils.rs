@@ -183,7 +183,7 @@ pub fn initialize_tracing_log(module_id: &str) -> eyre::Result<WorkerGuard> {
         }
         let file_appender = builder
             .rotation(Rotation::DAILY)
-            .build(LOGS_DIR_DEFAULT)
+            .build(settings.log_dir_path)
             .expect("failed building rolling file appender");
 
         let (writer, guard) = tracing_appender::non_blocking(file_appender);
