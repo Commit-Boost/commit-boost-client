@@ -28,6 +28,15 @@ pub enum Chain {
 
 pub type ForkVersion = [u8; 4];
 
+impl std::fmt::Display for Chain {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Mainnet | Self::Holesky | Self::Sepolia | Self::Helder => write!(f, "{self:?}"),
+            Self::Custom { .. } => write!(f, "Custom"),
+        }
+    }
+}
+
 impl std::fmt::Debug for Chain {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

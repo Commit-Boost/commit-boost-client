@@ -11,6 +11,7 @@ pub mod prelude {
         },
         pbs::{BuilderEvent, BuilderEventClient, OnBuilderApiEvent},
         signer::{BlsPublicKey, BlsSignature, EcdsaPublicKey, EcdsaSignature},
+        types::Chain,
         utils::{
             initialize_pbs_tracing_log, initialize_tracing_log, utcnow_ms, utcnow_ns, utcnow_sec,
             utcnow_us,

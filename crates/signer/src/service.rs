@@ -22,8 +22,8 @@ use cb_common::{
         },
     },
     config::StartSignerConfig,
-    constants::COMMIT_BOOST_VERSION,
-    types::{Jwt, ModuleId},
+    constants::{COMMIT_BOOST_COMMIT, COMMIT_BOOST_VERSION},
+    types::{Chain, Jwt, ModuleId},
 };
 use cb_metrics::provider::MetricsProvider;
 use eyre::{bail, Context};
@@ -71,10 +71,10 @@ impl SigningService {
         let proxies = manager.proxies();
         let loaded_proxies = proxies.bls_signers.len() + proxies.ecdsa_signers.len();
 
-        info!(version = COMMIT_BOOST_VERSION, modules =? module_ids, port =? config.server_port, loaded_consensus, loaded_proxies, "Starting signing service");
+        info!(version = COMMIT_BOOST_VERSION, commit = COMMIT_BOOST_COMMIT, modules =? module_ids, port =? config.server_port, loaded_consensus, loaded_proxies, "Starting signing service");
 
         let state = SigningState { manager: RwLock::new(manager).into(), jwts: config.jwts.into() };
-        SigningService::init_metrics()?;
+        SigningService::init_metrics(config.chain)?;
 
         let app = axum::Router::new()
             .route(REQUEST_SIGNATURE_PATH, post(handle_request_signature))
@@ -94,8 +94,8 @@ impl SigningService {
             .wrap_err("signer server exited")
     }
 
-    fn init_metrics() -> eyre::Result<()> {
-        MetricsProvider::load_and_run(SIGNER_METRICS_REGISTRY.clone())
+    fn init_metrics(network: Chain) -> eyre::Result<()> {
+        MetricsProvider::load_and_run(network, SIGNER_METRICS_REGISTRY.clone())
     }
 }
 
