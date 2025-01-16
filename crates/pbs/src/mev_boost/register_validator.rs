@@ -7,9 +7,9 @@ use cb_common::{
     utils::{get_user_agent_with_version, utcnow_ms},
 };
 use eyre::bail;
-use futures::future::{join_all, select_ok};
+use futures::future::{join_all, select_all};
 use reqwest::header::USER_AGENT;
-use tracing::{debug, error, Instrument};
+use tracing::{debug, error, info, Instrument};
 use url::Url;
 
 use crate::{
@@ -25,7 +25,7 @@ pub async fn register_validator<S: BuilderApiState>(
     registrations: Vec<ValidatorRegistration>,
     req_headers: HeaderMap,
     state: PbsState<S>,
-) -> eyre::Result<usize> {
+) -> eyre::Result<()> {
     // prepare headers
     let mut send_headers = HeaderMap::new();
     send_headers
@@ -50,18 +50,36 @@ pub async fn register_validator<S: BuilderApiState>(
         // wait for all relays registrations to complete
         let results = join_all(handles).await;
         let successful = results.iter().flatten().filter(|res| res.is_ok()).count();
-
         if successful > 0 {
-            Ok(successful)
+            info!(num_registrations = successful, "all relay registrations finished");
+            Ok(())
         } else {
             bail!("No relay passed register_validator successfully")
         }
     } else {
         // return once first completes, others proceed in background
-        let result = select_ok(handles).await?;
-        match result.0 {
-            Ok(_) => Ok(1),
-            Err(_) => bail!("No relay passed register_validator successfully"),
+        let mut one_success = false;
+        while !one_success && !handles.is_empty() {
+            let (result, _, remaining) = select_all(handles).await;
+
+            one_success = result.is_ok_and(|res| res.is_ok());
+            handles = remaining;
+        }
+
+        if one_success {
+            // wait for the rest in background and log results
+            tokio::spawn(
+                async move {
+                    let results = join_all(handles).await;
+                    // successful + 1 since we had one success above
+                    let successful = 1 + results.iter().flatten().filter(|res| res.is_ok()).count();
+                    info!(num_registrations = successful, "all relay registrations finished");
+                }
+                .in_current_span(),
+            );
+            Ok(())
+        } else {
+            bail!("No relay passed register_validator successfully")
         }
     }
 }
