@@ -25,20 +25,23 @@ async fn test_get_header() -> Result<()> {
     let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk()).into();
 
     let chain = Chain::Holesky;
-    let port = 3000;
+    let pbs_port = 3600;
+    let relay_port = pbs_port + 1;
 
+    // Run a mock relay
     let mock_state = Arc::new(MockRelayState::new(chain, signer));
-    let mock_relay = generate_mock_relay(port + 1, *pubkey)?;
-    tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 1));
+    let mock_relay = generate_mock_relay(relay_port, *pubkey)?;
+    tokio::spawn(start_mock_relay_service(mock_state.clone(), relay_port));
 
-    let config = to_pbs_config(chain, get_pbs_static_config(port), vec![mock_relay.clone()]);
+    // Run the PBS service
+    let config = to_pbs_config(chain, get_pbs_static_config(pbs_port), vec![mock_relay.clone()]);
     let state = PbsState::new(config);
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
     // leave some time to start servers
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    let mock_validator = MockValidator::from_relay(mock_relay)?;
+    let mock_validator = MockValidator::new(pbs_port)?;
     info!("Sending get header");
     let res = mock_validator.do_get_header(None).await.expect("failed to get header");
 
@@ -47,7 +50,7 @@ async fn test_get_header() -> Result<()> {
     assert_eq!(res.data.message.header.parent_hash, B256::ZERO);
     assert_eq!(res.data.message.value, U256::from(10));
     assert_eq!(res.data.message.pubkey, blst_pubkey_to_alloy(&mock_state.signer.sk_to_pk()));
-    assert_eq!(res.data.message.header.timestamp, timestamp_of_slot_start_sec(1337, chain));
+    assert_eq!(res.data.message.header.timestamp, timestamp_of_slot_start_sec(0, chain));
     assert_eq!(res.data.signature, sign_builder_root(chain, &mock_state.signer, res.data.message.tree_hash_root().0));
     Ok(())
 }
