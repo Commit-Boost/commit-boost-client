@@ -16,8 +16,7 @@ use axum::{
 };
 use cb_common::{
     pbs::{
-        GetHeaderParams, GetHeaderResponse, SubmitBlindedBlockResponse, BUILDER_API_PATH,
-        GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
+        GetHeaderParams, GetHeaderResponse, SubmitBlindedBlockResponse, BUILDER_API_PATH, GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH
     },
     signature::sign_builder_root,
     signer::BlsSecretKey,
@@ -131,7 +130,7 @@ async fn handle_register_validator(
 async fn handle_submit_block(State(state): State<Arc<MockRelayState>>) -> Response {
     state.received_submit_block.fetch_add(1, Ordering::Relaxed);
     if state.large_body() {
-        (StatusCode::BAD_REQUEST, Json(vec![1u8; 1 + MAX_SIZE_SUBMIT_BLOCK])).into_response()
+        (StatusCode::OK, Json(vec![1u8; 1 + MAX_SIZE_SUBMIT_BLOCK])).into_response()
     } else {
         let response = SubmitBlindedBlockResponse::default();
         (StatusCode::OK, Json(response)).into_response()

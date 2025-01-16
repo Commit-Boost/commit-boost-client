@@ -13,6 +13,7 @@ use cb_tests::{
     utils::{generate_mock_relay, get_pbs_static_config, setup_test_env, to_pbs_config},
 };
 use eyre::Result;
+use reqwest::StatusCode;
 use tracing::info;
 
 #[tokio::test]
@@ -22,7 +23,7 @@ async fn test_mux() -> Result<()> {
     let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk()).into();
 
     let chain = Chain::Holesky;
-    let pbs_port = 3600;
+    let pbs_port = 3700;
 
     let mux_relay_1 = generate_mock_relay(pbs_port + 1, *pubkey)?;
     let mux_relay_2 = generate_mock_relay(pbs_port + 2, *pubkey)?;
@@ -60,26 +61,30 @@ async fn test_mux() -> Result<()> {
     // Send default request without specifying a validator key
     let mock_validator = MockValidator::new(pbs_port)?;
     info!("Sending get header with default");
-    let _res = mock_validator.do_get_header(None).await.expect("failed to get header");
-
+    assert_eq!(mock_validator.do_get_header(None).await?.status(), StatusCode::OK);
     assert_eq!(mock_state.received_get_header(), 1); // only default relay was used
 
     // Send request specifying a validator key to use mux
     info!("Sending get header with mux");
-    mock_validator.do_get_header(Some(validator_pubkey)).await.expect("failed to get header");
-
+    assert_eq!(
+        mock_validator.do_get_header(Some(validator_pubkey)).await?.status(),
+        StatusCode::OK
+    );
     assert_eq!(mock_state.received_get_header(), 3); // two mux relays were used
 
     // Status requests should go to all relays
-    mock_validator.do_get_status().await.expect("failed to get status");
+    info!("Sending get status");
+    assert_eq!(mock_validator.do_get_status().await?.status(), StatusCode::OK);
     assert_eq!(mock_state.received_get_status(), 3); // default + 2 mux relays were used
 
     // Register requests should go to all relays
-    mock_validator.do_register_validator().await.expect("failed to register validator");
+    info!("Sending register validator");
+    assert_eq!(mock_validator.do_register_validator(None).await?.status(), StatusCode::OK);
     assert_eq!(mock_state.received_register_validator(), 3); // default + 2 mux relays were used
 
     // Submit block requests should go to all relays
-    mock_validator.do_submit_block().await.expect("failed to submit block");
+    info!("Sending submit block");
+    assert_eq!(mock_validator.do_submit_block(None).await?.status(), StatusCode::OK);
     assert_eq!(mock_state.received_submit_block(), 3); // default + 2 mux relays were used
 
     Ok(())

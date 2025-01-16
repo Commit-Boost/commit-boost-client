@@ -11,7 +11,7 @@ use reqwest::{Error, Response};
 use crate::utils::generate_mock_relay;
 
 pub struct MockValidator {
-    comm_boost: RelayClient,
+    pub comm_boost: RelayClient,
 }
 
 impl MockValidator {
@@ -19,15 +19,10 @@ impl MockValidator {
         Ok(Self { comm_boost: generate_mock_relay(port, BlsPublicKey::default())? })
     }
 
-    pub async fn do_get_header(
-        &self,
-        pubkey: Option<BlsPublicKey>,
-    ) -> eyre::Result<GetHeaderResponse> {
+    pub async fn do_get_header(&self, pubkey: Option<BlsPublicKey>) -> eyre::Result<Response> {
         let url =
             self.comm_boost.get_header_url(0, B256::ZERO, pubkey.unwrap_or(BlsPublicKey::ZERO))?;
-        let res = self.comm_boost.client.get(url).send().await?.bytes().await?;
-
-        Ok(serde_json::from_slice::<GetHeaderResponse>(&res)?)
+        Ok(self.comm_boost.client.get(url).send().await?)
     }
 
     pub async fn do_get_status(&self) -> eyre::Result<Response> {
@@ -35,31 +30,29 @@ impl MockValidator {
         Ok(self.comm_boost.client.get(url).send().await?)
     }
 
-    pub async fn do_register_validator(&self) -> eyre::Result<Response> {
+    pub async fn do_register_validator(
+        &self,
+        validators: Option<Vec<ValidatorRegistration>>,
+    ) -> eyre::Result<Response> {
         let url = self.comm_boost.register_validator_url().unwrap();
 
-        let registration: Vec<ValidatorRegistration> = vec![];
+        let registrations = validators.unwrap_or_default();
 
-        Ok(self.comm_boost.client.post(url).json(&registration).send().await?.error_for_status()?)
+        Ok(self.comm_boost.client.post(url).json(&registrations).send().await?)
     }
 
     pub async fn do_submit_block(
         &self,
-    ) -> eyre::Result<SubmitBlindedBlockResponse> {
+        signed_blinded_block: Option<SignedBlindedBeaconBlock>,
+    ) -> eyre::Result<Response> {
         let url = self.comm_boost.submit_block_url().unwrap();
 
-        let signed_blinded_block = SignedBlindedBeaconBlock::default();
-
-        let res = self
+        Ok(self
             .comm_boost
             .client
             .post(url)
-            .json(&signed_blinded_block)
+            .json(&signed_blinded_block.unwrap_or(SignedBlindedBeaconBlock::default()))
             .send()
-            .await?
-            .bytes()
-            .await?;
-
-        Ok(serde_json::from_slice::<SubmitBlindedBlockResponse>(&res)?)
+            .await?)
     }
 }
