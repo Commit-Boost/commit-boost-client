@@ -104,7 +104,7 @@ async fn handle_get_header(
     response.data.message.header.block_hash.0[0] = 1;
     response.data.message.value = U256::from(10);
     response.data.message.pubkey = blst_pubkey_to_alloy(&state.signer.sk_to_pk());
-    response.data.message.header.timestamp = timestamp_of_slot_start_sec(0, state.chain);
+    response.data.message.header.timestamp = timestamp_of_slot_start_sec(1337, state.chain);
 
     let object_root = response.data.message.tree_hash_root().0;
     response.data.signature = sign_builder_root(state.chain, &state.signer, object_root);

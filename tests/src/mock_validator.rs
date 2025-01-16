@@ -2,7 +2,7 @@ use alloy::{
     primitives::B256,
     rpc::types::beacon::{relay::ValidatorRegistration, BlsPublicKey},
 };
-use cb_common::pbs::{GetHeaderResponse, RelayClient, SignedBlindedBeaconBlock};
+use cb_common::pbs::{GetHeaderResponse, RelayClient, SignedBlindedBeaconBlock, SignedExecutionPayloadHeader, VersionedResponse};
 use reqwest::Error;
 
 use crate::utils::generate_mock_relay;
@@ -16,15 +16,18 @@ impl MockValidator {
         Ok(Self { comm_boost: generate_mock_relay(port, BlsPublicKey::default())? })
     }
 
-    pub async fn do_get_header(&self, pubkey: Option<BlsPublicKey>) -> Result<(), Error> {
+    pub fn from_relay(relay: RelayClient) -> eyre::Result<Self> {
+        Ok(Self { comm_boost: relay })
+    }
+
+    pub async fn do_get_header(&self, pubkey: Option<BlsPublicKey>) -> eyre::Result<VersionedResponse<SignedExecutionPayloadHeader>> {
         let url = self
             .comm_boost
             .get_header_url(0, B256::ZERO, pubkey.unwrap_or(BlsPublicKey::ZERO))
             .unwrap();
         let res = self.comm_boost.client.get(url).send().await?.bytes().await?;
-        assert!(serde_json::from_slice::<GetHeaderResponse>(&res).is_ok());
 
-        Ok(())
+        Ok(serde_json::from_slice::<GetHeaderResponse>(&res)?)
     }
 
     pub async fn do_get_status(&self) -> Result<(), Error> {
