@@ -1,4 +1,7 @@
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashSet,
+    time::{Duration, Instant},
+};
 
 use alloy::rpc::types::beacon::relay::ValidatorRegistration;
 use axum::http::{HeaderMap, HeaderValue};
@@ -32,8 +35,16 @@ pub async fn register_validator<S: BuilderApiState>(
         .insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from_str(&utcnow_ms().to_string())?);
     send_headers.insert(USER_AGENT, get_user_agent_with_version(&req_headers)?);
 
+    let num_validators = registrations
+        .iter()
+        .map(|registration| registration.message.pubkey)
+        .collect::<HashSet<_>>()
+        .len();
+
     let relays = state.all_relays().to_vec();
     let mut handles = Vec::with_capacity(relays.len());
+    let start_register = Instant::now();
+
     for relay in relays {
         handles.push(tokio::spawn(
             send_register_validator_with_timeout(
@@ -49,9 +60,16 @@ pub async fn register_validator<S: BuilderApiState>(
     if state.pbs_config().wait_all_registrations {
         // wait for all relays registrations to complete
         let results = join_all(handles).await;
-        let successful = results.iter().flatten().filter(|res| res.is_ok()).count();
-        if successful > 0 {
-            info!(num_registrations = successful, "all relay registrations finished");
+        let total_latency = start_register.elapsed();
+
+        let successful_responses = results.iter().flatten().filter(|res| res.is_ok()).count();
+        if successful_responses > 0 {
+            info!(
+                num_responses = successful_responses,
+                num_registrations = num_validators,
+                total_latency = ?total_latency,
+                "all relay registrations finished"
+            );
             Ok(())
         } else {
             bail!("No relay passed register_validator successfully")
@@ -71,9 +89,17 @@ pub async fn register_validator<S: BuilderApiState>(
             tokio::spawn(
                 async move {
                     let results = join_all(handles).await;
+                    let total_latency = start_register.elapsed();
+
                     // successful + 1 since we had one success above
-                    let successful = 1 + results.iter().flatten().filter(|res| res.is_ok()).count();
-                    info!(num_registrations = successful, "all relay registrations finished");
+                    let successful_responses =
+                        1 + results.iter().flatten().filter(|res| res.is_ok()).count();
+                    info!(
+                        num_relays = successful_responses,
+                        num_registrations = num_validators,
+                        total_latency = ?total_latency,
+                        "all relay registrations finished"
+                    );
                 }
                 .in_current_span(),
             );
