@@ -1,22 +1,23 @@
-use std::{
-    sync::Arc,
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 
 use alloy::primitives::{B256, U256};
+use cb_common::utils::timestamp_of_slot_start_sec;
 use cb_common::{
-    pbs::GetHeaderResponse, signature::sign_builder_root, signer::{random_secret, BlsPublicKey}, types::Chain, utils::blst_pubkey_to_alloy
+    pbs::GetHeaderResponse,
+    signature::sign_builder_root,
+    signer::{random_secret, BlsPublicKey},
+    types::Chain,
+    utils::blst_pubkey_to_alloy,
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
     mock_relay::{start_mock_relay_service, MockRelayState},
     mock_validator::MockValidator,
-    utils::{generate_mock_relay, setup_test_env, to_pbs_config, get_pbs_static_config},
+    utils::{generate_mock_relay, get_pbs_static_config, setup_test_env, to_pbs_config},
 };
 use eyre::Result;
 use reqwest::StatusCode;
 use tracing::info;
-use cb_common::utils::timestamp_of_slot_start_sec;
 use tree_hash::TreeHash;
 
 #[tokio::test]
@@ -55,7 +56,10 @@ async fn test_get_header() -> Result<()> {
     assert_eq!(res.data.message.value, U256::from(10));
     assert_eq!(res.data.message.pubkey, blst_pubkey_to_alloy(&mock_state.signer.sk_to_pk()));
     assert_eq!(res.data.message.header.timestamp, timestamp_of_slot_start_sec(0, chain));
-    assert_eq!(res.data.signature, sign_builder_root(chain, &mock_state.signer, res.data.message.tree_hash_root().0));
+    assert_eq!(
+        res.data.signature,
+        sign_builder_root(chain, &mock_state.signer, res.data.message.tree_hash_root().0)
+    );
     Ok(())
 }
 
@@ -72,7 +76,7 @@ async fn test_get_header_returns_204_if_relay_down() -> Result<()> {
     // Create a mock relay client
     let mock_state = Arc::new(MockRelayState::new(chain, signer));
     let mock_relay = generate_mock_relay(relay_port, *pubkey)?;
-    
+
     // Don't start the relay
     // tokio::spawn(start_mock_relay_service(mock_state.clone(), relay_port));
 
@@ -128,7 +132,8 @@ async fn test_get_header_returns_400_if_request_is_invalid() -> Result<()> {
 
     // Attempt again by truncating the parent hash
     let mut bad_url = mock_relay.get_header_url(0, B256::ZERO, *pubkey).unwrap();
-    bad_url.set_path(&bad_url.path().replace(&B256::ZERO.to_string(), &B256::ZERO.to_string()[..10]));
+    bad_url
+        .set_path(&bad_url.path().replace(&B256::ZERO.to_string(), &B256::ZERO.to_string()[..10]));
     let res = mock_validator.comm_boost.client.get(bad_url).send().await?;
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
 

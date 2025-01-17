@@ -11,10 +11,7 @@ use std::{
     u64,
 };
 
-use alloy::{
-    primitives::U256,
-    rpc::types::beacon::BlsPublicKey,
-};
+use alloy::{primitives::U256, rpc::types::beacon::BlsPublicKey};
 
 pub fn get_local_address(port: u16) -> String {
     format!("http://0.0.0.0:{port}")
@@ -75,4 +72,3 @@ pub fn to_pbs_config(
         muxes: None,
     }
 }
-

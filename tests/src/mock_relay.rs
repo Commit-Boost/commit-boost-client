@@ -16,7 +16,8 @@ use axum::{
 };
 use cb_common::{
     pbs::{
-        GetHeaderParams, GetHeaderResponse, SubmitBlindedBlockResponse, BUILDER_API_PATH, GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH
+        GetHeaderParams, GetHeaderResponse, SubmitBlindedBlockResponse, BUILDER_API_PATH,
+        GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
     },
     signature::sign_builder_root,
     signer::BlsSecretKey,
