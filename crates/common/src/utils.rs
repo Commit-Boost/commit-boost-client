@@ -18,7 +18,7 @@ use tracing_appender::{non_blocking::WorkerGuard, rolling::Rotation};
 use tracing_subscriber::{fmt::Layer, prelude::*, EnvFilter};
 
 use crate::{
-    config::{load_optional_env_var, LogsSettings, LOGS_DIR_DEFAULT, PBS_MODULE_NAME},
+    config::{load_optional_env_var, LogsSettings, PBS_MODULE_NAME},
     pbs::HEADER_VERSION_VALUE,
     types::Chain,
 };
@@ -183,7 +183,7 @@ pub fn initialize_tracing_log(module_id: &str) -> eyre::Result<WorkerGuard> {
         }
         let file_appender = builder
             .rotation(Rotation::DAILY)
-            .build(LOGS_DIR_DEFAULT)
+            .build(settings.log_dir_path)
             .expect("failed building rolling file appender");
 
         let (writer, guard) = tracing_appender::non_blocking(file_appender);
