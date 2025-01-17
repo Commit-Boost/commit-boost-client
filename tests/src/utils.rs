@@ -28,6 +28,7 @@ pub fn generate_mock_relay(port: u16, pubkey: BlsPublicKey) -> Result<RelayClien
         enable_timing_games: false,
         target_first_request_ms: None,
         frequency_get_header_ms: None,
+        validator_registration_batch_size: None,
     };
     RelayClient::new(config)
 }

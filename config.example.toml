@@ -58,9 +58,6 @@ extra_validation_enabled = false
 # Execution Layer RPC url to use for extra validation
 # OPTIONAL
 rpc_url = "https://ethereum-holesky-rpc.publicnode.com"
-# Maximum number of validators to register in a single request to each relay.
-# OPTIONAL, DEFAULT: None (unlimited)
-# validator_registration_batch_size = 1000
 
 # The PBS module needs one or more [[relays]] as defined below.
 [[relays]]
@@ -99,6 +96,9 @@ target_first_request_ms = 200
 # Frequency in ms to send get_header requests
 # OPTIONAL
 frequency_get_header_ms = 300
+# Maximum number of validators to register in a single request.
+# OPTIONAL, DEFAULT: "" (unlimited)
+validator_registration_batch_size = ""
 
 # Configuration for the PBS multiplexers, which enable different configs to be used for get header requests, depending on validator pubkey
 # Note that:
