@@ -98,6 +98,9 @@ pub struct PbsConfig {
     pub extra_validation_enabled: bool,
     /// Execution Layer RPC url to use for extra validation
     pub rpc_url: Option<Url>,
+    /// Maximum number of validators to send to relays in one registration
+    /// request
+    pub validator_registration_batch_size: Option<usize>,
 }
 
 impl PbsConfig {

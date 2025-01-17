@@ -38,6 +38,7 @@ fn get_pbs_static_config(port: u16) -> PbsConfig {
         relay_monitors: vec![],
         extra_validation_enabled: false,
         rpc_url: None,
+        validator_registration_batch_size: None,
     }
 }
 
