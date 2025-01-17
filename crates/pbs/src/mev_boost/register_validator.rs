@@ -60,14 +60,14 @@ pub async fn register_validator<S: BuilderApiState>(
     if state.pbs_config().wait_all_registrations {
         // wait for all relays registrations to complete
         let results = join_all(handles).await;
-        let total_latency = start_register.elapsed();
+        let total_time = start_register.elapsed();
 
         let successful_responses = results.iter().flatten().filter(|res| res.is_ok()).count();
         if successful_responses > 0 {
             info!(
-                num_responses = successful_responses,
+                num_relays = successful_responses,
                 num_registrations = num_validators,
-                total_latency = ?total_latency,
+                total_time = ?total_time,
                 "all relay registrations finished"
             );
             Ok(())
@@ -89,7 +89,7 @@ pub async fn register_validator<S: BuilderApiState>(
             tokio::spawn(
                 async move {
                     let results = join_all(handles).await;
-                    let total_latency = start_register.elapsed();
+                    let total_time = start_register.elapsed();
 
                     // successful + 1 since we had one success above
                     let successful_responses =
@@ -97,7 +97,7 @@ pub async fn register_validator<S: BuilderApiState>(
                     info!(
                         num_relays = successful_responses,
                         num_registrations = num_validators,
-                        total_latency = ?total_latency,
+                        total_time = ?total_time,
                         "all relay registrations finished"
                     );
                 }
