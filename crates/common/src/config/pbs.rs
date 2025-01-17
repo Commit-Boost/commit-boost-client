@@ -70,7 +70,7 @@ where
     match Helper::deserialize(deserializer)? {
         Helper::Str(str) if str.is_empty() => Ok(None),
         Helper::Number(number) => Ok(Some(number)),
-        _ => Err(serde::de::Error::custom(format!("Expected empty string or number"))),
+        _ => Err(serde::de::Error::custom("Expected empty string or number".to_string())),
     }
 }
 
