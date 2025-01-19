@@ -1,3 +1,5 @@
+pub use crate::config::module::{StaticModuleConfig};
+
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
@@ -108,6 +110,8 @@ pub struct MuxConfig {
     pub id: String,
     /// Relays to use for this mux config
     pub relays: Vec<RelayConfig>,
+    /// PBS Modules to use for this mux config
+    pub modules: Vec<StaticModuleConfig>,
     /// Which validator pubkeys to match against this mux config
     #[serde(default)]
     pub validator_pubkeys: Vec<BlsPublicKey>,
@@ -121,6 +125,7 @@ impl MuxConfig {
     /// Returns the env, actual path, and internal path to use for the file
     /// loader
     pub fn loader_env(&self) -> Option<(String, String, String)> {
+
         self.loader.as_ref().and_then(|loader| match loader {
             MuxKeysLoader::File(path_buf) => {
                 let path =

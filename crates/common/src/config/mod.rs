@@ -27,7 +27,7 @@ pub use utils::*;
 pub struct CommitBoostConfig {
     pub chain: Chain,
     pub relays: Vec<RelayConfig>,
-    pub pbs: StaticPbsConfig,
+    pub pbs_modules: Vec<StaticPbsConfig>,
     #[serde(flatten)]
     pub muxes: Option<PbsMuxes>,
     pub modules: Option<Vec<StaticModuleConfig>>,
@@ -39,7 +39,7 @@ pub struct CommitBoostConfig {
 impl CommitBoostConfig {
     /// Validate config
     pub async fn validate(&self) -> Result<()> {
-        self.pbs.pbs_config.validate(self.chain).await?;
+        self.pbs_modules[0].pbs_config.validate(self.chain).await?;
         Ok(())
     }
 
@@ -74,7 +74,7 @@ impl CommitBoostConfig {
         let config = CommitBoostConfig {
             chain,
             relays: helper_config.relays,
-            pbs: helper_config.pbs,
+            pbs_modules: vec![helper_config.pbs],
             muxes: helper_config.muxes,
             modules: helper_config.modules,
             signer: helper_config.signer,

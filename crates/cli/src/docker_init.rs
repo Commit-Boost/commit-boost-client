@@ -88,7 +88,7 @@ pub async fn handle_docker_init(config_path: String, output_dir: String) -> Resu
 
     let mut warnings = Vec::new();
 
-    let mut needs_signer_module = cb_config.pbs.with_signer;
+    let mut needs_signer_module = cb_config.pbs_modules[0].with_signer;
 
     // setup modules
     if let Some(modules_config) = cb_config.modules {
@@ -267,13 +267,13 @@ pub async fn handle_docker_init(config_path: String, output_dir: String) -> Resu
 
     // ports
     let host_endpoint =
-        SocketAddr::from((cb_config.pbs.pbs_config.host, cb_config.pbs.pbs_config.port));
-    let ports = Ports::Short(vec![format!("{}:{}", host_endpoint, cb_config.pbs.pbs_config.port)]);
-    warnings.push(format!("pbs has an exported port on {}", cb_config.pbs.pbs_config.port));
+        SocketAddr::from((cb_config.pbs_modules[0].pbs_config.host, cb_config.pbs_modules[0].pbs_config.port));
+    let ports = Ports::Short(vec![format!("{}:{}", host_endpoint, cb_config.pbs_modules[0].pbs_config.port)]);
+    warnings.push(format!("pbs has an exported port on {}", cb_config.pbs_modules[0].pbs_config.port));
 
     // inside the container expose on 0.0.0.0
     let container_endpoint =
-        SocketAddr::from((Ipv4Addr::UNSPECIFIED, cb_config.pbs.pbs_config.port));
+        SocketAddr::from((Ipv4Addr::UNSPECIFIED, cb_config.pbs_modules[0].pbs_config.port));
     let (key, val) = get_env_val(PBS_ENDPOINT_ENV, &container_endpoint.to_string());
     pbs_envs.insert(key, val);
 
@@ -290,7 +290,7 @@ pub async fn handle_docker_init(config_path: String, output_dir: String) -> Resu
 
     let pbs_service = Service {
         container_name: Some("cb_pbs".to_owned()),
-        image: Some(cb_config.pbs.docker_image),
+        image: Some(cb_config.pbs_modules[0].docker_image.clone()),
         ports,
         networks: pbs_networs,
         volumes: pbs_volumes,
@@ -298,7 +298,7 @@ pub async fn handle_docker_init(config_path: String, output_dir: String) -> Resu
         healthcheck: Some(Healthcheck {
             test: Some(HealthcheckTest::Single(format!(
                 "curl -f http://localhost:{}{}{}",
-                cb_config.pbs.pbs_config.port, BUILDER_API_PATH, GET_STATUS_PATH
+                cb_config.pbs_modules[0].pbs_config.port, BUILDER_API_PATH, GET_STATUS_PATH
             ))),
             interval: Some("30s".into()),
             timeout: Some("5s".into()),
