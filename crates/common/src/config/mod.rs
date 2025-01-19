@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use eyre::Result;
+use eyre::{ensure, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::types::{load_chain_from_file, Chain, ChainLoader, ForkVersion};
@@ -39,6 +39,8 @@ pub struct CommitBoostConfig {
 impl CommitBoostConfig {
     /// Validate config
     pub async fn validate(&self) -> Result<()> {
+        ensure!(!self.pbs_modules.is_empty(), "must define at least one pbs_module");
+
         self.pbs_modules[0].pbs_config.validate(self.chain).await?;
         Ok(())
     }
