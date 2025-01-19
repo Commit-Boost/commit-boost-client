@@ -76,7 +76,7 @@ impl CommitBoostConfig {
         let config = CommitBoostConfig {
             chain,
             relays: helper_config.relays,
-            pbs_modules: vec![helper_config.pbs],
+            pbs_modules: helper_config.pbs,
             muxes: helper_config.muxes,
             modules: helper_config.modules,
             signer: helper_config.signer,
@@ -113,7 +113,7 @@ struct ChainConfig {
 struct HelperConfig {
     chain: ChainLoader,
     relays: Vec<RelayConfig>,
-    pbs: StaticPbsConfig,
+    pbs: Vec<StaticPbsConfig>,
     #[serde(flatten)]
     muxes: Option<PbsMuxes>,
     modules: Option<Vec<StaticModuleConfig>>,

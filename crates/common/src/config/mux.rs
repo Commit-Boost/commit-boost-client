@@ -111,7 +111,7 @@ pub struct MuxConfig {
     /// Relays to use for this mux config
     pub relays: Vec<RelayConfig>,
     /// PBS Modules to use for this mux config
-    pub modules: Vec<StaticModuleConfig>,
+    pub pbs_modules: Vec<StaticModuleConfig>,
     /// Which validator pubkeys to match against this mux config
     #[serde(default)]
     pub validator_pubkeys: Vec<BlsPublicKey>,
