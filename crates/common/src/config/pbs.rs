@@ -6,6 +6,8 @@ use std::{
     sync::Arc,
 };
 
+use super::{constants::PBS_IMAGE_DEFAULT, load_optional_env_var, CommitBoostConfig, RuntimeMuxConfig, StaticModuleConfig, PBS_ENDPOINT_ENV};
+
 use alloy::{
     primitives::{utils::format_ether, U256},
     providers::{Provider, ProviderBuilder},
@@ -15,10 +17,7 @@ use eyre::{ensure, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use url::Url;
 
-use super::{
-    constants::PBS_IMAGE_DEFAULT, load_optional_env_var, CommitBoostConfig, RuntimeMuxConfig,
-    PBS_ENDPOINT_ENV,
-};
+
 use crate::{
     commit::client::SignerClient,
     config::{
@@ -101,6 +100,10 @@ pub struct PbsConfig {
 }
 
 impl PbsConfig {
+
+    pub(crate) fn new(p0: StaticModuleConfig) -> PbsConfig {
+        todo!()
+    }
     /// Validate PBS config parameters
     pub async fn validate(&self, chain: Chain) -> Result<()> {
         // timeouts must be positive

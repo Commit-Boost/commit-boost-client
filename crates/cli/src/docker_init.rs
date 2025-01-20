@@ -298,8 +298,7 @@ pub async fn handle_docker_init(config_path: String, output_dir: String) -> Resu
         healthcheck: Some(Healthcheck {
             test: Some(HealthcheckTest::Single(format!(
                 "curl -f http://localhost:{}{}{}",
-                cb_config.pbs_modules[0].pbs_config.port, BUILDER_API_PATH, GET_STATUS_PATH
-            ))),
+                cb_config.pbs_modules[0].pbs_config.port, BUILDER_API_PATH, GET_STATUS_PATH          ))),
             interval: Some("30s".into()),
             timeout: Some("5s".into()),
             retries: 3,

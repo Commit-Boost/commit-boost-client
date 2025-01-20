@@ -43,7 +43,7 @@ impl PbsMuxes {
         let mut muxes = self.muxes;
 
         for mux in muxes.iter_mut() {
-            ensure!(!mux.relays.is_empty(), "mux config {} must have at least one relay", mux.id);
+            ensure!(!mux.pbs_modules.is_empty(), "mux config {} must have at least one pbs module", mux.id);
 
             if let Some(loader) = &mux.loader {
                 let extra_keys = loader.load(&mux.id, chain, default_pbs.rpc_url.clone()).await?;
@@ -74,6 +74,7 @@ impl PbsMuxes {
                 id = mux.id,
                 keys = mux.validator_pubkeys.len(),
                 relays = mux.relays.len(),
+                pbs_modules = mux.pbs_modules.len(),
                 "using mux"
             );
 
@@ -82,6 +83,12 @@ impl PbsMuxes {
                 relay_clients.push(RelayClient::new(config)?);
             }
 
+            let mut pbs_configs = Vec::with_capacity(mux.pbs_modules.len());
+
+            for config in mux.pbs_modules.into_iter() {
+                pbs_configs.push(PbsConfig::new(config));
+            }
+            
             let config = PbsConfig {
                 timeout_get_header_ms: mux
                     .timeout_get_header_ms
