@@ -52,7 +52,7 @@ pub struct RelayConfig {
     pub frequency_get_header_ms: Option<u64>,
     /// Maximum number of validators to send to relays in one registration
     /// request
-    #[serde(deserialize_with = "empty_string_as_none")]
+    #[serde(deserialize_with = "empty_string_as_none", default)]
     pub validator_registration_batch_size: Option<usize>,
 }
 

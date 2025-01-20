@@ -35,20 +35,34 @@ pub async fn register_validator<S: BuilderApiState>(
     let relays = state.all_relays().to_vec();
     let mut handles = Vec::with_capacity(relays.len());
     for relay in relays.clone() {
-        for batch in registrations
-            .chunks(relay.config.validator_registration_batch_size.unwrap_or(registrations.len()))
-            .map(|chunk| chunk.to_vec())
-            .collect::<Vec<Vec<ValidatorRegistration>>>()
-        {
+        if registrations.is_empty() {
             handles.push(tokio::spawn(
                 send_register_validator_with_timeout(
-                    batch,
+                    vec![],
                     relay.clone(),
                     send_headers.clone(),
                     state.pbs_config().timeout_register_validator_ms,
                 )
                 .in_current_span(),
             ));
+        } else {
+            for batch in registrations
+                .chunks(
+                    relay.config.validator_registration_batch_size.unwrap_or(registrations.len()),
+                )
+                .map(|chunk| chunk.to_vec())
+                .collect::<Vec<Vec<ValidatorRegistration>>>()
+            {
+                handles.push(tokio::spawn(
+                    send_register_validator_with_timeout(
+                        batch,
+                        relay.clone(),
+                        send_headers.clone(),
+                        state.pbs_config().timeout_register_validator_ms,
+                    )
+                    .in_current_span(),
+                ));
+            }
         }
     }
 
