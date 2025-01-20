@@ -36,11 +36,16 @@ impl MockValidator {
     }
 
     pub async fn do_register_validator(&self) -> Result<(), Error> {
+        self.do_register_custom_validators(vec![]).await
+    }
+
+    pub async fn do_register_custom_validators(
+        &self,
+        registrations: Vec<ValidatorRegistration>,
+    ) -> Result<(), Error> {
         let url = self.comm_boost.register_validator_url().unwrap();
 
-        let registration: Vec<ValidatorRegistration> = vec![];
-
-        self.comm_boost.client.post(url).json(&registration).send().await?.error_for_status()?;
+        self.comm_boost.client.post(url).json(&registrations).send().await?.error_for_status()?;
 
         Ok(())
     }
