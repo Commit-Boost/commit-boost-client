@@ -1,7 +1,6 @@
 use std::{
     net::{Ipv4Addr, SocketAddr},
     sync::{Arc, Once},
-    u64,
 };
 
 use alloy::{primitives::U256, rpc::types::beacon::BlsPublicKey};

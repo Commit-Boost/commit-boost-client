@@ -2,11 +2,8 @@ use alloy::{
     primitives::B256,
     rpc::types::beacon::{relay::ValidatorRegistration, BlsPublicKey},
 };
-use cb_common::pbs::{
-    GetHeaderResponse, RelayClient, SignedBlindedBeaconBlock, SignedExecutionPayloadHeader,
-    SubmitBlindedBlockResponse, VersionedResponse,
-};
-use reqwest::{Error, Response};
+use cb_common::pbs::{RelayClient, SignedBlindedBeaconBlock};
+use reqwest::Response;
 
 use crate::utils::generate_mock_relay;
 
@@ -20,8 +17,7 @@ impl MockValidator {
     }
 
     pub async fn do_get_header(&self, pubkey: Option<BlsPublicKey>) -> eyre::Result<Response> {
-        let url =
-            self.comm_boost.get_header_url(0, B256::ZERO, pubkey.unwrap_or(BlsPublicKey::ZERO))?;
+        let url = self.comm_boost.get_header_url(0, B256::ZERO, pubkey.unwrap_or_default())?;
         Ok(self.comm_boost.client.get(url).send().await?)
     }
 
@@ -51,7 +47,7 @@ impl MockValidator {
             .comm_boost
             .client
             .post(url)
-            .json(&signed_blinded_block.unwrap_or(SignedBlindedBeaconBlock::default()))
+            .json(&signed_blinded_block.unwrap_or_default())
             .send()
             .await?)
     }
