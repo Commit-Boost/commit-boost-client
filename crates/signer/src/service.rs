@@ -26,7 +26,7 @@ use cb_common::{
     types::{Chain, Jwt, ModuleId},
 };
 use cb_metrics::provider::MetricsProvider;
-use eyre::{bail, Context};
+use eyre::Context;
 use headers::{authorization::Bearer, Authorization};
 use tokio::{net::TcpListener, sync::RwLock};
 use tracing::{debug, error, info, warn};
@@ -57,13 +57,8 @@ impl SigningService {
             return Ok(());
         }
 
-        let manager = match start_manager(&config) {
-            Ok(manager) => manager,
-            Err(err) => {
-                error!(error = ?err, "Failed to start signing manager");
-                bail!(err);
-            }
-        };
+        let manager = start_manager(&config)
+            .map_err(|err| eyre::eyre!("failed to start signing manager {err}"))?;
 
         let module_ids: Vec<String> = config.jwts.left_values().cloned().map(Into::into).collect();
 
