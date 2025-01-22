@@ -5,7 +5,7 @@ use cb_common::{
     config::{PbsConfig, PbsModuleConfig},
     pbs::{BuilderEvent, RelayClient},
 };
-use tokio::sync::RwLock;
+use parking_lot::RwLock;
 
 pub trait BuilderApiState: Clone + Sync + Send + 'static {}
 impl BuilderApiState for () {}

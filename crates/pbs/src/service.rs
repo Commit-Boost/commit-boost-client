@@ -7,8 +7,9 @@ use cb_common::{
 };
 use cb_metrics::provider::MetricsProvider;
 use eyre::{bail, Context, Result};
+use parking_lot::RwLock;
 use prometheus::core::Collector;
-use tokio::{net::TcpListener, sync::RwLock};
+use tokio::net::TcpListener;
 use tracing::info;
 use url::Url;
 

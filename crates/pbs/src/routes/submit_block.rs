@@ -21,7 +21,7 @@ pub async fn handle_submit_block<S: BuilderApiState, A: BuilderApi<S>>(
     req_headers: HeaderMap,
     Json(signed_blinded_block): Json<SignedBlindedBeaconBlock>,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    let state = state.read().await.clone();
+    let state = state.read().clone();
 
     trace!(?signed_blinded_block);
     state.publish_event(BuilderEvent::SubmitBlockRequest(Box::new(signed_blinded_block.clone())));

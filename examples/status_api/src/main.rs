@@ -81,10 +81,7 @@ impl BuilderApi<MyBuilderState> for MyBuilderApi {
 }
 
 async fn handle_check(State(state): State<PbsStateGuard<MyBuilderState>>) -> Response {
-    (
-        StatusCode::OK,
-        format!("Received {count} status requests!", count = state.read().await.data.get()),
-    )
+    (StatusCode::OK, format!("Received {count} status requests!", count = state.read().data.get()))
         .into_response()
 }
 
