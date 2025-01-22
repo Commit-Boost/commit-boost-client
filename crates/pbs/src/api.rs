@@ -49,7 +49,7 @@ pub trait BuilderApi<S: BuilderApiState>: 'static {
         mev_boost::register_validator(registrations, req_headers, state).await
     }
 
-    async fn reload(state: PbsStateGuard<S>) -> eyre::Result<()> {
+    async fn reload(state: PbsState<S>) -> eyre::Result<PbsState<S>> {
         mev_boost::reload(state).await
     }
 }

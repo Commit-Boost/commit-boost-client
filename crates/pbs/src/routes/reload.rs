@@ -24,10 +24,12 @@ pub async fn handle_reload<S: BuilderApiState, A: BuilderApi<S>>(
 
     info!(ua, relay_check = prev_state.config.pbs_config.relay_check);
 
-    match A::reload(state.clone()).await {
-        Ok(_) => {
-            state.read().await.publish_event(BuilderEvent::ReloadResponse);
+    match A::reload(prev_state.clone()).await {
+        Ok(new_state) => {
+            prev_state.publish_event(BuilderEvent::ReloadResponse);
             info!("config reload successful");
+
+            *state.write().await = new_state;
 
             BEACON_NODE_STATUS.with_label_values(&["200", RELOAD_ENDPOINT_TAG]).inc();
             Ok((StatusCode::OK, "OK"))
