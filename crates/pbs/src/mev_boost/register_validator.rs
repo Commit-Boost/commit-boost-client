@@ -177,7 +177,12 @@ async fn send_register_validator(
         return Err(err);
     };
 
-    debug!(?code, latency = ?request_latency, "registration successful");
+    debug!(
+        ?code,
+        latency = ?request_latency,
+        num_registrations = registrations.len(),
+        "registration successful"
+    );
 
     Ok(())
 }
