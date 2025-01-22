@@ -67,7 +67,7 @@ where
         Number(usize),
     }
 
-        match Helper::deserialize(deserializer)? {
+    match Helper::deserialize(deserializer)? {
         Helper::Str(str) if str.is_empty() => Ok(None),
         Helper::Str(str) => Ok(Some(str.parse().map_err(|_| {
             serde::de::Error::custom("Expected empty string or number".to_string())
