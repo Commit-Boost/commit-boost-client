@@ -7,13 +7,13 @@ use cb_common::pbs::{
 
 use crate::{
     mev_boost,
-    state::{BuilderApiState, PbsState},
+    state::{BuilderApiState, PbsState, PbsStateGuard},
 };
 
 #[async_trait]
 pub trait BuilderApi<S: BuilderApiState>: 'static {
     /// Use to extend the BuilderApi
-    fn extra_routes() -> Option<Router<PbsState<S>>> {
+    fn extra_routes() -> Option<Router<PbsStateGuard<S>>> {
         None
     }
 
@@ -47,6 +47,10 @@ pub trait BuilderApi<S: BuilderApiState>: 'static {
         state: PbsState<S>,
     ) -> eyre::Result<()> {
         mev_boost::register_validator(registrations, req_headers, state).await
+    }
+
+    async fn reload(state: PbsState<S>) -> eyre::Result<PbsState<S>> {
+        mev_boost::reload(state).await
     }
 }
 

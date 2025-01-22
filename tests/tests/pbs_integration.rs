@@ -6,7 +6,7 @@ use std::{
     u64,
 };
 
-use alloy::primitives::U256;
+use alloy::{primitives::U256, rpc::types::beacon::relay::ValidatorRegistration};
 use cb_common::{
     config::{PbsConfig, PbsModuleConfig, RuntimeMuxConfig},
     pbs::RelayClient,
@@ -18,7 +18,7 @@ use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
     mock_relay::{start_mock_relay_service, MockRelayState},
     mock_validator::MockValidator,
-    utils::{generate_mock_relay, setup_test_env},
+    utils::{generate_mock_relay, generate_mock_relay_with_batch_size, setup_test_env},
 };
 use eyre::Result;
 use tracing::info;
@@ -140,6 +140,48 @@ async fn test_register_validators() -> Result<()> {
 
     assert!(res.is_ok());
     assert_eq!(mock_state.received_register_validator(), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_batch_register_validators() -> Result<()> {
+    setup_test_env();
+    let signer = random_secret();
+    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk()).into();
+
+    let chain = Chain::Holesky;
+    let port = 3310;
+
+    let relays = vec![generate_mock_relay_with_batch_size(port + 1, *pubkey, 5)?];
+    let mock_state = Arc::new(MockRelayState::new(chain, signer));
+    tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 1));
+
+    let config = to_pbs_config(chain, get_pbs_static_config(port), relays);
+    let state = PbsState::new(config);
+    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+
+    // leave some time to start servers
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let data = include_str!("../data/registration_holesky.json");
+    let registrations: Vec<ValidatorRegistration> = serde_json::from_str(data)?;
+
+    let mock_validator = MockValidator::new(port)?;
+    info!("Sending register validator");
+    let res = mock_validator.do_register_custom_validators(registrations.clone()).await;
+
+    // registrations.len() == 17. 5 per batch, 4 batches
+    assert!(res.is_ok());
+    assert_eq!(mock_state.received_register_validator(), 4);
+
+    let mock_validator = MockValidator::new(port)?;
+    info!("Sending register validator");
+    let res = mock_validator.do_register_custom_validators(registrations[..2].to_vec()).await;
+
+    // Expected one more registration request
+    assert!(res.is_ok());
+    assert_eq!(mock_state.received_register_validator(), 5);
+
     Ok(())
 }
 

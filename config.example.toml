@@ -96,6 +96,9 @@ target_first_request_ms = 200
 # Frequency in ms to send get_header requests
 # OPTIONAL
 frequency_get_header_ms = 300
+# Maximum number of validators to register in a single request.
+# OPTIONAL, DEFAULT: "" (unlimited)
+validator_registration_batch_size = ""
 
 # Configuration for the PBS multiplexers, which enable different configs to be used for get header requests, depending on validator pubkey
 # Note that:
