@@ -1,7 +1,4 @@
-use std::{
-    collections::HashSet,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 use alloy::rpc::types::beacon::relay::ValidatorRegistration;
 use axum::http::{HeaderMap, HeaderValue};
@@ -10,9 +7,9 @@ use cb_common::{
     utils::{get_user_agent_with_version, utcnow_ms},
 };
 use eyre::bail;
-use futures::future::{join_all, select_all};
+use futures::future::{join_all, select_ok};
 use reqwest::header::USER_AGENT;
-use tracing::{debug, error, info, Instrument};
+use tracing::{debug, error, Instrument};
 use url::Url;
 
 use crate::{
@@ -35,16 +32,8 @@ pub async fn register_validator<S: BuilderApiState>(
         .insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from_str(&utcnow_ms().to_string())?);
     send_headers.insert(USER_AGENT, get_user_agent_with_version(&req_headers)?);
 
-    let num_validators = registrations
-        .iter()
-        .map(|registration| registration.message.pubkey)
-        .collect::<HashSet<_>>()
-        .len();
-
     let relays = state.all_relays().to_vec();
     let mut handles = Vec::with_capacity(relays.len());
-    let start_register = Instant::now();
-
     for relay in relays.clone() {
         if let Some(batch_size) = relay.config.validator_registration_batch_size {
             for batch in registrations.chunks(batch_size) {
@@ -74,52 +63,17 @@ pub async fn register_validator<S: BuilderApiState>(
     if state.pbs_config().wait_all_registrations {
         // wait for all relays registrations to complete
         let results = join_all(handles).await;
-        let total_time = start_register.elapsed();
-
-        let successful_responses = results.iter().flatten().filter(|res| res.is_ok()).count();
-        if successful_responses > 0 {
-            info!(
-                num_relays = successful_responses,
-                num_registrations = num_validators,
-                total_time = ?total_time,
-                "all relay registrations finished"
-            );
+        if results.into_iter().any(|res| res.is_ok_and(|res| res.is_ok())) {
             Ok(())
         } else {
             bail!("No relay passed register_validator successfully")
         }
     } else {
         // return once first completes, others proceed in background
-        let mut one_success = false;
-        while !one_success && !handles.is_empty() {
-            let (result, _, remaining) = select_all(handles).await;
-
-            one_success = result.is_ok_and(|res| res.is_ok());
-            handles = remaining;
-        }
-
-        if one_success {
-            // wait for the rest in background and log results
-            tokio::spawn(
-                async move {
-                    let results = join_all(handles).await;
-                    let total_time = start_register.elapsed();
-
-                    // successful + 1 since we had one success above
-                    let successful_responses =
-                        1 + results.iter().flatten().filter(|res| res.is_ok()).count();
-                    info!(
-                        num_relays = successful_responses,
-                        num_registrations = num_validators,
-                        total_time = ?total_time,
-                        "all relay registrations finished"
-                    );
-                }
-                .in_current_span(),
-            );
-            Ok(())
-        } else {
-            bail!("No relay passed register_validator successfully")
+        let result = select_ok(handles).await?;
+        match result.0 {
+            Ok(_) => Ok(()),
+            Err(_) => bail!("No relay passed register_validator successfully"),
         }
     }
 }
@@ -223,7 +177,12 @@ async fn send_register_validator(
         return Err(err);
     };
 
-    debug!(?code, latency = ?request_latency, "registration successful");
+    debug!(
+        ?code,
+        latency = ?request_latency,
+        num_registrations = registrations.len(),
+        "registration successful"
+    );
 
     Ok(())
 }
