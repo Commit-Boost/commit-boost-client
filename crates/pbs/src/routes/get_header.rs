@@ -17,15 +17,17 @@ use crate::{
     constants::GET_HEADER_ENDPOINT_TAG,
     error::PbsClientError,
     metrics::BEACON_NODE_STATUS,
-    state::{BuilderApiState, PbsState},
+    state::{BuilderApiState, PbsStateGuard},
 };
 
 #[tracing::instrument(skip_all, name = "get_header", fields(req_id = %Uuid::new_v4(), slot = params.slot))]
 pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
-    State(state): State<PbsState<S>>,
+    State(state): State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
     Path(params): Path<GetHeaderParams>,
 ) -> Result<impl IntoResponse, PbsClientError> {
+    let state = state.read().clone();
+
     state.publish_event(BuilderEvent::GetHeaderRequest(params));
 
     let ua = get_user_agent(&req_headers);

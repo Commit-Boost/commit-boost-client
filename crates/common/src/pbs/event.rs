@@ -37,6 +37,8 @@ pub enum BuilderEvent {
     },
     RegisterValidatorRequest(Vec<ValidatorRegistration>),
     RegisterValidatorResponse,
+    ReloadEvent,
+    ReloadResponse,
 }
 
 #[derive(Debug, Clone)]

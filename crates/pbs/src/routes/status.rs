@@ -9,14 +9,16 @@ use crate::{
     constants::STATUS_ENDPOINT_TAG,
     error::PbsClientError,
     metrics::BEACON_NODE_STATUS,
-    state::{BuilderApiState, PbsState},
+    state::{BuilderApiState, PbsStateGuard},
 };
 
 #[tracing::instrument(skip_all, name = "status", fields(req_id = %Uuid::new_v4()))]
 pub async fn handle_get_status<S: BuilderApiState, A: BuilderApi<S>>(
     req_headers: HeaderMap,
-    State(state): State<PbsState<S>>,
+    State(state): State<PbsStateGuard<S>>,
 ) -> Result<impl IntoResponse, PbsClientError> {
+    let state = state.read().clone();
+
     state.publish_event(BuilderEvent::GetStatusEvent);
 
     let ua = get_user_agent(&req_headers);
