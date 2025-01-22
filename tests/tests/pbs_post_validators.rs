@@ -4,7 +4,6 @@ use alloy::{
     primitives::Address,
     rpc::types::beacon::relay::{ValidatorRegistration, ValidatorRegistrationMessage},
 };
-
 use cb_common::{
     signer::{random_secret, BlsPublicKey, BlsSignature},
     types::Chain,

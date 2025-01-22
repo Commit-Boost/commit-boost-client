@@ -1,10 +1,3 @@
-use cb_common::{
-    config::{PbsConfig, PbsModuleConfig, RelayConfig},
-    pbs::{RelayClient, RelayEntry},
-    types::Chain,
-};
-use eyre::Result;
-
 use std::{
     net::{Ipv4Addr, SocketAddr},
     sync::{Arc, Once},
@@ -12,6 +5,12 @@ use std::{
 };
 
 use alloy::{primitives::U256, rpc::types::beacon::BlsPublicKey};
+use cb_common::{
+    config::{PbsConfig, PbsModuleConfig, RelayConfig},
+    pbs::{RelayClient, RelayEntry},
+    types::Chain,
+};
+use eyre::Result;
 
 pub fn get_local_address(port: u16) -> String {
     format!("http://0.0.0.0:{port}")

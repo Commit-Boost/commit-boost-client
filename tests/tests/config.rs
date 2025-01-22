@@ -1,7 +1,8 @@
+use std::net::Ipv4Addr;
+
 use alloy::primitives::U256;
 use cb_common::{config::CommitBoostConfig, types::Chain, utils::WEI_PER_ETH};
 use eyre::Result;
-use std::net::Ipv4Addr;
 use url::Url;
 
 #[tokio::test]
