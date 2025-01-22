@@ -17,7 +17,7 @@ pub enum PbsError {
     #[error("json decode error: {err:?}, raw: {raw}")]
     JsonDecode { err: serde_json::Error, raw: String },
 
-    #[error("relay response error. Code: {code}, err: {error_msg}")]
+    #[error("relay response error. Code: {code}, err: {error_msg:?}")]
     RelayResponse { error_msg: String, code: u16 },
 
     #[error("response size exceeds max size: max: {max} raw: {raw}")]
