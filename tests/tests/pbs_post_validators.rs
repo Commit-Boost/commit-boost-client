@@ -1,11 +1,8 @@
 use std::{sync::Arc, time::Duration};
 
-use alloy::{
-    primitives::Address,
-    rpc::types::beacon::relay::{ValidatorRegistration, ValidatorRegistrationMessage},
-};
+use alloy::rpc::types::beacon::relay::ValidatorRegistration;
 use cb_common::{
-    signer::{random_secret, BlsPublicKey, BlsSignature},
+    signer::{random_secret, BlsPublicKey},
     types::Chain,
     utils::blst_pubkey_to_alloy,
 };
@@ -57,7 +54,7 @@ async fn test_register_validators() -> Result<()> {
     )?;
 
     let registrations = vec![registration];
-    let res = mock_validator.do_register_validator(Some(registrations)).await?;
+    let res = mock_validator.do_register_custom_validators(registrations).await?;
 
     assert_eq!(mock_state.received_register_validator(), 1);
     assert_eq!(res.status(), StatusCode::OK);
