@@ -79,7 +79,7 @@ async fn test_mux() -> Result<()> {
 
     // Register requests should go to all relays
     info!("Sending register validator");
-    assert_eq!(mock_validator.do_register_validator(None).await?.status(), StatusCode::OK);
+    assert_eq!(mock_validator.do_register_validator().await?.status(), StatusCode::OK);
     assert_eq!(mock_state.received_register_validator(), 3); // default + 2 mux relays were used
 
     // Submit block requests should go to all relays
