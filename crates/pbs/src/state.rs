@@ -1,11 +1,16 @@
+use std::sync::Arc;
+
 use alloy::rpc::types::beacon::BlsPublicKey;
 use cb_common::{
     config::{PbsConfig, PbsModuleConfig},
     pbs::{BuilderEvent, RelayClient},
 };
+use parking_lot::RwLock;
 
 pub trait BuilderApiState: Clone + Sync + Send + 'static {}
 impl BuilderApiState for () {}
+
+pub type PbsStateGuard<S> = Arc<RwLock<PbsState<S>>>;
 
 /// Config for the Pbs module. It can be extended by adding extra data to the
 /// state for modules that need it

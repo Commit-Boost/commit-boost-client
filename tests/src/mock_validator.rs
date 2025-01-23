@@ -26,13 +26,15 @@ impl MockValidator {
         Ok(self.comm_boost.client.get(url).send().await?)
     }
 
-    pub async fn do_register_validator(
+    pub async fn do_register_validator(&self) -> eyre::Result<Response> {
+        self.do_register_custom_validators(vec![]).await
+    }
+
+    pub async fn do_register_custom_validators(
         &self,
-        validators: Option<Vec<ValidatorRegistration>>,
+        registrations: Vec<ValidatorRegistration>,
     ) -> eyre::Result<Response> {
         let url = self.comm_boost.register_validator_url().unwrap();
-
-        let registrations = validators.unwrap_or_default();
 
         Ok(self.comm_boost.client.post(url).json(&registrations).send().await?)
     }
