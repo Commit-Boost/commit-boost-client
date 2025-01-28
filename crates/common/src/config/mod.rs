@@ -27,6 +27,7 @@ pub use utils::*;
 pub struct CommitBoostConfig {
     pub chain: Chain,
     pub relays: Vec<RelayConfig>,
+    #[serde(skip)]
     pub pbs: StaticPbsConfig,
     #[serde(flatten)]
     pub muxes: Option<PbsMuxes>,
@@ -34,6 +35,7 @@ pub struct CommitBoostConfig {
     pub signer: Option<SignerConfig>,
     pub metrics: Option<MetricsConfig>,
     pub logs: Option<LogsSettings>,
+    #[serde(rename = "pbs")]
     pub extended_pbses: Option<Vec<StaticPbsConfig>>,
 }
 
