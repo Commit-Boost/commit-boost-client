@@ -5,6 +5,7 @@ info:
   description: API that allows commit modules to request generic signatures from validators
 tags:
   - name: Signer
+  - name: Management
 paths:
   /signer/v1/get_pubkeys:
     get:
@@ -253,6 +254,20 @@ paths:
                   message:
                     type: string
                     example: "Internal error"
+
+  /status:
+    get:
+      summary: Get the status of the Signer API module
+      tags:
+        - Management
+      responses:
+        "200":
+          description: Success
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "OK"
 
 components:
   securitySchemes:

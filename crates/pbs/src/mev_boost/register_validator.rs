@@ -34,16 +34,30 @@ pub async fn register_validator<S: BuilderApiState>(
 
     let relays = state.all_relays().to_vec();
     let mut handles = Vec::with_capacity(relays.len());
-    for relay in relays {
-        handles.push(tokio::spawn(
-            send_register_validator_with_timeout(
-                registrations.clone(),
-                relay,
-                send_headers.clone(),
-                state.pbs_config().timeout_register_validator_ms,
-            )
-            .in_current_span(),
-        ));
+    for relay in relays.clone() {
+        if let Some(batch_size) = relay.config.validator_registration_batch_size {
+            for batch in registrations.chunks(batch_size) {
+                handles.push(tokio::spawn(
+                    send_register_validator_with_timeout(
+                        batch.to_vec(),
+                        relay.clone(),
+                        send_headers.clone(),
+                        state.pbs_config().timeout_register_validator_ms,
+                    )
+                    .in_current_span(),
+                ));
+            }
+        } else {
+            handles.push(tokio::spawn(
+                send_register_validator_with_timeout(
+                    registrations.clone(),
+                    relay.clone(),
+                    send_headers.clone(),
+                    state.pbs_config().timeout_register_validator_ms,
+                )
+                .in_current_span(),
+            ));
+        }
     }
 
     if state.pbs_config().wait_all_registrations {
@@ -163,7 +177,12 @@ async fn send_register_validator(
         return Err(err);
     };
 
-    debug!(?code, latency = ?request_latency, "registration successful");
+    debug!(
+        ?code,
+        latency = ?request_latency,
+        num_registrations = registrations.len(),
+        "registration successful"
+    );
 
     Ok(())
 }

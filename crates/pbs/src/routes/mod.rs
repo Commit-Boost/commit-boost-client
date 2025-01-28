@@ -1,5 +1,6 @@
 mod get_header;
 mod register_validator;
+mod reload;
 mod router;
 mod status;
 mod submit_block;

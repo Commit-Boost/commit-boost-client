@@ -50,6 +50,30 @@ pub struct RelayConfig {
     pub target_first_request_ms: Option<u64>,
     /// Frequency in ms to send get_header requests
     pub frequency_get_header_ms: Option<u64>,
+    /// Maximum number of validators to send to relays in one registration
+    /// request
+    #[serde(deserialize_with = "empty_string_as_none", default)]
+    pub validator_registration_batch_size: Option<usize>,
+}
+
+fn empty_string_as_none<'de, D>(deserializer: D) -> Result<Option<usize>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Helper {
+        Str(String),
+        Number(usize),
+    }
+
+    match Helper::deserialize(deserializer)? {
+        Helper::Str(str) if str.is_empty() => Ok(None),
+        Helper::Str(str) => Ok(Some(str.parse().map_err(|_| {
+            serde::de::Error::custom("Expected empty string or number".to_string())
+        })?)),
+        Helper::Number(number) => Ok(Some(number)),
+    }
 }
 
 impl RelayConfig {

@@ -7,6 +7,7 @@ use cb_common::{
 };
 use cb_metrics::provider::MetricsProvider;
 use eyre::{bail, Context, Result};
+use parking_lot::RwLock;
 use prometheus::core::Collector;
 use tokio::net::TcpListener;
 use tracing::info;
@@ -28,7 +29,7 @@ impl PbsService {
             state.config.event_publisher.as_ref().map(|e| e.n_subscribers()).unwrap_or_default();
         info!(version = COMMIT_BOOST_VERSION, commit = COMMIT_BOOST_COMMIT, ?addr, events_subs, chain =? state.config.chain, "starting PBS service");
 
-        let app = create_app_router::<S, A>(state);
+        let app = create_app_router::<S, A>(RwLock::new(state).into());
         let listener = TcpListener::bind(addr).await?;
 
         let task =
