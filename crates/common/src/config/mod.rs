@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use eyre::{ensure, Result};
+use eyre::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::types::{load_chain_from_file, Chain, ChainLoader, ForkVersion};
@@ -27,21 +27,20 @@ pub use utils::*;
 pub struct CommitBoostConfig {
     pub chain: Chain,
     pub relays: Vec<RelayConfig>,
-    pub pbs_modules: Vec<StaticPbsConfig>,
+    pub pbs: StaticPbsConfig,
     #[serde(flatten)]
     pub muxes: Option<PbsMuxes>,
     pub modules: Option<Vec<StaticModuleConfig>>,
     pub signer: Option<SignerConfig>,
     pub metrics: Option<MetricsConfig>,
     pub logs: Option<LogsSettings>,
+    pub extended_pbses: Option<Vec<StaticPbsConfig>>,
 }
 
 impl CommitBoostConfig {
     /// Validate config
     pub async fn validate(&self) -> Result<()> {
-        ensure!(!self.pbs_modules.is_empty(), "must define at least one pbs_module");
-
-        self.pbs_modules[0].pbs_config.validate(self.chain).await?;
+        self.pbs.pbs_config.validate(self.chain).await?;
         Ok(())
     }
 
@@ -76,12 +75,13 @@ impl CommitBoostConfig {
         let config = CommitBoostConfig {
             chain,
             relays: helper_config.relays,
-            pbs_modules: helper_config.pbs,
+            pbs: Default::default(),
             muxes: helper_config.muxes,
             modules: helper_config.modules,
             signer: helper_config.signer,
             metrics: helper_config.metrics,
             logs: helper_config.logs,
+            extended_pbses: helper_config.pbses,
         };
 
         Ok(config)
@@ -113,7 +113,8 @@ struct ChainConfig {
 struct HelperConfig {
     chain: ChainLoader,
     relays: Vec<RelayConfig>,
-    pbs: Vec<StaticPbsConfig>,
+    #[serde(rename = "pbs")]
+    pbses: Option<Vec<StaticPbsConfig>>,
     #[serde(flatten)]
     muxes: Option<PbsMuxes>,
     modules: Option<Vec<StaticModuleConfig>>,

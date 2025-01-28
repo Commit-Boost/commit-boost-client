@@ -6,8 +6,6 @@ use std::{
     sync::Arc,
 };
 
-use super::{constants::PBS_IMAGE_DEFAULT, load_optional_env_var, CommitBoostConfig, RuntimeMuxConfig, StaticModuleConfig, PBS_ENDPOINT_ENV};
-
 use alloy::{
     primitives::{utils::format_ether, U256},
     providers::{Provider, ProviderBuilder},
@@ -17,7 +15,10 @@ use eyre::{ensure, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use url::Url;
 
-
+use super::{
+    constants::PBS_IMAGE_DEFAULT, load_optional_env_var, CommitBoostConfig, RuntimeMuxConfig,
+    PBS_ENDPOINT_ENV,
+};
 use crate::{
     commit::client::SignerClient,
     config::{
@@ -100,10 +101,6 @@ pub struct PbsConfig {
 }
 
 impl PbsConfig {
-
-    pub(crate) fn new(p0: StaticModuleConfig) -> PbsConfig {
-        todo!()
-    }
     /// Validate PBS config parameters
     pub async fn validate(&self, chain: Chain) -> Result<()> {
         // timeouts must be positive
@@ -151,6 +148,26 @@ impl PbsConfig {
     }
 }
 
+impl Default for PbsConfig {
+    fn default() -> Self {
+        Self {
+            host: default_host(),
+            port: DEFAULT_PBS_PORT,
+            relay_check: true,
+            wait_all_registrations: true,
+            timeout_get_header_ms: DefaultTimeout::GET_HEADER_MS,
+            timeout_get_payload_ms: DefaultTimeout::GET_PAYLOAD_MS,
+            timeout_register_validator_ms: DefaultTimeout::REGISTER_VALIDATOR_MS,
+            skip_sigverify: false,
+            min_bid_wei: U256::default(),
+            relay_monitors: Vec::new(),
+            late_in_slot_time_ms: LATE_IN_SLOT_TIME_MS,
+            extra_validation_enabled: false,
+            rpc_url: None,
+        }
+    }
+}
+
 /// Static pbs config from config file
 #[derive(Debug, Deserialize, Serialize)]
 pub struct StaticPbsConfig {
@@ -163,6 +180,12 @@ pub struct StaticPbsConfig {
     /// Whether to enable the signer client
     #[serde(default = "default_bool::<false>")]
     pub with_signer: bool,
+}
+
+impl Default for StaticPbsConfig {
+    fn default() -> Self {
+        Self { docker_image: default_pbs(), pbs_config: Default::default(), with_signer: false }
+    }
 }
 
 /// Runtime config for the pbs module
@@ -201,12 +224,18 @@ pub async fn load_pbs_config() -> Result<PbsModuleConfig> {
     let endpoint = if let Some(endpoint) = load_optional_env_var(PBS_ENDPOINT_ENV) {
         endpoint.parse()?
     } else {
-        SocketAddr::from((config.pbs_modules[0].pbs_config.host, config.pbs_modules[0].pbs_config.port))
+        SocketAddr::from((config.pbs.pbs_config.host, config.pbs.pbs_config.port))
     };
+
+    let extended_pbses = config
+        .extended_pbses
+        .map(|pbses| pbses.into_iter().map(|pbs| pbs.pbs_config).collect::<Vec<_>>());
 
     let muxes = match config.muxes {
         Some(muxes) => {
-            let mux_configs = muxes.validate_and_fill(config.chain, &config.pbs_modules[0].pbs_config).await?;
+            let mux_configs = muxes
+                .validate_and_fill(config.chain, &config.pbs.pbs_config, &extended_pbses)
+                .await?;
             Some(mux_configs)
         }
         None => None,
@@ -238,7 +267,7 @@ pub async fn load_pbs_config() -> Result<PbsModuleConfig> {
     Ok(PbsModuleConfig {
         chain: config.chain,
         endpoint,
-        pbs_config: Arc::new(config.pbs_modules[0].pbs_config.clone()),
+        pbs_config: Arc::new(config.pbs.pbs_config),
         relays: relay_clients,
         all_relays,
         signer_client: None,
@@ -279,10 +308,16 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
         ))
     };
 
+    let extended_pbses = None;
+
     let muxes = match cb_config.muxes {
         Some(muxes) => Some(
             muxes
-                .validate_and_fill(cb_config.chain, &cb_config.pbs.static_config.pbs_config)
+                .validate_and_fill(
+                    cb_config.chain,
+                    &cb_config.pbs.static_config.pbs_config,
+                    &extended_pbses,
+                )
                 .await?,
         ),
         None => None,
