@@ -156,9 +156,10 @@ pub async fn handle_docker_init(config_path: String, output_dir: String) -> Resu
 
                     // depends_on
                     let mut module_dependencies = IndexMap::new();
-                    module_dependencies.insert("cb_signer".into(), DependsCondition {
-                        condition: "service_healthy".into(),
-                    });
+                    module_dependencies.insert(
+                        "cb_signer".into(),
+                        DependsCondition { condition: "service_healthy".into() },
+                    );
 
                     Service {
                         container_name: Some(module_cid.clone()),
@@ -294,7 +295,7 @@ pub async fn handle_docker_init(config_path: String, output_dir: String) -> Resu
         pbs_volumes.extend(get_log_volume(&cb_config.logs, PBS_MODULE_NAME));
 
         // networks
-        let pbs_networs = if metrics_enabled {
+        let pbs_networks = if metrics_enabled {
             Networks::Simple(vec![METRICS_NETWORK.to_owned()])
         } else {
             Networks::default()
@@ -304,7 +305,7 @@ pub async fn handle_docker_init(config_path: String, output_dir: String) -> Resu
             container_name: Some(pbs_container_name.clone()),
             image: Some(pbs_config.docker_image.clone()),
             ports,
-            networks: pbs_networs,
+            networks: pbs_networks,
             volumes: pbs_volumes,
             environment: Environment::KvPair(pbs_envs),
             healthcheck: Some(Healthcheck {
