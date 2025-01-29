@@ -15,7 +15,7 @@ use crate::{
     types::{Chain, Jwt, ModuleId},
 };
 
-#[derive(Debug,Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum ModuleKind {
     #[serde(alias = "commit")]
     Commit,
@@ -24,7 +24,7 @@ pub enum ModuleKind {
 }
 
 /// Static module config from config file
-#[derive(Debug,Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct StaticModuleConfig {
     /// Unique id of the module
     pub id: ModuleId,
