@@ -13,7 +13,7 @@ Commit-Boost needs a configuration file detailing all the services that you want
 ```toml
 chain = "Holesky"
 
-[pbs]
+[[pbs]]
 port = 18550
 
 [[relays]]
@@ -247,7 +247,7 @@ This will create a Docker image called `test_da_commit` that periodically reques
 
 The `cb-config.toml` file needs to be updated as follows:
 ```toml
-[pbs]
+[[pbs]]
 port = 18550
 
 [[relays]]
