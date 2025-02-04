@@ -3,7 +3,6 @@ use std::{
     net::{Ipv4Addr, SocketAddr},
     sync::Arc,
     time::Duration,
-    u64,
 };
 
 use alloy::{primitives::U256, rpc::types::beacon::relay::ValidatorRegistration};
@@ -58,13 +57,13 @@ fn to_pbs_config(chain: Chain, pbs_config: PbsConfig, relays: Vec<RelayClient>) 
 async fn test_get_header() -> Result<()> {
     setup_test_env();
     let signer = random_secret();
-    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk()).into();
+    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk());
 
     let chain = Chain::Holesky;
     let port = 3000;
 
     let mock_state = Arc::new(MockRelayState::new(chain, signer));
-    let mock_relay = generate_mock_relay(port + 1, *pubkey)?;
+    let mock_relay = generate_mock_relay(port + 1, pubkey)?;
     tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 1));
 
     let config = to_pbs_config(chain, get_pbs_static_config(port), vec![mock_relay]);
@@ -87,13 +86,13 @@ async fn test_get_header() -> Result<()> {
 async fn test_get_status() -> Result<()> {
     setup_test_env();
     let signer = random_secret();
-    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk()).into();
+    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk());
 
     let chain = Chain::Holesky;
     let port = 3100;
 
     let relays =
-        vec![generate_mock_relay(port + 1, *pubkey)?, generate_mock_relay(port + 2, *pubkey)?];
+        vec![generate_mock_relay(port + 1, pubkey)?, generate_mock_relay(port + 2, pubkey)?];
     let mock_state = Arc::new(MockRelayState::new(chain, signer));
     tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 1));
     tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 2));
@@ -118,12 +117,12 @@ async fn test_get_status() -> Result<()> {
 async fn test_register_validators() -> Result<()> {
     setup_test_env();
     let signer = random_secret();
-    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk()).into();
+    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk());
 
     let chain = Chain::Holesky;
     let port = 3300;
 
-    let relays = vec![generate_mock_relay(port + 1, *pubkey)?];
+    let relays = vec![generate_mock_relay(port + 1, pubkey)?];
     let mock_state = Arc::new(MockRelayState::new(chain, signer));
     tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 1));
 
@@ -147,12 +146,12 @@ async fn test_register_validators() -> Result<()> {
 async fn test_batch_register_validators() -> Result<()> {
     setup_test_env();
     let signer = random_secret();
-    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk()).into();
+    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk());
 
     let chain = Chain::Holesky;
     let port = 3310;
 
-    let relays = vec![generate_mock_relay_with_batch_size(port + 1, *pubkey, 5)?];
+    let relays = vec![generate_mock_relay_with_batch_size(port + 1, pubkey, 5)?];
     let mock_state = Arc::new(MockRelayState::new(chain, signer));
     tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 1));
 
@@ -189,12 +188,12 @@ async fn test_batch_register_validators() -> Result<()> {
 async fn test_submit_block() -> Result<()> {
     setup_test_env();
     let signer = random_secret();
-    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk()).into();
+    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk());
 
     let chain = Chain::Holesky;
     let port = 3400;
 
-    let relays = vec![generate_mock_relay(port + 1, *pubkey)?];
+    let relays = vec![generate_mock_relay(port + 1, pubkey)?];
     let mock_state = Arc::new(MockRelayState::new(chain, signer));
     tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 1));
 
@@ -218,12 +217,12 @@ async fn test_submit_block() -> Result<()> {
 async fn test_submit_block_too_large() -> Result<()> {
     setup_test_env();
     let signer = random_secret();
-    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk()).into();
+    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk());
 
     let chain = Chain::Holesky;
     let port = 3500;
 
-    let relays = vec![generate_mock_relay(port + 1, *pubkey)?];
+    let relays = vec![generate_mock_relay(port + 1, pubkey)?];
     let mock_state = Arc::new(MockRelayState::new(chain, signer).with_large_body());
     tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 1));
 
@@ -247,14 +246,14 @@ async fn test_submit_block_too_large() -> Result<()> {
 async fn test_mux() -> Result<()> {
     setup_test_env();
     let signer = random_secret();
-    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk()).into();
+    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk());
 
     let chain = Chain::Holesky;
     let port = 3600;
 
-    let mux_relay_1 = generate_mock_relay(port + 1, *pubkey)?;
-    let mux_relay_2 = generate_mock_relay(port + 2, *pubkey)?;
-    let default_relay = generate_mock_relay(port + 3, *pubkey)?;
+    let mux_relay_1 = generate_mock_relay(port + 1, pubkey)?;
+    let mux_relay_2 = generate_mock_relay(port + 2, pubkey)?;
+    let default_relay = generate_mock_relay(port + 3, pubkey)?;
 
     let mock_state = Arc::new(MockRelayState::new(chain, signer));
     tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 1));

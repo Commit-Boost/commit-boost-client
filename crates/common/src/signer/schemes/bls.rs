@@ -1,10 +1,7 @@
-pub use alloy::rpc::types::beacon::BlsSignature;
-use alloy::rpc::types::beacon::{constants::BLS_DST_SIG, BlsPublicKey as BlsPublicKeyInner};
+use alloy::rpc::types::beacon::constants::BLS_DST_SIG;
+pub use alloy::rpc::types::beacon::{BlsPublicKey, BlsSignature};
 use blst::BLST_ERROR;
-use derive_more::derive::{Deref, Display, From, Into, LowerHex};
-use serde::{Deserialize, Serialize};
 use tree_hash::TreeHash;
-use tree_hash_derive::TreeHash;
 
 use crate::{
     error::BlstErrorWrapper, signature::sign_commit_boost_root, types::Chain,
@@ -12,29 +9,6 @@ use crate::{
 };
 
 pub type BlsSecretKey = blst::min_pk::SecretKey;
-
-// TODO(David):
-// This wrapper type is potentially a temporary solution, merely to implement
-// `TreeHash`. Remove when progress is made on this issue (https://github.com/sigp/tree_hash/issues/22)
-// or refine the boundaries between our wrapper `BlsPublicKey` type
-// and alloy's `BlsPublicKey` if we stick with it
-
-// std traits
-#[derive(Debug, Clone, Copy, LowerHex, Display, PartialEq, Eq, Hash, Default)]
-// serde, ssz, tree_hash
-#[derive(Serialize, Deserialize, TreeHash)]
-#[serde(transparent)]
-// derive_more
-#[derive(Deref, From, Into)]
-pub struct BlsPublicKey {
-    inner: BlsPublicKeyInner,
-}
-
-impl AsRef<[u8]> for BlsPublicKey {
-    fn as_ref(&self) -> &[u8] {
-        self.as_slice()
-    }
-}
 
 #[derive(Clone)]
 pub enum BlsSigner {
@@ -89,7 +63,7 @@ pub fn random_secret() -> BlsSecretKey {
 }
 
 pub fn verify_bls_signature(
-    pubkey: &BlsPublicKeyInner,
+    pubkey: &BlsPublicKey,
     msg: &[u8],
     signature: &BlsSignature,
 ) -> Result<(), BlstErrorWrapper> {
