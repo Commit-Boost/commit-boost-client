@@ -1,5 +1,6 @@
 use alloy::primitives::{b256, Address, B256, U256};
 use serde::{Deserialize, Serialize};
+use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
 use tree_hash_derive::TreeHash;
 
@@ -9,7 +10,7 @@ use crate::utils::as_str;
 pub const EMPTY_TX_ROOT_HASH: B256 =
     b256!("7ffe241ea60187fdb0187bfa22de35d1f9bed7ab061d9401fd47e34a54fbede1");
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Encode)]
 pub struct ExecutionPayload<T: EthSpec> {
     pub parent_hash: B256,
     pub fee_recipient: Address,
@@ -46,7 +47,7 @@ pub type Transactions<T> = VariableList<
 >;
 pub type Transaction<N> = VariableList<u8, N>;
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Encode)]
 pub struct Withdrawal {
     #[serde(with = "serde_utils::quoted_u64")]
     pub index: u64,
@@ -57,7 +58,7 @@ pub struct Withdrawal {
     pub amount: u64,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize, TreeHash)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, TreeHash, Encode, Decode)]
 pub struct ExecutionPayloadHeader<T: EthSpec> {
     pub parent_hash: B256,
     pub fee_recipient: Address,

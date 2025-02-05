@@ -1,9 +1,10 @@
-use axum::{extract::State, http::HeaderMap, response::IntoResponse, Json};
+use axum::{extract::State, http::{HeaderMap, HeaderValue}, response::IntoResponse, Json};
 use cb_common::{
     pbs::{BuilderEvent, SignedBlindedBeaconBlock},
-    utils::{get_user_agent, timestamp_of_slot_start_millis, utcnow_ms},
+    utils::{get_content_type_header, get_user_agent, timestamp_of_slot_start_millis, utcnow_ms, JsonOrSsz, CONSENSUS_VERSION_HEADER},
 };
-use reqwest::StatusCode;
+use reqwest::{header::CONTENT_TYPE, StatusCode};
+use ssz::Encode;
 use tracing::{error, info, trace};
 use uuid::Uuid;
 
@@ -19,7 +20,7 @@ use crate::{
 pub async fn handle_submit_block<S: BuilderApiState, A: BuilderApi<S>>(
     State(state): State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
-    Json(signed_blinded_block): Json<SignedBlindedBeaconBlock>,
+    JsonOrSsz(signed_blinded_block): JsonOrSsz<SignedBlindedBeaconBlock>,
 ) -> Result<impl IntoResponse, PbsClientError> {
     let state = state.read().clone();
 
@@ -31,6 +32,8 @@ pub async fn handle_submit_block<S: BuilderApiState, A: BuilderApi<S>>(
     let block_hash = signed_blinded_block.message.body.execution_payload_header.block_hash;
     let slot_start_ms = timestamp_of_slot_start_millis(slot, state.config.chain);
     let ua = get_user_agent(&req_headers);
+    let content_type_header = get_content_type_header(&req_headers);
+
 
     info!(ua,  ms_into_slot=now.saturating_sub(slot_start_ms), %block_hash);
 
@@ -39,9 +42,31 @@ pub async fn handle_submit_block<S: BuilderApiState, A: BuilderApi<S>>(
             trace!(?res);
             state.publish_event(BuilderEvent::SubmitBlockResponse(Box::new(res.clone())));
             info!("received unblinded block");
-
             BEACON_NODE_STATUS.with_label_values(&["200", SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG]).inc();
-            Ok((StatusCode::OK, Json(res).into_response()))
+
+            let response = match content_type_header {
+                cb_common::utils::ContentType::Json => {
+                    info!("sending response as JSON");
+                    (StatusCode::OK, Json(res)).into_response()
+                },
+                cb_common::utils::ContentType::Ssz => {
+                    let mut response = (StatusCode::OK, res.data.as_ssz_bytes()).into_response();
+                    let Ok(consensus_version_header) = HeaderValue::from_str(&format!("{}", res.version)) else {
+                        info!("sending response as JSON");
+                        return Ok((StatusCode::OK, axum::Json(res)).into_response())
+                    };
+                    let Ok(content_type_header) = HeaderValue::from_str(&content_type_header.to_string()) else {
+                        info!("sending response as JSON");
+                        return Ok((StatusCode::OK, axum::Json(res)).into_response())
+                    };
+                    response.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
+                    response.headers_mut().insert(CONTENT_TYPE, content_type_header);
+                    info!("sending response as SSZ");
+                    response
+                },
+            };
+
+            Ok(response)
         }
 
         Err(err) => {

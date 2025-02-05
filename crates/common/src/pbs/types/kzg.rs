@@ -4,6 +4,7 @@ use std::{
 };
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use ssz::{Encode, Decode};
 use ssz_types::VariableList;
 use tree_hash::{PackedEncoding, TreeHash};
 
@@ -18,6 +19,30 @@ pub type KzgCommitments<T> =
 impl From<KzgCommitment> for [u8; 48] {
     fn from(value: KzgCommitment) -> Self {
         value.0
+    }
+}
+
+impl Decode for KzgCommitment {
+    fn is_ssz_fixed_len() -> bool {
+        <[u8; BYTES_PER_COMMITMENT] as ssz::Decode>::is_ssz_fixed_len()
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+        <[u8; BYTES_PER_COMMITMENT]>::from_ssz_bytes(bytes).and_then(|o| Ok(Self(o)))
+    }
+}
+
+impl Encode for KzgCommitment {
+    fn is_ssz_fixed_len() -> bool {
+        <[u8; BYTES_PER_COMMITMENT] as ssz::Encode>::is_ssz_fixed_len()
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+       self.0.ssz_append(buf)
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        self.0.ssz_bytes_len()
     }
 }
 
@@ -115,6 +140,20 @@ impl fmt::Display for KzgProof {
 impl From<[u8; BYTES_PER_PROOF]> for KzgProof {
     fn from(bytes: [u8; BYTES_PER_PROOF]) -> Self {
         Self(bytes)
+    }
+}
+
+impl Encode for KzgProof {
+    fn is_ssz_fixed_len() -> bool {
+        <[u8; BYTES_PER_PROOF] as ssz::Encode>::is_ssz_fixed_len()
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        self.0.ssz_append(buf)
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        self.0.ssz_bytes_len()
     }
 }
 

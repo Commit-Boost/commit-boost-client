@@ -3,6 +3,7 @@ use alloy::{
     rpc::types::beacon::{BlsPublicKey, BlsSignature},
 };
 use serde::{Deserialize, Serialize};
+use ssz_derive::Encode;
 use tree_hash_derive::TreeHash;
 
 use super::{
@@ -37,13 +38,13 @@ impl GetHeaderResponse {
     }
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Encode)]
 pub struct SignedExecutionPayloadHeader {
     pub message: ExecutionPayloadHeaderMessage,
     pub signature: BlsSignature,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize, TreeHash)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, TreeHash, Encode)]
 pub struct ExecutionPayloadHeaderMessage {
     pub header: ExecutionPayloadHeader<DenebSpec>,
     pub blob_kzg_commitments: KzgCommitments<DenebSpec>,

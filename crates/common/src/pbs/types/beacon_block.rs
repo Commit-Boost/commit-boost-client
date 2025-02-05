@@ -1,12 +1,13 @@
 use alloy::{primitives::B256, rpc::types::beacon::BlsSignature};
 use serde::{Deserialize, Serialize};
+use ssz_derive::{Decode, Encode};
 
 use super::{
     blinded_block_body::BlindedBeaconBlockBody, blobs_bundle::BlobsBundle,
     execution_payload::ExecutionPayload, spec::DenebSpec, utils::VersionedResponse,
 };
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Decode)]
 /// Sent to relays in submit_block
 pub struct SignedBlindedBeaconBlock {
     pub message: BlindedBeaconBlock,
@@ -19,7 +20,7 @@ impl SignedBlindedBeaconBlock {
     }
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Decode)]
 pub struct BlindedBeaconBlock {
     #[serde(with = "serde_utils::quoted_u64")]
     pub slot: u64,
@@ -33,7 +34,7 @@ pub struct BlindedBeaconBlock {
 /// Returned by relay in submit_block
 pub type SubmitBlindedBlockResponse = VersionedResponse<PayloadAndBlobs>;
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Encode)]
 pub struct PayloadAndBlobs {
     pub execution_payload: ExecutionPayload<DenebSpec>,
     pub blobs_bundle: Option<BlobsBundle<DenebSpec>>,

@@ -1,3 +1,5 @@
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 
 pub mod quoted_variable_list_u64 {
@@ -40,4 +42,15 @@ pub enum Version {
     #[serde(rename = "deneb")]
     #[default]
     Deneb,
+    #[serde(rename = "electra")]
+    Electra,
+}
+
+impl fmt::Display for Version {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Version::Deneb => write!(f, "deneb"),
+            Version::Electra => write!(f, "electra"),
+        }
+    }
 }

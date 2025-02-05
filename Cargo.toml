@@ -39,6 +39,8 @@ alloy = { version = "0.8.0", features = [
 ] }
 ssz_types = "0.8"
 ethereum_serde_utils = "0.7.0"
+ethereum_ssz = "0.7"
+ethereum_ssz_derive = "0.7"
 
 # networking
 axum = { version = "0.8.1", features = ["macros"] }
@@ -101,3 +103,5 @@ derive_more = { version = "1.0.0", features = [
     "deref",
     "display",
 ] }
+mediatype = "0.19.13"
+bytes = "1.6"

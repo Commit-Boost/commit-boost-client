@@ -9,6 +9,8 @@ publish = false
 # ethereum
 alloy.workspace = true
 ssz_types.workspace = true
+ethereum_ssz.workspace = true
+ethereum_ssz_derive.workspace = true
 ethereum_serde_utils.workspace = true
 
 # networking
@@ -49,6 +51,8 @@ url.workspace = true
 rand.workspace = true
 bimap.workspace = true
 derive_more.workspace = true
+mediatype.workspace = true
+bytes.workspace = true
 
 unicode-normalization.workspace = true
 base64.workspace = true

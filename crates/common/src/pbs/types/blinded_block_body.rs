@@ -3,6 +3,7 @@ use alloy::{
     rpc::types::beacon::{BlsPublicKey, BlsSignature},
 };
 use serde::{Deserialize, Serialize};
+use ssz_derive::Decode;
 use ssz_types::{typenum, BitList, BitVector, FixedVector, VariableList};
 
 use super::{
@@ -10,7 +11,7 @@ use super::{
 };
 use crate::utils::as_str;
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Decode)]
 pub struct BlindedBeaconBlockBody<T: EthSpec> {
     pub randao_reveal: BlsSignature,
     pub eth1_data: Eth1Data,
@@ -27,7 +28,7 @@ pub struct BlindedBeaconBlockBody<T: EthSpec> {
     pub blob_kzg_commitments: KzgCommitments<T>,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Decode)]
 pub struct Eth1Data {
     pub deposit_root: B256,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -35,7 +36,7 @@ pub struct Eth1Data {
     pub block_hash: B256,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Decode)]
 pub struct BeaconBlockHeader {
     #[serde(with = "serde_utils::quoted_u64")]
     pub slot: u64,
@@ -46,13 +47,13 @@ pub struct BeaconBlockHeader {
     pub body_root: B256,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Decode)]
 pub struct SignedBeaconBlockHeader {
     pub message: BeaconBlockHeader,
     pub signature: BlsSignature,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Decode)]
 pub struct BlsToExecutionChange {
     #[serde(with = "as_str")]
     pub validator_index: u64,
@@ -60,25 +61,25 @@ pub struct BlsToExecutionChange {
     pub to_execution_address: Address,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Decode)]
 pub struct SignedBlsToExecutionChange {
     pub message: BlsToExecutionChange,
     pub signature: BlsSignature,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Decode)]
 pub struct ProposerSlashing {
     pub signed_header_1: SignedBeaconBlockHeader,
     pub signed_header_2: SignedBeaconBlockHeader,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Decode)]
 pub struct AttesterSlashing<T: EthSpec> {
     pub attestation_1: IndexedAttestation<T>,
     pub attestation_2: IndexedAttestation<T>,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Decode)]
 #[serde(bound = "T: EthSpec")]
 pub struct IndexedAttestation<T: EthSpec> {
     /// Lists validator registry indices, not committee indices.
@@ -88,7 +89,7 @@ pub struct IndexedAttestation<T: EthSpec> {
     pub signature: BlsSignature,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Decode)]
 pub struct AttestationData {
     #[serde(with = "serde_utils::quoted_u64")]
     pub slot: u64,
@@ -101,14 +102,14 @@ pub struct AttestationData {
     pub target: Checkpoint,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Decode)]
 pub struct Checkpoint {
     #[serde(with = "serde_utils::quoted_u64")]
     pub epoch: u64,
     pub root: B256,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Decode)]
 #[serde(bound = "T: EthSpec")]
 pub struct Attestation<T: EthSpec> {
     pub aggregation_bits: BitList<T::MaxValidatorsPerCommittee>,
@@ -116,13 +117,13 @@ pub struct Attestation<T: EthSpec> {
     pub signature: BlsSignature,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Decode)]
 pub struct Deposit {
     pub proof: FixedVector<B256, typenum::U33>, // put this in EthSpec?
     pub data: DepositData,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Decode)]
 pub struct DepositData {
     pub pubkey: BlsPublicKey,
     pub withdrawal_credentials: B256,
@@ -131,13 +132,13 @@ pub struct DepositData {
     pub signature: BlsSignature,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Decode)]
 pub struct SignedVoluntaryExit {
     pub message: VoluntaryExit,
     pub signature: BlsSignature,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Decode)]
 pub struct VoluntaryExit {
     /// Earliest epoch when voluntary exit can be processed.
     #[serde(with = "serde_utils::quoted_u64")]
@@ -146,7 +147,7 @@ pub struct VoluntaryExit {
     pub validator_index: u64,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Decode)]
 #[serde(bound = "T: EthSpec")]
 pub struct SyncAggregate<T: EthSpec> {
     pub sync_committee_bits: BitVector<T::SyncCommitteeSize>,
