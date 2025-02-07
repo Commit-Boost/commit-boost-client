@@ -1,6 +1,7 @@
 use cb_common::{
-    config::load_pbs_config,
-    utils::{initialize_pbs_tracing_log, wait_for_signal},
+    config::{load_pbs_config, PBS_MODULE_NAME},
+    logging::initialize_tracing_log,
+    utils::wait_for_signal,
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use eyre::Result;
@@ -14,7 +15,7 @@ async fn main() -> Result<()> {
     if std::env::var_os("RUST_BACKTRACE").is_none() {
         std::env::set_var("RUST_BACKTRACE", "1");
     }
-    let _guard = initialize_pbs_tracing_log();
+    let _guard = initialize_tracing_log(PBS_MODULE_NAME);
 
     let pbs_config = load_pbs_config().await?;
 

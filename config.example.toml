@@ -240,3 +240,9 @@ log_level = "debug"
 # Maximum number of log files to keep
 # OPTIONAL
 max_log_files = 30
+# Log format. Supported values: default,json, raw
+# OPTIONAL, DEFAULT: default
+format = "raw"
+# Log destination. Supported values: stdout, file, both
+# OPTIONAL, DEFAULT: stdout
+destination = "both"

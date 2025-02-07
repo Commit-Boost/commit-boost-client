@@ -1,37 +1,28 @@
 use std::path::PathBuf;
+
 use eyre::Result;
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::{fmt, Layer, Registry};
 
-use crate::logging::RawFormatter;
 use super::{load_optional_env_var, CommitBoostConfig, LOGS_DIR_DEFAULT, LOGS_DIR_ENV};
+use crate::logging::RawFormatter;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum LogFormat {
+    #[default]
     Default, // default tracing format
-    Raw,     // key=value format
-    Json,    // JSON format
+    Raw,  // key=value format
+    Json, // JSON format
 }
 
-impl Default for LogFormat {
-    fn default() -> Self {
-        LogFormat::Default
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum LogDest {
-    Stdout,   // Only console output
-    File,     // Only file output
-    Both      // Both console and file output
-}
-
-impl Default for LogDest {
-    fn default() -> Self {
-        LogDest::Both  // Default to writing to both stdout and file
-    }
+    Stdout, // Only console output
+    File,   // Only file output
+    #[default]
+    Both, // Both console and file output
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -65,21 +56,11 @@ impl LogsSettings {
     /// Creates a format layer based on the configured format type
     pub fn create_format_layer(&self) -> Box<dyn Layer<Registry> + Send + Sync> {
         match self.format {
-            LogFormat::Default => Box::new(
-                fmt::layer()
-                    .with_target(false)
-            ),
-            LogFormat::Raw => Box::new(
-                fmt::layer()
-                    .with_target(false)
-                    .event_format(RawFormatter)
-            ),
-            LogFormat::Json => Box::new(
-                fmt::layer()
-                    .with_target(false)
-                    .json()
-                    .with_current_span(true)
-            ),
+            LogFormat::Default => Box::new(fmt::layer().with_target(false)),
+            LogFormat::Raw => Box::new(fmt::layer().with_target(false).event_format(RawFormatter)),
+            LogFormat::Json => {
+                Box::new(fmt::layer().with_target(false).json().with_current_span(true))
+            }
         }
     }
 }

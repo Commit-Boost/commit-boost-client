@@ -14,10 +14,7 @@ use reqwest::header::HeaderMap;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 
-use crate::{
-    pbs::HEADER_VERSION_VALUE,
-    types::Chain,
-};
+use crate::{pbs::HEADER_VERSION_VALUE, types::Chain};
 
 const MILLIS_PER_SECOND: u64 = 1_000;
 

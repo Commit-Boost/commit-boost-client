@@ -1,6 +1,7 @@
 use cb_common::{
     config::{StartSignerConfig, SIGNER_MODULE_NAME},
-    utils::{initialize_tracing_log, wait_for_signal},
+    logging::initialize_tracing_log,
+    utils::wait_for_signal,
 };
 use cb_signer::service::SigningService;
 use eyre::Result;

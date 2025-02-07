@@ -7,15 +7,13 @@ pub mod prelude {
         },
         config::{
             load_builder_module_config, load_commit_module_config, load_pbs_config,
-            load_pbs_custom_config, LogsSettings, StartCommitModuleConfig,
+            load_pbs_custom_config, LogsSettings, StartCommitModuleConfig, PBS_MODULE_NAME,
         },
+        logging::initialize_tracing_log,
         pbs::{BuilderEvent, BuilderEventClient, OnBuilderApiEvent},
         signer::{BlsPublicKey, BlsSignature, EcdsaPublicKey, EcdsaSignature},
         types::Chain,
-        utils::{
-            initialize_pbs_tracing_log, initialize_tracing_log, utcnow_ms, utcnow_ns, utcnow_sec,
-            utcnow_us,
-        },
+        utils::{utcnow_ms, utcnow_ns, utcnow_sec, utcnow_us},
     };
     pub use cb_metrics::provider::MetricsProvider;
     pub use cb_pbs::{
