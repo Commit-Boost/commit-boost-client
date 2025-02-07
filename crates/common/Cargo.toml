@@ -49,6 +49,10 @@ url.workspace = true
 rand.workspace = true
 bimap.workspace = true
 derive_more.workspace = true
+time.workspace = true
 
 unicode-normalization.workspace = true
 base64.workspace = true
+
+[dev-dependencies]
+tempfile = "3.8"

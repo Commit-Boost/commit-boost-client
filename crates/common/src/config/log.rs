@@ -1,9 +1,38 @@
 use std::path::PathBuf;
-
 use eyre::Result;
 use serde::{Deserialize, Serialize};
+use tracing_subscriber::{fmt, Layer, Registry};
 
+use crate::logging::RawFormatter;
 use super::{load_optional_env_var, CommitBoostConfig, LOGS_DIR_DEFAULT, LOGS_DIR_ENV};
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LogFormat {
+    Default, // default tracing format
+    Raw,     // key=value format
+    Json,    // JSON format
+}
+
+impl Default for LogFormat {
+    fn default() -> Self {
+        LogFormat::Default
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LogDest {
+    Stdout,   // Only console output
+    File,     // Only file output
+    Both      // Both console and file output
+}
+
+impl Default for LogDest {
+    fn default() -> Self {
+        LogDest::Both  // Default to writing to both stdout and file
+    }
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct LogsSettings {
@@ -13,16 +42,10 @@ pub struct LogsSettings {
     pub log_level: String,
     #[serde(default)]
     pub max_log_files: Option<usize>,
-}
-
-impl Default for LogsSettings {
-    fn default() -> Self {
-        LogsSettings {
-            log_dir_path: default_log_dir_path(),
-            log_level: default_log_level(),
-            max_log_files: None,
-        }
-    }
+    #[serde(default)]
+    pub format: LogFormat,
+    #[serde(default)]
+    pub destination: LogDest,
 }
 
 impl LogsSettings {
@@ -37,6 +60,39 @@ impl LogsSettings {
         }
 
         Ok(config.logs)
+    }
+
+    /// Creates a format layer based on the configured format type
+    pub fn create_format_layer(&self) -> Box<dyn Layer<Registry> + Send + Sync> {
+        match self.format {
+            LogFormat::Default => Box::new(
+                fmt::layer()
+                    .with_target(false)
+            ),
+            LogFormat::Raw => Box::new(
+                fmt::layer()
+                    .with_target(false)
+                    .event_format(RawFormatter)
+            ),
+            LogFormat::Json => Box::new(
+                fmt::layer()
+                    .with_target(false)
+                    .json()
+                    .with_current_span(true)
+            ),
+        }
+    }
+}
+
+impl Default for LogsSettings {
+    fn default() -> Self {
+        LogsSettings {
+            log_dir_path: default_log_dir_path(),
+            log_level: default_log_level(),
+            max_log_files: None,
+            format: LogFormat::default(),
+            destination: LogDest::default(),
+        }
     }
 }
 
