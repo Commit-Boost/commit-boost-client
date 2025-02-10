@@ -1428,6 +1428,7 @@ dependencies = [
  "alloy",
  "axum 0.8.1",
  "axum-extra",
+ "base64 0.21.7",
  "bimap",
  "blst",
  "cb-common",

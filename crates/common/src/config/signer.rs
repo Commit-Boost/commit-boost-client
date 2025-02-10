@@ -34,6 +34,17 @@ fn default_signer() -> String {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
+pub struct DirkHost {
+    /// Domain name of the server to use in TLS verification
+    pub domain: Option<String>,
+    /// Complete URL of a Dirk gateway
+    pub url: Url,
+    /// Accounts used as consensus keys
+    pub accounts: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "snake_case")]
 pub enum SignerType {
     /// Local signer module
     Local {
@@ -49,20 +60,16 @@ pub enum SignerType {
     },
     /// Dirk remote signer module
     Dirk {
-        /// Complete URL of a Dirk gateway
-        url: Url,
+        /// List of Dirk hosts with their accounts
+        hosts: Vec<DirkHost>,
         /// Path to the client certificate
         cert_path: PathBuf,
         /// Path to the client key
         key_path: PathBuf,
-        /// Accounts used as consensus keys
-        accounts: Vec<String>,
         /// Path to where the account passwords are stored
         secrets_path: PathBuf,
         /// Path to the CA certificate
         ca_cert_path: Option<PathBuf>,
-        /// Domain name of the server to use in TLS verification
-        server_domain: Option<String>,
         /// Whether to unlock the accounts in case they are locked
         #[serde(default)]
         unlock: bool,
@@ -73,12 +80,10 @@ pub enum SignerType {
 
 #[derive(Clone, Debug)]
 pub struct DirkConfig {
-    pub url: Url,
-    pub accounts: Vec<String>,
+    pub hosts: Vec<DirkHost>,
     pub client_cert: Identity,
     pub secrets_path: PathBuf,
     pub cert_auth: Option<Certificate>,
-    pub server_domain: Option<String>,
     pub unlock: bool,
 }
 
@@ -112,13 +117,11 @@ impl StartSignerConfig {
             }),
 
             SignerType::Dirk {
-                url,
+                hosts,
                 cert_path,
                 key_path,
-                accounts,
                 secrets_path,
                 ca_cert_path,
-                server_domain,
                 unlock,
                 store,
                 ..
@@ -141,8 +144,7 @@ impl StartSignerConfig {
                     loader: None,
                     store,
                     dirk: Some(DirkConfig {
-                        url,
-                        accounts,
+                        hosts,
                         client_cert: Identity::from_pem(
                             std::fs::read_to_string(cert_path)?,
                             std::fs::read_to_string(key_path)?,
@@ -154,7 +156,6 @@ impl StartSignerConfig {
                             }
                             None => None,
                         },
-                        server_domain,
                         unlock,
                     }),
                 })

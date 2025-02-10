@@ -1,5 +1,6 @@
 use std::{fs, path::PathBuf};
-
+use std::collections::HashMap;
+use std::fmt::{Debug};
 use alloy::{hex, primitives::FixedBytes};
 use cb_common::{
     commit::request::{ConsensusProxyMap, ProxyDelegation, SignedProxyDelegation},
@@ -13,7 +14,6 @@ use rand::Rng;
 use tonic::transport::{Channel, ClientTlsConfig};
 use tracing::{info, trace};
 use tree_hash::TreeHash;
-
 use crate::{
     error::SignerModuleError::{self, DirkCommunicationError},
     proto::v1::{
@@ -22,13 +22,25 @@ use crate::{
         GenerateRequest, ListAccountsRequest, ResponseState, SignRequest, UnlockAccountRequest,
     },
 };
+use crate::proto::v1::DistributedAccount;
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+
+#[derive(Clone, Debug)]
+enum WalletType {
+    Simple,
+    Distributed
+}
+
 
 #[derive(Clone, Debug)]
 struct Account {
     wallet: String,
     name: String,
     public_key: Option<BlsPublicKey>,
+    hosts: Vec<String>,
+    wallet_type: WalletType,
 }
+
 
 impl Account {
     pub fn complete_name(&self) -> String {
@@ -40,7 +52,7 @@ impl Account {
 pub struct DirkManager {
     chain: Chain,
     channel: Channel,
-    accounts: Vec<Account>,
+    accounts: HashMap<String, Account>, // host+pubkey -> account
     unlock: bool,
     secrets_path: PathBuf,
     proxy_store: Option<ProxyStore>,
@@ -48,66 +60,115 @@ pub struct DirkManager {
 
 impl DirkManager {
     pub async fn new_from_config(chain: Chain, config: DirkConfig) -> eyre::Result<Self> {
-        let mut tls_config = ClientTlsConfig::new().identity(config.client_cert);
+        let mut tls_configs = Vec::new();
 
-        if let Some(ca) = config.cert_auth {
-            tls_config = tls_config.ca_certificate(ca);
+        // Create a TLS config for each host
+        for host in config.hosts.clone() {
+            let mut tls_config = ClientTlsConfig::new().identity(config.client_cert.clone());
+
+            if let Some(ca) = &config.cert_auth {
+                tls_config = tls_config.ca_certificate(ca.clone());
+                trace!("Using custom CA certificate");
+            }
+
+            trace!(host.domain, "Using custom server domain");
+            tls_config = tls_config.domain_name(host.domain.unwrap_or_default());
+
+            tls_configs.push(tls_config);
         }
 
-        if let Some(server_domain) = config.server_domain {
-            tls_config = tls_config.domain_name(server_domain);
-        }
-
-        trace!(url=%config.url, "Stablishing connection with Dirk");
-
-        let channel = Channel::from_shared(config.url.to_string())
-            .map_err(|_| eyre::eyre!("Invalid Dirk URL"))?
-            .tls_config(tls_config)
-            .map_err(|_| eyre::eyre!("Invalid Dirk TLS config"))?
-            .connect()
-            .await
-            .map_err(|e| eyre::eyre!("Couldn't connect to Dirk: {e}"))?;
-
-        let dirk_accounts = get_accounts_in_wallets(
-            channel.clone(),
-            config
-                .accounts
-                .iter()
-                .filter_map(|account| Some(account.split_once("/")?.0.to_string()))
-                .collect(),
-        )
-        .await?;
-
-        let mut accounts = Vec::with_capacity(config.accounts.len());
-        for account in config.accounts {
-            let (wallet, name) = account.split_once("/").ok_or(eyre::eyre!(
-                "Invalid account name: {account}. It must be in format wallet/account"
-            ))?;
-            let public_key = dirk_accounts.iter().find_map(|a| {
-                if a.name == account {
-                    BlsPublicKey::try_from(a.public_key.as_slice()).ok()
-                } else {
-                    None
-                }
-            });
-
-            accounts.push(Account {
-                wallet: wallet.to_string(),
-                name: name.to_string(),
-                public_key,
-            });
-        }
-        let wallets =
-            accounts.iter().map(|account| account.wallet.clone()).collect::<Vec<String>>();
-        let dirk_accounts = get_accounts_in_wallets(channel.clone(), wallets).await?;
-        for account in accounts.iter_mut() {
-            if let Some(dirk_account) =
-                dirk_accounts.iter().find(|a| a.name == account.complete_name())
+        // Create a channel for each host, attempt to connect,
+        // and save it into a hashmap Host->Channel
+        let mut channels = HashMap::new();
+        for (i, tls_config) in tls_configs.iter().enumerate() {
+            let config_host = config.hosts[i].clone();
+            let domain = config_host.domain.unwrap_or_default();
+            match Channel::from_shared(config_host.url.to_string())
+                .map_err(|_| eyre::eyre!("Invalid Dirk URL"))?
+                .tls_config(tls_config.clone())
+                .map_err(|_| eyre::eyre!("Invalid Dirk TLS config"))?
+                .connect()
+                .await
             {
-                account.public_key =
-                    Some(BlsPublicKey::try_from(dirk_account.public_key.as_slice())?);
+                Ok(ch) => {
+                    channels.insert(domain, ch);
+                }
+                Err(e) => {
+                    trace!("Couldn't connect to Dirk with domain {}: {e}", domain);
+                }
             }
         }
+
+        // TODO remove this, should use all channels later
+        let channel = channels
+            .values()
+            .next()
+            .ok_or_else(|| eyre::eyre!("Couldn't connect to Dirk with any of the domains"))?
+            .clone();
+
+        let mut accounts: HashMap<String, Account> = HashMap::new();
+
+
+        for host in config.hosts {
+            let domain = host.domain.unwrap_or_default();
+            let channel = channels.get(&domain).ok_or(eyre::eyre!(
+                "Couldn't connect to Dirk with domain {domain}"
+            ))?.clone();
+
+            let (dirk_accounts, dirk_distributed_accounts) = get_accounts_in_wallets(
+                channel.clone(),
+                host.accounts.iter()
+                    .filter_map(|account| Some(account.split_once("/")?.0.to_string()))
+                    .collect(),
+            ).await?;
+
+            for account_name in host.accounts.clone() {
+                let (wallet, name) = account_name.split_once("/").ok_or(eyre::eyre!(
+                    "Invalid account name: {account_name}. It must be in format wallet/account"
+                ))?;
+
+                // Handle simple accounts
+                if let Some(dirk_account) = dirk_accounts.iter()
+                    .find(|a| a.name == account_name)
+                {
+                    let public_key = BlsPublicKey::try_from(dirk_account.public_key.as_slice())?;
+                    let key = hex::encode(public_key);
+                    
+                    accounts.insert(key, Account {
+                        wallet: wallet.to_string(),
+                        name: name.to_string(),
+                        public_key: Some(public_key),
+                        hosts: vec![domain.clone()],
+                        wallet_type: WalletType::Simple,
+                    });
+                }
+
+                // Handle distributed accounts
+                if let Some(dist_account) = dirk_distributed_accounts.iter()
+                    .find(|a| a.name == account_name)
+                {
+                    let public_key = BlsPublicKey::try_from(dist_account.composite_public_key.as_slice())?;
+                    let key = hex::encode(public_key);
+                    
+                    accounts
+                        .entry(key)
+                        .and_modify(|account| {
+                            if !account.hosts.contains(&domain) {
+                                account.hosts.push(domain.clone());
+                            }
+                        })
+                        .or_insert_with(|| Account {
+                            wallet: wallet.to_string(),
+                            name: name.to_string(),
+                            public_key: Some(public_key),
+                            hosts: vec![domain.clone()],
+                            wallet_type: WalletType::Distributed,
+                        });
+                }
+            }
+        }
+
+        trace!(?accounts, "Accounts by host");
 
         Ok(Self {
             chain,
@@ -119,17 +180,26 @@ impl DirkManager {
         })
     }
 
+    // TODO might be temporary, for testing
+    pub fn accounts(&self) -> Vec<Account> {
+        self.accounts.values().cloned().collect()
+    }
+
     pub fn with_proxy_store(self, proxy_store: ProxyStore) -> eyre::Result<Self> {
         Ok(Self { proxy_store: Some(proxy_store), ..self })
     }
 
     /// Get all available accounts in the `self.accounts` wallets
     async fn get_all_accounts(&self) -> Result<Vec<DirkAccount>, SignerModuleError> {
-        get_accounts_in_wallets(
+        let res = get_accounts_in_wallets(
             self.channel.clone(),
-            self.accounts.iter().map(|account| account.wallet.clone()).collect::<Vec<String>>(),
+            self.accounts().iter().map(|account| account.wallet.clone()).collect::<Vec<String>>(),
         )
-        .await
+        .await;
+        match res {
+            Ok((accounts, _)) => Ok(accounts),
+            Err(err) => Err(err),
+        }
     }
 
     /// Get the complete account name (`wallet/account`) for a public key.
@@ -140,7 +210,7 @@ impl DirkManager {
         pubkey: BlsPublicKey,
     ) -> Result<Option<String>, SignerModuleError> {
         match self
-            .accounts
+            .accounts()
             .iter()
             .find(|account| account.public_key.is_some_and(|account_pk| account_pk == pubkey))
         {
@@ -162,7 +232,7 @@ impl DirkManager {
     /// Returns the public keys of the config-registered accounts
     pub async fn consensus_pubkeys(&self) -> eyre::Result<Vec<BlsPublicKey>> {
         let registered_pubkeys = self
-            .accounts
+            .accounts()
             .iter()
             .filter_map(|account| account.public_key)
             .collect::<Vec<BlsPublicKey>>();
@@ -173,7 +243,7 @@ impl DirkManager {
             let accounts = self.get_all_accounts().await?;
 
             let expected_accounts: Vec<String> =
-                self.accounts.iter().map(|account| account.complete_name()).collect();
+                self.accounts().iter().map(|account| account.complete_name()).collect();
 
             Ok(accounts
                 .iter()
@@ -198,7 +268,7 @@ impl DirkManager {
         Ok(accounts
             .iter()
             .filter_map(|account| {
-                if self.accounts.iter().any(|consensus_account| {
+                if self.accounts().iter().any(|consensus_account| {
                     account.name.starts_with(&format!("{}/", consensus_account.complete_name()))
                 }) {
                     BlsPublicKey::try_from(account.public_key.as_slice()).ok()
@@ -222,7 +292,7 @@ impl DirkManager {
 
         let mut proxy_maps = Vec::new();
 
-        for consensus_account in self.accounts.iter() {
+        for consensus_account in self.accounts().iter() {
             let Some(consensus_key) = consensus_account.public_key else {
                 continue;
             };
@@ -258,6 +328,8 @@ impl DirkManager {
 
     /// Read the password for an account from a file
     fn read_password(&self, account: String) -> Result<String, SignerModuleError> {
+        let path = self.secrets_path.join(format!("{account}.pass"));
+        trace!(path = ?path, "Reading password from file");
         fs::read_to_string(self.secrets_path.join(format!("{account}.pass"))).map_err(|err| {
             SignerModuleError::Internal(format!(
                 "error reading password for account '{account}': {err}"
@@ -328,7 +400,7 @@ impl DirkManager {
             .ok_or(SignerModuleError::UnknownConsensusSigner(consensus_pubkey.to_vec()))?;
 
         if !self
-            .accounts
+            .accounts()
             .iter()
             .map(|account| account.complete_name())
             .collect::<Vec<String>>()
@@ -458,7 +530,7 @@ impl DirkManager {
 async fn get_accounts_in_wallets(
     channel: Channel,
     wallets: Vec<String>,
-) -> Result<Vec<DirkAccount>, SignerModuleError> {
+) -> Result<(Vec<DirkAccount>, Vec<DistributedAccount>), SignerModuleError> {
     trace!(?wallets, "Sending Lister/ListAccounts request to Dirk");
 
     let mut client = ListerClient::new(channel);
@@ -472,5 +544,7 @@ async fn get_accounts_in_wallets(
         return Err(DirkCommunicationError("list accounts request returned error".to_string()));
     }
 
-    Ok(pubkeys_response.into_inner().accounts)
+    let inner = pubkeys_response.into_inner();
+    Ok((inner.accounts, inner.distributed_accounts))
 }
+
