@@ -120,6 +120,7 @@ validator_pubkeys = [
 #   - SSV: SSV API
 # OPTIONAL
 loader = "./tests/data/mux_keys.example.json"
+# loader = { url = "http://localhost:8000/keys" }
 # loader = { registry = "lido", node_operator_id = 8 }
 # loader = { registry = "ssv", node_operator_id = 8 }
 timeout_get_header_ms = 900
