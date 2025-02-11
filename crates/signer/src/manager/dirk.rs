@@ -48,11 +48,12 @@ impl Account {
     }
 }
 
+
 #[derive(Clone, Debug)]
 pub struct DirkManager {
     chain: Chain,
-    channel: Channel,
-    accounts: HashMap<String, Account>, // host+pubkey -> account
+    channels: HashMap<String, Channel>, // domain -> channel
+    accounts: HashMap<String, Account>, // pubkey -> account
     unlock: bool,
     secrets_path: PathBuf,
     proxy_store: Option<ProxyStore>,
@@ -172,7 +173,7 @@ impl DirkManager {
 
         Ok(Self {
             chain,
-            channel,
+            channels,
             accounts,
             unlock: config.unlock,
             secrets_path: config.secrets_path,
@@ -190,16 +191,20 @@ impl DirkManager {
     }
 
     /// Get all available accounts in the `self.accounts` wallets
-    async fn get_all_accounts(&self) -> Result<Vec<DirkAccount>, SignerModuleError> {
-        let res = get_accounts_in_wallets(
-            self.channel.clone(),
-            self.accounts().iter().map(|account| account.wallet.clone()).collect::<Vec<String>>(),
-        )
-        .await;
-        match res {
-            Ok((accounts, _)) => Ok(accounts),
-            Err(err) => Err(err),
+    pub async fn get_all_accounts(&self) -> Result<Vec<DirkAccount>, SignerModuleError> {
+        let mut all_accounts = Vec::new();
+        
+        // Query all channels and combine results
+        for channel in self.channels.values() {
+            let (accounts, _) = get_accounts_in_wallets(
+                channel.clone(),
+                self.accounts().iter().map(|account| account.wallet.clone()).collect(),
+            )
+            .await?;
+            all_accounts.extend(accounts);
         }
+        
+        Ok(all_accounts)
     }
 
     /// Get the complete account name (`wallet/account`) for a public key.
@@ -362,14 +367,40 @@ impl DirkManager {
         })
     }
 
+    // Helper method to get channel for a public key
+    fn get_channel_for_pubkey(&self, pubkey: &BlsPublicKey) -> Result<Channel, SignerModuleError> {
+        let key = hex::encode(pubkey);
+        let account = self.accounts.get(&key).ok_or_else(|| 
+            SignerModuleError::UnknownConsensusSigner(pubkey.to_vec())
+        )?;
+        
+        // Get first available host's channel
+        let domain = account.hosts.first().ok_or_else(|| 
+            SignerModuleError::Internal("Account has no associated hosts".to_string())
+        )?;
+        
+        self.channels.get(domain).cloned().ok_or_else(||
+            SignerModuleError::Internal(format!("No channel found for domain {}", domain))
+        )
+    }
+
     async fn unlock_account(
         &self,
         account: String,
         password: String,
     ) -> Result<(), SignerModuleError> {
-        trace!(account, "Sending AccountManager/Unlock request to Dirk");
+        // Find the public key associated with this account name
+        let account_entry = self.accounts.values().find(|a| a.complete_name() == account)
+            .ok_or_else(|| SignerModuleError::Internal(format!("Account not found: {}", account)))?;
+        
+        let channel = self.get_channel_for_pubkey(
+            account_entry.public_key.as_ref().ok_or_else(|| 
+                SignerModuleError::Internal("Account has no public key".to_string())
+            )?
+        )?;
 
-        let mut client = AccountManagerClient::new(self.channel.clone());
+        trace!(account, "Sending AccountManager/Unlock request to Dirk");
+        let mut client = AccountManagerClient::new(channel);
         let unlock_request = tonic::Request::new(UnlockAccountRequest {
             account: account.clone(),
             passphrase: password.as_bytes().to_vec(),
@@ -392,6 +423,7 @@ impl DirkManager {
         module_id: ModuleId,
         consensus_pubkey: BlsPublicKey,
     ) -> Result<SignedProxyDelegation<BlsPublicKey>, SignerModuleError> {
+        let channel = self.get_channel_for_pubkey(&consensus_pubkey)?;
         let uuid = uuid::Uuid::new_v4();
 
         let consensus_account = self
@@ -414,7 +446,7 @@ impl DirkManager {
 
         trace!(account = account_name, "Sending AccountManager/Generate request to Dirk");
 
-        let mut client = AccountManagerClient::new(self.channel.clone());
+        let mut client = AccountManagerClient::new(channel.clone());
         let generate_request = tonic::Request::new(GenerateRequest {
             account: account_name.clone(),
             passphrase: new_password.as_bytes().to_vec(),
@@ -459,6 +491,7 @@ impl DirkManager {
         pubkey: BlsPublicKey,
         object_root: [u8; 32],
     ) -> Result<BlsSignature, SignerModuleError> {
+        let channel = self.get_channel_for_pubkey(&pubkey)?;
         let domain = compute_domain(self.chain, COMMIT_BOOST_DOMAIN);
 
         trace!(
@@ -468,7 +501,7 @@ impl DirkManager {
             "Sending Signer/Sign request to Dirk"
         );
 
-        let mut signer_client = SignerClient::new(self.channel.clone());
+        let mut signer_client = SignerClient::new(channel);
         let sign_request = tonic::Request::new(SignRequest {
             id: Some(SignerId::PublicKey(pubkey.to_vec())),
             domain: domain.to_vec(),
