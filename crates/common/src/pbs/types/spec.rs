@@ -1,41 +1,93 @@
 use serde::{Deserialize, Serialize};
-use ssz_types::typenum;
+use ssz_types::typenum::{
+    Unsigned, U0, U1, U1048576, U1073741824, U128, U131072, U134217728, U16, U2, U2048, U256, U262144, U32,
+    U4096, U512, U6, U8, U8192, U9,
+};
+
+use std::fmt::Debug;
 
 pub trait EthSpec {
-    type MaxProposerSlashings: typenum::Unsigned + std::fmt::Debug;
-    type MaxValidatorsPerCommittee: typenum::Unsigned + std::fmt::Debug;
-    type MaxAttesterSlashings: typenum::Unsigned + std::fmt::Debug;
-    type MaxAttestations: typenum::Unsigned + std::fmt::Debug;
-    type MaxDeposits: typenum::Unsigned + std::fmt::Debug;
-    type MaxVoluntaryExits: typenum::Unsigned + std::fmt::Debug;
-    type SyncCommitteeSize: typenum::Unsigned + std::fmt::Debug;
-    type BytesPerLogsBloom: typenum::Unsigned + std::fmt::Debug;
-    type MaxExtraDataBytes: typenum::Unsigned + std::fmt::Debug;
-    type MaxBlsToExecutionChanges: typenum::Unsigned + std::fmt::Debug;
-    type MaxBlobCommitmentsPerBlock: typenum::Unsigned + std::fmt::Debug;
-    type MaxWithdrawalsPerPayload: typenum::Unsigned + std::fmt::Debug;
-    type MaxBytesPerTransaction: typenum::Unsigned + std::fmt::Debug;
-    type MaxTransactionsPerPayload: typenum::Unsigned + std::fmt::Debug;
-    type BytesPerBlob: typenum::Unsigned + std::fmt::Debug;
+    type MaxProposerSlashings: Unsigned + Debug;
+    type MaxValidatorsPerCommittee: Unsigned + Debug;
+    type MaxAttesterSlashings: Unsigned + Debug;
+    type MaxAttestations: Unsigned + Debug;
+    type MaxDeposits: Unsigned + Debug;
+    type MaxVoluntaryExits: Unsigned + Debug;
+    type SyncCommitteeSize: Unsigned + Debug;
+    type BytesPerLogsBloom: Unsigned + Debug;
+    type MaxExtraDataBytes: Unsigned + Debug;
+    type MaxBlsToExecutionChanges: Unsigned + Debug;
+    type MaxBlobCommitmentsPerBlock: Unsigned + Debug;
+    type MaxWithdrawalsPerPayload: Unsigned + Debug;
+    type MaxBytesPerTransaction: Unsigned + Debug;
+    type MaxTransactionsPerPayload: Unsigned + Debug;
+    type BytesPerBlob: Unsigned + Debug;
+    type MaxBlobsPerBlock: Unsigned + Debug;
+    // New in Electra
+    type PendingBalanceDepositsLimit: Unsigned + Debug;
+    type PendingPartialWithdrawalsLimit: Unsigned + Debug;
+    type PendingConsolidationsLimit: Unsigned + Debug;
+    type MaxConsolidationRequestsPerPayload: Unsigned + Debug;
+    type MaxDepositRequestsPerPayload: Unsigned + Debug;
+    type MaxWithdrawalRequestsPerPayload: Unsigned + Debug;
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct DenebSpec;
 
 impl EthSpec for DenebSpec {
-    type MaxValidatorsPerCommittee = typenum::U2048;
-    type MaxProposerSlashings = typenum::U16;
-    type MaxAttesterSlashings = typenum::U2;
-    type MaxAttestations = typenum::U128;
-    type MaxDeposits = typenum::U16;
-    type MaxVoluntaryExits = typenum::U16;
-    type SyncCommitteeSize = typenum::U512;
-    type MaxExtraDataBytes = typenum::U32;
-    type MaxBlobCommitmentsPerBlock = typenum::U4096;
-    type BytesPerLogsBloom = typenum::U256;
-    type MaxBlsToExecutionChanges = typenum::U16;
-    type MaxWithdrawalsPerPayload = typenum::U16;
-    type MaxBytesPerTransaction = typenum::U1073741824;
-    type MaxTransactionsPerPayload = typenum::U1048576;
-    type BytesPerBlob = typenum::U131072;
+    type MaxValidatorsPerCommittee = U2048;
+    type MaxProposerSlashings = U16;
+    type MaxAttesterSlashings = U2;
+    type MaxAttestations = U128;
+    type MaxDeposits = U16;
+    type MaxVoluntaryExits = U16;
+    type SyncCommitteeSize = U512;
+    type MaxExtraDataBytes = U32;
+    type MaxBlobCommitmentsPerBlock = U4096;
+    type BytesPerLogsBloom = U256;
+    type MaxBlsToExecutionChanges = U16;
+    type MaxWithdrawalsPerPayload = U16;
+    type MaxBytesPerTransaction = U1073741824;
+    type MaxTransactionsPerPayload = U1048576;
+    type BytesPerBlob = U131072;
+    type MaxBlobsPerBlock = U6;
+
+    // Ignore Electra fields
+    type PendingBalanceDepositsLimit = U0;
+    type PendingPartialWithdrawalsLimit = U0;
+    type PendingConsolidationsLimit = U0;
+    type MaxConsolidationRequestsPerPayload = U0;
+    type MaxDepositRequestsPerPayload = U0;
+    type MaxWithdrawalRequestsPerPayload = U0;
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct ElectraSpec;
+
+impl EthSpec for ElectraSpec {
+    type MaxValidatorsPerCommittee = U2048;
+    type MaxProposerSlashings = U16;
+    type MaxAttesterSlashings = U1; // Updated in Electra
+    type MaxAttestations = U8; // Updated in Electra
+    type MaxDeposits = U16;
+    type MaxVoluntaryExits = U16;
+    type SyncCommitteeSize = U512;
+    type MaxExtraDataBytes = U32;
+    type MaxBlobCommitmentsPerBlock = U4096;
+    type BytesPerLogsBloom = U256;
+    type MaxBlsToExecutionChanges = U16;
+    type MaxWithdrawalsPerPayload = U16;
+    type MaxBytesPerTransaction = U1073741824;
+    type MaxTransactionsPerPayload = U1048576;
+    type BytesPerBlob = U131072;
+    type MaxBlobsPerBlock = U9; // New in Electra:EIP7691
+
+    // New Electra fields
+    type PendingBalanceDepositsLimit = U134217728;
+    type PendingPartialWithdrawalsLimit = U134217728;
+    type PendingConsolidationsLimit = U262144;
+    type MaxConsolidationRequestsPerPayload = U2;
+    type MaxDepositRequestsPerPayload = U8192;
+    type MaxWithdrawalRequestsPerPayload = U16;
 }
