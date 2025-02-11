@@ -111,9 +111,11 @@ pub struct Checkpoint {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound = "T: EthSpec")]
 pub struct Attestation<T: EthSpec> {
-    pub aggregation_bits: BitList<T::MaxValidatorsPerCommittee>,
+    pub aggregation_bits: BitList<T::MaxValidatorsPerCommitteeWithSlot>,
     pub data: AttestationData,
     pub signature: BlsSignature,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub committee_bits: Option<BitVector<T::MaxCommitteesPerSlot>>,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
