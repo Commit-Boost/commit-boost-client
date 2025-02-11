@@ -31,14 +31,20 @@ enum WalletType {
     Distributed
 }
 
+#[derive(Clone, Debug)]
+struct HostInfo {
+    domain: String,
+    participant_id: u64,
+}
 
 #[derive(Clone, Debug)]
 struct Account {
     wallet: String,
     name: String,
     public_key: Option<BlsPublicKey>,
-    hosts: Vec<String>,
+    hosts: Vec<HostInfo>,
     wallet_type: WalletType,
+    signing_threshold: u32,
 }
 
 
@@ -139,8 +145,9 @@ impl DirkManager {
                         wallet: wallet.to_string(),
                         name: name.to_string(),
                         public_key: Some(public_key),
-                        hosts: vec![domain.clone()],
+                        hosts: vec![HostInfo { domain: domain.clone(), participant_id: 1 }],
                         wallet_type: WalletType::Simple,
+                        signing_threshold: 1,
                     });
                 }
 
@@ -151,19 +158,32 @@ impl DirkManager {
                     let public_key = BlsPublicKey::try_from(dist_account.composite_public_key.as_slice())?;
                     let key = hex::encode(public_key);
                     
+                    // Find the participant ID for this host from the participants list
+                    let participant_id = dist_account.participants.iter()
+                        .find(|p| p.name == domain)
+                        .map(|p| p.id)
+                        .ok_or_else(|| eyre::eyre!("Host {} not found in distributed account participants", domain))?;
+                    
                     accounts
                         .entry(key)
                         .and_modify(|account| {
-                            if !account.hosts.contains(&domain) {
-                                account.hosts.push(domain.clone());
+                            if !account.hosts.iter().any(|host| host.domain == domain) {
+                                account.hosts.push(HostInfo { 
+                                    domain: domain.clone(), 
+                                    participant_id,
+                                });
                             }
                         })
                         .or_insert_with(|| Account {
                             wallet: wallet.to_string(),
                             name: name.to_string(),
                             public_key: Some(public_key),
-                            hosts: vec![domain.clone()],
+                            hosts: vec![HostInfo { 
+                                domain: domain.clone(), 
+                                participant_id,
+                            }],
                             wallet_type: WalletType::Distributed,
+                            signing_threshold: dist_account.signing_threshold,
                         });
                 }
             }
@@ -377,9 +397,9 @@ impl DirkManager {
         // Get first available host's channel
         let domain = account.hosts.first().ok_or_else(|| 
             SignerModuleError::Internal("Account has no associated hosts".to_string())
-        )?;
+        )?.domain.clone();
         
-        self.channels.get(domain).cloned().ok_or_else(||
+        self.channels.get(&domain).cloned().ok_or_else(||
             SignerModuleError::Internal(format!("No channel found for domain {}", domain))
         )
     }
@@ -491,8 +511,75 @@ impl DirkManager {
         pubkey: BlsPublicKey,
         object_root: [u8; 32],
     ) -> Result<BlsSignature, SignerModuleError> {
-        let channel = self.get_channel_for_pubkey(&pubkey)?;
         let domain = compute_domain(self.chain, COMMIT_BOOST_DOMAIN);
+        let key = hex::encode(pubkey);
+        let account = self.accounts.get(&key).ok_or_else(|| 
+            SignerModuleError::UnknownConsensusSigner(pubkey.to_vec())
+        )?;
+
+        match account.wallet_type {
+            WalletType::Simple => {
+                // Existing simple account logic
+                let channel = self.get_channel_for_pubkey(&pubkey)?;
+                self.sign_with_channel(channel, pubkey, account, domain, object_root).await
+            }
+            WalletType::Distributed => {
+                let mut signatures = Vec::new();
+                let num_hosts_needed = account.signing_threshold as usize;
+
+                if account.hosts.len() < num_hosts_needed {
+                    return Err(SignerModuleError::Internal(format!(
+                        "Not enough hosts available. Need {} but only have {}",
+                        num_hosts_needed,
+                        account.hosts.len()
+                    )));
+                }
+
+                // Try to get signatures from enough hosts
+                for host in account.hosts.iter() {
+                    let channel = self.channels.get(&host.domain).cloned().ok_or_else(||
+                        SignerModuleError::Internal(format!("No channel found for host {}", host.domain))
+                    )?;
+
+                    match self.sign_with_channel(channel, pubkey, account, domain, object_root).await {
+                        Ok(signature) => signatures.push(signature),
+                        Err(e) => {
+                            trace!("Failed to get signature from host {}: {}", host.domain, e);
+                            continue;
+                        }
+                    }
+                }
+
+                trace!(?signatures, "Aggregating signatures");
+
+                if signatures.len() < num_hosts_needed {
+                    return Err(SignerModuleError::Internal(format!(
+                        "Could not collect enough signatures. Need {} but only got {}",
+                        num_hosts_needed,
+                        signatures.len()
+                    )));
+                }
+
+                // TODO: Implement signature aggregation
+                // For now, just return the first signature
+                Ok(signatures[0])
+            }
+        }
+    }
+
+    // Helper method to sign with a specific channel
+    async fn sign_with_channel(
+        &self,
+        channel: Channel,
+        pubkey: BlsPublicKey,
+        account: &Account,
+        domain: [u8; 32],
+        object_root: [u8; 32],
+    ) -> Result<BlsSignature, SignerModuleError> {
+        let id = match account.wallet_type {
+            WalletType::Simple => SignerId::PublicKey(pubkey.to_vec()),
+            WalletType::Distributed => SignerId::Account(account.complete_name()),
+        };
 
         trace!(
             %pubkey,
@@ -501,9 +588,9 @@ impl DirkManager {
             "Sending Signer/Sign request to Dirk"
         );
 
-        let mut signer_client = SignerClient::new(channel);
+        let mut signer_client = SignerClient::new(channel.clone());
         let sign_request = tonic::Request::new(SignRequest {
-            id: Some(SignerId::PublicKey(pubkey.to_vec())),
+            id: Some(id.clone()),
             domain: domain.to_vec(),
             data: object_root.to_vec(),
         });
@@ -518,25 +605,16 @@ impl DirkManager {
             ResponseState::Denied if self.unlock => {
                 info!("Failed to sign message, account {pubkey:#} may be locked. Unlocking and retrying.");
 
-                let account_name = self
-                    .get_pubkey_account(pubkey)
-                    .await?
-                    .ok_or(SignerModuleError::UnknownConsensusSigner(pubkey.to_vec()))?;
+                let account_name = account.complete_name();
+                trace!(account = account_name, "Unlocking account");
                 self.unlock_account(
                     account_name.clone(),
                     self.read_password(account_name.clone())?,
                 )
                 .await?;
 
-                trace!(
-                    %pubkey,
-                    object_root = hex::encode(object_root),
-                    domain = hex::encode(domain),
-                    "Sending Signer/Sign request to Dirk"
-                );
-
                 let sign_request = tonic::Request::new(SignRequest {
-                    id: Some(SignerId::PublicKey(pubkey.to_vec())),
+                    id: Some(id),
                     domain: domain.to_vec(),
                     data: object_root.to_vec(),
                 });
