@@ -83,7 +83,7 @@ pub struct AttesterSlashing<T: EthSpec> {
 pub struct IndexedAttestation<T: EthSpec> {
     /// Lists validator registry indices, not committee indices.
     #[serde(with = "quoted_variable_list_u64")]
-    pub attesting_indices: VariableList<u64, T::MaxValidatorsPerCommittee>,
+    pub attesting_indices: VariableList<u64, T::MaxValidatorsPerCommitteeWithSlot>,
     pub data: AttestationData,
     pub signature: BlsSignature,
 }

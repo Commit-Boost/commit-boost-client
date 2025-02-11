@@ -1,9 +1,8 @@
 use serde::{Deserialize, Serialize};
 use ssz_types::typenum::{
-    Unsigned, U0, U1, U1048576, U1073741824, U128, U131072, U134217728, U16, U2, U2048, U256, U262144, U32,
-    U4096, U512, U6, U8, U8192, U9,
+    Unsigned, U0, U1, U1048576, U1073741824, U128, U131072, U134217728, U16, U2, U2048, U256,
+    U262144, U32, U4096, U512, U6, U64, U8, U8192, U9,
 };
-
 use std::fmt::Debug;
 
 pub trait EthSpec {
@@ -23,6 +22,7 @@ pub trait EthSpec {
     type MaxTransactionsPerPayload: Unsigned + Debug;
     type BytesPerBlob: Unsigned + Debug;
     type MaxBlobsPerBlock: Unsigned + Debug;
+    type MaxCommitteesPerSlot: Unsigned + Debug;
     // New in Electra
     type PendingBalanceDepositsLimit: Unsigned + Debug;
     type PendingPartialWithdrawalsLimit: Unsigned + Debug;
@@ -30,6 +30,9 @@ pub trait EthSpec {
     type MaxConsolidationRequestsPerPayload: Unsigned + Debug;
     type MaxDepositRequestsPerPayload: Unsigned + Debug;
     type MaxWithdrawalRequestsPerPayload: Unsigned + Debug;
+
+    // used across multiple specs
+    type MaxValidatorsPerCommitteeWithSlot: Unsigned + Debug;
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -52,6 +55,7 @@ impl EthSpec for DenebSpec {
     type MaxTransactionsPerPayload = U1048576;
     type BytesPerBlob = U131072;
     type MaxBlobsPerBlock = U6;
+    type MaxCommitteesPerSlot = U64;
 
     // Ignore Electra fields
     type PendingBalanceDepositsLimit = U0;
@@ -60,6 +64,9 @@ impl EthSpec for DenebSpec {
     type MaxConsolidationRequestsPerPayload = U0;
     type MaxDepositRequestsPerPayload = U0;
     type MaxWithdrawalRequestsPerPayload = U0;
+
+    // MAX_VALIDATORS_PER_COMMITTEE
+    type MaxValidatorsPerCommitteeWithSlot = U2048;
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -82,6 +89,7 @@ impl EthSpec for ElectraSpec {
     type MaxTransactionsPerPayload = U1048576;
     type BytesPerBlob = U131072;
     type MaxBlobsPerBlock = U9; // New in Electra:EIP7691
+    type MaxCommitteesPerSlot = U64;
 
     // New Electra fields
     type PendingBalanceDepositsLimit = U134217728;
@@ -90,4 +98,7 @@ impl EthSpec for ElectraSpec {
     type MaxConsolidationRequestsPerPayload = U2;
     type MaxDepositRequestsPerPayload = U8192;
     type MaxWithdrawalRequestsPerPayload = U16;
+
+    // MAX_VALIDATORS_PER_COMMITTEE * MAX_COMMITTEES_PER_SLOT
+    type MaxValidatorsPerCommitteeWithSlot = U131072;
 }
