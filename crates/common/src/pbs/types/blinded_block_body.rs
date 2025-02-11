@@ -25,6 +25,8 @@ pub struct BlindedBeaconBlockBody<T: EthSpec> {
     pub bls_to_execution_changes:
         VariableList<SignedBlsToExecutionChange, T::MaxBlsToExecutionChanges>,
     pub blob_kzg_commitments: KzgCommitments<T>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution_requests: Option<ExecutionRequests<T>>,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
