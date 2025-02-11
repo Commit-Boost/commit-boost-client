@@ -235,8 +235,8 @@ fn format_crates_filter(default_level: &str, crates_level: &str) -> Result<EnvFi
     s.parse().map_err(|e| eyre::eyre!("Failed to parse filter directive: {}", e))
 }
 
-// todo tests will not pass CI due to: SetGlobalDefaultError("a global default trace dispatcher has already been set")
-// #[cfg(test)]
+// todo tests will not pass CI due to: SetGlobalDefaultError("a global default
+// trace dispatcher has already been set") #[cfg(test)]
 // mod tests {
 //     use tempfile::tempdir;
 //     use tracing::info;
@@ -244,8 +244,8 @@ fn format_crates_filter(default_level: &str, crates_level: &str) -> Result<EnvFi
 //     use super::*;
 //     use crate::config::CommitBoostConfig;
 
-//     fn setup_test_config(dir: &tempfile::TempDir, settings: &LogsSettings) -> Result<()> {
-//         let config = CommitBoostConfig {
+//     fn setup_test_config(dir: &tempfile::TempDir, settings: &LogsSettings) ->
+// Result<()> {         let config = CommitBoostConfig {
 //             chain: crate::types::Chain::Mainnet,
 //             relays: vec![],
 //             pbs: crate::config::StaticPbsConfig {
@@ -361,8 +361,8 @@ fn format_crates_filter(default_level: &str, crates_level: &str) -> Result<EnvFi
 
 //         assert!(contents.contains("log_level=INFO"), "Missing log level");
 //         assert!(contents.contains("test message"), "Missing message");
-//         assert!(contents.contains("method=cb_common::logging::tests"), "Missing method");
-//         Ok(())
+//         assert!(contents.contains("method=cb_common::logging::tests"),
+// "Missing method");         Ok(())
 //     }
 
 //     #[test]
@@ -403,7 +403,8 @@ fn format_crates_filter(default_level: &str, crates_level: &str) -> Result<EnvFi
 //         assert!(contents.contains("log_level=INFO"), "Missing log level");
 //         assert!(contents.contains("\"value\""), "Missing value");
 //         assert!(contents.contains("test message"), "Missing message");
-//         assert!(contents.contains("method=cb_common::logging::tests"), "Missing method");
+//         assert!(contents.contains("method=cb_common::logging::tests"),
+// "Missing method");
 
 //         Ok(())
 //     }
@@ -448,8 +449,8 @@ fn format_crates_filter(default_level: &str, crates_level: &str) -> Result<EnvFi
 
 //         let json: serde_json::Value = serde_json::from_str(&contents)?;
 //         assert_eq!(json["log_level"], "INFO", "Wrong log level");
-//         assert_eq!(json["method"], "cb_common::logging::tests", "Wrong method");
-//         assert_eq!(json["req_id"], "test-123", "Wrong req_id");
+//         assert_eq!(json["method"], "cb_common::logging::tests", "Wrong
+// method");         assert_eq!(json["req_id"], "test-123", "Wrong req_id");
 //         assert_eq!(json["relay_id"], "test-relay", "Wrong relay_id");
 //         assert_eq!(json["msg"], "test message", "Wrong message");
 //         assert_eq!(json["latency"], "100ms", "Wrong latency");
