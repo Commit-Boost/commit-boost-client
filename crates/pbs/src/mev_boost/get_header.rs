@@ -12,7 +12,9 @@ use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
     constants::APPLICATION_BUILDER_DOMAIN,
     pbs::{
-        error::{PbsError, ValidationError}, EthSpec, GetHeaderParams, GetHeaderResponse, RelayClient, SignedExecutionPayloadHeader, EMPTY_TX_ROOT_HASH, HEADER_START_TIME_UNIX_MS
+        error::{PbsError, ValidationError},
+        EthSpec, GetHeaderParams, GetHeaderResponse, RelayClient, SignedExecutionPayloadHeader,
+        EMPTY_TX_ROOT_HASH, HEADER_START_TIME_UNIX_MS,
     },
     signature::verify_signed_message,
     types::Chain,
@@ -281,7 +283,7 @@ async fn send_one_get_header<T>(
     mut req_config: RequestContext,
     validation: ValidationContext,
 ) -> Result<(u64, Option<GetHeaderResponse<T>>), PbsError>
-where 
+where
     T: EthSpec + for<'de> Deserialize<'de>,
 {
     // the timestamp in the header is the consensus block time which is fixed,
@@ -333,7 +335,8 @@ where
         return Ok((start_request_time, None));
     }
 
-    let get_header_response = match serde_json::from_slice::<GetHeaderResponse<T>>(&response_bytes) {
+    let get_header_response = match serde_json::from_slice::<GetHeaderResponse<T>>(&response_bytes)
+    {
         Ok(parsed) => parsed,
         Err(err) => {
             return Err(PbsError::JsonDecode {
@@ -463,7 +466,9 @@ mod tests {
     };
     use blst::min_pk;
     use cb_common::{
-        pbs::{error::ValidationError, DenebSpec, SignedExecutionPayloadHeader, EMPTY_TX_ROOT_HASH},
+        pbs::{
+            error::ValidationError, DenebSpec, SignedExecutionPayloadHeader, EMPTY_TX_ROOT_HASH,
+        },
         signature::sign_builder_message,
         types::Chain,
         utils::timestamp_of_slot_start_sec,

@@ -3,7 +3,9 @@ use std::time::{Duration, Instant};
 use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
     pbs::{
-        error::{PbsError, ValidationError}, EthSpec, RelayClient, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse, HEADER_START_TIME_UNIX_MS
+        error::{PbsError, ValidationError},
+        EthSpec, RelayClient, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
+        HEADER_START_TIME_UNIX_MS,
     },
     utils::{get_user_agent_with_version, utcnow_ms},
 };
@@ -115,7 +117,6 @@ async fn send_submit_block<T>(
 where
     T: EthSpec + for<'de> Deserialize<'de>,
 {
-
     let start_request = Instant::now();
     let res = match relay
         .client
@@ -160,16 +161,16 @@ where
         return Err(err);
     };
 
-    let block_response = match serde_json::from_slice::<SubmitBlindedBlockResponse<T>>(&response_bytes)
-    {
-        Ok(parsed) => parsed,
-        Err(err) => {
-            return Err(PbsError::JsonDecode {
-                err,
-                raw: String::from_utf8_lossy(&response_bytes).into_owned(),
-            });
-        }
-    };
+    let block_response =
+        match serde_json::from_slice::<SubmitBlindedBlockResponse<T>>(&response_bytes) {
+            Ok(parsed) => parsed,
+            Err(err) => {
+                return Err(PbsError::JsonDecode {
+                    err,
+                    raw: String::from_utf8_lossy(&response_bytes).into_owned(),
+                });
+            }
+        };
 
     debug!(
         latency = ?request_latency,

@@ -1,5 +1,7 @@
 use cb_common::{
-    config::load_pbs_config, pbs::DenebSpec, utils::{initialize_pbs_tracing_log, wait_for_signal}
+    config::load_pbs_config,
+    pbs::DenebSpec,
+    utils::{initialize_pbs_tracing_log, wait_for_signal},
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use eyre::Result;

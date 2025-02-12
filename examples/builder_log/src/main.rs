@@ -21,7 +21,10 @@ async fn main() -> eyre::Result<()> {
 
             info!(module_id = %config.id, "Starting module");
 
-            let client = BuilderEventClient::<LogProcessor, DenebSpec>::new(config.server_port, LogProcessor);
+            let client = BuilderEventClient::<LogProcessor, DenebSpec>::new(
+                config.server_port,
+                LogProcessor,
+            );
 
             if let Err(err) = client.run().await {
                 error!(%err, "Service failed");

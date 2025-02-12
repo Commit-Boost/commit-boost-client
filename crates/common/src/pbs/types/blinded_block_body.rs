@@ -6,9 +6,9 @@ use serde::{Deserialize, Serialize};
 use ssz_types::{typenum, BitList, BitVector, FixedVector, VariableList};
 
 use super::{
-    execution_payload::ExecutionPayloadHeader, kzg::KzgCommitments, spec::EthSpec, utils::*,
+    execution_payload::ExecutionPayloadHeader, execution_requests::ExecutionRequests,
+    kzg::KzgCommitments, spec::EthSpec, utils::*,
 };
-use super::execution_requests::ExecutionRequests;
 use crate::utils::as_str;
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]

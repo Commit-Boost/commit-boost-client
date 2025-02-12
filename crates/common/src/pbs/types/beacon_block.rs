@@ -32,6 +32,7 @@ pub struct BlindedBeaconBlock<T: EthSpec> {
 }
 
 /// Returned by relay in submit_block
+#[allow(type_alias_bounds)]
 pub type SubmitBlindedBlockResponse<T: EthSpec> = VersionedResponse<PayloadAndBlobs<T>>;
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]

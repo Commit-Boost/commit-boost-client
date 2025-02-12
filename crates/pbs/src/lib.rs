@@ -11,6 +11,6 @@ mod utils;
 pub use api::*;
 pub use constants::*;
 pub use mev_boost::*;
+pub use routes::create_app_router;
 pub use service::PbsService;
 pub use state::{BuilderApiState, PbsState, PbsStateGuard};
-pub use routes::create_app_router;

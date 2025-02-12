@@ -1,9 +1,10 @@
+use std::fmt::Debug;
+
 use serde::{Deserialize, Serialize};
 use ssz_types::typenum::{
     Unsigned, U0, U1, U1048576, U1073741824, U128, U131072, U134217728, U16, U2, U2048, U256,
     U262144, U32, U4096, U512, U6, U64, U8, U8192, U9,
 };
-use std::fmt::Debug;
 
 pub trait EthSpec: 'static + Default + Clone + Debug + Send + Sync + Serialize {
     type MaxProposerSlashings: Unsigned + Clone + Debug + Send + Sync;

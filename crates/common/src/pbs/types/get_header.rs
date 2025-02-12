@@ -20,6 +20,7 @@ pub struct GetHeaderParams {
 }
 
 /// Returned by relay in get_header
+#[allow(type_alias_bounds)]
 pub type GetHeaderResponse<T: EthSpec> = VersionedResponse<SignedExecutionPayloadHeader<T>>;
 
 impl<T: EthSpec> GetHeaderResponse<T> {
@@ -70,13 +71,13 @@ impl<T: EthSpec> tree_hash::TreeHash for ExecutionPayloadHeaderMessage<T> {
     fn tree_hash_root(&self) -> tree_hash::Hash256 {
         let leaves = 4 + usize::from(self.execution_requests.is_some());
         let mut hasher = tree_hash::MerkleHasher::with_leaves(leaves);
-        let _ = hasher.write(&self.header.tree_hash_root().as_slice());
-        let _ = hasher.write(&self.blob_kzg_commitments.tree_hash_root().as_slice());
+        let _ = hasher.write(self.header.tree_hash_root().as_slice());
+        let _ = hasher.write(self.blob_kzg_commitments.tree_hash_root().as_slice());
         if let Some(reqs) = &self.execution_requests {
-            let _ = hasher.write(&reqs.tree_hash_root().as_slice());
+            let _ = hasher.write(reqs.tree_hash_root().as_slice());
         }
-        let _ = hasher.write(&self.value.tree_hash_root().as_slice());
-        let _ = hasher.write(&self.pubkey.tree_hash_root().as_slice());
+        let _ = hasher.write(self.value.tree_hash_root().as_slice());
+        let _ = hasher.write(self.pubkey.tree_hash_root().as_slice());
         // Note expect() is how the tree_hash_derive crate handles errors.
         // https://docs.rs/tree_hash_derive/latest/src/tree_hash_derive/lib.rs.html#138
         hasher.finish().expect("tree hash derive should not have a remaining buffer")
@@ -89,7 +90,8 @@ mod tests {
 
     use super::GetHeaderResponse;
     use crate::{
-        constants::APPLICATION_BUILDER_DOMAIN, pbs::DenebSpec, signature::verify_signed_message, types::Chain, utils::test_encode_decode
+        constants::APPLICATION_BUILDER_DOMAIN, pbs::DenebSpec, signature::verify_signed_message,
+        types::Chain, utils::test_encode_decode,
     };
 
     #[test]

@@ -1,5 +1,8 @@
 use axum::{extract::State, http::HeaderMap, response::IntoResponse};
-use cb_common::{pbs::{BuilderEvent, EthSpec}, utils::get_user_agent};
+use cb_common::{
+    pbs::{BuilderEvent, EthSpec},
+    utils::get_user_agent,
+};
 use reqwest::StatusCode;
 use tracing::{error, info};
 use uuid::Uuid;

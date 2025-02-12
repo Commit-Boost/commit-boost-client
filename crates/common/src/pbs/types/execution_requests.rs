@@ -1,4 +1,3 @@
-use super::spec::EthSpec;
 use alloy::{
     primitives::{Address, B256},
     rpc::types::beacon::{BlsPublicKey, BlsSignature},
@@ -6,6 +5,8 @@ use alloy::{
 use serde::{Deserialize, Serialize};
 use ssz_types::VariableList;
 use tree_hash_derive::TreeHash;
+
+use super::spec::EthSpec;
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, TreeHash)]
 #[serde(bound = "T: EthSpec")]

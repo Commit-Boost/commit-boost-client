@@ -2,7 +2,8 @@ use alloy::rpc::types::beacon::relay::ValidatorRegistration;
 use async_trait::async_trait;
 use axum::{http::HeaderMap, Router};
 use cb_common::pbs::{
-    DenebSpec, EthSpec, GetHeaderParams, GetHeaderResponse, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse
+    DenebSpec, EthSpec, GetHeaderParams, GetHeaderResponse, SignedBlindedBeaconBlock,
+    SubmitBlindedBlockResponse,
 };
 use serde::Deserialize;
 

@@ -1,9 +1,13 @@
-use async_trait::async_trait;
-use std::net::SocketAddr;
-use std::marker::PhantomData;
+use std::{marker::PhantomData, net::SocketAddr};
 
 use alloy::{primitives::B256, rpc::types::beacon::relay::ValidatorRegistration};
-use axum::{extract::State, response::{IntoResponse, Response}, routing::post, Json};
+use async_trait::async_trait;
+use axum::{
+    extract::State,
+    response::{IntoResponse, Response},
+    routing::post,
+    Json,
+};
 use eyre::bail;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
@@ -128,7 +132,7 @@ where
 async fn handle_builder_event<T, S>(
     State(processor): State<T>,
     Json(event): Json<BuilderEvent<S>>,
-) -> Response 
+) -> Response
 where
     T: OnBuilderApiEvent<S> + Clone + Send + Sync + 'static,
     S: EthSpec + Clone + Send + Sync + 'static + for<'de> Deserialize<'de>,
