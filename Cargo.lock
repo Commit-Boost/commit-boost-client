@@ -1213,6 +1213,7 @@ dependencies = [
  "async-trait",
  "commit-boost",
  "eyre",
+ "serde",
  "tokio",
  "tracing",
 ]

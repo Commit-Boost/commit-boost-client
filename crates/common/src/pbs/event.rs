@@ -1,13 +1,9 @@
+use async_trait::async_trait;
 use std::net::SocketAddr;
+use std::marker::PhantomData;
 
 use alloy::{primitives::B256, rpc::types::beacon::relay::ValidatorRegistration};
-use async_trait::async_trait;
-use axum::{
-    extract::State,
-    response::{IntoResponse, Response},
-    routing::post,
-    Json,
-};
+use axum::{extract::State, response::{IntoResponse, Response}, routing::post, Json};
 use eyre::bail;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
@@ -16,7 +12,7 @@ use tracing::{error, info, trace};
 use url::Url;
 
 use super::{
-    DenebSpec, ElectraSpec, EthSpec, GetHeaderParams, GetHeaderResponse, SignedBlindedBeaconBlock,
+    EthSpec, GetHeaderParams, GetHeaderResponse, SignedBlindedBeaconBlock,
     SubmitBlindedBlockResponse,
 };
 use crate::{
@@ -95,27 +91,30 @@ impl BuilderEventPublisher {
     }
 }
 
-pub struct BuilderEventDenebClient<T>
+pub struct BuilderEventClient<T, S>
 where
-    T: OnBuilderApiEvent<DenebSpec> + Clone + Send + Sync + 'static,
+    T: OnBuilderApiEvent<S> + Clone + Send + Sync + 'static,
+    S: EthSpec + Clone + Send + Sync + 'static + for<'de> Deserialize<'de>,
 {
     pub port: u16,
     pub processor: T,
+    _phantom: PhantomData<S>,
 }
 
-impl<T> BuilderEventDenebClient<T>
+impl<T, S> BuilderEventClient<T, S>
 where
-    T: OnBuilderApiEvent<DenebSpec> + Clone + Send + Sync + 'static,
+    T: OnBuilderApiEvent<S> + Clone + Send + Sync + 'static,
+    S: EthSpec + Clone + Send + Sync + 'static + for<'de> Deserialize<'de>,
 {
     pub fn new(port: u16, processor: T) -> Self {
-        Self { port, processor }
+        Self { port, processor, _phantom: PhantomData }
     }
 
     pub async fn run(self) -> eyre::Result<()> {
-        info!("Starting Deneb builder events server on port {}", self.port);
+        info!("Starting builder events server on port {}", self.port);
 
         let router = axum::Router::new()
-            .route(BUILDER_EVENTS_PATH, post(handle_builder_event_deneb::<T>))
+            .route(BUILDER_EVENTS_PATH, post(handle_builder_event::<T, S>))
             .with_state(self.processor);
         let address = SocketAddr::from(([0, 0, 0, 0], self.port));
         let listener = TcpListener::bind(&address).await?;
@@ -126,50 +125,14 @@ where
     }
 }
 
-async fn handle_builder_event_deneb<T: OnBuilderApiEvent<DenebSpec>>(
+async fn handle_builder_event<T, S>(
     State(processor): State<T>,
-    Json(event): Json<BuilderEvent<DenebSpec>>,
-) -> Response {
-    trace!("Handling builder event");
-    processor.on_builder_api_event(event).await;
-    StatusCode::OK.into_response()
-}
-
-pub struct BuilderEventElectraClient<T>
+    Json(event): Json<BuilderEvent<S>>,
+) -> Response 
 where
-    T: OnBuilderApiEvent<ElectraSpec> + Clone + Send + Sync + 'static,
+    T: OnBuilderApiEvent<S> + Clone + Send + Sync + 'static,
+    S: EthSpec + Clone + Send + Sync + 'static + for<'de> Deserialize<'de>,
 {
-    pub port: u16,
-    pub processor: T,
-}
-
-impl<T> BuilderEventElectraClient<T>
-where
-    T: OnBuilderApiEvent<ElectraSpec> + Clone + Send + Sync + 'static,
-{
-    pub fn new(port: u16, processor: T) -> Self {
-        Self { port, processor }
-    }
-
-    pub async fn run(self) -> eyre::Result<()> {
-        info!("Starting Electra builder events server on port {}", self.port);
-
-        let router = axum::Router::new()
-            .route(BUILDER_EVENTS_PATH, post(handle_builder_event_electra::<T>))
-            .with_state(self.processor);
-        let address = SocketAddr::from(([0, 0, 0, 0], self.port));
-        let listener = TcpListener::bind(&address).await?;
-
-        axum::serve(listener, router).await?;
-
-        bail!("Builder events stopped")
-    }
-}
-
-async fn handle_builder_event_electra<T: OnBuilderApiEvent<ElectraSpec>>(
-    State(processor): State<T>,
-    Json(event): Json<BuilderEvent<ElectraSpec>>,
-) -> Response {
     trace!("Handling builder event");
     processor.on_builder_api_event(event).await;
     StatusCode::OK.into_response()
@@ -177,6 +140,9 @@ async fn handle_builder_event_electra<T: OnBuilderApiEvent<ElectraSpec>>(
 
 #[async_trait]
 /// This is what modules are expected to implement to process BuilderApi events
-pub trait OnBuilderApiEvent<T: EthSpec> {
+pub trait OnBuilderApiEvent<T>
+where
+    T: EthSpec + Clone + Send + Sync + 'static + for<'de> Deserialize<'de>,
+{
     async fn on_builder_api_event(&self, event: BuilderEvent<T>);
 }

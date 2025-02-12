@@ -70,13 +70,13 @@ impl<T: EthSpec> tree_hash::TreeHash for ExecutionPayloadHeaderMessage<T> {
     fn tree_hash_root(&self) -> tree_hash::Hash256 {
         let leaves = 4 + usize::from(self.execution_requests.is_some());
         let mut hasher = tree_hash::MerkleHasher::with_leaves(leaves);
-        hasher.write(&self.header.tree_hash_root().as_slice());
-        hasher.write(&self.blob_kzg_commitments.tree_hash_root().as_slice());
+        let _ = hasher.write(&self.header.tree_hash_root().as_slice());
+        let _ = hasher.write(&self.blob_kzg_commitments.tree_hash_root().as_slice());
         if let Some(reqs) = &self.execution_requests {
-            hasher.write(&reqs.tree_hash_root().as_slice());
+            let _ = hasher.write(&reqs.tree_hash_root().as_slice());
         }
-        hasher.write(&self.value.tree_hash_root().as_slice());
-        hasher.write(&self.pubkey.tree_hash_root().as_slice());
+        let _ = hasher.write(&self.value.tree_hash_root().as_slice());
+        let _ = hasher.write(&self.pubkey.tree_hash_root().as_slice());
         // Note expect() is how the tree_hash_derive crate handles errors.
         // https://docs.rs/tree_hash_derive/latest/src/tree_hash_derive/lib.rs.html#138
         hasher.finish().expect("tree hash derive should not have a remaining buffer")
