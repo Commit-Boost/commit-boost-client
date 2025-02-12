@@ -16,8 +16,8 @@ use axum::{
 };
 use cb_common::{
     pbs::{
-        GetHeaderParams, GetHeaderResponse, SubmitBlindedBlockResponse, BUILDER_API_PATH,
-        GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH, EthSpec
+        EthSpec, GetHeaderParams, GetHeaderResponse, SubmitBlindedBlockResponse, BUILDER_API_PATH,
+        GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
     },
     signature::sign_builder_root,
     signer::BlsSecretKey,
@@ -29,7 +29,10 @@ use tokio::net::TcpListener;
 use tracing::debug;
 use tree_hash::TreeHash;
 
-pub async fn start_mock_relay_service<T: EthSpec>(state: Arc<MockRelayState>, port: u16) -> eyre::Result<()> {
+pub async fn start_mock_relay_service<T: EthSpec>(
+    state: Arc<MockRelayState>,
+    port: u16,
+) -> eyre::Result<()> {
     let app = mock_relay_app_router::<T>(state);
 
     let socket = SocketAddr::new("0.0.0.0".parse()?, port);

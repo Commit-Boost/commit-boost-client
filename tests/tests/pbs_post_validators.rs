@@ -2,8 +2,8 @@ use std::{sync::Arc, time::Duration};
 
 use alloy::rpc::types::beacon::relay::ValidatorRegistration;
 use cb_common::{
+    pbs::{DenebSpec, ElectraSpec},
     signer::{random_secret, BlsPublicKey},
-    pbs::{ElectraSpec, DenebSpec},
     types::Chain,
     utils::blst_pubkey_to_alloy,
 };
@@ -108,7 +108,6 @@ async fn test_register_validators_electra() -> Result<()> {
 
     Ok(())
 }
-
 
 #[tokio::test]
 async fn test_register_validators_returns_422_if_request_is_malformed_deneb() -> Result<()> {

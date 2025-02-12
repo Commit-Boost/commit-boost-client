@@ -1,31 +1,41 @@
 use alloy::rpc::types::beacon::relay::ValidatorRegistration;
 use cb_common::{
-    pbs::{SignedBlindedBeaconBlock, SubmitBlindedBlockResponse},
-    utils::test_encode_decode, pbs::{DenebSpec, ElectraSpec}
+    pbs::{DenebSpec, ElectraSpec, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse},
+    utils::test_encode_decode,
 };
-use serde_json::Value;
 use cb_tests::utils::SpecVersion;
+use serde_json::Value;
 
 // Happy path tests
 #[test]
 fn test_registrations() {
-    test_encode_decode::<Vec<ValidatorRegistration>>(include_str!("../data/deneb/registration_holesky.json"));
+    test_encode_decode::<Vec<ValidatorRegistration>>(include_str!(
+        "../data/deneb/registration_holesky.json"
+    ));
 }
 
 #[test]
 fn test_signed_blinded_block() {
     // Deneb
-    test_encode_decode::<SignedBlindedBeaconBlock<DenebSpec>>(include_str!("../data/deneb/signed_blinded_block_holesky.json"));
+    test_encode_decode::<SignedBlindedBeaconBlock<DenebSpec>>(include_str!(
+        "../data/deneb/signed_blinded_block_holesky.json"
+    ));
     // Electra
-    test_encode_decode::<SignedBlindedBeaconBlock<ElectraSpec>>(include_str!("../data/electra/signed_blinded_block_holesky.json"));
+    test_encode_decode::<SignedBlindedBeaconBlock<ElectraSpec>>(include_str!(
+        "../data/electra/signed_blinded_block_holesky.json"
+    ));
 }
 
 #[test]
 fn test_submit_block_response() {
     // Deneb
-    test_encode_decode::<SubmitBlindedBlockResponse<DenebSpec>>(include_str!("../data/deneb/submit_block_response_holesky.json"));
+    test_encode_decode::<SubmitBlindedBlockResponse<DenebSpec>>(include_str!(
+        "../data/deneb/submit_block_response_holesky.json"
+    ));
     // Electra
-    test_encode_decode::<SubmitBlindedBlockResponse<ElectraSpec>>(include_str!("../data/electra/submit_block_response_holesky.json"));
+    test_encode_decode::<SubmitBlindedBlockResponse<ElectraSpec>>(include_str!(
+        "../data/electra/submit_block_response_holesky.json"
+    ));
 }
 
 // Unhappy path tests
@@ -62,9 +72,9 @@ fn test_registration_missing_fields() {
             let error = test_missing_registration_field(version, field);
             assert!(
                 error.contains(&format!("missing field `{}`", field)),
-            "Expected error about missing {}, got: {}",
-            field,
-            error
+                "Expected error about missing {}, got: {}",
+                field,
+                error
             );
         }
     }

@@ -1,9 +1,9 @@
 use std::{sync::Arc, time::Duration};
 
 use cb_common::{
+    pbs::{DenebSpec, ElectraSpec},
     signer::{random_secret, BlsPublicKey},
     types::Chain,
-    pbs::{DenebSpec, ElectraSpec},
     utils::blst_pubkey_to_alloy,
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};

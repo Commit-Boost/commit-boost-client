@@ -2,14 +2,13 @@ use std::{sync::Arc, time::Duration};
 
 use alloy::primitives::{B256, U256};
 use cb_common::{
-    pbs::GetHeaderResponse,
+    pbs::{DenebSpec, ElectraSpec, GetHeaderResponse},
     signature::sign_builder_root,
     signer::{random_secret, BlsPublicKey},
     types::Chain,
     utils::{blst_pubkey_to_alloy, timestamp_of_slot_start_sec},
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
-use cb_common::pbs::{DenebSpec, ElectraSpec};
 use cb_tests::{
     mock_relay::{start_mock_relay_service, MockRelayState},
     mock_validator::MockValidator,

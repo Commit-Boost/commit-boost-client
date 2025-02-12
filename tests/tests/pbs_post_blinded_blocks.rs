@@ -40,13 +40,19 @@ async fn test_submit_block_deneb() -> Result<()> {
 
     let mock_validator = MockValidator::new(pbs_port)?;
     info!("Sending submit block");
-    let res = mock_validator.do_submit_block::<DenebSpec>(Some(SignedBlindedBeaconBlock::default())).await?;
+    let res = mock_validator
+        .do_submit_block::<DenebSpec>(Some(SignedBlindedBeaconBlock::default()))
+        .await?;
 
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(mock_state.received_submit_block(), 1);
 
-    let response_body = serde_json::from_slice::<SubmitBlindedBlockResponse<DenebSpec>>(&res.bytes().await?)?;
-    assert_eq!(response_body.block_hash(), SubmitBlindedBlockResponse::<DenebSpec>::default().block_hash());
+    let response_body =
+        serde_json::from_slice::<SubmitBlindedBlockResponse<DenebSpec>>(&res.bytes().await?)?;
+    assert_eq!(
+        response_body.block_hash(),
+        SubmitBlindedBlockResponse::<DenebSpec>::default().block_hash()
+    );
     Ok(())
 }
 
@@ -74,13 +80,19 @@ async fn test_submit_block_electra() -> Result<()> {
 
     let mock_validator = MockValidator::new(pbs_port)?;
     info!("Sending submit block");
-    let res = mock_validator.do_submit_block::<ElectraSpec>(Some(SignedBlindedBeaconBlock::default())).await?;
+    let res = mock_validator
+        .do_submit_block::<ElectraSpec>(Some(SignedBlindedBeaconBlock::default()))
+        .await?;
 
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(mock_state.received_submit_block(), 1);
 
-    let response_body = serde_json::from_slice::<SubmitBlindedBlockResponse<ElectraSpec>>(&res.bytes().await?)?;
-    assert_eq!(response_body.block_hash(), SubmitBlindedBlockResponse::<ElectraSpec>::default().block_hash());
+    let response_body =
+        serde_json::from_slice::<SubmitBlindedBlockResponse<ElectraSpec>>(&res.bytes().await?)?;
+    assert_eq!(
+        response_body.block_hash(),
+        SubmitBlindedBlockResponse::<ElectraSpec>::default().block_hash()
+    );
     Ok(())
 }
 
@@ -113,7 +125,6 @@ async fn test_submit_block_too_large_deneb() -> Result<()> {
     assert_eq!(mock_state.received_submit_block(), 1);
     Ok(())
 }
-
 
 #[tokio::test]
 async fn test_submit_block_too_large_electra() -> Result<()> {

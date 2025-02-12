@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use alloy::{primitives::B256, rpc::types::beacon::BlsPublicKey};
 use cb_common::{
     config::RelayConfig,
-    pbs::{GetHeaderResponse, RelayClient, RelayEntry},
+    pbs::{DenebSpec, GetHeaderResponse, RelayClient, RelayEntry},
     signer::BlsSecretKey,
     types::Chain,
     utils::blst_pubkey_to_alloy,
@@ -63,7 +63,7 @@ async fn main() {
                     .expect("failed to decode response");
 
                 assert!(
-                    serde_json::from_slice::<GetHeaderResponse>(&res).is_ok(),
+                    serde_json::from_slice::<GetHeaderResponse<DenebSpec>>(&res).is_ok(),
                     "invalid header returned"
                 );
 
@@ -146,7 +146,7 @@ async fn start_mock_relay(chain: Chain, relay_config: RelayConfig) {
     let relay_port = relay_config.entry.url.port().expect("missing port");
 
     let mock_relay = MockRelayState::new(chain, signer);
-    start_mock_relay_service(mock_relay.into(), relay_port)
+    start_mock_relay_service::<DenebSpec>(mock_relay.into(), relay_port)
         .await
         .expect("failed to start mock relay");
 }
