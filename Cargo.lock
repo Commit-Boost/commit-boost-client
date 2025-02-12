@@ -1414,6 +1414,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tree_hash 0.9.1",
+ "url",
 ]
 
 [[package]]
