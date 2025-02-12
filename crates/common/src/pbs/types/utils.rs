@@ -40,4 +40,6 @@ pub enum Version {
     #[serde(rename = "deneb")]
     #[default]
     Deneb,
+    #[serde(rename = "electra")]
+    Electra,
 }
