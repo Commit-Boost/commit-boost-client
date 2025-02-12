@@ -22,7 +22,7 @@ use eth2_keystore::{
 use eyre::OptionExt;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use tracing::warn;
+use tracing::{trace, warn};
 
 use super::{load_bls_signer, load_ecdsa_signer};
 use crate::{
@@ -168,6 +168,7 @@ impl ProxyStore {
             .join("bls")
             .join(format!("{}.sig", delegation.message.proxy));
         let content = serde_json::to_vec(&delegation)?;
+        trace!(?content, "Writing BLS delegation to {file_path:?}");
 
         if let Some(parent) = file_path.parent() {
             create_dir_all(parent)?;

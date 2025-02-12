@@ -261,7 +261,7 @@ async fn handle_generate_proxy(
                 .await
                 .map(|proxy_delegation| Json(proxy_delegation).into_response()),
         },
-        SigningManager::Dirk(dirk_manager) => match request.scheme {
+        SigningManager::Dirk(mut dirk_manager) => match request.scheme {
             EncryptionScheme::Bls => dirk_manager
                 .generate_proxy_key(module_id.clone(), request.consensus_pubkey)
                 .await
