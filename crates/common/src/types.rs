@@ -346,7 +346,7 @@ mod tests {
 
         path.pop();
         path.pop();
-        path.push("tests/data/mainnet_spec_data.json");
+        path.push("tests/data/deneb/mainnet_spec_data.json");
 
         let s = format!("chain = {{ genesis_time_secs = 1, path = {path:?}}}");
 
@@ -367,7 +367,7 @@ mod tests {
 
         path.pop();
         path.pop();
-        path.push("tests/data/holesky_spec.json");
+        path.push("tests/data/deneb/holesky_spec.json");
 
         let s = format!("chain = {{ genesis_time_secs = 1, path = {path:?}}}");
 
@@ -386,7 +386,7 @@ mod tests {
 
         path.pop();
         path.pop();
-        path.push("tests/data/sepolia_spec_data.json");
+        path.push("tests/data/deneb/sepolia_spec_data.json");
 
         let s = format!("chain = {{ genesis_time_secs = 1, path = {path:?}}}");
 
