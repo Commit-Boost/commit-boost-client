@@ -11,6 +11,11 @@ use cb_common::{
 };
 use eyre::Result;
 
+pub enum SpecVersion {
+    Deneb,
+    Electra,
+}
+
 pub fn get_local_address(port: u16) -> String {
     format!("http://0.0.0.0:{port}")
 }

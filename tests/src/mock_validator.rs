@@ -2,7 +2,7 @@ use alloy::{
     primitives::B256,
     rpc::types::beacon::{relay::ValidatorRegistration, BlsPublicKey},
 };
-use cb_common::pbs::{RelayClient, SignedBlindedBeaconBlock};
+use cb_common::pbs::{RelayClient, SignedBlindedBeaconBlock, EthSpec};
 use reqwest::Response;
 
 use crate::utils::generate_mock_relay;
@@ -39,9 +39,9 @@ impl MockValidator {
         Ok(self.comm_boost.client.post(url).json(&registrations).send().await?)
     }
 
-    pub async fn do_submit_block(
+    pub async fn do_submit_block<T: EthSpec>(
         &self,
-        signed_blinded_block: Option<SignedBlindedBeaconBlock>,
+        signed_blinded_block: Option<SignedBlindedBeaconBlock<T>>,
     ) -> eyre::Result<Response> {
         let url = self.comm_boost.submit_block_url().unwrap();
 

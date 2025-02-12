@@ -17,7 +17,7 @@ use axum::{
 use cb_common::{
     pbs::{
         GetHeaderParams, GetHeaderResponse, SubmitBlindedBlockResponse, BUILDER_API_PATH,
-        GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
+        GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH, EthSpec
     },
     signature::sign_builder_root,
     signer::BlsSecretKey,
@@ -29,8 +29,8 @@ use tokio::net::TcpListener;
 use tracing::debug;
 use tree_hash::TreeHash;
 
-pub async fn start_mock_relay_service(state: Arc<MockRelayState>, port: u16) -> eyre::Result<()> {
-    let app = mock_relay_app_router(state);
+pub async fn start_mock_relay_service<T: EthSpec>(state: Arc<MockRelayState>, port: u16) -> eyre::Result<()> {
+    let app = mock_relay_app_router::<T>(state);
 
     let socket = SocketAddr::new("0.0.0.0".parse()?, port);
     let listener = TcpListener::bind(socket).await?;
@@ -85,24 +85,24 @@ impl MockRelayState {
     }
 }
 
-pub fn mock_relay_app_router(state: Arc<MockRelayState>) -> Router {
+pub fn mock_relay_app_router<T: EthSpec>(state: Arc<MockRelayState>) -> Router {
     let builder_routes = Router::new()
-        .route(GET_HEADER_PATH, get(handle_get_header))
+        .route(GET_HEADER_PATH, get(handle_get_header::<T>))
         .route(GET_STATUS_PATH, get(handle_get_status))
         .route(REGISTER_VALIDATOR_PATH, post(handle_register_validator))
-        .route(SUBMIT_BLOCK_PATH, post(handle_submit_block))
+        .route(SUBMIT_BLOCK_PATH, post(handle_submit_block::<T>))
         .with_state(state);
 
     Router::new().nest(BUILDER_API_PATH, builder_routes)
 }
 
-async fn handle_get_header(
+async fn handle_get_header<T: EthSpec>(
     State(state): State<Arc<MockRelayState>>,
     Path(GetHeaderParams { parent_hash, .. }): Path<GetHeaderParams>,
 ) -> Response {
     state.received_get_header.fetch_add(1, Ordering::Relaxed);
 
-    let mut response = GetHeaderResponse::default();
+    let mut response = GetHeaderResponse::<T>::default();
     response.data.message.header.parent_hash = parent_hash;
     response.data.message.header.block_hash.0[0] = 1;
     response.data.message.value = U256::from(10);
@@ -128,12 +128,12 @@ async fn handle_register_validator(
     StatusCode::OK
 }
 
-async fn handle_submit_block(State(state): State<Arc<MockRelayState>>) -> Response {
+async fn handle_submit_block<T: EthSpec>(State(state): State<Arc<MockRelayState>>) -> Response {
     state.received_submit_block.fetch_add(1, Ordering::Relaxed);
     if state.large_body() {
         (StatusCode::OK, Json(vec![1u8; 1 + MAX_SIZE_SUBMIT_BLOCK])).into_response()
     } else {
-        let response = SubmitBlindedBlockResponse::default();
+        let response = SubmitBlindedBlockResponse::<T>::default();
         (StatusCode::OK, Json(response)).into_response()
     }
 }
