@@ -62,6 +62,9 @@ impl MockRelayState {
     pub fn received_submit_block(&self) -> u64 {
         self.received_submit_block.load(Ordering::Relaxed)
     }
+    pub fn large_body(&self) -> bool {
+        self.large_body
+    }
 }
 
 impl MockRelayState {
@@ -108,7 +111,7 @@ async fn handle_get_header(
 
     let object_root = response.data.message.tree_hash_root().0;
     response.data.signature = sign_builder_root(state.chain, &state.signer, object_root);
-    (StatusCode::OK, axum::Json(response)).into_response()
+    (StatusCode::OK, Json(response)).into_response()
 }
 
 async fn handle_get_status(State(state): State<Arc<MockRelayState>>) -> impl IntoResponse {
@@ -125,14 +128,12 @@ async fn handle_register_validator(
     StatusCode::OK
 }
 
-async fn handle_submit_block(State(state): State<Arc<MockRelayState>>) -> impl IntoResponse {
+async fn handle_submit_block(State(state): State<Arc<MockRelayState>>) -> Response {
     state.received_submit_block.fetch_add(1, Ordering::Relaxed);
-
-    let response = if state.large_body {
-        vec![1u8; 1 + MAX_SIZE_SUBMIT_BLOCK]
+    if state.large_body() {
+        (StatusCode::OK, Json(vec![1u8; 1 + MAX_SIZE_SUBMIT_BLOCK])).into_response()
     } else {
-        serde_json::to_vec(&SubmitBlindedBlockResponse::default()).unwrap()
-    };
-
-    (StatusCode::OK, Json(response)).into_response()
+        let response = SubmitBlindedBlockResponse::default();
+        (StatusCode::OK, Json(response)).into_response()
+    }
 }
