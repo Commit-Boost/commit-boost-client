@@ -90,8 +90,11 @@ mod tests {
 
     use super::GetHeaderResponse;
     use crate::{
-        constants::APPLICATION_BUILDER_DOMAIN, pbs::{DenebSpec, ElectraSpec}, signature::verify_signed_message,
-        types::Chain, utils::test_encode_decode,
+        constants::APPLICATION_BUILDER_DOMAIN,
+        pbs::{DenebSpec, ElectraSpec},
+        signature::verify_signed_message,
+        types::Chain,
+        utils::test_encode_decode,
     };
 
     #[test]
