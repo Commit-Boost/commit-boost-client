@@ -8,9 +8,11 @@ use ssz_types::{typenum, BitList, BitVector, FixedVector, VariableList};
 use super::{
     execution_payload::ExecutionPayloadHeader, kzg::KzgCommitments, spec::EthSpec, utils::*,
 };
+use super::execution_requests::ExecutionRequests;
 use crate::utils::as_str;
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[serde(bound = "T: EthSpec")]
 pub struct BlindedBeaconBlockBody<T: EthSpec> {
     pub randao_reveal: BlsSignature,
     pub eth1_data: Eth1Data,
@@ -75,6 +77,7 @@ pub struct ProposerSlashing {
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[serde(bound = "T: EthSpec")]
 pub struct AttesterSlashing<T: EthSpec> {
     pub attestation_1: IndexedAttestation<T>,
     pub attestation_2: IndexedAttestation<T>,
@@ -155,35 +158,4 @@ pub struct VoluntaryExit {
 pub struct SyncAggregate<T: EthSpec> {
     pub sync_committee_bits: BitVector<T::SyncCommitteeSize>,
     pub sync_committee_signature: BlsSignature,
-}
-
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
-#[serde(bound = "T: EthSpec")]
-pub struct ExecutionRequests<T: EthSpec> {
-    pub deposits: VariableList<DepositRequest, T::MaxDepositRequestsPerPayload>,
-    pub withdrawals: VariableList<WithdrawalRequest, T::MaxWithdrawalRequestsPerPayload>,
-    pub consolidations: VariableList<ConsolidationRequest, T::MaxConsolidationRequestsPerPayload>,
-}
-
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
-pub struct DepositRequest {
-    pub pubkey: BlsPublicKey,
-    pub withdrawal_credentials: B256,
-    pub amount: u64,
-    pub signature: BlsSignature,
-    pub index: u64,
-}
-
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
-pub struct WithdrawalRequest {
-    pub source_address: Address,
-    pub validator_pubkey: BlsPublicKey,
-    pub amount: u64,
-}
-
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
-pub struct ConsolidationRequest {
-    pub source_address: Address,
-    pub source_pubkey: BlsPublicKey,
-    pub target_pubkey: BlsPublicKey,
 }

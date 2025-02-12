@@ -1,5 +1,5 @@
 use axum::{extract::State, http::HeaderMap, response::IntoResponse};
-use cb_common::{pbs::BuilderEvent, utils::get_user_agent};
+use cb_common::{pbs::{BuilderEvent, EthSpec}, utils::get_user_agent};
 use reqwest::StatusCode;
 use tracing::{error, info};
 use uuid::Uuid;
@@ -12,13 +12,13 @@ use crate::{
 };
 
 #[tracing::instrument(skip_all, name = "reload", fields(req_id = %Uuid::new_v4()))]
-pub async fn handle_reload<S: BuilderApiState, A: BuilderApi<S>>(
+pub async fn handle_reload<S: BuilderApiState, T: EthSpec, A: BuilderApi<S, T>>(
     req_headers: HeaderMap,
     State(state): State<PbsStateGuard<S>>,
 ) -> Result<impl IntoResponse, PbsClientError> {
     let prev_state = state.read().clone();
 
-    prev_state.publish_event(BuilderEvent::ReloadEvent);
+    prev_state.publish_event(BuilderEvent::<T>::ReloadEvent);
 
     let ua = get_user_agent(&req_headers);
 
@@ -26,7 +26,7 @@ pub async fn handle_reload<S: BuilderApiState, A: BuilderApi<S>>(
 
     match A::reload(prev_state.clone()).await {
         Ok(new_state) => {
-            prev_state.publish_event(BuilderEvent::ReloadResponse);
+            prev_state.publish_event(BuilderEvent::<T>::ReloadResponse);
             info!("config reload successful");
 
             *state.write() = new_state;

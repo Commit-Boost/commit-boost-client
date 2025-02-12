@@ -3,14 +3,13 @@ use std::time::{Duration, Instant};
 use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
     pbs::{
-        error::{PbsError, ValidationError},
-        RelayClient, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
-        HEADER_START_TIME_UNIX_MS,
+        error::{PbsError, ValidationError}, EthSpec, RelayClient, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse, HEADER_START_TIME_UNIX_MS
     },
     utils::{get_user_agent_with_version, utcnow_ms},
 };
 use futures::future::select_ok;
 use reqwest::header::USER_AGENT;
+use serde::Deserialize;
 use tracing::{debug, warn};
 use url::Url;
 
@@ -22,11 +21,14 @@ use crate::{
 };
 
 /// Implements https://ethereum.github.io/builder-specs/#/Builder/submitBlindedBlock
-pub async fn submit_block<S: BuilderApiState>(
-    signed_blinded_block: SignedBlindedBeaconBlock,
+pub async fn submit_block<S: BuilderApiState, T>(
+    signed_blinded_block: SignedBlindedBeaconBlock<T>,
     req_headers: HeaderMap,
     state: PbsState<S>,
-) -> eyre::Result<SubmitBlindedBlockResponse> {
+) -> eyre::Result<SubmitBlindedBlockResponse<T>>
+where
+    T: EthSpec + for<'de> Deserialize<'de>,
+{
     // prepare headers
     let mut send_headers = HeaderMap::new();
     send_headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(utcnow_ms()));
@@ -52,12 +54,15 @@ pub async fn submit_block<S: BuilderApiState>(
 
 /// Submit blinded block to relay, retry connection errors until the
 /// given timeout has passed
-async fn submit_block_with_timeout(
-    signed_blinded_block: &SignedBlindedBeaconBlock,
+async fn submit_block_with_timeout<T>(
+    signed_blinded_block: &SignedBlindedBeaconBlock<T>,
     relay: &RelayClient,
     headers: HeaderMap,
     timeout_ms: u64,
-) -> Result<SubmitBlindedBlockResponse, PbsError> {
+) -> Result<SubmitBlindedBlockResponse<T>, PbsError>
+where
+    T: EthSpec + for<'de> Deserialize<'de>,
+{
     let url = relay.submit_block_url()?;
     let mut remaining_timeout_ms = timeout_ms;
     let mut retry = 0;
@@ -99,14 +104,18 @@ async fn submit_block_with_timeout(
 // submits blinded signed block and expects the execution payload + blobs bundle
 // back
 #[tracing::instrument(skip_all, name = "handler", fields(relay_id = relay.id.as_ref(), retry = retry))]
-async fn send_submit_block(
+async fn send_submit_block<T>(
     url: Url,
-    signed_blinded_block: &SignedBlindedBeaconBlock,
+    signed_blinded_block: &SignedBlindedBeaconBlock<T>,
     relay: &RelayClient,
     headers: HeaderMap,
     timeout_ms: u64,
     retry: u32,
-) -> Result<SubmitBlindedBlockResponse, PbsError> {
+) -> Result<SubmitBlindedBlockResponse<T>, PbsError>
+where
+    T: EthSpec + for<'de> Deserialize<'de>,
+{
+
     let start_request = Instant::now();
     let res = match relay
         .client
@@ -151,7 +160,7 @@ async fn send_submit_block(
         return Err(err);
     };
 
-    let block_response = match serde_json::from_slice::<SubmitBlindedBlockResponse>(&response_bytes)
+    let block_response = match serde_json::from_slice::<SubmitBlindedBlockResponse<T>>(&response_bytes)
     {
         Ok(parsed) => parsed,
         Err(err) => {

@@ -1,6 +1,5 @@
 use cb_common::{
-    config::load_pbs_config,
-    utils::{initialize_pbs_tracing_log, wait_for_signal},
+    config::load_pbs_config, pbs::DenebSpec, utils::{initialize_pbs_tracing_log, wait_for_signal}
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use eyre::Result;
@@ -20,7 +19,7 @@ async fn main() -> Result<()> {
 
     PbsService::init_metrics(pbs_config.chain)?;
     let state = PbsState::new(pbs_config);
-    let server = PbsService::run::<_, DefaultBuilderApi>(state);
+    let server = PbsService::run::<_, DenebSpec, DefaultBuilderApi>(state);
 
     tokio::select! {
         maybe_err = server => {

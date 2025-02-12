@@ -5,10 +5,11 @@ use axum::{
     response::IntoResponse,
 };
 use cb_common::{
-    pbs::{BuilderEvent, GetHeaderParams},
+    pbs::{BuilderEvent, EthSpec, GetHeaderParams},
     utils::{get_user_agent, ms_into_slot},
 };
 use reqwest::StatusCode;
+use serde::Deserialize;
 use tracing::{error, info};
 use uuid::Uuid;
 
@@ -21,14 +22,17 @@ use crate::{
 };
 
 #[tracing::instrument(skip_all, name = "get_header", fields(req_id = %Uuid::new_v4(), slot = params.slot))]
-pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
+pub async fn handle_get_header<S: BuilderApiState, T, A: BuilderApi<S, T>>(
     State(state): State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
     Path(params): Path<GetHeaderParams>,
-) -> Result<impl IntoResponse, PbsClientError> {
+) -> Result<impl IntoResponse, PbsClientError>
+where
+    T: EthSpec + for<'de> Deserialize<'de>,
+{
     let state = state.read().clone();
 
-    state.publish_event(BuilderEvent::GetHeaderRequest(params));
+    state.publish_event(BuilderEvent::<T>::GetHeaderRequest(params));
 
     let ua = get_user_agent(&req_headers);
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
@@ -37,7 +41,7 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
 
     match A::get_header(params, req_headers, state.clone()).await {
         Ok(res) => {
-            state.publish_event(BuilderEvent::GetHeaderResponse(Box::new(res.clone())));
+            state.publish_event(BuilderEvent::<T>::GetHeaderResponse(Box::new(res.clone())));
 
             if let Some(max_bid) = res {
                 info!(value_eth = format_ether(max_bid.value()), block_hash =% max_bid.block_hash(), "received header");

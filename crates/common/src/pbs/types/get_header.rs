@@ -3,11 +3,10 @@ use alloy::{
     rpc::types::beacon::{BlsPublicKey, BlsSignature},
 };
 use serde::{Deserialize, Serialize};
-use tree_hash_derive::TreeHash;
 
 use super::{
-    execution_payload::ExecutionPayloadHeader, kzg::KzgCommitments, spec::DenebSpec,
-    utils::VersionedResponse,
+    execution_payload::ExecutionPayloadHeader, kzg::KzgCommitments, utils::VersionedResponse,
+    EthSpec, ExecutionRequests,
 };
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
@@ -21,9 +20,9 @@ pub struct GetHeaderParams {
 }
 
 /// Returned by relay in get_header
-pub type GetHeaderResponse = VersionedResponse<SignedExecutionPayloadHeader>;
+pub type GetHeaderResponse<T: EthSpec> = VersionedResponse<SignedExecutionPayloadHeader<T>>;
 
-impl GetHeaderResponse {
+impl<T: EthSpec> GetHeaderResponse<T> {
     pub fn block_hash(&self) -> B256 {
         self.data.message.header.block_hash
     }
@@ -38,18 +37,50 @@ impl GetHeaderResponse {
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
-pub struct SignedExecutionPayloadHeader {
-    pub message: ExecutionPayloadHeaderMessage,
+pub struct SignedExecutionPayloadHeader<T: EthSpec> {
+    pub message: ExecutionPayloadHeaderMessage<T>,
     pub signature: BlsSignature,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize, TreeHash)]
-pub struct ExecutionPayloadHeaderMessage {
-    pub header: ExecutionPayloadHeader<DenebSpec>,
-    pub blob_kzg_commitments: KzgCommitments<DenebSpec>,
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[serde(bound = "T: EthSpec")]
+pub struct ExecutionPayloadHeaderMessage<T: EthSpec> {
+    pub header: ExecutionPayloadHeader<T>,
+    pub blob_kzg_commitments: KzgCommitments<T>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution_requests: Option<ExecutionRequests<T>>,
     #[serde(with = "serde_utils::quoted_u256")]
     pub value: U256,
     pub pubkey: BlsPublicKey,
+}
+
+impl<T: EthSpec> tree_hash::TreeHash for ExecutionPayloadHeaderMessage<T> {
+    fn tree_hash_type() -> tree_hash::TreeHashType {
+        tree_hash::TreeHashType::Container
+    }
+
+    fn tree_hash_packed_encoding(&self) -> tree_hash::PackedEncoding {
+        unreachable!("Struct should never be packed.")
+    }
+
+    fn tree_hash_packing_factor() -> usize {
+        unreachable!("Struct should never be packed.")
+    }
+
+    fn tree_hash_root(&self) -> tree_hash::Hash256 {
+        let leaves = 4 + usize::from(self.execution_requests.is_some());
+        let mut hasher = tree_hash::MerkleHasher::with_leaves(leaves);
+        hasher.write(&self.header.tree_hash_root().as_slice());
+        hasher.write(&self.blob_kzg_commitments.tree_hash_root().as_slice());
+        if let Some(reqs) = &self.execution_requests {
+            hasher.write(&reqs.tree_hash_root().as_slice());
+        }
+        hasher.write(&self.value.tree_hash_root().as_slice());
+        hasher.write(&self.pubkey.tree_hash_root().as_slice());
+        // Note expect() is how the tree_hash_derive crate handles errors.
+        // https://docs.rs/tree_hash_derive/latest/src/tree_hash_derive/lib.rs.html#138
+        hasher.finish().expect("tree hash derive should not have a remaining buffer")
+    }
 }
 
 #[cfg(test)]
@@ -58,8 +89,7 @@ mod tests {
 
     use super::GetHeaderResponse;
     use crate::{
-        constants::APPLICATION_BUILDER_DOMAIN, signature::verify_signed_message, types::Chain,
-        utils::test_encode_decode,
+        constants::APPLICATION_BUILDER_DOMAIN, pbs::DenebSpec, signature::verify_signed_message, types::Chain, utils::test_encode_decode
     };
 
     #[test]
@@ -102,7 +132,7 @@ mod tests {
             }
         }"#;
 
-        let parsed = test_encode_decode::<GetHeaderResponse>(&data).data;
+        let parsed = test_encode_decode::<GetHeaderResponse<DenebSpec>>(&data).data;
 
         assert_eq!(parsed.message.value, U256::from(4293912964927787u64));
 

@@ -2,8 +2,9 @@ use alloy::rpc::types::beacon::relay::ValidatorRegistration;
 use async_trait::async_trait;
 use axum::{http::HeaderMap, Router};
 use cb_common::pbs::{
-    GetHeaderParams, GetHeaderResponse, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
+    DenebSpec, EthSpec, GetHeaderParams, GetHeaderResponse, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse
 };
+use serde::Deserialize;
 
 use crate::{
     mev_boost,
@@ -11,7 +12,7 @@ use crate::{
 };
 
 #[async_trait]
-pub trait BuilderApi<S: BuilderApiState>: 'static {
+pub trait BuilderApi<S: BuilderApiState, T: EthSpec>: 'static {
     /// Use to extend the BuilderApi
     fn extra_routes() -> Option<Router<PbsStateGuard<S>>> {
         None
@@ -22,7 +23,10 @@ pub trait BuilderApi<S: BuilderApiState>: 'static {
         params: GetHeaderParams,
         req_headers: HeaderMap,
         state: PbsState<S>,
-    ) -> eyre::Result<Option<GetHeaderResponse>> {
+    ) -> eyre::Result<Option<GetHeaderResponse<T>>>
+    where
+        T: EthSpec + for<'de> Deserialize<'de>,
+    {
         mev_boost::get_header(params, req_headers, state).await
     }
 
@@ -33,10 +37,13 @@ pub trait BuilderApi<S: BuilderApiState>: 'static {
 
     /// https://ethereum.github.io/builder-specs/#/Builder/submitBlindedBlock
     async fn submit_block(
-        signed_blinded_block: SignedBlindedBeaconBlock,
+        signed_blinded_block: SignedBlindedBeaconBlock<T>,
         req_headers: HeaderMap,
         state: PbsState<S>,
-    ) -> eyre::Result<SubmitBlindedBlockResponse> {
+    ) -> eyre::Result<SubmitBlindedBlockResponse<T>>
+    where
+        T: EthSpec + for<'de> Deserialize<'de>,
+    {
         mev_boost::submit_block(signed_blinded_block, req_headers, state).await
     }
 
@@ -55,4 +62,4 @@ pub trait BuilderApi<S: BuilderApiState>: 'static {
 }
 
 pub struct DefaultBuilderApi;
-impl BuilderApi<()> for DefaultBuilderApi {}
+impl BuilderApi<(), DenebSpec> for DefaultBuilderApi {}

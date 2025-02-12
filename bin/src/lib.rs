@@ -9,7 +9,7 @@ pub mod prelude {
             load_builder_module_config, load_commit_module_config, load_pbs_config,
             load_pbs_custom_config, LogsSettings, StartCommitModuleConfig,
         },
-        pbs::{BuilderEvent, BuilderEventClient, OnBuilderApiEvent},
+        pbs::{BuilderEvent, BuilderEventDenebClient, BuilderEventElectraClient, OnBuilderApiEvent, EthSpec, DenebSpec, ElectraSpec},
         signer::{BlsPublicKey, BlsSignature, EcdsaPublicKey, EcdsaSignature},
         types::Chain,
         utils::{

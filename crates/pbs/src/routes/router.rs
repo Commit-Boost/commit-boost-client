@@ -3,9 +3,9 @@ use axum::{
     Router,
 };
 use cb_common::pbs::{
-    BUILDER_API_PATH, GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, RELOAD_PATH,
-    SUBMIT_BLOCK_PATH,
+    EthSpec, BUILDER_API_PATH, GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, RELOAD_PATH, SUBMIT_BLOCK_PATH
 };
+use serde::Deserialize;
 
 use super::{
     handle_get_header, handle_get_status, handle_register_validator, handle_submit_block,
@@ -16,13 +16,18 @@ use crate::{
     state::{BuilderApiState, PbsStateGuard},
 };
 
-pub fn create_app_router<S: BuilderApiState, A: BuilderApi<S>>(state: PbsStateGuard<S>) -> Router {
+pub fn create_app_router<S, T, A>(state: PbsStateGuard<S>) -> Router
+where
+    S: BuilderApiState,
+    T: EthSpec + for<'de> Deserialize<'de>,
+    A: BuilderApi<S, T>,
+{
     let builder_routes = Router::new()
-        .route(GET_HEADER_PATH, get(handle_get_header::<S, A>))
-        .route(GET_STATUS_PATH, get(handle_get_status::<S, A>))
-        .route(REGISTER_VALIDATOR_PATH, post(handle_register_validator::<S, A>))
-        .route(SUBMIT_BLOCK_PATH, post(handle_submit_block::<S, A>));
-    let reload_router = Router::new().route(RELOAD_PATH, post(handle_reload::<S, A>));
+        .route(GET_HEADER_PATH, get(handle_get_header::<S, T, A>))
+        .route(GET_STATUS_PATH, get(handle_get_status::<S, T, A>))
+        .route(REGISTER_VALIDATOR_PATH, post(handle_register_validator::<S, T, A>))
+        .route(SUBMIT_BLOCK_PATH, post(handle_submit_block::<S, T, A>));
+    let reload_router = Router::new().route(RELOAD_PATH, post(handle_reload::<S, T, A>));
 
     let builder_api = Router::new().nest(BUILDER_API_PATH, builder_routes).merge(reload_router);
 

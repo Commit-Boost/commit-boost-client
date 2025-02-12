@@ -3,7 +3,7 @@ use std::sync::Arc;
 use alloy::rpc::types::beacon::BlsPublicKey;
 use cb_common::{
     config::{PbsConfig, PbsModuleConfig},
-    pbs::{BuilderEvent, RelayClient},
+    pbs::{BuilderEvent, EthSpec, RelayClient},
 };
 use parking_lot::RwLock;
 
@@ -37,7 +37,7 @@ impl<S> PbsState<S>
 where
     S: BuilderApiState,
 {
-    pub fn publish_event(&self, e: BuilderEvent) {
+    pub fn publish_event<T: EthSpec>(&self, e: BuilderEvent<T>) {
         if let Some(publisher) = self.config.event_publisher.as_ref() {
             publisher.publish(e);
         }

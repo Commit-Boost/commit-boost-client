@@ -12,9 +12,7 @@ use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
     constants::APPLICATION_BUILDER_DOMAIN,
     pbs::{
-        error::{PbsError, ValidationError},
-        GetHeaderParams, GetHeaderResponse, RelayClient, SignedExecutionPayloadHeader,
-        EMPTY_TX_ROOT_HASH, HEADER_START_TIME_UNIX_MS,
+        error::{PbsError, ValidationError}, EthSpec, GetHeaderParams, GetHeaderResponse, RelayClient, SignedExecutionPayloadHeader, EMPTY_TX_ROOT_HASH, HEADER_START_TIME_UNIX_MS
     },
     signature::verify_signed_message,
     types::Chain,
@@ -23,6 +21,7 @@ use cb_common::{
 use futures::future::join_all;
 use parking_lot::RwLock;
 use reqwest::{header::USER_AGENT, StatusCode};
+use serde::Deserialize;
 use tokio::time::sleep;
 use tracing::{debug, error, warn, Instrument};
 use url::Url;
@@ -38,11 +37,14 @@ use crate::{
 
 /// Implements https://ethereum.github.io/builder-specs/#/Builder/getHeader
 /// Returns 200 if at least one relay returns 200, else 204
-pub async fn get_header<S: BuilderApiState>(
+pub async fn get_header<S: BuilderApiState, T>(
     params: GetHeaderParams,
     req_headers: HeaderMap,
     state: PbsState<S>,
-) -> eyre::Result<Option<GetHeaderResponse>> {
+) -> eyre::Result<Option<GetHeaderResponse<T>>>
+where
+    T: EthSpec + for<'de> Deserialize<'de>,
+{
     let parent_block = Arc::new(RwLock::new(None));
     if state.extra_validation_enabled() {
         if let Some(rpc_url) = state.pbs_config().rpc_url.clone() {
@@ -147,7 +149,7 @@ async fn fetch_parent_block(
 }
 
 #[tracing::instrument(skip_all, name = "handler", fields(relay_id = relay.id.as_ref()))]
-async fn send_timed_get_header(
+async fn send_timed_get_header<T>(
     params: GetHeaderParams,
     relay: RelayClient,
     chain: Chain,
@@ -155,7 +157,10 @@ async fn send_timed_get_header(
     ms_into_slot: u64,
     mut timeout_left_ms: u64,
     validation: ValidationContext,
-) -> Result<Option<GetHeaderResponse>, PbsError> {
+) -> Result<Option<GetHeaderResponse<T>>, PbsError>
+where
+    T: EthSpec + for<'de> Deserialize<'de>,
+{
     let url = relay.get_header_url(params.slot, params.parent_hash, params.pubkey)?;
 
     if relay.config.enable_timing_games {
@@ -269,13 +274,16 @@ struct ValidationContext {
     parent_block: Arc<RwLock<Option<Block>>>,
 }
 
-async fn send_one_get_header(
+async fn send_one_get_header<T>(
     params: GetHeaderParams,
     relay: RelayClient,
     chain: Chain,
     mut req_config: RequestContext,
     validation: ValidationContext,
-) -> Result<(u64, Option<GetHeaderResponse>), PbsError> {
+) -> Result<(u64, Option<GetHeaderResponse<T>>), PbsError>
+where 
+    T: EthSpec + for<'de> Deserialize<'de>,
+{
     // the timestamp in the header is the consensus block time which is fixed,
     // use the beginning of the request as proxy to make sure we use only the
     // last one received
@@ -325,7 +333,7 @@ async fn send_one_get_header(
         return Ok((start_request_time, None));
     }
 
-    let get_header_response = match serde_json::from_slice::<GetHeaderResponse>(&response_bytes) {
+    let get_header_response = match serde_json::from_slice::<GetHeaderResponse<T>>(&response_bytes) {
         Ok(parsed) => parsed,
         Err(err) => {
             return Err(PbsError::JsonDecode {
@@ -364,8 +372,8 @@ async fn send_one_get_header(
     Ok((start_request_time, Some(get_header_response)))
 }
 
-fn validate_header(
-    signed_header: &SignedExecutionPayloadHeader,
+fn validate_header<T: EthSpec>(
+    signed_header: &SignedExecutionPayloadHeader<T>,
     chain: Chain,
     expected_relay_pubkey: BlsPublicKey,
     parent_hash: B256,
@@ -426,9 +434,9 @@ fn validate_header(
     Ok(())
 }
 
-fn extra_validation(
+fn extra_validation<T: EthSpec>(
     parent_block: &Block,
-    signed_header: &SignedExecutionPayloadHeader,
+    signed_header: &SignedExecutionPayloadHeader<T>,
 ) -> Result<(), ValidationError> {
     if signed_header.message.header.block_number != parent_block.header.number + 1 {
         return Err(ValidationError::BlockNumberMismatch {
@@ -455,7 +463,7 @@ mod tests {
     };
     use blst::min_pk;
     use cb_common::{
-        pbs::{error::ValidationError, SignedExecutionPayloadHeader, EMPTY_TX_ROOT_HASH},
+        pbs::{error::ValidationError, DenebSpec, SignedExecutionPayloadHeader, EMPTY_TX_ROOT_HASH},
         signature::sign_builder_message,
         types::Chain,
         utils::timestamp_of_slot_start_sec,
@@ -465,7 +473,7 @@ mod tests {
 
     #[test]
     fn test_validate_header() {
-        let mut mock_header = SignedExecutionPayloadHeader::default();
+        let mut mock_header = SignedExecutionPayloadHeader::<DenebSpec>::default();
 
         let slot = 5;
         let parent_hash = B256::from_slice(&[1; 32]);

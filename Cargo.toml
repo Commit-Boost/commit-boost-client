@@ -37,7 +37,7 @@ alloy = { version = "0.8.0", features = [
     "getrandom",
     "providers",
 ] }
-ssz_types = "0.8"
+ssz_types = "0.10"
 ethereum_serde_utils = "0.7.0"
 
 # networking
@@ -69,8 +69,8 @@ prometheus = "0.13.4"
 
 # crypto
 blst = "0.3.11"
-tree_hash = "0.8"
-tree_hash_derive = "0.8"
+tree_hash = "0.9.1"
+tree_hash_derive = "0.9"
 eth2_keystore = { git = "https://github.com/sigp/lighthouse", rev = "9e12c21f268c80a3f002ae0ca27477f9f512eb6f" }
 k256 = "0.13"
 aes = "0.8"

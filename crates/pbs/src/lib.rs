@@ -13,3 +13,4 @@ pub use constants::*;
 pub use mev_boost::*;
 pub use service::PbsService;
 pub use state::{BuilderApiState, PbsState, PbsStateGuard};
+pub use routes::create_app_router;

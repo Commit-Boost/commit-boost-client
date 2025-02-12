@@ -2,13 +2,14 @@ use std::time::Duration;
 
 use cb_common::{
     constants::{COMMIT_BOOST_COMMIT, COMMIT_BOOST_VERSION},
-    pbs::{BUILDER_API_PATH, GET_STATUS_PATH},
+    pbs::{EthSpec, BUILDER_API_PATH, GET_STATUS_PATH},
     types::Chain,
 };
 use cb_metrics::provider::MetricsProvider;
 use eyre::{bail, Context, Result};
 use parking_lot::RwLock;
 use prometheus::core::Collector;
+use serde::Deserialize;
 use tokio::net::TcpListener;
 use tracing::info;
 use url::Url;
@@ -23,13 +24,18 @@ use crate::{
 pub struct PbsService;
 
 impl PbsService {
-    pub async fn run<S: BuilderApiState, A: BuilderApi<S>>(state: PbsState<S>) -> Result<()> {
+    pub async fn run<S, T, A>(state: PbsState<S>) -> Result<()>
+    where
+        S: BuilderApiState,
+        T: EthSpec + for<'de> Deserialize<'de>,
+        A: BuilderApi<S, T>,
+    {
         let addr = state.config.endpoint;
         let events_subs =
             state.config.event_publisher.as_ref().map(|e| e.n_subscribers()).unwrap_or_default();
         info!(version = COMMIT_BOOST_VERSION, commit = COMMIT_BOOST_COMMIT, ?addr, events_subs, chain =? state.config.chain, "starting PBS service");
 
-        let app = create_app_router::<S, A>(RwLock::new(state).into());
+        let app = create_app_router::<S, T, A>(RwLock::new(state).into());
         let listener = TcpListener::bind(addr).await?;
 
         let task =

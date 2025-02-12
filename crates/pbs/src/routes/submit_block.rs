@@ -1,9 +1,10 @@
 use axum::{extract::State, http::HeaderMap, response::IntoResponse, Json};
 use cb_common::{
-    pbs::{BuilderEvent, SignedBlindedBeaconBlock},
+    pbs::{BuilderEvent, EthSpec, SignedBlindedBeaconBlock},
     utils::{get_user_agent, timestamp_of_slot_start_millis, utcnow_ms},
 };
 use reqwest::StatusCode;
+use serde::Deserialize;
 use tracing::{error, info, trace};
 use uuid::Uuid;
 
@@ -16,11 +17,14 @@ use crate::{
 };
 
 #[tracing::instrument(skip_all, name = "submit_blinded_block", fields(req_id = %Uuid::new_v4(), slot = signed_blinded_block.message.slot))]
-pub async fn handle_submit_block<S: BuilderApiState, A: BuilderApi<S>>(
+pub async fn handle_submit_block<S: BuilderApiState, T, A: BuilderApi<S, T>>(
     State(state): State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
-    Json(signed_blinded_block): Json<SignedBlindedBeaconBlock>,
-) -> Result<impl IntoResponse, PbsClientError> {
+    Json(signed_blinded_block): Json<SignedBlindedBeaconBlock<T>>,
+) -> Result<impl IntoResponse, PbsClientError>
+where
+    T: EthSpec + for<'de> Deserialize<'de>,
+{
     let state = state.read().clone();
 
     trace!(?signed_blinded_block);
@@ -46,7 +50,7 @@ pub async fn handle_submit_block<S: BuilderApiState, A: BuilderApi<S>>(
 
         Err(err) => {
             error!(%err, %block_hash, "CRITICAL: no payload received from relays. Check previous logs or use the Relay Data API");
-            state.publish_event(BuilderEvent::MissedPayload { block_hash });
+            state.publish_event(BuilderEvent::<T>::MissedPayload { block_hash });
 
             let err = PbsClientError::NoPayload;
             BEACON_NODE_STATUS

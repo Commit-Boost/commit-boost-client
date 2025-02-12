@@ -5,34 +5,34 @@ use ssz_types::typenum::{
 };
 use std::fmt::Debug;
 
-pub trait EthSpec {
-    type MaxProposerSlashings: Unsigned + Debug;
-    type MaxValidatorsPerCommittee: Unsigned + Debug;
-    type MaxAttesterSlashings: Unsigned + Debug;
-    type MaxAttestations: Unsigned + Debug;
-    type MaxDeposits: Unsigned + Debug;
-    type MaxVoluntaryExits: Unsigned + Debug;
-    type SyncCommitteeSize: Unsigned + Debug;
-    type BytesPerLogsBloom: Unsigned + Debug;
-    type MaxExtraDataBytes: Unsigned + Debug;
-    type MaxBlsToExecutionChanges: Unsigned + Debug;
-    type MaxBlobCommitmentsPerBlock: Unsigned + Debug;
-    type MaxWithdrawalsPerPayload: Unsigned + Debug;
-    type MaxBytesPerTransaction: Unsigned + Debug;
-    type MaxTransactionsPerPayload: Unsigned + Debug;
-    type BytesPerBlob: Unsigned + Debug;
-    type MaxBlobsPerBlock: Unsigned + Debug;
-    type MaxCommitteesPerSlot: Unsigned + Debug;
+pub trait EthSpec: 'static + Default + Clone + Debug + Send + Sync + Serialize {
+    type MaxProposerSlashings: Unsigned + Clone + Debug + Send + Sync;
+    type MaxValidatorsPerCommittee: Unsigned + Clone + Debug + Send + Sync;
+    type MaxAttesterSlashings: Unsigned + Clone + Debug + Send + Sync;
+    type MaxAttestations: Unsigned + Clone + Debug + Send + Sync;
+    type MaxDeposits: Unsigned + Clone + Debug + Send + Sync;
+    type MaxVoluntaryExits: Unsigned + Clone + Debug + Send + Sync;
+    type SyncCommitteeSize: Unsigned + Clone + Debug + Send + Sync;
+    type BytesPerLogsBloom: Unsigned + Clone + Debug + Send + Sync;
+    type MaxExtraDataBytes: Unsigned + Clone + Debug + Send + Sync;
+    type MaxBlsToExecutionChanges: Unsigned + Clone + Debug + Send + Sync;
+    type MaxBlobCommitmentsPerBlock: Unsigned + Clone + Debug + Send + Sync;
+    type MaxWithdrawalsPerPayload: Unsigned + Clone + Debug + Send + Sync;
+    type MaxBytesPerTransaction: Unsigned + Clone + Debug + Send + Sync;
+    type MaxTransactionsPerPayload: Unsigned + Clone + Debug + Send + Sync;
+    type BytesPerBlob: Unsigned + Clone + Debug + Send + Sync;
+    type MaxBlobsPerBlock: Unsigned + Clone + Debug + Send + Sync;
+    type MaxCommitteesPerSlot: Unsigned + Clone + Debug + Send + Sync;
     // New in Electra
-    type PendingBalanceDepositsLimit: Unsigned + Debug;
-    type PendingPartialWithdrawalsLimit: Unsigned + Debug;
-    type PendingConsolidationsLimit: Unsigned + Debug;
-    type MaxConsolidationRequestsPerPayload: Unsigned + Debug;
-    type MaxDepositRequestsPerPayload: Unsigned + Debug;
-    type MaxWithdrawalRequestsPerPayload: Unsigned + Debug;
+    type PendingBalanceDepositsLimit: Unsigned + Clone + Debug + Send + Sync;
+    type PendingPartialWithdrawalsLimit: Unsigned + Clone + Debug + Send + Sync;
+    type PendingConsolidationsLimit: Unsigned + Clone + Debug + Send + Sync;
+    type MaxConsolidationRequestsPerPayload: Unsigned + Clone + Debug + Send + Sync;
+    type MaxDepositRequestsPerPayload: Unsigned + Clone + Debug + Send + Sync;
+    type MaxWithdrawalRequestsPerPayload: Unsigned + Clone + Debug + Send + Sync;
 
     // used across multiple specs
-    type MaxValidatorsPerCommitteeWithSlot: Unsigned + Debug;
+    type MaxValidatorsPerCommitteeWithSlot: Unsigned + Clone + Debug + Send + Sync;
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]

@@ -6,8 +6,8 @@ use tracing::{error, info};
 struct LogProcessor;
 
 #[async_trait]
-impl OnBuilderApiEvent for LogProcessor {
-    async fn on_builder_api_event(&self, event: BuilderEvent) {
+impl<T: EthSpec> OnBuilderApiEvent<T> for LogProcessor {
+    async fn on_builder_api_event(&self, event: BuilderEvent<T>) {
         info!(?event, "Received builder event");
     }
 }
@@ -20,7 +20,7 @@ async fn main() -> eyre::Result<()> {
 
             info!(module_id = %config.id, "Starting module");
 
-            let client = BuilderEventClient::new(config.server_port, LogProcessor);
+            let client = BuilderEventDenebClient::new(config.server_port, LogProcessor);
 
             if let Err(err) = client.run().await {
                 error!(%err, "Service failed");

@@ -3,43 +3,44 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     blinded_block_body::BlindedBeaconBlockBody, blobs_bundle::BlobsBundle,
-    execution_payload::ExecutionPayload, spec::DenebSpec, utils::VersionedResponse,
+    execution_payload::ExecutionPayload, spec::EthSpec, utils::VersionedResponse,
 };
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 /// Sent to relays in submit_block
-pub struct SignedBlindedBeaconBlock {
-    pub message: BlindedBeaconBlock,
+pub struct SignedBlindedBeaconBlock<T: EthSpec> {
+    pub message: BlindedBeaconBlock<T>,
     pub signature: BlsSignature,
 }
 
-impl SignedBlindedBeaconBlock {
+impl<T: EthSpec> SignedBlindedBeaconBlock<T> {
     pub fn block_hash(&self) -> B256 {
         self.message.body.execution_payload_header.block_hash
     }
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
-pub struct BlindedBeaconBlock {
+#[serde(bound = "T: EthSpec")]
+pub struct BlindedBeaconBlock<T: EthSpec> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub slot: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     pub proposer_index: u64,
     pub parent_root: B256,
     pub state_root: B256,
-    pub body: BlindedBeaconBlockBody<DenebSpec>,
+    pub body: BlindedBeaconBlockBody<T>,
 }
 
 /// Returned by relay in submit_block
-pub type SubmitBlindedBlockResponse = VersionedResponse<PayloadAndBlobs>;
+pub type SubmitBlindedBlockResponse<T: EthSpec> = VersionedResponse<PayloadAndBlobs<T>>;
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
-pub struct PayloadAndBlobs {
-    pub execution_payload: ExecutionPayload<DenebSpec>,
-    pub blobs_bundle: Option<BlobsBundle<DenebSpec>>,
+pub struct PayloadAndBlobs<T: EthSpec> {
+    pub execution_payload: ExecutionPayload<T>,
+    pub blobs_bundle: Option<BlobsBundle<T>>,
 }
 
-impl SubmitBlindedBlockResponse {
+impl<T: EthSpec> SubmitBlindedBlockResponse<T> {
     pub fn block_hash(&self) -> B256 {
         self.data.execution_payload.block_hash
     }
@@ -50,7 +51,7 @@ mod tests {
     use serde_json::json;
 
     use super::{SignedBlindedBeaconBlock, SubmitBlindedBlockResponse};
-    use crate::utils::test_encode_decode;
+    use crate::{pbs::DenebSpec, utils::test_encode_decode};
 
     #[test]
     // this is from the builder api spec, but with sync_committee_bits fixed to
@@ -250,7 +251,7 @@ mod tests {
         "signature": "0x1b66ac1fb663c9bc59509846d6ec05345bd908eda73e670af888da41af171505cc411d61252fb6cb3fa0017b679f8bb2305b26a285fa2737f175668d0dff91cc1b66ac1fb663c9bc59509846d6ec05345bd908eda73e670af888da41af171505"
       }"#;
 
-        test_encode_decode::<SignedBlindedBeaconBlock>(&data);
+        test_encode_decode::<SignedBlindedBeaconBlock<DenebSpec>>(&data);
     }
 
     #[test]
@@ -564,7 +565,7 @@ mod tests {
           "signature": "0x8c3095fd9d3a18e43ceeb7648281e16bb03044839dffea796432c4e5a1372bef22c11a98a31e0c1c5389b98cc6d45917170a0f1634bcf152d896f360dc599fabba2ec4de77898b5dff080fa1628482bdbad5b37d2e64fea3d8721095186cfe50"
         }"#;
 
-        test_encode_decode::<SignedBlindedBeaconBlock>(&data);
+        test_encode_decode::<SignedBlindedBeaconBlock<DenebSpec>>(&data);
     }
 
     #[test]
@@ -622,6 +623,6 @@ mod tests {
           }
         }).to_string();
 
-        test_encode_decode::<SubmitBlindedBlockResponse>(&data);
+        test_encode_decode::<SubmitBlindedBlockResponse<DenebSpec>>(&data);
     }
 }

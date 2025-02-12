@@ -57,7 +57,7 @@ impl MyBuilderState {
 struct MyBuilderApi;
 
 #[async_trait]
-impl BuilderApi<MyBuilderState> for MyBuilderApi {
+impl<T: EthSpec> BuilderApi<MyBuilderState, T> for MyBuilderApi {
     async fn get_status(req_headers: HeaderMap, state: PbsState<MyBuilderState>) -> Result<()> {
         state.data.inc();
         info!("THIS IS A CUSTOM LOG");
@@ -99,5 +99,5 @@ async fn main() -> Result<()> {
     PbsService::register_metric(Box::new(CHECK_RECEIVED_COUNTER.clone()));
     PbsService::init_metrics(chain)?;
 
-    PbsService::run::<MyBuilderState, MyBuilderApi>(state).await
+    PbsService::run::<MyBuilderState, DenebSpec, MyBuilderApi>(state).await
 }
