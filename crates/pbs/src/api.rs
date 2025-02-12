@@ -2,7 +2,7 @@ use alloy::rpc::types::beacon::relay::ValidatorRegistration;
 use async_trait::async_trait;
 use axum::{http::HeaderMap, Router};
 use cb_common::pbs::{
-    DenebSpec, EthSpec, GetHeaderParams, GetHeaderResponse, SignedBlindedBeaconBlock,
+    DenebSpec, ElectraSpec, EthSpec, GetHeaderParams, GetHeaderResponse, SignedBlindedBeaconBlock,
     SubmitBlindedBlockResponse,
 };
 use serde::Deserialize;
@@ -64,3 +64,4 @@ pub trait BuilderApi<S: BuilderApiState, T: EthSpec>: 'static {
 
 pub struct DefaultBuilderApi;
 impl BuilderApi<(), DenebSpec> for DefaultBuilderApi {}
+impl BuilderApi<(), ElectraSpec> for DefaultBuilderApi {}
