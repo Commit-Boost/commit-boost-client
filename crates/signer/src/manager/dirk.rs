@@ -2,6 +2,8 @@ use std::{fs, path::PathBuf};
 use std::collections::HashMap;
 use std::fmt::{Debug};
 use alloy::{hex, primitives::FixedBytes};
+use alloy::rpc::types::beacon::constants::BLS_SIGNATURE_BYTES_LEN;
+use blsful::inner_types::{Field, G2Affine, G2Projective, Group, Scalar};
 use cb_common::{
     commit::request::{ConsensusProxyMap, ProxyDelegation, SignedProxyDelegation},
     config::DirkConfig,
@@ -525,6 +527,7 @@ impl DirkManager {
             }
             WalletType::Distributed => {
                 let mut signatures = Vec::new();
+                let mut identifiers = Vec::new();
                 let num_hosts_needed = account.signing_threshold as usize;
 
                 if account.hosts.len() < num_hosts_needed {
@@ -535,22 +538,32 @@ impl DirkManager {
                     )));
                 }
 
-                // Try to get signatures from enough hosts
-                for host in account.hosts.iter() {
+                // Try to get signatures from hosts
+                for host in &account.hosts {
+                    if signatures.len() >= num_hosts_needed {
+                        break;
+                    }
+
                     let channel = self.channels.get(&host.domain).cloned().ok_or_else(||
                         SignerModuleError::Internal(format!("No channel found for host {}", host.domain))
                     )?;
 
                     match self.sign_with_channel(channel, pubkey, account, domain, object_root).await {
-                        Ok(signature) => signatures.push(signature),
+                        Ok(signature) => {
+                            signatures.push(signature);
+                            identifiers.push(host.participant_id);
+                            trace!(
+                                host = host.domain,
+                                participant_id = host.participant_id,
+                                "Got signature shard"
+                            );
+                        },
                         Err(e) => {
                             trace!("Failed to get signature from host {}: {}", host.domain, e);
                             continue;
                         }
                     }
                 }
-
-                trace!(?signatures, "Aggregating signatures");
 
                 if signatures.len() < num_hosts_needed {
                     return Err(SignerModuleError::Internal(format!(
@@ -560,9 +573,15 @@ impl DirkManager {
                     )));
                 }
 
-                // TODO: Implement signature aggregation
-                // For now, just return the first signature
-                Ok(signatures[0])
+                trace!(
+                    num_shards = signatures.len(),
+                    ?identifiers,
+                    "Recovering master signature from shards"
+                );
+
+                aggregate_partial_signatures(&signatures, &identifiers)
+                    .ok_or_else(|| SignerModuleError::Internal(
+                        "Failed to recover master signature from shards".to_string()))
             }
         }
     }
@@ -659,3 +678,60 @@ async fn get_accounts_in_wallets(
     Ok((inner.accounts, inner.distributed_accounts))
 }
 
+
+pub fn aggregate_partial_signatures(
+    partials: &[BlsSignature],
+    identifiers: &[u64],
+) -> Option<BlsSignature> {
+    // Ensure the number of partial signatures matches the number of identifiers
+    if partials.len() != identifiers.len() {
+        trace!("aggregate_partial_signatures: Invalid number of partial signatures");
+        return None;
+    }
+
+    // Deserialize partial signatures into G2 points
+    let mut points = Vec::new();
+    for sig in partials {
+        if sig.len() != BLS_SIGNATURE_BYTES_LEN {
+            trace!("aggregate_partial_signatures: Invalid signature length");
+            return None;
+        }
+        let arr: [u8; BLS_SIGNATURE_BYTES_LEN] = (*sig).into();
+        let opt: Option<G2Affine> = G2Affine::from_compressed(&arr).into();
+        let opt: Option<G2Projective> = G2Projective::from(&opt.unwrap()).into();
+        if let Some(point) = opt {
+            points.push(point);
+        } else {
+            trace!("aggregate_partial_signatures: Failed to deserialize signature");
+            return None;
+        }
+    }
+
+    // Create a map of identifiers to their corresponding points
+    let mut shares: HashMap<u64, &G2Projective> = HashMap::new();
+    for (id, point) in identifiers.iter().zip(points.iter()) {
+        shares.insert(*id, point);
+    }
+
+    // Perform Lagrange interpolation to recover the master signature
+    let mut recovered = G2Projective::identity();
+    for (id, point) in &shares {
+        // Compute the Lagrange coefficient for this identifier
+        let mut numerator = Scalar::from(1u32);
+        let mut denominator = Scalar::from(1u32);
+        for (other_id, _) in &shares {
+            if other_id != id {
+                numerator *= Scalar::from(*other_id);
+                denominator *= Scalar::from(*other_id) - Scalar::from(*id);
+            }
+        }
+        let lagrange_coeff = numerator * denominator.invert().unwrap();
+
+        // Multiply the point by the Lagrange coefficient and add to the recovered point
+        recovered += **point * lagrange_coeff;
+    }
+
+    // Serialize the recovered point back into a BlsSignature
+    let bytes = recovered.to_compressed();
+    Some(bytes.into())
+}
