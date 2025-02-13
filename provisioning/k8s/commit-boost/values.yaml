@@ -122,3 +122,52 @@ commitBoost:
         port: 18550
       relays: []
       mux: []
+sidecar:
+  replicaCount: 1
+  image:
+    repository: atrey23/interstate-boost
+    tag: "1.1.0"
+    pullPolicy: Always
+  service:
+    type: ClusterIP
+    rpcPort: 9061
+    metricsPort: 9062
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+  replicaCount: 1
+  image:
+    repository: atrey23/interstate-boost
+    tag: "1.1.0"
+    pullPolicy: Always  # Changed to Always to ensure we get the latest image
+  service:
+    type: ClusterIP
+    rpcPort: 9061
+    metricsPort: 9062
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+  replicaCount: 1
+  image:
+    repository: atrey23/interstate-boost
+    tag: "1.1.0"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    rpcPort: 9061
+    metricsPort: 9062
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi

@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "commit-boost.fullname" . }}-sidecar
+  labels:
+    {{- include "commit-boost.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sidecar
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "commit-boost.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: sidecar
+  template:
+    metadata:
+      labels:
+        {{- include "commit-boost.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: sidecar
+    spec:
+      serviceAccountName: {{ include "commit-boost.serviceAccountName" . }}
+      initContainers:
+        - name: setup
+          image: debian:bullseye-slim
+          command: ['/bin/sh', '-c']
+          args:
+            - |
+              set -e
+              mkdir -p /app/keystores /app/keystores/secrets /app/keystores/keys /app/keystores/delegations
+              cd /app/keystores
+              cp /tmp/keystores/keystores.tar.gz .
+              tar xzf keystores.tar.gz --strip-components=1
+              rm keystores.tar.gz
+              cp /tmp/config/is-config.toml /app/
+              
+              # Ensure proper permissions
+              chown -R 1000:1000 /app
+              chmod -R 755 /app
+              
+              # Debug: list contents
+              ls -la /app
+              ls -la /app/keystores
+      containers:
+        - name: {{ .Chart.Name }}-sidecar
+          image: "{{ .Values.sidecar.image.repository }}:{{ .Values.sidecar.image.tag }}"
+          imagePullPolicy: Always
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+          volumeMounts:
+            - name: app-data
+              mountPath: /app
+            - name: config
+              mountPath: /tmp/config
+            - name: keystores
+              mountPath: /tmp/keystores
+          env:
+            - name: RUST_LOG
+              value: "debug"
+            - name: RUST_BACKTRACE
+              value: "1"
+            - name: CARGO_MANIFEST_DIR
+              value: "/app"
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "Starting with config:"
+              cat /app/is-config.toml
+              echo "Directory contents:"
+              ls -la /app
+              ls -la /app/keystores
+              /interstate-boost
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+      volumes:
+        - name: app-data
+          emptyDir: {}
+        - name: config
+          configMap:
+            name: {{ include "commit-boost.fullname" . }}-sidecar-config
+        - name: keystores
+          secret:
+            secretName: {{ include "commit-boost.fullname" . }}-sidecar-keystores

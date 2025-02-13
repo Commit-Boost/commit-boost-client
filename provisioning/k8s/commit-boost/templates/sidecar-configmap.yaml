@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "commit-boost.fullname" . }}-sidecar-config
+  labels:
+    {{- include "commit-boost.labels" . | nindent 4 }}
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+data:
+  is-config.toml: |
+    # Commitment Service Configuration
+
+    # Network and Chain Settings
+    chain = "kurtosis"
+    commitment_port = 9063
+    metrics_port = 8018
+    validator_indexes = "0..64"
+
+    # API Endpoints
+    beacon_api_url = "http://127.0.0.1:32855"
+    execution_api_url = "http://127.0.0.1:32845"
+    engine_api_url = "http://127.0.0.1:32847"
+
+    # Collector Settings
+    collector_url = "http://127.0.0.1:4000"
+    collector_socket = "ws://127.0.0.1:4000/ws"
+
+    # Builder and Commitment Settings
+    builder_port = 9064
+    slot_time = 2
+    commitment_deadline = 100
+
+    # Ethereum-specific Configuration
+    fee_recipient = "0x8aC112a5540f441cC9beBcC647041A6E0D595B94"
+    jwt = "dc49981516e8e72b401a63e6405495a32dafc3939b5d6d83cc319ac0388bca1b"
+
+    # Keystore and Delegation Paths
+    keystore_secrets_path = "/app/keystores/secrets"
+    keystore_pubkeys_path = "/app/keystores/keys"
+    delegations_path = "/app/keystores/delegations/delegations.json"
+
+    # Gateway Contract
+    gateway_contract = "0x6db20C530b3F96CD5ef64Da2b1b931Cb8f264009"
