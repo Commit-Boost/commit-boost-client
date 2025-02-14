@@ -11,7 +11,14 @@ use crate::{
     BuilderApi, RELOAD_ENDPOINT_TAG,
 };
 
-fn log_reload(user_agent: String, relay_check: bool, success: bool, error: Option<&str>, relays: Vec<String>, prev_relays: Vec<String>) {
+fn log_reload(
+    user_agent: String,
+    relay_check: bool,
+    success: bool,
+    error: Option<&str>,
+    relays: Vec<String>,
+    prev_relays: Vec<String>,
+) {
     if success {
         info!(
             ua = ?user_agent,
@@ -37,7 +44,8 @@ pub async fn handle_reload<S: BuilderApiState, A: BuilderApi<S>>(
     req_headers: HeaderMap,
     State(state): State<PbsStateGuard<S>>,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    let prev_relays = state.read().config.all_relays.iter().map(|r| (*r.id).clone()).collect::<Vec<_>>();
+    let prev_relays =
+        state.read().config.all_relays.iter().map(|r| (*r.id).clone()).collect::<Vec<_>>();
     let prev_state = state.read().clone();
     prev_state.publish_event(BuilderEvent::ReloadEvent);
 
