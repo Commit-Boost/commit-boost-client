@@ -24,29 +24,31 @@ fn log_get_header(
     params: GetHeaderParams,
     user_agent: String,
     ms_into_slot: u64,
+    relays: Vec<String>,
     max_bid: &Option<VersionedResponse<SignedExecutionPayloadHeader>>,
 ) {
     if let Some(max_bid) = max_bid {
         info!(
+            msg = "received header",
             ua = ?user_agent,
             msIntoSlot = ms_into_slot,
             parentHash = %params.parent_hash,
             pubkey = %params.pubkey,
             slot = params.slot,
-            msg = "received header",
+            relays = ?relays,
             valueEth = %format_ether(max_bid.value()),
             blockHash = %max_bid.block_hash(),
             txRoot = %max_bid.data.message.header.transactions_root,
-            relay = "todo",
         );
     } else {
         info!(
+            msg = "no header available for slot",
             ua = ?user_agent,
             msIntoSlot = ms_into_slot,
             parentHash = %params.parent_hash,
             pubkey = %params.pubkey,
             slot = params.slot,
-            msg = "no header available for slot",
+            relays = ?relays,
         );
     }
 }
@@ -60,12 +62,14 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
     let state = state.read().clone();
     state.publish_event(BuilderEvent::GetHeaderRequest(params));
 
+    // inputs for logging
+    let relays = state.config.all_relays.iter().map(|r| (*r.id).clone()).collect::<Vec<_>>();
     let ua = get_user_agent(&req_headers);
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
 
     match A::get_header(params, req_headers.clone(), state.clone()).await {
         Ok(res) => {
-            log_get_header(params, ua, ms_into_slot, &res);
+            log_get_header(params, ua, ms_into_slot, relays, &res);
             state.publish_event(BuilderEvent::GetHeaderResponse(Box::new(res.clone())));
 
             if let Some(max_bid) = res {
@@ -77,7 +81,7 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
             }
         }
         Err(err) => {
-            log_get_header(params, ua, ms_into_slot, &None);
+            log_get_header(params, ua, ms_into_slot, relays, &None);
             error!(%err, "no header available from relays");
 
             let err = PbsClientError::NoPayload;
