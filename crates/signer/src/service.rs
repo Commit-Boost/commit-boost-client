@@ -13,7 +13,8 @@ use bimap::BiHashMap;
 use cb_common::{
     commit::{
         constants::{
-            GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, REQUEST_SIGNATURE_PATH, STATUS_PATH,
+            GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, RELOAD_PATH, REQUEST_SIGNATURE_PATH,
+            STATUS_PATH,
         },
         request::{
             EncryptionScheme, GenerateProxyRequest, GetPubkeysResponse, SignConsensusRequest,
@@ -25,7 +26,7 @@ use cb_common::{
     types::{Chain, Jwt, ModuleId},
 };
 use cb_metrics::provider::MetricsProvider;
-use eyre::{Context, Result};
+use eyre::Context;
 use headers::{authorization::Bearer, Authorization};
 use tokio::{net::TcpListener, sync::RwLock};
 use tracing::{debug, error, info, warn};
@@ -104,18 +105,21 @@ impl SigningService {
             .route(REQUEST_SIGNATURE_PATH, post(handle_request_signature))
             .route(GET_PUBKEYS_PATH, get(handle_get_pubkeys))
             .route(GENERATE_PROXY_KEY_PATH, post(handle_generate_proxy))
-            .with_state(state.clone())
             .route_layer(middleware::from_fn_with_state(state.clone(), jwt_auth))
-            .route_layer(middleware::from_fn(log_request))
-            .route(STATUS_PATH, get(handle_status));
+            .route(RELOAD_PATH, post(handle_reload))
+            .with_state(state.clone())
+            .route_layer(middleware::from_fn(log_request));
+        let status_router = axum::Router::new().route(STATUS_PATH, get(handle_status));
 
         let address = SocketAddr::from(([0, 0, 0, 0], config.server_port));
         let listener = TcpListener::bind(address).await?;
 
-        axum::serve(listener, app).await.wrap_err("signer server exited")
+        axum::serve(listener, axum::Router::new().merge(app).merge(status_router))
+            .await
+            .wrap_err("signer server exited")
     }
 
-    fn init_metrics(network: Chain) -> Result<()> {
+    fn init_metrics(network: Chain) -> eyre::Result<()> {
         MetricsProvider::load_and_run(network, SIGNER_METRICS_REGISTRY.clone())
     }
 }
@@ -285,4 +289,63 @@ async fn handle_generate_proxy(
     }
 
     res
+}
+
+async fn handle_reload(
+    State(mut state): State<SigningState>,
+) -> Result<impl IntoResponse, SignerModuleError> {
+    let req_id = Uuid::new_v4();
+
+    debug!(event = "reload", ?req_id, "New request");
+
+    let config = match StartSignerConfig::load_from_env() {
+        Ok(config) => config,
+        Err(err) => {
+            error!(event = "reload", ?req_id, error = ?err, "Failed to reload config");
+            return Err(SignerModuleError::Internal("failed to reload config".to_string()));
+        }
+    };
+
+    let new_manager = match start_manager(config).await {
+        Ok(manager) => manager,
+        Err(err) => {
+            error!(event = "reload", ?req_id, error = ?err, "Failed to reload manager");
+            return Err(SignerModuleError::Internal("failed to reload config".to_string()));
+        }
+    };
+
+    state.manager = new_manager;
+
+    Ok((StatusCode::OK, "OK"))
+}
+
+async fn start_manager(config: StartSignerConfig) -> eyre::Result<SigningManager> {
+    let proxy_store = if let Some(store) = config.store.clone() {
+        Some(store.init_from_env()?)
+    } else {
+        warn!("Proxy store not configured. Proxies keys and delegations will not be persisted");
+        None
+    };
+
+    match config.dirk {
+        Some(dirk) => {
+            let mut manager = DirkManager::new_from_config(config.chain, dirk).await?;
+            if let Some(store) = config.store {
+                manager = manager.with_proxy_store(store.init_from_env()?)?;
+            }
+
+            Ok(SigningManager::Dirk(Arc::new(RwLock::new(manager))))
+        }
+        None => {
+            let mut manager = LocalSigningManager::new(config.chain, proxy_store)?;
+            let Some(loader) = config.loader.clone() else {
+                warn!("No loader configured.");
+                return Err(eyre::eyre!("No loader configured"));
+            };
+            for signer in loader.load_keys()? {
+                manager.add_consensus_signer(signer);
+            }
+            return Ok(SigningManager::Local(Arc::new(RwLock::new(manager))));
+        }
+    }
 }

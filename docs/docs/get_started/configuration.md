@@ -347,3 +347,19 @@ This approach could also work if you have a multi-beacon-node setup, where some 
 ### Notes
 - It's up to you to decide which relays will be connected via Commit-Boost (`[[relays]]` section in the `toml` config) and which via Vouch (additional entries in the `relays` field). Remember that any rate-limit will be shared across the two sidecars, if running on the same machine.
 - You may occasionally see a `timeout` error during registrations, especially if you're running a large number of validators in the same instance. This can resolve itself as registrations will be cleared later in the epoch when relays are less busy processing other registrations. Alternatively you can also adjust the `builderclient.timeout` option in `.vouch.yml`.
+
+## Hot Reload
+
+Commit-Boost supports hot-reloading the configuration file. This means that you can modify the `cb-config.toml` file and apply the changes without needing to restart the modules. To do this, you need to send a `POST` request to the `/reload` endpoint on each module you want to reload the configuration. In the case the module is running in a Docker container without the port exposed (like the signer), you can use the following command:
+
+```bash
+docker compose -f cb.docker-compose.yml exec cb_signer curl -X POST http://localhost:20000/reload
+```
+
+### Notes
+
+- The hot reload feature is available for PBS modules (both default and custom) and signer module.
+- Changes related to listening hosts and ports will not been applied, as it requires the server to be restarted.
+- If running in Docker containers, changes in `volumes` will not be applied, as it requires the container to be recreated. Be careful if changing a path to a local file as it may not be accessible from the container.
+- Custom PBS modules may override the default behaviour of the hot reload feature to parse extra configuration fields. Check the [examples](https://github.com/Commit-Boost/commit-boost-client/blob/main/examples/status_api/src/main.rs) for more details.
+- In case the reload fails (most likely because of some misconfigured option), the server will return a 500 error and the previous configuration will be kept.

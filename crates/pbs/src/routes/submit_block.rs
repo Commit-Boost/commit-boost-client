@@ -12,15 +12,17 @@ use crate::{
     constants::SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG,
     error::PbsClientError,
     metrics::BEACON_NODE_STATUS,
-    state::{BuilderApiState, PbsState},
+    state::{BuilderApiState, PbsStateGuard},
 };
 
 #[tracing::instrument(skip_all, name = "submit_blinded_block", fields(req_id = %Uuid::new_v4(), slot = signed_blinded_block.message.slot))]
 pub async fn handle_submit_block<S: BuilderApiState, A: BuilderApi<S>>(
-    State(state): State<PbsState<S>>,
+    State(state): State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
     Json(signed_blinded_block): Json<SignedBlindedBeaconBlock>,
 ) -> Result<impl IntoResponse, PbsClientError> {
+    let state = state.read().clone();
+
     trace!(?signed_blinded_block);
     state.publish_event(BuilderEvent::SubmitBlockRequest(Box::new(signed_blinded_block.clone())));
 
