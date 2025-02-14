@@ -1,14 +1,11 @@
-use crate::proto::v1::DistributedAccount;
-use crate::{
-    error::SignerModuleError::{self, DirkCommunicationError},
-    proto::v1::{
-        account_manager_client::AccountManagerClient, lister_client::ListerClient,
-        sign_request::Id as SignerId, signer_client::SignerClient, Account as DirkAccount,
-        GenerateRequest, ListAccountsRequest, ResponseState, SignRequest, UnlockAccountRequest,
-    },
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Debug,
+    fs,
+    path::PathBuf,
 };
-use alloy::rpc::types::beacon::constants::BLS_SIGNATURE_BYTES_LEN;
-use alloy::{hex, primitives::FixedBytes};
+
+use alloy::{hex, primitives::FixedBytes, rpc::types::beacon::constants::BLS_SIGNATURE_BYTES_LEN};
 use blsful::inner_types::{Field, G2Affine, G2Projective, Group, Scalar};
 use cb_common::{
     commit::request::{ConsensusProxyMap, ProxyDelegation, SignedProxyDelegation},
@@ -19,12 +16,19 @@ use cb_common::{
     types::{Chain, ModuleId},
 };
 use rand::Rng;
-use std::collections::{HashMap, HashSet};
-use std::fmt::Debug;
-use std::{fs, path::PathBuf};
 use tonic::transport::{Channel, ClientTlsConfig};
 use tracing::{info, trace, warn};
 use tree_hash::TreeHash;
+
+use crate::{
+    error::SignerModuleError::{self, DirkCommunicationError},
+    proto::v1::{
+        account_manager_client::AccountManagerClient, lister_client::ListerClient,
+        sign_request::Id as SignerId, signer_client::SignerClient, Account as DirkAccount,
+        DistributedAccount, GenerateRequest, ListAccountsRequest, ResponseState, SignRequest,
+        UnlockAccountRequest,
+    },
+};
 
 #[derive(Clone, Debug)]
 enum WalletType {
@@ -138,18 +142,15 @@ impl DirkManager {
                     trace!(?dirk_account.name, "Adding account to hashmap");
                     let is_proxy = key_name.contains('/');
 
-                    accounts.insert(
-                        hex::encode(public_key),
-                        Account {
-                            wallet: wallet.to_string(),
-                            name: key_name.to_string(),
-                            public_key: Some(public_key),
-                            hosts: vec![HostInfo { domain: domain.clone(), participant_id: 1 }],
-                            wallet_type: WalletType::Simple,
-                            signing_threshold: 1,
-                            is_proxy,
-                        },
-                    );
+                    accounts.insert(hex::encode(public_key), Account {
+                        wallet: wallet.to_string(),
+                        name: key_name.to_string(),
+                        public_key: Some(public_key),
+                        hosts: vec![HostInfo { domain: domain.clone(), participant_id: 1 }],
+                        wallet_type: WalletType::Simple,
+                        signing_threshold: 1,
+                        is_proxy,
+                    });
                 }
 
                 // Handle distributed accounts
@@ -435,7 +436,8 @@ impl DirkManager {
         Err(SignerModuleError::Internal("No available channel found for any host".to_string()))
     }
 
-    /// Unlock an account. For distributed accounts this is done for all it's hosts.
+    /// Unlock an account. For distributed accounts this is done for all it's
+    /// hosts.
     async fn unlock_account(
         &self,
         account: String,
@@ -546,7 +548,7 @@ impl DirkManager {
 
                 // Get the consensus account info to copy host information
                 let consensus_account =
-                    self.accounts.get(&hex::encode(&consensus_pubkey)).ok_or_else(|| {
+                    self.accounts.get(&hex::encode(consensus_pubkey)).ok_or_else(|| {
                         SignerModuleError::UnknownConsensusSigner(consensus_pubkey.to_vec())
                     })?;
 
@@ -561,23 +563,18 @@ impl DirkManager {
                     String::from(account_name.split_once("/").map(|(_, n)| n).unwrap_or_default());
 
                 let delegation = self
-                    .insert_proxy_account(
-                        proxy_key,
-                        consensus_pubkey,
-                        module_id,
-                        Account {
-                            wallet: consensus_account.wallet.clone(),
-                            name: account_name_without_wallet.clone(),
-                            public_key: Some(proxy_key),
-                            hosts: vec![HostInfo {
-                                domain: first_host.domain.clone(),
-                                participant_id: first_host.participant_id,
-                            }],
-                            wallet_type: WalletType::Simple,
-                            signing_threshold: 1,
-                            is_proxy: true,
-                        },
-                    )
+                    .insert_proxy_account(proxy_key, consensus_pubkey, module_id, Account {
+                        wallet: consensus_account.wallet.clone(),
+                        name: account_name_without_wallet.clone(),
+                        public_key: Some(proxy_key),
+                        hosts: vec![HostInfo {
+                            domain: first_host.domain.clone(),
+                            participant_id: first_host.participant_id,
+                        }],
+                        wallet_type: WalletType::Simple,
+                        signing_threshold: 1,
+                        is_proxy: true,
+                    })
                     .await?;
 
                 // Unlock the account for immediate use
@@ -586,7 +583,8 @@ impl DirkManager {
                 Ok(delegation)
             }
             WalletType::Distributed => {
-                // Pick the first available host to generate the key, Dirk will handle the peers.
+                // Pick the first available host to generate the key, Dirk will handle the
+                // peers.
                 let host = consensus_account_info.hosts.first().ok_or_else(|| {
                     SignerModuleError::Internal(
                         "No hosts available for consensus account".to_string(),
@@ -615,20 +613,15 @@ impl DirkManager {
 
                 let consensus_name = consensus_account_info.name;
                 let delegation = self
-                    .insert_proxy_account(
-                        proxy_key,
-                        consensus_pubkey,
-                        module_id.clone(),
-                        Account {
-                            wallet: consensus_account_info.wallet.clone(),
-                            name: format!("{consensus_name}/{module_id}/{uuid}"),
-                            public_key: Some(proxy_key),
-                            hosts: consensus_account_info.hosts.clone(),
-                            wallet_type: WalletType::Distributed,
-                            signing_threshold: consensus_account_info.signing_threshold,
-                            is_proxy: true,
-                        },
-                    )
+                    .insert_proxy_account(proxy_key, consensus_pubkey, module_id.clone(), Account {
+                        wallet: consensus_account_info.wallet.clone(),
+                        name: format!("{consensus_name}/{module_id}/{uuid}"),
+                        public_key: Some(proxy_key),
+                        hosts: consensus_account_info.hosts.clone(),
+                        wallet_type: WalletType::Distributed,
+                        signing_threshold: consensus_account_info.signing_threshold,
+                        is_proxy: true,
+                    })
                     .await?;
 
                 Ok(delegation)
@@ -643,7 +636,7 @@ impl DirkManager {
         module_id: ModuleId,
         account: Account,
     ) -> Result<SignedProxyDelegation<BlsPublicKey>, SignerModuleError> {
-        let hashmap_key = hex::encode(&proxy_key);
+        let hashmap_key = hex::encode(proxy_key);
         self.accounts.insert(hashmap_key.clone(), account);
         let added = self.accounts.get(&hashmap_key).ok_or(SignerModuleError::Internal(
             "Failed to add new proxy account to accounts map".to_string(),
@@ -886,7 +879,7 @@ pub fn aggregate_partial_signatures(
         // Compute the Lagrange coefficient for this identifier
         let mut numerator = Scalar::from(1u32);
         let mut denominator = Scalar::from(1u32);
-        for (other_id, _) in &shares {
+        for other_id in shares.keys() {
             if other_id != id {
                 numerator *= Scalar::from(*other_id);
                 denominator *= Scalar::from(*other_id) - Scalar::from(*id);

@@ -345,7 +345,7 @@ async fn start_manager(config: StartSignerConfig) -> eyre::Result<SigningManager
             for signer in loader.load_keys()? {
                 manager.add_consensus_signer(signer);
             }
-            return Ok(SigningManager::Local(Arc::new(RwLock::new(manager))));
+            Ok(SigningManager::Local(Arc::new(RwLock::new(manager))))
         }
     }
 }
