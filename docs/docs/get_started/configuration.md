@@ -246,16 +246,24 @@ Dirk is a distributed key management system that can be used to sign transaction
 
 ```toml
 [signer.dirk]
-url = "https://dirk.gateway.url"
 cert_path = "/path/to/client.crt"
 key_path = "/path/to/client.key"
-accounts = ["wallet1/accountX", "wallet2/accountY"]
 secrets_path = "/path/to/secrets"
-
 # Optional parameters
 ca_cert_path = "/path/to/ca.crt"
 server_domain = "server.example.com"
 unlock = false
+
+# Add one entry like this for each host
+[[signer.dirk.hosts]]
+domain = "localhost-1"
+url = "https://localhost-1:8081"
+accounts = ["SomeWallet/SomeAccount", "DistributedWallet/Account1"]
+
+[[signer.dirk.hosts]]
+domain = "localhost-2"
+url = "https://localhost-2:8082"
+accounts = ["AnotherWallet/AnotherAccount", "DistributedWallet/Account1"]
 ```
 
 - `cert_path` and `key_path` are the paths to the client certificate and key used to authenticate with Dirk.
