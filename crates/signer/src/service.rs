@@ -66,7 +66,7 @@ impl SigningService {
                 }
 
                 SigningState {
-                    manager: SigningManager::Dirk(dirk_manager),
+                    manager: SigningManager::Dirk(Arc::new(RwLock::new(dirk_manager))),
                     jwts: config.jwts.into(),
                 }
             }
@@ -208,12 +208,16 @@ async fn handle_request_signature(
             }
         },
         SigningManager::Dirk(dirk_manager) => match request {
-            SignRequest::Consensus(SignConsensusRequest { object_root, pubkey }) => dirk_manager
-                .request_signature(pubkey, object_root)
-                .await
-                .map(|sig| Json(sig).into_response()),
+            SignRequest::Consensus(SignConsensusRequest { object_root, pubkey }) => {
+                let manager = dirk_manager.write().await;
+                manager
+                    .request_signature(pubkey, object_root)
+                    .await
+                    .map(|sig| Json(sig).into_response())
+            },
             SignRequest::ProxyBls(SignProxyRequest { object_root, pubkey: bls_key }) => {
-                dirk_manager
+                let manager = dirk_manager.write().await;
+                manager
                     .request_signature(bls_key, object_root)
                     .await
                     .map(|sig| Json(sig).into_response())
@@ -261,11 +265,13 @@ async fn handle_generate_proxy(
                 .await
                 .map(|proxy_delegation| Json(proxy_delegation).into_response()),
         },
-        SigningManager::Dirk(mut dirk_manager) => match request.scheme {
-            EncryptionScheme::Bls => dirk_manager
-                .generate_proxy_key(module_id.clone(), request.consensus_pubkey)
-                .await
-                .map(|proxy_delegation| Json(proxy_delegation).into_response()),
+        SigningManager::Dirk(dirk_manager) => match request.scheme {
+            EncryptionScheme::Bls => {
+                let mut manager = dirk_manager.write().await;
+                manager.generate_proxy_key(module_id.clone(), request.consensus_pubkey)
+                    .await
+                    .map(|proxy_delegation| Json(proxy_delegation).into_response())
+            },
             EncryptionScheme::Ecdsa => {
                 error!("ECDSA proxy generation not supported with Dirk");
                 Err(SignerModuleError::DirkNotSupported)
