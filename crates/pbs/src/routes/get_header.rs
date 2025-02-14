@@ -5,7 +5,7 @@ use axum::{
     response::IntoResponse,
 };
 use cb_common::{
-    pbs::{BuilderEvent, GetHeaderParams},
+    pbs::{BuilderEvent, GetHeaderParams, SignedExecutionPayloadHeader, VersionedResponse},
     utils::{get_user_agent, ms_into_slot},
 };
 use reqwest::StatusCode;
@@ -20,6 +20,37 @@ use crate::{
     state::{BuilderApiState, PbsStateGuard},
 };
 
+fn log_get_header(
+    params: GetHeaderParams,
+    user_agent: String,
+    ms_into_slot: u64,
+    max_bid: &Option<VersionedResponse<SignedExecutionPayloadHeader>>,
+) {
+    if let Some(max_bid) = max_bid {
+        info!(
+            ua = ?user_agent,
+            msIntoSlot = ms_into_slot,
+            parentHash = %params.parent_hash,
+            pubkey = %params.pubkey,
+            slot = params.slot,
+            msg = "received header",
+            valueEth = %format_ether(max_bid.value()),
+            blockHash = %max_bid.block_hash(),
+            txRoot = %max_bid.data.message.header.transactions_root,
+            relay = "todo",
+        );
+    } else {
+        info!(
+            ua = ?user_agent,
+            msIntoSlot = ms_into_slot,
+            parentHash = %params.parent_hash,
+            pubkey = %params.pubkey,
+            slot = params.slot,
+            msg = "no header available for slot",
+        );
+    }
+}
+
 #[tracing::instrument(skip_all, name = "get_header", fields(req_id = %Uuid::new_v4(), slot = params.slot))]
 pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
     State(state): State<PbsStateGuard<S>>,
@@ -27,32 +58,26 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
     Path(params): Path<GetHeaderParams>,
 ) -> Result<impl IntoResponse, PbsClientError> {
     let state = state.read().clone();
-
     state.publish_event(BuilderEvent::GetHeaderRequest(params));
 
     let ua = get_user_agent(&req_headers);
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
 
-    info!(ua, parent_hash=%params.parent_hash, validator_pubkey=%params.pubkey, ms_into_slot);
-
-    match A::get_header(params, req_headers, state.clone()).await {
+    match A::get_header(params, req_headers.clone(), state.clone()).await {
         Ok(res) => {
+            log_get_header(params, ua, ms_into_slot, &res);
             state.publish_event(BuilderEvent::GetHeaderResponse(Box::new(res.clone())));
 
             if let Some(max_bid) = res {
-                info!(value_eth = format_ether(max_bid.value()), block_hash =% max_bid.block_hash(), "received header");
-
                 BEACON_NODE_STATUS.with_label_values(&["200", GET_HEADER_ENDPOINT_TAG]).inc();
                 Ok((StatusCode::OK, axum::Json(max_bid)).into_response())
             } else {
-                // spec: return 204 if request is valid but no bid available
-                info!("no header available for slot");
-
                 BEACON_NODE_STATUS.with_label_values(&["204", GET_HEADER_ENDPOINT_TAG]).inc();
                 Ok(StatusCode::NO_CONTENT.into_response())
             }
         }
         Err(err) => {
+            log_get_header(params, ua, ms_into_slot, &None);
             error!(%err, "no header available from relays");
 
             let err = PbsClientError::NoPayload;
