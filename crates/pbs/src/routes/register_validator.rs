@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use alloy::rpc::types::beacon::relay::ValidatorRegistration;
+use alloy::{primitives::hex::encode_prefixed, rpc::types::beacon::relay::ValidatorRegistration};
 use axum::{extract::State, http::HeaderMap, response::IntoResponse, Json};
 use cb_common::{
     pbs::{BuilderEvent, REGISTER_VALIDATOR_PATH},
@@ -19,6 +19,32 @@ use crate::{
     state::{BuilderApiState, PbsStateGuard},
 };
 
+fn log_register_validator(
+    registrations: &[ValidatorRegistration],
+    user_agent: String,
+    success: bool,
+    error: Option<&str>,
+) {
+    if success {
+        let pubkeys =
+            registrations.iter().map(|r| encode_prefixed(r.message.pubkey)).collect::<Vec<_>>();
+
+        info!(
+            ua = ?user_agent,
+            num_registrations = registrations.len(),
+            pubkeys = ?pubkeys,
+            msg = "register validator successful",
+        );
+    } else {
+        error!(
+            ua = ?user_agent,
+            num_registrations = registrations.len(),
+            error = error.unwrap_or("unknown error"),
+            msg = "all relays failed registration",
+        );
+    }
+}
+
 #[tracing::instrument(skip_all, name = "register_validators", fields(req_id = %Uuid::new_v4()))]
 pub async fn handle_register_validator<S: BuilderApiState, A: BuilderApi<S>>(
     State(state): State<PbsStateGuard<S>>,
@@ -32,8 +58,6 @@ pub async fn handle_register_validator<S: BuilderApiState, A: BuilderApi<S>>(
 
     let ua = get_user_agent(&req_headers);
 
-    info!(ua, num_registrations = registrations.len());
-
     if state.has_monitors() {
         // send registrations to monitors
         for relay_monitor in state.pbs_config().relay_monitors.clone() {
@@ -41,20 +65,23 @@ pub async fn handle_register_validator<S: BuilderApiState, A: BuilderApi<S>>(
         }
     }
 
-    if let Err(err) = A::register_validator(registrations, req_headers, state.clone()).await {
-        state.publish_event(BuilderEvent::RegisterValidatorResponse);
-        error!(%err, "all relays failed registration");
+    match A::register_validator(registrations.clone(), req_headers, state.clone()).await {
+        Ok(_) => {
+            log_register_validator(&registrations, ua, true, None);
+            state.publish_event(BuilderEvent::RegisterValidatorResponse);
+            BEACON_NODE_STATUS.with_label_values(&["200", REGISTER_VALIDATOR_ENDPOINT_TAG]).inc();
+            Ok(StatusCode::OK)
+        }
+        Err(err) => {
+            log_register_validator(&registrations, ua, false, Some(&err.to_string()));
+            state.publish_event(BuilderEvent::RegisterValidatorResponse);
 
-        let err = PbsClientError::NoResponse;
-        BEACON_NODE_STATUS
-            .with_label_values(&[err.status_code().as_str(), REGISTER_VALIDATOR_ENDPOINT_TAG])
-            .inc();
-        Err(err)
-    } else {
-        info!("register validator successful");
-
-        BEACON_NODE_STATUS.with_label_values(&["200", REGISTER_VALIDATOR_ENDPOINT_TAG]).inc();
-        Ok(StatusCode::OK)
+            let err = PbsClientError::NoResponse;
+            BEACON_NODE_STATUS
+                .with_label_values(&[err.status_code().as_str(), REGISTER_VALIDATOR_ENDPOINT_TAG])
+                .inc();
+            Err(err)
+        }
     }
 }
 
