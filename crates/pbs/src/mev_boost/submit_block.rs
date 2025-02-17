@@ -176,20 +176,20 @@ async fn send_submit_block(
     }
 
     if let Some(blobs) = &block_response.data.blobs_bundle {
-        let expected_committments = &signed_blinded_block.message.body.blob_kzg_commitments;
-        if expected_committments.len() != blobs.blobs.len() ||
-            expected_committments.len() != blobs.commitments.len() ||
-            expected_committments.len() != blobs.proofs.len()
+        let expected_commitments = &signed_blinded_block.message.body.blob_kzg_commitments;
+        if expected_commitments.len() != blobs.blobs.len()
+            || expected_commitments.len() != blobs.commitments.len()
+            || expected_commitments.len() != blobs.proofs.len()
         {
             return Err(PbsError::Validation(ValidationError::KzgCommitments {
-                expected_blobs: expected_committments.len(),
+                expected_blobs: expected_commitments.len(),
                 got_blobs: blobs.blobs.len(),
                 got_commitments: blobs.commitments.len(),
                 got_proofs: blobs.proofs.len(),
             }));
         }
 
-        for (i, comm) in expected_committments.iter().enumerate() {
+        for (i, comm) in expected_commitments.iter().enumerate() {
             // this is safe since we already know they are the same length
             if *comm != blobs.commitments[i] {
                 return Err(PbsError::Validation(ValidationError::KzgMismatch {
