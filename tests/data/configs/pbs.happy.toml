@@ -12,7 +12,6 @@ timeout_get_payload_ms = 4000
 timeout_register_validator_ms = 3000
 skip_sigverify = false
 min_bid_eth = 0.5
-relay_monitors = []
 late_in_slot_time_ms = 2000
 extra_validation_enabled = false
 rpc_url = "https://ethereum-holesky-rpc.publicnode.com"

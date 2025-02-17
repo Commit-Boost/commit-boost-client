@@ -69,10 +69,6 @@ where
         }
     }
 
-    pub fn has_monitors(&self) -> bool {
-        !self.config.pbs_config.relay_monitors.is_empty()
-    }
-
     pub fn extra_validation_enabled(&self) -> bool {
         self.config.pbs_config.extra_validation_enabled
     }
