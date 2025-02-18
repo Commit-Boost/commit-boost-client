@@ -13,8 +13,9 @@ use cb_common::{
     constants::APPLICATION_BUILDER_DOMAIN,
     pbs::{
         error::{PbsError, ValidationError},
-        GetHeaderParams, GetHeaderResponse, RelayClient, SignedExecutionPayloadHeader,
-        EMPTY_TX_ROOT_HASH, HEADER_START_TIME_UNIX_MS,
+        ExecutionPayloadHeaderMessageDeneb, GetHeaderParams, GetHeaderResponse, RelayClient,
+        SignedExecutionPayloadHeader, VersionedResponse, EMPTY_TX_ROOT_HASH,
+        HEADER_START_TIME_UNIX_MS,
     },
     signature::verify_signed_message,
     types::Chain,
@@ -337,35 +338,40 @@ async fn send_one_get_header(
 
     debug!(
         latency = ?request_latency,
+        version = get_header_response.version(),
         value_eth = format_ether(get_header_response.value()),
         block_hash = %get_header_response.block_hash(),
         "received new header"
     );
 
-    validate_header(
-        &get_header_response.data,
-        chain,
-        relay.pubkey(),
-        params.parent_hash,
-        validation.skip_sigverify,
-        validation.min_bid_wei,
-        params.slot,
-    )?;
+    match &get_header_response {
+        VersionedResponse::Deneb(deneb_response) => {
+            validate_header_deneb(
+                deneb_response,
+                chain,
+                relay.pubkey(),
+                params.parent_hash,
+                validation.skip_sigverify,
+                validation.min_bid_wei,
+                params.slot,
+            )?;
 
-    if validation.extra_validation_enabled {
-        let parent_block = validation.parent_block.read();
-        if let Some(parent_block) = parent_block.as_ref() {
-            extra_validation(parent_block, &get_header_response.data)?;
-        } else {
-            warn!("parent block not found, skipping extra validation");
+            if validation.extra_validation_enabled {
+                let parent_block = validation.parent_block.read();
+                if let Some(parent_block) = parent_block.as_ref() {
+                    extra_validation_deneb(parent_block, deneb_response)?;
+                } else {
+                    warn!("parent block not found, skipping extra validation");
+                }
+            }
         }
     }
 
     Ok((start_request_time, Some(get_header_response)))
 }
 
-fn validate_header(
-    signed_header: &SignedExecutionPayloadHeader,
+fn validate_header_deneb(
+    signed_header: &SignedExecutionPayloadHeader<ExecutionPayloadHeaderMessageDeneb>,
     chain: Chain,
     expected_relay_pubkey: BlsPublicKey,
     parent_hash: B256,
@@ -426,9 +432,9 @@ fn validate_header(
     Ok(())
 }
 
-fn extra_validation(
+fn extra_validation_deneb(
     parent_block: &Block,
-    signed_header: &SignedExecutionPayloadHeader,
+    signed_header: &SignedExecutionPayloadHeader<ExecutionPayloadHeaderMessageDeneb>,
 ) -> Result<(), ValidationError> {
     if signed_header.message.header.block_number != parent_block.header.number + 1 {
         return Err(ValidationError::BlockNumberMismatch {
@@ -455,17 +461,21 @@ mod tests {
     };
     use blst::min_pk;
     use cb_common::{
-        pbs::{error::ValidationError, SignedExecutionPayloadHeader, EMPTY_TX_ROOT_HASH},
+        pbs::{
+            error::ValidationError, ExecutionPayloadHeaderMessageDeneb,
+            SignedExecutionPayloadHeader, EMPTY_TX_ROOT_HASH,
+        },
         signature::sign_builder_message,
         types::Chain,
         utils::timestamp_of_slot_start_sec,
     };
 
-    use super::validate_header;
+    use super::validate_header_deneb;
 
     #[test]
     fn test_validate_header() {
-        let mut mock_header = SignedExecutionPayloadHeader::default();
+        let mut mock_header: SignedExecutionPayloadHeader<ExecutionPayloadHeaderMessageDeneb> =
+            SignedExecutionPayloadHeader::default();
 
         let slot = 5;
         let parent_hash = B256::from_slice(&[1; 32]);
@@ -482,7 +492,7 @@ mod tests {
         mock_header.message.header.transactions_root = EMPTY_TX_ROOT_HASH;
 
         assert_eq!(
-            validate_header(
+            validate_header_deneb(
                 &mock_header,
                 chain,
                 BlsPublicKey::default(),
@@ -497,7 +507,7 @@ mod tests {
         mock_header.message.header.block_hash.0[1] = 1;
 
         assert_eq!(
-            validate_header(
+            validate_header_deneb(
                 &mock_header,
                 chain,
                 BlsPublicKey::default(),
@@ -515,7 +525,7 @@ mod tests {
         mock_header.message.header.parent_hash = parent_hash;
 
         assert_eq!(
-            validate_header(
+            validate_header_deneb(
                 &mock_header,
                 chain,
                 BlsPublicKey::default(),
@@ -530,7 +540,7 @@ mod tests {
         mock_header.message.header.transactions_root = Default::default();
 
         assert_eq!(
-            validate_header(
+            validate_header_deneb(
                 &mock_header,
                 chain,
                 BlsPublicKey::default(),
@@ -546,7 +556,7 @@ mod tests {
 
         let expected = timestamp_of_slot_start_sec(slot, chain);
         assert_eq!(
-            validate_header(&mock_header, chain, pubkey, parent_hash, false, min_bid, slot,),
+            validate_header_deneb(&mock_header, chain, pubkey, parent_hash, false, min_bid, slot,),
             Err(ValidationError::TimestampMismatch { expected, got: 0 })
         );
 
@@ -554,7 +564,7 @@ mod tests {
         mock_header.message.pubkey = pubkey;
 
         assert_eq!(
-            validate_header(
+            validate_header_deneb(
                 &mock_header,
                 chain,
                 BlsPublicKey::default(),
@@ -567,17 +577,31 @@ mod tests {
         );
 
         assert!(matches!(
-            validate_header(&mock_header, chain, pubkey, parent_hash, false, min_bid, slot),
+            validate_header_deneb(&mock_header, chain, pubkey, parent_hash, false, min_bid, slot),
             Err(ValidationError::Sigverify(_))
         ));
-        assert!(
-            validate_header(&mock_header, chain, pubkey, parent_hash, true, min_bid, slot).is_ok()
-        );
+        assert!(validate_header_deneb(
+            &mock_header,
+            chain,
+            pubkey,
+            parent_hash,
+            true,
+            min_bid,
+            slot
+        )
+        .is_ok());
 
         mock_header.signature = sign_builder_message(chain, &secret_key, &mock_header.message);
 
-        assert!(
-            validate_header(&mock_header, chain, pubkey, parent_hash, false, min_bid, slot).is_ok()
-        );
+        assert!(validate_header_deneb(
+            &mock_header,
+            chain,
+            pubkey,
+            parent_hash,
+            false,
+            min_bid,
+            slot
+        )
+        .is_ok());
     }
 }

@@ -29,15 +29,23 @@ pub mod quoted_variable_list_u64 {
     }
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
-pub struct VersionedResponse<T> {
-    pub version: Version,
-    pub data: T,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "version", content = "data")]
+pub enum VersionedResponse<DenebT> {
+    #[serde(rename = "deneb")]
+    Deneb(DenebT),
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
-pub enum Version {
-    #[serde(rename = "deneb")]
-    #[default]
-    Deneb,
+impl<T: Default> Default for VersionedResponse<T> {
+    fn default() -> Self {
+        Self::Deneb(T::default())
+    }
+}
+
+impl<T> VersionedResponse<T> {
+    pub fn version(&self) -> &str {
+        match self {
+            VersionedResponse::Deneb(_) => "deneb",
+        }
+    }
 }

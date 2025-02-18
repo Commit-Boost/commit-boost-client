@@ -4,8 +4,8 @@ use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
     pbs::{
         error::{PbsError, ValidationError},
-        RelayClient, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
-        HEADER_START_TIME_UNIX_MS,
+        PayloadAndBlobsDeneb, RelayClient, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
+        VersionedResponse, HEADER_START_TIME_UNIX_MS,
     },
     utils::{get_user_agent_with_version, utcnow_ms},
 };
@@ -164,10 +164,24 @@ async fn send_submit_block(
 
     debug!(
         latency = ?request_latency,
+        version = block_response.version(),
         block_hash = %block_response.block_hash(),
         "received unblinded block"
     );
 
+    match &block_response {
+        VersionedResponse::Deneb(deneb_response) => {
+            validate_unblinded_block_deneb(signed_blinded_block, deneb_response)?;
+        }
+    }
+
+    Ok(block_response)
+}
+
+fn validate_unblinded_block_deneb(
+    signed_blinded_block: &SignedBlindedBeaconBlock,
+    block_response: &PayloadAndBlobsDeneb,
+) -> Result<(), PbsError> {
     if signed_blinded_block.block_hash() != block_response.block_hash() {
         return Err(PbsError::Validation(ValidationError::BlockHashMismatch {
             expected: signed_blinded_block.block_hash(),
@@ -175,7 +189,7 @@ async fn send_submit_block(
         }));
     }
 
-    if let Some(blobs) = &block_response.data.blobs_bundle {
+    if let Some(blobs) = &block_response.blobs_bundle {
         let expected_commitments = &signed_blinded_block.message.body.blob_kzg_commitments;
         if expected_commitments.len() != blobs.blobs.len() ||
             expected_commitments.len() != blobs.commitments.len() ||
@@ -201,5 +215,5 @@ async fn send_submit_block(
         }
     }
 
-    Ok(block_response)
+    Ok(())
 }

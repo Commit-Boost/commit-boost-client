@@ -31,17 +31,25 @@ pub struct BlindedBeaconBlock {
 }
 
 /// Returned by relay in submit_block
-pub type SubmitBlindedBlockResponse = VersionedResponse<PayloadAndBlobs>;
+pub type SubmitBlindedBlockResponse = VersionedResponse<PayloadAndBlobsDeneb>;
+
+impl SubmitBlindedBlockResponse {
+    pub fn block_hash(&self) -> B256 {
+        match self {
+            VersionedResponse::Deneb(d) => d.block_hash(),
+        }
+    }
+}
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
-pub struct PayloadAndBlobs {
+pub struct PayloadAndBlobsDeneb {
     pub execution_payload: ExecutionPayload<DenebSpec>,
     pub blobs_bundle: Option<BlobsBundle<DenebSpec>>,
 }
 
-impl SubmitBlindedBlockResponse {
+impl PayloadAndBlobsDeneb {
     pub fn block_hash(&self) -> B256 {
-        self.data.execution_payload.block_hash
+        self.execution_payload.block_hash
     }
 }
 
@@ -55,7 +63,7 @@ mod tests {
     #[test]
     // this is from the builder api spec, but with sync_committee_bits fixed to
     // deserialize correctly
-    fn test_signed_blinded_block() {
+    fn test_signed_blinded_block_deneb() {
         let data = r#"{
         "message": {
           "slot": "1",
@@ -255,7 +263,7 @@ mod tests {
 
     #[test]
     // this is from mev-boost test data
-    fn test_signed_blinded_block_fb() {
+    fn test_signed_blinded_block_fb_deneb() {
         let data = r#"{
           "message": {
             "slot": "348241",
@@ -570,7 +578,7 @@ mod tests {
     #[test]
     // this is from the builder api spec, but with blobs fixed to deserialize
     // correctly
-    fn test_submit_blinded_block_response() {
+    fn test_submit_blinded_block_response_deneb() {
         let blob = alloy::primitives::hex::encode_prefixed([1; 131072]);
 
         let data = json!({

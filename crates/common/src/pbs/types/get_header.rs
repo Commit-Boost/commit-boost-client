@@ -21,30 +21,37 @@ pub struct GetHeaderParams {
 }
 
 /// Returned by relay in get_header
-pub type GetHeaderResponse = VersionedResponse<SignedExecutionPayloadHeader>;
+pub type GetHeaderResponse =
+    VersionedResponse<SignedExecutionPayloadHeader<ExecutionPayloadHeaderMessageDeneb>>;
 
 impl GetHeaderResponse {
     pub fn block_hash(&self) -> B256 {
-        self.data.message.header.block_hash
+        match self {
+            VersionedResponse::Deneb(data) => data.message.header.block_hash,
+        }
     }
 
     pub fn pubkey(&self) -> BlsPublicKey {
-        self.data.message.pubkey
+        match self {
+            VersionedResponse::Deneb(data) => data.message.pubkey,
+        }
     }
 
     pub fn value(&self) -> U256 {
-        self.data.message.value
+        match self {
+            VersionedResponse::Deneb(data) => data.message.value,
+        }
     }
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
-pub struct SignedExecutionPayloadHeader {
-    pub message: ExecutionPayloadHeaderMessage,
+pub struct SignedExecutionPayloadHeader<T> {
+    pub message: T,
     pub signature: BlsSignature,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, TreeHash)]
-pub struct ExecutionPayloadHeaderMessage {
+pub struct ExecutionPayloadHeaderMessageDeneb {
     pub header: ExecutionPayloadHeader<DenebSpec>,
     pub blob_kzg_commitments: KzgCommitments<DenebSpec>,
     #[serde(with = "serde_utils::quoted_u256")]
@@ -58,12 +65,12 @@ mod tests {
 
     use super::GetHeaderResponse;
     use crate::{
-        constants::APPLICATION_BUILDER_DOMAIN, signature::verify_signed_message, types::Chain,
-        utils::test_encode_decode,
+        constants::APPLICATION_BUILDER_DOMAIN, pbs::VersionedResponse,
+        signature::verify_signed_message, types::Chain, utils::test_encode_decode,
     };
 
     #[test]
-    fn test_get_header() {
+    fn test_get_header_deneb() {
         let data = r#"{
             "version": "deneb",
             "data": {
@@ -102,7 +109,10 @@ mod tests {
             }
         }"#;
 
-        let parsed = test_encode_decode::<GetHeaderResponse>(&data).data;
+        let parsed = test_encode_decode::<GetHeaderResponse>(&data);
+        let parsed = match parsed {
+            VersionedResponse::Deneb(data) => data,
+        };
 
         assert_eq!(parsed.message.value, U256::from(4293912964927787u64));
 
