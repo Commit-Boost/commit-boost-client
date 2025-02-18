@@ -2,8 +2,18 @@ use alloy::{
     primitives::B256,
     rpc::types::beacon::{relay::ValidatorRegistration, BlsPublicKey},
 };
-use cb_common::pbs::{GetHeaderResponse, RelayClient, SignedBlindedBeaconBlock};
-use reqwest::Error;
+use cb_common::{
+    pbs::{
+        GetHeaderResponse, RelayClient, SignedBlindedBeaconBlock, SignedExecutionPayloadHeader,
+        Version,
+    },
+    utils::{get_content_type_header, Accept, ContentType, CONSENSUS_VERSION_HEADER},
+};
+use reqwest::{
+    header::{ACCEPT, CONTENT_TYPE},
+    Error,
+};
+use ssz::{Decode, Encode};
 
 use crate::utils::generate_mock_relay;
 
@@ -16,13 +26,28 @@ impl MockValidator {
         Ok(Self { comm_boost: generate_mock_relay(port, BlsPublicKey::default())? })
     }
 
-    pub async fn do_get_header(&self, pubkey: Option<BlsPublicKey>) -> Result<(), Error> {
+    pub async fn do_get_header(
+        &self,
+        pubkey: Option<BlsPublicKey>,
+        accept: Accept,
+    ) -> Result<(), Error> {
         let url = self
             .comm_boost
             .get_header_url(0, B256::ZERO, pubkey.unwrap_or(BlsPublicKey::ZERO))
             .unwrap();
-        let res = self.comm_boost.client.get(url).send().await?.bytes().await?;
-        assert!(serde_json::from_slice::<GetHeaderResponse>(&res).is_ok());
+        let res =
+            self.comm_boost.client.get(url).header(ACCEPT, &accept.to_string()).send().await?;
+        let content_type = get_content_type_header(res.headers());
+        let res_bytes = res.bytes().await?;
+
+        match content_type {
+            ContentType::Json => {
+                assert!(serde_json::from_slice::<GetHeaderResponse>(&res_bytes).is_ok())
+            }
+            ContentType::Ssz => {
+                assert!(SignedExecutionPayloadHeader::from_ssz_bytes(&res_bytes).is_ok())
+            }
+        }
 
         Ok(())
     }
@@ -50,15 +75,27 @@ impl MockValidator {
         Ok(())
     }
 
-    pub async fn do_submit_block(&self) -> Result<(), Error> {
+    pub async fn do_submit_block(
+        &self,
+        accept: Accept,
+        content_type: ContentType,
+    ) -> Result<(), Error> {
         let url = self.comm_boost.submit_block_url().unwrap();
 
         let signed_blinded_block = SignedBlindedBeaconBlock::default();
 
+        let body = match content_type {
+            ContentType::Json => serde_json::to_vec(&signed_blinded_block).unwrap(),
+            ContentType::Ssz => signed_blinded_block.as_ssz_bytes(),
+        };
+
         self.comm_boost
             .client
             .post(url)
-            .json(&signed_blinded_block)
+            .body(body)
+            .header(CONSENSUS_VERSION_HEADER, Version::Deneb.to_string())
+            .header(CONTENT_TYPE, &content_type.to_string())
+            .header(ACCEPT, &accept.to_string())
             .send()
             .await?
             .error_for_status()?;

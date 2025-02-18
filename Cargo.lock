@@ -1410,6 +1410,7 @@ dependencies = [
  "axum",
  "cb-common",
  "cb-pbs",
+ "ethereum_ssz 0.7.1",
  "eyre",
  "reqwest",
  "serde_json",

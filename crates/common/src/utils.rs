@@ -4,20 +4,24 @@ use std::{
     str::FromStr,
     time::{SystemTime, UNIX_EPOCH},
 };
-use bytes::Bytes;
-use axum::{
-    extract::{FromRequest, Request},
-    response::{IntoResponse, Response},
-    http::HeaderValue
-};
+
 use alloy::{
     primitives::U256,
     rpc::types::beacon::{BlsPublicKey, BlsSignature},
 };
+use axum::{
+    extract::{FromRequest, Request},
+    http::HeaderValue,
+    response::{IntoResponse, Response},
+};
 use blst::min_pk::{PublicKey, Signature};
+use bytes::Bytes;
 use mediatype::{names, MediaType, MediaTypeList};
 use rand::{distributions::Alphanumeric, Rng};
-use reqwest::{header::{HeaderMap, ACCEPT, CONTENT_TYPE}, StatusCode};
+use reqwest::{
+    header::{HeaderMap, ACCEPT, CONTENT_TYPE},
+    StatusCode,
+};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use tracing::Level;
@@ -292,7 +296,10 @@ pub fn get_accept_header(req_headers: &HeaderMap) -> Accept {
 /// Parse CONTENT TYPE header, default to JSON if missing or mal-formatted
 pub fn get_content_type_header(req_headers: &HeaderMap) -> ContentType {
     ContentType::from_str(
-        req_headers.get(CONTENT_TYPE).and_then(|value| value.to_str().ok()).unwrap_or("application/json"),
+        req_headers
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("application/json"),
     )
     .unwrap_or(ContentType::Json)
 }
@@ -300,7 +307,7 @@ pub fn get_content_type_header(req_headers: &HeaderMap) -> ContentType {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ContentType {
     Json,
-    Ssz
+    Ssz,
 }
 
 impl std::fmt::Display for ContentType {
@@ -318,7 +325,7 @@ impl FromStr for ContentType {
         match value {
             "application/json" => Ok(ContentType::Json),
             "application/octet-stream" => Ok(ContentType::Ssz),
-            _ => Err(format!("unknown content type: {}", value)),
+            _ => Ok(ContentType::Json),
         }
     }
 }
@@ -392,7 +399,6 @@ impl FromStr for Accept {
     }
 }
 
-
 #[must_use]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct JsonOrSsz<T>(pub T);
@@ -406,13 +412,9 @@ where
 
     async fn from_request(req: Request, _state: &S) -> Result<Self, Self::Rejection> {
         let headers = req.headers().clone();
-        let content_type = headers
-            .get(CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok());
+        let content_type = headers.get(CONTENT_TYPE).and_then(|value| value.to_str().ok());
 
-        let bytes = Bytes::from_request(req, _state)
-            .await
-            .map_err(IntoResponse::into_response)?;
+        let bytes = Bytes::from_request(req, _state).await.map_err(IntoResponse::into_response)?;
 
         if let Some(content_type) = content_type {
             if content_type.starts_with(&ContentType::Json.to_string()) {
@@ -431,7 +433,6 @@ where
         Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response())
     }
 }
-
 
 #[cfg(unix)]
 pub async fn wait_for_signal() -> eyre::Result<()> {

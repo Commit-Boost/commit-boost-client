@@ -4,7 +4,7 @@ use std::{
 };
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use ssz::{Encode, Decode};
+use ssz::{Decode, Encode};
 use ssz_types::VariableList;
 use tree_hash::{PackedEncoding, TreeHash};
 
@@ -28,7 +28,7 @@ impl Decode for KzgCommitment {
     }
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        <[u8; BYTES_PER_COMMITMENT]>::from_ssz_bytes(bytes).and_then(|o| Ok(Self(o)))
+        <[u8; BYTES_PER_COMMITMENT]>::from_ssz_bytes(bytes).map(Self)
     }
 }
 
@@ -38,7 +38,7 @@ impl Encode for KzgCommitment {
     }
 
     fn ssz_append(&self, buf: &mut Vec<u8>) {
-       self.0.ssz_append(buf)
+        self.0.ssz_append(buf)
     }
 
     fn ssz_bytes_len(&self) -> usize {

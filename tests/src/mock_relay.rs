@@ -9,22 +9,28 @@ use std::{
 use alloy::{primitives::U256, rpc::types::beacon::relay::ValidatorRegistration};
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
 use cb_common::{
     pbs::{
-        GetHeaderParams, GetHeaderResponse, SubmitBlindedBlockResponse, BUILDER_API_PATH,
-        GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
+        GetHeaderParams, GetHeaderResponse, PayloadAndBlobs, SubmitBlindedBlockResponse, Version,
+        BUILDER_API_PATH, GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH,
+        SUBMIT_BLOCK_PATH,
     },
     signature::sign_builder_root,
     signer::BlsSecretKey,
     types::Chain,
-    utils::{blst_pubkey_to_alloy, timestamp_of_slot_start_sec},
+    utils::{
+        blst_pubkey_to_alloy, get_content_type_header, timestamp_of_slot_start_sec,
+        CONSENSUS_VERSION_HEADER,
+    },
 };
 use cb_pbs::MAX_SIZE_SUBMIT_BLOCK;
+use reqwest::header::CONTENT_TYPE;
+use ssz::Encode;
 use tokio::net::TcpListener;
 use tracing::debug;
 use tree_hash::TreeHash;
@@ -125,14 +131,27 @@ async fn handle_register_validator(
     StatusCode::OK
 }
 
-async fn handle_submit_block(State(state): State<Arc<MockRelayState>>) -> impl IntoResponse {
+async fn handle_submit_block(
+    State(state): State<Arc<MockRelayState>>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
     state.received_submit_block.fetch_add(1, Ordering::Relaxed);
-
-    let response = if state.large_body {
+    let accept_header = get_content_type_header(&headers);
+    let data = if state.large_body {
         vec![1u8; 1 + MAX_SIZE_SUBMIT_BLOCK]
     } else {
-        serde_json::to_vec(&SubmitBlindedBlockResponse::default()).unwrap()
+        match accept_header {
+            cb_common::utils::ContentType::Json => {
+                serde_json::to_vec(&SubmitBlindedBlockResponse::default()).unwrap()
+            }
+            cb_common::utils::ContentType::Ssz => PayloadAndBlobs::default().as_ssz_bytes(),
+        }
     };
 
-    (StatusCode::OK, Json(response)).into_response()
+    let mut response = (StatusCode::OK, data).into_response();
+    let consensus_version_header = HeaderValue::from_str(&Version::Deneb.to_string()).unwrap();
+    let content_type_header = HeaderValue::from_str(&accept_header.to_string()).unwrap();
+    response.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
+    response.headers_mut().insert(CONTENT_TYPE, content_type_header);
+    response
 }

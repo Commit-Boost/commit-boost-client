@@ -7,7 +7,7 @@ use super::{
     execution_payload::ExecutionPayload, spec::DenebSpec, utils::VersionedResponse,
 };
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize, Decode)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Encode, Decode)]
 /// Sent to relays in submit_block
 pub struct SignedBlindedBeaconBlock {
     pub message: BlindedBeaconBlock,
@@ -20,7 +20,7 @@ impl SignedBlindedBeaconBlock {
     }
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize, Decode)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct BlindedBeaconBlock {
     #[serde(with = "serde_utils::quoted_u64")]
     pub slot: u64,

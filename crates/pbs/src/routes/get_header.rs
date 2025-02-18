@@ -45,24 +45,29 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
                 BEACON_NODE_STATUS.with_label_values(&["200", GET_HEADER_ENDPOINT_TAG]).inc();
                 let response = match accept_header {
                     Accept::Ssz => {
-                        let mut res = {
+                        let mut res =
+                            { (StatusCode::OK, max_bid.data.as_ssz_bytes()).into_response() };
+                        let Ok(consensus_version_header) =
+                            HeaderValue::from_str(&format!("{}", max_bid.version))
+                        else {
                             info!("sending response as JSON");
-                            (StatusCode::OK, max_bid.data.as_ssz_bytes()).into_response()
+                            return Ok((StatusCode::OK, axum::Json(max_bid)).into_response());
                         };
-                        let Ok(consensus_version_header) = HeaderValue::from_str(&format!("{}", max_bid.version)) else {
+                        let Ok(content_type_header) =
+                            HeaderValue::from_str(&format!("{}", Accept::Ssz))
+                        else {
                             info!("sending response as JSON");
-                            return Ok((StatusCode::OK, axum::Json(max_bid)).into_response())
+                            return Ok((StatusCode::OK, axum::Json(max_bid)).into_response());
                         };
-                        let Ok(content_type_header) = HeaderValue::from_str(&format!("{}", Accept::Ssz)) else {
-                            info!("sending response as JSON");
-                            return Ok((StatusCode::OK, axum::Json(max_bid)).into_response())
-                        };
-                        res.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
+                        res.headers_mut()
+                            .insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
                         res.headers_mut().insert(CONTENT_TYPE, content_type_header);
                         info!("sending response as SSZ");
                         res
-                    },
-                    Accept::Json | Accept::Any => (StatusCode::OK, axum::Json(max_bid)).into_response(),
+                    }
+                    Accept::Json | Accept::Any => {
+                        (StatusCode::OK, axum::Json(max_bid)).into_response()
+                    }
                 };
                 Ok(response)
             } else {
