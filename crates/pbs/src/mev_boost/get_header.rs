@@ -478,7 +478,7 @@ fn validate_signature<T: TreeHash>(
         chain,
         &received_relay_pubkey,
         &message,
-        &signature,
+        signature,
         APPLICATION_BUILDER_DOMAIN,
     )
     .map_err(ValidationError::Sigverify)?;
