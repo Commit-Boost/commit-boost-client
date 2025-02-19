@@ -83,8 +83,12 @@ impl DirkManager {
                 trace!(?host.server_name, "CA certificate for server name not found");
             }
 
-            tls_config = tls_config.domain_name(host.server_name.unwrap_or_default());
-            tls_configs.push(tls_config);
+            if let Some(server_name) = host.server_name.clone() {
+                tls_config = tls_config.domain_name(server_name);
+                tls_configs.push(tls_config);
+            } else {
+                trace!("Server name for host {0} not present", host.url);
+            }
         }
 
         // Create a channel for each host, attempt to connect,
