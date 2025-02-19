@@ -27,11 +27,8 @@ tracing.workspace = true
 prometheus.workspace = true
 
 # crypto
-blst.workspace = true
 blsful.workspace = true
 tree_hash.workspace = true
-tree_hash_derive.workspace = true
-k256.workspace = true
 
 # misc
 thiserror.workspace = true
@@ -39,10 +36,7 @@ eyre.workspace = true
 uuid.workspace = true
 bimap.workspace = true
 lazy_static.workspace = true
-derive_more.workspace = true
 rand.workspace = true
-base64 = "0.21.7"
-log = "0.4.25"
 
 [build-dependencies]
 tonic-build.workspace = true
