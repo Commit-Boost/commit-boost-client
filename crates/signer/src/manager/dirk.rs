@@ -677,8 +677,8 @@ impl DirkManager {
                 self.sign_with_channel(channel, pubkey, account, domain, object_root).await
             }
             WalletType::Distributed => {
-                let mut signatures = Vec::new();
-                let mut identifiers = Vec::new();
+                let mut signatures = Vec::with_capacity(account.hosts.len());
+                let mut identifiers = Vec::with_capacity(account.hosts.len());
                 let num_hosts_needed = account.signing_threshold as usize;
 
                 if account.hosts.len() < num_hosts_needed {
