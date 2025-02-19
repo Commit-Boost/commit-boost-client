@@ -44,7 +44,7 @@ pub struct SigningService;
 #[derive(Clone)]
 struct SigningState {
     /// Manager handling different signing methods
-    manager: SigningManager,
+    manager: Arc<RwLock<SigningManager>>,
     /// Map of JWTs to module ids. This also acts as registry of all modules
     /// running
     jwts: Arc<BiHashMap<ModuleId, Jwt>>,
@@ -67,7 +67,7 @@ impl SigningService {
                 }
 
                 SigningState {
-                    manager: SigningManager::Dirk(Arc::new(RwLock::new(dirk_manager))),
+                    manager: Arc::new(RwLock::new(SigningManager::Dirk(dirk_manager))),
                     jwts: config.jwts.into(),
                 }
             }
@@ -88,14 +88,16 @@ impl SigningService {
                 }
 
                 SigningState {
-                    manager: SigningManager::Local(Arc::new(RwLock::new(local_manager))),
+                    manager: Arc::new(RwLock::new(SigningManager::Local(Arc::new(RwLock::new(
+                        local_manager,
+                    ))))),
                     jwts: config.jwts.into(),
                 }
             }
         };
 
-        let loaded_consensus = state.manager.available_consensus_signers().await?;
-        let loaded_proxies = state.manager.available_proxy_signers().await?;
+        let loaded_consensus = state.manager.read().await.available_consensus_signers().await?;
+        let loaded_proxies = state.manager.read().await.available_proxy_signers().await?;
 
         info!(version = COMMIT_BOOST_VERSION, commit = COMMIT_BOOST_COMMIT, modules =? module_ids, port =? config.server_port, loaded_consensus, loaded_proxies, "Starting signing service");
 
@@ -167,6 +169,8 @@ async fn handle_get_pubkeys(
 
     let keys = state
         .manager
+        .read()
+        .await
         .get_consensus_proxy_maps(&module_id)
         .await
         .map_err(|err| SignerModuleError::Internal(err.to_string()))?;
@@ -186,7 +190,8 @@ async fn handle_request_signature(
 
     debug!(event = "request_signature", ?module_id, %request, ?req_id, "New request");
 
-    let res = match state.manager {
+    let manager = state.manager.read().await;
+    let res = match &*manager {
         SigningManager::Local(local_manager) => match request {
             SignRequest::Consensus(SignConsensusRequest { object_root, pubkey }) => local_manager
                 .read()
@@ -212,16 +217,12 @@ async fn handle_request_signature(
             }
         },
         SigningManager::Dirk(dirk_manager) => match request {
-            SignRequest::Consensus(SignConsensusRequest { object_root, pubkey }) => {
-                let manager = dirk_manager.write().await;
-                manager
-                    .request_signature(pubkey, object_root)
-                    .await
-                    .map(|sig| Json(sig).into_response())
-            }
+            SignRequest::Consensus(SignConsensusRequest { object_root, pubkey }) => dirk_manager
+                .request_signature(pubkey, object_root)
+                .await
+                .map(|sig| Json(sig).into_response()),
             SignRequest::ProxyBls(SignProxyRequest { object_root, pubkey: bls_key }) => {
-                let manager = dirk_manager.write().await;
-                manager
+                dirk_manager
                     .request_signature(bls_key, object_root)
                     .await
                     .map(|sig| Json(sig).into_response())
@@ -254,7 +255,8 @@ async fn handle_generate_proxy(
 
     debug!(event = "generate_proxy", ?module_id, scheme=?request.scheme, pubkey=%request.consensus_pubkey, ?req_id, "New request");
 
-    let res = match state.manager {
+    let mut manager = state.manager.write().await;
+    let res = match &mut *manager {
         SigningManager::Local(local_manager) => match request.scheme {
             EncryptionScheme::Bls => local_manager
                 .write()
@@ -270,13 +272,10 @@ async fn handle_generate_proxy(
                 .map(|proxy_delegation| Json(proxy_delegation).into_response()),
         },
         SigningManager::Dirk(dirk_manager) => match request.scheme {
-            EncryptionScheme::Bls => {
-                let mut manager = dirk_manager.write().await;
-                manager
-                    .generate_proxy_key(module_id.clone(), request.consensus_pubkey)
-                    .await
-                    .map(|proxy_delegation| Json(proxy_delegation).into_response())
-            }
+            EncryptionScheme::Bls => dirk_manager
+                .generate_proxy_key(module_id.clone(), request.consensus_pubkey)
+                .await
+                .map(|proxy_delegation| Json(proxy_delegation).into_response()),
             EncryptionScheme::Ecdsa => {
                 error!("ECDSA proxy generation not supported with Dirk");
                 Err(SignerModuleError::DirkNotSupported)
@@ -314,7 +313,7 @@ async fn handle_reload(
         }
     };
 
-    state.manager = new_manager;
+    state.manager = Arc::new(RwLock::new(new_manager));
 
     Ok((StatusCode::OK, "OK"))
 }
@@ -334,7 +333,7 @@ async fn start_manager(config: StartSignerConfig) -> eyre::Result<SigningManager
                 manager = manager.with_proxy_store(store.init_from_env()?)?;
             }
 
-            Ok(SigningManager::Dirk(Arc::new(RwLock::new(manager))))
+            Ok(SigningManager::Dirk(manager))
         }
         None => {
             let mut manager = LocalSigningManager::new(config.chain, proxy_store)?;

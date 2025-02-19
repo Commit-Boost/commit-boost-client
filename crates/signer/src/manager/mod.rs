@@ -13,7 +13,7 @@ pub mod local;
 #[derive(Clone)]
 pub enum SigningManager {
     Local(Arc<RwLock<LocalSigningManager>>),
-    Dirk(Arc<RwLock<DirkManager>>),
+    Dirk(DirkManager),
 }
 
 impl SigningManager {
@@ -23,9 +23,7 @@ impl SigningManager {
             SigningManager::Local(local_manager) => {
                 Ok(local_manager.read().await.consensus_pubkeys().len())
             }
-            SigningManager::Dirk(dirk_manager) => {
-                Ok(dirk_manager.read().await.consensus_pubkeys().await?.len())
-            }
+            SigningManager::Dirk(dirk_manager) => Ok(dirk_manager.consensus_pubkeys().await?.len()),
         }
     }
 
@@ -37,9 +35,7 @@ impl SigningManager {
                 let proxies = manager.proxies();
                 Ok(proxies.bls_signers.len() + proxies.ecdsa_signers.len())
             }
-            SigningManager::Dirk(dirk_manager) => {
-                Ok(dirk_manager.read().await.proxies().await?.len())
-            }
+            SigningManager::Dirk(dirk_manager) => Ok(dirk_manager.proxies().await?.len()),
         }
     }
 
@@ -52,7 +48,7 @@ impl SigningManager {
                 local_manager.read().await.get_consensus_proxy_maps(module_id)
             }
             SigningManager::Dirk(dirk_manager) => {
-                dirk_manager.read().await.get_consensus_proxy_maps(module_id).await
+                dirk_manager.get_consensus_proxy_maps(module_id).await
             }
         }
     }
