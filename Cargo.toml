@@ -60,6 +60,8 @@ serde_json = "1.0.117"
 serde_yaml = "0.9.33"
 base64 = "0.22.1"
 unicode-normalization = "0.1.24"
+ethereum_ssz = "0.8"
+ethereum_ssz_derive = "0.8"
 
 # telemetry
 tracing = "0.1.40"

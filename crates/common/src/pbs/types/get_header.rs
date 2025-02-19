@@ -3,6 +3,8 @@ use alloy::{
     rpc::types::beacon::{BlsPublicKey, BlsSignature},
 };
 use serde::{Deserialize, Serialize};
+use ssz::{Decode, Encode};
+use ssz_derive::{Decode, Encode};
 use tree_hash_derive::TreeHash;
 
 use super::{
@@ -66,13 +68,13 @@ impl GetHeaderResponse {
     }
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
-pub struct SignedExecutionPayloadHeader<T> {
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Encode, Decode)]
+pub struct SignedExecutionPayloadHeader<T: Encode + Decode> {
     pub message: T,
     pub signature: BlsSignature,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize, TreeHash)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Encode, Decode, TreeHash)]
 pub struct ExecutionPayloadHeaderMessageDeneb {
     pub header: ExecutionPayloadHeader<DenebSpec>,
     pub blob_kzg_commitments: KzgCommitments<DenebSpec>,
@@ -81,7 +83,7 @@ pub struct ExecutionPayloadHeaderMessageDeneb {
     pub pubkey: BlsPublicKey,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize, TreeHash)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Encode, Decode, TreeHash)]
 pub struct ExecutionPayloadHeaderMessageElectra {
     pub header: ExecutionPayloadHeader<ElectraSpec>,
     pub blob_kzg_commitments: KzgCommitments<ElectraSpec>,
@@ -95,10 +97,13 @@ pub struct ExecutionPayloadHeaderMessageElectra {
 mod tests {
     use alloy::primitives::U256;
 
-    use super::GetHeaderResponse;
+    use super::*;
     use crate::{
-        constants::APPLICATION_BUILDER_DOMAIN, pbs::VersionedResponse,
-        signature::verify_signed_message, types::Chain, utils::test_encode_decode,
+        constants::APPLICATION_BUILDER_DOMAIN,
+        pbs::VersionedResponse,
+        signature::verify_signed_message,
+        types::Chain,
+        utils::{test_encode_decode, test_encode_decode_ssz},
     };
 
     #[test]
@@ -225,5 +230,22 @@ mod tests {
         };
 
         assert_eq!(parsed.message.value, U256::from(1));
+    }
+
+    #[test]
+    // this is dummy data generated with https://github.com/attestantio/go-builder-client
+    fn test_signed_execution_payload_header_ssz() {
+        let data_json = include_str!("testdata/get-header-response.json");
+        let block_json = test_encode_decode::<
+            SignedExecutionPayloadHeader<ExecutionPayloadHeaderMessageElectra>,
+        >(&data_json);
+
+        let data_ssz = include_bytes!("testdata/get-header-response.ssz");
+        let data_ssz = alloy::primitives::hex::decode(data_ssz).unwrap();
+        test_encode_decode_ssz::<SignedExecutionPayloadHeader<ExecutionPayloadHeaderMessageElectra>>(
+            &data_ssz,
+        );
+
+        assert_eq!(block_json.as_ssz_bytes(), data_ssz);
     }
 }

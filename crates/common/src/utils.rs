@@ -13,6 +13,7 @@ use rand::{distributions::Alphanumeric, Rng};
 use reqwest::header::HeaderMap;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
+use ssz::{Decode, Encode};
 use tracing::Level;
 use tracing_appender::{non_blocking::WorkerGuard, rolling::Rotation};
 use tracing_subscriber::{fmt::Layer, prelude::*, EnvFilter};
@@ -74,6 +75,15 @@ pub fn test_encode_decode<T: Serialize + DeserializeOwned>(d: &str) -> T {
         println!("ENCODED: {encoded_v}");
         panic!("encode mismatch");
     }
+
+    decoded
+}
+
+pub fn test_encode_decode_ssz<T: Encode + Decode>(d: &[u8]) -> T {
+    let decoded = T::from_ssz_bytes(d).expect("deserialize");
+    let encoded = T::as_ssz_bytes(&decoded);
+
+    assert_eq!(encoded, d);
 
     decoded
 }

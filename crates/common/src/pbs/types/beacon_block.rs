@@ -1,5 +1,6 @@
 use alloy::{primitives::B256, rpc::types::beacon::BlsSignature};
 use serde::{Deserialize, Serialize};
+use ssz_derive::{Decode, Encode};
 
 use super::{
     blinded_block_body::{BlindedBeaconBlockBodyDeneb, BlindedBeaconBlockBodyElectra},
@@ -9,7 +10,7 @@ use super::{
     utils::VersionedResponse,
 };
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Encode, Decode)]
 /// Sent to relays in submit_block
 pub struct SignedBlindedBeaconBlock {
     pub message: BlindedBeaconBlock,
@@ -32,8 +33,9 @@ impl SignedBlindedBeaconBlock {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
 #[serde(untagged)]
+#[ssz(enum_behaviour = "transparent")]
 pub enum BlindedBeaconBlock {
     Deneb(BlindedBeaconBlockDeneb),
     Electra(BlindedBeaconBlockElectra),
@@ -45,7 +47,7 @@ impl Default for BlindedBeaconBlock {
     }
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct BlindedBeaconBlockDeneb {
     #[serde(with = "serde_utils::quoted_u64")]
     pub slot: u64,
@@ -56,7 +58,7 @@ pub struct BlindedBeaconBlockDeneb {
     pub body: BlindedBeaconBlockBodyDeneb<DenebSpec>,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct BlindedBeaconBlockElectra {
     #[serde(with = "serde_utils::quoted_u64")]
     pub slot: u64,
@@ -80,10 +82,10 @@ impl SubmitBlindedBlockResponse {
     }
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct PayloadAndBlobsDeneb {
     pub execution_payload: ExecutionPayload<DenebSpec>,
-    pub blobs_bundle: Option<BlobsBundle<DenebSpec>>,
+    pub blobs_bundle: BlobsBundle<DenebSpec>,
 }
 
 impl PayloadAndBlobsDeneb {
@@ -92,10 +94,10 @@ impl PayloadAndBlobsDeneb {
     }
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct PayloadAndBlobsElectra {
     pub execution_payload: ExecutionPayload<ElectraSpec>,
-    pub blobs_bundle: Option<BlobsBundle<ElectraSpec>>,
+    pub blobs_bundle: BlobsBundle<ElectraSpec>,
 }
 
 impl PayloadAndBlobsElectra {
@@ -107,9 +109,10 @@ impl PayloadAndBlobsElectra {
 #[cfg(test)]
 mod tests {
     use serde_json::json;
+    use ssz::Encode;
 
     use super::*;
-    use crate::utils::test_encode_decode;
+    use crate::utils::{test_encode_decode, test_encode_decode_ssz};
 
     #[test]
     // this is from the builder api spec, but with sync_committee_bits fixed to
@@ -193,5 +196,44 @@ mod tests {
 
         let block = test_encode_decode::<SubmitBlindedBlockResponse>(&data);
         assert!(matches!(block, SubmitBlindedBlockResponse::Deneb(_)));
+    }
+
+    #[test]
+    // this is dummy data generated with https://github.com/attestantio/go-eth2-client
+    fn test_signed_blinded_block_ssz() {
+        let data_json = include_str!("testdata/signed-blinded-beacon-block-electra-2.json");
+        let block_json = test_encode_decode::<SignedBlindedBeaconBlock>(&data_json);
+        assert!(matches!(block_json.message, BlindedBeaconBlock::Electra(_)));
+
+        let data_ssz = include_bytes!("testdata/signed-blinded-beacon-block-electra-2.ssz");
+        let data_ssz = alloy::primitives::hex::decode(data_ssz).unwrap();
+        let block_ssz = test_encode_decode_ssz::<SignedBlindedBeaconBlock>(&data_ssz);
+        assert!(matches!(block_ssz.message, BlindedBeaconBlock::Electra(_)));
+
+        assert_eq!(block_json.as_ssz_bytes(), data_ssz);
+    }
+
+    #[test]
+    // this is dummy data generated with https://github.com/attestantio/go-builder-client
+    fn test_execution_payload_block_ssz() {
+        let data_json = include_str!("testdata/execution-payload-deneb.json");
+        let block_json = test_encode_decode::<PayloadAndBlobsDeneb>(&data_json);
+
+        let data_ssz = include_bytes!("testdata/execution-payload-deneb.ssz");
+        let data_ssz = alloy::primitives::hex::decode(data_ssz).unwrap();
+        test_encode_decode_ssz::<PayloadAndBlobsDeneb>(&data_ssz);
+
+        assert_eq!(block_json.as_ssz_bytes(), data_ssz);
+
+        // electra and deneb have the same execution payload
+
+        let data_json = include_str!("testdata/execution-payload-deneb.json");
+        let block_json = test_encode_decode::<PayloadAndBlobsElectra>(&data_json);
+
+        let data_ssz = include_bytes!("testdata/execution-payload-deneb.ssz");
+        let data_ssz = alloy::primitives::hex::decode(data_ssz).unwrap();
+        test_encode_decode_ssz::<PayloadAndBlobsElectra>(&data_ssz);
+
+        assert_eq!(block_json.as_ssz_bytes(), data_ssz);
     }
 }

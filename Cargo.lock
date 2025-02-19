@@ -1312,6 +1312,8 @@ dependencies = [
  "derive_more",
  "eth2_keystore",
  "ethereum_serde_utils 0.7.0",
+ "ethereum_ssz 0.8.0",
+ "ethereum_ssz_derive",
  "eyre",
  "k256",
  "pbkdf2 0.12.2",

@@ -212,29 +212,29 @@ fn validate_unblinded_block_deneb(
     signed_blinded_block: &BlindedBeaconBlockDeneb,
     block_response: &PayloadAndBlobsDeneb,
 ) -> Result<(), PbsError> {
-    if let Some(blobs) = &block_response.blobs_bundle {
-        let expected_commitments = &signed_blinded_block.body.blob_kzg_commitments;
-        if expected_commitments.len() != blobs.blobs.len() ||
-            expected_commitments.len() != blobs.commitments.len() ||
-            expected_commitments.len() != blobs.proofs.len()
-        {
-            return Err(PbsError::Validation(ValidationError::KzgCommitments {
-                expected_blobs: expected_commitments.len(),
-                got_blobs: blobs.blobs.len(),
-                got_commitments: blobs.commitments.len(),
-                got_proofs: blobs.proofs.len(),
-            }));
-        }
+    let blobs = &block_response.blobs_bundle;
 
-        for (i, comm) in expected_commitments.iter().enumerate() {
-            // this is safe since we already know they are the same length
-            if *comm != blobs.commitments[i] {
-                return Err(PbsError::Validation(ValidationError::KzgMismatch {
-                    expected: format!("{comm}"),
-                    got: format!("{}", blobs.commitments[i]),
-                    index: i,
-                }));
-            }
+    let expected_commitments = &signed_blinded_block.body.blob_kzg_commitments;
+    if expected_commitments.len() != blobs.blobs.len() ||
+        expected_commitments.len() != blobs.commitments.len() ||
+        expected_commitments.len() != blobs.proofs.len()
+    {
+        return Err(PbsError::Validation(ValidationError::KzgCommitments {
+            expected_blobs: expected_commitments.len(),
+            got_blobs: blobs.blobs.len(),
+            got_commitments: blobs.commitments.len(),
+            got_proofs: blobs.proofs.len(),
+        }));
+    }
+
+    for (i, comm) in expected_commitments.iter().enumerate() {
+        // this is safe since we already know they are the same length
+        if *comm != blobs.commitments[i] {
+            return Err(PbsError::Validation(ValidationError::KzgMismatch {
+                expected: format!("{comm}"),
+                got: format!("{}", blobs.commitments[i]),
+                index: i,
+            }));
         }
     }
 
@@ -245,29 +245,29 @@ fn validate_unblinded_block_electra(
     signed_blinded_block: &BlindedBeaconBlockElectra,
     block_response: &PayloadAndBlobsElectra,
 ) -> Result<(), PbsError> {
-    if let Some(blobs) = &block_response.blobs_bundle {
-        let expected_commitments = &signed_blinded_block.body.blob_kzg_commitments;
-        if expected_commitments.len() != blobs.blobs.len() ||
-            expected_commitments.len() != blobs.commitments.len() ||
-            expected_commitments.len() != blobs.proofs.len()
-        {
-            return Err(PbsError::Validation(ValidationError::KzgCommitments {
-                expected_blobs: expected_commitments.len(),
-                got_blobs: blobs.blobs.len(),
-                got_commitments: blobs.commitments.len(),
-                got_proofs: blobs.proofs.len(),
-            }));
-        }
+    let blobs = &block_response.blobs_bundle;
 
-        for (i, comm) in expected_commitments.iter().enumerate() {
-            // this is safe since we already know they are the same length
-            if *comm != blobs.commitments[i] {
-                return Err(PbsError::Validation(ValidationError::KzgMismatch {
-                    expected: format!("{comm}"),
-                    got: format!("{}", blobs.commitments[i]),
-                    index: i,
-                }));
-            }
+    let expected_commitments = &signed_blinded_block.body.blob_kzg_commitments;
+    if expected_commitments.len() != blobs.blobs.len() ||
+        expected_commitments.len() != blobs.commitments.len() ||
+        expected_commitments.len() != blobs.proofs.len()
+    {
+        return Err(PbsError::Validation(ValidationError::KzgCommitments {
+            expected_blobs: expected_commitments.len(),
+            got_blobs: blobs.blobs.len(),
+            got_commitments: blobs.commitments.len(),
+            got_proofs: blobs.proofs.len(),
+        }));
+    }
+
+    for (i, comm) in expected_commitments.iter().enumerate() {
+        // this is safe since we already know they are the same length
+        if *comm != blobs.commitments[i] {
+            return Err(PbsError::Validation(ValidationError::KzgMismatch {
+                expected: format!("{comm}"),
+                got: format!("{}", blobs.commitments[i]),
+                index: i,
+            }));
         }
     }
 
