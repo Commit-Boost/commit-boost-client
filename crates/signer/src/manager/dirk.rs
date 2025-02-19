@@ -71,7 +71,7 @@ pub struct DirkManager {
 
 impl DirkManager {
     pub async fn new_from_config(chain: Chain, config: DirkConfig) -> eyre::Result<Self> {
-        let mut tls_configs = Vec::new();
+        let mut tls_configs = Vec::with_capacity(config.hosts.len());
 
         // Create a TLS config for each host
         for host in config.hosts.clone() {
@@ -681,8 +681,8 @@ impl DirkManager {
                 self.sign_with_channel(channel, pubkey, account, domain, object_root).await
             }
             WalletType::Distributed => {
-                let mut signatures = Vec::new();
-                let mut identifiers = Vec::new();
+                let mut signatures = Vec::with_capacity(account.hosts.len());
+                let mut identifiers = Vec::with_capacity(account.hosts.len());
                 let num_hosts_needed = account.signing_threshold as usize;
 
                 if account.hosts.len() < num_hosts_needed {
