@@ -25,3 +25,4 @@ tree_hash.workspace = true
 eyre.workspace = true
 
 ethereum_ssz.workspace = true
+url.workspace = true

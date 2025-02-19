@@ -9,10 +9,10 @@ use std::{
 use alloy::{primitives::U256, rpc::types::beacon::relay::ValidatorRegistration};
 use cb_common::{
     config::{PbsConfig, PbsModuleConfig, RuntimeMuxConfig},
-    pbs::RelayClient,
+    pbs::{RelayClient, SignedExecutionPayloadHeader, VersionedResponse},
     signer::{random_secret, BlsPublicKey},
     types::Chain,
-    utils::{blst_pubkey_to_alloy, Accept, ContentType},
+    utils::{blst_pubkey_to_alloy, get_content_type_header, Accept, ContentType},
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
@@ -21,6 +21,7 @@ use cb_tests::{
     utils::{generate_mock_relay, generate_mock_relay_with_batch_size, setup_test_env},
 };
 use eyre::Result;
+use ssz::Decode;
 use tracing::info;
 
 fn get_pbs_static_config(port: u16) -> PbsConfig {
@@ -35,7 +36,6 @@ fn get_pbs_static_config(port: u16) -> PbsConfig {
         skip_sigverify: false,
         min_bid_wei: U256::ZERO,
         late_in_slot_time_ms: u64::MAX,
-        relay_monitors: vec![],
         extra_validation_enabled: false,
         rpc_url: None,
     }
@@ -79,6 +79,16 @@ async fn test_get_header() -> Result<()> {
     let res = mock_validator.do_get_header(None, Accept::Json).await;
 
     assert!(res.is_ok());
+    let response = res.unwrap();
+    let content_type = get_content_type_header(&response.headers());
+    let payload = response.bytes().await.unwrap();
+    match content_type {
+        ContentType::Json => {
+            serde_json::from_slice::<VersionedResponse<SignedExecutionPayloadHeader>>(&payload)
+                .unwrap()
+        }
+        ContentType::Ssz => panic!("Should be JSON"),
+    };
     assert_eq!(mock_state.received_get_header(), 1);
     Ok(())
 }
@@ -106,8 +116,14 @@ async fn test_get_header_ssz() -> Result<()> {
     let mock_validator = MockValidator::new(port)?;
     info!("Sending get header");
     let res = mock_validator.do_get_header(None, Accept::Ssz).await;
-
     assert!(res.is_ok());
+    let response = res.unwrap();
+    let content_type = get_content_type_header(&response.headers());
+    let payload = response.bytes().await.unwrap();
+    match content_type {
+        ContentType::Json => panic!("Should be SSZ"),
+        ContentType::Ssz => SignedExecutionPayloadHeader::from_ssz_bytes(&payload).unwrap(),
+    };
     assert_eq!(mock_state.received_get_header(), 1);
     Ok(())
 }

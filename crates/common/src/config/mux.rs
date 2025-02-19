@@ -129,6 +129,7 @@ impl MuxConfig {
 
                 Some((get_mux_env(&self.id), path.to_owned(), internal_path))
             }
+            MuxKeysLoader::HTTP { .. } => None,
             MuxKeysLoader::Registry { .. } => None,
         })
     }
@@ -139,6 +140,9 @@ impl MuxConfig {
 pub enum MuxKeysLoader {
     /// A file containing a list of validator pubkeys
     File(PathBuf),
+    HTTP {
+        url: String,
+    },
     Registry {
         registry: NORegistry,
         node_operator_id: u64,
@@ -168,6 +172,14 @@ impl MuxKeysLoader {
                     .unwrap_or(config_path.clone());
                 let file = load_file(path)?;
                 serde_json::from_str(&file).wrap_err("failed to parse mux keys file")
+            }
+
+            Self::HTTP { url } => {
+                let client = reqwest::Client::new();
+                let response = client.get(url).send().await?;
+                let pubkeys = response.text().await?;
+                serde_json::from_str(&pubkeys)
+                    .wrap_err("failed to fetch mux keys from http endpoint")
             }
 
             Self::Registry { registry, node_operator_id } => match registry {
