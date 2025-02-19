@@ -68,7 +68,12 @@ pub fn test_encode_decode<T: Serialize + DeserializeOwned>(d: &str) -> T {
     let encoded = serde_json::to_string(&decoded).unwrap();
     let original_v: Value = serde_json::from_str(d).unwrap();
     let encoded_v: Value = serde_json::from_str(&encoded).unwrap();
-    assert_eq!(original_v, encoded_v, "encode mismatch");
+
+    if original_v != encoded_v {
+        println!("ORIGINAL: {original_v}");
+        println!("ENCODED: {encoded_v}");
+        panic!("encode mismatch");
+    }
 
     decoded
 }

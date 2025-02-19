@@ -51,6 +51,9 @@ async fn test_get_header() -> Result<()> {
 
     let res = match res {
         GetHeaderResponse::Deneb(data) => data,
+        GetHeaderResponse::Electra(_) => {
+            unreachable!()
+        }
     };
 
     assert_eq!(mock_state.received_get_header(), 1);

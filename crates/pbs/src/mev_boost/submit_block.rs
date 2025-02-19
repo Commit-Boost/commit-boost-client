@@ -4,8 +4,9 @@ use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
     pbs::{
         error::{PbsError, ValidationError},
-        PayloadAndBlobsDeneb, RelayClient, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
-        VersionedResponse, HEADER_START_TIME_UNIX_MS,
+        BlindedBeaconBlock, BlindedBeaconBlockDeneb, BlindedBeaconBlockElectra,
+        PayloadAndBlobsDeneb, PayloadAndBlobsElectra, RelayClient, SignedBlindedBeaconBlock,
+        SubmitBlindedBlockResponse, VersionedResponse, HEADER_START_TIME_UNIX_MS,
     },
     utils::{get_user_agent_with_version, utcnow_ms},
 };
@@ -169,19 +170,6 @@ async fn send_submit_block(
         "received unblinded block"
     );
 
-    match &block_response {
-        VersionedResponse::Deneb(deneb_response) => {
-            validate_unblinded_block_deneb(signed_blinded_block, deneb_response)?;
-        }
-    }
-
-    Ok(block_response)
-}
-
-fn validate_unblinded_block_deneb(
-    signed_blinded_block: &SignedBlindedBeaconBlock,
-    block_response: &PayloadAndBlobsDeneb,
-) -> Result<(), PbsError> {
     if signed_blinded_block.block_hash() != block_response.block_hash() {
         return Err(PbsError::Validation(ValidationError::BlockHashMismatch {
             expected: signed_blinded_block.block_hash(),
@@ -189,8 +177,76 @@ fn validate_unblinded_block_deneb(
         }));
     }
 
+    // request has different type so cant be deserialized in the wrong version,
+    // response has a "version" field
+    match (&signed_blinded_block.message, &block_response) {
+        (
+            BlindedBeaconBlock::Deneb(signed_blinded_block),
+            VersionedResponse::Deneb(block_response),
+        ) => validate_unblinded_block_deneb(signed_blinded_block, block_response),
+
+        (
+            BlindedBeaconBlock::Electra(signed_blinded_block),
+            VersionedResponse::Electra(block_response),
+        ) => validate_unblinded_block_electra(signed_blinded_block, block_response),
+
+        (BlindedBeaconBlock::Deneb(_), VersionedResponse::Electra(_)) => {
+            Err(PbsError::Validation(ValidationError::PayloadVersionMismatch {
+                request: "deneb",
+                response: "electra",
+            }))
+        }
+
+        (BlindedBeaconBlock::Electra(_), VersionedResponse::Deneb(_)) => {
+            Err(PbsError::Validation(ValidationError::PayloadVersionMismatch {
+                request: "electra",
+                response: "deneb",
+            }))
+        }
+    }?;
+
+    Ok(block_response)
+}
+
+fn validate_unblinded_block_deneb(
+    signed_blinded_block: &BlindedBeaconBlockDeneb,
+    block_response: &PayloadAndBlobsDeneb,
+) -> Result<(), PbsError> {
     if let Some(blobs) = &block_response.blobs_bundle {
-        let expected_commitments = &signed_blinded_block.message.body.blob_kzg_commitments;
+        let expected_commitments = &signed_blinded_block.body.blob_kzg_commitments;
+        if expected_commitments.len() != blobs.blobs.len() ||
+            expected_commitments.len() != blobs.commitments.len() ||
+            expected_commitments.len() != blobs.proofs.len()
+        {
+            return Err(PbsError::Validation(ValidationError::KzgCommitments {
+                expected_blobs: expected_commitments.len(),
+                got_blobs: blobs.blobs.len(),
+                got_commitments: blobs.commitments.len(),
+                got_proofs: blobs.proofs.len(),
+            }));
+        }
+
+        for (i, comm) in expected_commitments.iter().enumerate() {
+            // this is safe since we already know they are the same length
+            if *comm != blobs.commitments[i] {
+                return Err(PbsError::Validation(ValidationError::KzgMismatch {
+                    expected: format!("{comm}"),
+                    got: format!("{}", blobs.commitments[i]),
+                    index: i,
+                }));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_unblinded_block_electra(
+    signed_blinded_block: &BlindedBeaconBlockElectra,
+    block_response: &PayloadAndBlobsElectra,
+) -> Result<(), PbsError> {
+    if let Some(blobs) = &block_response.blobs_bundle {
+        let expected_commitments = &signed_blinded_block.body.blob_kzg_commitments;
         if expected_commitments.len() != blobs.blobs.len() ||
             expected_commitments.len() != blobs.commitments.len() ||
             expected_commitments.len() != blobs.proofs.len()

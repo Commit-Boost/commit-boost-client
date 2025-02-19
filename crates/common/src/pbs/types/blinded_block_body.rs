@@ -6,18 +6,20 @@ use serde::{Deserialize, Serialize};
 use ssz_types::{typenum, BitList, BitVector, FixedVector, VariableList};
 
 use super::{
-    execution_payload::ExecutionPayloadHeader, kzg::KzgCommitments, spec::EthSpec, utils::*,
+    execution_payload::ExecutionPayloadHeader, execution_requests::ExecutionRequests,
+    kzg::KzgCommitments, spec::EthSpec, utils::*,
 };
 use crate::utils::as_str;
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
-pub struct BlindedBeaconBlockBody<T: EthSpec> {
+#[serde(deny_unknown_fields)]
+pub struct BlindedBeaconBlockBodyDeneb<T: EthSpec> {
     pub randao_reveal: BlsSignature,
     pub eth1_data: Eth1Data,
     pub graffiti: B256,
     pub proposer_slashings: VariableList<ProposerSlashing, T::MaxProposerSlashings>,
-    pub attester_slashings: VariableList<AttesterSlashing<T>, T::MaxAttesterSlashings>,
-    pub attestations: VariableList<Attestation<T>, T::MaxAttestations>,
+    pub attester_slashings: VariableList<AttesterSlashingDeneb<T>, T::MaxAttesterSlashings>,
+    pub attestations: VariableList<AttestationDeneb<T>, T::MaxAttestations>,
     pub deposits: VariableList<Deposit, T::MaxDeposits>,
     pub voluntary_exits: VariableList<SignedVoluntaryExit, T::MaxVoluntaryExits>,
     pub sync_aggregate: SyncAggregate<T>,
@@ -25,6 +27,25 @@ pub struct BlindedBeaconBlockBody<T: EthSpec> {
     pub bls_to_execution_changes:
         VariableList<SignedBlsToExecutionChange, T::MaxBlsToExecutionChanges>,
     pub blob_kzg_commitments: KzgCommitments<T>,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BlindedBeaconBlockBodyElectra<T: EthSpec> {
+    pub randao_reveal: BlsSignature,
+    pub eth1_data: Eth1Data,
+    pub graffiti: B256,
+    pub proposer_slashings: VariableList<ProposerSlashing, T::MaxProposerSlashings>,
+    pub attester_slashings: VariableList<AttesterSlashingElectra<T>, T::MaxAttesterSlashings>,
+    pub attestations: VariableList<AttestationElectra<T>, T::MaxAttestations>,
+    pub deposits: VariableList<Deposit, T::MaxDeposits>,
+    pub voluntary_exits: VariableList<SignedVoluntaryExit, T::MaxVoluntaryExits>,
+    pub sync_aggregate: SyncAggregate<T>,
+    pub execution_payload_header: ExecutionPayloadHeader<T>,
+    pub bls_to_execution_changes:
+        VariableList<SignedBlsToExecutionChange, T::MaxBlsToExecutionChanges>,
+    pub blob_kzg_commitments: KzgCommitments<T>,
+    pub execution_requests: ExecutionRequests<T>,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -73,17 +94,33 @@ pub struct ProposerSlashing {
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
-pub struct AttesterSlashing<T: EthSpec> {
-    pub attestation_1: IndexedAttestation<T>,
-    pub attestation_2: IndexedAttestation<T>,
+pub struct AttesterSlashingDeneb<T: EthSpec> {
+    pub attestation_1: IndexedAttestationDeneb<T>,
+    pub attestation_2: IndexedAttestationDeneb<T>,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct AttesterSlashingElectra<T: EthSpec> {
+    pub attestation_1: IndexedAttestationElectra<T>,
+    pub attestation_2: IndexedAttestationElectra<T>,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 #[serde(bound = "T: EthSpec")]
-pub struct IndexedAttestation<T: EthSpec> {
+pub struct IndexedAttestationDeneb<T: EthSpec> {
     /// Lists validator registry indices, not committee indices.
     #[serde(with = "quoted_variable_list_u64")]
     pub attesting_indices: VariableList<u64, T::MaxValidatorsPerCommittee>,
+    pub data: AttestationData,
+    pub signature: BlsSignature,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[serde(bound = "T: EthSpec")]
+pub struct IndexedAttestationElectra<T: EthSpec> {
+    /// Lists validator registry indices, not committee indices.
+    #[serde(with = "quoted_variable_list_u64")]
+    pub attesting_indices: VariableList<u64, T::MaxValidatorsPerSlot>,
     pub data: AttestationData,
     pub signature: BlsSignature,
 }
@@ -110,10 +147,19 @@ pub struct Checkpoint {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound = "T: EthSpec")]
-pub struct Attestation<T: EthSpec> {
+pub struct AttestationDeneb<T: EthSpec> {
     pub aggregation_bits: BitList<T::MaxValidatorsPerCommittee>,
     pub data: AttestationData,
     pub signature: BlsSignature,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(bound = "T: EthSpec")]
+pub struct AttestationElectra<T: EthSpec> {
+    pub aggregation_bits: BitList<T::MaxValidatorsPerSlot>,
+    pub data: AttestationData,
+    pub signature: BlsSignature,
+    pub committee_bits: BitVector<T::MaxCommitteesPerSlot>,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]

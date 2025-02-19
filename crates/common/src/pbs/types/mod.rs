@@ -2,13 +2,15 @@ mod beacon_block;
 mod blinded_block_body;
 mod blobs_bundle;
 mod execution_payload;
+mod execution_requests;
 mod get_header;
 mod kzg;
 mod spec;
 mod utils;
 
 pub use beacon_block::{
-    PayloadAndBlobsDeneb, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
+    BlindedBeaconBlock, BlindedBeaconBlockDeneb, BlindedBeaconBlockElectra, PayloadAndBlobsDeneb,
+    PayloadAndBlobsElectra, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
 };
 pub use blobs_bundle::{Blob, BlobsBundle};
 pub use execution_payload::{

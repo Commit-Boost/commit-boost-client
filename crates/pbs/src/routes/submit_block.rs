@@ -15,7 +15,7 @@ use crate::{
     state::{BuilderApiState, PbsStateGuard},
 };
 
-#[tracing::instrument(skip_all, name = "submit_blinded_block", fields(req_id = %Uuid::new_v4(), slot = signed_blinded_block.message.slot))]
+#[tracing::instrument(skip_all, name = "submit_blinded_block", fields(req_id = %Uuid::new_v4(), slot = signed_blinded_block.slot()))]
 pub async fn handle_submit_block<S: BuilderApiState, A: BuilderApi<S>>(
     State(state): State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
@@ -27,8 +27,8 @@ pub async fn handle_submit_block<S: BuilderApiState, A: BuilderApi<S>>(
     state.publish_event(BuilderEvent::SubmitBlockRequest(Box::new(signed_blinded_block.clone())));
 
     let now = utcnow_ms();
-    let slot = signed_blinded_block.message.slot;
-    let block_hash = signed_blinded_block.message.body.execution_payload_header.block_hash;
+    let slot = signed_blinded_block.slot();
+    let block_hash = signed_blinded_block.block_hash();
     let slot_start_ms = timestamp_of_slot_start_millis(slot, state.config.chain);
     let ua = get_user_agent(&req_headers);
 
