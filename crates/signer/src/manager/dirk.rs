@@ -141,10 +141,10 @@ impl DirkManager {
                     a.name == account_name || a.name.starts_with(&format!("{}/", account_name))
                 }) {
                     let public_key = BlsPublicKey::try_from(dirk_account.public_key.as_slice())?;
-                    let key_name =
-                        dirk_account.name.split_once("/").map(|(_, n)| n).unwrap_or_default();
+                    let key_name = dirk_account.name.split_once("/").map(|(_, n)| n).unwrap_or_default();
                     trace!(?dirk_account.name, "Adding account to hashmap");
-                    let is_proxy = key_name.contains('/');
+                    
+                    let is_proxy = is_proxy_key_name(key_name);
 
                     accounts.insert(hex::encode(public_key), Account {
                         wallet: wallet.to_string(),
@@ -161,11 +161,11 @@ impl DirkManager {
                 for dist_account in dirk_distributed_accounts.iter().filter(|a| {
                     a.name == account_name || a.name.starts_with(&format!("{}/", account_name))
                 }) {
-                    let public_key =
-                        BlsPublicKey::try_from(dist_account.composite_public_key.as_slice())?;
-                    let key_name =
-                        dist_account.name.split_once("/").map(|(_, n)| n).unwrap_or_default();
-                    let is_proxy = key_name.contains('/');
+                    let public_key = BlsPublicKey::try_from(dist_account.composite_public_key.as_slice())?;
+                    let key_name = dist_account.name.split_once("/").map(|(_, n)| n).unwrap_or_default();
+                    
+                    let is_proxy = is_proxy_key_name(key_name);
+                    
                     trace!(?dist_account.name, "Adding distributed account to hashmap");
 
                     // Find the participant ID for this host from the participants list
@@ -918,4 +918,12 @@ async fn make_generate_proxy_request(
             DirkCommunicationError("return value is not a valid public key".to_string())
         })?;
     Ok(proxy_key)
+}
+
+/// Checks if a key name follows the proxy pattern <consensus>/<module_id>/<uuid>
+fn is_proxy_key_name(key_name: &str) -> bool {
+    key_name.split('/').count() == 3 && {
+        let parts: Vec<&str> = key_name.split('/').collect();
+        uuid::Uuid::parse_str(parts[2]).is_ok() // Verify the last part is a valid UUID
+    }
 }
