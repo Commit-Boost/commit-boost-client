@@ -71,7 +71,7 @@ pub struct DirkManager {
 
 impl DirkManager {
     pub async fn new_from_config(chain: Chain, config: DirkConfig) -> eyre::Result<Self> {
-        let mut tls_configs = Vec::new();
+        let mut tls_configs = Vec::with_capacity(config.hosts.len());
 
         // Create a TLS config for each host
         for host in config.hosts.clone() {
