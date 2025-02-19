@@ -256,12 +256,12 @@ unlock = false
 
 # Add one entry like this for each host
 [[signer.dirk.hosts]]
-domain = "localhost-1"
+server_name = "localhost-1"
 url = "https://localhost-1:8081"
 accounts = ["SomeWallet/SomeAccount", "DistributedWallet/Account1"]
 
 [[signer.dirk.hosts]]
-domain = "localhost-2"
+server_name = "localhost-2"
 url = "https://localhost-2:8082"
 accounts = ["AnotherWallet/AnotherAccount", "DistributedWallet/Account1"]
 ```

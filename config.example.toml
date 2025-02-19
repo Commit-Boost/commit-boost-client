@@ -171,14 +171,14 @@ url = "http://0xa119589bb33ef52acbb8116832bec2b58fca590fe5c85eac5d3230b44d5bc09f
 #[[signer.dirk.hosts]]
 # Domain name of the server to use in TLS verification, if different from the URL
 # OPTIONAL
-#domain = "localhost-1"
+#server_name = "localhost-1"
 # Complete URL of a Dirk gateway
 #url = "https://localhost:8881"
 # Accounts to use as consensus keys
 #accounts = ["Wallet1/Account1", "DistributedWallet/Account1"]
 
 #[[signer.dirk.hosts]]
-#domain = "localhost-2"
+#server_name = "localhost-2"
 #url = "https://localhost:8882"
 #accounts = ["Wallet2/Account2", "DistributedWallet/Account1"]
 

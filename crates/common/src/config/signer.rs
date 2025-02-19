@@ -36,7 +36,7 @@ fn default_signer() -> String {
 #[serde(rename_all = "snake_case")]
 pub struct DirkHost {
     /// Domain name of the server to use in TLS verification
-    pub domain: Option<String>,
+    pub server_name: Option<String>,
     /// Complete URL of a Dirk gateway
     pub url: Url,
     /// Accounts used as consensus keys
