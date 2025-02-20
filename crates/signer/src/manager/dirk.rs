@@ -488,28 +488,46 @@ impl DirkManager {
         host_domain: Option<&str>,
     ) -> Result<(), SignerModuleError> {
         trace!(account, host = host_domain, "unlock_account_on_channel");
+        const MAX_RETRIES: u32 = 5;
+        let mut retry_count = 0;
 
-        let mut client = AccountManagerClient::new(channel.clone());
-        let unlock_request = tonic::Request::new(UnlockAccountRequest {
-            account: account.to_string(),
-            passphrase: password.as_bytes().to_vec(),
-        });
+        loop {
+            let mut client = AccountManagerClient::new(channel.clone());
+            let unlock_request = tonic::Request::new(UnlockAccountRequest {
+                account: account.to_string(),
+                passphrase: password.as_bytes().to_vec(),
+            });
 
-        let unlock_response = client.unlock(unlock_request).await.map_err(|err| {
-            DirkCommunicationError(format!(
-                "unlock_account_on_channel error unlocking account: {err}"
-            ))
-        })?;
+            match client.unlock(unlock_request).await {
+                Ok(unlock_response) => {
+                    if unlock_response.get_ref().state() == ResponseState::Succeeded {
+                        return Ok(());
+                    }
+                    // We have connected but an error has been returned
+                    let err = unlock_response.get_ref();
+                    warn!(?err, "unlock_account_on_channel error response");
+                    return Err(DirkCommunicationError(
+                        "unlock_account_on_channel error response received".to_string(),
+                    ));
+                }
+                Err(status) => {
+                    retry_count += 1;
+                    if retry_count >= MAX_RETRIES {
+                        return Err(DirkCommunicationError(format!(
+                            "Failed to connect after {MAX_RETRIES} attempts: {status}"
+                        )));
+                    }
 
-        if unlock_response.get_ref().state() != ResponseState::Succeeded {
-            let err = unlock_response.get_ref();
-            warn!(?err, "unlock_account_on_channel error response");
-            return Err(DirkCommunicationError(
-                "unlock_account_on_channel error response received".to_string(),
-            ));
+                    warn!(
+                        ?status,
+                        retry_count,
+                        host = host_domain,
+                        "Connection failed, retrying in 3 seconds..."
+                    );
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                }
+            }
         }
-
-        Ok(())
     }
 
     pub async fn generate_proxy_key(
