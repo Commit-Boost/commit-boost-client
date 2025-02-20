@@ -23,7 +23,7 @@ impl SigningManager {
             SigningManager::Local(local_manager) => {
                 Ok(local_manager.read().await.consensus_pubkeys().len())
             }
-            SigningManager::Dirk(dirk_manager) => Ok(dirk_manager.consensus_pubkeys().await?.len()),
+            SigningManager::Dirk(dirk_manager) => Ok(dirk_manager.consensus_pubkeys().await.len()),
         }
     }
 
@@ -35,7 +35,7 @@ impl SigningManager {
                 let proxies = manager.proxies();
                 Ok(proxies.bls_signers.len() + proxies.ecdsa_signers.len())
             }
-            SigningManager::Dirk(dirk_manager) => Ok(dirk_manager.proxies().await?.len()),
+            SigningManager::Dirk(dirk_manager) => Ok(dirk_manager.proxies().await.len()),
         }
     }
 

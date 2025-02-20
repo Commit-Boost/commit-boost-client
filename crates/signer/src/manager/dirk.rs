@@ -226,116 +226,43 @@ impl DirkManager {
         Ok(Self { proxy_store: Some(proxy_store), ..self })
     }
 
-    /// Get all available accounts in the `self.accounts` wallets
-    pub async fn get_all_accounts(&self) -> Result<Vec<DirkAccount>, SignerModuleError> {
-        let mut seen_accounts: HashSet<Vec<u8>> = HashSet::new();
-        let mut unique_accounts = Vec::new();
-
-        // Query all channels and combine results
-        for channel in self.channels.values() {
-            let (accounts, distributed_accounts) = get_accounts_in_wallets(
-                channel.clone(),
-                self.accounts_non_proxy().iter().map(|account| account.wallet.clone()).collect(),
-            )
-            .await?;
-
-            // There might be duplicates since we're querying several hosts,
-            // so only keep unique ones
-            for account in accounts {
-                if seen_accounts.insert(account.public_key.clone()) {
-                    unique_accounts.push(account);
-                }
-            }
-
-            for account in distributed_accounts {
-                if seen_accounts.insert(account.composite_public_key.clone()) {
-                    unique_accounts.push(DirkAccount {
-                        name: account.name,
-                        public_key: account.composite_public_key,
-                        uuid: account.uuid,
-                    });
-                }
-            }
-        }
-
-        Ok(unique_accounts)
-    }
-
     /// Get the complete account name (`wallet/account`) for a public key.
     /// Returns `Ok(None)` if the account was not found.
     /// Returns `Err` if there was a communication error with Dirk.
-    async fn get_pubkey_account(
+    fn get_pubkey_account(
         &self,
         pubkey: BlsPublicKey,
-    ) -> Result<Option<String>, SignerModuleError> {
+    ) -> Option<String> {
         match self
             .accounts()
             .iter()
-            .find(|account| account.public_key.is_some_and(|account_pk| account_pk == pubkey))
-        {
-            Some(account) => Ok(Some(account.complete_name())),
-            None => {
-                let accounts = self.get_all_accounts().await?;
-
-                for account in accounts {
-                    if account.public_key == pubkey.to_vec() {
-                        return Ok(Some(account.name));
-                    }
-                }
-
-                Ok(None)
+            .find(|account|
+                      account.public_key.is_some_and(|account_pk| account_pk == pubkey)) {
+                Some(account) => Some(account.complete_name()),
+                None => None,
             }
-        }
     }
 
     /// Returns the public keys of the config-registered accounts
-    pub async fn consensus_pubkeys(&self) -> eyre::Result<Vec<BlsPublicKey>> {
-        let registered_pubkeys = self
+    pub async fn consensus_pubkeys(&self) -> Vec<BlsPublicKey> {
+        self
             .accounts_non_proxy()
             .iter()
             .filter_map(|account| account.public_key)
-            .collect::<Vec<BlsPublicKey>>();
-
-        if registered_pubkeys.len() == self.accounts.len() {
-            Ok(registered_pubkeys)
-        } else {
-            let accounts = self.get_all_accounts().await?;
-
-            let expected_accounts: Vec<String> =
-                self.accounts().iter().map(|account| account.complete_name()).collect();
-
-            Ok(accounts
-                .iter()
-                .filter_map(|account| {
-                    if expected_accounts.contains(&account.name) {
-                        BlsPublicKey::try_from(account.public_key.as_slice()).ok()
-                    } else {
-                        None
-                    }
-                })
-                .collect())
-        }
+            .collect::<Vec<BlsPublicKey>>()
     }
 
     /// Returns the public keys of all the proxy accounts found in Dirk.
     /// An account is considered a proxy if its name has the format
     /// `consensus_account/module_id/uuid`, where `consensus_account` is the
     /// name of a config-registered account.
-    pub async fn proxies(&self) -> eyre::Result<Vec<BlsPublicKey>> {
-        let accounts = self.get_all_accounts().await?;
-
-        Ok(accounts
+    pub async fn proxies(&self) -> Vec<BlsPublicKey> {
+        self
+            .accounts()
             .iter()
-            .filter_map(|account| {
-                if self.accounts().iter().any(|consensus_account| {
-                    account.name.starts_with(&format!("{}/", consensus_account.complete_name()))
-                }) {
-                    BlsPublicKey::try_from(account.public_key.as_slice()).ok()
-                } else {
-                    None
-                }
-            })
-            .collect())
+            .filter(|account| account.is_proxy)
+            .filter_map(|account| account.public_key)
+            .collect::<Vec<BlsPublicKey>>()
     }
 
     /// Returns a mapping of the proxy accounts' pubkeys by consensus account,
@@ -347,28 +274,29 @@ impl DirkManager {
         &self,
         module_id: &ModuleId,
     ) -> Result<Vec<ConsensusProxyMap>, SignerModuleError> {
-        let accounts = self.get_all_accounts().await?;
+        let consensus_accounts = self.accounts_non_proxy();
+        let accounts = self.accounts();
+        let proxy_accounts: Vec<_> = accounts
+            .iter()
+            .filter(|account| account.is_proxy)
+            .collect();
 
         let mut proxy_maps = Vec::new();
-
-        for consensus_account in self.accounts_non_proxy().iter() {
+        for consensus_account in consensus_accounts {
             let Some(consensus_key) = consensus_account.public_key else {
+                trace!("get_consensus_proxy_maps: skipping");
                 continue;
             };
-
-            let proxy_keys = accounts
-                .iter()
-                .filter_map(|account| {
-                    if account
-                        .name
-                        .starts_with(&format!("{}/{module_id}/", consensus_account.complete_name()))
-                    {
-                        BlsPublicKey::try_from(account.public_key.as_slice()).ok()
-                    } else {
-                        None
+            let mut proxy_keys: Vec<BlsPublicKey> = vec![];
+            let start_of_proxy_name = format!("{}/{module_id}", consensus_account.complete_name());
+            for proxy in &proxy_accounts {
+                trace!(%proxy.name, %start_of_proxy_name, "get_consensus_proxy_maps: checking if name starts with");
+                if proxy.complete_name().starts_with(&start_of_proxy_name) {
+                    if let Some(pubkey) = proxy.public_key {
+                        proxy_keys.push(pubkey);
                     }
-                })
-                .collect::<Vec<BlsPublicKey>>();
+                }
+            }
             proxy_maps.push(ConsensusProxyMap {
                 consensus: consensus_key,
                 proxy_bls: proxy_keys,
@@ -538,7 +466,6 @@ impl DirkManager {
     ) -> Result<SignedProxyDelegation<BlsPublicKey>, SignerModuleError> {
         let consensus_account = self
             .get_pubkey_account(consensus_pubkey)
-            .await?
             .ok_or(SignerModuleError::UnknownConsensusSigner(consensus_pubkey.to_vec()))?;
 
         let consensus_account_info = self
