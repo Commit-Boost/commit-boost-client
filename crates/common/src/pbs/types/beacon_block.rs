@@ -25,6 +25,13 @@ impl SignedBlindedBeaconBlock {
         }
     }
 
+    pub fn parent_hash(&self) -> B256 {
+        match &self.message {
+            BlindedBeaconBlock::Electra(b) => b.parent_root,
+            BlindedBeaconBlock::Deneb(b) => b.parent_root,
+        }
+    }
+
     pub fn slot(&self) -> u64 {
         match &self.message {
             BlindedBeaconBlock::Electra(b) => b.slot,

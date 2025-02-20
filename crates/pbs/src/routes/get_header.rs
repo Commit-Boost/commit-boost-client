@@ -5,7 +5,7 @@ use axum::{
     response::IntoResponse,
 };
 use cb_common::{
-    pbs::{BuilderEvent, GetHeaderParams, SignedExecutionPayloadHeader, VersionedResponse},
+    pbs::{BuilderEvent, GetHeaderParams, GetHeaderResponse},
     utils::{get_user_agent, ms_into_slot},
 };
 use reqwest::StatusCode;
@@ -25,7 +25,7 @@ fn log_get_header(
     user_agent: String,
     ms_into_slot: u64,
     relays: Vec<String>,
-    max_bid: &Option<VersionedResponse<SignedExecutionPayloadHeader>>,
+    max_bid: &Option<GetHeaderResponse>,
 ) {
     if let Some(max_bid) = max_bid {
         info!(
@@ -33,12 +33,13 @@ fn log_get_header(
             ua = ?user_agent,
             msIntoSlot = ms_into_slot,
             parentHash = %params.parent_hash,
-            pubkey = %params.pubkey,
+            pubkey = %max_bid.pubkey(),
             slot = params.slot,
             relays = ?relays,
             valueEth = %format_ether(max_bid.value()),
             blockHash = %max_bid.block_hash(),
-            txRoot = %max_bid.data.message.header.transactions_root,
+            blockNumber = %max_bid.block_number(),
+            gasLimit = %max_bid.gas_limit(),
         );
     } else {
         info!(
