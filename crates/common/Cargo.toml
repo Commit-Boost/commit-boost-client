@@ -24,6 +24,8 @@ toml.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde_yaml.workspace = true
+ethereum_ssz.workspace = true
+ethereum_ssz_derive.workspace = true
 
 # telemetry
 tracing.workspace = true

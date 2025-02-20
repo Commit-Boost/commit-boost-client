@@ -1278,7 +1278,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
- "tree_hash 0.8.0",
+ "tree_hash 0.9.1",
 ]
 
 [[package]]
@@ -1312,6 +1312,8 @@ dependencies = [
  "derive_more",
  "eth2_keystore",
  "ethereum_serde_utils 0.7.0",
+ "ethereum_ssz 0.8.0",
+ "ethereum_ssz_derive",
  "eyre",
  "k256",
  "pbkdf2 0.12.2",
@@ -1328,7 +1330,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
- "tree_hash 0.8.0",
+ "tree_hash 0.9.1",
  "tree_hash_derive",
  "unicode-normalization",
  "url",
@@ -1368,6 +1370,7 @@ dependencies = [
  "thiserror 1.0.61",
  "tokio",
  "tracing",
+ "tree_hash 0.9.1",
  "url",
  "uuid 1.8.0",
 ]
@@ -1392,7 +1395,7 @@ dependencies = [
  "thiserror 1.0.61",
  "tokio",
  "tracing",
- "tree_hash 0.8.0",
+ "tree_hash 0.9.1",
  "tree_hash_derive",
  "uuid 1.8.0",
 ]
@@ -1411,7 +1414,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "tree_hash 0.8.0",
+ "tree_hash 0.9.1",
  "url",
 ]
 
@@ -1555,7 +1558,7 @@ dependencies = [
  "eyre",
  "tokio",
  "tracing",
- "tree_hash 0.8.0",
+ "tree_hash 0.9.1",
  "tree_hash_derive",
 ]
 
@@ -2106,17 +2109,6 @@ checksum = "e61ffea29f26e8249d35128a82ec8d3bd4fbc80179ea5f5e5e3daafef6a80fcb"
 dependencies = [
  "ethereum-types",
  "itertools 0.10.5",
- "smallvec",
-]
-
-[[package]]
-name = "ethereum_ssz"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e999563461faea0ab9bc0024e5e66adcee35881f3d5062f52f31a4070fe1522"
-dependencies = [
- "alloy-primitives",
- "itertools 0.13.0",
  "smallvec",
 ]
 
@@ -4066,18 +4058,17 @@ dependencies = [
 
 [[package]]
 name = "ssz_types"
-version = "0.8.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35e0719d2b86ac738a55ae71a8429f52aa2741da988f1fd0975b4cc610fd1e08"
+checksum = "dad0fa7e9a85c06d0a6ba5100d733fff72e231eb6db2d86078225cf716fd2d95"
 dependencies = [
- "derivative",
  "ethereum_serde_utils 0.7.0",
- "ethereum_ssz 0.7.1",
+ "ethereum_ssz 0.8.0",
  "itertools 0.13.0",
  "serde",
  "serde_derive",
  "smallvec",
- "tree_hash 0.8.0",
+ "tree_hash 0.9.1",
  "typenum",
 ]
 
@@ -4627,20 +4618,22 @@ dependencies = [
 
 [[package]]
 name = "tree_hash"
-version = "0.8.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "373495c23db675a5192de8b610395e1bec324d596f9e6111192ce903dc11403a"
+checksum = "6c58eb0f518840670270d90d97ffee702d8662d9c5494870c9e1e9e0fa00f668"
 dependencies = [
  "alloy-primitives",
  "ethereum_hashing 0.7.0",
+ "ethereum_ssz 0.8.0",
  "smallvec",
+ "typenum",
 ]
 
 [[package]]
 name = "tree_hash_derive"
-version = "0.8.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0857056ca4eb5de8c417309be42bcff6017b47e86fbaddde609b4633f66061e"
+checksum = "699e7fb6b3fdfe0c809916f251cf5132d64966858601695c3736630a87e7166a"
 dependencies = [
  "darling",
  "proc-macro2",
