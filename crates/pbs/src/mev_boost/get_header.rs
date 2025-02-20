@@ -406,7 +406,7 @@ async fn send_one_get_header(
     if validation.extra_validation_enabled {
         let parent_block = validation.parent_block.read();
         if let Some(parent_block) = parent_block.as_ref() {
-            extra_validation_deneb(parent_block, &get_header_response)?;
+            extra_validation(parent_block, &get_header_response)?;
         } else {
             warn!("parent block not found, skipping extra validation");
         }
@@ -486,7 +486,7 @@ fn validate_signature<T: TreeHash>(
     Ok(())
 }
 
-fn extra_validation_deneb(
+fn extra_validation(
     parent_block: &Block,
     signed_header: &GetHeaderResponse,
 ) -> Result<(), ValidationError> {

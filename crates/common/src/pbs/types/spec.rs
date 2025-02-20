@@ -52,8 +52,8 @@ impl EthSpec for DenebSpec {
     type MaxAttesterSlashings = typenum::U2;
     type MaxAttestations = typenum::U128;
 
-    // Ignore Electra
-    type MaxValidatorsPerSlot = typenum::U0;
+    // Electra
+    type MaxValidatorsPerSlot = typenum::U131072;
 
     type MaxConsolidationRequestsPerPayload = typenum::U0;
     type MaxDepositRequestsPerPayload = typenum::U0;
