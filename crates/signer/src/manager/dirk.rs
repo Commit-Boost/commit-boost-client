@@ -19,6 +19,7 @@ use rand::Rng;
 use tonic::transport::{Channel, ClientTlsConfig};
 use tracing::{info, trace, warn};
 use tree_hash::TreeHash;
+use tokio::task::JoinSet;
 
 use crate::{
     error::SignerModuleError::{self, DirkCommunicationError},
@@ -690,17 +691,15 @@ impl DirkManager {
         let account = self
             .accounts
             .get(&key)
-            .ok_or_else(|| SignerModuleError::UnknownConsensusSigner(pubkey.to_vec()))?;
+            .ok_or_else(|| SignerModuleError::UnknownConsensusSigner(pubkey.to_vec()))?
+            .clone();
 
         match account.wallet_type {
             WalletType::Simple => {
-                // No need for extra logic since we're just signing to a single channel
                 let channel = self.get_channel_for_pubkey(&pubkey)?;
-                self.sign_with_channel(channel, pubkey, account, domain, object_root).await
+                self.sign_with_channel(channel, pubkey, &account, domain, object_root).await
             }
             WalletType::Distributed => {
-                let mut signatures = Vec::with_capacity(account.hosts.len());
-                let mut identifiers = Vec::with_capacity(account.hosts.len());
                 let num_hosts_needed = account.signing_threshold as usize;
 
                 if account.hosts.len() < num_hosts_needed {
@@ -711,36 +710,64 @@ impl DirkManager {
                     )));
                 }
 
-                // Try to get signatures from hosts
+                let mut set = JoinSet::new();
+                
+                // Spawn tasks for each host
                 for host in &account.hosts {
+                    let Some(channel) = self.channels.get(&host.server_name).cloned() else {
+                        continue;
+                    };
+                    let dirk = self.clone();
+                    let account = account.clone();
+                    let server_name = host.server_name.clone();
+                    let participant_id = host.participant_id;
+
+                    set.spawn(async move {
+                        trace!(host = server_name, "Requesting signature shard for creating proxy");
+
+                        match dirk
+                            .sign_with_channel(channel, pubkey, &account, domain, object_root)
+                            .await
+                        {
+                            Ok(signature) => {
+                                trace!(
+                                    host = server_name,
+                                    participant_id = participant_id,
+                                    "Got signature shard"
+                                );
+                                Ok((signature, participant_id))
+                            }
+                            Err(e) => {
+                                warn!("Failed to get signature from host {}: {}", server_name, e);
+                                Err(e)
+                            }
+                        }
+                    });
+                }
+
+                let mut signatures = Vec::new();
+                let mut identifiers = Vec::new();
+
+                // Collect results until we have enough signatures
+                while let Some(result) = set.join_next().await {
+                    // Check if we already have enough signatures before processing more
                     if signatures.len() >= num_hosts_needed {
+                        trace!("Already have enough signatures ({}/{}), cancelling remaining tasks", 
+                            signatures.len(), num_hosts_needed);
+                        set.abort_all();
                         break;
                     }
 
-                    let channel = self.channels.get(&host.server_name).cloned().ok_or_else(|| {
-                        SignerModuleError::Internal(format!(
-                            "No channel found for host {}",
-                            host.server_name
-                        ))
-                    })?;
+                    if let Ok(Ok((signature, id))) = result {
+                        signatures.push(signature);
+                        identifiers.push(id);
+                        trace!("Got signature {}/{}", signatures.len(), num_hosts_needed);
 
-                    trace!(host = host.server_name, "Requesting signature shard for creating proxy");
-                    match self
-                        .sign_with_channel(channel, pubkey, account, domain, object_root)
-                        .await
-                    {
-                        Ok(signature) => {
-                            signatures.push(signature);
-                            identifiers.push(host.participant_id);
-                            trace!(
-                                host = host.server_name,
-                                participant_id = host.participant_id,
-                                "Got signature shard"
-                            );
-                        }
-                        Err(e) => {
-                            warn!("Failed to get signature from host {}: {}", host.server_name, e);
-                            continue;
+                        if signatures.len() >= num_hosts_needed {
+                            trace!("Already have enough signatures ({}/{}), cancelling remaining tasks",
+                                signatures.len(), num_hosts_needed);
+                            set.abort_all();
+                            break;
                         }
                     }
                 }
