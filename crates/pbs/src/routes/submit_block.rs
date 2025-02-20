@@ -35,7 +35,7 @@ fn log_submit_block(
     );
 }
 
-#[tracing::instrument(skip_all, name = "submit_blinded_block", fields(req_id = %Uuid::new_v4(), slot = signed_blinded_block.message.slot))]
+#[tracing::instrument(skip_all, name = "submit_blinded_block", fields(req_id = %Uuid::new_v4(), slot = signed_blinded_block.slot()))]
 pub async fn handle_submit_block<S: BuilderApiState, A: BuilderApi<S>>(
     State(state): State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
@@ -48,13 +48,13 @@ pub async fn handle_submit_block<S: BuilderApiState, A: BuilderApi<S>>(
 
     // inputs for logging
     let now = utcnow_ms();
-    let slot = signed_blinded_block.message.slot;
+    let slot = signed_blinded_block.slot();
     let block_hash = signed_blinded_block.block_hash();
     let slot_start_ms = timestamp_of_slot_start_millis(slot, state.config.chain);
     let ua = get_user_agent(&req_headers);
     let ms_into_slot = now.saturating_sub(slot_start_ms);
     let relays = state.config.all_relays.iter().map(|r| (*r.id).clone()).collect::<Vec<_>>();
-    let parent_hash = signed_blinded_block.message.body.execution_payload_header.parent_hash;
+    let parent_hash = signed_blinded_block.parent_hash();
 
     match A::submit_block(signed_blinded_block, req_headers, state.clone()).await {
         Ok(res) => {

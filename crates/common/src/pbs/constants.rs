@@ -14,7 +14,7 @@ pub const RELOAD_PATH: &str = "/reload";
 // const HEADER_SLOT_UUID_KEY: &str = "X-MEVBoost-SlotID";
 pub const HEADER_VERSION_KEY: &str = "X-CommitBoost-Version";
 pub const HEADER_VERSION_VALUE: &str = COMMIT_BOOST_VERSION;
-pub const HEADER_START_TIME_UNIX_MS: &str = "X-MEVBoost-StartTimeUnixMS";
+pub const HEADER_START_TIME_UNIX_MS: &str = "Date-Milliseconds";
 
 pub const BUILDER_EVENTS_PATH: &str = "/builder_events";
 pub const DEFAULT_PBS_JWT_KEY: &str = "DEFAULT_PBS";

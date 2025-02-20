@@ -136,7 +136,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: |
             ghcr.io/commit-boost/pbs:${{ github.ref_name }}
-            ghcr.io/commit-boost/pbs:latest
+            ${{ !contains(github.ref_name, 'rc') && 'ghcr.io/commit-boost/pbs:latest' || '' }}
           cache-from: type=registry,ref=ghcr.io/commit-boost/pbs:buildcache
           cache-to: type=registry,ref=ghcr.io/commit-boost/pbs:buildcache,mode=max
           file: provisioning/pbs.Dockerfile
@@ -172,7 +172,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: |
             ghcr.io/commit-boost/signer:${{ github.ref_name }}
-            ghcr.io/commit-boost/signer:latest
+            ${{ !contains(github.ref_name, 'rc') && 'ghcr.io/commit-boost/signer:latest' || '' }}
           cache-from: type=registry,ref=ghcr.io/commit-boost/signer:buildcache
           cache-to: type=registry,ref=ghcr.io/commit-boost/signer:buildcache,mode=max
           file: provisioning/signer.Dockerfile

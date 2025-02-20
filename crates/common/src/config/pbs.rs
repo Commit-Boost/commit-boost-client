@@ -111,9 +111,6 @@ pub struct PbsConfig {
     /// Minimum bid that will be accepted from get_header
     #[serde(rename = "min_bid_eth", with = "as_eth_str", default = "default_u256")]
     pub min_bid_wei: U256,
-    /// List of relay monitor urls in the form of scheme://host
-    #[serde(default)]
-    pub relay_monitors: Vec<Url>,
     /// How late in the slot we consider to be "late"
     #[serde(default = "default_u64::<LATE_IN_SLOT_TIME_MS>")]
     pub late_in_slot_time_ms: u64,

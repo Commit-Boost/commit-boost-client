@@ -1,14 +1,8 @@
-use std::time::Instant;
-
 use alloy::{primitives::hex::encode_prefixed, rpc::types::beacon::relay::ValidatorRegistration};
 use axum::{extract::State, http::HeaderMap, response::IntoResponse, Json};
-use cb_common::{
-    pbs::{BuilderEvent, REGISTER_VALIDATOR_PATH},
-    utils::get_user_agent,
-    DEFAULT_REQUEST_TIMEOUT,
-};
-use reqwest::{StatusCode, Url};
-use tracing::{debug, error, info, trace};
+use cb_common::{pbs::BuilderEvent, utils::get_user_agent};
+use reqwest::StatusCode;
+use tracing::{error, info, trace};
 use uuid::Uuid;
 
 use crate::{
@@ -58,13 +52,6 @@ pub async fn handle_register_validator<S: BuilderApiState, A: BuilderApi<S>>(
 
     let ua = get_user_agent(&req_headers);
 
-    if state.has_monitors() {
-        // send registrations to monitors
-        for relay_monitor in state.pbs_config().relay_monitors.clone() {
-            tokio::spawn(send_relay_monitor_registrations(registrations.clone(), relay_monitor));
-        }
-    }
-
     match A::register_validator(registrations.clone(), req_headers, state.clone()).await {
         Ok(_) => {
             log_register_validator(&registrations, ua, true, None);
@@ -82,46 +69,5 @@ pub async fn handle_register_validator<S: BuilderApiState, A: BuilderApi<S>>(
                 .inc();
             Err(err)
         }
-    }
-}
-
-#[tracing::instrument(skip_all, name = "monitor", fields(url = relay_monitor_url.host_str().unwrap_or_default()))]
-async fn send_relay_monitor_registrations(
-    registrations: Vec<ValidatorRegistration>,
-    relay_monitor_url: Url,
-) {
-    let Ok(url) = relay_monitor_url.join(REGISTER_VALIDATOR_PATH) else {
-        error!("invalid URL");
-        return;
-    };
-
-    let start_request = Instant::now();
-    let res = match reqwest::Client::new()
-        .post(url)
-        .timeout(DEFAULT_REQUEST_TIMEOUT)
-        .json(&registrations)
-        .send()
-        .await
-    {
-        Ok(res) => res,
-        Err(err) => {
-            error!(%err, "failed monitor registration");
-            return;
-        }
-    };
-    let request_latency = start_request.elapsed();
-
-    let code = res.status();
-    match res.bytes().await {
-        Ok(response_bytes) => {
-            if code.is_success() {
-                debug!(?code, latency = ?request_latency, "relay monitor registration successful");
-            } else {
-                let err = String::from_utf8_lossy(&response_bytes);
-                error!(?code, %err, "failed monitor registration");
-            }
-        }
-
-        Err(err) => error!(%err, "failed to decode monitor response"),
     }
 }

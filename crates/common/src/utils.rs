@@ -13,6 +13,7 @@ use rand::{distributions::Alphanumeric, Rng};
 use reqwest::header::HeaderMap;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
+use ssz::{Decode, Encode};
 
 use crate::{pbs::HEADER_VERSION_VALUE, types::Chain};
 
@@ -61,7 +62,21 @@ pub fn test_encode_decode<T: Serialize + DeserializeOwned>(d: &str) -> T {
     let encoded = serde_json::to_string(&decoded).unwrap();
     let original_v: Value = serde_json::from_str(d).unwrap();
     let encoded_v: Value = serde_json::from_str(&encoded).unwrap();
-    assert_eq!(original_v, encoded_v, "encode mismatch");
+
+    if original_v != encoded_v {
+        println!("ORIGINAL: {original_v}");
+        println!("ENCODED: {encoded_v}");
+        panic!("encode mismatch");
+    }
+
+    decoded
+}
+
+pub fn test_encode_decode_ssz<T: Encode + Decode>(d: &[u8]) -> T {
+    let decoded = T::from_ssz_bytes(d).expect("deserialize");
+    let encoded = T::as_ssz_bytes(&decoded);
+
+    assert_eq!(encoded, d);
 
     decoded
 }
