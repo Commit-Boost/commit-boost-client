@@ -59,41 +59,9 @@ impl SigningService {
 
         let module_ids: Vec<String> = config.jwts.left_values().cloned().map(Into::into).collect();
 
-        let state = match config.dirk {
-            Some(dirk) => {
-                let mut dirk_manager = DirkManager::new_from_config(config.chain, dirk).await?;
-                if let Some(store) = config.store {
-                    dirk_manager = dirk_manager.with_proxy_store(store.init_from_env()?)?;
-                }
-
-                SigningState {
-                    manager: Arc::new(RwLock::new(SigningManager::Dirk(dirk_manager))),
-                    jwts: config.jwts.into(),
-                }
-            }
-            None => {
-                let proxy_store = if let Some(store) = config.store {
-                    Some(store.init_from_env()?)
-                } else {
-                    warn!("Proxy store not configured. Proxies keys and delegations will not be persisted");
-                    None
-                };
-
-                let mut local_manager = LocalSigningManager::new(config.chain, proxy_store)?;
-
-                if let Some(loader) = config.loader {
-                    for signer in loader.load_keys()? {
-                        local_manager.add_consensus_signer(signer);
-                    }
-                }
-
-                SigningState {
-                    manager: Arc::new(RwLock::new(SigningManager::Local(Arc::new(RwLock::new(
-                        local_manager,
-                    ))))),
-                    jwts: config.jwts.into(),
-                }
-            }
+        let state = SigningState {
+            manager: Arc::new(RwLock::new(start_manager(config.clone()).await?)),
+            jwts: config.jwts.into(),
         };
 
         let loaded_consensus = state.manager.read().await.available_consensus_signers().await?;

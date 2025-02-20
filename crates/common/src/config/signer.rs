@@ -87,7 +87,7 @@ pub struct DirkConfig {
     pub unlock: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StartSignerConfig {
     pub chain: Chain,
     pub loader: Option<SignerLoader>,
