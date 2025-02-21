@@ -234,7 +234,7 @@ impl DirkManager {
         self.accounts.values().cloned().collect()
     }
 
-    fn accounts_non_proxy(&self) -> Vec<Account> {
+    fn consensus_accounts(&self) -> Vec<Account> {
         self.accounts.values().filter(|a| !a.is_proxy).cloned().collect()
     }
 
@@ -242,19 +242,17 @@ impl DirkManager {
         Ok(Self { proxy_store: Some(proxy_store), ..self })
     }
 
-    /// Get the complete account name (`wallet/account`) for a public key.
-    /// Returns `Ok(None)` if the account was not found.
-    /// Returns `Err` if there was a communication error with Dirk.
-    fn get_pubkey_account(&self, pubkey: BlsPublicKey) -> Option<String> {
-        self.accounts()
-            .iter()
-            .find(|account| account.public_key.is_some_and(|account_pk| account_pk == pubkey))
-            .map(|account| account.complete_name())
+    fn get_consensus_account(&self, pubkey: BlsPublicKey) -> Option<Account> {
+        self.accounts.get(&hex::encode(pubkey)).filter(|acc| !acc.is_proxy).cloned()
+    }
+
+    fn get_proxy_account(&self, pubkey: BlsPublicKey) -> Option<Account> {
+        self.accounts.get(&hex::encode(pubkey)).filter(|acc| acc.is_proxy).cloned()
     }
 
     /// Returns the public keys of the config-registered accounts
     pub async fn consensus_pubkeys(&self) -> Vec<BlsPublicKey> {
-        self.accounts_non_proxy()
+        self.consensus_accounts()
             .iter()
             .filter_map(|account| account.public_key)
             .collect::<Vec<BlsPublicKey>>()
@@ -302,11 +300,10 @@ impl DirkManager {
     /// `consensus_account/module_id/uuid`, where `consensus_account` is the
     /// name of a config-registered account.
     pub fn build_consensus_proxy_map(&mut self) {
-        let consensus_accounts = self.accounts_non_proxy();
         let accounts = self.accounts();
         let proxy_accounts: Vec<_> = accounts.iter().filter(|account| account.is_proxy).collect();
 
-        for consensus_account in consensus_accounts {
+        for consensus_account in self.consensus_accounts() {
             let Some(consensus_key) = consensus_account.public_key else {
                 continue;
             };
@@ -488,9 +485,16 @@ impl DirkManager {
         module_id: ModuleId,
         consensus_pubkey: BlsPublicKey,
     ) -> Result<SignedProxyDelegation<BlsPublicKey>, SignerModuleError> {
-        let consensus_account = self
-            .get_pubkey_account(consensus_pubkey)
-            .ok_or(SignerModuleError::UnknownConsensusSigner(consensus_pubkey.to_vec()))?;
+        let Some(consensus_account) = self
+            .consensus_accounts()
+            .iter()
+            .find(|account| {
+                account.public_key.is_some_and(|account_pk| account_pk == consensus_pubkey)
+            })
+            .map(|account| account.complete_name())
+        else {
+            return Err(SignerModuleError::UnknownConsensusSigner(consensus_pubkey.to_vec()));
+        };
 
         let consensus_account_info = self
             .accounts()
@@ -622,7 +626,7 @@ impl DirkManager {
 
         // Get delegation signature from the consensus account
         let message = ProxyDelegation { delegator, proxy: proxy_key };
-        let signature = self.request_signature(delegator, message.tree_hash_root().0).await?;
+        let signature = self.request_signature(delegator, message.tree_hash_root().0, true).await?;
         let delegation: SignedProxyDelegation<BlsPublicKey> =
             SignedProxyDelegation { message, signature };
 
@@ -639,14 +643,18 @@ impl DirkManager {
         &self,
         pubkey: BlsPublicKey,
         object_root: [u8; 32],
+        is_consensus: bool,
     ) -> Result<BlsSignature, SignerModuleError> {
         let domain = compute_domain(self.chain, COMMIT_BOOST_DOMAIN);
-        let key = hex::encode(pubkey);
-        let account = self
-            .accounts
-            .get(&key)
-            .ok_or_else(|| SignerModuleError::UnknownConsensusSigner(pubkey.to_vec()))?
-            .clone();
+        let account = if is_consensus {
+            self.get_consensus_account(pubkey)
+                .ok_or_else(|| SignerModuleError::UnknownConsensusSigner(pubkey.to_vec()))?
+                .clone()
+        } else {
+            self.get_proxy_account(pubkey)
+                .ok_or_else(|| SignerModuleError::UnknownProxySigner(pubkey.to_vec()))?
+                .clone()
+        };
 
         match account.wallet_type {
             WalletType::Simple => {

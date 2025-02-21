@@ -186,12 +186,12 @@ async fn handle_request_signature(
         },
         SigningManager::Dirk(dirk_manager) => match request {
             SignRequest::Consensus(SignConsensusRequest { object_root, pubkey }) => dirk_manager
-                .request_signature(pubkey, object_root)
+                .request_signature(pubkey, object_root, true)
                 .await
                 .map(|sig| Json(sig).into_response()),
             SignRequest::ProxyBls(SignProxyRequest { object_root, pubkey: bls_key }) => {
                 dirk_manager
-                    .request_signature(bls_key, object_root)
+                    .request_signature(bls_key, object_root, false)
                     .await
                     .map(|sig| Json(sig).into_response())
             }
