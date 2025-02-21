@@ -5,22 +5,6 @@ use std::{
     path::PathBuf,
 };
 
-use alloy::{hex, primitives::FixedBytes, rpc::types::beacon::constants::BLS_SIGNATURE_BYTES_LEN};
-use blsful::inner_types::{Field, G2Affine, G2Projective, Group, Scalar};
-use cb_common::{
-    commit::request::{ConsensusProxyMap, ProxyDelegation, SignedProxyDelegation},
-    config::DirkConfig,
-    constants::COMMIT_BOOST_DOMAIN,
-    signature::compute_domain,
-    signer::{BlsPublicKey, BlsSignature, ProxyStore},
-    types::{Chain, ModuleId},
-};
-use rand::Rng;
-use tonic::transport::{Channel, ClientTlsConfig};
-use tracing::{info, trace, warn};
-use tree_hash::TreeHash;
-use tokio::task::JoinSet;
-
 use crate::{
     error::SignerModuleError::{self, DirkCommunicationError},
     proto::v1::{
@@ -30,6 +14,23 @@ use crate::{
         UnlockAccountRequest,
     },
 };
+use alloy::signers::k256::sha2::digest::typenum::Mod;
+use alloy::{hex, primitives::FixedBytes, rpc::types::beacon::constants::BLS_SIGNATURE_BYTES_LEN};
+use blsful::inner_types::{Field, G2Affine, G2Projective, Group, Scalar};
+use cb_common::signer::EcdsaPublicKey;
+use cb_common::{
+    commit::request::{ConsensusProxyMap, ProxyDelegation, SignedProxyDelegation},
+    config::DirkConfig,
+    constants::COMMIT_BOOST_DOMAIN,
+    signature::compute_domain,
+    signer::{BlsPublicKey, BlsSignature, ProxyStore},
+    types::{Chain, ModuleId},
+};
+use rand::Rng;
+use tokio::task::JoinSet;
+use tonic::transport::{Channel, ClientTlsConfig};
+use tracing::{info, trace, warn};
+use tree_hash::TreeHash;
 
 #[derive(Clone, Debug)]
 enum WalletType {
@@ -61,6 +62,12 @@ impl Account {
 }
 
 #[derive(Clone, Debug)]
+struct ModuleConsensusProxyMap {
+    pub consensus: BlsPublicKey,
+    pub proxy_bls: Vec<(BlsPublicKey, ModuleId)>,
+}
+
+#[derive(Clone, Debug)]
 pub struct DirkManager {
     chain: Chain,
     channels: HashMap<String, Channel>, // server_name -> channel
@@ -68,6 +75,7 @@ pub struct DirkManager {
     unlock: bool,
     secrets_path: PathBuf,
     proxy_store: Option<ProxyStore>,
+    proxy_maps: Vec<ModuleConsensusProxyMap>,
 }
 
 impl DirkManager {
@@ -142,31 +150,40 @@ impl DirkManager {
                     a.name == account_name || a.name.starts_with(&format!("{}/", account_name))
                 }) {
                     let public_key = BlsPublicKey::try_from(dirk_account.public_key.as_slice())?;
-                    let key_name = dirk_account.name.split_once("/").map(|(_, n)| n).unwrap_or_default();
+                    let key_name =
+                        dirk_account.name.split_once("/").map(|(_, n)| n).unwrap_or_default();
                     trace!(?dirk_account.name, "Adding account to hashmap");
-                    
+
                     let is_proxy = is_proxy_key_name(key_name);
 
-                    accounts.insert(hex::encode(public_key), Account {
-                        wallet: wallet.to_string(),
-                        name: key_name.to_string(),
-                        public_key: Some(public_key),
-                        hosts: vec![HostInfo { server_name: server_name.clone(), participant_id: 1 }],
-                        wallet_type: WalletType::Simple,
-                        signing_threshold: 1,
-                        is_proxy,
-                    });
+                    accounts.insert(
+                        hex::encode(public_key),
+                        Account {
+                            wallet: wallet.to_string(),
+                            name: key_name.to_string(),
+                            public_key: Some(public_key),
+                            hosts: vec![HostInfo {
+                                server_name: server_name.clone(),
+                                participant_id: 1,
+                            }],
+                            wallet_type: WalletType::Simple,
+                            signing_threshold: 1,
+                            is_proxy,
+                        },
+                    );
                 }
 
                 // Handle distributed accounts
                 for dist_account in dirk_distributed_accounts.iter().filter(|a| {
                     a.name == account_name || a.name.starts_with(&format!("{}/", account_name))
                 }) {
-                    let public_key = BlsPublicKey::try_from(dist_account.composite_public_key.as_slice())?;
-                    let key_name = dist_account.name.split_once("/").map(|(_, n)| n).unwrap_or_default();
-                    
+                    let public_key =
+                        BlsPublicKey::try_from(dist_account.composite_public_key.as_slice())?;
+                    let key_name =
+                        dist_account.name.split_once("/").map(|(_, n)| n).unwrap_or_default();
+
                     let is_proxy = is_proxy_key_name(key_name);
-                    
+
                     trace!(?dist_account.name, "Adding distributed account to hashmap");
 
                     // Find the participant ID for this host from the participants list
@@ -186,16 +203,20 @@ impl DirkManager {
                         .entry(hex::encode(public_key))
                         .and_modify(|account| {
                             if !account.hosts.iter().any(|host| host.server_name == server_name) {
-                                account
-                                    .hosts
-                                    .push(HostInfo { server_name: server_name.clone(), participant_id });
+                                account.hosts.push(HostInfo {
+                                    server_name: server_name.clone(),
+                                    participant_id,
+                                });
                             }
                         })
                         .or_insert_with(|| Account {
                             wallet: wallet.to_string(),
                             name: key_name.to_string(),
                             public_key: Some(public_key),
-                            hosts: vec![HostInfo { server_name: server_name.clone(), participant_id }],
+                            hosts: vec![HostInfo {
+                                server_name: server_name.clone(),
+                                participant_id,
+                            }],
                             wallet_type: WalletType::Distributed,
                             signing_threshold: dist_account.signing_threshold,
                             is_proxy,
@@ -204,14 +225,18 @@ impl DirkManager {
             }
         }
 
-        Ok(Self {
+        let mut manager = Self {
             chain,
             channels,
             accounts,
             unlock: config.unlock,
             secrets_path: config.secrets_path,
             proxy_store: None,
-        })
+            proxy_maps: vec![],
+        };
+        manager.build_consensus_proxy_map();
+
+        Ok(manager)
     }
 
     fn accounts(&self) -> Vec<Account> {
@@ -229,24 +254,20 @@ impl DirkManager {
     /// Get the complete account name (`wallet/account`) for a public key.
     /// Returns `Ok(None)` if the account was not found.
     /// Returns `Err` if there was a communication error with Dirk.
-    fn get_pubkey_account(
-        &self,
-        pubkey: BlsPublicKey,
-    ) -> Option<String> {
+    fn get_pubkey_account(&self, pubkey: BlsPublicKey) -> Option<String> {
         match self
             .accounts()
             .iter()
-            .find(|account|
-                      account.public_key.is_some_and(|account_pk| account_pk == pubkey)) {
-                Some(account) => Some(account.complete_name()),
-                None => None,
-            }
+            .find(|account| account.public_key.is_some_and(|account_pk| account_pk == pubkey))
+        {
+            Some(account) => Some(account.complete_name()),
+            None => None,
+        }
     }
 
     /// Returns the public keys of the config-registered accounts
     pub async fn consensus_pubkeys(&self) -> Vec<BlsPublicKey> {
-        self
-            .accounts_non_proxy()
+        self.accounts_non_proxy()
             .iter()
             .filter_map(|account| account.public_key)
             .collect::<Vec<BlsPublicKey>>()
@@ -257,54 +278,78 @@ impl DirkManager {
     /// `consensus_account/module_id/uuid`, where `consensus_account` is the
     /// name of a config-registered account.
     pub async fn proxies(&self) -> Vec<BlsPublicKey> {
-        self
-            .accounts()
+        self.accounts()
             .iter()
             .filter(|account| account.is_proxy)
             .filter_map(|account| account.public_key)
             .collect::<Vec<BlsPublicKey>>()
     }
 
-    /// Returns a mapping of the proxy accounts' pubkeys by consensus account,
+    pub fn get_consensus_proxy_maps(&self, module_id: &ModuleId) -> Vec<ConsensusProxyMap> {
+        dbg!(&self.proxy_maps);
+
+        // Filter only proxy keys whose module_id match the request one
+        // and also remove the module_id part from the struct, since the response
+        // does not include it.
+        self.proxy_maps
+            .iter()
+            .map(|map| {
+                let filtered_proxy_bls: Vec<BlsPublicKey> = map
+                    .proxy_bls
+                    .iter()
+                    .filter_map(
+                        |(pubkey, id)| {
+                            if id == module_id {
+                                Some(pubkey.clone())
+                            } else {
+                                None
+                            }
+                        },
+                    )
+                    .collect();
+
+                ConsensusProxyMap {
+                    consensus: map.consensus.clone(),
+                    proxy_bls: filtered_proxy_bls,
+                    proxy_ecdsa: vec![],
+                }
+            })
+            .collect()
+    }
+
+    /// Builds a mapping of the proxy accounts' pubkeys by consensus account,
     /// for a given module.
     /// An account is considered a proxy if its name has the format
     /// `consensus_account/module_id/uuid`, where `consensus_account` is the
     /// name of a config-registered account.
-    pub async fn get_consensus_proxy_maps(
-        &self,
-        module_id: &ModuleId,
-    ) -> Result<Vec<ConsensusProxyMap>, SignerModuleError> {
+    pub fn build_consensus_proxy_map(&mut self) {
         let consensus_accounts = self.accounts_non_proxy();
         let accounts = self.accounts();
-        let proxy_accounts: Vec<_> = accounts
-            .iter()
-            .filter(|account| account.is_proxy)
-            .collect();
+        let proxy_accounts: Vec<_> = accounts.iter().filter(|account| account.is_proxy).collect();
 
-        let mut proxy_maps = Vec::new();
         for consensus_account in consensus_accounts {
             let Some(consensus_key) = consensus_account.public_key else {
-                trace!("get_consensus_proxy_maps: skipping");
                 continue;
             };
-            let mut proxy_keys: Vec<BlsPublicKey> = vec![];
-            let start_of_proxy_name = format!("{}/{module_id}", consensus_account.complete_name());
+            let mut proxy_bls: Vec<(BlsPublicKey, ModuleId)> = vec![];
+
+            let start_of_proxy_name = format!("{}/", consensus_account.complete_name());
             for proxy in &proxy_accounts {
-                trace!(%proxy.name, %start_of_proxy_name, "get_consensus_proxy_maps: checking if name starts with");
-                if proxy.complete_name().starts_with(&start_of_proxy_name) {
+                if proxy.complete_name().starts_with(&start_of_proxy_name)
+                    && is_proxy_key_name(&proxy.name)
+                {
                     if let Some(pubkey) = proxy.public_key {
-                        proxy_keys.push(pubkey);
+                        // Extract module_id from the proxy account's complete name
+                        let module_id = ModuleId(
+                            proxy.complete_name().split('/').nth(2).unwrap_or_default().to_string(),
+                        );
+                        proxy_bls.push((pubkey, module_id));
                     }
                 }
             }
-            proxy_maps.push(ConsensusProxyMap {
-                consensus: consensus_key,
-                proxy_bls: proxy_keys,
-                proxy_ecdsa: vec![],
-            });
-        }
 
-        Ok(proxy_maps)
+            self.proxy_maps.push(ModuleConsensusProxyMap { consensus: consensus_key, proxy_bls });
+        }
     }
 
     /// Generate a random password of 64 hex-characters
@@ -513,18 +558,23 @@ impl DirkManager {
                     String::from(account_name.split_once("/").map(|(_, n)| n).unwrap_or_default());
 
                 let delegation = self
-                    .insert_proxy_account(proxy_key, consensus_pubkey, module_id, Account {
-                        wallet: consensus_account.wallet.clone(),
-                        name: account_name_without_wallet.clone(),
-                        public_key: Some(proxy_key),
-                        hosts: vec![HostInfo {
-                            server_name: first_host.server_name.clone(),
-                            participant_id: first_host.participant_id,
-                        }],
-                        wallet_type: WalletType::Simple,
-                        signing_threshold: 1,
-                        is_proxy: true,
-                    })
+                    .insert_proxy_account(
+                        proxy_key,
+                        consensus_pubkey,
+                        module_id,
+                        Account {
+                            wallet: consensus_account.wallet.clone(),
+                            name: account_name_without_wallet.clone(),
+                            public_key: Some(proxy_key),
+                            hosts: vec![HostInfo {
+                                server_name: first_host.server_name.clone(),
+                                participant_id: first_host.participant_id,
+                            }],
+                            wallet_type: WalletType::Simple,
+                            signing_threshold: 1,
+                            is_proxy: true,
+                        },
+                    )
                     .await?;
 
                 // Unlock the account for immediate use
@@ -547,7 +597,10 @@ impl DirkManager {
                     ))
                 })?;
 
-                trace!(host = host.server_name, "Sending generate request for distributed proxy key");
+                trace!(
+                    host = host.server_name,
+                    "Sending generate request for distributed proxy key"
+                );
                 let proxy_key = make_generate_proxy_request(
                     GenerateRequest {
                         account: account_name.clone(),
@@ -563,15 +616,20 @@ impl DirkManager {
 
                 let consensus_name = consensus_account_info.name;
                 let delegation = self
-                    .insert_proxy_account(proxy_key, consensus_pubkey, module_id.clone(), Account {
-                        wallet: consensus_account_info.wallet.clone(),
-                        name: format!("{consensus_name}/{module_id}/{uuid}"),
-                        public_key: Some(proxy_key),
-                        hosts: consensus_account_info.hosts.clone(),
-                        wallet_type: WalletType::Distributed,
-                        signing_threshold: consensus_account_info.signing_threshold,
-                        is_proxy: true,
-                    })
+                    .insert_proxy_account(
+                        proxy_key,
+                        consensus_pubkey,
+                        module_id.clone(),
+                        Account {
+                            wallet: consensus_account_info.wallet.clone(),
+                            name: format!("{consensus_name}/{module_id}/{uuid}"),
+                            public_key: Some(proxy_key),
+                            hosts: consensus_account_info.hosts.clone(),
+                            wallet_type: WalletType::Distributed,
+                            signing_threshold: consensus_account_info.signing_threshold,
+                            is_proxy: true,
+                        },
+                    )
                     .await?;
 
                 Ok(delegation)
@@ -638,7 +696,7 @@ impl DirkManager {
                 }
 
                 let mut set = JoinSet::new();
-                
+
                 // Spawn tasks for each host
                 for host in &account.hosts {
                     let Some(channel) = self.channels.get(&host.server_name).cloned() else {
@@ -679,8 +737,11 @@ impl DirkManager {
                 while let Some(result) = set.join_next().await {
                     // Check if we already have enough signatures before processing more
                     if signatures.len() >= num_hosts_needed {
-                        trace!("Already have enough signatures ({}/{}), cancelling remaining tasks", 
-                            signatures.len(), num_hosts_needed);
+                        trace!(
+                            "Already have enough signatures ({}/{}), cancelling remaining tasks",
+                            signatures.len(),
+                            num_hosts_needed
+                        );
                         set.abort_all();
                         break;
                     }

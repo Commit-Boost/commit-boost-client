@@ -48,7 +48,7 @@ impl SigningManager {
                 local_manager.read().await.get_consensus_proxy_maps(module_id)
             }
             SigningManager::Dirk(dirk_manager) => {
-                dirk_manager.get_consensus_proxy_maps(module_id).await
+                Ok(dirk_manager.get_consensus_proxy_maps(module_id))
             }
         }
     }
