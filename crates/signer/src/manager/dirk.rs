@@ -271,8 +271,6 @@ impl DirkManager {
     }
 
     pub fn get_consensus_proxy_maps(&self, module_id: &ModuleId) -> Vec<ConsensusProxyMap> {
-        dbg!(&self.proxy_maps);
-
         // Filter only proxy keys whose module_id match the request one
         // and also remove the module_id part from the struct, since the response
         // does not include it.

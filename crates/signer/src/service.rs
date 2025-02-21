@@ -162,23 +162,17 @@ async fn handle_request_signature(
     let res = match &*manager {
         SigningManager::Local(local_manager) => match request {
             SignRequest::Consensus(SignConsensusRequest { object_root, pubkey }) => local_manager
-                .read()
-                .await
                 .sign_consensus(&pubkey, &object_root)
                 .await
                 .map(|sig| Json(sig).into_response()),
             SignRequest::ProxyBls(SignProxyRequest { object_root, pubkey: bls_key }) => {
                 local_manager
-                    .read()
-                    .await
                     .sign_proxy_bls(&bls_key, &object_root)
                     .await
                     .map(|sig| Json(sig).into_response())
             }
             SignRequest::ProxyEcdsa(SignProxyRequest { object_root, pubkey: ecdsa_key }) => {
                 local_manager
-                    .read()
-                    .await
                     .sign_proxy_ecdsa(&ecdsa_key, &object_root)
                     .await
                     .map(|sig| Json(sig).into_response())
@@ -227,14 +221,10 @@ async fn handle_generate_proxy(
     let res = match &mut *manager {
         SigningManager::Local(local_manager) => match request.scheme {
             EncryptionScheme::Bls => local_manager
-                .write()
-                .await
                 .create_proxy_bls(module_id.clone(), request.consensus_pubkey)
                 .await
                 .map(|proxy_delegation| Json(proxy_delegation).into_response()),
             EncryptionScheme::Ecdsa => local_manager
-                .write()
-                .await
                 .create_proxy_ecdsa(module_id.clone(), request.consensus_pubkey)
                 .await
                 .map(|proxy_delegation| Json(proxy_delegation).into_response()),
@@ -312,7 +302,7 @@ async fn start_manager(config: StartSignerConfig) -> eyre::Result<SigningManager
             for signer in loader.load_keys()? {
                 manager.add_consensus_signer(signer);
             }
-            Ok(SigningManager::Local(Arc::new(RwLock::new(manager))))
+            Ok(SigningManager::Local(manager))
         }
     }
 }
