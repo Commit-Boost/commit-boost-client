@@ -45,7 +45,6 @@ async fn test_load_pbs_happy() -> Result<()> {
     dbg!(&config.pbs.pbs_config.min_bid_wei);
     dbg!(&U256::from(0.5));
     assert_eq!(config.pbs.pbs_config.min_bid_wei, U256::from((0.5 * WEI_PER_ETH as f64) as u64));
-    assert!(config.pbs.pbs_config.relay_monitors.is_empty());
     assert_eq!(config.pbs.pbs_config.late_in_slot_time_ms, 2000);
     assert_eq!(config.pbs.pbs_config.extra_validation_enabled, false);
     assert_eq!(

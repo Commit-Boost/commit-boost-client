@@ -17,7 +17,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.6.0"
+version = "0.7.0-rc.1"
 rust-version = "1.83"
 edition = "2021"
 
@@ -37,7 +37,7 @@ alloy = { version = "0.8.0", features = [
     "getrandom",
     "providers",
 ] }
-ssz_types = "0.8"
+ssz_types = "0.10"
 ethereum_serde_utils = "0.7.0"
 
 # networking
@@ -63,6 +63,8 @@ serde_json = "1.0.117"
 serde_yaml = "0.9.33"
 base64 = "0.22.1"
 unicode-normalization = "0.1.24"
+ethereum_ssz = "0.8"
+ethereum_ssz_derive = "0.8"
 
 # telemetry
 tracing = "0.1.40"
@@ -73,8 +75,8 @@ prometheus = "0.13.4"
 # crypto
 blst = "0.3.11"
 blsful = "2.5"
-tree_hash = "0.8"
-tree_hash_derive = "0.8"
+tree_hash = "0.9"
+tree_hash_derive = "0.9"
 eth2_keystore = { git = "https://github.com/sigp/lighthouse", rev = "9e12c21f268c80a3f002ae0ca27477f9f512eb6f" }
 k256 = "0.13"
 aes = "0.8"

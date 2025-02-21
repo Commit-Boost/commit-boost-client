@@ -32,6 +32,7 @@ prometheus.workspace = true
 
 # crypto
 blst.workspace = true
+tree_hash.workspace = true
 
 # misc
 thiserror.workspace = true

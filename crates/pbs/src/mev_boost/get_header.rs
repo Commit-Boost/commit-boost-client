@@ -13,10 +13,11 @@ use cb_common::{
     constants::APPLICATION_BUILDER_DOMAIN,
     pbs::{
         error::{PbsError, ValidationError},
-        GetHeaderParams, GetHeaderResponse, RelayClient, SignedExecutionPayloadHeader,
-        EMPTY_TX_ROOT_HASH, HEADER_START_TIME_UNIX_MS,
+        GetHeaderParams, GetHeaderResponse, RelayClient, VersionedResponse, EMPTY_TX_ROOT_HASH,
+        HEADER_START_TIME_UNIX_MS,
     },
     signature::verify_signed_message,
+    signer::BlsSignature,
     types::Chain,
     utils::{get_user_agent_with_version, ms_into_slot, timestamp_of_slot_start_sec, utcnow_ms},
 };
@@ -25,6 +26,7 @@ use parking_lot::RwLock;
 use reqwest::{header::USER_AGENT, StatusCode};
 use tokio::time::sleep;
 use tracing::{debug, error, warn, Instrument};
+use tree_hash::TreeHash;
 use url::Url;
 
 use crate::{
@@ -337,25 +339,74 @@ async fn send_one_get_header(
 
     debug!(
         latency = ?request_latency,
+        version = get_header_response.version(),
         value_eth = format_ether(get_header_response.value()),
         block_hash = %get_header_response.block_hash(),
         "received new header"
     );
 
-    validate_header(
-        &get_header_response.data,
-        chain,
-        relay.pubkey(),
-        params.parent_hash,
-        validation.skip_sigverify,
-        validation.min_bid_wei,
-        params.slot,
-    )?;
+    match &get_header_response {
+        VersionedResponse::Deneb(res) => {
+            let header_data = HeaderData {
+                block_hash: res.message.header.block_hash,
+                parent_hash: res.message.header.parent_hash,
+                tx_root: res.message.header.transactions_root,
+                value: res.message.value,
+                timestamp: res.message.header.timestamp,
+            };
+
+            validate_header_data(
+                &header_data,
+                chain,
+                params.parent_hash,
+                validation.min_bid_wei,
+                params.slot,
+            )?;
+
+            if !validation.skip_sigverify {
+                validate_signature(
+                    chain,
+                    relay.pubkey(),
+                    res.message.pubkey,
+                    &res.message,
+                    &res.signature,
+                )?;
+            }
+        }
+
+        VersionedResponse::Electra(res) => {
+            let header_data = HeaderData {
+                block_hash: res.message.header.block_hash,
+                parent_hash: res.message.header.parent_hash,
+                tx_root: res.message.header.transactions_root,
+                value: res.message.value,
+                timestamp: res.message.header.timestamp,
+            };
+
+            validate_header_data(
+                &header_data,
+                chain,
+                params.parent_hash,
+                validation.min_bid_wei,
+                params.slot,
+            )?;
+
+            if !validation.skip_sigverify {
+                validate_signature(
+                    chain,
+                    relay.pubkey(),
+                    res.message.pubkey,
+                    &res.message,
+                    &res.signature,
+                )?;
+            }
+        }
+    }
 
     if validation.extra_validation_enabled {
         let parent_block = validation.parent_block.read();
         if let Some(parent_block) = parent_block.as_ref() {
-            extra_validation(parent_block, &get_header_response.data)?;
+            extra_validation(parent_block, &get_header_response)?;
         } else {
             warn!("parent block not found, skipping extra validation");
         }
@@ -364,83 +415,92 @@ async fn send_one_get_header(
     Ok((start_request_time, Some(get_header_response)))
 }
 
-fn validate_header(
-    signed_header: &SignedExecutionPayloadHeader,
-    chain: Chain,
-    expected_relay_pubkey: BlsPublicKey,
+struct HeaderData {
+    block_hash: B256,
     parent_hash: B256,
-    skip_sig_verify: bool,
+    tx_root: B256,
+    value: U256,
+    timestamp: u64,
+}
+
+fn validate_header_data(
+    header_data: &HeaderData,
+    chain: Chain,
+    expected_parent_hash: B256,
     minimum_bid_wei: U256,
     slot: u64,
 ) -> Result<(), ValidationError> {
-    let block_hash = signed_header.message.header.block_hash;
-    let received_relay_pubkey = signed_header.message.pubkey;
-    let tx_root = signed_header.message.header.transactions_root;
-    let value = signed_header.message.value;
-
-    if block_hash == B256::ZERO {
+    if header_data.block_hash == B256::ZERO {
         return Err(ValidationError::EmptyBlockhash);
     }
 
-    if parent_hash != signed_header.message.header.parent_hash {
+    if expected_parent_hash != header_data.parent_hash {
         return Err(ValidationError::ParentHashMismatch {
-            expected: parent_hash,
-            got: signed_header.message.header.parent_hash,
+            expected: expected_parent_hash,
+            got: header_data.parent_hash,
         });
     }
 
-    if tx_root == EMPTY_TX_ROOT_HASH {
+    if header_data.tx_root == EMPTY_TX_ROOT_HASH {
         return Err(ValidationError::EmptyTxRoot);
     }
 
-    if value < minimum_bid_wei {
-        return Err(ValidationError::BidTooLow { min: minimum_bid_wei, got: value });
+    if header_data.value < minimum_bid_wei {
+        return Err(ValidationError::BidTooLow { min: minimum_bid_wei, got: header_data.value });
     }
 
     let expected_timestamp = timestamp_of_slot_start_sec(slot, chain);
-    if expected_timestamp != signed_header.message.header.timestamp {
+    if expected_timestamp != header_data.timestamp {
         return Err(ValidationError::TimestampMismatch {
             expected: expected_timestamp,
-            got: signed_header.message.header.timestamp,
+            got: header_data.timestamp,
         });
     }
 
-    if !skip_sig_verify {
-        if expected_relay_pubkey != received_relay_pubkey {
-            return Err(ValidationError::PubkeyMismatch {
-                expected: expected_relay_pubkey,
-                got: received_relay_pubkey,
-            });
-        }
+    Ok(())
+}
 
-        verify_signed_message(
-            chain,
-            &received_relay_pubkey,
-            &signed_header.message,
-            &signed_header.signature,
-            APPLICATION_BUILDER_DOMAIN,
-        )
-        .map_err(ValidationError::Sigverify)?;
+fn validate_signature<T: TreeHash>(
+    chain: Chain,
+    expected_relay_pubkey: BlsPublicKey,
+    received_relay_pubkey: BlsPublicKey,
+    message: &T,
+    signature: &BlsSignature,
+) -> Result<(), ValidationError> {
+    if expected_relay_pubkey != received_relay_pubkey {
+        return Err(ValidationError::PubkeyMismatch {
+            expected: expected_relay_pubkey,
+            got: received_relay_pubkey,
+        });
     }
+
+    verify_signed_message(
+        chain,
+        &received_relay_pubkey,
+        &message,
+        signature,
+        APPLICATION_BUILDER_DOMAIN,
+    )
+    .map_err(ValidationError::Sigverify)?;
 
     Ok(())
 }
 
 fn extra_validation(
     parent_block: &Block,
-    signed_header: &SignedExecutionPayloadHeader,
+    signed_header: &GetHeaderResponse,
 ) -> Result<(), ValidationError> {
-    if signed_header.message.header.block_number != parent_block.header.number + 1 {
+    if signed_header.block_number() != parent_block.header.number + 1 {
         return Err(ValidationError::BlockNumberMismatch {
             parent: parent_block.header.number,
-            header: signed_header.message.header.block_number,
+            header: signed_header.block_number(),
         });
     }
 
-    if !check_gas_limit(signed_header.message.header.gas_limit, parent_block.header.gas_limit) {
+    if !check_gas_limit(signed_header.gas_limit(), parent_block.header.gas_limit) {
         return Err(ValidationError::GasLimit {
-            parent: parent_block.header.number,
-            header: signed_header.message.header.block_number,
+            parent: parent_block.header.gas_limit,
+            header: signed_header.gas_limit(),
         });
     };
 
@@ -455,23 +515,73 @@ mod tests {
     };
     use blst::min_pk;
     use cb_common::{
-        pbs::{error::ValidationError, SignedExecutionPayloadHeader, EMPTY_TX_ROOT_HASH},
+        pbs::{error::ValidationError, ExecutionPayloadHeaderMessageDeneb, EMPTY_TX_ROOT_HASH},
         signature::sign_builder_message,
         types::Chain,
         utils::timestamp_of_slot_start_sec,
     };
 
-    use super::validate_header;
+    use super::{validate_header_data, *};
 
     #[test]
     fn test_validate_header() {
-        let mut mock_header = SignedExecutionPayloadHeader::default();
-
         let slot = 5;
         let parent_hash = B256::from_slice(&[1; 32]);
         let chain = Chain::Holesky;
         let min_bid = U256::from(10);
 
+        let mut mock_header_data = HeaderData {
+            block_hash: B256::default(),
+            parent_hash: B256::default(),
+            tx_root: EMPTY_TX_ROOT_HASH,
+            value: U256::default(),
+            timestamp: 0,
+        };
+
+        assert_eq!(
+            validate_header_data(&mock_header_data, chain, parent_hash, min_bid, slot,),
+            Err(ValidationError::EmptyBlockhash)
+        );
+
+        mock_header_data.block_hash.0[1] = 1;
+
+        assert_eq!(
+            validate_header_data(&mock_header_data, chain, parent_hash, min_bid, slot,),
+            Err(ValidationError::ParentHashMismatch {
+                expected: parent_hash,
+                got: B256::default()
+            })
+        );
+
+        mock_header_data.parent_hash = parent_hash;
+
+        assert_eq!(
+            validate_header_data(&mock_header_data, chain, parent_hash, min_bid, slot,),
+            Err(ValidationError::EmptyTxRoot)
+        );
+
+        mock_header_data.tx_root = Default::default();
+
+        assert_eq!(
+            validate_header_data(&mock_header_data, chain, parent_hash, min_bid, slot,),
+            Err(ValidationError::BidTooLow { min: min_bid, got: U256::ZERO })
+        );
+
+        mock_header_data.value = U256::from(11);
+
+        let expected = timestamp_of_slot_start_sec(slot, chain);
+        assert_eq!(
+            validate_header_data(&mock_header_data, chain, parent_hash, min_bid, slot,),
+            Err(ValidationError::TimestampMismatch { expected, got: 0 })
+        );
+
+        mock_header_data.timestamp = expected;
+
+        assert!(validate_header_data(&mock_header_data, chain, parent_hash, min_bid, slot).is_ok());
+    }
+
+    #[test]
+    fn test_validate_signature() {
         let secret_key = min_pk::SecretKey::from_bytes(&[
             0, 136, 227, 100, 165, 57, 106, 129, 181, 15, 235, 189, 200, 120, 70, 99, 251, 144,
             137, 181, 230, 124, 189, 193, 115, 153, 26, 0, 197, 135, 103, 63,
@@ -479,105 +589,26 @@ mod tests {
         .unwrap();
         let pubkey = BlsPublicKey::from_slice(&secret_key.sk_to_pk().to_bytes());
 
-        mock_header.message.header.transactions_root = EMPTY_TX_ROOT_HASH;
+        let message = ExecutionPayloadHeaderMessageDeneb::default();
+
+        let signature = sign_builder_message(Chain::Holesky, &secret_key, &message);
 
         assert_eq!(
-            validate_header(
-                &mock_header,
-                chain,
+            validate_signature(
+                Chain::Holesky,
                 BlsPublicKey::default(),
-                parent_hash,
-                false,
-                min_bid,
-                slot,
-            ),
-            Err(ValidationError::EmptyBlockhash)
-        );
-
-        mock_header.message.header.block_hash.0[1] = 1;
-
-        assert_eq!(
-            validate_header(
-                &mock_header,
-                chain,
-                BlsPublicKey::default(),
-                parent_hash,
-                false,
-                min_bid,
-                slot,
-            ),
-            Err(ValidationError::ParentHashMismatch {
-                expected: parent_hash,
-                got: B256::default()
-            })
-        );
-
-        mock_header.message.header.parent_hash = parent_hash;
-
-        assert_eq!(
-            validate_header(
-                &mock_header,
-                chain,
-                BlsPublicKey::default(),
-                parent_hash,
-                false,
-                min_bid,
-                slot,
-            ),
-            Err(ValidationError::EmptyTxRoot)
-        );
-
-        mock_header.message.header.transactions_root = Default::default();
-
-        assert_eq!(
-            validate_header(
-                &mock_header,
-                chain,
-                BlsPublicKey::default(),
-                parent_hash,
-                false,
-                min_bid,
-                slot,
-            ),
-            Err(ValidationError::BidTooLow { min: min_bid, got: U256::ZERO })
-        );
-
-        mock_header.message.value = U256::from(11);
-
-        let expected = timestamp_of_slot_start_sec(slot, chain);
-        assert_eq!(
-            validate_header(&mock_header, chain, pubkey, parent_hash, false, min_bid, slot,),
-            Err(ValidationError::TimestampMismatch { expected, got: 0 })
-        );
-
-        mock_header.message.header.timestamp = expected;
-        mock_header.message.pubkey = pubkey;
-
-        assert_eq!(
-            validate_header(
-                &mock_header,
-                chain,
-                BlsPublicKey::default(),
-                parent_hash,
-                false,
-                min_bid,
-                slot,
+                pubkey,
+                &message,
+                &BlsSignature::default()
             ),
             Err(ValidationError::PubkeyMismatch { expected: BlsPublicKey::default(), got: pubkey })
         );
 
         assert!(matches!(
-            validate_header(&mock_header, chain, pubkey, parent_hash, false, min_bid, slot),
+            validate_signature(Chain::Holesky, pubkey, pubkey, &message, &BlsSignature::default()),
             Err(ValidationError::Sigverify(_))
         ));
-        assert!(
-            validate_header(&mock_header, chain, pubkey, parent_hash, true, min_bid, slot).is_ok()
-        );
 
-        mock_header.signature = sign_builder_message(chain, &secret_key, &mock_header.message);
-
-        assert!(
-            validate_header(&mock_header, chain, pubkey, parent_hash, false, min_bid, slot).is_ok()
-        );
+        assert!(validate_signature(Chain::Holesky, pubkey, pubkey, &message, &signature).is_ok());
     }
 }
