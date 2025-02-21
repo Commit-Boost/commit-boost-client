@@ -34,7 +34,7 @@ enum WalletType {
 
 #[derive(Clone, Debug)]
 struct HostInfo {
-    server_name: String,
+    url: String,
     participant_id: u64,
 }
 
@@ -99,8 +99,8 @@ impl DirkManager {
         let mut channels = HashMap::new();
         for (i, tls_config) in tls_configs.iter().enumerate() {
             let config_host = config.hosts[i].clone();
-            let server_name = config_host.server_name.unwrap_or_default();
-            match Channel::from_shared(config_host.url.to_string())
+            let url = config_host.url.to_string();
+            match Channel::from_shared(url.clone())
                 .map_err(|_| eyre::eyre!("Invalid Dirk URL"))?
                 .tls_config(tls_config.clone())
                 .map_err(|_| eyre::eyre!("Invalid Dirk TLS config"))?
@@ -108,10 +108,10 @@ impl DirkManager {
                 .await
             {
                 Ok(ch) => {
-                    channels.insert(server_name, ch);
+                    channels.insert(url.clone(), ch);
                 }
                 Err(e) => {
-                    trace!("Couldn't connect to Dirk with server name {}: {e}", server_name);
+                    trace!("Couldn't connect to Dirk host {}: {e}", url);
                 }
             }
         }
@@ -119,10 +119,10 @@ impl DirkManager {
         let mut accounts: HashMap<String, Account> = HashMap::new();
 
         for host in config.hosts {
-            let server_name = host.server_name.unwrap_or_default();
+            let url = host.url.to_string();
             let channel = channels
-                .get(&server_name)
-                .ok_or(eyre::eyre!("Couldn't connect to Dirk with server name {server_name}"))?
+                .get(&url)
+                .ok_or(eyre::eyre!("Couldn't connect to Dirk host {url}"))?
                 .clone();
 
             let (dirk_accounts, dirk_distributed_accounts) = get_accounts_in_wallets(
@@ -154,10 +154,7 @@ impl DirkManager {
                         wallet: wallet.to_string(),
                         name: key_name.to_string(),
                         public_key: Some(public_key),
-                        hosts: vec![HostInfo {
-                            server_name: server_name.clone(),
-                            participant_id: 1,
-                        }],
+                        hosts: vec![HostInfo { url: url.clone(), participant_id: 1 }],
                         wallet_type: WalletType::Simple,
                         signing_threshold: 1,
                         is_proxy,
@@ -172,31 +169,31 @@ impl DirkManager {
                         BlsPublicKey::try_from(dist_account.composite_public_key.as_slice())?;
                     let key_name =
                         dist_account.name.split_once("/").map(|(_, n)| n).unwrap_or_default();
-
                     let is_proxy = is_proxy_key_name(key_name);
 
                     trace!(?dist_account.name, "Adding distributed account to hashmap");
 
                     // Find the participant ID for this host from the participants list
-                    let participant_id = dist_account
-                        .participants
-                        .iter()
-                        .find(|p| p.name == server_name)
-                        .map(|p| p.id)
-                        .ok_or_else(|| {
+                    let url_hostname = host
+                        .url
+                        .host_str()
+                        .ok_or_else(|| eyre::eyre!("Invalid Dirk host {}", host.url))?;
+                    trace!(%url_hostname, "url_hostname");
+                    let current_participant =
+                        dist_account.participants.first().ok_or_else(|| {
                             eyre::eyre!(
                                 "Host {} not found in distributed account participants",
-                                server_name
+                                url
                             )
                         })?;
 
                     accounts
                         .entry(hex::encode(public_key))
                         .and_modify(|account| {
-                            if !account.hosts.iter().any(|host| host.server_name == server_name) {
+                            if !account.hosts.iter().any(|host| host.url == url) {
                                 account.hosts.push(HostInfo {
-                                    server_name: server_name.clone(),
-                                    participant_id,
+                                    url: url.clone(),
+                                    participant_id: current_participant.id,
                                 });
                             }
                         })
@@ -205,8 +202,8 @@ impl DirkManager {
                             name: key_name.to_string(),
                             public_key: Some(public_key),
                             hosts: vec![HostInfo {
-                                server_name: server_name.clone(),
-                                participant_id,
+                                url: url.clone(),
+                                participant_id: current_participant.id,
                             }],
                             wallet_type: WalletType::Distributed,
                             signing_threshold: dist_account.signing_threshold,
@@ -380,7 +377,7 @@ impl DirkManager {
 
         // Try to find any available host's channel
         for host in &account.hosts {
-            if let Some(channel) = self.channels.get(&host.server_name) {
+            if let Some(channel) = self.channels.get(&host.url) {
                 return Ok(channel.clone());
             }
         }
@@ -404,14 +401,8 @@ impl DirkManager {
             WalletType::Distributed => {
                 // For distributed accounts, unlock on all hosts
                 for host in &account_entry.hosts {
-                    if let Some(channel) = self.channels.get(&host.server_name) {
-                        self.unlock_account_on_channel(
-                            channel,
-                            &account,
-                            &password,
-                            Some(&host.server_name),
-                        )
-                        .await?;
+                    if let Some(channel) = self.channels.get(&host.url) {
+                        self.unlock_account_on_channel(channel, &account, &password).await?;
                     }
                 }
             }
@@ -421,7 +412,7 @@ impl DirkManager {
                     self.get_channel_for_pubkey(account_entry.public_key.as_ref().ok_or_else(
                         || SignerModuleError::Internal("Account has no public key".to_string()),
                     )?)?;
-                self.unlock_account_on_channel(&channel, &account, &password, None).await?;
+                self.unlock_account_on_channel(&channel, &account, &password).await?;
             }
         }
         Ok(())
@@ -433,9 +424,8 @@ impl DirkManager {
         channel: &Channel,
         account: &str,
         password: &str,
-        host_domain: Option<&str>,
     ) -> Result<(), SignerModuleError> {
-        trace!(account, host = host_domain, "unlock_account_on_channel");
+        trace!(account, "unlock_account_on_channel");
         const MAX_RETRIES: u32 = 5;
         let mut retry_count = 0;
 
@@ -466,12 +456,7 @@ impl DirkManager {
                         )));
                     }
 
-                    warn!(
-                        ?status,
-                        retry_count,
-                        host = host_domain,
-                        "Connection failed, retrying in 3 seconds..."
-                    );
+                    warn!(?status, retry_count, "Connection failed, retrying in 3 seconds...");
                     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
                 }
             }
@@ -544,7 +529,7 @@ impl DirkManager {
                         name: account_name_without_wallet.clone(),
                         public_key: Some(proxy_key),
                         hosts: vec![HostInfo {
-                            server_name: first_host.server_name.clone(),
+                            url: first_host.url.clone(),
                             participant_id: first_host.participant_id,
                         }],
                         wallet_type: WalletType::Simple,
@@ -566,17 +551,11 @@ impl DirkManager {
                         "No hosts available for consensus account".to_string(),
                     )
                 })?;
-                let channel = self.channels.get(&host.server_name).cloned().ok_or_else(|| {
-                    SignerModuleError::Internal(format!(
-                        "No channel found for host {}",
-                        host.server_name
-                    ))
+                let channel = self.channels.get(&host.url).cloned().ok_or_else(|| {
+                    SignerModuleError::Internal(format!("No channel found for host {}", host.url))
                 })?;
 
-                trace!(
-                    host = host.server_name,
-                    "Sending generate request for distributed proxy key"
-                );
+                trace!(host = host.url, "Sending generate request for distributed proxy key");
                 let proxy_key = make_generate_proxy_request(
                     GenerateRequest {
                         account: account_name.clone(),
@@ -674,16 +653,16 @@ impl DirkManager {
 
                 // Spawn tasks for each host
                 for host in &account.hosts {
-                    let Some(channel) = self.channels.get(&host.server_name).cloned() else {
+                    let Some(channel) = self.channels.get(&host.url).cloned() else {
                         continue;
                     };
                     let dirk = self.clone();
                     let account = account.clone();
-                    let server_name = host.server_name.clone();
+                    let server_url = host.url.clone();
                     let participant_id = host.participant_id;
 
                     set.spawn(async move {
-                        trace!(host = server_name, "Requesting signature shard for creating proxy");
+                        trace!(host = server_url, "Requesting signature shard for creating proxy");
 
                         match dirk
                             .sign_with_channel(channel, pubkey, &account, domain, object_root)
@@ -691,14 +670,14 @@ impl DirkManager {
                         {
                             Ok(signature) => {
                                 trace!(
-                                    host = server_name,
+                                    host = server_url,
                                     participant_id = participant_id,
                                     "Got signature shard"
                                 );
                                 Ok((signature, participant_id))
                             }
                             Err(e) => {
-                                warn!("Failed to get signature from host {}: {}", server_name, e);
+                                warn!("Failed to get signature from host {}: {}", server_url, e);
                                 Err(e)
                             }
                         }
