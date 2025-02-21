@@ -90,3 +90,11 @@ impl Args {
 }
 
 const LONG_ABOUT: &str = "Commit-Boost allows Ethereum validators to safely run MEV-Boost and community-built commitment protocols";
+
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = LONG_ABOUT, name = "commit-boost-pbs")]
+pub struct PbsArgs;
+
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = LONG_ABOUT, name = "commit-boost-signer")]
+pub struct SignerArgs;
