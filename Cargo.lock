@@ -225,7 +225,7 @@ dependencies = [
  "c-kzg",
  "derive_more",
  "ethereum_ssz 0.8.0",
- "ethereum_ssz_derive 0.8.0",
+ "ethereum_ssz_derive",
  "once_cell",
  "serde",
  "sha2 0.10.8",
@@ -479,7 +479,7 @@ dependencies = [
  "alloy-rpc-types-engine",
  "alloy-serde",
  "ethereum_ssz 0.8.0",
- "ethereum_ssz_derive 0.8.0",
+ "ethereum_ssz_derive",
  "serde",
  "serde_with",
  "thiserror 2.0.6",
@@ -498,7 +498,7 @@ dependencies = [
  "alloy-serde",
  "derive_more",
  "ethereum_ssz 0.8.0",
- "ethereum_ssz_derive 0.8.0",
+ "ethereum_ssz_derive",
  "serde",
  "strum",
 ]
@@ -1208,7 +1208,7 @@ dependencies = [
 
 [[package]]
 name = "builder_log"
-version = "0.6.0"
+version = "0.7.0-rc.1"
 dependencies = [
  "async-trait",
  "commit-boost",
@@ -1260,7 +1260,7 @@ dependencies = [
 
 [[package]]
 name = "cb-bench-pbs"
-version = "0.6.0"
+version = "0.7.0-rc.1"
 dependencies = [
  "alloy",
  "axum",
@@ -1278,12 +1278,12 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
- "tree_hash 0.8.0",
+ "tree_hash 0.9.1",
 ]
 
 [[package]]
 name = "cb-cli"
-version = "0.6.0"
+version = "0.7.0-rc.1"
 dependencies = [
  "cb-common",
  "clap",
@@ -1298,7 +1298,7 @@ dependencies = [
 
 [[package]]
 name = "cb-common"
-version = "0.6.0"
+version = "0.7.0-rc.1"
 dependencies = [
  "aes 0.8.4",
  "alloy",
@@ -1313,8 +1313,8 @@ dependencies = [
  "derive_more",
  "eth2_keystore",
  "ethereum_serde_utils 0.7.0",
- "ethereum_ssz 0.7.1",
- "ethereum_ssz_derive 0.7.1",
+ "ethereum_ssz 0.8.0",
+ "ethereum_ssz_derive",
  "eyre",
  "k256",
  "mediatype",
@@ -1332,7 +1332,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
- "tree_hash 0.8.0",
+ "tree_hash 0.9.1",
  "tree_hash_derive",
  "unicode-normalization",
  "url",
@@ -1340,7 +1340,7 @@ dependencies = [
 
 [[package]]
 name = "cb-metrics"
-version = "0.6.0"
+version = "0.7.0-rc.1"
 dependencies = [
  "axum",
  "cb-common",
@@ -1353,7 +1353,7 @@ dependencies = [
 
 [[package]]
 name = "cb-pbs"
-version = "0.6.0"
+version = "0.7.0-rc.1"
 dependencies = [
  "alloy",
  "async-trait",
@@ -1362,7 +1362,7 @@ dependencies = [
  "cb-common",
  "cb-metrics",
  "dashmap 5.5.3",
- "ethereum_ssz 0.7.1",
+ "ethereum_ssz 0.8.0",
  "eyre",
  "futures",
  "lazy_static",
@@ -1373,13 +1373,14 @@ dependencies = [
  "thiserror 1.0.61",
  "tokio",
  "tracing",
+ "tree_hash 0.9.1",
  "url",
  "uuid 1.8.0",
 ]
 
 [[package]]
 name = "cb-signer"
-version = "0.6.0"
+version = "0.7.0-rc.1"
 dependencies = [
  "alloy",
  "axum",
@@ -1397,27 +1398,27 @@ dependencies = [
  "thiserror 1.0.61",
  "tokio",
  "tracing",
- "tree_hash 0.8.0",
+ "tree_hash 0.9.1",
  "tree_hash_derive",
  "uuid 1.8.0",
 ]
 
 [[package]]
 name = "cb-tests"
-version = "0.6.0"
+version = "0.7.0-rc.1"
 dependencies = [
  "alloy",
  "axum",
  "cb-common",
  "cb-pbs",
- "ethereum_ssz 0.7.1",
+ "ethereum_ssz 0.8.0",
  "eyre",
  "reqwest",
  "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",
- "tree_hash 0.8.0",
+ "tree_hash 0.9.1",
  "url",
 ]
 
@@ -1549,7 +1550,7 @@ dependencies = [
 
 [[package]]
 name = "commit-boost"
-version = "0.6.0"
+version = "0.7.0-rc.1"
 dependencies = [
  "cb-cli",
  "cb-common",
@@ -1561,7 +1562,7 @@ dependencies = [
  "eyre",
  "tokio",
  "tracing",
- "tree_hash 0.8.0",
+ "tree_hash 0.9.1",
  "tree_hash_derive",
 ]
 
@@ -1704,7 +1705,7 @@ dependencies = [
 
 [[package]]
 name = "da_commit"
-version = "0.6.0"
+version = "0.7.0-rc.1"
 dependencies = [
  "alloy",
  "color-eyre",
@@ -2117,17 +2118,6 @@ dependencies = [
 
 [[package]]
 name = "ethereum_ssz"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e999563461faea0ab9bc0024e5e66adcee35881f3d5062f52f31a4070fe1522"
-dependencies = [
- "alloy-primitives",
- "itertools 0.13.0",
- "smallvec",
-]
-
-[[package]]
-name = "ethereum_ssz"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bfbba28f4f3f32d92c06a64f5bf6c4537b5d4e21f28c689bd2bbaecfea4e0d3e"
@@ -2140,18 +2130,6 @@ dependencies = [
  "serde_derive",
  "smallvec",
  "typenum",
-]
-
-[[package]]
-name = "ethereum_ssz_derive"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3deae99c8e74829a00ba7a92d49055732b3c1f093f2ccfa3cbc621679b6fa91"
-dependencies = [
- "darling",
- "proc-macro2",
- "quote",
- "syn 2.0.90",
 ]
 
 [[package]]
@@ -4090,18 +4068,17 @@ dependencies = [
 
 [[package]]
 name = "ssz_types"
-version = "0.8.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35e0719d2b86ac738a55ae71a8429f52aa2741da988f1fd0975b4cc610fd1e08"
+checksum = "dad0fa7e9a85c06d0a6ba5100d733fff72e231eb6db2d86078225cf716fd2d95"
 dependencies = [
- "derivative",
  "ethereum_serde_utils 0.7.0",
- "ethereum_ssz 0.7.1",
+ "ethereum_ssz 0.8.0",
  "itertools 0.13.0",
  "serde",
  "serde_derive",
  "smallvec",
- "tree_hash 0.8.0",
+ "tree_hash 0.9.1",
  "typenum",
 ]
 
@@ -4113,7 +4090,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "status_api"
-version = "0.6.0"
+version = "0.7.0-rc.1"
 dependencies = [
  "async-trait",
  "axum",
@@ -4651,20 +4628,22 @@ dependencies = [
 
 [[package]]
 name = "tree_hash"
-version = "0.8.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "373495c23db675a5192de8b610395e1bec324d596f9e6111192ce903dc11403a"
+checksum = "6c58eb0f518840670270d90d97ffee702d8662d9c5494870c9e1e9e0fa00f668"
 dependencies = [
  "alloy-primitives",
  "ethereum_hashing 0.7.0",
+ "ethereum_ssz 0.8.0",
  "smallvec",
+ "typenum",
 ]
 
 [[package]]
 name = "tree_hash_derive"
-version = "0.8.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0857056ca4eb5de8c417309be42bcff6017b47e86fbaddde609b4633f66061e"
+checksum = "699e7fb6b3fdfe0c809916f251cf5132d64966858601695c3736630a87e7166a"
 dependencies = [
  "darling",
  "proc-macro2",

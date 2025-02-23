@@ -5,7 +5,7 @@ use axum::{
     Json,
 };
 use cb_common::{
-    pbs::{BuilderEvent, SignedBlindedBeaconBlock},
+    pbs::{BuilderEvent, SignedBlindedBeaconBlock, VersionedResponse},
     utils::{
         get_accept_header, get_user_agent, timestamp_of_slot_start_millis, utcnow_ms, ContentType,
         JsonOrSsz, CONSENSUS_VERSION_HEADER,
@@ -24,7 +24,7 @@ use crate::{
     state::{BuilderApiState, PbsStateGuard},
 };
 
-#[tracing::instrument(skip_all, name = "submit_blinded_block", fields(req_id = %Uuid::new_v4(), slot = signed_blinded_block.message.slot))]
+#[tracing::instrument(skip_all, name = "submit_blinded_block", fields(req_id = %Uuid::new_v4(), slot = signed_blinded_block.slot()))]
 pub async fn handle_submit_block<S: BuilderApiState, A: BuilderApi<S>>(
     State(state): State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
@@ -36,8 +36,8 @@ pub async fn handle_submit_block<S: BuilderApiState, A: BuilderApi<S>>(
     state.publish_event(BuilderEvent::SubmitBlockRequest(Box::new(signed_blinded_block.clone())));
 
     let now = utcnow_ms();
-    let slot = signed_blinded_block.message.slot;
-    let block_hash = signed_blinded_block.message.body.execution_payload_header.block_hash;
+    let slot = signed_blinded_block.slot();
+    let block_hash = signed_blinded_block.block_hash();
     let slot_start_ms = timestamp_of_slot_start_millis(slot, state.config.chain);
     let ua = get_user_agent(&req_headers);
     let accept_header = get_accept_header(&req_headers);
@@ -45,30 +45,39 @@ pub async fn handle_submit_block<S: BuilderApiState, A: BuilderApi<S>>(
     info!(ua,  ms_into_slot=now.saturating_sub(slot_start_ms), %block_hash);
 
     match A::submit_block(signed_blinded_block, req_headers, state.clone()).await {
-        Ok(res) => {
-            trace!(?res);
-            state.publish_event(BuilderEvent::SubmitBlockResponse(Box::new(res.clone())));
+        Ok(payload_and_blobs) => {
+            trace!(?payload_and_blobs);
+            state.publish_event(BuilderEvent::SubmitBlockResponse(Box::new(
+                payload_and_blobs.clone(),
+            )));
             info!("received unblinded block");
             BEACON_NODE_STATUS.with_label_values(&["200", SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG]).inc();
 
             let response = match accept_header {
                 cb_common::utils::Accept::Json | cb_common::utils::Accept::Any => {
                     info!("sending response as JSON");
-                    (StatusCode::OK, Json(res)).into_response()
+                    (StatusCode::OK, Json(payload_and_blobs)).into_response()
                 }
                 cb_common::utils::Accept::Ssz => {
-                    let mut response = (StatusCode::OK, res.data.as_ssz_bytes()).into_response();
+                    let mut response = match &payload_and_blobs {
+                        VersionedResponse::Deneb(payload_and_blobs) => {
+                            (StatusCode::OK, payload_and_blobs.as_ssz_bytes()).into_response()
+                        }
+                        VersionedResponse::Electra(payload_and_blobs) => {
+                            (StatusCode::OK, payload_and_blobs.as_ssz_bytes()).into_response()
+                        }
+                    };
                     let Ok(consensus_version_header) =
-                        HeaderValue::from_str(&format!("{}", res.version))
+                        HeaderValue::from_str(&format!("{}", payload_and_blobs.version()))
                     else {
                         info!("sending response as JSON");
-                        return Ok((StatusCode::OK, axum::Json(res)).into_response());
+                        return Ok((StatusCode::OK, axum::Json(payload_and_blobs)).into_response());
                     };
                     let Ok(content_type_header) =
                         HeaderValue::from_str(&ContentType::Ssz.to_string())
                     else {
                         info!("sending response as JSON");
-                        return Ok((StatusCode::OK, axum::Json(res)).into_response());
+                        return Ok((StatusCode::OK, axum::Json(payload_and_blobs)).into_response());
                     };
                     response
                         .headers_mut()

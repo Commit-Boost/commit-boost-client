@@ -83,4 +83,7 @@ pub enum ValidationError {
 
     #[error("invalid gas limit: parent: {parent} header: {header}")]
     GasLimit { parent: u64, header: u64 },
+
+    #[error("payload mismatch: request: {request} response: {response}")]
+    PayloadVersionMismatch { request: &'static str, response: &'static str },
 }

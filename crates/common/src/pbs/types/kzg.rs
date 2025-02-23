@@ -4,14 +4,15 @@ use std::{
 };
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use ssz::{Decode, Encode};
+use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
 use tree_hash::{PackedEncoding, TreeHash};
 
 use super::spec::EthSpec;
 
 pub const BYTES_PER_COMMITMENT: usize = 48;
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq, Encode, Decode)]
+#[ssz(struct_behaviour = "transparent")]
 pub struct KzgCommitment(pub [u8; BYTES_PER_COMMITMENT]);
 pub type KzgCommitments<T> =
     VariableList<KzgCommitment, <T as EthSpec>::MaxBlobCommitmentsPerBlock>;
@@ -19,30 +20,6 @@ pub type KzgCommitments<T> =
 impl From<KzgCommitment> for [u8; 48] {
     fn from(value: KzgCommitment) -> Self {
         value.0
-    }
-}
-
-impl Decode for KzgCommitment {
-    fn is_ssz_fixed_len() -> bool {
-        <[u8; BYTES_PER_COMMITMENT] as ssz::Decode>::is_ssz_fixed_len()
-    }
-
-    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        <[u8; BYTES_PER_COMMITMENT]>::from_ssz_bytes(bytes).map(Self)
-    }
-}
-
-impl Encode for KzgCommitment {
-    fn is_ssz_fixed_len() -> bool {
-        <[u8; BYTES_PER_COMMITMENT] as ssz::Encode>::is_ssz_fixed_len()
-    }
-
-    fn ssz_append(&self, buf: &mut Vec<u8>) {
-        self.0.ssz_append(buf)
-    }
-
-    fn ssz_bytes_len(&self) -> usize {
-        self.0.ssz_bytes_len()
     }
 }
 
@@ -121,7 +98,8 @@ impl FromStr for KzgCommitment {
 // PROOF
 pub const BYTES_PER_PROOF: usize = 48;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
+#[ssz(struct_behaviour = "transparent")]
 pub struct KzgProof(pub [u8; BYTES_PER_PROOF]);
 pub type KzgProofs<T> = VariableList<KzgProof, <T as EthSpec>::MaxBlobCommitmentsPerBlock>;
 
@@ -140,20 +118,6 @@ impl fmt::Display for KzgProof {
 impl From<[u8; BYTES_PER_PROOF]> for KzgProof {
     fn from(bytes: [u8; BYTES_PER_PROOF]) -> Self {
         Self(bytes)
-    }
-}
-
-impl Encode for KzgProof {
-    fn is_ssz_fixed_len() -> bool {
-        <[u8; BYTES_PER_PROOF] as ssz::Encode>::is_ssz_fixed_len()
-    }
-
-    fn ssz_append(&self, buf: &mut Vec<u8>) {
-        self.0.ssz_append(buf)
-    }
-
-    fn ssz_bytes_len(&self) -> usize {
-        self.0.ssz_bytes_len()
     }
 }
 

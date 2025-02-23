@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use ssz_derive::Encode;
+use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
 
 use super::{
@@ -7,7 +7,7 @@ use super::{
     spec::EthSpec,
 };
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize, Encode)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Encode, Decode)]
 #[serde(bound = "T: EthSpec")]
 pub struct BlobsBundle<T: EthSpec> {
     pub commitments: KzgCommitments<T>,

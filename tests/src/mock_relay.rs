@@ -16,16 +16,17 @@ use axum::{
 };
 use cb_common::{
     pbs::{
-        GetHeaderParams, GetHeaderResponse, PayloadAndBlobs, SubmitBlindedBlockResponse, Version,
-        BUILDER_API_PATH, GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH,
-        SUBMIT_BLOCK_PATH,
+        ExecutionPayloadHeaderMessageDeneb, GetHeaderParams, GetHeaderResponse,
+        PayloadAndBlobsDeneb, PayloadAndBlobsElectra, SignedExecutionPayloadHeader,
+        SubmitBlindedBlockResponse, BUILDER_API_PATH, GET_HEADER_PATH, GET_STATUS_PATH,
+        REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
     },
     signature::sign_builder_root,
     signer::BlsSecretKey,
     types::Chain,
     utils::{
-        blst_pubkey_to_alloy, get_content_type_header, timestamp_of_slot_start_sec,
-        CONSENSUS_VERSION_HEADER,
+        blst_pubkey_to_alloy, get_accept_header, get_consensus_version_header,
+        timestamp_of_slot_start_sec, CONSENSUS_VERSION_HEADER,
     },
 };
 use cb_pbs::MAX_SIZE_SUBMIT_BLOCK;
@@ -108,15 +109,19 @@ async fn handle_get_header(
 ) -> Response {
     state.received_get_header.fetch_add(1, Ordering::Relaxed);
 
-    let mut response = GetHeaderResponse::default();
-    response.data.message.header.parent_hash = parent_hash;
-    response.data.message.header.block_hash.0[0] = 1;
-    response.data.message.value = U256::from(10);
-    response.data.message.pubkey = blst_pubkey_to_alloy(&state.signer.sk_to_pk());
-    response.data.message.header.timestamp = timestamp_of_slot_start_sec(0, state.chain);
+    let mut response: SignedExecutionPayloadHeader<ExecutionPayloadHeaderMessageDeneb> =
+        SignedExecutionPayloadHeader::default();
 
-    let object_root = response.data.message.tree_hash_root().0;
-    response.data.signature = sign_builder_root(state.chain, &state.signer, object_root);
+    response.message.header.parent_hash = parent_hash;
+    response.message.header.block_hash.0[0] = 1;
+    response.message.value = U256::from(10);
+    response.message.pubkey = blst_pubkey_to_alloy(&state.signer.sk_to_pk());
+    response.message.header.timestamp = timestamp_of_slot_start_sec(0, state.chain);
+
+    let object_root = response.message.tree_hash_root().0;
+    response.signature = sign_builder_root(state.chain, &state.signer, object_root);
+
+    let response = GetHeaderResponse::Deneb(response);
     (StatusCode::OK, Json(response)).into_response()
 }
 
@@ -139,20 +144,27 @@ async fn handle_submit_block(
     headers: HeaderMap,
 ) -> Response {
     state.received_submit_block.fetch_add(1, Ordering::Relaxed);
-    let accept_header = get_content_type_header(&headers);
+    let accept_header = get_accept_header(&headers);
+    let consensus_version_header = get_consensus_version_header(&headers).unwrap();
     let data = if state.large_body {
         vec![1u8; 1 + MAX_SIZE_SUBMIT_BLOCK]
     } else {
         match accept_header {
-            cb_common::utils::ContentType::Json => {
+            cb_common::utils::Accept::Json | cb_common::utils::Accept::Any => {
                 serde_json::to_vec(&SubmitBlindedBlockResponse::default()).unwrap()
             }
-            cb_common::utils::ContentType::Ssz => PayloadAndBlobs::default().as_ssz_bytes(),
+            cb_common::utils::Accept::Ssz => match consensus_version_header {
+                cb_common::utils::ForkName::Deneb => PayloadAndBlobsDeneb::default().as_ssz_bytes(),
+                cb_common::utils::ForkName::Electra => {
+                    PayloadAndBlobsElectra::default().as_ssz_bytes()
+                }
+            },
         }
     };
 
     let mut response = (StatusCode::OK, data).into_response();
-    let consensus_version_header = HeaderValue::from_str(&Version::Deneb.to_string()).unwrap();
+    let consensus_version_header =
+        HeaderValue::from_str(&consensus_version_header.to_string()).unwrap();
     let content_type_header = HeaderValue::from_str(&accept_header.to_string()).unwrap();
     response.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
     response.headers_mut().insert(CONTENT_TYPE, content_type_header);

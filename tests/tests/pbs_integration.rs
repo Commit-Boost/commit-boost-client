@@ -9,10 +9,16 @@ use std::{
 use alloy::{primitives::U256, rpc::types::beacon::relay::ValidatorRegistration};
 use cb_common::{
     config::{PbsConfig, PbsModuleConfig, RuntimeMuxConfig},
-    pbs::{RelayClient, SignedExecutionPayloadHeader, VersionedResponse},
+    pbs::{
+        ExecutionPayloadHeaderMessageDeneb, ExecutionPayloadHeaderMessageElectra, RelayClient,
+        SignedExecutionPayloadHeader, VersionedResponse,
+    },
     signer::{random_secret, BlsPublicKey},
     types::Chain,
-    utils::{blst_pubkey_to_alloy, get_content_type_header, Accept, ContentType},
+    utils::{
+        blst_pubkey_to_alloy, get_consensus_version_header, get_content_type_header, Accept,
+        ContentType, ForkName,
+    },
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
@@ -76,17 +82,19 @@ async fn test_get_header() -> Result<()> {
 
     let mock_validator = MockValidator::new(port)?;
     info!("Sending get header");
-    let res = mock_validator.do_get_header(None, Accept::Json).await;
+    let res = mock_validator.do_get_header(None, Some(Accept::Json), ForkName::Electra).await;
 
     assert!(res.is_ok());
     let response = res.unwrap();
     let content_type = get_content_type_header(&response.headers());
     let payload = response.bytes().await.unwrap();
-    match content_type {
-        ContentType::Json => {
-            serde_json::from_slice::<VersionedResponse<SignedExecutionPayloadHeader>>(&payload)
-                .unwrap()
-        }
+    let _ = match content_type {
+        ContentType::Json => serde_json::from_slice::<
+            VersionedResponse<
+                SignedExecutionPayloadHeader<ExecutionPayloadHeaderMessageDeneb>,
+                SignedExecutionPayloadHeader<ExecutionPayloadHeaderMessageElectra>,
+            >,
+        >(&payload),
         ContentType::Ssz => panic!("Should be JSON"),
     };
     assert_eq!(mock_state.received_get_header(), 1);
@@ -115,14 +123,24 @@ async fn test_get_header_ssz() -> Result<()> {
 
     let mock_validator = MockValidator::new(port)?;
     info!("Sending get header");
-    let res = mock_validator.do_get_header(None, Accept::Ssz).await;
+    let res = mock_validator.do_get_header(None, Some(Accept::Ssz), ForkName::Electra).await;
     assert!(res.is_ok());
     let response = res.unwrap();
     let content_type = get_content_type_header(&response.headers());
+    let consensus_version = get_consensus_version_header(&response.headers()).unwrap();
     let payload = response.bytes().await.unwrap();
     match content_type {
         ContentType::Json => panic!("Should be SSZ"),
-        ContentType::Ssz => SignedExecutionPayloadHeader::from_ssz_bytes(&payload).unwrap(),
+        ContentType::Ssz => {
+            match consensus_version {
+                ForkName::Deneb => {
+                    SignedExecutionPayloadHeader::<ExecutionPayloadHeaderMessageDeneb>::from_ssz_bytes(&payload).unwrap();
+                }
+                ForkName::Electra => {
+                    SignedExecutionPayloadHeader::<ExecutionPayloadHeaderMessageElectra>::from_ssz_bytes(&payload).unwrap();
+                }
+            };
+        }
     };
     assert_eq!(mock_state.received_get_header(), 1);
     Ok(())
@@ -231,7 +249,7 @@ async fn test_batch_register_validators() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_submit_block() -> Result<()> {
+async fn test_submit_block_deneb() -> Result<()> {
     setup_test_env();
     let signer = random_secret();
     let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk()).into();
@@ -252,7 +270,9 @@ async fn test_submit_block() -> Result<()> {
 
     let mock_validator = MockValidator::new(port)?;
     info!("Sending submit block");
-    let res = mock_validator.do_submit_block(Accept::Json, ContentType::Json).await;
+    let res = mock_validator
+        .do_submit_block(None, Accept::Json, ContentType::Json, ForkName::Deneb)
+        .await;
 
     assert!(!res.is_err());
     assert_eq!(mock_state.received_submit_block(), 1);
@@ -260,7 +280,7 @@ async fn test_submit_block() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_submit_block_ssz() -> Result<()> {
+async fn test_submit_block_electra() -> Result<()> {
     setup_test_env();
     let signer = random_secret();
     let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk()).into();
@@ -281,7 +301,70 @@ async fn test_submit_block_ssz() -> Result<()> {
 
     let mock_validator = MockValidator::new(port)?;
     info!("Sending submit block");
-    let res = mock_validator.do_submit_block(Accept::Ssz, ContentType::Ssz).await;
+    let res = mock_validator
+        .do_submit_block(None, Accept::Json, ContentType::Json, ForkName::Electra)
+        .await;
+
+    assert!(!res.is_err());
+    assert_eq!(mock_state.received_submit_block(), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_submit_block_ssz_deneb() -> Result<()> {
+    setup_test_env();
+    let signer = random_secret();
+    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk()).into();
+
+    let chain = Chain::Holesky;
+    let port = 3400;
+
+    let relays = vec![generate_mock_relay(port + 1, *pubkey)?];
+    let mock_state = Arc::new(MockRelayState::new(chain, signer));
+    tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 1));
+
+    let config = to_pbs_config(chain, get_pbs_static_config(port), relays);
+    let state = PbsState::new(config);
+    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+
+    // leave some time to start servers
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let mock_validator = MockValidator::new(port)?;
+    info!("Sending submit block");
+    let res =
+        mock_validator.do_submit_block(None, Accept::Ssz, ContentType::Ssz, ForkName::Deneb).await;
+
+    assert!(!res.is_err());
+    assert_eq!(mock_state.received_submit_block(), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_submit_block_ssz_electra() -> Result<()> {
+    setup_test_env();
+    let signer = random_secret();
+    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk()).into();
+
+    let chain = Chain::Holesky;
+    let port = 3400;
+
+    let relays = vec![generate_mock_relay(port + 1, *pubkey)?];
+    let mock_state = Arc::new(MockRelayState::new(chain, signer));
+    tokio::spawn(start_mock_relay_service(mock_state.clone(), port + 1));
+
+    let config = to_pbs_config(chain, get_pbs_static_config(port), relays);
+    let state = PbsState::new(config);
+    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+
+    // leave some time to start servers
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let mock_validator = MockValidator::new(port)?;
+    info!("Sending submit block");
+    let res = mock_validator
+        .do_submit_block(None, Accept::Ssz, ContentType::Ssz, ForkName::Electra)
+        .await;
 
     assert!(!res.is_err());
     assert_eq!(mock_state.received_submit_block(), 1);
@@ -310,7 +393,9 @@ async fn test_submit_block_too_large() -> Result<()> {
 
     let mock_validator = MockValidator::new(port)?;
     info!("Sending submit block");
-    let res = mock_validator.do_submit_block(Accept::Json, ContentType::Json).await;
+    let res = mock_validator
+        .do_submit_block(None, Accept::Json, ContentType::Json, ForkName::Electra)
+        .await;
 
     assert!(res.is_err());
     assert_eq!(mock_state.received_submit_block(), 1);
@@ -357,13 +442,13 @@ async fn test_mux() -> Result<()> {
 
     let mock_validator = MockValidator::new(port)?;
     info!("Sending get header with default");
-    let res = mock_validator.do_get_header(None, Accept::Json).await;
+    let res = mock_validator.do_get_header(None, Some(Accept::Json), ForkName::Electra).await;
 
     assert!(res.is_ok());
     assert_eq!(mock_state.received_get_header(), 1); // only default relay was used
 
     info!("Sending get header with mux");
-    let res = mock_validator.do_get_header(Some(validator_pubkey), Accept::Json).await;
+    let res = mock_validator.do_get_header(Some(validator_pubkey), Some(Accept::Json), ForkName::Electra).await;
 
     assert!(res.is_ok());
     assert_eq!(mock_state.received_get_header(), 3); // two mux relays were used
@@ -378,7 +463,9 @@ async fn test_mux() -> Result<()> {
     assert!(res.is_ok());
     assert_eq!(mock_state.received_register_validator(), 3); // default + 2 mux relays were used
 
-    let res = mock_validator.do_submit_block(Accept::Json, ContentType::Json).await;
+    let res = mock_validator
+        .do_submit_block(None, Accept::Json, ContentType::Json, ForkName::Electra)
+        .await;
 
     assert!(res.is_err());
     assert_eq!(mock_state.received_submit_block(), 3); // default + 2 mux relays were used

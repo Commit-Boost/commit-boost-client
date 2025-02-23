@@ -5,7 +5,7 @@ use axum::{
     response::IntoResponse,
 };
 use cb_common::{
-    pbs::{BuilderEvent, GetHeaderParams},
+    pbs::{BuilderEvent, GetHeaderParams, VersionedResponse},
     utils::{get_accept_header, get_user_agent, ms_into_slot, Accept, CONSENSUS_VERSION_HEADER},
 };
 use reqwest::{header::CONTENT_TYPE, StatusCode};
@@ -45,10 +45,16 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
                 BEACON_NODE_STATUS.with_label_values(&["200", GET_HEADER_ENDPOINT_TAG]).inc();
                 let response = match accept_header {
                     Accept::Ssz => {
-                        let mut res =
-                            { (StatusCode::OK, max_bid.data.as_ssz_bytes()).into_response() };
+                        let mut res = match &max_bid {
+                            VersionedResponse::Deneb(max_bid) => {
+                                (StatusCode::OK, max_bid.as_ssz_bytes()).into_response()
+                            }
+                            VersionedResponse::Electra(max_bid) => {
+                                (StatusCode::OK, max_bid.as_ssz_bytes()).into_response()
+                            }
+                        };
                         let Ok(consensus_version_header) =
-                            HeaderValue::from_str(&format!("{}", max_bid.version))
+                            HeaderValue::from_str(&format!("{}", max_bid.version()))
                         else {
                             info!("sending response as JSON");
                             return Ok((StatusCode::OK, axum::Json(max_bid)).into_response());

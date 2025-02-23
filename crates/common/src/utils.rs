@@ -24,6 +24,7 @@ use reqwest::{
 };
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
+use ssz::{Decode, Encode};
 use tracing::Level;
 use tracing_appender::{non_blocking::WorkerGuard, rolling::Rotation};
 use tracing_subscriber::{fmt::Layer, prelude::*, EnvFilter};
@@ -80,7 +81,21 @@ pub fn test_encode_decode<T: Serialize + DeserializeOwned>(d: &str) -> T {
     let encoded = serde_json::to_string(&decoded).unwrap();
     let original_v: Value = serde_json::from_str(d).unwrap();
     let encoded_v: Value = serde_json::from_str(&encoded).unwrap();
-    assert_eq!(original_v, encoded_v, "encode mismatch");
+
+    if original_v != encoded_v {
+        println!("ORIGINAL: {original_v}");
+        println!("ENCODED: {encoded_v}");
+        panic!("encode mismatch");
+    }
+
+    decoded
+}
+
+pub fn test_encode_decode_ssz<T: Encode + Decode>(d: &[u8]) -> T {
+    let decoded = T::from_ssz_bytes(d).expect("deserialize");
+    let encoded = T::as_ssz_bytes(&decoded);
+
+    assert_eq!(encoded, d);
 
     decoded
 }
@@ -302,6 +317,43 @@ pub fn get_content_type_header(req_headers: &HeaderMap) -> ContentType {
             .unwrap_or("application/json"),
     )
     .unwrap_or(ContentType::Json)
+}
+
+/// Parse CONSENSUS_VERSION header
+pub fn get_consensus_version_header(req_headers: &HeaderMap) -> Option<ForkName> {
+    ForkName::from_str(
+        req_headers
+            .get(CONSENSUS_VERSION_HEADER)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or(""),
+    )
+    .ok()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ForkName {
+    Deneb,
+    Electra,
+}
+
+impl std::fmt::Display for ForkName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ForkName::Deneb => write!(f, "deneb"),
+            ForkName::Electra => write!(f, "electra"),
+        }
+    }
+}
+
+impl FromStr for ForkName {
+    type Err = String;
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "deneb" => Ok(ForkName::Deneb),
+            "electra" => Ok(ForkName::Electra),
+            _ => Err(format!("Invalid fork name {}", value)),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

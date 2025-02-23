@@ -4,7 +4,7 @@ use cb_common::{
     pbs::{SignedBlindedBeaconBlock, SubmitBlindedBlockResponse},
     signer::{random_secret, BlsPublicKey},
     types::Chain,
-    utils::blst_pubkey_to_alloy,
+    utils::{blst_pubkey_to_alloy, Accept, ContentType, ForkName},
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
@@ -40,7 +40,14 @@ async fn test_submit_block() -> Result<()> {
 
     let mock_validator = MockValidator::new(pbs_port)?;
     info!("Sending submit block");
-    let res = mock_validator.do_submit_block(Some(SignedBlindedBeaconBlock::default())).await?;
+    let res = mock_validator
+        .do_submit_block(
+            Some(SignedBlindedBeaconBlock::default()),
+            Accept::Json,
+            ContentType::Json,
+            ForkName::Electra,
+        )
+        .await?;
 
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(mock_state.received_submit_block(), 1);
@@ -72,7 +79,9 @@ async fn test_submit_block_too_large() -> Result<()> {
 
     let mock_validator = MockValidator::new(pbs_port)?;
     info!("Sending submit block");
-    let res = mock_validator.do_submit_block(None).await;
+    let res = mock_validator
+        .do_submit_block(None, Accept::Json, ContentType::Json, ForkName::Electra)
+        .await;
 
     // response size exceeds max size: max: 20971520
     assert_eq!(res.unwrap().status(), StatusCode::BAD_GATEWAY);

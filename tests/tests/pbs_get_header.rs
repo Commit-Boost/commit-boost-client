@@ -6,7 +6,7 @@ use cb_common::{
     signature::sign_builder_root,
     signer::{random_secret, BlsPublicKey},
     types::Chain,
-    utils::{blst_pubkey_to_alloy, timestamp_of_slot_start_sec},
+    utils::{blst_pubkey_to_alloy, timestamp_of_slot_start_sec, ForkName},
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
@@ -44,20 +44,27 @@ async fn test_get_header() -> Result<()> {
 
     let mock_validator = MockValidator::new(pbs_port)?;
     info!("Sending get header");
-    let res = mock_validator.do_get_header(None).await?;
+    let res = mock_validator.do_get_header(None, None, ForkName::Electra).await?;
     assert_eq!(res.status(), StatusCode::OK);
 
     let res = serde_json::from_slice::<GetHeaderResponse>(&res.bytes().await?)?;
 
+    let res = match res {
+        GetHeaderResponse::Deneb(data) => data,
+        GetHeaderResponse::Electra(_) => {
+            unreachable!()
+        }
+    };
+
     assert_eq!(mock_state.received_get_header(), 1);
-    assert_eq!(res.data.message.header.block_hash.0[0], 1);
-    assert_eq!(res.data.message.header.parent_hash, B256::ZERO);
-    assert_eq!(res.data.message.value, U256::from(10));
-    assert_eq!(res.data.message.pubkey, blst_pubkey_to_alloy(&mock_state.signer.sk_to_pk()));
-    assert_eq!(res.data.message.header.timestamp, timestamp_of_slot_start_sec(0, chain));
+    assert_eq!(res.message.header.block_hash.0[0], 1);
+    assert_eq!(res.message.header.parent_hash, B256::ZERO);
+    assert_eq!(res.message.value, U256::from(10));
+    assert_eq!(res.message.pubkey, blst_pubkey_to_alloy(&mock_state.signer.sk_to_pk()));
+    assert_eq!(res.message.header.timestamp, timestamp_of_slot_start_sec(0, chain));
     assert_eq!(
-        res.data.signature,
-        sign_builder_root(chain, &mock_state.signer, res.data.message.tree_hash_root().0)
+        res.signature,
+        sign_builder_root(chain, &mock_state.signer, res.message.tree_hash_root().0)
     );
     Ok(())
 }
@@ -89,7 +96,7 @@ async fn test_get_header_returns_204_if_relay_down() -> Result<()> {
 
     let mock_validator = MockValidator::new(pbs_port)?;
     info!("Sending get header");
-    let res = mock_validator.do_get_header(None).await?;
+    let res = mock_validator.do_get_header(None, None, ForkName::Electra).await?;
 
     assert_eq!(res.status(), StatusCode::NO_CONTENT); // 204 error
     assert_eq!(mock_state.received_get_header(), 0); // no header received
