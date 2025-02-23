@@ -61,13 +61,19 @@ async fn test_mux() -> Result<()> {
     // Send default request without specifying a validator key
     let mock_validator = MockValidator::new(pbs_port)?;
     info!("Sending get header with default");
-    assert_eq!(mock_validator.do_get_header(None, None, ForkName::Electra).await?.status(), StatusCode::OK);
+    assert_eq!(
+        mock_validator.do_get_header(None, None, ForkName::Electra).await?.status(),
+        StatusCode::OK
+    );
     assert_eq!(mock_state.received_get_header(), 1); // only default relay was used
 
     // Send request specifying a validator key to use mux
     info!("Sending get header with mux");
     assert_eq!(
-        mock_validator.do_get_header(Some(validator_pubkey), None, ForkName::Electra).await?.status(),
+        mock_validator
+            .do_get_header(Some(validator_pubkey), None, ForkName::Electra)
+            .await?
+            .status(),
         StatusCode::OK
     );
     assert_eq!(mock_state.received_get_header(), 3); // two mux relays were used
