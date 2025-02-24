@@ -3,6 +3,7 @@ use cb_common::{
     utils::{initialize_tracing_log, wait_for_signal},
 };
 use cb_signer::service::SigningService;
+use clap::Parser;
 use eyre::Result;
 use tracing::{error, info};
 
@@ -15,6 +16,8 @@ async fn main() -> Result<()> {
         std::env::set_var("RUST_BACKTRACE", "1");
     }
     let _guard = initialize_tracing_log(SIGNER_MODULE_NAME);
+
+    let _args = cb_cli::SignerArgs::parse();
 
     let config = StartSignerConfig::load_from_env()?;
     let server = SigningService::run(config);
