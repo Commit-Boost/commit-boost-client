@@ -27,6 +27,7 @@ pub use utils::*;
 pub struct CommitBoostConfig {
     pub chain: Chain,
     pub relays: Vec<RelayConfig>,
+    #[serde(skip)]
     pub pbs: StaticPbsConfig,
     #[serde(flatten)]
     pub muxes: Option<PbsMuxes>,
@@ -34,6 +35,8 @@ pub struct CommitBoostConfig {
     pub signer: Option<SignerConfig>,
     pub metrics: Option<MetricsConfig>,
     pub logs: Option<LogsSettings>,
+    #[serde(rename = "pbs")]
+    pub extended_pbses: Option<Vec<StaticPbsConfig>>,
 }
 
 impl CommitBoostConfig {
@@ -74,12 +77,13 @@ impl CommitBoostConfig {
         let config = CommitBoostConfig {
             chain,
             relays: helper_config.relays,
-            pbs: helper_config.pbs,
+            pbs: Default::default(),
             muxes: helper_config.muxes,
             modules: helper_config.modules,
             signer: helper_config.signer,
             metrics: helper_config.metrics,
             logs: helper_config.logs,
+            extended_pbses: helper_config.pbses,
         };
 
         Ok(config)
@@ -111,7 +115,8 @@ struct ChainConfig {
 struct HelperConfig {
     chain: ChainLoader,
     relays: Vec<RelayConfig>,
-    pbs: StaticPbsConfig,
+    #[serde(rename = "pbs")]
+    pbses: Option<Vec<StaticPbsConfig>>,
     #[serde(flatten)]
     muxes: Option<PbsMuxes>,
     modules: Option<Vec<StaticModuleConfig>>,

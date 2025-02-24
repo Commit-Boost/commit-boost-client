@@ -2,7 +2,7 @@
 
 chain = "Holesky"
 
-[pbs]
+[[pbs]]
 port = 18550
 
 [[relays]]

@@ -2,7 +2,7 @@
 
 chain = "Holesky"
 
-[pbs]
+[[pbs]]
 port = 18550
 timeout_get_header_ms = 950
 late_in_slot_time_ms = 2000

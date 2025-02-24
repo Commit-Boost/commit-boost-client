@@ -169,6 +169,26 @@ impl PbsConfig {
     }
 }
 
+impl Default for PbsConfig {
+    fn default() -> Self {
+        Self {
+            host: default_host(),
+            port: DEFAULT_PBS_PORT,
+            relay_check: true,
+            wait_all_registrations: true,
+            timeout_get_header_ms: DefaultTimeout::GET_HEADER_MS,
+            timeout_get_payload_ms: DefaultTimeout::GET_PAYLOAD_MS,
+            timeout_register_validator_ms: DefaultTimeout::REGISTER_VALIDATOR_MS,
+            skip_sigverify: false,
+            min_bid_wei: U256::default(),
+            relay_monitors: Vec::new(),
+            late_in_slot_time_ms: LATE_IN_SLOT_TIME_MS,
+            extra_validation_enabled: false,
+            rpc_url: None,
+        }
+    }
+}
+
 /// Static pbs config from config file
 #[derive(Debug, Deserialize, Serialize)]
 pub struct StaticPbsConfig {
@@ -181,6 +201,12 @@ pub struct StaticPbsConfig {
     /// Whether to enable the signer client
     #[serde(default = "default_bool::<false>")]
     pub with_signer: bool,
+}
+
+impl Default for StaticPbsConfig {
+    fn default() -> Self {
+        Self { docker_image: default_pbs(), pbs_config: Default::default(), with_signer: false }
+    }
 }
 
 /// Runtime config for the pbs module
@@ -222,9 +248,15 @@ pub async fn load_pbs_config() -> Result<PbsModuleConfig> {
         SocketAddr::from((config.pbs.pbs_config.host, config.pbs.pbs_config.port))
     };
 
+    let extended_pbses = config
+        .extended_pbses
+        .map(|pbses| pbses.into_iter().map(|pbs| pbs.pbs_config).collect::<Vec<_>>());
+
     let muxes = match config.muxes {
         Some(muxes) => {
-            let mux_configs = muxes.validate_and_fill(config.chain, &config.pbs.pbs_config).await?;
+            let mux_configs = muxes
+                .validate_and_fill(config.chain, &config.pbs.pbs_config, &extended_pbses)
+                .await?;
             Some(mux_configs)
         }
         None => None,
@@ -267,40 +299,37 @@ pub async fn load_pbs_config() -> Result<PbsModuleConfig> {
 
 /// Loads a custom pbs config, i.e. with signer client and/or custom data
 pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleConfig, T)> {
-    #[derive(Debug, Deserialize)]
-    struct CustomPbsConfig<U> {
-        #[serde(flatten)]
-        static_config: StaticPbsConfig,
-        #[serde(flatten)]
-        extra: U,
-    }
-
     #[derive(Deserialize, Debug)]
     struct StubConfig<U> {
         chain: Chain,
         relays: Vec<RelayConfig>,
-        pbs: CustomPbsConfig<U>,
+        #[serde(skip)]
+        pbs: StaticPbsConfig,
+        extended_pbses: Option<Vec<StaticPbsConfig>>,
         muxes: Option<PbsMuxes>,
+        #[serde(flatten)]
+        extra: U,
     }
 
     // load module config including the extra data (if any)
     let cb_config: StubConfig<T> = load_file_from_env(CONFIG_ENV)?;
-    cb_config.pbs.static_config.pbs_config.validate(cb_config.chain).await?;
+    cb_config.pbs.pbs_config.validate(cb_config.chain).await?;
 
     // use endpoint from env if set, otherwise use default host and port
     let endpoint = if let Some(endpoint) = load_optional_env_var(PBS_ENDPOINT_ENV) {
         endpoint.parse()?
     } else {
-        SocketAddr::from((
-            cb_config.pbs.static_config.pbs_config.host,
-            cb_config.pbs.static_config.pbs_config.port,
-        ))
+        SocketAddr::from((cb_config.pbs.pbs_config.host, cb_config.pbs.pbs_config.port))
     };
+
+    let extended_pbses = cb_config
+        .extended_pbses
+        .map(|pbses| pbses.into_iter().map(|pbs| pbs.pbs_config).collect::<Vec<_>>());
 
     let muxes = match cb_config.muxes {
         Some(muxes) => Some(
             muxes
-                .validate_and_fill(cb_config.chain, &cb_config.pbs.static_config.pbs_config)
+                .validate_and_fill(cb_config.chain, &cb_config.pbs.pbs_config, &extended_pbses)
                 .await?,
         ),
         None => None,
@@ -329,7 +358,7 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
 
     let all_relays = all_relays.into_values().collect();
 
-    let signer_client = if cb_config.pbs.static_config.with_signer {
+    let signer_client = if cb_config.pbs.with_signer {
         // if custom pbs requires a signer client, load jwt
         let module_jwt = load_env_var(MODULE_JWT_ENV)?;
         let signer_server_url = load_env_var(SIGNER_URL_ENV)?.parse()?;
@@ -342,13 +371,13 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
         PbsModuleConfig {
             chain: cb_config.chain,
             endpoint,
-            pbs_config: Arc::new(cb_config.pbs.static_config.pbs_config),
+            pbs_config: Arc::new(cb_config.pbs.pbs_config),
             relays: relay_clients,
             all_relays,
             signer_client,
             event_publisher: maybe_publiher,
             muxes,
         },
-        cb_config.pbs.extra,
+        cb_config.extra,
     ))
 }

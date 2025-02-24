@@ -1,6 +1,6 @@
 chain = "Holesky"
 
-[pbs]
+[[pbs]]
 port = 18750
 late_in_slot_time_ms = 1000000000000 # skip late in slot checks
 

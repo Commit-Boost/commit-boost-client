@@ -3,7 +3,7 @@
 # genesis time in seconds needs to be specified
 chain = { genesis_time_secs = 100, path = "tests/data/holesky_spec.json" }
 
-[pbs]
+[[pbs]]
 port = 18550
 
 [[relays]]

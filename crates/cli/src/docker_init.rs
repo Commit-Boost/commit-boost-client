@@ -227,89 +227,102 @@ pub async fn handle_docker_init(config_path: String, output_dir: String) -> Resu
         }
     };
 
-    // setup pbs service
-    if metrics_enabled {
-        targets.push(PrometheusTargetConfig {
-            targets: vec![format!("cb_pbs:{metrics_port}")],
-            labels: PrometheusLabelsConfig { job: "pbs".to_owned() },
-        });
+    let mut pbs_configs = vec![cb_config.pbs];
+    if let Some(extended_pbses) = cb_config.extended_pbses {
+        pbs_configs.extend(extended_pbses);
     }
 
-    let mut pbs_envs = IndexMap::from([get_env_val(CONFIG_ENV, CONFIG_DEFAULT)]);
-    let mut pbs_volumes = vec![config_volume.clone()];
+    let mut general_pbs_envs = IndexMap::from([get_env_val(CONFIG_ENV, CONFIG_DEFAULT)]);
+    let mut general_pbs_volumes = vec![config_volume.clone()];
 
     if let Some(mux_config) = cb_config.muxes {
         for mux in mux_config.muxes.iter() {
             if let Some((env_name, actual_path, internal_path)) = mux.loader_env() {
                 let (key, val) = get_env_val(&env_name, &internal_path);
-                pbs_envs.insert(key, val);
-                pbs_volumes.push(Volumes::Simple(format!("{}:{}:ro", actual_path, internal_path)));
+                general_pbs_envs.insert(key, val);
+                general_pbs_volumes
+                    .push(Volumes::Simple(format!("{}:{}:ro", actual_path, internal_path)));
             }
         }
     }
 
-    if let Some((key, val)) = chain_spec_env.clone() {
+    for (pbs_id, pbs_config) in pbs_configs.iter().enumerate() {
+        let pbs_container_name =
+            if pbs_id == 0 { "cb_pbs".to_owned() } else { format!("cb_pbs_ext_{}", pbs_id) };
+        // setup pbs service
+        if metrics_enabled {
+            targets.push(PrometheusTargetConfig {
+                targets: vec![format!("{}:{metrics_port}", pbs_container_name.clone())],
+                labels: PrometheusLabelsConfig { job: "pbs".to_owned() },
+            });
+        }
+
+        let mut pbs_envs = general_pbs_envs.clone();
+        let mut pbs_volumes = general_pbs_volumes.clone();
+
+        if let Some((key, val)) = chain_spec_env.clone() {
+            pbs_envs.insert(key, val);
+        }
+        if metrics_enabled {
+            let (key, val) = get_env_uval(METRICS_PORT_ENV, metrics_port as u64);
+            pbs_envs.insert(key, val);
+        }
+        if log_to_file {
+            let (key, val) = get_env_val(LOGS_DIR_ENV, LOGS_DIR_DEFAULT);
+            pbs_envs.insert(key, val);
+        }
+        if !builder_events_modules.is_empty() {
+            let env = builder_events_modules.join(",");
+            let (k, v) = get_env_val(BUILDER_URLS_ENV, &env);
+            pbs_envs.insert(k, v);
+        }
+
+        // ports
+        let host_endpoint =
+            SocketAddr::from((pbs_config.pbs_config.host, pbs_config.pbs_config.port));
+        let ports = Ports::Short(vec![format!("{}:{}", host_endpoint, pbs_config.pbs_config.port)]);
+        warnings.push(format!("pbs has an exported port on {}", pbs_config.pbs_config.port));
+
+        // inside the container expose on 0.0.0.0
+        let container_endpoint =
+            SocketAddr::from((Ipv4Addr::UNSPECIFIED, pbs_config.pbs_config.port));
+        let (key, val) = get_env_val(PBS_ENDPOINT_ENV, &container_endpoint.to_string());
         pbs_envs.insert(key, val);
+
+        // volumes
+        pbs_volumes.extend(chain_spec_volume.clone());
+        pbs_volumes.extend(get_log_volume(&cb_config.logs, PBS_MODULE_NAME));
+
+        // networks
+        let pbs_networks = if metrics_enabled {
+            Networks::Simple(vec![METRICS_NETWORK.to_owned()])
+        } else {
+            Networks::default()
+        };
+
+        let pbs_service = Service {
+            container_name: Some(pbs_container_name.clone()),
+            image: Some(pbs_config.docker_image.clone()),
+            ports,
+            networks: pbs_networks,
+            volumes: pbs_volumes,
+            environment: Environment::KvPair(pbs_envs),
+            healthcheck: Some(Healthcheck {
+                test: Some(HealthcheckTest::Single(format!(
+                    "curl -f http://localhost:{}{}{}",
+                    pbs_config.pbs_config.port, BUILDER_API_PATH, GET_STATUS_PATH
+                ))),
+                interval: Some("30s".into()),
+                timeout: Some("5s".into()),
+                retries: 3,
+                start_period: Some("5s".into()),
+                disable: false,
+            }),
+            ..Service::default()
+        };
+
+        services.insert(pbs_container_name.clone(), Some(pbs_service));
     }
-    if metrics_enabled {
-        let (key, val) = get_env_uval(METRICS_PORT_ENV, metrics_port as u64);
-        pbs_envs.insert(key, val);
-    }
-    if log_to_file {
-        let (key, val) = get_env_val(LOGS_DIR_ENV, LOGS_DIR_DEFAULT);
-        pbs_envs.insert(key, val);
-    }
-    if !builder_events_modules.is_empty() {
-        let env = builder_events_modules.join(",");
-        let (k, v) = get_env_val(BUILDER_URLS_ENV, &env);
-        pbs_envs.insert(k, v);
-    }
-
-    // ports
-    let host_endpoint =
-        SocketAddr::from((cb_config.pbs.pbs_config.host, cb_config.pbs.pbs_config.port));
-    let ports = Ports::Short(vec![format!("{}:{}", host_endpoint, cb_config.pbs.pbs_config.port)]);
-    warnings.push(format!("pbs has an exported port on {}", cb_config.pbs.pbs_config.port));
-
-    // inside the container expose on 0.0.0.0
-    let container_endpoint =
-        SocketAddr::from((Ipv4Addr::UNSPECIFIED, cb_config.pbs.pbs_config.port));
-    let (key, val) = get_env_val(PBS_ENDPOINT_ENV, &container_endpoint.to_string());
-    pbs_envs.insert(key, val);
-
-    // volumes
-    pbs_volumes.extend(chain_spec_volume.clone());
-    pbs_volumes.extend(get_log_volume(&cb_config.logs, PBS_MODULE_NAME));
-
-    // networks
-    let pbs_networs = if metrics_enabled {
-        Networks::Simple(vec![METRICS_NETWORK.to_owned()])
-    } else {
-        Networks::default()
-    };
-
-    let pbs_service = Service {
-        container_name: Some("cb_pbs".to_owned()),
-        image: Some(cb_config.pbs.docker_image),
-        ports,
-        networks: pbs_networs,
-        volumes: pbs_volumes,
-        environment: Environment::KvPair(pbs_envs),
-        healthcheck: Some(Healthcheck {
-            test: Some(HealthcheckTest::Single(format!(
-                "curl -f http://localhost:{}{}{}",
-                cb_config.pbs.pbs_config.port, BUILDER_API_PATH, GET_STATUS_PATH
-            ))),
-            interval: Some("30s".into()),
-            timeout: Some("5s".into()),
-            retries: 3,
-            start_period: Some("5s".into()),
-            disable: false,
-        }),
-        ..Service::default()
-    };
-
-    services.insert("cb_pbs".to_owned(), Some(pbs_service));
 
     // setup signer service
     if let Some(SignerConfig::Local { docker_image, loader, store }) = cb_config.signer {

@@ -37,6 +37,7 @@ impl PbsMuxes {
         self,
         chain: Chain,
         default_pbs: &PbsConfig,
+        extended_pbses: &Option<Vec<PbsConfig>>,
     ) -> eyre::Result<HashMap<BlsPublicKey, RuntimeMuxConfig>> {
         let mut muxes = self.muxes;
 
@@ -44,8 +45,17 @@ impl PbsMuxes {
             ensure!(!mux.relays.is_empty(), "mux config {} must have at least one relay", mux.id);
 
             if let Some(loader) = &mux.loader {
-                let extra_keys = loader.load(&mux.id, chain, default_pbs.rpc_url.clone()).await?;
-                mux.validator_pubkeys.extend(extra_keys);
+                // TODO: this need to be handled with tokio::task::JoinSet for performance
+                if let Some(extended_pbses) = extended_pbses {
+                    for pbs in extended_pbses {
+                        let extra_keys = loader.load(&mux.id, chain, pbs.rpc_url.clone()).await?;
+                        mux.validator_pubkeys.extend(extra_keys);
+                    }
+                } else {
+                    let extra_keys =
+                        loader.load(&mux.id, chain, default_pbs.rpc_url.clone()).await?;
+                    mux.validator_pubkeys.extend(extra_keys);
+                }
             }
 
             ensure!(
@@ -80,20 +90,39 @@ impl PbsMuxes {
                 relay_clients.push(RelayClient::new(config)?);
             }
 
-            let config = PbsConfig {
-                timeout_get_header_ms: mux
-                    .timeout_get_header_ms
-                    .unwrap_or(default_pbs.timeout_get_header_ms),
-                late_in_slot_time_ms: mux
-                    .late_in_slot_time_ms
-                    .unwrap_or(default_pbs.late_in_slot_time_ms),
-                ..default_pbs.clone()
+            let configs_with_extended_pbs = if let Some(extended_pbses) = extended_pbses {
+                extended_pbses
+                    .iter()
+                    .map(|pbs_config| PbsConfig {
+                        timeout_get_header_ms: mux
+                            .timeout_get_header_ms
+                            .unwrap_or(pbs_config.timeout_get_header_ms),
+                        late_in_slot_time_ms: mux
+                            .late_in_slot_time_ms
+                            .unwrap_or(pbs_config.late_in_slot_time_ms),
+                        ..default_pbs.clone()
+                    })
+                    .collect()
+            } else {
+                vec![PbsConfig {
+                    timeout_get_header_ms: mux
+                        .timeout_get_header_ms
+                        .unwrap_or(default_pbs.timeout_get_header_ms),
+                    late_in_slot_time_ms: mux
+                        .late_in_slot_time_ms
+                        .unwrap_or(default_pbs.late_in_slot_time_ms),
+                    ..default_pbs.clone()
+                }]
             };
-            let config = Arc::new(config);
 
-            let runtime_config = RuntimeMuxConfig { id: mux.id, config, relays: relay_clients };
-            for pubkey in mux.validator_pubkeys.iter() {
-                configs.insert(*pubkey, runtime_config.clone());
+            for config in configs_with_extended_pbs {
+                let config = Arc::new(config);
+
+                let runtime_config =
+                    RuntimeMuxConfig { id: mux.id.clone(), config, relays: relay_clients.clone() };
+                for pubkey in mux.validator_pubkeys.iter() {
+                    configs.insert(*pubkey, runtime_config.clone());
+                }
             }
         }
 
