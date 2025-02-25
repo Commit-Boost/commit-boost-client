@@ -17,7 +17,6 @@ unlock = true
 
 # Example of a single Dirk host
 [[signer.dirk.hosts]]
-server_name = "gateway.dirk.url"
 url = "https://gateway.dirk.url"
 accounts = ["wallet1/accountX", "wallet2/accountY"]
 
