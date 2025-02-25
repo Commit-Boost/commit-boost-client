@@ -145,7 +145,7 @@ impl DirkManager {
                 }) {
                     let public_key = BlsPublicKey::try_from(dirk_account.public_key.as_slice())?;
                     let key_name =
-                        dirk_account.name.split_once("/").map(|(_, n)| n).unwrap_or_default();
+                        dirk_account.name.split_once("/").map(|(_wallet, name)| name).unwrap_or_default();
                     trace!(?dirk_account.name, "Adding account to hashmap");
 
                     let is_proxy = is_proxy_key_name(key_name);
@@ -168,7 +168,7 @@ impl DirkManager {
                     let public_key =
                         BlsPublicKey::try_from(dist_account.composite_public_key.as_slice())?;
                     let key_name =
-                        dist_account.name.split_once("/").map(|(_, n)| n).unwrap_or_default();
+                        dist_account.name.split_once("/").map(|(_wallet, name)| name).unwrap_or_default();
                     let is_proxy = is_proxy_key_name(key_name);
 
                     trace!(?dist_account.name, "Adding distributed account to hashmap");
@@ -910,9 +910,6 @@ async fn make_generate_proxy_request(
 /// Checks if a key name follows the proxy pattern
 /// <consensus>/<module_id>/<uuid>
 fn is_proxy_key_name(key_name: &str) -> bool {
-    key_name.split('/').count() == 3 && {
-        let parts: Vec<&str> = key_name.split('/').collect();
-        uuid::Uuid::parse_str(parts[2]).is_ok() // Verify the last part is a
-                                                // valid UUID
-    }
+    key_name.split('/').count() == 3 &&
+        uuid::Uuid::parse_str(key_name.split('/').last().unwrap_or_default()).is_ok()
 }
