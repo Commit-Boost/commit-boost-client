@@ -168,7 +168,7 @@ impl DirkManager {
                     let public_key =
                         BlsPublicKey::try_from(dist_account.composite_public_key.as_slice())?;
                     let key_name =
-                        dist_account.name.split_once("/").map(|(_, n)| n).unwrap_or_default();
+                        dist_account.name.split_once("/").map(|(_wallet, name)| name).unwrap_or_default();
                     let is_proxy = is_proxy_key_name(key_name);
 
                     trace!(?dist_account.name, "Adding distributed account to hashmap");
