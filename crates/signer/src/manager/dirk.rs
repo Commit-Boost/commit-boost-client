@@ -910,9 +910,7 @@ async fn make_generate_proxy_request(
 /// Checks if a key name follows the proxy pattern
 /// <consensus>/<module_id>/<uuid>
 fn is_proxy_key_name(key_name: &str) -> bool {
-    key_name.split('/').count() == 3 && {
-        let parts: Vec<&str> = key_name.split('/').collect();
-        uuid::Uuid::parse_str(parts[2]).is_ok() // Verify the last part is a
-                                                // valid UUID
+    key_name.split('/').count() == 3 &&
+        uuid::Uuid::parse_str(key_name.split('/').last().unwrap_or_default()).is_ok()
     }
 }
