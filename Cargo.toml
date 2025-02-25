@@ -103,3 +103,5 @@ derive_more = { version = "1.0.0", features = [
     "deref",
     "display",
 ] }
+mediatype = "0.19.13"
+bytes = "1.6"

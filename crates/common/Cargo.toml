@@ -51,6 +51,8 @@ url.workspace = true
 rand.workspace = true
 bimap.workspace = true
 derive_more.workspace = true
+mediatype.workspace = true
+bytes.workspace = true
 
 unicode-normalization.workspace = true
 base64.workspace = true

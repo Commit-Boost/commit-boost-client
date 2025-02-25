@@ -215,9 +215,9 @@ fn validate_unblinded_block_deneb(
     let blobs = &block_response.blobs_bundle;
 
     let expected_commitments = &signed_blinded_block.body.blob_kzg_commitments;
-    if expected_commitments.len() != blobs.blobs.len() ||
-        expected_commitments.len() != blobs.commitments.len() ||
-        expected_commitments.len() != blobs.proofs.len()
+    if expected_commitments.len() != blobs.blobs.len()
+        || expected_commitments.len() != blobs.commitments.len()
+        || expected_commitments.len() != blobs.proofs.len()
     {
         return Err(PbsError::Validation(ValidationError::KzgCommitments {
             expected_blobs: expected_commitments.len(),
@@ -248,9 +248,9 @@ fn validate_unblinded_block_electra(
     let blobs = &block_response.blobs_bundle;
 
     let expected_commitments = &signed_blinded_block.body.blob_kzg_commitments;
-    if expected_commitments.len() != blobs.blobs.len() ||
-        expected_commitments.len() != blobs.commitments.len() ||
-        expected_commitments.len() != blobs.proofs.len()
+    if expected_commitments.len() != blobs.blobs.len()
+        || expected_commitments.len() != blobs.commitments.len()
+        || expected_commitments.len() != blobs.proofs.len()
     {
         return Err(PbsError::Validation(ValidationError::KzgCommitments {
             expected_blobs: expected_commitments.len(),

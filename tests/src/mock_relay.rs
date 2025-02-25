@@ -9,23 +9,29 @@ use std::{
 use alloy::{primitives::U256, rpc::types::beacon::relay::ValidatorRegistration};
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
 use cb_common::{
     pbs::{
-        ExecutionPayloadHeaderMessageDeneb, GetHeaderParams, GetHeaderResponse,
-        SignedExecutionPayloadHeader, SubmitBlindedBlockResponse, BUILDER_API_PATH,
-        GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
+        ExecutionPayloadHeaderMessageDeneb, ExecutionPayloadHeaderMessageElectra, GetHeaderParams,
+        PayloadAndBlobsDeneb, PayloadAndBlobsElectra, SignedExecutionPayloadHeader,
+        SubmitBlindedBlockResponse, VersionedResponse, BUILDER_API_PATH, GET_HEADER_PATH,
+        GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
     },
     signature::sign_builder_root,
     signer::BlsSecretKey,
     types::Chain,
-    utils::{blst_pubkey_to_alloy, timestamp_of_slot_start_sec},
+    utils::{
+        blst_pubkey_to_alloy, get_accept_header, get_consensus_version_header,
+        timestamp_of_slot_start_sec, Accept, ForkName, CONSENSUS_VERSION_HEADER,
+    },
 };
 use cb_pbs::MAX_SIZE_SUBMIT_BLOCK;
+use reqwest::header::CONTENT_TYPE;
+use ssz::Encode;
 use tokio::net::TcpListener;
 use tracing::debug;
 use tree_hash::TreeHash;
@@ -100,23 +106,67 @@ pub fn mock_relay_app_router(state: Arc<MockRelayState>) -> Router {
 async fn handle_get_header(
     State(state): State<Arc<MockRelayState>>,
     Path(GetHeaderParams { parent_hash, .. }): Path<GetHeaderParams>,
+    headers: HeaderMap,
 ) -> Response {
     state.received_get_header.fetch_add(1, Ordering::Relaxed);
+    let accept_header = get_accept_header(&headers);
+    let consensus_version_header =
+        get_consensus_version_header(&headers).unwrap_or(ForkName::Electra);
 
-    let mut response: SignedExecutionPayloadHeader<ExecutionPayloadHeaderMessageDeneb> =
-        SignedExecutionPayloadHeader::default();
+    let data = match consensus_version_header {
+        ForkName::Deneb => {
+            let mut response: SignedExecutionPayloadHeader<ExecutionPayloadHeaderMessageDeneb> =
+                SignedExecutionPayloadHeader::default();
+            response.message.header.parent_hash = parent_hash;
+            response.message.header.block_hash.0[0] = 1;
+            response.message.value = U256::from(10);
+            response.message.pubkey = blst_pubkey_to_alloy(&state.signer.sk_to_pk());
+            response.message.header.timestamp = timestamp_of_slot_start_sec(0, state.chain);
 
-    response.message.header.parent_hash = parent_hash;
-    response.message.header.block_hash.0[0] = 1;
-    response.message.value = U256::from(10);
-    response.message.pubkey = blst_pubkey_to_alloy(&state.signer.sk_to_pk());
-    response.message.header.timestamp = timestamp_of_slot_start_sec(0, state.chain);
+            let object_root = response.message.tree_hash_root().0;
+            response.signature = sign_builder_root(state.chain, &state.signer, object_root);
+            match accept_header {
+                Accept::Json | Accept::Any => {
+                    let versioned_response: VersionedResponse<
+                        SignedExecutionPayloadHeader<ExecutionPayloadHeaderMessageDeneb>,
+                        SignedExecutionPayloadHeader<ExecutionPayloadHeaderMessageElectra>,
+                    > = VersionedResponse::Deneb(response);
+                    serde_json::to_vec(&versioned_response).unwrap()
+                }
+                Accept::Ssz => response.as_ssz_bytes(),
+            }
+        }
+        ForkName::Electra => {
+            let mut response: SignedExecutionPayloadHeader<ExecutionPayloadHeaderMessageElectra> =
+                SignedExecutionPayloadHeader::default();
+            response.message.header.parent_hash = parent_hash;
+            response.message.header.block_hash.0[0] = 1;
+            response.message.value = U256::from(10);
+            response.message.pubkey = blst_pubkey_to_alloy(&state.signer.sk_to_pk());
+            response.message.header.timestamp = timestamp_of_slot_start_sec(0, state.chain);
 
-    let object_root = response.message.tree_hash_root().0;
-    response.signature = sign_builder_root(state.chain, &state.signer, object_root);
+            let object_root = response.message.tree_hash_root().0;
+            response.signature = sign_builder_root(state.chain, &state.signer, object_root);
+            match accept_header {
+                Accept::Json | Accept::Any => {
+                    let versioned_response: VersionedResponse<
+                        SignedExecutionPayloadHeader<ExecutionPayloadHeaderMessageDeneb>,
+                        SignedExecutionPayloadHeader<ExecutionPayloadHeaderMessageElectra>,
+                    > = VersionedResponse::Electra(response);
+                    serde_json::to_vec(&versioned_response).unwrap()
+                }
+                Accept::Ssz => response.as_ssz_bytes(),
+            }
+        }
+    };
 
-    let response = GetHeaderResponse::Deneb(response);
-    (StatusCode::OK, Json(response)).into_response()
+    let mut response = (StatusCode::OK, data).into_response();
+    let consensus_version_header =
+        HeaderValue::from_str(&consensus_version_header.to_string()).unwrap();
+    let content_type_header = HeaderValue::from_str(&accept_header.to_string()).unwrap();
+    response.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
+    response.headers_mut().insert(CONTENT_TYPE, content_type_header);
+    response
 }
 
 async fn handle_get_status(State(state): State<Arc<MockRelayState>>) -> impl IntoResponse {
@@ -133,12 +183,36 @@ async fn handle_register_validator(
     StatusCode::OK
 }
 
-async fn handle_submit_block(State(state): State<Arc<MockRelayState>>) -> Response {
+async fn handle_submit_block(
+    State(state): State<Arc<MockRelayState>>,
+    headers: HeaderMap,
+) -> Response {
     state.received_submit_block.fetch_add(1, Ordering::Relaxed);
-    if state.large_body() {
-        (StatusCode::OK, Json(vec![1u8; 1 + MAX_SIZE_SUBMIT_BLOCK])).into_response()
+    let accept_header = get_accept_header(&headers);
+    let consensus_version_header =
+        get_consensus_version_header(&headers).unwrap_or(ForkName::Electra);
+
+    let data = if state.large_body() {
+        vec![1u8; 1 + MAX_SIZE_SUBMIT_BLOCK]
     } else {
-        let response = SubmitBlindedBlockResponse::default();
-        (StatusCode::OK, Json(response)).into_response()
-    }
+        match accept_header {
+            cb_common::utils::Accept::Json | cb_common::utils::Accept::Any => {
+                serde_json::to_vec(&SubmitBlindedBlockResponse::default()).unwrap()
+            }
+            cb_common::utils::Accept::Ssz => match consensus_version_header {
+                cb_common::utils::ForkName::Deneb => PayloadAndBlobsDeneb::default().as_ssz_bytes(),
+                cb_common::utils::ForkName::Electra => {
+                    PayloadAndBlobsElectra::default().as_ssz_bytes()
+                }
+            },
+        }
+    };
+
+    let mut response = (StatusCode::OK, data).into_response();
+    let consensus_version_header =
+        HeaderValue::from_str(&consensus_version_header.to_string()).unwrap();
+    let content_type_header = HeaderValue::from_str(&accept_header.to_string()).unwrap();
+    response.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
+    response.headers_mut().insert(CONTENT_TYPE, content_type_header);
+    response
 }

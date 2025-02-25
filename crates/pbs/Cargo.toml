@@ -11,6 +11,7 @@ cb-metrics.workspace = true
 
 # ethereum
 alloy.workspace = true
+ethereum_ssz.workspace = true
 
 # networking
 axum.workspace = true
