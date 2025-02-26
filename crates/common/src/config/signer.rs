@@ -34,10 +34,10 @@ fn default_signer() -> String {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
-pub struct DirkHost {
+pub struct DirkHostConfig {
     /// Domain name of the server to use in TLS verification
     pub server_name: Option<String>,
-    /// Complete URL of a Dirk gateway
+    /// Complete URL of the Dirk server
     pub url: Url,
     /// Accounts used as consensus keys
     pub accounts: Vec<String>,
@@ -61,7 +61,7 @@ pub enum SignerType {
     /// Dirk remote signer module
     Dirk {
         /// List of Dirk hosts with their accounts
-        hosts: Vec<DirkHost>,
+        hosts: Vec<DirkHostConfig>,
         /// Path to the client certificate
         cert_path: PathBuf,
         /// Path to the client key
@@ -80,7 +80,7 @@ pub enum SignerType {
 
 #[derive(Clone, Debug)]
 pub struct DirkConfig {
-    pub hosts: Vec<DirkHost>,
+    pub hosts: Vec<DirkHostConfig>,
     pub client_cert: Identity,
     pub secrets_path: PathBuf,
     pub cert_auth: Option<Certificate>,

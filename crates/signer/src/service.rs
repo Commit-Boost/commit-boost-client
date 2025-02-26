@@ -180,12 +180,12 @@ async fn handle_request_signature(
         },
         SigningManager::Dirk(dirk_manager) => match request {
             SignRequest::Consensus(SignConsensusRequest { object_root, pubkey }) => dirk_manager
-                .request_signature(pubkey, object_root, true)
+                .request_consensus_signature(&pubkey, object_root)
                 .await
                 .map(|sig| Json(sig).into_response()),
             SignRequest::ProxyBls(SignProxyRequest { object_root, pubkey: bls_key }) => {
                 dirk_manager
-                    .request_signature(bls_key, object_root, false)
+                    .request_proxy_signature(&bls_key, object_root)
                     .await
                     .map(|sig| Json(sig).into_response())
             }
@@ -231,7 +231,7 @@ async fn handle_generate_proxy(
         },
         SigningManager::Dirk(dirk_manager) => match request.scheme {
             EncryptionScheme::Bls => dirk_manager
-                .generate_proxy_key(module_id.clone(), request.consensus_pubkey)
+                .generate_proxy_key(&module_id, request.consensus_pubkey)
                 .await
                 .map(|proxy_delegation| Json(proxy_delegation).into_response()),
             EncryptionScheme::Ecdsa => {
