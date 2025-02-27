@@ -20,7 +20,7 @@ use crate::{
     error::SignerModuleError,
     proto::v1::{
         account_manager_client::AccountManagerClient, lister_client::ListerClient,
-        signer_client::SignerClient, GenerateRequest, ListAccountsRequest, ResponseState,
+        signer_client::SignerClient, Endpoint, GenerateRequest, ListAccountsRequest, ResponseState,
         SignRequest,
     },
 };
@@ -87,6 +87,11 @@ impl DirkManager {
         let mut consensus_accounts = HashMap::new();
 
         for host in config.hosts {
+            let Some(host_name) = host.name() else {
+                warn!("Host name not found for server {}", host.url);
+                continue;
+            };
+
             let channel = match connect(&host, &certs).await {
                 Ok(channel) => channel,
                 Err(e) => {
@@ -97,6 +102,7 @@ impl DirkManager {
 
             connections.insert(host.url.clone(), channel.clone());
 
+            // TODO: Improve to minimize requests
             for account_name in host.accounts {
                 let Ok((wallet, name)) = decompose_name(&account_name) else {
                     warn!("Invalid account name {account_name}");
@@ -147,9 +153,20 @@ impl DirkManager {
                         continue;
                     };
 
+                    let Some(&Endpoint { id: participant_id, .. }) = account
+                        .participants
+                        .iter()
+                        .find(|participant| participant.name == host_name)
+                    else {
+                        warn!(
+                            "Host {host_name} not found as participant for account {account_name}"
+                        );
+                        continue;
+                    };
+
                     match consensus_accounts.get_mut(&public_key) {
                         Some(Account::Distributed(DistributedAccount { participants, .. })) => {
-                            participants.insert(participants.len() as u32 + 1, host.url.clone());
+                            participants.insert(participant_id as u32, host.url.clone());
                         }
                         Some(Account::Simple(_)) => {
                             bail!("Distributed public key already exists for simple account");
@@ -157,7 +174,7 @@ impl DirkManager {
                         None => {
                             let mut participants =
                                 HashMap::with_capacity(account.participants.len());
-                            participants.insert(1, host.url.clone());
+                            participants.insert(participant_id as u32, host.url.clone());
                             consensus_accounts.insert(
                                 public_key,
                                 Account::Distributed(DistributedAccount {

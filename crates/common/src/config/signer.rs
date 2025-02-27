@@ -43,6 +43,12 @@ pub struct DirkHostConfig {
     pub accounts: Vec<String>,
 }
 
+impl DirkHostConfig {
+    pub fn name(&self) -> Option<String> {
+        self.server_name.clone().or_else(|| self.url.host_str().map(String::from))
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum SignerType {
