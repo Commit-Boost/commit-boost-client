@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, io::Write, path::PathBuf};
 
 use alloy::{
     hex, rpc::types::beacon::constants::BLS_SIGNATURE_BYTES_LEN, transports::http::reqwest::Url,
@@ -41,6 +41,15 @@ enum Account {
     Distributed(DistributedAccount),
 }
 
+impl Account {
+    pub fn full_name(&self) -> String {
+        match self {
+            Account::Simple(account) => format!("{}/{}", account.wallet, account.name),
+            Account::Distributed(account) => format!("{}/{}", account.wallet, account.name),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 struct SimpleAccount {
     public_key: BlsPublicKey,
@@ -81,6 +90,7 @@ pub struct DirkManager {
     connections: HashMap<Url, Channel>,
     consensus_accounts: HashMap<BlsPublicKey, Account>,
     proxy_accounts: HashMap<BlsPublicKey, ProxyAccount>,
+    secrets_path: PathBuf,
     delegations_store: Option<ProxyStore>,
 }
 
@@ -210,6 +220,7 @@ impl DirkManager {
             connections,
             consensus_accounts,
             proxy_accounts: HashMap::new(),
+            secrets_path: config.secrets_path,
             delegations_store: None,
         })
     }
@@ -420,10 +431,12 @@ impl DirkManager {
             .ok_or(SignerModuleError::DirkCommunicationError("Unknown Dirk host".to_string()))?;
 
         let uuid = uuid::Uuid::new_v4();
+        let password = random_password();
+
         let response = AccountManagerClient::new(channel.clone())
             .generate(GenerateRequest {
                 account: format!("{}/{}/{module}/{uuid}", consensus.wallet, consensus.name),
-                passphrase: Default::default(),
+                passphrase: password.as_bytes().to_vec(),
                 participants: 1,
                 signing_threshold: 1,
             })
@@ -453,6 +466,11 @@ impl DirkManager {
             }),
         };
 
+        self.store_password(&proxy_account, password).map_err(|e| {
+            error!("Failed to store password: {e}");
+            SignerModuleError::Internal("Failed to store password".to_string())
+        })?;
+
         Ok(proxy_account)
     }
 
@@ -462,13 +480,14 @@ impl DirkManager {
         module: &ModuleId,
     ) -> Result<ProxyAccount, SignerModuleError> {
         let uuid = uuid::Uuid::new_v4();
+        let password = random_password();
 
         // TODO: Improve this
         let channel = self.connections.get(consensus.participants.get(&1).unwrap()).unwrap();
         let response = AccountManagerClient::new(channel.clone())
             .generate(GenerateRequest {
                 account: format!("{}/{}/{module}/{uuid}", consensus.wallet, consensus.name),
-                passphrase: Default::default(),
+                passphrase: password.as_bytes().to_vec(),
                 participants: consensus.participants.len() as u32,
                 signing_threshold: consensus.threshold,
             })
@@ -499,7 +518,19 @@ impl DirkManager {
             }),
         };
 
+        self.store_password(&proxy_account, password).map_err(|e| {
+            error!("Failed to store password: {e}");
+            SignerModuleError::Internal("Failed to store password".to_string())
+        })?;
+
         Ok(proxy_account)
+    }
+
+    fn store_password(&self, account: &ProxyAccount, password: String) -> eyre::Result<()> {
+        let path = self.secrets_path.join(account.inner.full_name());
+        let mut file = std::fs::File::create(path)?;
+        file.write_all(password.as_bytes())?;
+        Ok(())
     }
 }
 
@@ -565,4 +596,10 @@ pub fn aggregate_partial_signatures(
     // Serialize the recovered point back into a BlsSignature
     let bytes = recovered.to_compressed();
     Ok(bytes.into())
+}
+
+/// Generate a random password of 64 hex-characters
+fn random_password() -> String {
+    let password_bytes: [u8; 32] = rand::thread_rng().gen();
+    hex::encode(password_bytes)
 }
