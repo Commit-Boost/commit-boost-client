@@ -5,9 +5,7 @@ use alloy::{
 };
 use blsful::inner_types::{Field, G2Affine, G2Projective, Group, Scalar};
 use cb_common::{
-    commit::request::{
-        ConsensusProxyMap, ProxyDelegation, ProxyDelegationBls, SignedProxyDelegation,
-    },
+    commit::request::{ConsensusProxyMap, ProxyDelegation, SignedProxyDelegation},
     config::{DirkConfig, DirkHostConfig},
     constants::COMMIT_BOOST_DOMAIN,
     signature::compute_domain,
@@ -17,7 +15,7 @@ use cb_common::{
 use eyre::bail;
 use rand::Rng;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 use tree_hash::TreeHash;
 
 use crate::{
@@ -482,48 +480,58 @@ impl DirkManager {
         let uuid = uuid::Uuid::new_v4();
         let password = random_password();
 
-        // TODO: Improve this
-        let channel = self.connections.get(consensus.participants.get(&1).unwrap()).unwrap();
-        let response = AccountManagerClient::new(channel.clone())
-            .generate(GenerateRequest {
-                account: format!("{}/{}/{module}/{uuid}", consensus.wallet, consensus.name),
-                passphrase: password.as_bytes().to_vec(),
-                participants: consensus.participants.len() as u32,
-                signing_threshold: consensus.threshold,
-            })
-            .await
-            .map_err(|e| SignerModuleError::DirkCommunicationError(e.to_string()))?;
+        for participant in consensus.participants.values() {
+            let channel = self.connections.get(participant).unwrap();
+            let Ok(response) = AccountManagerClient::new(channel.clone())
+                .generate(GenerateRequest {
+                    account: format!("{}/{}/{module}/{uuid}", consensus.wallet, consensus.name),
+                    passphrase: password.as_bytes().to_vec(),
+                    participants: consensus.participants.len() as u32,
+                    signing_threshold: consensus.threshold,
+                })
+                .await
+                .map_err(|e| {
+                    SignerModuleError::DirkCommunicationError(e.to_string());
+                })
+            else {
+                warn!("Couldn't generate proxy key with server {participant}");
+                continue;
+            };
 
-        if response.get_ref().state() != ResponseState::Succeeded {
-            return Err(SignerModuleError::DirkCommunicationError(format!(
-                "Failed to generate proxy key: {}",
-                response.get_ref().message
-            )));
-        }
+            if response.get_ref().state() != ResponseState::Succeeded {
+                warn!("Couldn't generate proxy key with server {participant}");
+                continue;
+            }
 
-        let proxy_key = BlsPublicKey::try_from(response.into_inner().public_key.as_slice())
-            .map_err(|_| {
-                SignerModuleError::DirkCommunicationError("Failed to parse proxy key".to_string())
+            let Ok(proxy_key) = BlsPublicKey::try_from(response.into_inner().public_key.as_slice())
+            else {
+                warn!("Failed to parse proxy key from server {participant}");
+                continue;
+            };
+
+            let proxy_account = ProxyAccount {
+                consensus: Account::Distributed(consensus.clone()),
+                module: module.clone(),
+                inner: Account::Distributed(DistributedAccount {
+                    composite_public_key: proxy_key,
+                    participants: consensus.participants.clone(),
+                    threshold: consensus.threshold,
+                    wallet: consensus.wallet.clone(),
+                    name: format!("{}/{module}/{uuid}", consensus.name),
+                }),
+            };
+
+            self.store_password(&proxy_account, password).map_err(|e| {
+                error!("Failed to store password: {e}");
+                SignerModuleError::Internal("Failed to store password".to_string())
             })?;
 
-        let proxy_account = ProxyAccount {
-            consensus: Account::Distributed(consensus.clone()),
-            module: module.clone(),
-            inner: Account::Distributed(DistributedAccount {
-                composite_public_key: proxy_key,
-                participants: consensus.participants.clone(),
-                threshold: consensus.threshold,
-                wallet: consensus.wallet.clone(),
-                name: format!("{}/{module}/{uuid}", consensus.name),
-            }),
-        };
+            return Ok(proxy_account);
+        }
 
-        self.store_password(&proxy_account, password).map_err(|e| {
-            error!("Failed to store password: {e}");
-            SignerModuleError::Internal("Failed to store password".to_string())
-        })?;
-
-        Ok(proxy_account)
+        return Err(SignerModuleError::DirkCommunicationError(
+            "All participant connections failed".to_string(),
+        ))
     }
 
     fn store_password(&self, account: &ProxyAccount, password: String) -> eyre::Result<()> {
