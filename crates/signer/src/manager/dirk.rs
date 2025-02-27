@@ -15,6 +15,7 @@ use cb_common::{
     types::{Chain, ModuleId},
 };
 use eyre::bail;
+use rand::Rng;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 use tracing::{debug, error, info, warn};
 use tree_hash::TreeHash;
@@ -80,10 +81,11 @@ pub struct DirkManager {
     connections: HashMap<Url, Channel>,
     consensus_accounts: HashMap<BlsPublicKey, Account>,
     proxy_accounts: HashMap<BlsPublicKey, ProxyAccount>,
+    delegations_store: Option<ProxyStore>,
 }
 
 impl DirkManager {
-    pub async fn new_from_config(chain: Chain, config: DirkConfig) -> eyre::Result<Self> {
+    pub async fn new(chain: Chain, config: DirkConfig) -> eyre::Result<Self> {
         let certs = CertConfig { ca: config.cert_auth, client: config.client_cert };
 
         let mut connections = HashMap::with_capacity(config.hosts.len());
@@ -202,12 +204,22 @@ impl DirkManager {
             consensus_accounts.keys().map(|k| k.to_string()).collect::<Vec<_>>().join(", ")
         );
 
-        Ok(Self { chain, certs, connections, consensus_accounts, proxy_accounts: HashMap::new() })
+        Ok(Self {
+            chain,
+            certs,
+            connections,
+            consensus_accounts,
+            proxy_accounts: HashMap::new(),
+            delegations_store: None,
+        })
     }
 
-    // TODO
     pub fn with_proxy_store(self, store: ProxyStore) -> eyre::Result<Self> {
-        Ok(self)
+        if let ProxyStore::ERC2335 { .. } = store {
+            return Err(eyre::eyre!("ERC2335 proxy store not supported"));
+        }
+
+        Ok(Self { delegations_store: Some(store), ..self })
     }
 
     pub fn available_consensus_signers(&self) -> usize {
@@ -383,9 +395,18 @@ impl DirkManager {
         let delegation_signature =
             self.request_consensus_signature(&consensus, message.tree_hash_root().0).await?;
 
+        let delegation = SignedProxyDelegation { message, signature: delegation_signature };
+
+        if let Some(store) = &self.delegations_store {
+            store.store_proxy_bls_delegation(module, &delegation).map_err(|e| {
+                warn!("Couldn't store delegation signature: {e}");
+                SignerModuleError::Internal("Couldn't store delegation signature".to_string())
+            })?;
+        }
+
         self.proxy_accounts.insert(proxy_account.inner.public_key(), proxy_account.clone());
 
-        Ok(SignedProxyDelegation { message, signature: delegation_signature })
+        Ok(delegation)
     }
 
     async fn generate_simple_proxy_account(

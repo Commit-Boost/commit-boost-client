@@ -285,7 +285,7 @@ async fn start_manager(config: StartSignerConfig) -> eyre::Result<SigningManager
 
     match config.dirk {
         Some(dirk) => {
-            let mut manager = DirkManager::new_from_config(config.chain, dirk).await?;
+            let mut manager = DirkManager::new(config.chain, dirk).await?;
             if let Some(store) = config.store {
                 manager = manager.with_proxy_store(store.init_from_env()?)?;
             }

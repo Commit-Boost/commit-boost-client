@@ -79,7 +79,8 @@ pub enum SignerType {
         /// Whether to unlock the accounts in case they are locked
         #[serde(default)]
         unlock: bool,
-        /// How to store proxy keys
+        /// How to store proxy key delegations
+        /// ERC2335 is not supported with Dirk signer
         store: Option<ProxyStore>,
     },
 }
