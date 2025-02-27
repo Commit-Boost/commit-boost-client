@@ -5,7 +5,9 @@ use alloy::{
 };
 use blsful::inner_types::{Field, G2Affine, G2Projective, Group, Scalar};
 use cb_common::{
-    commit::request::{ConsensusProxyMap, ProxyDelegation, SignedProxyDelegation},
+    commit::request::{
+        ConsensusProxyMap, ProxyDelegation, ProxyDelegationBls, SignedProxyDelegation,
+    },
     config::{DirkConfig, DirkHostConfig},
     constants::COMMIT_BOOST_DOMAIN,
     signature::compute_domain,
@@ -15,6 +17,7 @@ use cb_common::{
 use eyre::bail;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 use tracing::{debug, error, info, warn};
+use tree_hash::TreeHash;
 
 use crate::{
     error::SignerModuleError,
@@ -375,6 +378,11 @@ impl DirkManager {
             None => return Err(SignerModuleError::UnknownConsensusSigner(consensus.to_vec())),
         };
 
+        let message =
+            ProxyDelegationBls { delegator: consensus, proxy: proxy_account.inner.public_key() };
+        let delegation_signature =
+            self.request_consensus_signature(&consensus, message.tree_hash_root().0).await?;
+
         self.proxy_accounts.insert(proxy_account.inner.public_key(), proxy_account.clone());
 
         Ok(SignedProxyDelegation {
@@ -382,8 +390,7 @@ impl DirkManager {
                 delegator: consensus,
                 proxy: proxy_account.inner.public_key(),
             },
-            // TODO: Sign
-            signature: Default::default(),
+            signature: delegation_signature,
         })
     }
 
