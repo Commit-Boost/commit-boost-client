@@ -379,19 +379,13 @@ impl DirkManager {
         };
 
         let message =
-            ProxyDelegationBls { delegator: consensus, proxy: proxy_account.inner.public_key() };
+            ProxyDelegation { delegator: consensus, proxy: proxy_account.inner.public_key() };
         let delegation_signature =
             self.request_consensus_signature(&consensus, message.tree_hash_root().0).await?;
 
         self.proxy_accounts.insert(proxy_account.inner.public_key(), proxy_account.clone());
 
-        Ok(SignedProxyDelegation {
-            message: ProxyDelegation {
-                delegator: consensus,
-                proxy: proxy_account.inner.public_key(),
-            },
-            signature: delegation_signature,
-        })
+        Ok(SignedProxyDelegation { message, signature: delegation_signature })
     }
 
     async fn generate_simple_proxy_account(
