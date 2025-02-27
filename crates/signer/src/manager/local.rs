@@ -257,8 +257,8 @@ impl LocalSigningManager {
         Ok(keys)
     }
 
-    pub fn proxies(&self) -> &ProxySigners {
-        &self.proxy_signers
+    pub fn available_proxy_signers(&self) -> usize {
+        self.proxy_signers.bls_signers.len() + self.proxy_signers.ecdsa_signers.len()
     }
 }
 

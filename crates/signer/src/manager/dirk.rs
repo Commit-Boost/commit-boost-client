@@ -207,16 +207,14 @@ impl DirkManager {
         Ok(self)
     }
 
-    pub async fn consensus_pubkeys(&self) -> Vec<BlsPublicKey> {
-        self.consensus_accounts.keys().cloned().collect()
+    pub fn available_consensus_signers(&self) -> usize {
+        self.consensus_accounts.len()
     }
 
-    // TODO
-    pub async fn proxies(&self) -> Vec<()> {
-        Vec::new()
+    pub fn available_proxy_signers(&self) -> usize {
+        self.proxy_accounts.len()
     }
 
-    // TODO
     pub fn get_consensus_proxy_maps(&self, module: &ModuleId) -> Vec<ConsensusProxyMap> {
         self.consensus_accounts
             .iter()

@@ -15,25 +15,22 @@ pub enum SigningManager {
 
 impl SigningManager {
     /// Amount of consensus signers available
-    pub async fn available_consensus_signers(&self) -> eyre::Result<usize> {
+    pub fn available_consensus_signers(&self) -> usize {
         match self {
-            SigningManager::Local(local_manager) => Ok(local_manager.consensus_pubkeys().len()),
-            SigningManager::Dirk(dirk_manager) => Ok(dirk_manager.consensus_pubkeys().await.len()),
+            SigningManager::Local(local_manager) => local_manager.consensus_pubkeys().len(),
+            SigningManager::Dirk(dirk_manager) => dirk_manager.available_consensus_signers(),
         }
     }
 
     /// Amount of proxy signers available
-    pub async fn available_proxy_signers(&self) -> eyre::Result<usize> {
+    pub fn available_proxy_signers(&self) -> usize {
         match self {
-            SigningManager::Local(local_manager) => {
-                let proxies = local_manager.proxies();
-                Ok(proxies.bls_signers.len() + proxies.ecdsa_signers.len())
-            }
-            SigningManager::Dirk(dirk_manager) => Ok(dirk_manager.proxies().await.len()),
+            SigningManager::Local(local_manager) => local_manager.available_proxy_signers(),
+            SigningManager::Dirk(dirk_manager) => dirk_manager.available_proxy_signers(),
         }
     }
 
-    pub async fn get_consensus_proxy_maps(
+    pub fn get_consensus_proxy_maps(
         &self,
         module_id: &ModuleId,
     ) -> Result<Vec<ConsensusProxyMap>, SignerModuleError> {

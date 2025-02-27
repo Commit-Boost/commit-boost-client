@@ -64,8 +64,8 @@ impl SigningService {
             jwts: config.jwts.into(),
         };
 
-        let loaded_consensus = state.manager.read().await.available_consensus_signers().await?;
-        let loaded_proxies = state.manager.read().await.available_proxy_signers().await?;
+        let loaded_consensus = state.manager.read().await.available_consensus_signers();
+        let loaded_proxies = state.manager.read().await.available_proxy_signers();
 
         info!(version = COMMIT_BOOST_VERSION, commit = COMMIT_BOOST_COMMIT, modules =? module_ids, port =? config.server_port, loaded_consensus, loaded_proxies, "Starting signing service");
 
@@ -140,7 +140,6 @@ async fn handle_get_pubkeys(
         .read()
         .await
         .get_consensus_proxy_maps(&module_id)
-        .await
         .map_err(|err| SignerModuleError::Internal(err.to_string()))?;
 
     let res = GetPubkeysResponse { keys };
