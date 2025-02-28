@@ -16,7 +16,7 @@ use cb_common::{
     signer::{BlsPublicKey, BlsSignature, ProxyStore},
     types::{Chain, ModuleId},
 };
-use eyre::bail;
+use eyre::{bail, OptionExt};
 use futures::{stream::FuturesUnordered, FutureExt, StreamExt};
 use rand::Rng;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
@@ -503,10 +503,14 @@ impl DirkManager {
     }
 
     fn store_password(&self, account: &ProxyAccount, password: String) -> eyre::Result<()> {
-        let path = self.secrets_path.join(account.inner.full_name());
-        std::fs::create_dir_all(path.clone())?;
-        let mut file = std::fs::File::create(path.join("password.txt"))?;
+        let full_name = account.inner.full_name();
+        let (parent, name) = full_name.rsplit_once('/').ok_or_eyre("Invalid account name")?;
+        let parent_path = self.secrets_path.join(parent);
+
+        std::fs::create_dir_all(parent_path.clone())?;
+        let mut file = std::fs::File::create(parent_path.join(format!("{name}.pass")))?;
         file.write_all(password.as_bytes())?;
+
         Ok(())
     }
 }

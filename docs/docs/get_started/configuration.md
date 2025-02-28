@@ -252,7 +252,6 @@ secrets_path = "/path/to/secrets"
 # Optional parameters
 ca_cert_path = "/path/to/ca.crt"
 server_domain = "server.example.com"
-unlock = false
 
 # Add one entry like this for each host
 [[signer.dirk.hosts]]
@@ -268,8 +267,7 @@ accounts = ["AnotherWallet/AnotherAccount", "DistributedWallet/Account1"]
 
 - `cert_path` and `key_path` are the paths to the client certificate and key used to authenticate with Dirk.
 - `accounts` is a list of accounts that the Signer module will consider as the consensus keys. Each account has the format `<WALLET_NAME>/<ACCOUNT>`. Accounts can be from different wallets. Generated proxy keys will have format `<WALLET_NAME>/<ACCOUNT>/<MODULE_ID>/<UUID>`.
-- `secrets_path` is the path to the folder containing the passwords of the accounts. Passwords must be in plain text in files with structure `<secret_path>/<WALLET_NAME>/<ACCOUNT>.pass`. Generated proxy accounts passwords will be stored in `<secrets_path>/<WALLET_NAME>/<ACCOUNT>/<MODULE_ID>/<UUID>.pass`.
-- `unlock` is an optional parameter that can be set to `true` if you want to try to unlock the wallets on sign failure. Default is `false`.
+- `secrets_path` is the path to the folder containing the passwords of the generated proxy accounts, which will be stored in `<secrets_path>/<WALLET_NAME>/<ACCOUNT>/<MODULE_ID>/<UUID>.pass`.
 
 Additionally, you can set a proxy store so that the delegation signatures for generated proxy keys are stored locally. As these signatures are not sensitive, the only supported store type is `File`:
 
