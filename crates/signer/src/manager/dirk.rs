@@ -504,7 +504,8 @@ impl DirkManager {
 
     fn store_password(&self, account: &ProxyAccount, password: String) -> eyre::Result<()> {
         let path = self.secrets_path.join(account.inner.full_name());
-        let mut file = std::fs::File::create(path)?;
+        std::fs::create_dir_all(path.clone())?;
+        let mut file = std::fs::File::create(path.join("password.txt"))?;
         file.write_all(password.as_bytes())?;
         Ok(())
     }
