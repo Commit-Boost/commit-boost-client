@@ -89,7 +89,6 @@ struct ProxyAccount {
 #[derive(Clone, Debug)]
 pub struct DirkManager {
     chain: Chain,
-    certs: CertConfig,
     connections: HashMap<Url, Channel>,
     consensus_accounts: HashMap<BlsPublicKey, Account>,
     proxy_accounts: HashMap<BlsPublicKey, ProxyAccount>,
@@ -165,7 +164,6 @@ impl DirkManager {
 
         Ok(Self {
             chain,
-            certs,
             connections,
             consensus_accounts,
             proxy_accounts: HashMap::new(),
