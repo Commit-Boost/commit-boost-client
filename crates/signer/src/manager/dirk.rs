@@ -33,12 +33,6 @@ use crate::{
 };
 
 #[derive(Clone, Debug)]
-struct CertConfig {
-    ca: Option<Certificate>,
-    client: Identity,
-}
-
-#[derive(Clone, Debug)]
 enum Account {
     Simple(SimpleAccount),
     Distributed(DistributedAccount),
@@ -56,7 +50,7 @@ impl Account {
 #[derive(Clone, Debug)]
 struct SimpleAccount {
     public_key: BlsPublicKey,
-    server: Url,
+    connection: Channel,
     wallet: String,
     name: String,
 }
@@ -64,7 +58,7 @@ struct SimpleAccount {
 #[derive(Clone, Debug)]
 struct DistributedAccount {
     composite_public_key: BlsPublicKey,
-    participants: HashMap<u32, Url>,
+    participants: HashMap<u32, Channel>,
     threshold: u32,
     wallet: String,
     name: String,
@@ -89,7 +83,6 @@ struct ProxyAccount {
 #[derive(Clone, Debug)]
 pub struct DirkManager {
     chain: Chain,
-    connections: HashMap<Url, Channel>,
     consensus_accounts: HashMap<BlsPublicKey, Account>,
     proxy_accounts: HashMap<BlsPublicKey, ProxyAccount>,
     secrets_path: PathBuf,
@@ -98,21 +91,16 @@ pub struct DirkManager {
 
 impl DirkManager {
     pub async fn new(chain: Chain, config: DirkConfig) -> eyre::Result<Self> {
-        let certs = CertConfig { ca: config.cert_auth, client: config.client_cert };
-
-        let mut connections = HashMap::with_capacity(config.hosts.len());
         let mut consensus_accounts = HashMap::new();
 
         for host in config.hosts {
-            let channel = match connect(&host, &certs).await {
+            let channel = match connect(&host, &config.client_cert, &config.cert_auth).await {
                 Ok(channel) => channel,
                 Err(e) => {
                     warn!("Failed to connect to Dirk host {}: {e}", host.url);
                     continue;
                 }
             };
-
-            connections.insert(host.url.clone(), channel.clone());
 
             let wallets: HashSet<String> = host
                 .accounts
@@ -137,10 +125,16 @@ impl DirkManager {
             }
 
             let accounts_response = accounts_response.into_inner();
-            load_simple_accounts(accounts_response.accounts, &host, &mut consensus_accounts);
+            load_simple_accounts(
+                accounts_response.accounts,
+                &host,
+                &channel,
+                &mut consensus_accounts,
+            );
             load_distributed_accounts(
                 accounts_response.distributed_accounts,
                 &host,
+                &channel,
                 &mut consensus_accounts,
             )
             .map_err(|error| warn!("{error}"))
@@ -164,7 +158,6 @@ impl DirkManager {
 
         Ok(Self {
             chain,
-            connections,
             consensus_accounts,
             proxy_accounts: HashMap::new(),
             secrets_path: config.secrets_path,
@@ -251,12 +244,7 @@ impl DirkManager {
     ) -> Result<BlsSignature, SignerModuleError> {
         let domain = compute_domain(self.chain, COMMIT_BOOST_DOMAIN);
 
-        let channel = self
-            .connections
-            .get(&account.server)
-            .ok_or(SignerModuleError::DirkCommunicationError("Unknown Dirk host".to_string()))?;
-
-        let response = SignerClient::new(channel.clone())
+        let response = SignerClient::new(account.connection.clone())
             .sign(SignRequest {
                 data: object_root.to_vec(),
                 domain: domain.to_vec(),
@@ -286,12 +274,7 @@ impl DirkManager {
         let mut partials = Vec::with_capacity(account.participants.len());
         let mut requests = Vec::with_capacity(account.participants.len());
 
-        for (id, endpoint) in account.participants.iter() {
-            let Some(channel) = self.connections.get(endpoint) else {
-                warn!("Couldn't find server {endpoint}");
-                continue;
-            };
-
+        for (id, channel) in account.participants.iter() {
             let request = async move {
                 SignerClient::new(channel.clone())
                     .sign(SignRequest {
@@ -302,7 +285,7 @@ impl DirkManager {
                             account.wallet, account.name
                         ))),
                     })
-                    .map(|res| (res, (*id, endpoint.clone())))
+                    .map(|res| (res, *id))
                     .await
             };
             requests.push(request);
@@ -310,19 +293,17 @@ impl DirkManager {
 
         let mut requests = requests.into_iter().collect::<FuturesUnordered<_>>();
 
-        while let Some((response, participant)) = requests.next().await {
-            let (id, endpoint) = participant;
-
+        while let Some((response, participant_id)) = requests.next().await {
             let response = match response {
                 Ok(res) => res,
                 Err(e) => {
-                    warn!("Failed to sign object with server {endpoint}: {e}");
+                    warn!("Failed to sign object with participant {participant_id}: {e}");
                     continue;
                 }
             };
 
             if response.get_ref().state() != ResponseState::Succeeded {
-                warn!("Failed to sign object with server {endpoint}");
+                warn!("Failed to sign object with participant {participant_id}");
                 continue;
             }
 
@@ -330,12 +311,12 @@ impl DirkManager {
             {
                 Ok(sig) => sig,
                 Err(e) => {
-                    warn!("Failed to parse signature from server {endpoint}: {e}");
+                    warn!("Failed to parse signature from participant {participant_id}: {e}");
                     continue;
                 }
             };
 
-            partials.push((signature, id));
+            partials.push((signature, participant_id));
 
             if partials.len() >= account.threshold as usize {
                 break;
@@ -391,15 +372,10 @@ impl DirkManager {
         consensus: &SimpleAccount,
         module: &ModuleId,
     ) -> Result<ProxyAccount, SignerModuleError> {
-        let channel = self
-            .connections
-            .get(&consensus.server)
-            .ok_or(SignerModuleError::DirkCommunicationError("Unknown Dirk host".to_string()))?;
-
         let uuid = uuid::Uuid::new_v4();
         let password = random_password();
 
-        let response = AccountManagerClient::new(channel.clone())
+        let response = AccountManagerClient::new(consensus.connection.clone())
             .generate(GenerateRequest {
                 account: format!("{}/{}/{module}/{uuid}", consensus.wallet, consensus.name),
                 passphrase: password.as_bytes().to_vec(),
@@ -426,7 +402,7 @@ impl DirkManager {
             module: module.clone(),
             inner: Account::Simple(SimpleAccount {
                 public_key: proxy_key,
-                server: consensus.server.clone(),
+                connection: consensus.connection.clone(),
                 wallet: consensus.wallet.clone(),
                 name: format!("{}/{module}/{uuid}", consensus.name),
             }),
@@ -448,8 +424,7 @@ impl DirkManager {
         let uuid = uuid::Uuid::new_v4();
         let password = random_password();
 
-        for participant in consensus.participants.values() {
-            let channel = self.connections.get(participant).unwrap();
+        for (id, channel) in consensus.participants.iter() {
             let Ok(response) = AccountManagerClient::new(channel.clone())
                 .generate(GenerateRequest {
                     account: format!("{}/{}/{module}/{uuid}", consensus.wallet, consensus.name),
@@ -462,18 +437,18 @@ impl DirkManager {
                     SignerModuleError::DirkCommunicationError(e.to_string());
                 })
             else {
-                warn!("Couldn't generate proxy key with server {participant}");
+                warn!("Couldn't generate proxy key with participant {id}");
                 continue;
             };
 
             if response.get_ref().state() != ResponseState::Succeeded {
-                warn!("Couldn't generate proxy key with server {participant}");
+                warn!("Couldn't generate proxy key with participant {id}");
                 continue;
             }
 
             let Ok(proxy_key) = BlsPublicKey::try_from(response.into_inner().public_key.as_slice())
             else {
-                warn!("Failed to parse proxy key from server {participant}");
+                warn!("Failed to parse proxy key with participant {id}");
                 continue;
             };
 
@@ -515,9 +490,13 @@ impl DirkManager {
     }
 }
 
-async fn connect(server: &DirkHostConfig, certs: &CertConfig) -> eyre::Result<Channel> {
-    let mut tls_config = ClientTlsConfig::new().identity(certs.client.clone());
-    if let Some(ca) = &certs.ca {
+async fn connect(
+    server: &DirkHostConfig,
+    client: &Identity,
+    ca: &Option<Certificate>,
+) -> eyre::Result<Channel> {
+    let mut tls_config = ClientTlsConfig::new().identity(client.clone());
+    if let Some(ca) = ca {
         tls_config = tls_config.ca_certificate(ca.clone());
     }
     if let Some(server_name) = &server.server_name {
@@ -543,6 +522,7 @@ fn decompose_name(full_name: &str) -> eyre::Result<(String, String)> {
 fn load_simple_accounts(
     accounts: Vec<crate::proto::v1::Account>,
     host: &DirkHostConfig,
+    channel: &Channel,
     consensus_accounts: &mut HashMap<BlsPublicKey, Account>,
 ) {
     for account in accounts {
@@ -561,7 +541,7 @@ fn load_simple_accounts(
                     public_key,
                     Account::Simple(SimpleAccount {
                         public_key,
-                        server: host.url.clone(),
+                        connection: channel.clone(),
                         wallet,
                         name,
                     }),
@@ -578,6 +558,7 @@ fn load_simple_accounts(
 fn load_distributed_accounts(
     accounts: Vec<crate::proto::v1::DistributedAccount>,
     host: &DirkHostConfig,
+    channel: &Channel,
     consensus_accounts: &mut HashMap<BlsPublicKey, Account>,
 ) -> eyre::Result<()> {
     let host_name = host
@@ -605,7 +586,7 @@ fn load_distributed_accounts(
 
         match consensus_accounts.get_mut(&public_key) {
             Some(Account::Distributed(DistributedAccount { participants, .. })) => {
-                participants.insert(participant_id as u32, host.url.clone());
+                participants.insert(participant_id as u32, channel.clone());
             }
             None => {
                 let Ok((wallet, name)) = decompose_name(&account.name) else {
@@ -614,7 +595,7 @@ fn load_distributed_accounts(
                 };
 
                 let mut participants = HashMap::with_capacity(account.participants.len());
-                participants.insert(participant_id as u32, host.url.clone());
+                participants.insert(participant_id as u32, channel.clone());
 
                 consensus_accounts.insert(
                     public_key,
