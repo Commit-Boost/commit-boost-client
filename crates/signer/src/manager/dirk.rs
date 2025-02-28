@@ -1,4 +1,8 @@
-use std::{collections::HashMap, io::Write, path::PathBuf};
+use std::{
+    collections::{HashMap, HashSet},
+    io::Write,
+    path::PathBuf,
+};
 
 use alloy::{
     hex, rpc::types::beacon::constants::BLS_SIGNATURE_BYTES_LEN, transports::http::reqwest::Url,
@@ -101,11 +105,6 @@ impl DirkManager {
         let mut consensus_accounts = HashMap::new();
 
         for host in config.hosts {
-            let Some(host_name) = host.name() else {
-                warn!("Host name not found for server {}", host.url);
-                continue;
-            };
-
             let channel = match connect(&host, &certs).await {
                 Ok(channel) => channel,
                 Err(e) => {
@@ -116,93 +115,44 @@ impl DirkManager {
 
             connections.insert(host.url.clone(), channel.clone());
 
-            // TODO: Improve to minimize requests
-            for account_name in host.accounts {
-                let Ok((wallet, name)) = decompose_name(&account_name) else {
-                    warn!("Invalid account name {account_name}");
-                    continue;
-                };
+            let wallets: HashSet<String> = host
+                .accounts
+                .iter()
+                .map(|account| decompose_name(account).unwrap_or_default().0)
+                .collect();
 
-                let response = match ListerClient::new(channel.clone())
-                    .list_accounts(ListAccountsRequest { paths: vec![account_name.clone()] })
-                    .await
-                {
-                    Ok(res) => res,
-                    Err(e) => {
-                        warn!("Failed to get account {account_name}: {e}");
-                        continue;
-                    }
-                };
-
-                if response.get_ref().state() != ResponseState::Succeeded {
-                    warn!("Failed to get account {account_name}");
+            let accounts_response = match ListerClient::new(channel.clone())
+                .list_accounts(ListAccountsRequest { paths: wallets.into_iter().collect() })
+                .await
+            {
+                Ok(res) => res,
+                Err(e) => {
+                    warn!("Failed to list accounts in server {}: {e}", host.url);
                     continue;
                 }
+            };
 
-                if let Some(account) = response.get_ref().accounts.get(0) {
-                    // The account is Simple
-                    match BlsPublicKey::try_from(account.public_key.as_slice()) {
-                        Ok(public_key) => {
-                            consensus_accounts.insert(
-                                public_key,
-                                Account::Simple(SimpleAccount {
-                                    public_key,
-                                    server: host.url.clone(),
-                                    wallet: wallet.to_string(),
-                                    name: name.to_string(),
-                                }),
-                            );
-                        }
-                        Err(_) => {
-                            warn!("Failed to parse public key for account {account_name}");
-                            continue;
-                        }
-                    }
-                } else if let Some(account) = response.get_ref().distributed_accounts.get(0) {
-                    // The account is Distributed
-                    let Ok(public_key) =
-                        BlsPublicKey::try_from(account.composite_public_key.as_slice())
-                    else {
-                        warn!("Failed to parse composite public key for account {account_name}");
-                        continue;
-                    };
+            if accounts_response.get_ref().state() != ResponseState::Succeeded {
+                warn!("Failed to list accounts in server {}", host.url);
+                continue;
+            }
 
-                    let Some(&Endpoint { id: participant_id, .. }) = account
-                        .participants
-                        .iter()
-                        .find(|participant| participant.name == host_name)
-                    else {
-                        warn!(
-                            "Host {host_name} not found as participant for account {account_name}"
-                        );
-                        continue;
-                    };
+            let accounts_response = accounts_response.into_inner();
+            load_simple_accounts(accounts_response.accounts, &host, &mut consensus_accounts);
+            load_distributed_accounts(
+                accounts_response.distributed_accounts,
+                &host,
+                &mut consensus_accounts,
+            )
+            .map_err(|error| warn!("{error}"))
+            .ok();
 
-                    match consensus_accounts.get_mut(&public_key) {
-                        Some(Account::Distributed(DistributedAccount { participants, .. })) => {
-                            participants.insert(participant_id as u32, host.url.clone());
-                        }
-                        Some(Account::Simple(_)) => {
-                            bail!("Distributed public key already exists for simple account");
-                        }
-                        None => {
-                            let mut participants =
-                                HashMap::with_capacity(account.participants.len());
-                            participants.insert(participant_id as u32, host.url.clone());
-                            consensus_accounts.insert(
-                                public_key,
-                                Account::Distributed(DistributedAccount {
-                                    composite_public_key: public_key,
-                                    participants,
-                                    threshold: account.signing_threshold,
-                                    wallet: wallet.to_string(),
-                                    name: name.to_string(),
-                                }),
-                            );
-                        }
-                    }
-                } else {
-                    warn!("Account {account_name} not found in server {}", host.url);
+            for account in host.accounts {
+                if !consensus_accounts
+                    .values()
+                    .any(|account| account.full_name() == account.full_name())
+                {
+                    warn!("Account {account} not found in server {}", host.url);
                 }
             }
         }
@@ -580,13 +530,110 @@ async fn connect(server: &DirkHostConfig, certs: &CertConfig) -> eyre::Result<Ch
         .map_err(eyre::Error::from)
 }
 
-fn decompose_name(full_name: &str) -> eyre::Result<(&str, &str)> {
-    full_name.split_once('/').ok_or_else(|| eyre::eyre!("Invalid account name"))
+fn decompose_name(full_name: &str) -> eyre::Result<(String, String)> {
+    full_name
+        .split_once('/')
+        .map(|(wallet, name)| (wallet.to_string(), name.to_string()))
+        .ok_or_else(|| eyre::eyre!("Invalid account name"))
 }
 
-pub fn aggregate_partial_signatures(
-    partials: &[(BlsSignature, u32)],
-) -> eyre::Result<BlsSignature> {
+fn load_simple_accounts(
+    accounts: Vec<crate::proto::v1::Account>,
+    host: &DirkHostConfig,
+    consensus_accounts: &mut HashMap<BlsPublicKey, Account>,
+) {
+    for account in accounts {
+        if !host.accounts.contains(&account.name) {
+            continue;
+        }
+
+        let Ok((wallet, name)) = decompose_name(&account.name) else {
+            warn!("Invalid account name {}", account.name);
+            continue;
+        };
+
+        match BlsPublicKey::try_from(account.public_key.as_slice()) {
+            Ok(public_key) => {
+                consensus_accounts.insert(
+                    public_key,
+                    Account::Simple(SimpleAccount {
+                        public_key,
+                        server: host.url.clone(),
+                        wallet,
+                        name,
+                    }),
+                );
+            }
+            Err(_) => {
+                warn!("Failed to parse public key for account {}", account.name);
+                continue;
+            }
+        }
+    }
+}
+
+fn load_distributed_accounts(
+    accounts: Vec<crate::proto::v1::DistributedAccount>,
+    host: &DirkHostConfig,
+    consensus_accounts: &mut HashMap<BlsPublicKey, Account>,
+) -> eyre::Result<()> {
+    let host_name = host
+        .server_name
+        .clone()
+        .or_else(|| host.url.host_str().map(String::from))
+        .ok_or(eyre::eyre!("Host name not found for server {}", host.url))?;
+
+    for account in accounts {
+        if !host.accounts.contains(&account.name) {
+            continue;
+        }
+
+        let Ok(public_key) = BlsPublicKey::try_from(account.composite_public_key.as_slice()) else {
+            warn!("Failed to parse composite public key for account {}", account.name);
+            continue;
+        };
+
+        let Some(&Endpoint { id: participant_id, .. }) =
+            account.participants.iter().find(|participant| participant.name == host_name)
+        else {
+            warn!("Host {host_name} not found as participant for account {}", account.name);
+            continue;
+        };
+
+        match consensus_accounts.get_mut(&public_key) {
+            Some(Account::Distributed(DistributedAccount { participants, .. })) => {
+                participants.insert(participant_id as u32, host.url.clone());
+            }
+            None => {
+                let Ok((wallet, name)) = decompose_name(&account.name) else {
+                    warn!("Invalid account name {}", account.name);
+                    continue;
+                };
+
+                let mut participants = HashMap::with_capacity(account.participants.len());
+                participants.insert(participant_id as u32, host.url.clone());
+
+                consensus_accounts.insert(
+                    public_key,
+                    Account::Distributed(DistributedAccount {
+                        composite_public_key: public_key,
+                        participants,
+                        threshold: account.signing_threshold,
+                        wallet,
+                        name,
+                    }),
+                );
+            }
+            Some(Account::Simple(_)) => {
+                bail!("Distributed public key already exists for simple account");
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn aggregate_partial_signatures(partials: &[(BlsSignature, u32)]) -> eyre::Result<BlsSignature> {
     // Deserialize partial signatures into G2 points
     let mut shares: HashMap<u32, G2Projective> = HashMap::new();
     for (sig, id) in partials {
