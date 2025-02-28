@@ -13,7 +13,6 @@ docker_image = "commitboost_signer"
 cert_path = "/path/to/client.crt"
 key_path = "/path/to/client.key"
 secrets_path = "./dirk_secrets"
-unlock = true
 
 # Example of a single Dirk host
 [[signer.dirk.hosts]]
