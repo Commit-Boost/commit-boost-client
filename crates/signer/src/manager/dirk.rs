@@ -4,9 +4,7 @@ use std::{
     path::PathBuf,
 };
 
-use alloy::{
-    hex, rpc::types::beacon::constants::BLS_SIGNATURE_BYTES_LEN, transports::http::reqwest::Url,
-};
+use alloy::{hex, rpc::types::beacon::constants::BLS_SIGNATURE_BYTES_LEN};
 use blsful::inner_types::{Field, G2Affine, G2Projective, Group, Scalar};
 use cb_common::{
     commit::request::{ConsensusProxyMap, ProxyDelegation, SignedProxyDelegation},
@@ -28,7 +26,7 @@ use crate::{
     proto::v1::{
         account_manager_client::AccountManagerClient, lister_client::ListerClient, sign_request,
         signer_client::SignerClient, Endpoint, GenerateRequest, ListAccountsRequest, ResponseState,
-        SignRequest,
+        SignRequest, UnlockAccountRequest,
     },
 };
 
@@ -408,10 +406,12 @@ impl DirkManager {
             }),
         };
 
-        self.store_password(&proxy_account, password).map_err(|e| {
+        self.store_password(&proxy_account, password.clone()).map_err(|e| {
             error!("Failed to store password: {e}");
             SignerModuleError::Internal("Failed to store password".to_string())
         })?;
+
+        self.try_unlock_account(&proxy_account.inner, password).await;
 
         Ok(proxy_account)
     }
@@ -464,10 +464,12 @@ impl DirkManager {
                 }),
             };
 
-            self.store_password(&proxy_account, password).map_err(|e| {
+            self.store_password(&proxy_account, password.clone()).map_err(|e| {
                 error!("Failed to store password: {e}");
                 SignerModuleError::Internal("Failed to store password".to_string())
             })?;
+
+            self.try_unlock_account(&proxy_account.inner, password).await;
 
             return Ok(proxy_account);
         }
@@ -487,6 +489,31 @@ impl DirkManager {
         file.write_all(password.as_bytes())?;
 
         Ok(())
+    }
+
+    async fn try_unlock_account(&self, account: &Account, password: String) {
+        let participants = match account {
+            Account::Simple(account) => vec![(1, account.connection.clone())],
+            Account::Distributed(account) => {
+                account.participants.iter().map(|(id, channel)| (*id, channel.clone())).collect()
+            }
+        };
+
+        let unlock_request = UnlockAccountRequest {
+            account: account.full_name(),
+            passphrase: password.as_bytes().to_vec(),
+        };
+
+        for (id, channel) in participants {
+            let response = AccountManagerClient::new(channel)
+                .unlock(unlock_request.clone())
+                .await
+                .map_err(|e| warn!("Failed to unlock account with participant {id}: {e}"));
+
+            if response.is_ok_and(|res| res.into_inner().state() != ResponseState::Succeeded) {
+                warn!("Failed to unlock account with partcipant {id}");
+            }
+        }
     }
 }
 
