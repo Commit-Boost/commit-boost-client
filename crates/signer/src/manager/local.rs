@@ -239,7 +239,7 @@ impl LocalSigningManager {
             let entry = keys
                 .iter_mut()
                 .find(|x| x.consensus == delegator)
-                .ok_or(SignerModuleError::Internal("missing consensus".to_string()))?;
+                .ok_or(SignerModuleError::UnknownConsensusSigner(delegator.0.to_vec()))?;
 
             entry.proxy_bls.push(bls);
         }
@@ -249,7 +249,7 @@ impl LocalSigningManager {
             let entry = keys
                 .iter_mut()
                 .find(|x| x.consensus == delegator)
-                .ok_or(SignerModuleError::Internal("missing consensus".to_string()))?;
+                .ok_or(SignerModuleError::UnknownConsensusSigner(delegator.0.to_vec()))?;
 
             entry.proxy_ecdsa.push(ecdsa);
         }
