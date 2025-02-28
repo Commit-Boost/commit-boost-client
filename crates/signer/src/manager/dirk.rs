@@ -15,7 +15,7 @@ use cb_common::{
     types::{Chain, ModuleId},
 };
 use eyre::{bail, OptionExt};
-use futures::{stream::FuturesUnordered, FutureExt, StreamExt};
+use futures::{future::join_all, stream::FuturesUnordered, FutureExt, StreamExt};
 use rand::Rng;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 use tracing::{debug, error, warn};
@@ -411,7 +411,12 @@ impl DirkManager {
             SignerModuleError::Internal("Failed to store password".to_string())
         })?;
 
-        self.try_unlock_account(&proxy_account.inner, password).await;
+        if let Err(e) = self.unlock_account(&proxy_account.inner, password).await {
+            error!("{e}");
+            return Err(SignerModuleError::DirkCommunicationError(
+                "Failed to unlock new account".to_string(),
+            ));
+        }
 
         Ok(proxy_account)
     }
@@ -469,7 +474,12 @@ impl DirkManager {
                 SignerModuleError::Internal("Failed to store password".to_string())
             })?;
 
-            self.try_unlock_account(&proxy_account.inner, password).await;
+            if let Err(e) = self.unlock_account(&proxy_account.inner, password).await {
+                error!("{e}");
+                return Err(SignerModuleError::DirkCommunicationError(
+                    "Failed to unlock new account".to_string(),
+                ));
+            }
 
             return Ok(proxy_account);
         }
@@ -491,27 +501,45 @@ impl DirkManager {
         Ok(())
     }
 
-    async fn try_unlock_account(&self, account: &Account, password: String) {
+    async fn unlock_account(&self, account: &Account, password: String) -> eyre::Result<()> {
         let participants = match account {
-            Account::Simple(account) => vec![(1, account.connection.clone())],
-            Account::Distributed(account) => {
-                account.participants.iter().map(|(id, channel)| (*id, channel.clone())).collect()
+            Account::Simple(account) => vec![&account.connection],
+            Account::Distributed(account) => account.participants.values().collect(),
+        };
+
+        let mut requests = Vec::with_capacity(participants.len());
+        for channel in participants {
+            let password = password.clone();
+            let request = async move {
+                let response = AccountManagerClient::new(channel.clone())
+                    .unlock(UnlockAccountRequest {
+                        account: account.full_name(),
+                        passphrase: password.as_bytes().to_vec(),
+                    })
+                    .await;
+
+                return response
+                    .is_ok_and(|res| res.into_inner().state() == ResponseState::Succeeded);
+            };
+
+            requests.push(request);
+        }
+
+        let responses = join_all(requests).await;
+        match account {
+            Account::Simple(_) => {
+                if responses.get(0).is_some_and(|x| *x) {
+                    Ok(())
+                } else {
+                    bail!("Failed to unlock account")
+                }
             }
-        };
-
-        let unlock_request = UnlockAccountRequest {
-            account: account.full_name(),
-            passphrase: password.as_bytes().to_vec(),
-        };
-
-        for (id, channel) in participants {
-            let response = AccountManagerClient::new(channel)
-                .unlock(unlock_request.clone())
-                .await
-                .map_err(|e| warn!("Failed to unlock account with participant {id}: {e}"));
-
-            if response.is_ok_and(|res| res.into_inner().state() != ResponseState::Succeeded) {
-                warn!("Failed to unlock account with partcipant {id}");
+            Account::Distributed(account) => {
+                if responses.into_iter().filter(|x| *x).count() >= account.threshold as usize {
+                    Ok(())
+                } else {
+                    bail!("Failed to get enough unlocks")
+                }
             }
         }
     }
