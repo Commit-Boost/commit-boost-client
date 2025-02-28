@@ -323,9 +323,9 @@ pub async fn handle_docker_init(config_path: String, output_dir: String) -> Resu
     };
 
     // setup signer service
-    match signer_config.inner {
-        SignerType::Local { loader, store } => {
-            if needs_signer_module {
+    if needs_signer_module {
+        match signer_config.inner {
+            SignerType::Local { loader, store } => {
                 if metrics_enabled {
                     targets.push(PrometheusTargetConfig {
                         targets: vec![format!("cb_signer:{metrics_port}")],
@@ -449,9 +449,7 @@ pub async fn handle_docker_init(config_path: String, output_dir: String) -> Resu
 
                 services.insert("cb_signer".to_owned(), Some(signer_service));
             }
-        }
-        SignerType::Dirk { cert_path, key_path, secrets_path, ca_cert_path, store, .. } => {
-            if needs_signer_module {
+            SignerType::Dirk { cert_path, key_path, secrets_path, ca_cert_path, store, .. } => {
                 if metrics_enabled {
                     targets.push(PrometheusTargetConfig {
                         targets: vec![format!("cb_signer:{metrics_port}")],
@@ -550,9 +548,9 @@ pub async fn handle_docker_init(config_path: String, output_dir: String) -> Resu
 
                 services.insert("cb_signer".to_owned(), Some(signer_service));
             }
-        }
-        SignerType::Remote { .. } => {
-            panic!("Signer module required but remote config provided");
+            SignerType::Remote { .. } => {
+                panic!("Signer module required but remote config provided");
+            }
         }
     }
 
