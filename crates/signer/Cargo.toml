@@ -21,6 +21,7 @@ prost.workspace = true
 
 # async / threads
 tokio.workspace = true
+futures.workspace = true
 
 # telemetry
 tracing.workspace = true

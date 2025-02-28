@@ -13,6 +13,7 @@ use cb_common::{
     types::{Chain, ModuleId},
 };
 use eyre::bail;
+use futures::{stream::FuturesUnordered, FutureExt, StreamExt};
 use rand::Rng;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 use tracing::{debug, error, warn};
@@ -21,7 +22,7 @@ use tree_hash::TreeHash;
 use crate::{
     error::SignerModuleError,
     proto::v1::{
-        account_manager_client::AccountManagerClient, lister_client::ListerClient,
+        account_manager_client::AccountManagerClient, lister_client::ListerClient, sign_request,
         signer_client::SignerClient, Endpoint, GenerateRequest, ListAccountsRequest, ResponseState,
         SignRequest,
     },
@@ -311,18 +312,16 @@ impl DirkManager {
             .sign(SignRequest {
                 data: object_root.to_vec(),
                 domain: domain.to_vec(),
-                id: Some(crate::proto::v1::sign_request::Id::PublicKey(
-                    account.public_key.to_vec(),
-                )),
+                id: Some(sign_request::Id::PublicKey(account.public_key.to_vec())),
             })
             .await
-            .map_err(|_| {
-                SignerModuleError::DirkCommunicationError("Failed to sign object".to_string())
+            .map_err(|e| {
+                SignerModuleError::DirkCommunicationError(format!("Failed to sign object: {e}"))
             })?;
 
         if response.get_ref().state() != ResponseState::Succeeded {
             return Err(SignerModuleError::DirkCommunicationError(
-                "Failed to sign object".to_string(),
+                "Failed to sign object, server responded error".to_string(),
             ));
         }
 
@@ -331,13 +330,13 @@ impl DirkManager {
         })
     }
 
-    // TODO: Improve await times
     async fn request_distributed_signature(
         &self,
         account: &DistributedAccount,
         object_root: [u8; 32],
     ) -> Result<BlsSignature, SignerModuleError> {
         let mut partials = Vec::with_capacity(account.participants.len());
+        let mut requests = Vec::with_capacity(account.participants.len());
 
         for (id, endpoint) in account.participants.iter() {
             let Some(channel) = self.connections.get(endpoint) else {
@@ -345,19 +344,33 @@ impl DirkManager {
                 continue;
             };
 
-            let Ok(response) = SignerClient::new(channel.clone())
-                .sign(SignRequest {
-                    data: object_root.to_vec(),
-                    domain: compute_domain(self.chain, COMMIT_BOOST_DOMAIN).to_vec(),
-                    id: Some(crate::proto::v1::sign_request::Id::Account(format!(
-                        "{}/{}",
-                        account.wallet, account.name
-                    ))),
-                })
-                .await
-            else {
-                warn!("Failed to sign object with server {endpoint}");
-                continue;
+            let request = async move {
+                SignerClient::new(channel.clone())
+                    .sign(SignRequest {
+                        data: object_root.to_vec(),
+                        domain: compute_domain(self.chain, COMMIT_BOOST_DOMAIN).to_vec(),
+                        id: Some(sign_request::Id::Account(format!(
+                            "{}/{}",
+                            account.wallet, account.name
+                        ))),
+                    })
+                    .map(|res| (res, (*id, endpoint.clone())))
+                    .await
+            };
+            requests.push(request);
+        }
+
+        let mut requests = requests.into_iter().collect::<FuturesUnordered<_>>();
+
+        while let Some((response, participant)) = requests.next().await {
+            let (id, endpoint) = participant;
+
+            let response = match response {
+                Ok(res) => res,
+                Err(e) => {
+                    warn!("Failed to sign object with server {endpoint}: {e}");
+                    continue;
+                }
             };
 
             if response.get_ref().state() != ResponseState::Succeeded {
@@ -365,13 +378,20 @@ impl DirkManager {
                 continue;
             }
 
-            let Ok(signature) = BlsSignature::try_from(response.into_inner().signature.as_slice())
-            else {
-                warn!("Failed to parse signature from server {endpoint}");
-                continue;
+            let signature = match BlsSignature::try_from(response.into_inner().signature.as_slice())
+            {
+                Ok(sig) => sig,
+                Err(e) => {
+                    warn!("Failed to parse signature from server {endpoint}: {e}");
+                    continue;
+                }
             };
 
-            partials.push((signature, *id));
+            partials.push((signature, id));
+
+            if partials.len() >= account.threshold as usize {
+                break;
+            }
         }
 
         if partials.len() < account.threshold as usize {

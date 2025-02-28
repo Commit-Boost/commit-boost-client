@@ -1487,6 +1487,7 @@ dependencies = [
  "cb-common",
  "cb-metrics",
  "eyre",
+ "futures",
  "headers",
  "lazy_static",
  "prometheus",
