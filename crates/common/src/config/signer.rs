@@ -70,9 +70,6 @@ pub enum SignerType {
         secrets_path: PathBuf,
         /// Path to the CA certificate
         ca_cert_path: Option<PathBuf>,
-        /// Whether to unlock the accounts in case they are locked
-        #[serde(default)]
-        unlock: bool,
         /// How to store proxy key delegations
         /// ERC2335 is not supported with Dirk signer
         store: Option<ProxyStore>,
@@ -85,7 +82,6 @@ pub struct DirkConfig {
     pub client_cert: Identity,
     pub secrets_path: PathBuf,
     pub cert_auth: Option<Certificate>,
-    pub unlock: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -123,7 +119,6 @@ impl StartSignerConfig {
                 key_path,
                 secrets_path,
                 ca_cert_path,
-                unlock,
                 store,
                 ..
             } => {
@@ -157,7 +152,6 @@ impl StartSignerConfig {
                             }
                             None => None,
                         },
-                        unlock,
                     }),
                 })
             }
