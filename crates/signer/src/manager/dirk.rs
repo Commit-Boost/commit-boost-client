@@ -80,10 +80,17 @@ struct ProxyAccount {
 
 #[derive(Clone, Debug)]
 pub struct DirkManager {
+    /// Chain config for the manager
     chain: Chain,
+    /// Consensus accounts available for signing. The key is the public key of
+    /// the account.
     consensus_accounts: HashMap<BlsPublicKey, Account>,
+    /// Proxy accounts available for signing. The key is the public key of the
+    /// account.
     proxy_accounts: HashMap<BlsPublicKey, ProxyAccount>,
+    /// Path to store the passwords of the proxy accounts
     secrets_path: PathBuf,
+    /// Store to save proxy delegations
     delegations_store: Option<ProxyStore>,
 }
 
@@ -163,6 +170,7 @@ impl DirkManager {
         })
     }
 
+    /// Set the proxy store to use for storing proxy delegations
     pub fn with_proxy_store(self, store: ProxyStore) -> eyre::Result<Self> {
         if let ProxyStore::ERC2335 { .. } = store {
             return Err(eyre::eyre!("ERC2335 proxy store not supported"));
@@ -171,14 +179,17 @@ impl DirkManager {
         Ok(Self { delegations_store: Some(store), ..self })
     }
 
+    /// Get the number of available consensus signers
     pub fn available_consensus_signers(&self) -> usize {
         self.consensus_accounts.len()
     }
 
+    /// Get the number of available proxy signers
     pub fn available_proxy_signers(&self) -> usize {
         self.proxy_accounts.len()
     }
 
+    /// Get the map structure for `get_pubkey` endpoint
     pub fn get_consensus_proxy_maps(&self, module: &ModuleId) -> Vec<ConsensusProxyMap> {
         self.consensus_accounts
             .values()
@@ -203,6 +214,7 @@ impl DirkManager {
             .collect()
     }
 
+    /// Request a signature from a consensus signer
     pub async fn request_consensus_signature(
         &self,
         pubkey: &BlsPublicKey,
@@ -219,6 +231,7 @@ impl DirkManager {
         }
     }
 
+    /// Request a signature from a proxy signer
     pub async fn request_proxy_signature(
         &self,
         pubkey: &BlsPublicKey,
@@ -235,6 +248,7 @@ impl DirkManager {
         }
     }
 
+    /// Sign a message with a `SimpleAccount`
     async fn request_simple_signature(
         &self,
         account: &SimpleAccount,
@@ -264,6 +278,7 @@ impl DirkManager {
         })
     }
 
+    /// Sign a message with a `DistributedAccount`
     async fn request_distributed_signature(
         &self,
         account: &DistributedAccount,
@@ -331,6 +346,7 @@ impl DirkManager {
             .map_err(|e| SignerModuleError::Internal(e.to_string()))
     }
 
+    /// Generate a proxy key for a consensus signer
     pub async fn generate_proxy_key(
         &mut self,
         module: &ModuleId,
@@ -365,6 +381,7 @@ impl DirkManager {
         Ok(delegation)
     }
 
+    /// Generate a proxy key for a `SimpleAccount` consensus signer
     async fn generate_simple_proxy_account(
         &self,
         consensus: &SimpleAccount,
@@ -421,6 +438,7 @@ impl DirkManager {
         Ok(proxy_account)
     }
 
+    /// Generate a proxy key for a `DistributedAccount` consensus signer
     async fn generate_distributed_proxy_key(
         &self,
         consensus: &DistributedAccount,
@@ -486,6 +504,7 @@ impl DirkManager {
         ))
     }
 
+    /// Store the password for a proxy account in disk
     fn store_password(&self, account: &ProxyAccount, password: String) -> eyre::Result<()> {
         let full_name = account.inner.full_name();
         let (parent, name) = full_name.rsplit_once('/').ok_or_eyre("Invalid account name")?;
@@ -498,6 +517,7 @@ impl DirkManager {
         Ok(())
     }
 
+    /// Unlock an account in Dirk
     async fn unlock_account(&self, account: &Account, password: String) -> eyre::Result<()> {
         let participants = match account {
             Account::Simple(account) => vec![&account.connection],
@@ -541,6 +561,7 @@ impl DirkManager {
     }
 }
 
+/// Connect to a Dirk host
 async fn connect(
     server: &DirkHostConfig,
     client: &Identity,
@@ -563,6 +584,7 @@ async fn connect(
         .map_err(eyre::Error::from)
 }
 
+/// Decompose a full account name into wallet and name
 fn decompose_name(full_name: &str) -> eyre::Result<(String, String)> {
     full_name
         .split_once('/')
@@ -570,6 +592,7 @@ fn decompose_name(full_name: &str) -> eyre::Result<(String, String)> {
         .ok_or_else(|| eyre::eyre!("Invalid account name"))
 }
 
+/// Load `SimpleAccount`s into the consensus accounts map
 fn load_simple_accounts(
     accounts: Vec<crate::proto::v1::Account>,
     host: &DirkHostConfig,
@@ -606,6 +629,7 @@ fn load_simple_accounts(
     }
 }
 
+/// Load `DistributedAccount`s into the consensus accounts map
 fn load_distributed_accounts(
     accounts: Vec<crate::proto::v1::DistributedAccount>,
     host: &DirkHostConfig,
@@ -668,6 +692,7 @@ fn load_distributed_accounts(
     Ok(())
 }
 
+/// Aggregate partial signatures into a master signature
 fn aggregate_partial_signatures(partials: &[(BlsSignature, u32)]) -> eyre::Result<BlsSignature> {
     // Deserialize partial signatures into G2 points
     let mut shares: HashMap<u32, G2Projective> = HashMap::new();
