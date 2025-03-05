@@ -671,18 +671,14 @@ fn load_distributed_accounts(
 fn aggregate_partial_signatures(partials: &[(BlsSignature, u32)]) -> eyre::Result<BlsSignature> {
     // Deserialize partial signatures into G2 points
     let mut shares: HashMap<u32, G2Projective> = HashMap::new();
-    for (sig, id) in partials {
-        if sig.len() != BLS_SIGNATURE_BYTES_LEN {
+    for (signature, id) in partials {
+        if signature.len() != BLS_SIGNATURE_BYTES_LEN {
             bail!("Invalid signature length")
         }
-        let arr: [u8; BLS_SIGNATURE_BYTES_LEN] = (*sig).into();
-        let opt: Option<G2Affine> = G2Affine::from_compressed(&arr).into();
-        let opt: Option<G2Projective> = G2Projective::from(&opt.unwrap()).into();
-        if let Some(point) = opt {
-            shares.insert(*id, point);
-        } else {
-            bail!("Failed to deserialize signature")
-        }
+        let affine = G2Affine::from_compressed(&signature)
+            .into_option()
+            .ok_or_eyre("Failed to deserialize signature")?;
+        shares.insert(*id, G2Projective::from(&affine));
     }
 
     // Perform Lagrange interpolation to recover the master signature
@@ -697,7 +693,11 @@ fn aggregate_partial_signatures(partials: &[(BlsSignature, u32)]) -> eyre::Resul
                 denominator *= Scalar::from(*other_id) - Scalar::from(*id);
             }
         }
-        let lagrange_coeff = numerator * denominator.invert().unwrap();
+        let lagrange_coeff = numerator *
+            denominator
+                .invert()
+                .into_option()
+                .ok_or_eyre("Failed to get lagrange coefficient")?;
 
         // Multiply the point by the Lagrange coefficient and add to the recovered point
         recovered += *point * lagrange_coeff;
