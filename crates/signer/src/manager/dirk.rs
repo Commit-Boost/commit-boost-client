@@ -700,7 +700,7 @@ fn aggregate_partial_signatures(partials: &[(BlsSignature, u32)]) -> eyre::Resul
         if signature.len() != BLS_SIGNATURE_BYTES_LEN {
             bail!("Invalid signature length")
         }
-        let affine = G2Affine::from_compressed(&signature)
+        let affine = G2Affine::from_compressed(signature)
             .into_option()
             .ok_or_eyre("Failed to deserialize signature")?;
         shares.insert(*id, G2Projective::from(&affine));
