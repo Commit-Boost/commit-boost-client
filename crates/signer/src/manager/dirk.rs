@@ -181,8 +181,8 @@ impl DirkManager {
 
     pub fn get_consensus_proxy_maps(&self, module: &ModuleId) -> Vec<ConsensusProxyMap> {
         self.consensus_accounts
-            .iter()
-            .map(|(_, account)| ConsensusProxyMap {
+            .values()
+            .map(|account| ConsensusProxyMap {
                 consensus: account.public_key(),
                 proxy_bls: self
                     .proxy_accounts
@@ -438,9 +438,6 @@ impl DirkManager {
                     signing_threshold: consensus.threshold,
                 })
                 .await
-                .map_err(|e| {
-                    SignerModuleError::DirkCommunicationError(e.to_string());
-                })
             else {
                 warn!("Couldn't generate proxy key with participant {id}");
                 continue;
@@ -484,7 +481,7 @@ impl DirkManager {
             return Ok(proxy_account);
         }
 
-        return Err(SignerModuleError::DirkCommunicationError(
+        Err(SignerModuleError::DirkCommunicationError(
             "All participant connections failed".to_string(),
         ))
     }
@@ -518,8 +515,7 @@ impl DirkManager {
                     })
                     .await;
 
-                return response
-                    .is_ok_and(|res| res.into_inner().state() == ResponseState::Succeeded);
+                response.is_ok_and(|res| res.into_inner().state() == ResponseState::Succeeded)
             };
 
             requests.push(request);
@@ -528,7 +524,7 @@ impl DirkManager {
         let responses = join_all(requests).await;
         match account {
             Account::Simple(_) => {
-                if responses.get(0).is_some_and(|x| *x) {
+                if responses.first().is_some_and(|x| *x) {
                     Ok(())
                 } else {
                     bail!("Failed to unlock account")
