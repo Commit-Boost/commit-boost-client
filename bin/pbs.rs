@@ -3,6 +3,7 @@ use cb_common::{
     utils::{initialize_pbs_tracing_log, wait_for_signal},
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
+use clap::Parser;
 use eyre::Result;
 use tracing::{error, info};
 
@@ -15,6 +16,8 @@ async fn main() -> Result<()> {
         std::env::set_var("RUST_BACKTRACE", "1");
     }
     let _guard = initialize_pbs_tracing_log();
+
+    let _args = cb_cli::PbsArgs::parse();
 
     let pbs_config = load_pbs_config().await?;
 
