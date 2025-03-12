@@ -318,12 +318,12 @@ pub async fn handle_docker_init(config_path: String, output_dir: String) -> Resu
 
     services.insert("cb_pbs".to_owned(), Some(pbs_service));
 
-    let Some(signer_config) = cb_config.signer else {
-        panic!("Signer module required but no signer config provided");
-    };
-
     // setup signer service
     if needs_signer_module {
+        let Some(signer_config) = cb_config.signer else {
+            panic!("Signer module required but no signer config provided");
+        };
+
         match signer_config.inner {
             SignerType::Local { loader, store } => {
                 if metrics_enabled {
