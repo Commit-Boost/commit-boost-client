@@ -738,3 +738,37 @@ fn random_password() -> String {
     let password_bytes: [u8; 32] = rand::thread_rng().gen();
     hex::encode(password_bytes)
 }
+
+mod test {
+
+    #[test]
+    fn test_signature_aggregation() {
+        use alloy::hex;
+        use cb_common::signer::BlsSignature;
+
+        use super::aggregate_partial_signatures;
+
+        let partials = vec![
+            (BlsSignature::from_slice(&hex::decode("aa16233b9e65b596caf070122d564ad7a021dad4fc2ed8508fccecfab010da80892fad7336e9fbada607c50e2d0d78e00c9961f26618334ec9f0e7ea225212f3c0c7d66f73ff1c2e555712a3e31f517b8329bd0ad9e15a9aeaa91521ba83502c").unwrap()), 1),
+            (BlsSignature::from_slice(&hex::decode("b27dd4c088e386edc4d07b6b23c72ba87a34e04cffd4975e8cb679aa4640cec1d34ace3e2bf33ac0dffca023c82422840012bb6c92eab36ca7908a9f9519fa18b1ed2bdbc624a98e01ca217c318a021495cc6cc9c8b982d0afed2cd83dc8fe65").unwrap()), 2),
+            (BlsSignature::from_slice(&hex::decode("aca4a71373df2f76369e8b242b0e2b1f41fc384feee3abe605ee8d6723f5fb11de1c9bd2408f4a09be981342352c523801e3beea73893a329204dd67fe84cb520220af33f7fa027b6bcc3b7c8e78647f2aa372145e4d3aec7682d2605040a64a").unwrap()), 3)
+        ];
+        let expected = BlsSignature::from_slice(&hex::decode("0x8e343f074f91d19fd5118d9301768e30cecb21fb96a1ad9539cbdeae8907e2e12a88c91fe1d7e1f6995dcde18fb0272b1512cd68800e14ebd1c7f189e7221ba238a0f196226385737157f4b72d348c1886ce18d0a9609ba0cd5503e41546286f").unwrap());
+
+        // With all signers
+        let signature = aggregate_partial_signatures(&partials).unwrap();
+        assert_eq!(signature, expected);
+
+        // With only 2 signers
+        let signature = aggregate_partial_signatures(&partials[..2]).unwrap();
+        assert_eq!(signature, expected);
+
+        // With other 2 signers
+        let signature = aggregate_partial_signatures(&partials[1..]).unwrap();
+        assert_eq!(signature, expected);
+
+        // Should fail with only 1 signer
+        let signature = aggregate_partial_signatures(&partials[..1]).unwrap();
+        assert_ne!(signature, expected);
+    }
+}
