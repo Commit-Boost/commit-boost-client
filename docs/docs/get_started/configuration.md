@@ -251,7 +251,6 @@ key_path = "/path/to/client.key"
 secrets_path = "/path/to/secrets"
 # Optional parameters
 ca_cert_path = "/path/to/ca.crt"
-server_domain = "server.example.com"
 
 # Add one entry like this for each host
 [[signer.dirk.hosts]]

@@ -54,6 +54,7 @@ const sidebars = {
       items: [
         'developing/custom-modules',
         'developing/commit-module',
+        'developing/environment-setup',
       ],
     },
     {
