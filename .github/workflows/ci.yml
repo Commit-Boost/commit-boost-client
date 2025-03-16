@@ -4,41 +4,47 @@ on:
   pull_request:
     branches: ["**"]
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
-  rustfmt:
-    name: Format
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@v4
-      - name: Install nightly toolchain
-        uses: dtolnay/rust-toolchain@nightly
-        with:
-          components: rustfmt
-      - run: cargo +nightly fmt --all --check
-  clippy:
-    name: Lint check
+  lint:
+    name: lint
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
         with:
           submodules: true
-      - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
-      - name: Install protoc
-        run: sudo apt-get install protobuf-compiler
-      - run: cargo clippy --all -- -D warnings
-  tests:
-    name: Test
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@v4
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
         with:
-          submodules: true
-      - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+          cache-on-failure: true
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2025-02-26
+          components: clippy, rustfmt
+
       - name: Install protoc
         run: sudo apt-get install protobuf-compiler
-      - run: cargo test --all-features
+
+      - name: Setup just
+        uses: extractions/setup-just@v2
+        with:
+          just-version: 1.5.0
+
+      - name: Check compilation
+        run: cargo check
+
+      - name: Check formatting
+        run: just fmt-check
+
+      - name: Check clippy
+        run: just clippy
+
+      - name: Run tests
+        run: just test

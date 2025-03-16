@@ -85,7 +85,7 @@ impl BlsSigner {
 pub fn random_secret() -> BlsSecretKey {
     use rand::RngCore;
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let mut ikm = [0u8; 32];
     rng.fill_bytes(&mut ikm);
 
