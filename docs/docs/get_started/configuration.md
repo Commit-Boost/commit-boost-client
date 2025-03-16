@@ -229,14 +229,55 @@ To persist proxy keys across restarts, you must enable the proxy store in the co
 
 ### Remote signer
 
-You might choose to use an external service to sign the transactions. For now, we support Web3Signer but we're working on adding support for additional signers.
+You might choose to use an external service to sign the transactions. For now, two types of remote signers are supported: Web3Signer and Dirk.
 
-The parameters needed for the remote signer are:
+#### Web3Signer
+
+Web3Signer implements the same API as Commit-Boost, so there's no need to set up a Signer module. The parameters needed for the remote signer are:
 
 ```toml
 [signer.remote]
 url = "https://remote.signer.url"
 ```
+
+#### Dirk
+
+Dirk is a distributed key management system that can be used to sign transactions. In this case the Signer module is needed as an intermediary between the modules and Dirk. The following parameters are needed:
+
+```toml
+[signer.dirk]
+cert_path = "/path/to/client.crt"
+key_path = "/path/to/client.key"
+secrets_path = "/path/to/secrets"
+# Optional parameters
+ca_cert_path = "/path/to/ca.crt"
+
+# Add one entry like this for each host
+[[signer.dirk.hosts]]
+server_name = "localhost-1"
+url = "https://localhost-1:8081"
+accounts = ["SomeWallet/SomeAccount", "DistributedWallet/Account1"]
+
+[[signer.dirk.hosts]]
+server_name = "localhost-2"
+url = "https://localhost-2:8082"
+accounts = ["AnotherWallet/AnotherAccount", "DistributedWallet/Account1"]
+```
+
+- `cert_path` and `key_path` are the paths to the client certificate and key used to authenticate with Dirk.
+- `accounts` is a list of accounts that the Signer module will consider as the consensus keys. Each account has the format `<WALLET_NAME>/<ACCOUNT>`. Accounts can be from different wallets. Generated proxy keys will have format `<WALLET_NAME>/<ACCOUNT>/<MODULE_ID>/<UUID>`.
+- `secrets_path` is the path to the folder containing the passwords of the generated proxy accounts, which will be stored in `<secrets_path>/<WALLET_NAME>/<ACCOUNT>/<MODULE_ID>/<UUID>.pass`.
+
+Additionally, you can set a proxy store so that the delegation signatures for generated proxy keys are stored locally. As these signatures are not sensitive, the only supported store type is `File`:
+
+```toml
+[signer.dirk.store]
+proxy_dir = "/path/to/proxy_dir"
+```
+
+Delegation signatures will be stored in files with the format `<proxy_dir>/delegations/<MODULE_ID>/<PROXY_KEY>.sig`.
+
+A full example of a config file with Dirk can be found [here](https://github.com/Commit-Boost/commit-boost-client/blob/main/examples/configs/dirk_signer.toml).
 
 ## Custom module
 We currently provide a test module that needs to be built locally. To build the module run:

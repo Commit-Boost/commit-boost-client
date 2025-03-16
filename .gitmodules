@@ -1,0 +1,3 @@
+[submodule "crates/signer/proto"]
+	path = crates/signer/proto
+	url = https://github.com/wealdtech/eth2-signer-api.git

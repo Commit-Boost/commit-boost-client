@@ -22,7 +22,7 @@ use eth2_keystore::{
 use eyre::OptionExt;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use tracing::warn;
+use tracing::{trace, warn};
 
 use super::{load_bls_signer, load_ecdsa_signer};
 use crate::{
@@ -149,6 +149,33 @@ impl ProxyStore {
                 )?;
             }
         }
+
+        Ok(())
+    }
+
+    pub fn store_proxy_bls_delegation(
+        &self,
+        module_id: &ModuleId,
+        delegation: &SignedProxyDelegation<BlsPublicKey>,
+    ) -> eyre::Result<()> {
+        let base_path = match self {
+            ProxyStore::File { proxy_dir } => proxy_dir,
+            ProxyStore::ERC2335 { keys_path, .. } => keys_path,
+        };
+        let file_path = base_path
+            .join("delegations")
+            .join(module_id.to_string())
+            .join("bls")
+            .join(format!("{}.sig", delegation.message.proxy));
+        let content = serde_json::to_vec(&delegation)?;
+        trace!(?content, "Writing BLS delegation to {file_path:?}");
+
+        if let Some(parent) = file_path.parent() {
+            create_dir_all(parent)?;
+        }
+
+        let mut file = std::fs::File::create(file_path)?;
+        file.write_all(content.as_ref())?;
 
         Ok(())
     }

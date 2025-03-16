@@ -6,8 +6,10 @@ use std::{
 
 use cb_common::{
     config::{
-        CommitBoostConfig, LogsSettings, ModuleKind, SignerConfig, BUILDER_PORT_ENV,
-        BUILDER_URLS_ENV, CHAIN_SPEC_ENV, CONFIG_DEFAULT, CONFIG_ENV, JWTS_ENV, LOGS_DIR_DEFAULT,
+        CommitBoostConfig, LogsSettings, ModuleKind, SignerConfig, SignerType, BUILDER_PORT_ENV,
+        BUILDER_URLS_ENV, CHAIN_SPEC_ENV, CONFIG_DEFAULT, CONFIG_ENV, DIRK_CA_CERT_DEFAULT,
+        DIRK_CA_CERT_ENV, DIRK_CERT_DEFAULT, DIRK_CERT_ENV, DIRK_DIR_SECRETS_DEFAULT,
+        DIRK_DIR_SECRETS_ENV, DIRK_KEY_DEFAULT, DIRK_KEY_ENV, JWTS_ENV, LOGS_DIR_DEFAULT,
         LOGS_DIR_ENV, METRICS_PORT_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, PBS_ENDPOINT_ENV,
         PBS_MODULE_NAME, PROXY_DIR_DEFAULT, PROXY_DIR_ENV, PROXY_DIR_KEYS_DEFAULT,
         PROXY_DIR_KEYS_ENV, PROXY_DIR_SECRETS_DEFAULT, PROXY_DIR_SECRETS_ENV, SIGNER_DEFAULT,
@@ -77,11 +79,12 @@ pub async fn handle_docker_init(config_path: String, output_dir: String) -> Resu
 
     // address for signer API communication
     let signer_port = 20000;
-    let signer_server = if let Some(SignerConfig::Remote { url }) = &cb_config.signer {
-        url.to_string()
-    } else {
-        format!("http://cb_signer:{signer_port}")
-    };
+    let signer_server =
+        if let Some(SignerConfig { inner: SignerType::Remote { url }, .. }) = &cb_config.signer {
+            url.to_string()
+        } else {
+            format!("http://cb_signer:{signer_port}")
+        };
 
     let builder_events_port = 30000;
     let mut builder_events_modules = Vec::new();
@@ -166,7 +169,11 @@ pub async fn handle_docker_init(config_path: String, output_dir: String) -> Resu
                         networks: Networks::Simple(module_networks),
                         volumes: module_volumes,
                         environment: Environment::KvPair(module_envs),
-                        depends_on: if let Some(SignerConfig::Remote { .. }) = &cb_config.signer {
+                        depends_on: if let Some(SignerConfig {
+                            inner: SignerType::Remote { .. },
+                            ..
+                        }) = &cb_config.signer
+                        {
                             DependsOnOptions::Simple(vec![])
                         } else {
                             DependsOnOptions::Conditional(module_dependencies)
@@ -312,131 +319,239 @@ pub async fn handle_docker_init(config_path: String, output_dir: String) -> Resu
     services.insert("cb_pbs".to_owned(), Some(pbs_service));
 
     // setup signer service
-    if let Some(SignerConfig::Local { docker_image, loader, store }) = cb_config.signer {
-        if needs_signer_module {
-            if metrics_enabled {
-                targets.push(PrometheusTargetConfig {
-                    targets: vec![format!("cb_signer:{metrics_port}")],
-                    labels: PrometheusLabelsConfig { job: "signer".into() },
-                });
-            }
+    if needs_signer_module {
+        let Some(signer_config) = cb_config.signer else {
+            panic!("Signer module required but no signer config provided");
+        };
 
-            let mut signer_envs = IndexMap::from([
-                get_env_val(CONFIG_ENV, CONFIG_DEFAULT),
-                get_env_same(JWTS_ENV),
-                get_env_uval(SIGNER_PORT_ENV, signer_port as u64),
-            ]);
-
-            if let Some((key, val)) = chain_spec_env.clone() {
-                signer_envs.insert(key, val);
-            }
-            if metrics_enabled {
-                let (key, val) = get_env_uval(METRICS_PORT_ENV, metrics_port as u64);
-                signer_envs.insert(key, val);
-            }
-            if log_to_file {
-                let (key, val) = get_env_val(LOGS_DIR_ENV, LOGS_DIR_DEFAULT);
-                signer_envs.insert(key, val);
-            }
-
-            // write jwts to env
-            envs.insert(JWTS_ENV.into(), format_comma_separated(&jwts));
-
-            // volumes
-            let mut volumes = vec![config_volume.clone()];
-            volumes.extend(chain_spec_volume.clone());
-
-            match loader {
-                SignerLoader::File { key_path } => {
-                    volumes.push(Volumes::Simple(format!(
-                        "{}:{}:ro",
-                        key_path.display(),
-                        SIGNER_DEFAULT
-                    )));
-                    let (k, v) = get_env_val(SIGNER_KEYS_ENV, SIGNER_DEFAULT);
-                    signer_envs.insert(k, v);
+        match signer_config.inner {
+            SignerType::Local { loader, store } => {
+                if metrics_enabled {
+                    targets.push(PrometheusTargetConfig {
+                        targets: vec![format!("cb_signer:{metrics_port}")],
+                        labels: PrometheusLabelsConfig { job: "signer".into() },
+                    });
                 }
-                SignerLoader::ValidatorsDir { keys_path, secrets_path, format: _ } => {
-                    volumes.push(Volumes::Simple(format!(
-                        "{}:{}:ro",
-                        keys_path.display(),
-                        SIGNER_DIR_KEYS_DEFAULT
-                    )));
-                    let (k, v) = get_env_val(SIGNER_DIR_KEYS_ENV, SIGNER_DIR_KEYS_DEFAULT);
-                    signer_envs.insert(k, v);
 
-                    volumes.push(Volumes::Simple(format!(
-                        "{}:{}:ro",
-                        secrets_path.display(),
-                        SIGNER_DIR_SECRETS_DEFAULT
-                    )));
-                    let (k, v) = get_env_val(SIGNER_DIR_SECRETS_ENV, SIGNER_DIR_SECRETS_DEFAULT);
-                    signer_envs.insert(k, v);
+                let mut signer_envs = IndexMap::from([
+                    get_env_val(CONFIG_ENV, CONFIG_DEFAULT),
+                    get_env_same(JWTS_ENV),
+                    get_env_uval(SIGNER_PORT_ENV, signer_port as u64),
+                ]);
+
+                if let Some((key, val)) = chain_spec_env.clone() {
+                    signer_envs.insert(key, val);
                 }
-            };
+                if metrics_enabled {
+                    let (key, val) = get_env_uval(METRICS_PORT_ENV, metrics_port as u64);
+                    signer_envs.insert(key, val);
+                }
+                if log_to_file {
+                    let (key, val) = get_env_val(LOGS_DIR_ENV, LOGS_DIR_DEFAULT);
+                    signer_envs.insert(key, val);
+                }
 
-            if let Some(store) = store {
-                match store {
-                    ProxyStore::File { proxy_dir } => {
+                // write jwts to env
+                envs.insert(JWTS_ENV.into(), format_comma_separated(&jwts));
+
+                // volumes
+                let mut volumes = vec![config_volume.clone()];
+                volumes.extend(chain_spec_volume.clone());
+
+                match loader {
+                    SignerLoader::File { key_path } => {
                         volumes.push(Volumes::Simple(format!(
-                            "{}:{}:rw",
+                            "{}:{}:ro",
+                            key_path.display(),
+                            SIGNER_DEFAULT
+                        )));
+                        let (k, v) = get_env_val(SIGNER_KEYS_ENV, SIGNER_DEFAULT);
+                        signer_envs.insert(k, v);
+                    }
+                    SignerLoader::ValidatorsDir { keys_path, secrets_path, format: _ } => {
+                        volumes.push(Volumes::Simple(format!(
+                            "{}:{}:ro",
+                            keys_path.display(),
+                            SIGNER_DIR_KEYS_DEFAULT
+                        )));
+                        let (k, v) = get_env_val(SIGNER_DIR_KEYS_ENV, SIGNER_DIR_KEYS_DEFAULT);
+                        signer_envs.insert(k, v);
+
+                        volumes.push(Volumes::Simple(format!(
+                            "{}:{}:ro",
+                            secrets_path.display(),
+                            SIGNER_DIR_SECRETS_DEFAULT
+                        )));
+                        let (k, v) =
+                            get_env_val(SIGNER_DIR_SECRETS_ENV, SIGNER_DIR_SECRETS_DEFAULT);
+                        signer_envs.insert(k, v);
+                    }
+                };
+
+                if let Some(store) = store {
+                    match store {
+                        ProxyStore::File { proxy_dir } => {
+                            volumes.push(Volumes::Simple(format!(
+                                "{}:{}:rw",
+                                proxy_dir.display(),
+                                PROXY_DIR_DEFAULT
+                            )));
+                            let (k, v) = get_env_val(PROXY_DIR_ENV, PROXY_DIR_DEFAULT);
+                            signer_envs.insert(k, v);
+                        }
+                        ProxyStore::ERC2335 { keys_path, secrets_path } => {
+                            volumes.push(Volumes::Simple(format!(
+                                "{}:{}:rw",
+                                keys_path.display(),
+                                PROXY_DIR_KEYS_DEFAULT
+                            )));
+                            let (k, v) = get_env_val(PROXY_DIR_KEYS_ENV, PROXY_DIR_KEYS_DEFAULT);
+                            signer_envs.insert(k, v);
+
+                            volumes.push(Volumes::Simple(format!(
+                                "{}:{}:rw",
+                                secrets_path.display(),
+                                PROXY_DIR_SECRETS_DEFAULT
+                            )));
+                            let (k, v) =
+                                get_env_val(PROXY_DIR_SECRETS_ENV, PROXY_DIR_SECRETS_DEFAULT);
+                            signer_envs.insert(k, v);
+                        }
+                    }
+                }
+
+                volumes.extend(get_log_volume(&cb_config.logs, SIGNER_MODULE_NAME));
+
+                // networks
+                let mut signer_networks = vec![SIGNER_NETWORK.to_owned()];
+                if metrics_enabled {
+                    signer_networks.push(METRICS_NETWORK.to_owned());
+                }
+
+                let signer_service = Service {
+                    container_name: Some("cb_signer".to_owned()),
+                    image: Some(signer_config.docker_image),
+                    networks: Networks::Simple(signer_networks),
+                    volumes,
+                    environment: Environment::KvPair(signer_envs),
+                    healthcheck: Some(Healthcheck {
+                        test: Some(HealthcheckTest::Single(format!(
+                            "curl -f http://localhost:{signer_port}/status"
+                        ))),
+                        interval: Some("30s".into()),
+                        timeout: Some("5s".into()),
+                        retries: 3,
+                        start_period: Some("5s".into()),
+                        disable: false,
+                    }),
+                    ..Service::default()
+                };
+
+                services.insert("cb_signer".to_owned(), Some(signer_service));
+            }
+            SignerType::Dirk { cert_path, key_path, secrets_path, ca_cert_path, store, .. } => {
+                if metrics_enabled {
+                    targets.push(PrometheusTargetConfig {
+                        targets: vec![format!("cb_signer:{metrics_port}")],
+                        labels: PrometheusLabelsConfig { job: "signer".into() },
+                    });
+                }
+
+                let mut signer_envs = IndexMap::from([
+                    get_env_val(CONFIG_ENV, CONFIG_DEFAULT),
+                    get_env_same(JWTS_ENV),
+                    get_env_uval(SIGNER_PORT_ENV, signer_port as u64),
+                    get_env_val(DIRK_CERT_ENV, DIRK_CERT_DEFAULT),
+                    get_env_val(DIRK_KEY_ENV, DIRK_KEY_DEFAULT),
+                    get_env_val(DIRK_DIR_SECRETS_ENV, DIRK_DIR_SECRETS_DEFAULT),
+                ]);
+
+                if let Some((key, val)) = chain_spec_env.clone() {
+                    signer_envs.insert(key, val);
+                }
+                if metrics_enabled {
+                    let (key, val) = get_env_uval(METRICS_PORT_ENV, metrics_port as u64);
+                    signer_envs.insert(key, val);
+                }
+                if log_to_file {
+                    let (key, val) = get_env_val(LOGS_DIR_ENV, LOGS_DIR_DEFAULT);
+                    signer_envs.insert(key, val);
+                }
+
+                // write jwts to env
+                envs.insert(JWTS_ENV.into(), format_comma_separated(&jwts));
+
+                // volumes
+                let mut volumes = vec![
+                    config_volume.clone(),
+                    Volumes::Simple(format!("{}:{}:ro", cert_path.display(), DIRK_CERT_DEFAULT)),
+                    Volumes::Simple(format!("{}:{}:ro", key_path.display(), DIRK_KEY_DEFAULT)),
+                    Volumes::Simple(format!(
+                        "{}:{}",
+                        secrets_path.display(),
+                        DIRK_DIR_SECRETS_DEFAULT
+                    )),
+                ];
+                volumes.extend(chain_spec_volume.clone());
+                volumes.extend(get_log_volume(&cb_config.logs, SIGNER_MODULE_NAME));
+
+                if let Some(ca_cert_path) = ca_cert_path {
+                    volumes.push(Volumes::Simple(format!(
+                        "{}:{}:ro",
+                        ca_cert_path.display(),
+                        DIRK_CA_CERT_DEFAULT
+                    )));
+                    let (key, val) = get_env_val(DIRK_CA_CERT_ENV, DIRK_CA_CERT_DEFAULT);
+                    signer_envs.insert(key, val);
+                }
+
+                match store {
+                    Some(ProxyStore::File { proxy_dir }) => {
+                        volumes.push(Volumes::Simple(format!(
+                            "{}:{}",
                             proxy_dir.display(),
                             PROXY_DIR_DEFAULT
                         )));
-                        let (k, v) = get_env_val(PROXY_DIR_ENV, PROXY_DIR_DEFAULT);
-                        signer_envs.insert(k, v);
+                        let (key, val) = get_env_val(PROXY_DIR_ENV, PROXY_DIR_DEFAULT);
+                        signer_envs.insert(key, val);
                     }
-                    ProxyStore::ERC2335 { keys_path, secrets_path } => {
-                        volumes.push(Volumes::Simple(format!(
-                            "{}:{}:rw",
-                            keys_path.display(),
-                            PROXY_DIR_KEYS_DEFAULT
-                        )));
-                        let (k, v) = get_env_val(PROXY_DIR_KEYS_ENV, PROXY_DIR_KEYS_DEFAULT);
-                        signer_envs.insert(k, v);
-
-                        volumes.push(Volumes::Simple(format!(
-                            "{}:{}:rw",
-                            secrets_path.display(),
-                            PROXY_DIR_SECRETS_DEFAULT
-                        )));
-                        let (k, v) = get_env_val(PROXY_DIR_SECRETS_ENV, PROXY_DIR_SECRETS_DEFAULT);
-                        signer_envs.insert(k, v);
+                    Some(ProxyStore::ERC2335 { .. }) => {
+                        panic!("ERC2335 store not supported with Dirk signer");
                     }
+                    None => {}
                 }
+
+                // networks
+                let mut signer_networks = vec![SIGNER_NETWORK.to_owned()];
+                if metrics_enabled {
+                    signer_networks.push(METRICS_NETWORK.to_owned());
+                }
+
+                let signer_service = Service {
+                    container_name: Some("cb_signer".to_owned()),
+                    image: Some(signer_config.docker_image),
+                    networks: Networks::Simple(signer_networks),
+                    volumes,
+                    environment: Environment::KvPair(signer_envs),
+                    healthcheck: Some(Healthcheck {
+                        test: Some(HealthcheckTest::Single(format!(
+                            "curl -f http://localhost:{signer_port}/status"
+                        ))),
+                        interval: Some("30s".into()),
+                        timeout: Some("5s".into()),
+                        retries: 3,
+                        start_period: Some("5s".into()),
+                        disable: false,
+                    }),
+                    ..Service::default()
+                };
+
+                services.insert("cb_signer".to_owned(), Some(signer_service));
             }
-
-            volumes.extend(get_log_volume(&cb_config.logs, SIGNER_MODULE_NAME));
-
-            // networks
-            let mut signer_networks = vec![SIGNER_NETWORK.to_owned()];
-            if metrics_enabled {
-                signer_networks.push(METRICS_NETWORK.to_owned());
+            SignerType::Remote { .. } => {
+                panic!("Signer module required but remote config provided");
             }
-
-            let signer_service = Service {
-                container_name: Some("cb_signer".to_owned()),
-                image: Some(docker_image),
-                networks: Networks::Simple(signer_networks),
-                volumes,
-                environment: Environment::KvPair(signer_envs),
-                healthcheck: Some(Healthcheck {
-                    test: Some(HealthcheckTest::Single(format!(
-                        "curl -f http://localhost:{signer_port}/status"
-                    ))),
-                    interval: Some("30s".into()),
-                    timeout: Some("5s".into()),
-                    retries: 3,
-                    start_period: Some("5s".into()),
-                    disable: false,
-                }),
-                ..Service::default()
-            };
-
-            services.insert("cb_signer".to_owned(), Some(signer_service));
         }
-    } else if cb_config.signer.is_none() && needs_signer_module {
-        panic!("Signer module required but no signer config provided");
     }
 
     // setup metrics services

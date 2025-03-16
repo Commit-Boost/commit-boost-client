@@ -22,8 +22,12 @@ jobs:
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
+        with:
+          submodules: true
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
+      - name: Install protoc
+        run: sudo apt-get install protobuf-compiler
       - run: cargo clippy --all -- -D warnings
   tests:
     name: Test
@@ -31,6 +35,10 @@ jobs:
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
+        with:
+          submodules: true
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
+      - name: Install protoc
+        run: sudo apt-get install protobuf-compiler
       - run: cargo test --all-features

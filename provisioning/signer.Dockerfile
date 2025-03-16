@@ -10,6 +10,8 @@ COPY --from=planner /app/recipe.json recipe.json
 
 RUN cargo chef cook --release --recipe-path recipe.json
 
+RUN apt-get update && apt-get install -y protobuf-compiler
+
 COPY . .
 RUN cargo build --release --bin commit-boost-signer
 

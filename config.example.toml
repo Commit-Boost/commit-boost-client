@@ -136,20 +136,52 @@ id = "mux-relay-1"
 url = "http://0xa119589bb33ef52acbb8116832bec2b58fca590fe5c85eac5d3230b44d5bc09fe73ccd21f88eab31d6de16194d17782e@def.xyz"
 
 # Configuration for the Signer Module, only required if any `commit` module is present, or if `pbs.with_signer = true`
-# Currently two types of Signer modules are supported (only one can be used at a time):
+# Currently three types of Signer modules are supported (only one can be used at a time):
 #   - Remote: a remote Web3Signer instance
+#   - Dirk: a remote Dirk instance
 #   - Local: a local Signer module
-# More details on the docs (https://commit-boost.github.io/commit-boost-client/get_started/configuration/#local-signer)
-# OPTIONAL
-# Remote:
+# More details on the docs (https://commit-boost.github.io/commit-boost-client/get_started/configuration/#signer-module)
+# Docker image to use for the Signer module.
+# OPTIONAL, DEFAULT: ghcr.io/commit-boost/signer:latest
+# [signer]
+# docker_image = "ghcr.io/commit-boost/signer:latest"
+# For Remote signer:
 # [signer.remote]
 # URL of the Web3Signer instance
 # url = "https://remote.signer.url"
-# Local:
-[signer.local]
-# Docker image to use for the Signer module.
-# OPTIONAL, DEFAULT: ghcr.io/commit-boost/signer:latest
-docker_image = "ghcr.io/commit-boost/signer:latest"
+# For Dirk signer:
+# [signer.dirk]
+# Path to the client certificate to authenticate with Dirk
+# cert_path = "/path/to/client.crt"
+# Path to the client key
+# key_path = "/path/to/client.key"
+# Path to the secrets directory where the accounts passwords are stored
+# secrets_path = "/path/to/secrets"
+# Path to the CA certificate that signed the Dirk server certificate
+# OPTIONAL
+# ca_cert_path = "/path/to/ca.crt"
+
+# Add one entry like this for each Dirk host
+# [[signer.dirk.hosts]]
+# Domain name of the server to use in TLS verification, if different from the URL
+# OPTIONAL
+# server_name = "localhost-1"
+# Complete URL of a Dirk gateway
+# url = "https://localhost:8881"
+# Accounts to use as consensus keys
+# accounts = ["Wallet1/Account1", "DistributedWallet/Account1"]
+
+# [[signer.dirk.hosts]]
+# server_name = "localhost-2"
+# url = "https://localhost:8882"
+# accounts = ["Wallet2/Account2", "DistributedWallet/Account1"]
+
+# Configuration for how the Signer module should store proxy delegations.
+# OPTIONAL
+# [signer.dirk.store]
+# proxy_dir = "/path/to/proxies"
+
+# For Local signer:
 # Configuration for how the Signer module should load validator keys. Currently two types of loaders are supported:
 #   - File: load keys from a plain text file (unsafe, use only for testing purposes)
 #   - ValidatorsDir: load keys from a `keys` and `secrets` file/folder (ERC-2335 style keystores). More details can be found in the docs (https://commit-boost.github.io/commit-boost-client/get_started/configuration/)

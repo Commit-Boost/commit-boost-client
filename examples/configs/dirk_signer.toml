@@ -1,0 +1,31 @@
+chain = "Holesky"
+
+[pbs]
+port = 18550
+
+[[relays]]
+url = "http://0xa119589bb33ef52acbb8116832bec2b58fca590fe5c85eac5d3230b44d5bc09fe73ccd21f88eab31d6de16194d17782e@def.xyz"
+
+[signer]
+docker_image = "commitboost_signer"
+
+[signer.dirk]
+cert_path = "/path/to/client.crt"
+key_path = "/path/to/client.key"
+secrets_path = "./dirk_secrets"
+ca_cert_path = "/path/to/ca.crt"
+
+# Example of a single Dirk host
+[[signer.dirk.hosts]]
+url = "https://gateway.dirk.url"
+accounts = ["wallet1/accountX", "wallet2/accountY"]
+
+[signer.dirk.store]
+proxy_dir = "/path/to/proxies"
+
+[[modules]]
+id = "DA_COMMIT"
+type = "commit"
+docker_image = "test_da_commit"
+sleep_secs = 10
+use_ecdsa_keys = false

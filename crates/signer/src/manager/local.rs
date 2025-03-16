@@ -12,12 +12,12 @@ use cb_common::{
     },
     types::{Chain, ModuleId},
 };
-use eyre::OptionExt;
 use tree_hash::TreeHash;
 
 use crate::error::SignerModuleError;
 
-pub struct SigningManager {
+#[derive(Clone)]
+pub struct LocalSigningManager {
     chain: Chain,
     proxy_store: Option<ProxyStore>,
     consensus_signers: HashMap<BlsPublicKey, ConsensusSigner>,
@@ -29,7 +29,7 @@ pub struct SigningManager {
     proxy_pubkeys_ecdsa: HashMap<ModuleId, Vec<EcdsaPublicKey>>,
 }
 
-impl SigningManager {
+impl LocalSigningManager {
     pub fn new(chain: Chain, proxy_store: Option<ProxyStore>) -> eyre::Result<Self> {
         let mut manager = Self {
             chain,
@@ -227,7 +227,7 @@ impl SigningManager {
     pub fn get_consensus_proxy_maps(
         &self,
         module_id: &ModuleId,
-    ) -> eyre::Result<Vec<ConsensusProxyMap>> {
+    ) -> Result<Vec<ConsensusProxyMap>, SignerModuleError> {
         let consensus = self.consensus_pubkeys();
         let proxy_bls = self.proxy_pubkeys_bls.get(module_id).cloned().unwrap_or_default();
         let proxy_ecdsa = self.proxy_pubkeys_ecdsa.get(module_id).cloned().unwrap_or_default();
@@ -239,7 +239,7 @@ impl SigningManager {
             let entry = keys
                 .iter_mut()
                 .find(|x| x.consensus == delegator)
-                .ok_or_eyre("missing consensus")?;
+                .ok_or(SignerModuleError::UnknownConsensusSigner(delegator.0.to_vec()))?;
 
             entry.proxy_bls.push(bls);
         }
@@ -249,7 +249,7 @@ impl SigningManager {
             let entry = keys
                 .iter_mut()
                 .find(|x| x.consensus == delegator)
-                .ok_or_eyre("missing consensus")?;
+                .ok_or(SignerModuleError::UnknownConsensusSigner(delegator.0.to_vec()))?;
 
             entry.proxy_ecdsa.push(ecdsa);
         }
@@ -257,8 +257,8 @@ impl SigningManager {
         Ok(keys)
     }
 
-    pub fn proxies(&self) -> &ProxySigners {
-        &self.proxy_signers
+    pub fn available_proxy_signers(&self) -> usize {
+        self.proxy_signers.bls_signers.len() + self.proxy_signers.ecdsa_signers.len()
     }
 }
 
@@ -276,8 +276,8 @@ mod tests {
         static ref MODULE_ID: ModuleId = ModuleId("SAMPLE_MODULE".to_string());
     }
 
-    fn init_signing_manager() -> (SigningManager, BlsPublicKey) {
-        let mut signing_manager = SigningManager::new(CHAIN, None).unwrap();
+    fn init_signing_manager() -> (LocalSigningManager, BlsPublicKey) {
+        let mut signing_manager = LocalSigningManager::new(CHAIN, None).unwrap();
 
         let consensus_signer = ConsensusSigner::new_random();
         let consensus_pk = consensus_signer.pubkey();

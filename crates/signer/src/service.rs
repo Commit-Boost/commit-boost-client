@@ -34,7 +34,7 @@ use uuid::Uuid;
 
 use crate::{
     error::SignerModuleError,
-    manager::SigningManager,
+    manager::{dirk::DirkManager, local::LocalSigningManager, SigningManager},
     metrics::{uri_to_tag, SIGNER_METRICS_REGISTRY, SIGNER_STATUS},
 };
 
@@ -57,18 +57,18 @@ impl SigningService {
             return Ok(());
         }
 
-        let manager = start_manager(&config)
-            .map_err(|err| eyre::eyre!("failed to start signing manager {err}"))?;
-
         let module_ids: Vec<String> = config.jwts.left_values().cloned().map(Into::into).collect();
 
-        let loaded_consensus = manager.consensus_pubkeys().len();
-        let proxies = manager.proxies();
-        let loaded_proxies = proxies.bls_signers.len() + proxies.ecdsa_signers.len();
+        let state = SigningState {
+            manager: Arc::new(RwLock::new(start_manager(config.clone()).await?)),
+            jwts: config.jwts.into(),
+        };
+
+        let loaded_consensus = state.manager.read().await.available_consensus_signers();
+        let loaded_proxies = state.manager.read().await.available_proxy_signers();
 
         info!(version = COMMIT_BOOST_VERSION, commit = COMMIT_BOOST_COMMIT, modules =? module_ids, port =? config.server_port, loaded_consensus, loaded_proxies, "Starting signing service");
 
-        let state = SigningState { manager: RwLock::new(manager).into(), jwts: config.jwts.into() };
         SigningService::init_metrics(config.chain)?;
 
         let app = axum::Router::new()
@@ -135,12 +135,14 @@ async fn handle_get_pubkeys(
 
     debug!(event = "get_pubkeys", ?req_id, "New request");
 
-    let signing_manager = state.manager.read().await;
-    let map = signing_manager
+    let keys = state
+        .manager
+        .read()
+        .await
         .get_consensus_proxy_maps(&module_id)
         .map_err(|err| SignerModuleError::Internal(err.to_string()))?;
 
-    let res = GetPubkeysResponse { keys: map };
+    let res = GetPubkeysResponse { keys };
 
     Ok((StatusCode::OK, Json(res)).into_response())
 }
@@ -153,38 +155,56 @@ async fn handle_request_signature(
 ) -> Result<impl IntoResponse, SignerModuleError> {
     let req_id = Uuid::new_v4();
 
-    debug!(event = "request_signature", ?module_id, ?req_id, "New request");
+    debug!(event = "request_signature", ?module_id, %request, ?req_id, "New request");
 
-    let signing_manager = state.manager.read().await;
-
-    let signature_response = match request {
-        SignRequest::Consensus(SignConsensusRequest { pubkey, object_root }) => signing_manager
-            .sign_consensus(&pubkey, &object_root)
-            .await
-            .map(|sig| Json(sig).into_response()),
-        SignRequest::ProxyBls(SignProxyRequest { pubkey: bls_pk, object_root }) => {
-            if !signing_manager.has_proxy_bls_for_module(&bls_pk, &module_id) {
-                return Err(SignerModuleError::UnknownProxySigner(bls_pk.to_vec()));
-            }
-
-            signing_manager
-                .sign_proxy_bls(&bls_pk, &object_root)
+    let manager = state.manager.read().await;
+    let res = match &*manager {
+        SigningManager::Local(local_manager) => match request {
+            SignRequest::Consensus(SignConsensusRequest { object_root, pubkey }) => local_manager
+                .sign_consensus(&pubkey, &object_root)
                 .await
-                .map(|sig| Json(sig).into_response())
-        }
-        SignRequest::ProxyEcdsa(SignProxyRequest { pubkey: ecdsa_pk, object_root }) => {
-            if !signing_manager.has_proxy_ecdsa_for_module(&ecdsa_pk, &module_id) {
-                return Err(SignerModuleError::UnknownProxySigner(ecdsa_pk.to_vec()));
+                .map(|sig| Json(sig).into_response()),
+            SignRequest::ProxyBls(SignProxyRequest { object_root, pubkey: bls_key }) => {
+                local_manager
+                    .sign_proxy_bls(&bls_key, &object_root)
+                    .await
+                    .map(|sig| Json(sig).into_response())
             }
-
-            signing_manager
-                .sign_proxy_ecdsa(&ecdsa_pk, &object_root)
+            SignRequest::ProxyEcdsa(SignProxyRequest { object_root, pubkey: ecdsa_key }) => {
+                local_manager
+                    .sign_proxy_ecdsa(&ecdsa_key, &object_root)
+                    .await
+                    .map(|sig| Json(sig).into_response())
+            }
+        },
+        SigningManager::Dirk(dirk_manager) => match request {
+            SignRequest::Consensus(SignConsensusRequest { object_root, pubkey }) => dirk_manager
+                .request_consensus_signature(&pubkey, object_root)
                 .await
-                .map(|sig| Json(sig).into_response())
-        }
-    }?;
+                .map(|sig| Json(sig).into_response()),
+            SignRequest::ProxyBls(SignProxyRequest { object_root, pubkey: bls_key }) => {
+                dirk_manager
+                    .request_proxy_signature(&bls_key, object_root)
+                    .await
+                    .map(|sig| Json(sig).into_response())
+            }
+            SignRequest::ProxyEcdsa(_) => {
+                error!(
+                    event = "request_signature",
+                    ?module_id,
+                    ?req_id,
+                    "ECDSA proxy sign request not supported with Dirk"
+                );
+                Err(SignerModuleError::DirkNotSupported)
+            }
+        },
+    };
 
-    Ok(signature_response)
+    if let Err(err) = &res {
+        error!(event = "request_signature", ?module_id, ?req_id, "{err}");
+    }
+
+    res
 }
 
 async fn handle_generate_proxy(
@@ -194,28 +214,41 @@ async fn handle_generate_proxy(
 ) -> Result<impl IntoResponse, SignerModuleError> {
     let req_id = Uuid::new_v4();
 
-    debug!(event = "generate_proxy", module_id=?module_id, ?req_id, "New request");
+    debug!(event = "generate_proxy", ?module_id, scheme=?request.scheme, pubkey=%request.consensus_pubkey, ?req_id, "New request");
 
-    let mut signing_manager = state.manager.write().await;
-
-    let response = match request.scheme {
-        EncryptionScheme::Bls => {
-            let proxy_delegation =
-                signing_manager.create_proxy_bls(module_id, request.consensus_pubkey).await?;
-            Json(proxy_delegation).into_response()
-        }
-        EncryptionScheme::Ecdsa => {
-            let proxy_delegation =
-                signing_manager.create_proxy_ecdsa(module_id, request.consensus_pubkey).await?;
-            Json(proxy_delegation).into_response()
-        }
+    let mut manager = state.manager.write().await;
+    let res = match &mut *manager {
+        SigningManager::Local(local_manager) => match request.scheme {
+            EncryptionScheme::Bls => local_manager
+                .create_proxy_bls(module_id.clone(), request.consensus_pubkey)
+                .await
+                .map(|proxy_delegation| Json(proxy_delegation).into_response()),
+            EncryptionScheme::Ecdsa => local_manager
+                .create_proxy_ecdsa(module_id.clone(), request.consensus_pubkey)
+                .await
+                .map(|proxy_delegation| Json(proxy_delegation).into_response()),
+        },
+        SigningManager::Dirk(dirk_manager) => match request.scheme {
+            EncryptionScheme::Bls => dirk_manager
+                .generate_proxy_key(&module_id, request.consensus_pubkey)
+                .await
+                .map(|proxy_delegation| Json(proxy_delegation).into_response()),
+            EncryptionScheme::Ecdsa => {
+                error!("ECDSA proxy generation not supported with Dirk");
+                Err(SignerModuleError::DirkNotSupported)
+            }
+        },
     };
 
-    Ok(response)
+    if let Err(err) = &res {
+        error!(event = "generate_proxy", module_id=?module_id, ?req_id, "{err}");
+    }
+
+    res
 }
 
 async fn handle_reload(
-    State(state): State<SigningState>,
+    State(mut state): State<SigningState>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
     let req_id = Uuid::new_v4();
 
@@ -229,7 +262,7 @@ async fn handle_reload(
         }
     };
 
-    let new_manager = match start_manager(&config) {
+    let new_manager = match start_manager(config).await {
         Ok(manager) => manager,
         Err(err) => {
             error!(event = "reload", ?req_id, error = ?err, "Failed to reload manager");
@@ -237,12 +270,12 @@ async fn handle_reload(
         }
     };
 
-    *state.manager.write().await = new_manager;
+    state.manager = Arc::new(RwLock::new(new_manager));
 
     Ok((StatusCode::OK, "OK"))
 }
 
-fn start_manager(config: &StartSignerConfig) -> eyre::Result<SigningManager> {
+async fn start_manager(config: StartSignerConfig) -> eyre::Result<SigningManager> {
     let proxy_store = if let Some(store) = config.store.clone() {
         Some(store.init_from_env()?)
     } else {
@@ -250,11 +283,25 @@ fn start_manager(config: &StartSignerConfig) -> eyre::Result<SigningManager> {
         None
     };
 
-    let mut manager = SigningManager::new(config.chain, proxy_store)?;
+    match config.dirk {
+        Some(dirk) => {
+            let mut manager = DirkManager::new(config.chain, dirk).await?;
+            if let Some(store) = config.store {
+                manager = manager.with_proxy_store(store.init_from_env()?)?;
+            }
 
-    for signer in config.loader.clone().load_keys()? {
-        manager.add_consensus_signer(signer);
+            Ok(SigningManager::Dirk(manager))
+        }
+        None => {
+            let mut manager = LocalSigningManager::new(config.chain, proxy_store)?;
+            let Some(loader) = config.loader.clone() else {
+                warn!("No loader configured.");
+                return Err(eyre::eyre!("No loader configured"));
+            };
+            for signer in loader.load_keys()? {
+                manager.add_consensus_signer(signer);
+            }
+            Ok(SigningManager::Local(manager))
+        }
     }
-
-    Ok(manager)
 }

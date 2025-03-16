@@ -33,6 +33,12 @@ Modules need some environment variables to work correctly.
   - `CB_SIGNER_LOADER_FORMAT`, `CB_SIGNER_LOADER_KEYS_DIR` and `CB_SIGNER_LOADER_SECRETS_DIR`: paths to the `keys` and `secrets` directories or files (ERC-2335 style keystores, see [Signer config](../configuration/#signer-module) for more info).
 - For storing proxy keys we currently support:
   - `CB_PROXY_STORE_DIR`: directory where proxy keys and delegations will be saved in plaintext (for testing purposes only).
+  - `CB_PROXY_KEYS_DIR` and `CB_PROXY_SECRETS_DIR`: paths to the `keys` and `secrets` directories or files (ERC-2335 style keystores, see [Proxy keys store](../configuration/#proxy-keys-store) for more info).
+- For Dirk remote signer the following envs are available (see [Dirk config](../configuration/#dirk) for more info):
+  - `CB_SIGNER_DIRK_CERT_FILE`: required, path to the client certificate file.
+  - `CB_SIGNER_DIRK_KEY_FILE`: required, path to the client key file.
+  - `CB_SIGNER_DIRK_SECRETS_DIR`: required, path to the secrets directory.
+  - `CB_SIGNER_DIRK_CA_CERT_FILE`: optional, path to the CA certificate file.
 
 ### Modules
 - `CB_MODULE_ID`: required, unique id of the module.
