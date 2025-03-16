@@ -1,26 +1,23 @@
-use std::{net::Ipv4Addr, path::PathBuf};
+use std::net::Ipv4Addr;
 
 use eyre::Result;
 use serde::{Deserialize, Serialize};
 
 use super::{constants::METRICS_PORT_ENV, load_optional_env_var};
-use crate::utils::{default_bool, default_host};
+use crate::utils::{default_bool, default_host, default_u16};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MetricsConfig {
-    /// Host for prometheus, grafana, and cadvisor
+    /// Whether to collect metrics
+    #[serde(default = "default_bool::<true>")]
+    pub use_metrics: bool,
+    /// Host for metrics servers
     #[serde(default = "default_host")]
     pub host: Ipv4Addr,
-    /// Path to prometheus config file
-    pub prometheus_config: String,
-    /// Whether to start the grafana service
-    #[serde(default = "default_bool::<true>")]
-    pub use_grafana: bool,
-    /// Path to grafana config folder
-    pub grafana_path: Option<PathBuf>,
-    /// Whether to start the cadvisor service
-    #[serde(default = "default_bool::<true>")]
-    pub use_cadvisor: bool,
+    /// Port to listen on for metrics, following ports will be port+1, port+2,
+    /// etc.
+    #[serde(default = "default_u16::<10000>")]
+    pub start_port: u16,
 }
 
 /// Module runtime config set after init

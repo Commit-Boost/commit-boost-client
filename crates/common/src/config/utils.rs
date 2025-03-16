@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use bimap::BiHashMap;
 use eyre::{bail, Context, Ok, Result};
 use serde::de::DeserializeOwned;
@@ -12,9 +14,9 @@ pub fn load_optional_env_var(env: &str) -> Option<String> {
     std::env::var(env).ok()
 }
 
-pub fn load_from_file<T: DeserializeOwned>(path: &str) -> Result<T> {
-    let config_file =
-        std::fs::read_to_string(path).wrap_err(format!("Unable to find config file: {path}"))?;
+pub fn load_from_file<P: AsRef<Path> + std::fmt::Debug, T: DeserializeOwned>(path: P) -> Result<T> {
+    let config_file = std::fs::read_to_string(path.as_ref())
+        .wrap_err(format!("Unable to find config file: {path:?}"))?;
     toml::from_str(&config_file).wrap_err("could not deserialize toml from string")
 }
 

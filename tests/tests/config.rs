@@ -1,4 +1,4 @@
-use std::net::Ipv4Addr;
+use std::{net::Ipv4Addr, path::PathBuf};
 
 use alloy::primitives::U256;
 use cb_common::{config::CommitBoostConfig, types::Chain, utils::WEI_PER_ETH};
@@ -7,7 +7,8 @@ use url::Url;
 
 #[tokio::test]
 async fn test_load_example_config() -> Result<()> {
-    let config = CommitBoostConfig::from_file("../config.example.toml")?;
+    let path = PathBuf::from("../config.example.toml");
+    let config = CommitBoostConfig::from_file(&path)?;
     config.validate().await?;
     assert_eq!(config.chain, Chain::Holesky);
     assert!(config.relays[0].headers.is_some());
@@ -15,10 +16,17 @@ async fn test_load_example_config() -> Result<()> {
     Ok(())
 }
 
+async fn load_happy_config() -> Result<CommitBoostConfig> {
+    let path = PathBuf::from("./data/configs/pbs.happy.toml");
+    let config = CommitBoostConfig::from_file(&path)?;
+    config.validate().await?;
+
+    Ok(config)
+}
+
 #[tokio::test]
 async fn test_load_pbs_happy() -> Result<()> {
-    let config = CommitBoostConfig::from_file("./data/configs/pbs.happy.toml")?;
-    config.validate().await?;
+    let config = load_happy_config().await?;
 
     // Chain and existing header check
     assert_eq!(config.chain, Chain::Holesky);
@@ -65,7 +73,7 @@ async fn test_load_pbs_happy() -> Result<()> {
 
 #[tokio::test]
 async fn test_validate_bad_timeout_get_header_ms() -> Result<()> {
-    let mut config = CommitBoostConfig::from_file("./data/configs/pbs.happy.toml")?;
+    let mut config = load_happy_config().await?;
 
     // Set invalid timeout
     config.pbs.pbs_config.timeout_get_header_ms = 0;
@@ -82,7 +90,7 @@ async fn test_validate_bad_timeout_get_header_ms() -> Result<()> {
 
 #[tokio::test]
 async fn test_validate_bad_timeout_get_payload_ms() -> Result<()> {
-    let mut config = CommitBoostConfig::from_file("./data/configs/pbs.happy.toml")?;
+    let mut config = load_happy_config().await?;
     config.pbs.pbs_config.timeout_get_payload_ms = 0;
 
     let result = config.validate().await;
@@ -96,7 +104,7 @@ async fn test_validate_bad_timeout_get_payload_ms() -> Result<()> {
 
 #[tokio::test]
 async fn test_validate_bad_timeout_register_validator_ms() -> Result<()> {
-    let mut config = CommitBoostConfig::from_file("./data/configs/pbs.happy.toml")?;
+    let mut config = load_happy_config().await?;
     config.pbs.pbs_config.timeout_register_validator_ms = 0;
 
     let result = config.validate().await;
@@ -110,7 +118,7 @@ async fn test_validate_bad_timeout_register_validator_ms() -> Result<()> {
 
 #[tokio::test]
 async fn test_validate_bad_late_in_slot_time_ms() -> Result<()> {
-    let mut config = CommitBoostConfig::from_file("./data/configs/pbs.happy.toml")?;
+    let mut config = load_happy_config().await?;
     config.pbs.pbs_config.late_in_slot_time_ms = 0;
 
     let result = config.validate().await;
@@ -124,7 +132,7 @@ async fn test_validate_bad_late_in_slot_time_ms() -> Result<()> {
 
 #[tokio::test]
 async fn test_validate_bad_timeout_header_vs_late() -> Result<()> {
-    let mut config = CommitBoostConfig::from_file("./data/configs/pbs.happy.toml")?;
+    let mut config = load_happy_config().await?;
     config.pbs.pbs_config.timeout_get_header_ms = 3000;
     config.pbs.pbs_config.late_in_slot_time_ms = 2000;
 
@@ -139,7 +147,7 @@ async fn test_validate_bad_timeout_header_vs_late() -> Result<()> {
 
 #[tokio::test]
 async fn test_validate_bad_min_bid() -> Result<()> {
-    let mut config = CommitBoostConfig::from_file("./data/configs/pbs.happy.toml")?;
+    let mut config = load_happy_config().await?;
     config.pbs.pbs_config.min_bid_wei = U256::from(2 * WEI_PER_ETH);
 
     let result = config.validate().await;
@@ -150,7 +158,7 @@ async fn test_validate_bad_min_bid() -> Result<()> {
 
 #[tokio::test]
 async fn test_validate_missing_rpc_url() -> Result<()> {
-    let mut config = CommitBoostConfig::from_file("./data/configs/pbs.happy.toml")?;
+    let mut config = load_happy_config().await?;
     config.pbs.pbs_config.extra_validation_enabled = true;
     config.pbs.pbs_config.rpc_url = None;
 
