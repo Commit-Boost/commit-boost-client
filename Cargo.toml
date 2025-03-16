@@ -29,7 +29,7 @@ cb-pbs = { path = "crates/pbs" }
 cb-signer = { path = "crates/signer" }
 
 # ethereum
-alloy = { version = "0.8.0", features = [
+alloy = { version = "0.12", features = [
     "full",
     "rpc-types-beacon",
     "serde",
@@ -53,7 +53,7 @@ prost = "0.13.4"
 tokio = { version = "1.37.0", features = ["full"] }
 futures = "0.3.30"
 async-trait = "0.1.80"
-dashmap = "5.5.3"
+dashmap = "6.1.0"
 parking_lot = "0.12.3"
 
 # serialization
@@ -90,18 +90,18 @@ docker-compose-types = "0.12.0"
 
 # misc
 clap = { version = "4.5.4", features = ["derive", "env"] }
-thiserror = "1.0.61"
+thiserror = "2.0.12"
 color-eyre = "0.6.3"
 eyre = "0.6.12"
 url = { version = "2.5.0", features = ["serde"] }
 uuid = { version = "1.8.0", features = ["v4", "fast-rng", "serde"] }
 typenum = "1.17.0"
-rand = "0.8.5"
+rand = { version = "0.9", features = ["os_rng"] }
 dotenvy = "0.15.7"
 indexmap = "2.2.6"
 lazy_static = "1.5.0"
 bimap = { version = "0.6.3", features = ["serde"] }
-derive_more = { version = "1.0.0", features = [
+derive_more = { version = "2.0.1", features = [
     "from",
     "into",
     "deref",

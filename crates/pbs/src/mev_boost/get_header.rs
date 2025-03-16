@@ -6,7 +6,7 @@ use std::{
 use alloy::{
     primitives::{utils::format_ether, B256, U256},
     providers::Provider,
-    rpc::types::{beacon::BlsPublicKey, Block, BlockTransactionsKind},
+    rpc::types::{beacon::BlsPublicKey, Block},
 };
 use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
@@ -136,7 +136,7 @@ async fn fetch_parent_block(
 
     debug!(%parent_hash, "fetching parent block");
 
-    match provider.get_block_by_hash(parent_hash, BlockTransactionsKind::Hashes).await {
+    match provider.get_block_by_hash(parent_hash).await {
         Ok(maybe_block) => {
             debug!(block_found = maybe_block.is_some(), "fetched parent block");
             let mut guard = parent_block.write();

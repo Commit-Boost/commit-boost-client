@@ -735,7 +735,7 @@ fn aggregate_partial_signatures(partials: &[(BlsSignature, u32)]) -> eyre::Resul
 
 /// Generate a random password of 64 hex-characters
 fn random_password() -> String {
-    let password_bytes: [u8; 32] = rand::thread_rng().gen();
+    let password_bytes: [u8; 32] = rand::rng().random();
     hex::encode(password_bytes)
 }
 

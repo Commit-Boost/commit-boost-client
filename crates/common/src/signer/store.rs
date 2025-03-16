@@ -427,7 +427,7 @@ fn store_erc2335_key<T: PublicKey>(
 ) -> eyre::Result<()> {
     let proxy_pubkey = delegation.message.proxy;
 
-    let password_bytes: [u8; 32] = rand::thread_rng().gen();
+    let password_bytes: [u8; 32] = rand::rng().random();
     let password = hex::encode(password_bytes);
 
     let pass_path = secrets_path
@@ -449,8 +449,8 @@ fn store_erc2335_key<T: PublicKey>(
     let mut sig_file = std::fs::File::create(sig_path)?;
     sig_file.write_all(delegation.signature.to_string().as_bytes())?;
 
-    let salt: [u8; SALT_SIZE] = rand::thread_rng().gen();
-    let iv: [u8; IV_SIZE] = rand::thread_rng().gen();
+    let salt: [u8; SALT_SIZE] = rand::rng().random();
+    let iv: [u8; IV_SIZE] = rand::rng().random();
     let kdf = default_kdf(salt.to_vec());
     let cipher = Cipher::Aes128Ctr(Aes128Ctr { iv: iv.to_vec().into() });
     let (cipher_text, checksum) =

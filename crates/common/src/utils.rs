@@ -9,7 +9,7 @@ use alloy::{
 };
 use axum::http::HeaderValue;
 use blst::min_pk::{PublicKey, Signature};
-use rand::{distributions::Alphanumeric, Rng};
+use rand::{distr::Alphanumeric, Rng};
 use reqwest::header::HeaderMap;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
@@ -270,7 +270,7 @@ pub fn blst_pubkey_to_alloy(pubkey: &PublicKey) -> BlsPublicKey {
 
 /// Generates a random string
 pub fn random_jwt() -> String {
-    rand::thread_rng().sample_iter(&Alphanumeric).take(32).map(char::from).collect()
+    rand::rng().sample_iter(&Alphanumeric).take(32).map(char::from).collect()
 }
 
 /// Returns the user agent from the request headers or an empty string if not

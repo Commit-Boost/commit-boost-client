@@ -1,6 +1,7 @@
 use core::fmt;
 use std::hash::Hash;
 
+use alloy::primitives::B256;
 use derive_more::derive::{Deref, From, Into};
 use k256::{
     ecdsa::{Signature as EcdsaSignatureInner, VerifyingKey as EcdsaPublicKeyInner},
@@ -148,7 +149,8 @@ pub enum EcdsaSigner {
 
 impl EcdsaSigner {
     pub fn new_random() -> Self {
-        Self::Local(EcdsaSecretKey::random(&mut rand::thread_rng()))
+        let secret = B256::random();
+        Self::new_from_bytes(secret.as_slice()).unwrap()
     }
 
     pub fn new_from_bytes(bytes: &[u8]) -> eyre::Result<Self> {
@@ -194,4 +196,23 @@ pub fn verify_ecdsa_signature(
     let ecdsa_sig =
         EcdsaSignatureInner::from_bytes(GenericArray::<u8, U64>::from_slice(signature.as_ref()))?;
     ecdsa_pubkey.verify(msg, &ecdsa_sig)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_ecdsa_signer() {
+        let signer = EcdsaSigner::new_random();
+        let pubkey = signer.pubkey();
+        let object_root = B256::random().0;
+        let signature = signer.sign(Chain::Holesky, object_root).await;
+
+        let domain = compute_domain(Chain::Holesky, COMMIT_BOOST_DOMAIN);
+        let msg = compute_signing_root(object_root, domain);
+
+        let verified = verify_ecdsa_signature(&pubkey, &msg, &signature);
+        assert!(verified.is_ok());
+    }
 }
