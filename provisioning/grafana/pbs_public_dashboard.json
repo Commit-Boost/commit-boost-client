@@ -1103,6 +1103,6 @@
   "timezone": "browser",
   "title": "PBS Metrics",
   "uid": "cb_pbs_metrics",
-  "version": 4,
+  "version": 1,
   "weekStart": ""
 }

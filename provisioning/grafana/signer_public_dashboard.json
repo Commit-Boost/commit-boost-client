@@ -575,6 +575,6 @@
   "timezone": "browser",
   "title": "Signer Metrics",
   "uid": "cb_signer_metrics",
-  "version": 2,
+  "version": 1,
   "weekStart": ""
 }

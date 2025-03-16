@@ -55,12 +55,9 @@ cargo build --release --bin commit-boost-cli
 
 and the modules as Docker images:
 ```bash
-bash scripts/build_local_images.sh
+docker build -t commitboost_pbs_default . -f ./provisioning/pbs.Dockerfile
+docker build -t commitboost_signer . -f ./provisioning/signer.Dockerfile
 ```
-
-:::note
-If you require `sudo` access to run Docker, you will need `sudo` to run some of the Commit-Boost commands. This is because under the hood Commit-Boost invokes the Docker API. You can double check this by running `docker info` in a terminal. Consider adding your user to the docker group following [ Docker’s official post-installation steps](https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user)
-:::
 
 This will create two local images called `commitboost_pbs_default` and `commitboost_signer` for the Pbs and Signer module respectively. Make sure to use these images in the `docker_image` field in the `[pbs]` and `[signer]` sections of the `.toml` config file, respectively.
 

@@ -29,14 +29,11 @@ use docker_compose_types::{
 };
 use eyre::Result;
 use indexmap::IndexMap;
-use serde::Serialize;
 
 /// Name of the docker compose file
 pub(super) const CB_COMPOSE_FILE: &str = "cb.docker-compose.yml";
 /// Name of the envs file
 pub(super) const CB_ENV_FILE: &str = ".cb.env";
-/// Name of the Prometheus targets file
-pub(super) const CB_TARGETS_FILE: &str = "targets.json";
 
 const SIGNER_NETWORK: &str = "signer_network";
 
@@ -134,10 +131,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                             "{} has an exported port on {}",
                             module_cid, metrics_port
                         ));
-                        targets.push(PrometheusTargetConfig {
-                            targets: vec![format!("{module_cid}:{metrics_port}")],
-                            labels: PrometheusLabelsConfig { job: module_cid.clone() },
-                        });
+                        targets.push(format!("{host_endpoint}"));
                         let (key, val) = get_env_uval(METRICS_PORT_ENV, metrics_port as u64);
                         module_envs.insert(key, val);
 
@@ -209,10 +203,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                             "{} has an exported port on {}",
                             module_cid, metrics_port
                         ));
-                        targets.push(PrometheusTargetConfig {
-                            targets: vec![format!("{module_cid}:{metrics_port}")],
-                            labels: PrometheusLabelsConfig { job: module_cid.clone() },
-                        });
+                        targets.push(format!("{host_endpoint}"));
                         let (key, val) = get_env_uval(METRICS_PORT_ENV, metrics_port as u64);
                         module_envs.insert(key, val);
 
@@ -272,10 +263,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
         let host_endpoint = SocketAddr::from((metrics_config.host, metrics_port));
         ports.push(format!("{}:{}", host_endpoint, metrics_port));
         warnings.push(format!("cb_pbs has an exported port on {}", metrics_port));
-        targets.push(PrometheusTargetConfig {
-            targets: vec![format!("cb_pbs:{metrics_port}")],
-            labels: PrometheusLabelsConfig { job: "pbs".to_owned() },
-        });
+        targets.push(format!("{host_endpoint}"));
         let (key, val) = get_env_uval(METRICS_PORT_ENV, metrics_port as u64);
         pbs_envs.insert(key, val);
 
@@ -347,10 +335,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                     let host_endpoint = SocketAddr::from((metrics_config.host, metrics_port));
                     ports.push(format!("{}:{}", host_endpoint, metrics_port));
                     warnings.push(format!("cb_signer has an exported port on {}", metrics_port));
-                    targets.push(PrometheusTargetConfig {
-                        targets: vec![format!("cb_signer:{metrics_port}")],
-                        labels: PrometheusLabelsConfig { job: "signer".to_owned() },
-                    });
+                    targets.push(format!("{host_endpoint}"));
                     let (key, val) = get_env_uval(METRICS_PORT_ENV, metrics_port as u64);
                     signer_envs.insert(key, val);
                 }
@@ -475,10 +460,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                     let host_endpoint = SocketAddr::from((metrics_config.host, metrics_port));
                     ports.push(format!("{}:{}", host_endpoint, metrics_port));
                     warnings.push(format!("cb_signer has an exported port on {}", metrics_port));
-                    targets.push(PrometheusTargetConfig {
-                        targets: vec![format!("cb_signer:{metrics_port}")],
-                        labels: PrometheusLabelsConfig { job: "signer".to_owned() },
-                    });
+                    targets.push(format!("{host_endpoint}"));
                     let (key, val) = get_env_uval(METRICS_PORT_ENV, metrics_port as u64);
                     signer_envs.insert(key, val);
                 }
@@ -581,9 +563,11 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
     let compose_path = Path::new(&output_dir).join(CB_COMPOSE_FILE);
     std::fs::write(&compose_path, compose_str)?;
     if !warnings.is_empty() {
+        println!();
         for exposed_port in warnings {
             println!("Warning: {}", exposed_port);
         }
+        println!()
     }
     // if file logging is enabled, warn about permissions
     if let Some(logs_config) = cb_config.logs {
@@ -592,20 +576,20 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
             "Warning: file logging is enabled, you may need to update permissions for the logs directory. e.g. with:\n\t`sudo chown -R 10001:10001 {}`",
             log_dir.display()
         );
+        println!()
     }
 
-    println!("Compose file written to: {:?}", compose_path);
+    println!("Docker Compose file written to: {:?}", compose_path);
 
     // write prometheus targets to file
     if !targets.is_empty() {
-        let targets_str = serde_json::to_string_pretty(&targets)?;
-        let targets_path = Path::new(&output_dir).join(CB_TARGETS_FILE);
-        std::fs::write(&targets_path, targets_str)?;
-        println!("Prometheus targets file written to: {:?}", targets_path);
+        let targets = targets.join(", ");
+        println!("Note: Make sure to add these targets for Prometheus to scrape: {targets}");
+        println!("Check out the docs on how to configure Prometheus/Grafana/cAdvisor: https://commit-boost.github.io/commit-boost-client/get_started/running/metrics");
     }
 
     if envs.is_empty() {
-        println!("Run with:\n\t`commit-boost-cli start --docker {:?}`", compose_path);
+        println!("Run with:\n\tdocker compose -f {:?} up -d", compose_path);
     } else {
         // write envs to .env file
         let envs_str = {
@@ -619,12 +603,13 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
         std::fs::write(&env_path, envs_str)?;
         println!("Env file written to: {:?}", env_path);
 
+        println!();
         println!(
-            "Run with:\n\t`docker compose --env-file {:?} -f {:?} up -d`",
+            "Run with:\n\tdocker compose --env-file {:?} -f {:?} up -d",
             env_path, compose_path
         );
         println!(
-            "Stop with:\n\t`docker compose --env-file {:?} -f {:?} down`",
+            "Stop with:\n\tdocker compose --env-file {:?} -f {:?} down",
             env_path, compose_path
         );
     }
@@ -654,18 +639,6 @@ fn get_env_uval(k: &str, v: u64) -> (String, Option<SingleValue>) {
 // fn get_env_bool(k: &str, v: bool) -> (String, Option<SingleValue>) {
 //     (k.into(), Some(SingleValue::Bool(v)))
 // }
-
-/// A prometheus target, use to dynamically add targets to the prometheus config
-#[derive(Debug, Serialize)]
-struct PrometheusTargetConfig {
-    targets: Vec<String>,
-    labels: PrometheusLabelsConfig,
-}
-
-#[derive(Debug, Serialize)]
-struct PrometheusLabelsConfig {
-    job: String,
-}
 
 fn get_log_volume(maybe_config: &Option<LogsSettings>, module_id: &str) -> Option<Volumes> {
     maybe_config.as_ref().map(|config| {

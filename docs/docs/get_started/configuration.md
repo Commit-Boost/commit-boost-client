@@ -20,7 +20,7 @@ port = 18550
 url = ""
 
 [metrics]
-prometheus_config = "./docker/prometheus.yml"
+use_metrics = true
 ```
 
 You can find a list of MEV-Boost Holesky relays [here](https://www.coincashew.com/coins/overview-eth/mev-boost/mev-relay-list#holesky-testnet-relays).
@@ -282,8 +282,12 @@ A full example of a config file with Dirk can be found [here](https://github.com
 ## Custom module
 We currently provide a test module that needs to be built locally. To build the module run:
 ```bash
-bash scripts/build_local_modules.sh
+just docker-build-test-modules
 ```
+:::note
+We use `just` as command runner. If you don't have it installed, either install it from https://github.com/casey/just or run the commands manually from the `justfile` at the root of the repo.
+:::
+
 This will create a Docker image called `test_da_commit` that periodically requests signatures from the validator, and a `test_builder_log` module that logs BuilderAPI events.
 
 The `cb-config.toml` file needs to be updated as follows:
@@ -301,7 +305,7 @@ keys_path = "/path/to/keys"
 secrets_path = "/path/to.secrets"
 
 [metrics]
-prometheus_config = "./docker/prometheus.yml"
+use_metrics = true
 
 [[modules]]
 id = "DA_COMMIT"
