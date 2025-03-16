@@ -2138,9 +2138,9 @@ dependencies = [
 
 [[package]]
 name = "docker-compose-types"
-version = "0.12.0"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9213a368b9c0767c81ef9ced0f712cfd99d27d7de2a22a60e7ac9b1342c8a395"
+checksum = "7f5e899a3da7a90647ef302f7e3050b00ed7f3f02c7b32683a04f3fbd9052541"
 dependencies = [
  "derive_builder",
  "indexmap 2.7.0",
