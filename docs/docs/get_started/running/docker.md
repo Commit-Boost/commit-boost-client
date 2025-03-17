@@ -3,7 +3,7 @@ description: Run Commit-Boost with Docker
 ---
 
 # Docker
-The Commit-Boost CLI will generate a dynamic `docker-compose.yml` file using the provided `.toml` config file. This is the recommended approach as Docker provides sandboxing of the containers from the rest of your system.
+The Commit-Boost CLI generates a dynamic `docker-compose.yml` file using the provided `.toml` config file. This is the recommended approach as Docker provides sandboxing of the containers from the rest of your system.
 
 ## Init
 
@@ -20,21 +20,17 @@ This will create up to three files:
 
 To start Commit-Boost run:
 ```bash
-commit-boost-cli start --docker cb.docker-compose.yml [--env .cb.env]
+docker compose --env-file ".cb.env" -f ".cb.docker-compose.yml" up -d
 ```
 
-This will run `docker compose up` with the correct envs, and start up the services including PBS, commit modules (if any), and metrics collection (if enabled).
+This will run all the configured services, including PBS, signer and modules (if any).
 
 The MEV-Boost server will be exposed at `pbs.port` from the config, `18550` in our example. You'll need to point your CL/Validator client to this port to be able to source blocks from the builder market.
 
-If enabled, this will also start a Prometheus server on port `9090` and a Grafana instance on port `3000`. In Grafana, you will also find some preset dashboards already connected.
-
-
 ## Logs
-
-To check logs, run:
+To check the logs, run:
 ```bash
-commit-boost-cli logs
+docker compose --env-file ".cb.env" -f ".cb.docker-compose.yml" logs -f
 ```
 This will currently show all logs from the different services via the Docker logs interface. Logs are also optionally saved to file, depending on your `[logs]` configuration.
 
@@ -42,6 +38,6 @@ This will currently show all logs from the different services via the Docker log
 
 To stop all the services and cleanup, simply run:
 ```bash
-commit-boost-cli stop
+docker compose --env-file ".cb.env" -f ".cb.docker-compose.yml" down
 ```
 This will wind down all services and clear internal networks and file mounts.

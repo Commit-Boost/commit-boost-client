@@ -15,7 +15,7 @@ use cb_common::{
 use eyre::bail;
 use prometheus::{Encoder, IntGauge, Opts, Registry, TextEncoder};
 use tokio::net::TcpListener;
-use tracing::{error, info, trace, warn};
+use tracing::{error, info, warn};
 
 pub struct MetricsProvider {
     network: Chain,
@@ -60,7 +60,7 @@ impl MetricsProvider {
 
         let router = axum::Router::new()
             .route("/metrics", get(handle_metrics))
-            .route("/status", get(handle_status))
+            .route("/status", get(|| async { StatusCode::OK }))
             .with_state(self.registry);
         let address = SocketAddr::from(([0, 0, 0, 0], self.config.server_port));
         let listener = TcpListener::bind(&address).await?;
@@ -71,15 +71,7 @@ impl MetricsProvider {
     }
 }
 
-async fn handle_status() -> Response {
-    trace!("Handling status request");
-
-    StatusCode::OK.into_response()
-}
-
 async fn handle_metrics(State(registry): State<Registry>) -> Response {
-    trace!("Handling metrics request");
-
     match prepare_metrics(registry) {
         Ok(response) => response,
         Err(err) => {

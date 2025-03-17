@@ -43,7 +43,7 @@ impl CommitBoostConfig {
         Ok(())
     }
 
-    pub fn from_file(path: &str) -> Result<Self> {
+    pub fn from_file(path: &PathBuf) -> Result<Self> {
         let config: Self = load_from_file(path)?;
         Ok(config)
     }
@@ -86,8 +86,8 @@ impl CommitBoostConfig {
     }
 
     /// Returns the path to the chain spec file if any
-    pub fn chain_spec_file(path: &str) -> Option<PathBuf> {
-        match load_from_file::<ChainConfig>(path) {
+    pub fn chain_spec_file(path: &PathBuf) -> Option<PathBuf> {
+        match load_from_file::<_, ChainConfig>(path) {
             Ok(config) => {
                 if let ChainLoader::Path { path, genesis_time_secs: _ } = config.chain {
                     Some(path)

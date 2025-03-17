@@ -5,7 +5,6 @@ use ssz_types::{FixedVector, VariableList};
 use tree_hash_derive::TreeHash;
 
 use super::spec::EthSpec;
-use crate::utils::as_str;
 
 pub const EMPTY_TX_ROOT_HASH: B256 =
     b256!("7ffe241ea60187fdb0187bfa22de35d1f9bed7ab061d9401fd47e34a54fbede1");
@@ -29,7 +28,7 @@ pub struct ExecutionPayload<T: EthSpec> {
     pub timestamp: u64,
     #[serde(with = "ssz_types::serde_utils::hex_var_list")]
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
-    #[serde(with = "as_str")]
+    #[serde(with = "serde_utils::quoted_u256")]
     pub base_fee_per_gas: U256,
     pub block_hash: B256,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]

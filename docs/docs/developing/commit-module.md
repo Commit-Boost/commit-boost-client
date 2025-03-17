@@ -8,7 +8,7 @@ While a module can be written in any language, we currently provide some utiliti
 
 In Rust, we provide utilities to load and run modules. Simply add to your `Cargo.toml`:
 ```toml
-commit-boost = { git = "https://github.com/Commit-Boost/commit-boost-client", rev = "..." }
+commit-boost = { git = "https://github.com/Commit-Boost/commit-boost-client", version = "..." }
 ```
 
 You will now be able to import the utils with:

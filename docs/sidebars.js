@@ -39,6 +39,7 @@ const sidebars = {
           items: [
             'get_started/running/docker',
             'get_started/running/binary',
+            'get_started/running/metrics',
 
           ],
         },

@@ -88,29 +88,6 @@ pub fn test_encode_decode_ssz<T: Encode + Decode>(d: &[u8]) -> T {
     decoded
 }
 
-pub mod as_str {
-    use std::{fmt::Display, str::FromStr};
-
-    use serde::Deserialize;
-
-    pub fn serialize<S, T: Display>(data: T, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.collect_str(&data.to_string())
-    }
-
-    pub fn deserialize<'de, D, T, E>(deserializer: D) -> Result<T, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-        T: FromStr<Err = E>,
-        E: Display,
-    {
-        let s = String::deserialize(deserializer)?;
-        T::from_str(&s).map_err(serde::de::Error::custom)
-    }
-}
-
 pub mod as_eth_str {
     use alloy::primitives::{
         utils::{format_ether, parse_ether},
