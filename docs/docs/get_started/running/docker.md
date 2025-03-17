@@ -23,7 +23,7 @@ To start Commit-Boost run:
 docker compose --env-file ".cb.env" -f ".cb.docker-compose.yml" up -d
 ```
 
-This will run the all the configured services, including PBS, signer and modules (if any).
+This will run all the configured services, including PBS, signer and modules (if any).
 
 The MEV-Boost server will be exposed at `pbs.port` from the config, `18550` in our example. You'll need to point your CL/Validator client to this port to be able to source blocks from the builder market.
 

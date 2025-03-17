@@ -20,7 +20,7 @@ port = 18550
 url = ""
 
 [metrics]
-use_metrics = true
+enabled = true
 ```
 
 You can find a list of MEV-Boost Holesky relays [here](https://www.coincashew.com/coins/overview-eth/mev-boost/mev-relay-list#holesky-testnet-relays).
@@ -305,7 +305,7 @@ keys_path = "/path/to/keys"
 secrets_path = "/path/to.secrets"
 
 [metrics]
-use_metrics = true
+enabled = true
 
 [[modules]]
 id = "DA_COMMIT"

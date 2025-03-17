@@ -125,17 +125,20 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                     }
 
                     if let Some(metrics_config) = &cb_config.metrics {
-                        let host_endpoint = SocketAddr::from((metrics_config.host, metrics_port));
-                        ports.push(format!("{}:{}", host_endpoint, metrics_port));
-                        warnings.push(format!(
-                            "{} has an exported port on {}",
-                            module_cid, metrics_port
-                        ));
-                        targets.push(format!("{host_endpoint}"));
-                        let (key, val) = get_env_uval(METRICS_PORT_ENV, metrics_port as u64);
-                        module_envs.insert(key, val);
+                        if metrics_config.enabled {
+                            let host_endpoint =
+                                SocketAddr::from((metrics_config.host, metrics_port));
+                            ports.push(format!("{}:{}", host_endpoint, metrics_port));
+                            warnings.push(format!(
+                                "{} has an exported port on {}",
+                                module_cid, metrics_port
+                            ));
+                            targets.push(format!("{host_endpoint}"));
+                            let (key, val) = get_env_uval(METRICS_PORT_ENV, metrics_port as u64);
+                            module_envs.insert(key, val);
 
-                        metrics_port += 1;
+                            metrics_port += 1;
+                        }
                     }
 
                     if log_to_file {
@@ -197,17 +200,20 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                         module_envs.insert(key, val);
                     }
                     if let Some(metrics_config) = &cb_config.metrics {
-                        let host_endpoint = SocketAddr::from((metrics_config.host, metrics_port));
-                        ports.push(format!("{}:{}", host_endpoint, metrics_port));
-                        warnings.push(format!(
-                            "{} has an exported port on {}",
-                            module_cid, metrics_port
-                        ));
-                        targets.push(format!("{host_endpoint}"));
-                        let (key, val) = get_env_uval(METRICS_PORT_ENV, metrics_port as u64);
-                        module_envs.insert(key, val);
+                        if metrics_config.enabled {
+                            let host_endpoint =
+                                SocketAddr::from((metrics_config.host, metrics_port));
+                            ports.push(format!("{}:{}", host_endpoint, metrics_port));
+                            warnings.push(format!(
+                                "{} has an exported port on {}",
+                                module_cid, metrics_port
+                            ));
+                            targets.push(format!("{host_endpoint}"));
+                            let (key, val) = get_env_uval(METRICS_PORT_ENV, metrics_port as u64);
+                            module_envs.insert(key, val);
 
-                        metrics_port += 1;
+                            metrics_port += 1;
+                        }
                     }
                     if log_to_file {
                         let (key, val) = get_env_val(LOGS_DIR_ENV, LOGS_DIR_DEFAULT);
@@ -260,14 +266,16 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
         pbs_envs.insert(key, val);
     }
     if let Some(metrics_config) = &cb_config.metrics {
-        let host_endpoint = SocketAddr::from((metrics_config.host, metrics_port));
-        ports.push(format!("{}:{}", host_endpoint, metrics_port));
-        warnings.push(format!("cb_pbs has an exported port on {}", metrics_port));
-        targets.push(format!("{host_endpoint}"));
-        let (key, val) = get_env_uval(METRICS_PORT_ENV, metrics_port as u64);
-        pbs_envs.insert(key, val);
+        if metrics_config.enabled {
+            let host_endpoint = SocketAddr::from((metrics_config.host, metrics_port));
+            ports.push(format!("{}:{}", host_endpoint, metrics_port));
+            warnings.push(format!("cb_pbs has an exported port on {}", metrics_port));
+            targets.push(format!("{host_endpoint}"));
+            let (key, val) = get_env_uval(METRICS_PORT_ENV, metrics_port as u64);
+            pbs_envs.insert(key, val);
 
-        metrics_port += 1;
+            metrics_port += 1;
+        }
     }
     if log_to_file {
         let (key, val) = get_env_val(LOGS_DIR_ENV, LOGS_DIR_DEFAULT);
@@ -332,12 +340,15 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                     signer_envs.insert(key, val);
                 }
                 if let Some(metrics_config) = &cb_config.metrics {
-                    let host_endpoint = SocketAddr::from((metrics_config.host, metrics_port));
-                    ports.push(format!("{}:{}", host_endpoint, metrics_port));
-                    warnings.push(format!("cb_signer has an exported port on {}", metrics_port));
-                    targets.push(format!("{host_endpoint}"));
-                    let (key, val) = get_env_uval(METRICS_PORT_ENV, metrics_port as u64);
-                    signer_envs.insert(key, val);
+                    if metrics_config.enabled {
+                        let host_endpoint = SocketAddr::from((metrics_config.host, metrics_port));
+                        ports.push(format!("{}:{}", host_endpoint, metrics_port));
+                        warnings
+                            .push(format!("cb_signer has an exported port on {}", metrics_port));
+                        targets.push(format!("{host_endpoint}"));
+                        let (key, val) = get_env_uval(METRICS_PORT_ENV, metrics_port as u64);
+                        signer_envs.insert(key, val);
+                    }
                 }
                 if log_to_file {
                     let (key, val) = get_env_val(LOGS_DIR_ENV, LOGS_DIR_DEFAULT);
@@ -457,12 +468,15 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                     signer_envs.insert(key, val);
                 }
                 if let Some(metrics_config) = &cb_config.metrics {
-                    let host_endpoint = SocketAddr::from((metrics_config.host, metrics_port));
-                    ports.push(format!("{}:{}", host_endpoint, metrics_port));
-                    warnings.push(format!("cb_signer has an exported port on {}", metrics_port));
-                    targets.push(format!("{host_endpoint}"));
-                    let (key, val) = get_env_uval(METRICS_PORT_ENV, metrics_port as u64);
-                    signer_envs.insert(key, val);
+                    if metrics_config.enabled {
+                        let host_endpoint = SocketAddr::from((metrics_config.host, metrics_port));
+                        ports.push(format!("{}:{}", host_endpoint, metrics_port));
+                        warnings
+                            .push(format!("cb_signer has an exported port on {}", metrics_port));
+                        targets.push(format!("{host_endpoint}"));
+                        let (key, val) = get_env_uval(METRICS_PORT_ENV, metrics_port as u64);
+                        signer_envs.insert(key, val);
+                    }
                 }
                 if log_to_file {
                     let (key, val) = get_env_val(LOGS_DIR_ENV, LOGS_DIR_DEFAULT);

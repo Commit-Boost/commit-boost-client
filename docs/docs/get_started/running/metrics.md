@@ -6,11 +6,11 @@ description: Setup metrics collection
 
 Commit-Boost can be configured to collect metrics from the different services and expose them to be scraped from Prometheus.
 
-Make use to add the `[metrics]` section to your config file:
+Make sure to add the `[metrics]` section to your config file:
 
 ```toml
 [metrics]
-use_metrics = true
+enabled = true
 ```
 If the section is missing, metrics collection will be disabled. If you generated the `docker-compose.yml` file with `commit-boost-cli`, metrics ports will be automatically configured, and a sample `target.json` file will be created. If you're running the binaries directly, you will need to set the correct environment variables, as described in the [previous section](/get_started/running/binary#common).
 

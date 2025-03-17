@@ -10,7 +10,7 @@ use crate::utils::{default_bool, default_host, default_u16};
 pub struct MetricsConfig {
     /// Whether to collect metrics
     #[serde(default = "default_bool::<true>")]
-    pub use_metrics: bool,
+    pub enabled: bool,
     /// Host for metrics servers
     #[serde(default = "default_host")]
     pub host: Ipv4Addr,
