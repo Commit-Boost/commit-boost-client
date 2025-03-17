@@ -10,7 +10,6 @@ use super::{
     execution_payload::ExecutionPayloadHeader, execution_requests::ExecutionRequests,
     kzg::KzgCommitments, spec::EthSpec, utils::*,
 };
-use crate::utils::as_str;
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, Encode, Decode)]
 #[serde(deny_unknown_fields)]
@@ -76,7 +75,7 @@ pub struct SignedBeaconBlockHeader {
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct BlsToExecutionChange {
-    #[serde(with = "as_str")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub validator_index: u64,
     pub from_bls_pubkey: BlsPublicKey,
     pub to_execution_address: Address,
