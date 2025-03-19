@@ -10,7 +10,6 @@ use cb_common::{
 };
 use reqwest::StatusCode;
 use tracing::{error, info};
-use uuid::Uuid;
 
 use crate::{
     api::BuilderApi,
@@ -20,12 +19,12 @@ use crate::{
     state::{BuilderApiState, PbsStateGuard},
 };
 
-#[tracing::instrument(skip_all, name = "get_header", fields(req_id = %Uuid::new_v4(), slot = params.slot))]
 pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
     State(state): State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
     Path(params): Path<GetHeaderParams>,
 ) -> Result<impl IntoResponse, PbsClientError> {
+    tracing::Span::current().record("slot", &params.slot);
     let state = state.read().clone();
 
     state.publish_event(BuilderEvent::GetHeaderRequest(params));

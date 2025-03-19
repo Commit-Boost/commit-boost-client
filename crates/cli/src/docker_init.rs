@@ -46,7 +46,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
 
     let chain_spec_path = CommitBoostConfig::chain_spec_file(&config_path);
 
-    let log_to_file = cb_config.logs.is_some();
+    let log_to_file = cb_config.logs.file.enabled;
     let mut metrics_port = cb_config.metrics.as_ref().map(|m| m.start_port).unwrap_or_default();
 
     let mut services = IndexMap::new();
@@ -584,8 +584,8 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
         println!()
     }
     // if file logging is enabled, warn about permissions
-    if let Some(logs_config) = cb_config.logs {
-        let log_dir = logs_config.log_dir_path;
+    if cb_config.logs.file.enabled {
+        let log_dir = cb_config.logs.file.dir_path;
         println!(
             "Warning: file logging is enabled, you may need to update permissions for the logs directory. e.g. with:\n\t`sudo chown -R 10001:10001 {}`",
             log_dir.display()
@@ -654,9 +654,9 @@ fn get_env_uval(k: &str, v: u64) -> (String, Option<SingleValue>) {
 //     (k.into(), Some(SingleValue::Bool(v)))
 // }
 
-fn get_log_volume(maybe_config: &Option<LogsSettings>, module_id: &str) -> Option<Volumes> {
-    maybe_config.as_ref().map(|config| {
-        let p = config.log_dir_path.join(module_id.to_lowercase());
+fn get_log_volume(config: &LogsSettings, module_id: &str) -> Option<Volumes> {
+    config.file.enabled.then_some({
+        let p = config.file.dir_path.join(module_id.to_lowercase());
         Volumes::Simple(format!(
             "{}:{}",
             p.to_str().expect("could not convert pathbuf to str"),

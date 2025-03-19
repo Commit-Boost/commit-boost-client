@@ -16,7 +16,7 @@ impl OnBuilderApiEvent for LogProcessor {
 async fn main() -> eyre::Result<()> {
     match load_builder_module_config::<()>() {
         Ok(config) => {
-            let _guard = initialize_tracing_log(&config.id)?;
+            let _guard = initialize_tracing_log(&config.id, LogsSettings::from_env_config()?);
 
             info!(module_id = %config.id, "Starting module");
 

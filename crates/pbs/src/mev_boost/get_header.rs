@@ -48,7 +48,10 @@ pub async fn get_header<S: BuilderApiState>(
     let parent_block = Arc::new(RwLock::new(None));
     if state.extra_validation_enabled() {
         if let Some(rpc_url) = state.pbs_config().rpc_url.clone() {
-            tokio::spawn(fetch_parent_block(rpc_url, params.parent_hash, parent_block.clone()));
+            tokio::spawn(
+                fetch_parent_block(rpc_url, params.parent_hash, parent_block.clone())
+                    .in_current_span(),
+            );
         }
     }
 
@@ -81,20 +84,23 @@ pub async fn get_header<S: BuilderApiState>(
 
     let mut handles = Vec::with_capacity(relays.len());
     for relay in relays.iter() {
-        handles.push(send_timed_get_header(
-            params,
-            relay.clone(),
-            state.config.chain,
-            send_headers.clone(),
-            ms_into_slot,
-            max_timeout_ms,
-            ValidationContext {
-                skip_sigverify: state.pbs_config().skip_sigverify,
-                min_bid_wei: state.pbs_config().min_bid_wei,
-                extra_validation_enabled: state.extra_validation_enabled(),
-                parent_block: parent_block.clone(),
-            },
-        ));
+        handles.push(
+            send_timed_get_header(
+                params,
+                relay.clone(),
+                state.config.chain,
+                send_headers.clone(),
+                ms_into_slot,
+                max_timeout_ms,
+                ValidationContext {
+                    skip_sigverify: state.pbs_config().skip_sigverify,
+                    min_bid_wei: state.pbs_config().min_bid_wei,
+                    extra_validation_enabled: state.extra_validation_enabled(),
+                    parent_block: parent_block.clone(),
+                },
+            )
+            .in_current_span(),
+        );
     }
 
     let results = join_all(handles).await;
@@ -126,7 +132,6 @@ pub async fn get_header<S: BuilderApiState>(
 /// Extra validation will be skipped if:
 /// - relay returns header before parent block is fetched
 /// - parent block is not found, eg because of a RPC delay
-#[tracing::instrument(skip_all, name = "parent_block_fetch")]
 async fn fetch_parent_block(
     rpc_url: Url,
     parent_hash: B256,

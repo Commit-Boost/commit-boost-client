@@ -3,7 +3,6 @@ use axum::{extract::State, http::HeaderMap, response::IntoResponse, Json};
 use cb_common::{pbs::BuilderEvent, utils::get_user_agent};
 use reqwest::StatusCode;
 use tracing::{error, info, trace};
-use uuid::Uuid;
 
 use crate::{
     api::BuilderApi,
@@ -13,7 +12,6 @@ use crate::{
     state::{BuilderApiState, PbsStateGuard},
 };
 
-#[tracing::instrument(skip_all, name = "register_validators", fields(req_id = %Uuid::new_v4()))]
 pub async fn handle_register_validator<S: BuilderApiState, A: BuilderApi<S>>(
     State(state): State<PbsStateGuard<S>>,
     req_headers: HeaderMap,

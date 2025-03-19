@@ -251,15 +251,37 @@ host = "127.0.0.1"
 # OPTIONAL, DEFAULT: 10000
 start_port = 10000
 
-# Configuration for how logs should be collected and stored
-# OPTIONAL, info to stdout if missing
-[logs]
+# Configuration stdout logs
+# OPTIONAL, DEFAULT: enabled
+[logs.stdout]
+# Whether to enable stdout logging
+# OPTIONAL, DEFAULT: true
+enabled = true
+# Log level. Supported values: trace, debug, info, warn, error
+# OPTIONAL, DEFAULT: info
+level = "info"
+# Log in JSON format
+# OPTIONAL, DEFAULT: false
+use_json = false
+# Whether to enable ANSI color codes
+# OPTIONAL, DEFAULT: true
+color = true
+
+# Configuration file logs
+# OPTIONAL, DEFAULT: disabled
+[logs.file]
+# Whether to enable file logging
+# OPTIONAL, DEFAULT: false
+enabled = true
+# Log level. Supported values: trace, debug, info, warn, error
+# OPTIONAL, DEFAULT: info
+level = "debug"
+# Log in JSON format
+# OPTIONAL, DEFAULT: true
+use_json = true
 # Path to the log directory
 # OPTIONAL, DEFAULT: /var/logs/commit-boost
-log_dir_path = "./logs"
-# Log level. Supported values: trace, debug, info, warn, error
-# OPTIONAL, DEFAULT: debug to file, info to stdout
-log_level = "debug"
+dir_path = "./logs"
 # Maximum number of log files to keep
 # OPTIONAL
-max_log_files = 30
+max_files = 30

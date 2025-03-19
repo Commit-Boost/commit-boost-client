@@ -1,11 +1,17 @@
 use axum::{
+    extract::{MatchedPath, Request},
+    middleware::{self, Next},
+    response::Response,
     routing::{get, post},
     Router,
 };
+use axum_extra::headers::{ContentType, HeaderMapExt, UserAgent};
 use cb_common::pbs::{
     BUILDER_API_PATH, GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, RELOAD_PATH,
     SUBMIT_BLOCK_PATH,
 };
+use tracing::trace;
+use uuid::Uuid;
 
 use super::{
     handle_get_header, handle_get_status, handle_register_validator, handle_submit_block,
@@ -32,5 +38,30 @@ pub fn create_app_router<S: BuilderApiState, A: BuilderApi<S>>(state: PbsStateGu
         builder_api
     };
 
-    app.with_state(state)
+    app.layer(middleware::from_fn(tracing_middleware)).with_state(state)
+}
+
+#[tracing::instrument(
+    name = "request", 
+    skip_all,
+    fields(
+        method = %req.extensions().get::<MatchedPath>().map(|m| m.as_str()).unwrap_or("unknown"),
+        req_id = ?Uuid::new_v4(),
+        slot = tracing::field::Empty      
+    ),
+)]
+pub async fn tracing_middleware(req: Request, next: Next) -> Response {
+    trace!(
+        http.method = %req.method(),
+        http.user_agent = req.headers().typed_get::<UserAgent>().map(|ua| ua.to_string()).unwrap_or_default(),
+        http.content_type = req.headers().typed_get::<ContentType>().map(|ua| ua.to_string()).unwrap_or_default(), 
+    "start request");
+    
+    let response = next.run(req).await;
+    
+    let status = response.status();  
+
+    trace!(http.response.status_code = ?status, "end request");
+
+    response
 }

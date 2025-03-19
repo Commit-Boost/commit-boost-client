@@ -5,7 +5,6 @@ use cb_common::{
 };
 use reqwest::StatusCode;
 use tracing::{error, info, trace};
-use uuid::Uuid;
 
 use crate::{
     api::BuilderApi,
@@ -15,12 +14,13 @@ use crate::{
     state::{BuilderApiState, PbsStateGuard},
 };
 
-#[tracing::instrument(skip_all, name = "submit_blinded_block", fields(req_id = %Uuid::new_v4(), slot = signed_blinded_block.slot()))]
 pub async fn handle_submit_block<S: BuilderApiState, A: BuilderApi<S>>(
     State(state): State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
     Json(signed_blinded_block): Json<SignedBlindedBeaconBlock>,
 ) -> Result<impl IntoResponse, PbsClientError> {
+    tracing::Span::current().record("slot", &signed_blinded_block.slot());
+
     let state = state.read().clone();
 
     trace!(?signed_blinded_block);
