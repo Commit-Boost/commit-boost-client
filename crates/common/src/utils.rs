@@ -209,7 +209,7 @@ pub fn initialize_tracing_log(
             let layer = Layer::default()
                 .event_format(format)
                 .json()
-                .flatten_event(false)
+                .flatten_event(true)
                 .with_writer(writer)
                 .with_filter(filter)
                 .boxed();

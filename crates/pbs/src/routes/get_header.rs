@@ -25,6 +25,9 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
     Path(params): Path<GetHeaderParams>,
 ) -> Result<impl IntoResponse, PbsClientError> {
     tracing::Span::current().record("slot", &params.slot);
+    tracing::Span::current().record("parent_hash", &tracing::field::debug(params.parent_hash));
+    tracing::Span::current().record("pubkey", &tracing::field::debug(params.pubkey));
+
     let state = state.read().clone();
 
     state.publish_event(BuilderEvent::GetHeaderRequest(params));

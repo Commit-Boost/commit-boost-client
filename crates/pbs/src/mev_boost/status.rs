@@ -46,7 +46,6 @@ pub async fn get_status<S: BuilderApiState>(
     }
 }
 
-#[tracing::instrument(skip_all, name = "handler", fields(relay_id = relay.id.as_ref()))]
 async fn send_relay_check(relay: &RelayClient, headers: HeaderMap) -> Result<(), PbsError> {
     let url = relay.get_status_url()?;
 
@@ -82,11 +81,11 @@ async fn send_relay_check(relay: &RelayClient, headers: HeaderMap) -> Result<(),
             code: code.as_u16(),
         };
 
-        error!(%err, "status failed");
+        error!(relay_id = relay.id.as_ref(),%err, "status failed");
         return Err(err);
     };
 
-    debug!(?code, latency = ?request_latency, "status passed");
+    debug!(relay_id = relay.id.as_ref(),?code, latency = ?request_latency, "status passed");
 
     Ok(())
 }

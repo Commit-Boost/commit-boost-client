@@ -99,7 +99,6 @@ async fn submit_block_with_timeout(
 
 // submits blinded signed block and expects the execution payload + blobs bundle
 // back
-#[tracing::instrument(skip_all, name = "handler", fields(relay_id = relay.id.as_ref(), retry = retry))]
 async fn send_submit_block(
     url: Url,
     signed_blinded_block: &SignedBlindedBeaconBlock,
@@ -148,7 +147,7 @@ async fn send_submit_block(
         };
 
         // we requested the payload from all relays, but some may have not received it
-        warn!(%err, "failed to get payload (this might be ok if other relays have it)");
+        warn!(relay_id = relay.id.as_ref(), retry, %err, "failed to get payload (this might be ok if other relays have it)");
         return Err(err);
     };
 
@@ -164,6 +163,8 @@ async fn send_submit_block(
     };
 
     debug!(
+        relay_id = relay.id.as_ref(),
+        retry,
         latency = ?request_latency,
         version = block_response.version(),
         block_hash = %block_response.block_hash(),

@@ -47,7 +47,11 @@ pub fn create_app_router<S: BuilderApiState, A: BuilderApi<S>>(state: PbsStateGu
     fields(
         method = %req.extensions().get::<MatchedPath>().map(|m| m.as_str()).unwrap_or("unknown"),
         req_id = ?Uuid::new_v4(),
-        slot = tracing::field::Empty      
+        slot = tracing::field::Empty,
+        block_hash = tracing::field::Empty,
+        block_number = tracing::field::Empty,
+        parent_hash = tracing::field::Empty,
+        pubkey = tracing::field::Empty,
     ),
 )]
 pub async fn tracing_middleware(req: Request, next: Next) -> Response {
@@ -56,10 +60,10 @@ pub async fn tracing_middleware(req: Request, next: Next) -> Response {
         http.user_agent = req.headers().typed_get::<UserAgent>().map(|ua| ua.to_string()).unwrap_or_default(),
         http.content_type = req.headers().typed_get::<ContentType>().map(|ua| ua.to_string()).unwrap_or_default(), 
     "start request");
-    
+
     let response = next.run(req).await;
-    
-    let status = response.status();  
+
+    let status = response.status();
 
     trace!(http.response.status_code = ?status, "end request");
 
