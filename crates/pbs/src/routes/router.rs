@@ -42,7 +42,7 @@ pub fn create_app_router<S: BuilderApiState, A: BuilderApi<S>>(state: PbsStateGu
 }
 
 #[tracing::instrument(
-    name = "request", 
+    name = "", 
     skip_all,
     fields(
         method = %req.extensions().get::<MatchedPath>().map(|m| m.as_str()).unwrap_or("unknown"),
