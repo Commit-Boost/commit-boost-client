@@ -165,7 +165,7 @@ pub fn initialize_tracing_log(
         let (writer, guard) = tracing_appender::non_blocking(std::io::stdout());
         stdout_guard = Some(guard);
 
-        let filter = format_crates_filter(Level::INFO.as_str(), &config.level.as_str());
+        let filter = format_crates_filter(Level::INFO.as_str(), config.level.as_str());
         let format = format.clone().with_ansi(config.color);
         if config.use_json {
             let layer = Layer::default()
@@ -205,7 +205,7 @@ pub fn initialize_tracing_log(
         let (writer, guard) = tracing_appender::non_blocking(file_appender);
         file_guard = Some(guard);
 
-        let filter = format_crates_filter(Level::INFO.as_str(), &config.level.as_str());
+        let filter = format_crates_filter(Level::INFO.as_str(), config.level.as_str());
         let format = format.clone().with_ansi(false);
         if config.use_json {
             let layer = Layer::default()

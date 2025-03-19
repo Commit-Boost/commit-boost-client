@@ -19,12 +19,12 @@ pub async fn handle_submit_block<S: BuilderApiState, A: BuilderApi<S>>(
     req_headers: HeaderMap,
     Json(signed_blinded_block): Json<SignedBlindedBeaconBlock>,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    tracing::Span::current().record("slot", &signed_blinded_block.slot());
+    tracing::Span::current().record("slot", signed_blinded_block.slot());
     tracing::Span::current()
-        .record("block_hash", &tracing::field::debug(signed_blinded_block.block_hash()));
-    tracing::Span::current().record("block_number", &signed_blinded_block.block_number());
+        .record("block_hash", tracing::field::debug(signed_blinded_block.block_hash()));
+    tracing::Span::current().record("block_number", signed_blinded_block.block_number());
     tracing::Span::current()
-        .record("parent_hash", &tracing::field::debug(signed_blinded_block.parent_hash()));
+        .record("parent_hash", tracing::field::debug(signed_blinded_block.parent_hash()));
 
     let state = state.read().clone();
 
