@@ -23,6 +23,7 @@ pub enum Chain {
     Holesky,
     Sepolia,
     Helder,
+    Hoodi,
     Custom { genesis_time_secs: u64, slot_time_secs: u64, genesis_fork_version: ForkVersion },
 }
 
@@ -31,7 +32,9 @@ pub type ForkVersion = [u8; 4];
 impl std::fmt::Display for Chain {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Mainnet | Self::Holesky | Self::Sepolia | Self::Helder => write!(f, "{self:?}"),
+            Self::Mainnet | Self::Holesky | Self::Sepolia | Self::Helder | Self::Hoodi => {
+                write!(f, "{self:?}")
+            }
             Self::Custom { .. } => write!(f, "Custom"),
         }
     }
@@ -44,6 +47,7 @@ impl std::fmt::Debug for Chain {
             Self::Holesky => write!(f, "Holesky"),
             Self::Sepolia => write!(f, "Sepolia"),
             Self::Helder => write!(f, "Helder"),
+            Self::Hoodi => write!(f, "Hoodi"),
             Self::Custom { genesis_time_secs, slot_time_secs, genesis_fork_version } => f
                 .debug_struct("Custom")
                 .field("genesis_time_secs", genesis_time_secs)
@@ -61,6 +65,7 @@ impl Chain {
             Chain::Holesky => KnownChain::Holesky.id(),
             Chain::Sepolia => KnownChain::Sepolia.id(),
             Chain::Helder => KnownChain::Helder.id(),
+            Chain::Hoodi => KnownChain::Hoodi.id(),
             Chain::Custom { .. } => {
                 unimplemented!("chain id is not supported on custom chains, please file an issue")
             }
@@ -73,6 +78,7 @@ impl Chain {
             Chain::Holesky => KnownChain::Holesky.builder_domain(),
             Chain::Sepolia => KnownChain::Sepolia.builder_domain(),
             Chain::Helder => KnownChain::Helder.builder_domain(),
+            Chain::Hoodi => KnownChain::Hoodi.builder_domain(),
             Chain::Custom { .. } => compute_domain(*self, APPLICATION_BUILDER_DOMAIN),
         }
     }
@@ -83,6 +89,7 @@ impl Chain {
             Chain::Holesky => KnownChain::Holesky.genesis_fork_version(),
             Chain::Sepolia => KnownChain::Sepolia.genesis_fork_version(),
             Chain::Helder => KnownChain::Helder.genesis_fork_version(),
+            Chain::Hoodi => KnownChain::Hoodi.genesis_fork_version(),
             Chain::Custom { genesis_fork_version, .. } => *genesis_fork_version,
         }
     }
@@ -93,6 +100,7 @@ impl Chain {
             Chain::Holesky => KnownChain::Holesky.genesis_time_sec(),
             Chain::Sepolia => KnownChain::Sepolia.genesis_time_sec(),
             Chain::Helder => KnownChain::Helder.genesis_time_sec(),
+            Chain::Hoodi => KnownChain::Hoodi.genesis_time_sec(),
             Chain::Custom { genesis_time_secs, .. } => *genesis_time_secs,
         }
     }
@@ -103,6 +111,7 @@ impl Chain {
             Chain::Holesky => KnownChain::Holesky.slot_time_sec(),
             Chain::Sepolia => KnownChain::Sepolia.slot_time_sec(),
             Chain::Helder => KnownChain::Helder.slot_time_sec(),
+            Chain::Hoodi => KnownChain::Hoodi.slot_time_sec(),
             Chain::Custom { slot_time_secs, .. } => *slot_time_secs,
         }
     }
@@ -118,6 +127,8 @@ pub enum KnownChain {
     Sepolia,
     #[serde(alias = "helder")]
     Helder,
+    #[serde(alias = "hoodi")]
+    Hoodi,
 }
 
 // Constants
@@ -128,6 +139,7 @@ impl KnownChain {
             KnownChain::Holesky => 17000,
             KnownChain::Sepolia => 11155111,
             KnownChain::Helder => 167000,
+            KnownChain::Hoodi => 560048,
         }
     }
 
@@ -149,6 +161,10 @@ impl KnownChain {
                 0, 0, 0, 1, 148, 196, 26, 244, 132, 255, 247, 150, 73, 105, 224, 189, 217, 34, 248,
                 45, 255, 15, 75, 232, 122, 96, 208, 102, 76, 201, 209, 255,
             ],
+            KnownChain::Hoodi => [
+                0, 0, 0, 1, 113, 145, 3, 81, 30, 250, 79, 19, 98, 255, 42, 80, 153, 108, 204, 243,
+                41, 204, 132, 203, 65, 12, 94, 92, 125, 53, 29, 3,
+            ],
         }
     }
 
@@ -158,6 +174,7 @@ impl KnownChain {
             KnownChain::Holesky => hex!("01017000"),
             KnownChain::Sepolia => hex!("90000069"),
             KnownChain::Helder => hex!("10000000"),
+            KnownChain::Hoodi => hex!("10000910"),
         }
     }
 
@@ -167,6 +184,7 @@ impl KnownChain {
             KnownChain::Holesky => 1695902400,
             KnownChain::Sepolia => 1655733600,
             KnownChain::Helder => 1718967660,
+            KnownChain::Hoodi => 1742213400,
         }
     }
 
@@ -175,7 +193,8 @@ impl KnownChain {
             KnownChain::Mainnet |
             KnownChain::Holesky |
             KnownChain::Sepolia |
-            KnownChain::Helder => 12,
+            KnownChain::Helder |
+            KnownChain::Hoodi => 12,
         }
     }
 }
@@ -187,6 +206,7 @@ impl From<KnownChain> for Chain {
             KnownChain::Holesky => Chain::Holesky,
             KnownChain::Sepolia => Chain::Sepolia,
             KnownChain::Helder => Chain::Helder,
+            KnownChain::Hoodi => Chain::Hoodi,
         }
     }
 }
@@ -220,6 +240,7 @@ impl Serialize for Chain {
             Chain::Holesky => ChainLoader::Known(KnownChain::Holesky),
             Chain::Sepolia => ChainLoader::Known(KnownChain::Sepolia),
             Chain::Helder => ChainLoader::Known(KnownChain::Helder),
+            Chain::Hoodi => ChainLoader::Known(KnownChain::Hoodi),
             Chain::Custom { genesis_time_secs, slot_time_secs, genesis_fork_version } => {
                 ChainLoader::Custom {
                     genesis_time_secs: *genesis_time_secs,
@@ -372,6 +393,7 @@ mod tests {
         let s = format!("chain = {{ genesis_time_secs = 1, path = {path:?}}}");
 
         let decoded: MockConfig = toml::from_str(&s).unwrap();
+        assert_eq!(decoded.chain.slot_time_sec(), KnownChain::Holesky.slot_time_sec());
         assert_eq!(decoded.chain, Chain::Custom {
             genesis_time_secs: 1,
             slot_time_secs: KnownChain::Holesky.slot_time_sec(),
@@ -391,10 +413,31 @@ mod tests {
         let s = format!("chain = {{ genesis_time_secs = 1, path = {path:?}}}");
 
         let decoded: MockConfig = toml::from_str(&s).unwrap();
+        assert_eq!(decoded.chain.slot_time_sec(), KnownChain::Helder.slot_time_sec());
         assert_eq!(decoded.chain, Chain::Custom {
             genesis_time_secs: 1,
             slot_time_secs: KnownChain::Sepolia.slot_time_sec(),
             genesis_fork_version: KnownChain::Sepolia.genesis_fork_version()
+        })
+    }
+
+    #[test]
+    fn test_spec_hoodi_data_json() {
+        let a = env!("CARGO_MANIFEST_DIR");
+        let mut path = PathBuf::from(a);
+
+        path.pop();
+        path.pop();
+        path.push("tests/data/hoodi_spec.json");
+
+        let s = format!("chain = {{ genesis_time_secs = 1, path = {path:?}}}");
+
+        let decoded: MockConfig = toml::from_str(&s).unwrap();
+        assert_eq!(decoded.chain.slot_time_sec(), KnownChain::Hoodi.slot_time_sec());
+        assert_eq!(decoded.chain, Chain::Custom {
+            genesis_time_secs: 1,
+            slot_time_secs: KnownChain::Hoodi.slot_time_sec(),
+            genesis_fork_version: KnownChain::Hoodi.genesis_fork_version()
         })
     }
 
@@ -410,6 +453,7 @@ mod tests {
         let s = format!("chain = {{ genesis_time_secs = 1, path = {path:?}}}");
 
         let decoded: MockConfig = toml::from_str(&s).unwrap();
+        assert_eq!(decoded.chain.slot_time_sec(), KnownChain::Helder.slot_time_sec());
         assert_eq!(decoded.chain, Chain::Custom {
             genesis_time_secs: 1,
             slot_time_secs: KnownChain::Helder.slot_time_sec(),
