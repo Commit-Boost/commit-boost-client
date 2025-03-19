@@ -172,6 +172,8 @@ pub fn initialize_tracing_log(
                 .event_format(format)
                 .json()
                 .flatten_event(true)
+                .with_current_span(true)
+                .with_span_list(false)
                 .with_writer(writer)
                 .with_filter(filter)
                 .boxed();
@@ -210,6 +212,8 @@ pub fn initialize_tracing_log(
                 .event_format(format)
                 .json()
                 .flatten_event(true)
+                .with_current_span(true)
+                .with_span_list(false)
                 .with_writer(writer)
                 .with_filter(filter)
                 .boxed();

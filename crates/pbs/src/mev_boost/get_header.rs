@@ -423,7 +423,10 @@ async fn send_one_get_header(
         if let Some(parent_block) = parent_block.as_ref() {
             extra_validation(parent_block, &get_header_response)?;
         } else {
-            warn!("parent block not found, skipping extra validation");
+            warn!(
+                relay_id = relay.id.as_ref(),
+                "parent block not found, skipping extra validation"
+            );
         }
     }
 

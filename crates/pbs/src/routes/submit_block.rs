@@ -28,7 +28,6 @@ pub async fn handle_submit_block<S: BuilderApiState, A: BuilderApi<S>>(
 
     let state = state.read().clone();
 
-    trace!(?signed_blinded_block);
     state.publish_event(BuilderEvent::SubmitBlockRequest(Box::new(signed_blinded_block.clone())));
 
     let now = utcnow_ms();
@@ -37,7 +36,7 @@ pub async fn handle_submit_block<S: BuilderApiState, A: BuilderApi<S>>(
     let slot_start_ms = timestamp_of_slot_start_millis(slot, state.config.chain);
     let ua = get_user_agent(&req_headers);
 
-    info!(ua,  ms_into_slot=now.saturating_sub(slot_start_ms), %block_hash);
+    info!(ua, ms_into_slot = now.saturating_sub(slot_start_ms));
 
     match A::submit_block(signed_blinded_block, req_headers, state.clone()).await {
         Ok(res) => {

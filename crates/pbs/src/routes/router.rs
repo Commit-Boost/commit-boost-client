@@ -51,7 +51,7 @@ pub fn create_app_router<S: BuilderApiState, A: BuilderApi<S>>(state: PbsStateGu
         block_hash = tracing::field::Empty,
         block_number = tracing::field::Empty,
         parent_hash = tracing::field::Empty,
-        pubkey = tracing::field::Empty,
+        validator = tracing::field::Empty,
     ),
 )]
 pub async fn tracing_middleware(req: Request, next: Next) -> Response {

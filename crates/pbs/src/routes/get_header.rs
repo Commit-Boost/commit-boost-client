@@ -26,7 +26,7 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
 ) -> Result<impl IntoResponse, PbsClientError> {
     tracing::Span::current().record("slot", &params.slot);
     tracing::Span::current().record("parent_hash", &tracing::field::debug(params.parent_hash));
-    tracing::Span::current().record("pubkey", &tracing::field::debug(params.pubkey));
+    tracing::Span::current().record("validator", &tracing::field::debug(params.pubkey));
 
     let state = state.read().clone();
 
@@ -35,7 +35,7 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
     let ua = get_user_agent(&req_headers);
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
 
-    info!(ua, parent_hash=%params.parent_hash, validator_pubkey=%params.pubkey, ms_into_slot);
+    info!(ua, ms_into_slot);
 
     match A::get_header(params, req_headers, state.clone()).await {
         Ok(res) => {
