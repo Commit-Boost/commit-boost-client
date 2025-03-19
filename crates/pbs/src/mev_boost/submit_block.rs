@@ -167,7 +167,6 @@ async fn send_submit_block(
         retry,
         latency = ?request_latency,
         version = block_response.version(),
-        block_hash = %block_response.block_hash(),
         "received unblinded block"
     );
 
