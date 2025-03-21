@@ -67,7 +67,7 @@ impl SigningService {
         let loaded_consensus = state.manager.read().await.available_consensus_signers();
         let loaded_proxies = state.manager.read().await.available_proxy_signers();
 
-        info!(version = COMMIT_BOOST_VERSION, commit = COMMIT_BOOST_COMMIT, modules =? module_ids, port =? config.server_port, loaded_consensus, loaded_proxies, "Starting signing service");
+        info!(version = COMMIT_BOOST_VERSION, commit_hash = COMMIT_BOOST_COMMIT, modules =? module_ids, port =? config.server_port, loaded_consensus, loaded_proxies, "Starting signing service");
 
         SigningService::init_metrics(config.chain)?;
 

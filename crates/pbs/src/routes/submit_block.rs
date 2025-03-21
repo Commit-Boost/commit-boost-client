@@ -5,7 +5,6 @@ use cb_common::{
 };
 use reqwest::StatusCode;
 use tracing::{error, info, trace};
-use uuid::Uuid;
 
 use crate::{
     api::BuilderApi,
@@ -15,15 +14,20 @@ use crate::{
     state::{BuilderApiState, PbsStateGuard},
 };
 
-#[tracing::instrument(skip_all, name = "submit_blinded_block", fields(req_id = %Uuid::new_v4(), slot = signed_blinded_block.slot()))]
 pub async fn handle_submit_block<S: BuilderApiState, A: BuilderApi<S>>(
     State(state): State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
     Json(signed_blinded_block): Json<SignedBlindedBeaconBlock>,
 ) -> Result<impl IntoResponse, PbsClientError> {
+    tracing::Span::current().record("slot", signed_blinded_block.slot());
+    tracing::Span::current()
+        .record("block_hash", tracing::field::debug(signed_blinded_block.block_hash()));
+    tracing::Span::current().record("block_number", signed_blinded_block.block_number());
+    tracing::Span::current()
+        .record("parent_hash", tracing::field::debug(signed_blinded_block.parent_hash()));
+
     let state = state.read().clone();
 
-    trace!(?signed_blinded_block);
     state.publish_event(BuilderEvent::SubmitBlockRequest(Box::new(signed_blinded_block.clone())));
 
     let now = utcnow_ms();
@@ -32,7 +36,7 @@ pub async fn handle_submit_block<S: BuilderApiState, A: BuilderApi<S>>(
     let slot_start_ms = timestamp_of_slot_start_millis(slot, state.config.chain);
     let ua = get_user_agent(&req_headers);
 
-    info!(ua,  ms_into_slot=now.saturating_sub(slot_start_ms), %block_hash);
+    info!(ua, ms_into_slot = now.saturating_sub(slot_start_ms), "new request");
 
     match A::submit_block(signed_blinded_block, req_headers, state.clone()).await {
         Ok(res) => {

@@ -25,6 +25,20 @@ impl SignedBlindedBeaconBlock {
         }
     }
 
+    pub fn block_number(&self) -> u64 {
+        match &self.message {
+            BlindedBeaconBlock::Electra(b) => b.body.execution_payload_header.block_number,
+            BlindedBeaconBlock::Deneb(b) => b.body.execution_payload_header.block_number,
+        }
+    }
+
+    pub fn parent_hash(&self) -> B256 {
+        match &self.message {
+            BlindedBeaconBlock::Electra(b) => b.body.execution_payload_header.parent_hash,
+            BlindedBeaconBlock::Deneb(b) => b.body.execution_payload_header.parent_hash,
+        }
+    }
+
     pub fn slot(&self) -> u64 {
         match &self.message {
             BlindedBeaconBlock::Electra(b) => b.slot,

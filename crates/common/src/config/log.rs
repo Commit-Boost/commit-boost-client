@@ -4,36 +4,21 @@ use eyre::Result;
 use serde::{Deserialize, Serialize};
 
 use super::{load_optional_env_var, CommitBoostConfig, LOGS_DIR_DEFAULT, LOGS_DIR_ENV};
+use crate::utils::default_bool;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Default, Debug, Deserialize, Serialize)]
 pub struct LogsSettings {
-    #[serde(default = "default_log_dir_path")]
-    pub log_dir_path: PathBuf,
-    #[serde(default = "default_log_level")]
-    pub log_level: String,
-    #[serde(default)]
-    pub max_log_files: Option<usize>,
-}
-
-impl Default for LogsSettings {
-    fn default() -> Self {
-        LogsSettings {
-            log_dir_path: default_log_dir_path(),
-            log_level: default_log_level(),
-            max_log_files: None,
-        }
-    }
+    pub stdout: StdoutLogSettings,
+    pub file: FileLogSettings,
 }
 
 impl LogsSettings {
-    pub fn from_env_config() -> Result<Option<Self>> {
+    pub fn from_env_config() -> Result<Self> {
         let mut config = CommitBoostConfig::from_env_path()?;
 
         // Override log dir path if env var is set
-        if let Some(log_config) = config.logs.as_mut() {
-            if let Some(log_dir) = load_optional_env_var(LOGS_DIR_ENV) {
-                log_config.log_dir_path = log_dir.into();
-            }
+        if let Some(log_dir) = load_optional_env_var(LOGS_DIR_ENV) {
+            config.logs.file.dir_path = log_dir.into();
         }
 
         Ok(config.logs)
@@ -44,6 +29,50 @@ fn default_log_dir_path() -> PathBuf {
     LOGS_DIR_DEFAULT.into()
 }
 
-pub fn default_log_level() -> String {
+fn default_level() -> String {
     "info".into()
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct StdoutLogSettings {
+    #[serde(default = "default_bool::<true>")]
+    pub enabled: bool,
+    #[serde(default = "default_level")]
+    pub level: String,
+    #[serde(default = "default_bool::<false>")]
+    pub use_json: bool,
+    #[serde(default = "default_bool::<true>")]
+    pub color: bool,
+}
+
+impl Default for StdoutLogSettings {
+    fn default() -> Self {
+        Self { enabled: true, level: "info".into(), use_json: false, color: true }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct FileLogSettings {
+    #[serde(default = "default_bool::<false>")]
+    pub enabled: bool,
+    #[serde(default = "default_level")]
+    pub level: String,
+    #[serde(default = "default_bool::<true>")]
+    pub use_json: bool,
+    #[serde(default = "default_log_dir_path")]
+    pub dir_path: PathBuf,
+    #[serde(default)]
+    pub max_files: Option<usize>,
+}
+
+impl Default for FileLogSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            level: "info".into(),
+            use_json: true,
+            dir_path: default_log_dir_path(),
+            max_files: None,
+        }
+    }
 }

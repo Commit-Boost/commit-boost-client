@@ -1544,6 +1544,7 @@ dependencies = [
  "alloy",
  "async-trait",
  "axum 0.8.1",
+ "axum-extra",
  "blst",
  "cb-common",
  "cb-metrics",

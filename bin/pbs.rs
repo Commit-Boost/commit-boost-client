@@ -1,6 +1,6 @@
 use cb_common::{
-    config::load_pbs_config,
-    utils::{initialize_pbs_tracing_log, wait_for_signal},
+    config::{load_pbs_config, LogsSettings, PBS_MODULE_NAME},
+    utils::{initialize_tracing_log, wait_for_signal},
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use clap::Parser;
@@ -15,7 +15,7 @@ async fn main() -> Result<()> {
     if std::env::var_os("RUST_BACKTRACE").is_none() {
         std::env::set_var("RUST_BACKTRACE", "1");
     }
-    let _guard = initialize_pbs_tracing_log();
+    let _guard = initialize_tracing_log(PBS_MODULE_NAME, LogsSettings::from_env_config()?);
 
     let _args = cb_cli::PbsArgs::parse();
 
@@ -29,6 +29,7 @@ async fn main() -> Result<()> {
         maybe_err = server => {
             if let Err(err) = maybe_err {
                 error!(%err, "PBS service unexpectedly stopped");
+                eprintln!("PBS service unexpectedly stopped: {}", err);
             }
         },
         _ = wait_for_signal() => {

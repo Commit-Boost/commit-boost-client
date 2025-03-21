@@ -16,13 +16,13 @@ use serde_json::Value;
 use ssz::{Decode, Encode};
 use tracing::Level;
 use tracing_appender::{non_blocking::WorkerGuard, rolling::Rotation};
-use tracing_subscriber::{fmt::Layer, prelude::*, EnvFilter};
-
-use crate::{
-    config::{load_optional_env_var, LogsSettings, PBS_MODULE_NAME},
-    pbs::HEADER_VERSION_VALUE,
-    types::Chain,
+use tracing_subscriber::{
+    fmt::{format::Format, Layer},
+    prelude::*,
+    EnvFilter,
 };
+
+use crate::{config::LogsSettings, pbs::HEADER_VERSION_VALUE, types::Chain};
 
 const MILLIS_PER_SECOND: u64 = 1_000;
 
@@ -149,66 +149,90 @@ pub const fn default_u256() -> U256 {
 }
 
 // LOGGING
-pub fn initialize_tracing_log(module_id: &str) -> eyre::Result<WorkerGuard> {
-    let settings = LogsSettings::from_env_config()?;
+pub fn initialize_tracing_log(
+    module_id: &str,
+    settings: LogsSettings,
+) -> eyre::Result<(Option<WorkerGuard>, Option<WorkerGuard>)> {
+    let format = Format::default().with_target(false).compact();
 
-    // Use file logs only if setting is set
-    let use_file_logs = settings.is_some();
-    let settings = settings.unwrap_or_default();
+    let mut stdout_guard = None;
+    let mut file_guard = None;
+    let mut layers = Vec::new();
 
-    // Log level for stdout
+    if settings.stdout.enabled {
+        let config = settings.stdout;
 
-    let stdout_log_level = if let Some(log_level) = load_optional_env_var("RUST_LOG") {
-        log_level.parse::<Level>().expect("invalid RUST_LOG value")
-    } else {
-        settings.log_level.parse::<Level>().expect("invalid log_level value in settings")
+        let (writer, guard) = tracing_appender::non_blocking(std::io::stdout());
+        stdout_guard = Some(guard);
+
+        let filter = format_crates_filter(Level::INFO.as_str(), config.level.as_str());
+        let format = format.clone().with_ansi(config.color);
+        if config.use_json {
+            let layer = Layer::default()
+                .event_format(format)
+                .json()
+                .flatten_event(true)
+                .with_current_span(true)
+                .with_span_list(false)
+                .with_writer(writer)
+                .with_filter(filter)
+                .boxed();
+
+            layers.push(layer);
+        } else {
+            let layer = Layer::default()
+                .event_format(format)
+                .with_writer(writer)
+                .with_filter(filter)
+                .boxed();
+
+            layers.push(layer);
+        }
     };
 
-    let stdout_filter = format_crates_filter(Level::INFO.as_str(), stdout_log_level.as_str());
+    if settings.file.enabled {
+        let config = settings.file;
 
-    if use_file_logs {
-        // Log all events to a rolling log file.
         let mut builder =
             tracing_appender::rolling::Builder::new().filename_prefix(module_id.to_lowercase());
-        if let Some(value) = settings.max_log_files {
+        if let Some(value) = config.max_files {
             builder = builder.max_log_files(value);
         }
         let file_appender = builder
             .rotation(Rotation::DAILY)
-            .build(settings.log_dir_path)
+            .build(config.dir_path)
             .expect("failed building rolling file appender");
-
         let (writer, guard) = tracing_appender::non_blocking(file_appender);
+        file_guard = Some(guard);
 
-        // at least debug for file logs
-        let file_log_level = stdout_log_level.max(Level::DEBUG);
-        let file_log_filter = format_crates_filter(Level::INFO.as_str(), file_log_level.as_str());
+        let filter = format_crates_filter(Level::INFO.as_str(), config.level.as_str());
+        let format = format.clone().with_ansi(false);
+        if config.use_json {
+            let layer = Layer::default()
+                .event_format(format)
+                .json()
+                .flatten_event(true)
+                .with_current_span(true)
+                .with_span_list(false)
+                .with_writer(writer)
+                .with_filter(filter)
+                .boxed();
 
-        let stdout_layer =
-            tracing_subscriber::fmt::layer().with_target(false).with_filter(stdout_filter);
+            layers.push(layer);
+        } else {
+            let layer = Layer::default()
+                .event_format(format)
+                .with_writer(writer)
+                .with_filter(filter)
+                .boxed();
 
-        let file_layer = Layer::new()
-            .json()
-            .with_current_span(false)
-            .with_span_list(true)
-            .with_writer(writer)
-            .with_filter(file_log_filter);
+            layers.push(layer);
+        }
+    };
 
-        tracing_subscriber::registry().with(stdout_layer.and_then(file_layer)).init();
-        Ok(guard)
-    } else {
-        let (writer, guard) = tracing_appender::non_blocking(std::io::stdout());
-        let stdout_layer = tracing_subscriber::fmt::layer()
-            .with_target(false)
-            .with_writer(writer)
-            .with_filter(stdout_filter);
-        tracing_subscriber::registry().with(stdout_layer).init();
-        Ok(guard)
-    }
-}
+    tracing_subscriber::registry().with(layers).init();
 
-pub fn initialize_pbs_tracing_log() -> eyre::Result<WorkerGuard> {
-    initialize_tracing_log(PBS_MODULE_NAME)
+    Ok((stdout_guard, file_guard))
 }
 
 // all commit boost crates

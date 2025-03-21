@@ -10,7 +10,6 @@ use cb_common::{
 };
 use reqwest::StatusCode;
 use tracing::{error, info};
-use uuid::Uuid;
 
 use crate::{
     api::BuilderApi,
@@ -20,12 +19,15 @@ use crate::{
     state::{BuilderApiState, PbsStateGuard},
 };
 
-#[tracing::instrument(skip_all, name = "get_header", fields(req_id = %Uuid::new_v4(), slot = params.slot))]
 pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
     State(state): State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
     Path(params): Path<GetHeaderParams>,
 ) -> Result<impl IntoResponse, PbsClientError> {
+    tracing::Span::current().record("slot", params.slot);
+    tracing::Span::current().record("parent_hash", tracing::field::debug(params.parent_hash));
+    tracing::Span::current().record("validator", tracing::field::debug(params.pubkey));
+
     let state = state.read().clone();
 
     state.publish_event(BuilderEvent::GetHeaderRequest(params));
@@ -33,7 +35,7 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
     let ua = get_user_agent(&req_headers);
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
 
-    info!(ua, parent_hash=%params.parent_hash, validator_pubkey=%params.pubkey, ms_into_slot);
+    info!(ua, ms_into_slot, "new request");
 
     match A::get_header(params, req_headers, state.clone()).await {
         Ok(res) => {

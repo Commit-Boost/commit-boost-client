@@ -124,7 +124,6 @@ async fn send_register_validator_with_timeout(
     }
 }
 
-#[tracing::instrument(skip_all, name = "handler", fields(relay_id = relay.id.as_ref(), retry = retry))]
 async fn send_register_validator(
     url: Url,
     registrations: &[ValidatorRegistration],
@@ -173,11 +172,13 @@ async fn send_register_validator(
         };
 
         // error here since we check if any success above
-        error!(%err, "failed registration");
+        error!(relay_id = relay.id.as_ref(), retry, %err, "failed registration");
         return Err(err);
     };
 
     debug!(
+        relay_id = relay.id.as_ref(),
+        retry,
         ?code,
         latency = ?request_latency,
         num_registrations = registrations.len(),

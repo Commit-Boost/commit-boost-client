@@ -2,7 +2,6 @@ use axum::{extract::State, http::HeaderMap, response::IntoResponse};
 use cb_common::{pbs::BuilderEvent, utils::get_user_agent};
 use reqwest::StatusCode;
 use tracing::{error, info};
-use uuid::Uuid;
 
 use crate::{
     error::PbsClientError,
@@ -11,7 +10,6 @@ use crate::{
     BuilderApi, RELOAD_ENDPOINT_TAG,
 };
 
-#[tracing::instrument(skip_all, name = "reload", fields(req_id = %Uuid::new_v4()))]
 pub async fn handle_reload<S: BuilderApiState, A: BuilderApi<S>>(
     req_headers: HeaderMap,
     State(state): State<PbsStateGuard<S>>,

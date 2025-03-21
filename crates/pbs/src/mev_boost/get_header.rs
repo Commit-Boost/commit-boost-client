@@ -48,7 +48,10 @@ pub async fn get_header<S: BuilderApiState>(
     let parent_block = Arc::new(RwLock::new(None));
     if state.extra_validation_enabled() {
         if let Some(rpc_url) = state.pbs_config().rpc_url.clone() {
-            tokio::spawn(fetch_parent_block(rpc_url, params.parent_hash, parent_block.clone()));
+            tokio::spawn(
+                fetch_parent_block(rpc_url, params.parent_hash, parent_block.clone())
+                    .in_current_span(),
+            );
         }
     }
 
@@ -81,20 +84,23 @@ pub async fn get_header<S: BuilderApiState>(
 
     let mut handles = Vec::with_capacity(relays.len());
     for relay in relays.iter() {
-        handles.push(send_timed_get_header(
-            params,
-            relay.clone(),
-            state.config.chain,
-            send_headers.clone(),
-            ms_into_slot,
-            max_timeout_ms,
-            ValidationContext {
-                skip_sigverify: state.pbs_config().skip_sigverify,
-                min_bid_wei: state.pbs_config().min_bid_wei,
-                extra_validation_enabled: state.extra_validation_enabled(),
-                parent_block: parent_block.clone(),
-            },
-        ));
+        handles.push(
+            send_timed_get_header(
+                params,
+                relay.clone(),
+                state.config.chain,
+                send_headers.clone(),
+                ms_into_slot,
+                max_timeout_ms,
+                ValidationContext {
+                    skip_sigverify: state.pbs_config().skip_sigverify,
+                    min_bid_wei: state.pbs_config().min_bid_wei,
+                    extra_validation_enabled: state.extra_validation_enabled(),
+                    parent_block: parent_block.clone(),
+                },
+            )
+            .in_current_span(),
+        );
     }
 
     let results = join_all(handles).await;
@@ -126,7 +132,6 @@ pub async fn get_header<S: BuilderApiState>(
 /// Extra validation will be skipped if:
 /// - relay returns header before parent block is fetched
 /// - parent block is not found, eg because of a RPC delay
-#[tracing::instrument(skip_all, name = "parent_block_fetch")]
 async fn fetch_parent_block(
     rpc_url: Url,
     parent_hash: B256,
@@ -148,7 +153,6 @@ async fn fetch_parent_block(
     }
 }
 
-#[tracing::instrument(skip_all, name = "handler", fields(relay_id = relay.id.as_ref()))]
 async fn send_timed_get_header(
     params: GetHeaderParams,
     relay: RelayClient,
@@ -166,18 +170,27 @@ async fn send_timed_get_header(
 
             let delay = target_ms.saturating_sub(ms_into_slot);
             if delay > 0 {
-                debug!(target_ms, ms_into_slot, "TG: waiting to send first header request");
+                debug!(
+                    relay_id = relay.id.as_ref(),
+                    target_ms, ms_into_slot, "TG: waiting to send first header request"
+                );
                 timeout_left_ms = timeout_left_ms.saturating_sub(delay);
                 sleep(Duration::from_millis(delay)).await;
             } else {
-                debug!(target_ms, ms_into_slot, "TG: request already late enough in slot");
+                debug!(
+                    relay_id = relay.id.as_ref(),
+                    target_ms, ms_into_slot, "TG: request already late enough in slot"
+                );
             }
         }
 
         if let Some(send_freq_ms) = relay.config.frequency_get_header_ms {
             let mut handles = Vec::new();
 
-            debug!(send_freq_ms, timeout_left_ms, "TG: sending multiple header requests");
+            debug!(
+                relay_id = relay.id.as_ref(),
+                send_freq_ms, timeout_left_ms, "TG: sending multiple header requests"
+            );
 
             loop {
                 handles.push(tokio::spawn(
@@ -224,18 +237,18 @@ async fn send_timed_get_header(
                         }
                         Err(err) if err.is_timeout() => None,
                         Err(err) => {
-                            error!(%err, "TG: error sending header request");
+                            error!(relay_id = relay.id.as_ref(),%err, "TG: error sending header request");
                             None
                         }
                     })
                 })
                 .max_by_key(|(start_time, _)| *start_time)
             {
-                debug!(n_headers, "TG: received headers from relay");
+                debug!(relay_id = relay.id.as_ref(), n_headers, "TG: received headers from relay");
                 return Ok(maybe_header);
             } else {
                 // all requests failed
-                warn!("TG: no headers received");
+                warn!(relay_id = relay.id.as_ref(), "TG: no headers received");
 
                 return Err(PbsError::RelayResponse {
                     error_msg: "no headers received".to_string(),
@@ -319,6 +332,7 @@ async fn send_one_get_header(
     };
     if code == StatusCode::NO_CONTENT {
         debug!(
+            relay_id = relay.id.as_ref(),
             ?code,
             latency = ?request_latency,
             response = ?response_bytes,
@@ -338,6 +352,7 @@ async fn send_one_get_header(
     };
 
     debug!(
+        relay_id = relay.id.as_ref(),
         latency = ?request_latency,
         version = get_header_response.version(),
         value_eth = format_ether(get_header_response.value()),
@@ -408,7 +423,10 @@ async fn send_one_get_header(
         if let Some(parent_block) = parent_block.as_ref() {
             extra_validation(parent_block, &get_header_response)?;
         } else {
-            warn!("parent block not found, skipping extra validation");
+            warn!(
+                relay_id = relay.id.as_ref(),
+                "parent block not found, skipping extra validation"
+            );
         }
     }
 
