@@ -10,6 +10,9 @@ pub enum SignerModuleError {
     #[error("unauthorized")]
     Unauthorized,
 
+    #[error("signer error: {0}")]
+    SignerError(#[from] alloy::signers::Error),
+
     #[error("unknown consensus signer: 0x{}", hex::encode(.0))]
     UnknownConsensusSigner(Vec<u8>),
 
@@ -41,6 +44,7 @@ impl IntoResponse for SignerModuleError {
             SignerModuleError::Internal(_) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string())
             }
+            SignerModuleError::SignerError(err) => (StatusCode::BAD_REQUEST, err.to_string()),
         }
         .into_response()
     }

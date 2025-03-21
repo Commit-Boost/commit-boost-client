@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use alloy::primitives::Bytes;
+use alloy::primitives::{Address, Bytes};
 use base64::{prelude::BASE64_STANDARD, Engine};
 use derive_more::derive::Deref;
 use serde::{
@@ -8,7 +8,7 @@ use serde::{
     Deserialize, Deserializer,
 };
 
-use super::{BlsPublicKey, EcdsaPublicKey, EcdsaSigner};
+use super::{BlsPublicKey, EcdsaSigner};
 use crate::{
     commit::request::{SignedProxyDelegationBls, SignedProxyDelegationEcdsa},
     signer::BlsSigner,
@@ -37,7 +37,7 @@ pub struct EcdsaProxySigner {
 #[derive(Default, Clone)]
 pub struct ProxySigners {
     pub bls_signers: HashMap<BlsPublicKey, BlsProxySigner>,
-    pub ecdsa_signers: HashMap<EcdsaPublicKey, EcdsaProxySigner>,
+    pub ecdsa_signers: HashMap<Address, EcdsaProxySigner>,
 }
 
 // Prysm keystore actually has a more complex structure, but we only need

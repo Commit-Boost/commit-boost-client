@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use alloy::primitives::Address;
 use commit_boost::prelude::*;
 use eyre::{OptionExt, Result};
 use lazy_static::lazy_static;
@@ -78,7 +79,7 @@ impl DaCommitService {
         data: u64,
         pubkey: BlsPublicKey,
         proxy_bls: BlsPublicKey,
-        proxy_ecdsa: Option<EcdsaPublicKey>,
+        proxy_ecdsa: Option<Address>,
     ) -> Result<()> {
         let datagram = Datagram { data };
 

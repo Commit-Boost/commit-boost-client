@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 
-use alloy::rpc::types::beacon::BlsSignature;
+use alloy::{primitives::Address, rpc::types::beacon::BlsSignature};
 use cb_common::{
     commit::request::{
         ConsensusProxyMap, ProxyDelegationBls, ProxyDelegationEcdsa, SignedProxyDelegationBls,
         SignedProxyDelegationEcdsa,
     },
     signer::{
-        BlsProxySigner, BlsPublicKey, BlsSigner, ConsensusSigner, EcdsaProxySigner, EcdsaPublicKey,
-        EcdsaSignature, EcdsaSigner, ProxySigners, ProxyStore,
+        BlsProxySigner, BlsPublicKey, BlsSigner, ConsensusSigner, EcdsaProxySigner, EcdsaSignature,
+        EcdsaSigner, ProxySigners, ProxyStore,
     },
     types::{Chain, ModuleId},
 };
@@ -26,7 +26,7 @@ pub struct LocalSigningManager {
     /// Used to retrieve the corresponding proxy signer from the signing
     /// manager.
     proxy_pubkeys_bls: HashMap<ModuleId, Vec<BlsPublicKey>>,
-    proxy_pubkeys_ecdsa: HashMap<ModuleId, Vec<EcdsaPublicKey>>,
+    proxy_pubkeys_ecdsa: HashMap<ModuleId, Vec<Address>>,
 }
 
 impl LocalSigningManager {
@@ -79,8 +79,8 @@ impl LocalSigningManager {
             store.store_proxy_ecdsa(&module_id, &proxy)?;
         }
 
-        let proxy_pubkey = proxy.pubkey();
-        self.proxy_signers.ecdsa_signers.insert(proxy.pubkey(), proxy);
+        let proxy_pubkey = proxy.address();
+        self.proxy_signers.ecdsa_signers.insert(proxy.address(), proxy);
         self.proxy_pubkeys_ecdsa.entry(module_id).or_default().push(proxy_pubkey);
 
         Ok(())
@@ -111,7 +111,7 @@ impl LocalSigningManager {
         delegator: BlsPublicKey,
     ) -> Result<SignedProxyDelegationEcdsa, SignerModuleError> {
         let signer = EcdsaSigner::new_random();
-        let proxy_pubkey = signer.pubkey();
+        let proxy_pubkey = signer.address();
 
         let message = ProxyDelegationEcdsa { delegator, proxy: proxy_pubkey };
         let signature = self.sign_consensus(&delegator, &message.tree_hash_root().0).await?;
@@ -156,15 +156,15 @@ impl LocalSigningManager {
 
     pub async fn sign_proxy_ecdsa(
         &self,
-        pubkey: &EcdsaPublicKey,
+        address: &Address,
         object_root: &[u8; 32],
     ) -> Result<EcdsaSignature, SignerModuleError> {
         let ecdsa_proxy = self
             .proxy_signers
             .ecdsa_signers
-            .get(pubkey)
-            .ok_or(SignerModuleError::UnknownProxySigner(pubkey.to_vec()))?;
-        let signature = ecdsa_proxy.sign(self.chain, *object_root).await;
+            .get(address)
+            .ok_or(SignerModuleError::UnknownProxySigner(address.to_vec()))?;
+        let signature = ecdsa_proxy.sign(self.chain, *object_root).await?;
         Ok(signature)
     }
 
@@ -176,7 +176,7 @@ impl LocalSigningManager {
         &self.proxy_pubkeys_bls
     }
 
-    pub fn proxy_pubkeys_ecdsa(&self) -> &HashMap<ModuleId, Vec<EcdsaPublicKey>> {
+    pub fn proxy_pubkeys_ecdsa(&self) -> &HashMap<ModuleId, Vec<Address>> {
         &self.proxy_pubkeys_ecdsa
     }
 
@@ -191,11 +191,7 @@ impl LocalSigningManager {
         }
     }
 
-    pub fn has_proxy_ecdsa_for_module(
-        &self,
-        ecdsa_pk: &EcdsaPublicKey,
-        module_id: &ModuleId,
-    ) -> bool {
+    pub fn has_proxy_ecdsa_for_module(&self, ecdsa_pk: &Address, module_id: &ModuleId) -> bool {
         match self.proxy_pubkeys_ecdsa.get(module_id) {
             Some(keys) => keys.contains(ecdsa_pk),
             None => false,
@@ -215,13 +211,13 @@ impl LocalSigningManager {
 
     pub fn get_delegation_ecdsa(
         &self,
-        pubkey: &EcdsaPublicKey,
+        pubkey: &Address,
     ) -> Result<SignedProxyDelegationEcdsa, SignerModuleError> {
         self.proxy_signers
             .ecdsa_signers
             .get(pubkey)
             .map(|x| x.delegation)
-            .ok_or(SignerModuleError::UnknownProxySigner(pubkey.as_ref().to_vec()))
+            .ok_or(SignerModuleError::UnknownProxySigner(pubkey.to_vec()))
     }
 
     pub fn get_consensus_proxy_maps(

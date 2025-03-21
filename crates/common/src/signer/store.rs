@@ -8,7 +8,7 @@ use std::{
 
 use alloy::{
     hex,
-    primitives::{Bytes, FixedBytes},
+    primitives::{Address, Bytes, FixedBytes},
     rpc::types::beacon::constants::BLS_SIGNATURE_BYTES_LEN,
 };
 use eth2_keystore::{
@@ -26,17 +26,16 @@ use tracing::{trace, warn};
 
 use super::{load_bls_signer, load_ecdsa_signer};
 use crate::{
-    commit::request::{EncryptionScheme, ProxyDelegation, PublicKey, SignedProxyDelegation},
+    commit::request::{EncryptionScheme, ProxyDelegation, ProxyId, SignedProxyDelegation},
     config::{load_env_var, PROXY_DIR_ENV, PROXY_DIR_KEYS_ENV, PROXY_DIR_SECRETS_ENV},
     signer::{
-        BlsProxySigner, BlsPublicKey, BlsSigner, EcdsaProxySigner, EcdsaPublicKey, EcdsaSigner,
-        ProxySigners,
+        BlsProxySigner, BlsPublicKey, BlsSigner, EcdsaProxySigner, EcdsaSigner, ProxySigners,
     },
     types::ModuleId,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
-struct KeyAndDelegation<T: PublicKey> {
+struct KeyAndDelegation<T: ProxyId> {
     secret: Bytes,
     delegation: SignedProxyDelegation<T>,
 }
@@ -126,7 +125,7 @@ impl ProxyStore {
                 let file_path = proxy_dir
                     .join(module_id.to_string())
                     .join("ecdsa")
-                    .join(proxy.signer.pubkey().to_string());
+                    .join(proxy.signer.address().to_string());
                 let secret = Bytes::from(proxy.signer.secret());
                 let to_store = KeyAndDelegation { secret, delegation: proxy.delegation };
                 let content = serde_json::to_vec(&to_store)?;
@@ -186,14 +185,14 @@ impl ProxyStore {
     ) -> eyre::Result<(
         ProxySigners,
         HashMap<ModuleId, Vec<BlsPublicKey>>,
-        HashMap<ModuleId, Vec<EcdsaPublicKey>>,
+        HashMap<ModuleId, Vec<Address>>,
     )> {
         match self {
             ProxyStore::File { proxy_dir } => {
                 // HashMaps to store module_id -> content mappings
                 let mut proxy_signers = ProxySigners::default();
                 let mut bls_map: HashMap<ModuleId, Vec<BlsPublicKey>> = HashMap::new();
-                let mut ecdsa_map: HashMap<ModuleId, Vec<EcdsaPublicKey>> = HashMap::new();
+                let mut ecdsa_map: HashMap<ModuleId, Vec<Address>> = HashMap::new();
 
                 // Iterate over the entries in the base directory
                 for entry in std::fs::read_dir(proxy_dir)? {
@@ -243,12 +242,12 @@ impl ProxyStore {
 
                                     if path.is_file() {
                                         let file_content = read_to_string(&path)?;
-                                        let key_and_delegation: KeyAndDelegation<EcdsaPublicKey> =
+                                        let key_and_delegation: KeyAndDelegation<Address> =
                                             serde_json::from_str(&file_content)?;
                                         let signer = EcdsaSigner::new_from_bytes(
                                             &key_and_delegation.secret,
                                         )?;
-                                        let pubkey = signer.pubkey();
+                                        let pubkey = signer.address();
                                         let proxy_signer = EcdsaProxySigner {
                                             signer,
                                             delegation: key_and_delegation.delegation,
@@ -271,7 +270,7 @@ impl ProxyStore {
             ProxyStore::ERC2335 { keys_path, secrets_path } => {
                 let mut proxy_signers = ProxySigners::default();
                 let mut bls_map: HashMap<ModuleId, Vec<BlsPublicKey>> = HashMap::new();
-                let mut ecdsa_map: HashMap<ModuleId, Vec<EcdsaPublicKey>> = HashMap::new();
+                let mut ecdsa_map: HashMap<ModuleId, Vec<Address>> = HashMap::new();
 
                 for entry in std::fs::read_dir(keys_path)? {
                     let entry = entry?;
@@ -374,7 +373,7 @@ impl ProxyStore {
                                 let signer = load_ecdsa_signer(
                                     path,
                                     secrets_path
-                                        .join(format!("{consensus_pubkey:#x}"))
+                                        .join(consensus_pubkey.to_string())
                                         .join(&module_id)
                                         .join("ecdsa")
                                         .join(name),
@@ -396,17 +395,17 @@ impl ProxyStore {
                                     delegation: SignedProxyDelegation {
                                         message: ProxyDelegation {
                                             delegator: consensus_pubkey,
-                                            proxy: signer.pubkey(),
+                                            proxy: signer.address(),
                                         },
                                         signature: delegation_signature,
                                     },
                                 };
 
-                                proxy_signers.ecdsa_signers.insert(signer.pubkey(), proxy_signer);
+                                proxy_signers.ecdsa_signers.insert(signer.address(), proxy_signer);
                                 ecdsa_map
                                     .entry(ModuleId(module_id.clone()))
                                     .or_default()
-                                    .push(signer.pubkey());
+                                    .push(signer.address());
                             }
                         }
                     }
@@ -417,7 +416,7 @@ impl ProxyStore {
     }
 }
 
-fn store_erc2335_key<T: PublicKey>(
+fn store_erc2335_key<T: ProxyId>(
     module_id: &ModuleId,
     delegation: SignedProxyDelegation<T>,
     secret: Vec<u8>,
@@ -477,7 +476,7 @@ fn store_erc2335_key<T: PublicKey>(
         },
         uuid: Uuid::new_v4(),
         path: None,
-        pubkey: format!("{:x}", delegation.message.proxy),
+        pubkey: alloy::hex::encode(delegation.message.proxy),
         version: eth2_keystore::json_keystore::Version::V4,
         description: Some(delegation.message.proxy.to_string()),
         name: None,
