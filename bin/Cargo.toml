@@ -1,8 +1,8 @@
 [package]
-name = "commit-boost"
-version.workspace = true
 edition.workspace = true
+name = "commit-boost"
 rust-version.workspace = true
+version.workspace = true
 
 [dependencies]
 cb-cli.workspace = true
@@ -10,21 +10,13 @@ cb-common.workspace = true
 cb-metrics.workspace = true
 cb-pbs.workspace = true
 cb-signer.workspace = true
-
-# async / threads
+clap.workspace = true
+color-eyre.workspace = true
+eyre.workspace = true
 tokio.workspace = true
-
-# crypto
+tracing.workspace = true
 tree_hash.workspace = true
 tree_hash_derive.workspace = true
-
-# telemetry
-tracing.workspace = true
-
-# misc
-clap.workspace = true
-eyre.workspace = true
-color-eyre.workspace = true
 
 [[bin]]
 name = "commit-boost-cli"

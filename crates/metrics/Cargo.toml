@@ -1,23 +1,15 @@
 [package]
-name = "cb-metrics"
-version.workspace = true
-rust-version.workspace = true
 edition.workspace = true
+name = "cb-metrics"
 publish = false
+rust-version.workspace = true
+version.workspace = true
 
 [dependencies]
-cb-common.workspace = true
-
-# async / threads
-tokio.workspace = true
-
-# networking
 axum.workspace = true
-
-# telemetry
-tracing.workspace = true
-prometheus.workspace = true
-
-# misc
-thiserror.workspace = true
+cb-common.workspace = true
 eyre.workspace = true
+prometheus.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
