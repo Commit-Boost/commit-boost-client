@@ -27,8 +27,8 @@ async fn test_get_status() -> Result<()> {
     let relay_1_port = pbs_port + 2;
 
     let relays = vec![
-        generate_mock_relay(relay_0_port, *pubkey)?,
-        generate_mock_relay(relay_1_port, *pubkey)?,
+        generate_mock_relay(relay_0_port, pubkey)?,
+        generate_mock_relay(relay_1_port, pubkey)?,
     ];
     let mock_state = Arc::new(MockRelayState::new(chain, signer));
     tokio::spawn(start_mock_relay_service(mock_state.clone(), relay_0_port));
@@ -61,7 +61,7 @@ async fn test_get_status_returns_502_if_relay_down() -> Result<()> {
     let pbs_port = 3600;
     let relay_port = pbs_port + 1;
 
-    let relays = vec![generate_mock_relay(relay_port, *pubkey)?];
+    let relays = vec![generate_mock_relay(relay_port, pubkey)?];
     let mock_state = Arc::new(MockRelayState::new(chain, signer));
 
     // Don't start the relay
