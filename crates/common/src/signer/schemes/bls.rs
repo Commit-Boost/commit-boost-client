@@ -1,7 +1,7 @@
 pub use alloy::rpc::types::beacon::BlsSignature;
 use alloy::rpc::types::beacon::{constants::BLS_DST_SIG, BlsPublicKey as BlsPublicKeyInner};
 use blst::BLST_ERROR;
-use derive_more::derive::{Deref, Display, From, Into, LowerHex};
+use derive_more::derive::{Deref, Display, From, Into};
 use serde::{Deserialize, Serialize};
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
@@ -20,7 +20,7 @@ pub type BlsSecretKey = blst::min_pk::SecretKey;
 // and alloy's `BlsPublicKey` if we stick with it
 
 // std traits
-#[derive(Debug, Clone, Copy, LowerHex, Display, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, Display, PartialEq, Eq, Hash, Default)]
 // serde, ssz, tree_hash
 #[derive(Serialize, Deserialize, TreeHash)]
 #[serde(transparent)]

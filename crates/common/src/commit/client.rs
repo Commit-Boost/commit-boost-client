@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use alloy::rpc::types::beacon::BlsSignature;
+use alloy::{primitives::Address, rpc::types::beacon::BlsSignature};
 use eyre::WrapErr;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use serde::Deserialize;
@@ -10,12 +10,12 @@ use super::{
     constants::{GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, REQUEST_SIGNATURE_PATH},
     error::SignerClientError,
     request::{
-        EncryptionScheme, GenerateProxyRequest, GetPubkeysResponse, PublicKey,
-        SignConsensusRequest, SignProxyRequest, SignRequest, SignedProxyDelegation,
+        EncryptionScheme, GenerateProxyRequest, GetPubkeysResponse, ProxyId, SignConsensusRequest,
+        SignProxyRequest, SignRequest, SignedProxyDelegation,
     },
 };
 use crate::{
-    signer::{BlsPublicKey, EcdsaPublicKey, EcdsaSignature},
+    signer::{BlsPublicKey, EcdsaSignature},
     DEFAULT_REQUEST_TIMEOUT,
 };
 
@@ -93,7 +93,7 @@ impl SignerClient {
 
     pub async fn request_proxy_signature_ecdsa(
         &self,
-        request: SignProxyRequest<EcdsaPublicKey>,
+        request: SignProxyRequest<Address>,
     ) -> Result<EcdsaSignature, SignerClientError> {
         self.request_signature(&request.into()).await
     }
@@ -110,7 +110,7 @@ impl SignerClient {
         request: &GenerateProxyRequest,
     ) -> Result<SignedProxyDelegation<T>, SignerClientError>
     where
-        T: PublicKey + for<'de> Deserialize<'de>,
+        T: ProxyId + for<'de> Deserialize<'de>,
     {
         let url = self.url.join(GENERATE_PROXY_KEY_PATH)?;
         let res = self.client.post(url).json(&request).send().await?;
@@ -144,7 +144,7 @@ impl SignerClient {
     pub async fn generate_proxy_key_ecdsa(
         &self,
         consensus_pubkey: BlsPublicKey,
-    ) -> Result<SignedProxyDelegation<EcdsaPublicKey>, SignerClientError> {
+    ) -> Result<SignedProxyDelegation<Address>, SignerClientError> {
         let request = GenerateProxyRequest::new(consensus_pubkey, EncryptionScheme::Ecdsa);
 
         let ecdsa_signed_proxy_delegation = self.generate_proxy_key(&request).await?;

@@ -1,18 +1,10 @@
-use core::fmt;
-use std::hash::Hash;
+use std::{ops::Deref, str::FromStr};
 
-use alloy::primitives::B256;
-use derive_more::derive::{Deref, From, Into};
-use k256::{
-    ecdsa::{Signature as EcdsaSignatureInner, VerifyingKey as EcdsaPublicKeyInner},
-    elliptic_curve::generic_array::GenericArray,
+use alloy::{
+    primitives::{Address, PrimitiveSignature, B256},
+    signers::{local::PrivateKeySigner, SignerSync},
 };
-use serde::{Deserialize, Serialize};
-use serde_utils::hex;
-use ssz_types::{
-    typenum::{U33, U64},
-    FixedVector,
-};
+use eyre::ensure;
 use tree_hash::TreeHash;
 
 use crate::{
@@ -21,130 +13,52 @@ use crate::{
     types::Chain,
 };
 
-pub type EcdsaSecretKey = k256::ecdsa::SigningKey;
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct EcdsaSignature(PrimitiveSignature);
 
-type CompressedPublicKey = [u8; 33];
-
-#[derive(Debug, Clone, Copy, From, Into, Serialize, Deserialize, PartialEq, Eq, Deref, Hash)]
-#[serde(transparent)]
-pub struct EcdsaPublicKey {
-    #[serde(with = "alloy::hex::serde")]
-    encoded: CompressedPublicKey,
-}
-
-impl EcdsaPublicKey {
-    /// Size of the public key in bytes. We store the SEC1 encoded affine point
-    /// compressed, thus 33 bytes.
-    const SIZE: usize = 33;
-}
-
-impl Default for EcdsaPublicKey {
-    fn default() -> Self {
-        Self { encoded: [0; Self::SIZE] }
-    }
-}
-
-impl TreeHash for EcdsaPublicKey {
-    fn tree_hash_type() -> tree_hash::TreeHashType {
-        tree_hash::TreeHashType::Vector
-    }
-
-    fn tree_hash_packed_encoding(&self) -> tree_hash::PackedEncoding {
-        unreachable!("Vector should never be packed.")
-    }
-
-    fn tree_hash_packing_factor() -> usize {
-        unreachable!("Vector should never be packed.")
-    }
-
-    fn tree_hash_root(&self) -> tree_hash::Hash256 {
-        // NOTE:
-        // Unnecessary copying into a `FixedVector` just for its `tree_hash_root`
-        // implementation.  If this becomes a performance issue, we could use
-        // `ssz_types::tree_hash::vec_tree_hash_root`,  which is unfortunately
-        // not public.
-        let vec = self.encoded.to_vec();
-        FixedVector::<u8, U33>::from(vec).tree_hash_root()
-    }
-}
-
-impl From<EcdsaPublicKeyInner> for EcdsaPublicKey {
-    fn from(value: EcdsaPublicKeyInner) -> Self {
-        let encoded: [u8; Self::SIZE] = value.to_encoded_point(true).as_bytes().try_into().unwrap();
-
-        EcdsaPublicKey { encoded }
-    }
-}
-
-impl AsRef<[u8]> for EcdsaPublicKey {
-    fn as_ref(&self) -> &[u8] {
-        &self.encoded
-    }
-}
-
-impl fmt::LowerHex for EcdsaPublicKey {
+impl std::fmt::Display for EcdsaSignature {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", hex::encode(self.as_ref()))?;
-        Ok(())
+        write!(f, "{}", self.0)
     }
 }
 
-impl fmt::Display for EcdsaPublicKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{self:x}")
+impl serde::Serialize for EcdsaSignature {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.0.to_string().serialize(serializer)
     }
 }
 
-#[derive(Clone, Deref, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct EcdsaSignature {
-    #[serde(with = "alloy::hex::serde")]
-    encoded: [u8; 64],
-}
-
-impl Default for EcdsaSignature {
-    fn default() -> Self {
-        Self { encoded: [0; 64] }
+impl<'de> serde::Deserialize<'de> for EcdsaSignature {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Ok(Self(PrimitiveSignature::from_str(&s).map_err(serde::de::Error::custom)?))
     }
 }
 
-impl From<EcdsaSignatureInner> for EcdsaSignature {
-    fn from(value: EcdsaSignatureInner) -> Self {
-        Self { encoded: value.to_bytes().as_slice().try_into().unwrap() }
+impl From<PrimitiveSignature> for EcdsaSignature {
+    fn from(signature: PrimitiveSignature) -> Self {
+        Self(signature)
     }
 }
 
-impl AsRef<[u8]> for EcdsaSignature {
-    fn as_ref(&self) -> &[u8] {
-        &self.encoded
-    }
-}
+impl Deref for EcdsaSignature {
+    type Target = PrimitiveSignature;
 
-impl TryFrom<&[u8]> for EcdsaSignature {
-    type Error = k256::ecdsa::Error;
-
-    fn try_from(value: &[u8]) -> std::result::Result<Self, Self::Error> {
-        Ok(EcdsaSignatureInner::from_slice(value)?.into())
-    }
-}
-
-impl fmt::LowerHex for EcdsaSignature {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", hex::encode(self.as_ref()))?;
-        Ok(())
-    }
-}
-
-impl fmt::Display for EcdsaSignature {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{self:x}")
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
 // SIGNER
 #[derive(Clone)]
 pub enum EcdsaSigner {
-    Local(EcdsaSecretKey),
+    Local(PrivateKeySigner),
 }
 
 impl EcdsaSigner {
@@ -154,13 +68,13 @@ impl EcdsaSigner {
     }
 
     pub fn new_from_bytes(bytes: &[u8]) -> eyre::Result<Self> {
-        let secret = EcdsaSecretKey::from_slice(bytes)?;
+        let secret = PrivateKeySigner::from_slice(bytes)?;
         Ok(Self::Local(secret))
     }
 
-    pub fn pubkey(&self) -> EcdsaPublicKey {
+    pub fn address(&self) -> Address {
         match self {
-            EcdsaSigner::Local(secret) => EcdsaPublicKeyInner::from(secret).into(),
+            EcdsaSigner::Local(secret) => secret.address(),
         }
     }
 
@@ -170,49 +84,61 @@ impl EcdsaSigner {
         }
     }
 
-    pub async fn sign(&self, chain: Chain, object_root: [u8; 32]) -> EcdsaSignature {
+    pub async fn sign(
+        &self,
+        chain: Chain,
+        object_root: [u8; 32],
+    ) -> Result<EcdsaSignature, alloy::signers::Error> {
         match self {
             EcdsaSigner::Local(sk) => {
                 let domain = compute_domain(chain, COMMIT_BOOST_DOMAIN);
-                let signing_root = compute_signing_root(object_root, domain);
-                k256::ecdsa::signature::Signer::<EcdsaSignatureInner>::sign(sk, &signing_root)
-                    .into()
+                let signing_root = compute_signing_root(object_root, domain).into();
+                sk.sign_hash_sync(&signing_root).map(EcdsaSignature::from)
             }
         }
     }
 
-    pub async fn sign_msg(&self, chain: Chain, msg: &impl TreeHash) -> EcdsaSignature {
+    pub async fn sign_msg(
+        &self,
+        chain: Chain,
+        msg: &impl TreeHash,
+    ) -> Result<EcdsaSignature, alloy::signers::Error> {
         self.sign(chain, msg.tree_hash_root().0).await
     }
 }
 
 pub fn verify_ecdsa_signature(
-    pubkey: &EcdsaPublicKey,
-    msg: &[u8],
+    address: &Address,
+    msg: &[u8; 32],
     signature: &EcdsaSignature,
-) -> Result<(), k256::ecdsa::Error> {
-    use k256::ecdsa::signature::Verifier;
-    let ecdsa_pubkey = EcdsaPublicKeyInner::from_sec1_bytes(&pubkey.encoded)?;
-    let ecdsa_sig =
-        EcdsaSignatureInner::from_bytes(GenericArray::<u8, U64>::from_slice(signature.as_ref()))?;
-    ecdsa_pubkey.verify(msg, &ecdsa_sig)
+) -> eyre::Result<()> {
+    let recovered = signature.recover_address_from_prehash(msg.into())?;
+    ensure!(recovered == *address, "invalid signature");
+    Ok(())
 }
 
 #[cfg(test)]
 mod test {
+
+    use alloy::{hex, primitives::bytes};
+
     use super::*;
 
     #[tokio::test]
     async fn test_ecdsa_signer() {
-        let signer = EcdsaSigner::new_random();
-        let pubkey = signer.pubkey();
-        let object_root = B256::random().0;
-        let signature = signer.sign(Chain::Holesky, object_root).await;
+        let pk = bytes!("88bcd6672d95bcba0d52a3146494ed4d37675af4ed2206905eb161aa99a6c0d1");
+        let signer = EcdsaSigner::new_from_bytes(&pk).unwrap();
+
+        let object_root = [1; 32];
+        let signature = signer.sign(Chain::Holesky, object_root).await.unwrap();
 
         let domain = compute_domain(Chain::Holesky, COMMIT_BOOST_DOMAIN);
         let msg = compute_signing_root(object_root, domain);
 
-        let verified = verify_ecdsa_signature(&pubkey, &msg, &signature);
+        assert_eq!(msg, hex!("219ca7a673b2cbbf67bec6c9f60f78bd051336d57b68d1540190f30667e86725"));
+
+        let address = signer.address();
+        let verified = verify_ecdsa_signature(&address, &msg, &signature);
         assert!(verified.is_ok());
     }
 }
