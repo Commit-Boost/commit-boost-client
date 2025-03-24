@@ -120,19 +120,25 @@ pub fn verify_ecdsa_signature(
 #[cfg(test)]
 mod test {
 
+    use alloy::{hex, primitives::bytes};
+
     use super::*;
 
     #[tokio::test]
     async fn test_ecdsa_signer() {
-        let signer = EcdsaSigner::new_random();
-        let pubkey = signer.address();
-        let object_root = B256::random().0;
+        let pk = bytes!("88bcd6672d95bcba0d52a3146494ed4d37675af4ed2206905eb161aa99a6c0d1");
+        let signer = EcdsaSigner::new_from_bytes(&pk).unwrap();
+
+        let object_root = [1; 32];
         let signature = signer.sign(Chain::Holesky, object_root).await.unwrap();
 
         let domain = compute_domain(Chain::Holesky, COMMIT_BOOST_DOMAIN);
         let msg = compute_signing_root(object_root, domain);
 
-        let verified = verify_ecdsa_signature(&pubkey, &msg, &signature);
+        assert_eq!(msg, hex!("219ca7a673b2cbbf67bec6c9f60f78bd051336d57b68d1540190f30667e86725"));
+
+        let address = signer.address();
+        let verified = verify_ecdsa_signature(&address, &msg, &signature);
         assert!(verified.is_ok());
     }
 }
