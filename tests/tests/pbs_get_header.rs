@@ -31,7 +31,7 @@ async fn test_get_header() -> Result<()> {
 
     // Run a mock relay
     let mock_state = Arc::new(MockRelayState::new(chain, signer));
-    let mock_relay = generate_mock_relay(relay_port, *pubkey)?;
+    let mock_relay = generate_mock_relay(relay_port, pubkey)?;
     tokio::spawn(start_mock_relay_service(mock_state.clone(), relay_port));
 
     // Run the PBS service
@@ -81,7 +81,7 @@ async fn test_get_header_returns_204_if_relay_down() -> Result<()> {
 
     // Create a mock relay client
     let mock_state = Arc::new(MockRelayState::new(chain, signer));
-    let mock_relay = generate_mock_relay(relay_port, *pubkey)?;
+    let mock_relay = generate_mock_relay(relay_port, pubkey)?;
 
     // Don't start the relay
     // tokio::spawn(start_mock_relay_service(mock_state.clone(), relay_port));
@@ -115,7 +115,7 @@ async fn test_get_header_returns_400_if_request_is_invalid() -> Result<()> {
 
     // Run a mock relay
     let mock_state = Arc::new(MockRelayState::new(chain, signer));
-    let mock_relay = generate_mock_relay(relay_port, *pubkey)?;
+    let mock_relay = generate_mock_relay(relay_port, pubkey)?;
     tokio::spawn(start_mock_relay_service(mock_state.clone(), relay_port));
 
     // Run the PBS service
@@ -127,7 +127,7 @@ async fn test_get_header_returns_400_if_request_is_invalid() -> Result<()> {
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     // Create an invalid URL by truncating the pubkey
-    let mut bad_url = mock_relay.get_header_url(0, B256::ZERO, *pubkey).unwrap();
+    let mut bad_url = mock_relay.get_header_url(0, B256::ZERO, pubkey).unwrap();
     bad_url.set_path(&bad_url.path().replace(&pubkey.to_string(), &pubkey.to_string()[..10]));
 
     let mock_validator = MockValidator::new(pbs_port)?;
@@ -137,7 +137,7 @@ async fn test_get_header_returns_400_if_request_is_invalid() -> Result<()> {
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
 
     // Attempt again by truncating the parent hash
-    let mut bad_url = mock_relay.get_header_url(0, B256::ZERO, *pubkey).unwrap();
+    let mut bad_url = mock_relay.get_header_url(0, B256::ZERO, pubkey).unwrap();
     bad_url
         .set_path(&bad_url.path().replace(&B256::ZERO.to_string(), &B256::ZERO.to_string()[..10]));
     let res = mock_validator.comm_boost.client.get(bad_url).send().await?;

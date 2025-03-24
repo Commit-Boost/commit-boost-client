@@ -26,7 +26,7 @@ async fn test_register_validators() -> Result<()> {
     let pbs_port = 4000;
 
     // Run a mock relay
-    let relays = vec![generate_mock_relay(pbs_port + 1, *pubkey)?];
+    let relays = vec![generate_mock_relay(pbs_port + 1, pubkey)?];
     let mock_state = Arc::new(MockRelayState::new(chain, signer));
     tokio::spawn(start_mock_relay_service(mock_state.clone(), pbs_port + 1));
 
@@ -72,7 +72,7 @@ async fn test_register_validators_returns_422_if_request_is_malformed() -> Resul
     let pbs_port = 4100;
 
     // Run a mock relay
-    let relays = vec![generate_mock_relay(pbs_port + 1, *pubkey)?];
+    let relays = vec![generate_mock_relay(pbs_port + 1, pubkey)?];
     let mock_state = Arc::new(MockRelayState::new(chain, signer));
     tokio::spawn(start_mock_relay_service(mock_state.clone(), pbs_port + 1));
 

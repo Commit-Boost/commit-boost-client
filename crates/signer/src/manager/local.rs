@@ -210,7 +210,7 @@ impl LocalSigningManager {
             .bls_signers
             .get(pubkey)
             .map(|x| x.delegation)
-            .ok_or(SignerModuleError::UnknownProxySigner(pubkey.as_ref().to_vec()))
+            .ok_or(SignerModuleError::UnknownProxySigner(pubkey.to_vec()))
     }
 
     pub fn get_delegation_ecdsa(

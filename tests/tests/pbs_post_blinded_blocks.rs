@@ -26,7 +26,7 @@ async fn test_submit_block() -> Result<()> {
     let pbs_port = 3800;
 
     // Run a mock relay
-    let relays = vec![generate_mock_relay(pbs_port + 1, *pubkey)?];
+    let relays = vec![generate_mock_relay(pbs_port + 1, pubkey)?];
     let mock_state = Arc::new(MockRelayState::new(chain, signer));
     tokio::spawn(start_mock_relay_service(mock_state.clone(), pbs_port + 1));
 
@@ -59,7 +59,7 @@ async fn test_submit_block_too_large() -> Result<()> {
     let chain = Chain::Holesky;
     let pbs_port = 3900;
 
-    let relays = vec![generate_mock_relay(pbs_port + 1, *pubkey)?];
+    let relays = vec![generate_mock_relay(pbs_port + 1, pubkey)?];
     let mock_state = Arc::new(MockRelayState::new(chain, signer).with_large_body());
     tokio::spawn(start_mock_relay_service(mock_state.clone(), pbs_port + 1));
 

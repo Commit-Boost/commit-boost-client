@@ -25,9 +25,9 @@ async fn test_mux() -> Result<()> {
     let chain = Chain::Holesky;
     let pbs_port = 3700;
 
-    let mux_relay_1 = generate_mock_relay(pbs_port + 1, *pubkey)?;
-    let mux_relay_2 = generate_mock_relay(pbs_port + 2, *pubkey)?;
-    let default_relay = generate_mock_relay(pbs_port + 3, *pubkey)?;
+    let mux_relay_1 = generate_mock_relay(pbs_port + 1, pubkey)?;
+    let mux_relay_2 = generate_mock_relay(pbs_port + 2, pubkey)?;
+    let default_relay = generate_mock_relay(pbs_port + 3, pubkey)?;
 
     // Run 3 mock relays
     let mock_state = Arc::new(MockRelayState::new(chain, signer));
