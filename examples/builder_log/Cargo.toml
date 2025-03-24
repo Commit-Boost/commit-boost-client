@@ -1,16 +1,12 @@
 [package]
-name = "builder_log"
-version.workspace = true
 edition.workspace = true
+name = "builder_log"
 rust-version.workspace = true
+version.workspace = true
 
 [dependencies]
-commit-boost = { path = "../../bin" }
-
-# async / threads
-tokio.workspace = true
 async-trait.workspace = true
-
-# telemetry
-tracing.workspace = true
+commit-boost = { path = "../../bin" }
 eyre.workspace = true
+tokio.workspace = true
+tracing.workspace = true

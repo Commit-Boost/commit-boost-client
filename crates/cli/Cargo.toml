@@ -1,21 +1,14 @@
 [package]
-name = "cb-cli"
-version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
+name = "cb-cli"
 publish = false
+rust-version.workspace = true
+version.workspace = true
 
 [dependencies]
 cb-common.workspace = true
-
-serde.workspace = true
-serde_json.workspace = true
-serde_yaml.workspace = true
-
 clap.workspace = true
-
-eyre.workspace = true
-
 docker-compose-types.workspace = true
-dotenvy.workspace = true
+eyre.workspace = true
 indexmap.workspace = true
+serde_yaml.workspace = true

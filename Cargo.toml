@@ -1,109 +1,72 @@
 [workspace]
-members = [
-    "bin",
-
-    "crates/cli",
-    "crates/common",
-    "crates/signer",
-    "crates/pbs",
-    "crates/metrics",
-
-    "tests",
-    "benches/*",
-    "examples/builder_log",
-    "examples/da_commit",
-    "examples/status_api",
-]
+members = ["benches/*", "bin", "crates/*", "examples/builder_log", "examples/da_commit", "examples/status_api", "tests"]
 resolver = "2"
 
 [workspace.package]
-version = "0.7.0-rc.2"
-rust-version = "1.83"
 edition = "2021"
+rust-version = "1.83"
+version = "0.7.0-rc.2"
 
 [workspace.dependencies]
+aes = "0.8"
+alloy = { version = "0.12", features = [
+    "full",
+    "getrandom",
+    "providers",
+    "rpc-types-beacon",
+    "serde",
+    "signer-local",
+    "ssz",
+] }
+async-trait = "0.1.80"
+axum = { version = "0.8.1", features = ["macros"] }
+axum-extra = { version = "0.10.0", features = ["typed-header"] }
+base64 = "0.22.1"
+bimap = { version = "0.6.3", features = ["serde"] }
+blsful = "2.5"
+blst = "0.3.11"
 cb-cli = { path = "crates/cli" }
 cb-common = { path = "crates/common" }
 cb-metrics = { path = "crates/metrics" }
 cb-pbs = { path = "crates/pbs" }
 cb-signer = { path = "crates/signer" }
-
-# ethereum
-alloy = { version = "0.12", features = [
-    "full",
-    "rpc-types-beacon",
-    "serde",
-    "ssz",
-    "getrandom",
-    "providers",
-    "signer-local",
-] }
-ssz_types = "0.10"
+cipher = "0.4"
+clap = { version = "4.5.4", features = ["derive", "env"] }
+color-eyre = "0.6.3"
+ctr = "0.9.2"
+derive_more = { version = "2.0.1", features = ["deref", "display", "from", "into"] }
+docker-compose-types = "0.16.0"
+eth2_keystore = { git = "https://github.com/sigp/lighthouse", rev = "8d058e4040b765a96aa4968f4167af7571292be2" }
 ethereum_serde_utils = "0.7.0"
-
-# networking
-axum = { version = "0.8.1", features = ["macros"] }
-axum-extra = { version = "0.10.0", features = ["typed-header"] }
-reqwest = { version = "0.12.4", features = ["json", "stream"] }
-headers = "0.4.0"
-tonic = { version = "0.12.3", features = ["tls", "channel", "prost"] }
-tonic-build = "0.12.3"
-prost = "0.13.4"
-
-# async / threads
-tokio = { version = "1.37.0", features = ["full"] }
+ethereum_ssz = "0.8"
+ethereum_ssz_derive = "0.8"
+eyre = "0.6.12"
 futures = "0.3.30"
-async-trait = "0.1.80"
-dashmap = "6.1.0"
+headers = "0.4.0"
+indexmap = "2.2.6"
+lazy_static = "1.5.0"
 parking_lot = "0.12.3"
-
-# serialization
-toml = "0.8.13"
+pbkdf2 = "0.12.2"
+prometheus = "0.13.4"
+prost = "0.13.4"
+rand = { version = "0.9", features = ["os_rng"] }
+reqwest = { version = "0.12.4", features = ["json", "stream"] }
 serde = { version = "1.0.202", features = ["derive"] }
 serde_json = "1.0.117"
 serde_yaml = "0.9.33"
-base64 = "0.22.1"
-unicode-normalization = "0.1.24"
-ethereum_ssz = "0.8"
-ethereum_ssz_derive = "0.8"
-
-# telemetry
+sha2 = "0.10.8"
+ssz_types = "0.10"
+thiserror = "2.0.12"
+tokio = { version = "1.37.0", features = ["full"] }
+toml = "0.8.13"
+tonic = { version = "0.12.3", features = ["channel", "prost", "tls"] }
+tonic-build = "0.12.3"
 tracing = "0.1.40"
-tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 tracing-appender = "0.2.3"
-prometheus = "0.13.4"
-
-# crypto
-blst = "0.3.11"
-blsful = "2.5"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 tree_hash = "0.9"
 tree_hash_derive = "0.9"
-eth2_keystore = { git = "https://github.com/sigp/lighthouse", rev = "8d058e4040b765a96aa4968f4167af7571292be2" }
-aes = "0.8"
-ctr = "0.9.2"
-cipher = "0.4"
-pbkdf2 = "0.12.2"
-sha2 = "0.10.8"
-
-# docker
-docker-compose-types = "0.16.0"
-
-# misc
-clap = { version = "4.5.4", features = ["derive", "env"] }
-thiserror = "2.0.12"
-color-eyre = "0.6.3"
-eyre = "0.6.12"
-url = { version = "2.5.0", features = ["serde"] }
-uuid = { version = "1.8.0", features = ["v4", "fast-rng", "serde"] }
 typenum = "1.17.0"
-rand = { version = "0.9", features = ["os_rng"] }
-dotenvy = "0.15.7"
-indexmap = "2.2.6"
-lazy_static = "1.5.0"
-bimap = { version = "0.6.3", features = ["serde"] }
-derive_more = { version = "2.0.1", features = [
-    "from",
-    "into",
-    "deref",
-    "display",
-] }
+unicode-normalization = "0.1.24"
+url = { version = "2.5.0", features = ["serde"] }
+uuid = { version = "1.8.0", features = ["fast-rng", "serde", "v4"] }

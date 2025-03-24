@@ -1,43 +1,31 @@
 [package]
-name = "cb-signer"
-version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
+name = "cb-signer"
 publish = false
+rust-version.workspace = true
+version.workspace = true
 
 [dependencies]
-cb-common.workspace = true
-cb-metrics.workspace = true
-
-# ethereum
 alloy.workspace = true
-
-# networking
 axum.workspace = true
 axum-extra.workspace = true
-headers.workspace = true
-tonic.workspace = true
-prost.workspace = true
-
-# async / threads
-tokio.workspace = true
-futures.workspace = true
-
-# telemetry
-tracing.workspace = true
-prometheus.workspace = true
-
-# crypto
-blsful.workspace = true
-tree_hash.workspace = true
-
-# misc
-thiserror.workspace = true
-eyre.workspace = true
-uuid.workspace = true
 bimap.workspace = true
+blsful.workspace = true
+cb-common.workspace = true
+cb-metrics.workspace = true
+eyre.workspace = true
+futures.workspace = true
+headers.workspace = true
 lazy_static.workspace = true
+prometheus.workspace = true
+prost.workspace = true
 rand.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tonic.workspace = true
+tracing.workspace = true
+tree_hash.workspace = true
+uuid.workspace = true
 
 [build-dependencies]
 tonic-build.workspace = true
