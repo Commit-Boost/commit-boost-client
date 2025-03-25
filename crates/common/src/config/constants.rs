@@ -35,9 +35,6 @@ pub const SIGNER_MODULE_NAME: &str = "signer";
 /// Where the signer module should open the server
 pub const SIGNER_PORT_ENV: &str = "CB_SIGNER_PORT";
 
-/// Comma separated list of module ids
-pub const MODULES_ENV: &str = "CB_MODULES";
-
 /// Path to json file with plaintext keys (testing only)
 pub const SIGNER_KEYS_ENV: &str = "CB_SIGNER_LOADER_FILE";
 pub const SIGNER_DEFAULT: &str = "/keys.json";

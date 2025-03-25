@@ -10,12 +10,11 @@ use cb_common::{
         BUILDER_URLS_ENV, CHAIN_SPEC_ENV, CONFIG_DEFAULT, CONFIG_ENV, DIRK_CA_CERT_DEFAULT,
         DIRK_CA_CERT_ENV, DIRK_CERT_DEFAULT, DIRK_CERT_ENV, DIRK_DIR_SECRETS_DEFAULT,
         DIRK_DIR_SECRETS_ENV, DIRK_KEY_DEFAULT, DIRK_KEY_ENV, LOGS_DIR_DEFAULT, LOGS_DIR_ENV,
-        METRICS_PORT_ENV, MODULES_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, PBS_ENDPOINT_ENV,
-        PBS_MODULE_NAME, PROXY_DIR_DEFAULT, PROXY_DIR_ENV, PROXY_DIR_KEYS_DEFAULT,
-        PROXY_DIR_KEYS_ENV, PROXY_DIR_SECRETS_DEFAULT, PROXY_DIR_SECRETS_ENV, SIGNER_DEFAULT,
-        SIGNER_DIR_KEYS_DEFAULT, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS_DEFAULT,
-        SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV, SIGNER_MODULE_NAME, SIGNER_PORT_ENV,
-        SIGNER_URL_ENV,
+        METRICS_PORT_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, PBS_ENDPOINT_ENV, PBS_MODULE_NAME,
+        PROXY_DIR_DEFAULT, PROXY_DIR_ENV, PROXY_DIR_KEYS_DEFAULT, PROXY_DIR_KEYS_ENV,
+        PROXY_DIR_SECRETS_DEFAULT, PROXY_DIR_SECRETS_ENV, SIGNER_DEFAULT, SIGNER_DIR_KEYS_DEFAULT,
+        SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS_DEFAULT, SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV,
+        SIGNER_MODULE_NAME, SIGNER_PORT_ENV, SIGNER_URL_ENV,
     },
     pbs::{BUILDER_API_PATH, GET_STATUS_PATH},
     signer::{ProxyStore, SignerLoader},
@@ -329,7 +328,6 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
             SignerType::Local { loader, store } => {
                 let mut signer_envs = IndexMap::from([
                     get_env_val(CONFIG_ENV, CONFIG_DEFAULT),
-                    get_env_same(MODULES_ENV),
                     get_env_uval(SIGNER_PORT_ENV, signer_port as u64),
                 ]);
 
@@ -353,12 +351,6 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                     let (key, val) = get_env_val(LOGS_DIR_ENV, LOGS_DIR_DEFAULT);
                     signer_envs.insert(key, val);
                 }
-
-                // write modules to env
-                envs.insert(
-                    MODULES_ENV.into(),
-                    jwts.keys().map(|module| module.0.clone()).collect::<Vec<_>>().join(","),
-                );
 
                 // volumes
                 let mut volumes = vec![config_volume.clone()];
@@ -457,7 +449,6 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
             SignerType::Dirk { cert_path, key_path, secrets_path, ca_cert_path, store, .. } => {
                 let mut signer_envs = IndexMap::from([
                     get_env_val(CONFIG_ENV, CONFIG_DEFAULT),
-                    get_env_same(MODULES_ENV),
                     get_env_uval(SIGNER_PORT_ENV, signer_port as u64),
                     get_env_val(DIRK_CERT_ENV, DIRK_CERT_DEFAULT),
                     get_env_val(DIRK_KEY_ENV, DIRK_KEY_DEFAULT),
@@ -484,12 +475,6 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                     let (key, val) = get_env_val(LOGS_DIR_ENV, LOGS_DIR_DEFAULT);
                     signer_envs.insert(key, val);
                 }
-
-                // write modules to env
-                envs.insert(
-                    MODULES_ENV.into(),
-                    jwts.keys().map(|module| module.0.clone()).collect::<Vec<_>>().join(","),
-                );
 
                 // volumes
                 let mut volumes = vec![
@@ -637,6 +622,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
 }
 
 /// FOO=${FOO}
+#[allow(dead_code)]
 fn get_env_same(k: &str) -> (String, Option<SingleValue>) {
     get_env_interp(k, k)
 }

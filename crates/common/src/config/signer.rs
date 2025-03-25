@@ -6,8 +6,7 @@ use tonic::transport::{Certificate, Identity};
 use url::Url;
 
 use super::{
-    constants::SIGNER_IMAGE_DEFAULT, load_modules, utils::load_env_var, CommitBoostConfig,
-    SIGNER_PORT_ENV,
+    constants::SIGNER_IMAGE_DEFAULT, utils::load_env_var, CommitBoostConfig, SIGNER_PORT_ENV,
 };
 use crate::{
     config::{DIRK_CA_CERT_ENV, DIRK_CERT_ENV, DIRK_DIR_SECRETS_ENV, DIRK_KEY_ENV},
@@ -96,7 +95,8 @@ impl StartSignerConfig {
     pub fn load_from_env() -> Result<Self> {
         let config = CommitBoostConfig::from_env_path()?;
 
-        let modules = load_modules()?;
+        let modules =
+            config.modules.unwrap_or(Vec::new()).iter().map(|module| module.id.clone()).collect();
         let server_port = load_env_var(SIGNER_PORT_ENV)?.parse()?;
 
         let signer = config.signer.ok_or_eyre("Signer config is missing")?.inner;
