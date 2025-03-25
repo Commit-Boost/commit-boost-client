@@ -11,7 +11,7 @@ use axum::http::HeaderValue;
 use blst::min_pk::{PublicKey, Signature};
 use rand::{distr::Alphanumeric, Rng};
 use reqwest::header::HeaderMap;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 use ssz::{Decode, Encode};
 use tracing::Level;
@@ -22,7 +22,11 @@ use tracing_subscriber::{
     EnvFilter,
 };
 
-use crate::{config::LogsSettings, pbs::HEADER_VERSION_VALUE, types::Chain};
+use crate::{
+    config::LogsSettings,
+    pbs::HEADER_VERSION_VALUE,
+    types::{Chain, ModuleId},
+};
 
 const MILLIS_PER_SECOND: u64 = 1_000;
 
@@ -267,6 +271,25 @@ pub fn alloy_sig_to_blst(signature: &BlsSignature) -> Result<Signature, blst::BL
 
 pub fn blst_pubkey_to_alloy(pubkey: &PublicKey) -> BlsPublicKey {
     BlsPublicKey::from_slice(&pubkey.to_bytes())
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct JwtClaims {
+    pub exp: u64,
+    pub module: String,
+}
+
+/// Create a JWT for the given module id with a 5 minutes expiration
+pub fn create_jwt(module_id: &ModuleId) -> eyre::Result<String> {
+    jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &JwtClaims {
+            module: module_id.to_string(),
+            exp: jsonwebtoken::get_current_timestamp() + 300, // 5 minutes
+        },
+        &jsonwebtoken::EncodingKey::from_secret("secret".as_ref()),
+    )
+    .map_err(Into::into)
 }
 
 /// Generates a random string

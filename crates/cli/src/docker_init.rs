@@ -20,7 +20,7 @@ use cb_common::{
     pbs::{BUILDER_API_PATH, GET_STATUS_PATH},
     signer::{ProxyStore, SignerLoader},
     types::ModuleId,
-    utils::random_jwt,
+    utils::create_jwt,
 };
 use docker_compose_types::{
     Compose, DependsCondition, DependsOnOptions, EnvFile, Environment, Healthcheck,
@@ -99,7 +99,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                     let mut ports = vec![];
                     needs_signer_module = true;
 
-                    let jwt = random_jwt();
+                    let jwt = create_jwt(&module.id)?;
                     let jwt_name = format!("CB_JWT_{}", module.id.to_uppercase());
 
                     // module ids are assumed unique, so envs dont override each other

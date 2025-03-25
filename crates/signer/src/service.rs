@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{collections::HashSet, net::SocketAddr, sync::Arc};
 
 use axum::{
     extract::{Request, State},
@@ -9,12 +9,11 @@ use axum::{
     Extension, Json,
 };
 use axum_extra::TypedHeader;
-use bimap::BiHashMap;
 use cb_common::{
     commit::{
         constants::{
-            GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, RELOAD_PATH, REQUEST_SIGNATURE_PATH,
-            STATUS_PATH,
+            GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, REFRESH_TOKEN_PATH, RELOAD_PATH,
+            REQUEST_SIGNATURE_PATH, STATUS_PATH,
         },
         request::{
             EncryptionScheme, GenerateProxyRequest, GetPubkeysResponse, SignConsensusRequest,
@@ -24,10 +23,12 @@ use cb_common::{
     config::StartSignerConfig,
     constants::{COMMIT_BOOST_COMMIT, COMMIT_BOOST_VERSION},
     types::{Chain, Jwt, ModuleId},
+    utils::{create_jwt, JwtClaims},
 };
 use cb_metrics::provider::MetricsProvider;
 use eyre::Context;
 use headers::{authorization::Bearer, Authorization};
+use jsonwebtoken::{DecodingKey, Validation};
 use tokio::{net::TcpListener, sync::RwLock};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -45,9 +46,8 @@ pub struct SigningService;
 struct SigningState {
     /// Manager handling different signing methods
     manager: Arc<RwLock<SigningManager>>,
-    /// Map of JWTs to module ids. This also acts as registry of all modules
-    /// running
-    jwts: Arc<BiHashMap<ModuleId, Jwt>>,
+    /// Registry of all modules running
+    modules: Arc<HashSet<ModuleId>>,
 }
 
 impl SigningService {
@@ -57,11 +57,11 @@ impl SigningService {
             return Ok(());
         }
 
-        let module_ids: Vec<String> = config.jwts.left_values().cloned().map(Into::into).collect();
+        let module_ids: HashSet<ModuleId> = config.jwts.left_values().cloned().collect();
 
         let state = SigningState {
             manager: Arc::new(RwLock::new(start_manager(config.clone()).await?)),
-            jwts: config.jwts.into(),
+            modules: Arc::new(module_ids.clone()),
         };
 
         let loaded_consensus = state.manager.read().await.available_consensus_signers();
@@ -75,18 +75,17 @@ impl SigningService {
             .route(REQUEST_SIGNATURE_PATH, post(handle_request_signature))
             .route(GET_PUBKEYS_PATH, get(handle_get_pubkeys))
             .route(GENERATE_PROXY_KEY_PATH, post(handle_generate_proxy))
+            .route(REFRESH_TOKEN_PATH, post(handle_refresh_token))
             .route_layer(middleware::from_fn_with_state(state.clone(), jwt_auth))
             .route(RELOAD_PATH, post(handle_reload))
             .with_state(state.clone())
-            .route_layer(middleware::from_fn(log_request));
-        let status_router = axum::Router::new().route(STATUS_PATH, get(handle_status));
+            .route_layer(middleware::from_fn(log_request))
+            .route(STATUS_PATH, get(handle_status));
 
         let address = SocketAddr::from(([0, 0, 0, 0], config.server_port));
         let listener = TcpListener::bind(address).await?;
 
-        axum::serve(listener, axum::Router::new().merge(app).merge(status_router))
-            .await
-            .wrap_err("signer server exited")
+        axum::serve(listener, app).await.wrap_err("signer server exited")
     }
 
     fn init_metrics(network: Chain) -> eyre::Result<()> {
@@ -103,12 +102,28 @@ async fn jwt_auth(
 ) -> Result<Response, SignerModuleError> {
     let jwt: Jwt = auth.token().to_string().into();
 
-    let module_id = state.jwts.get_by_right(&jwt).ok_or_else(|| {
+    let mut validation = Validation::default();
+    validation.leeway = 10;
+
+    let module_id: ModuleId = jsonwebtoken::decode::<JwtClaims>(
+        &jwt,
+        &DecodingKey::from_secret("secret".as_ref()),
+        &validation,
+    )
+    .map_err(|e| {
+        error!("Unauthorized request. Invalid JWT: {e}");
+        SignerModuleError::Unauthorized
+    })?
+    .claims
+    .module
+    .into();
+
+    state.modules.get(&module_id).ok_or_else(|| {
         error!("Unauthorized request. Was the module started correctly?");
         SignerModuleError::Unauthorized
     })?;
 
-    req.extensions_mut().insert(module_id.clone());
+    req.extensions_mut().insert(module_id);
 
     Ok(next.run(req).await)
 }
@@ -271,6 +286,16 @@ async fn handle_reload(
     state.manager = Arc::new(RwLock::new(new_manager));
 
     Ok(StatusCode::OK)
+}
+
+async fn handle_refresh_token(
+    Extension(module_id): Extension<ModuleId>,
+    State(_state): State<SigningState>,
+) -> Result<impl IntoResponse, SignerModuleError> {
+    let new_token = create_jwt(&module_id)
+        .map_err(|_| SignerModuleError::Internal("Failed to generate new JWT".to_string()))?;
+
+    Ok(Json(new_token).into_response())
 }
 
 async fn start_manager(config: StartSignerConfig) -> eyre::Result<SigningManager> {
