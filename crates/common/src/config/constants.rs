@@ -35,8 +35,8 @@ pub const SIGNER_MODULE_NAME: &str = "signer";
 /// Where the signer module should open the server
 pub const SIGNER_PORT_ENV: &str = "CB_SIGNER_PORT";
 
-/// Comma separated list module_id=jwt_secret
-pub const JWTS_ENV: &str = "CB_JWTS";
+/// Comma separated list of module ids
+pub const MODULES_ENV: &str = "CB_MODULES";
 
 /// Path to json file with plaintext keys (testing only)
 pub const SIGNER_KEYS_ENV: &str = "CB_SIGNER_LOADER_FILE";

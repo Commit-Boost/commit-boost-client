@@ -1,20 +1,18 @@
-use std::path::PathBuf;
+use std::{collections::HashSet, path::PathBuf};
 
-use bimap::BiHashMap;
 use eyre::{bail, OptionExt, Result};
 use serde::{Deserialize, Serialize};
 use tonic::transport::{Certificate, Identity};
 use url::Url;
 
 use super::{
-    constants::SIGNER_IMAGE_DEFAULT,
-    utils::{load_env_var, load_jwts},
-    CommitBoostConfig, SIGNER_PORT_ENV,
+    constants::SIGNER_IMAGE_DEFAULT, load_modules, utils::load_env_var, CommitBoostConfig,
+    SIGNER_PORT_ENV,
 };
 use crate::{
     config::{DIRK_CA_CERT_ENV, DIRK_CERT_ENV, DIRK_DIR_SECRETS_ENV, DIRK_KEY_ENV},
     signer::{ProxyStore, SignerLoader},
-    types::{Chain, Jwt, ModuleId},
+    types::{Chain, ModuleId},
 };
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -90,7 +88,7 @@ pub struct StartSignerConfig {
     pub loader: Option<SignerLoader>,
     pub store: Option<ProxyStore>,
     pub server_port: u16,
-    pub jwts: BiHashMap<ModuleId, Jwt>,
+    pub modules: HashSet<ModuleId>,
     pub dirk: Option<DirkConfig>,
 }
 
@@ -98,7 +96,7 @@ impl StartSignerConfig {
     pub fn load_from_env() -> Result<Self> {
         let config = CommitBoostConfig::from_env_path()?;
 
-        let jwts = load_jwts()?;
+        let modules = load_modules()?;
         let server_port = load_env_var(SIGNER_PORT_ENV)?.parse()?;
 
         let signer = config.signer.ok_or_eyre("Signer config is missing")?.inner;
@@ -108,7 +106,7 @@ impl StartSignerConfig {
                 chain: config.chain,
                 loader: Some(loader),
                 server_port,
-                jwts,
+                modules,
                 store,
                 dirk: None,
             }),
@@ -136,7 +134,7 @@ impl StartSignerConfig {
                 Ok(StartSignerConfig {
                     chain: config.chain,
                     server_port,
-                    jwts,
+                    modules,
                     loader: None,
                     store,
                     dirk: Some(DirkConfig {

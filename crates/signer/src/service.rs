@@ -52,22 +52,20 @@ struct SigningState {
 
 impl SigningService {
     pub async fn run(config: StartSignerConfig) -> eyre::Result<()> {
-        if config.jwts.is_empty() {
+        if config.modules.is_empty() {
             warn!("Signing service was started but no module is registered. Exiting");
             return Ok(());
         }
 
-        let module_ids: HashSet<ModuleId> = config.jwts.left_values().cloned().collect();
-
         let state = SigningState {
             manager: Arc::new(RwLock::new(start_manager(config.clone()).await?)),
-            modules: Arc::new(module_ids.clone()),
+            modules: Arc::new(config.modules.clone()),
         };
 
         let loaded_consensus = state.manager.read().await.available_consensus_signers();
         let loaded_proxies = state.manager.read().await.available_proxy_signers();
 
-        info!(version = COMMIT_BOOST_VERSION, commit_hash = COMMIT_BOOST_COMMIT, modules =? module_ids, port =? config.server_port, loaded_consensus, loaded_proxies, "Starting signing service");
+        info!(version = COMMIT_BOOST_VERSION, commit_hash = COMMIT_BOOST_COMMIT, modules =? config.modules, port =? config.server_port, loaded_consensus, loaded_proxies, "Starting signing service");
 
         SigningService::init_metrics(config.chain)?;
 
