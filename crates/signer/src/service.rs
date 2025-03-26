@@ -290,6 +290,9 @@ async fn handle_refresh_token(
     Extension(module_id): Extension<ModuleId>,
     State(state): State<SigningState>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
+    let req_id = Uuid::new_v4();
+    debug!(event = "refresh_token", ?req_id, ?module_id, "New request");
+
     let new_token =
         create_jwt(&module_id, state.manager.read().await.jwt_secret()).map_err(|err| {
             error!(event = "refresh_token", ?module_id, error = ?err, "Failed to generate new JWT");
