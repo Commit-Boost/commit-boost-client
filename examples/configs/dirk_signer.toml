@@ -8,6 +8,7 @@ url = "http://0xa119589bb33ef52acbb8116832bec2b58fca590fe5c85eac5d3230b44d5bc09f
 
 [signer]
 docker_image = "commitboost_signer"
+jwt_secret = "secret"
 
 [signer.dirk]
 cert_path = "/path/to/client.crt"

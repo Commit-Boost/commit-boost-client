@@ -141,10 +141,12 @@ url = "http://0xa119589bb33ef52acbb8116832bec2b58fca590fe5c85eac5d3230b44d5bc09f
 #   - Dirk: a remote Dirk instance
 #   - Local: a local Signer module
 # More details on the docs (https://commit-boost.github.io/commit-boost-client/get_started/configuration/#signer-module)
+# [signer]
 # Docker image to use for the Signer module.
 # OPTIONAL, DEFAULT: ghcr.io/commit-boost/signer:latest
-# [signer]
 # docker_image = "ghcr.io/commit-boost/signer:latest"
+# Secret to use for JWT authentication with the Signer module
+# jwt_secret = "secret"
 # For Remote signer:
 # [signer.remote]
 # URL of the Web3Signer instance
