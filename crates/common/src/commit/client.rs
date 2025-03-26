@@ -156,7 +156,7 @@ impl SignerClient {
 
     pub async fn refresh_token(&mut self) -> Result<(), SignerClientError> {
         let url = self.url.join(REFRESH_TOKEN_PATH)?;
-        let res = self.client.post(url).send().await?;
+        let res = self.client.get(url).send().await?;
 
         let status = res.status();
         let response_bytes = res.bytes().await?;
@@ -171,7 +171,7 @@ impl SignerClient {
         let new_jwt: String = serde_json::from_slice(&response_bytes)?;
         let mut headers = HeaderMap::new();
         let mut auth_value = HeaderValue::from_str(&format!("Bearer {}", new_jwt))
-            .map_err(|e| SignerClientError::InvalidHeader(e))?;
+            .map_err(SignerClientError::InvalidHeader)?;
         auth_value.set_sensitive(true);
         headers.insert(AUTHORIZATION, auth_value);
 

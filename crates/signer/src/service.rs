@@ -84,7 +84,7 @@ impl SigningService {
             .route(REQUEST_SIGNATURE_PATH, post(handle_request_signature))
             .route(GET_PUBKEYS_PATH, get(handle_get_pubkeys))
             .route(GENERATE_PROXY_KEY_PATH, post(handle_generate_proxy))
-            .route(REFRESH_TOKEN_PATH, post(handle_refresh_token))
+            .route(REFRESH_TOKEN_PATH, get(handle_refresh_token))
             .route_layer(middleware::from_fn_with_state(state.clone(), jwt_auth))
             .route(RELOAD_PATH, post(handle_reload))
             .with_state(state.clone())
@@ -111,11 +111,10 @@ async fn jwt_auth(
 ) -> Result<Response, SignerModuleError> {
     let jwt: Jwt = auth.token().to_string().into();
 
-    let module_id: ModuleId =
-        decode_jwt(jwt, state.manager.read().await.jwt_secret()).map_err(|e| {
-            error!("Unauthorized request. Invalid JWT: {e}");
-            SignerModuleError::Unauthorized
-        })?;
+    let module_id = decode_jwt(jwt, state.manager.read().await.jwt_secret()).map_err(|e| {
+        error!("Unauthorized request. Invalid JWT: {e}");
+        SignerModuleError::Unauthorized
+    })?;
 
     state.modules.get(&module_id).ok_or_else(|| {
         error!("Unauthorized request. Was the module started correctly?");
