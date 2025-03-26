@@ -43,4 +43,11 @@ impl SigningManager {
             }
         }
     }
+
+    pub(super) fn jwt_secret(&self) -> &str {
+        match self {
+            SigningManager::Local(local_manager) => local_manager.jwt_secret.as_str(),
+            SigningManager::Dirk(dirk_manager) => dirk_manager.jwt_secret.as_str(),
+        }
+    }
 }

@@ -280,14 +280,14 @@ pub struct JwtClaims {
 }
 
 /// Create a JWT for the given module id with a 5 minutes expiration
-pub fn create_jwt(module_id: &ModuleId) -> eyre::Result<String> {
+pub fn create_jwt(module_id: &ModuleId, secret: &str) -> eyre::Result<String> {
     jsonwebtoken::encode(
         &jsonwebtoken::Header::default(),
         &JwtClaims {
             module: module_id.to_string(),
             exp: jsonwebtoken::get_current_timestamp() + 300, // 5 minutes
         },
-        &jsonwebtoken::EncodingKey::from_secret("secret".as_ref()),
+        &jsonwebtoken::EncodingKey::from_secret(secret.as_ref()),
     )
     .map_err(Into::into)
 }

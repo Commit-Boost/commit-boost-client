@@ -82,6 +82,8 @@ struct ProxyAccount {
 pub struct DirkManager {
     /// Chain config for the manager
     chain: Chain,
+    /// Secret used to sign JWTs
+    pub(super) jwt_secret: String,
     /// Consensus accounts available for signing. The key is the public key of
     /// the account.
     consensus_accounts: HashMap<BlsPublicKey, Account>,
@@ -95,7 +97,7 @@ pub struct DirkManager {
 }
 
 impl DirkManager {
-    pub async fn new(chain: Chain, config: DirkConfig) -> eyre::Result<Self> {
+    pub async fn new(chain: Chain, jwt_secret: String, config: DirkConfig) -> eyre::Result<Self> {
         let mut consensus_accounts = HashMap::new();
 
         for host in config.hosts {
@@ -163,6 +165,7 @@ impl DirkManager {
 
         Ok(Self {
             chain,
+            jwt_secret,
             consensus_accounts,
             proxy_accounts: HashMap::new(),
             secrets_path: config.secrets_path,

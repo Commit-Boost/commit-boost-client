@@ -6,7 +6,8 @@ use tonic::transport::{Certificate, Identity};
 use url::Url;
 
 use super::{
-    constants::SIGNER_IMAGE_DEFAULT, utils::load_env_var, CommitBoostConfig, SIGNER_PORT_ENV,
+    constants::SIGNER_IMAGE_DEFAULT, load_optional_env_var, utils::load_env_var, CommitBoostConfig,
+    SIGNER_JWT_SECRET_ENV, SIGNER_PORT_ENV,
 };
 use crate::{
     config::{DIRK_CA_CERT_ENV, DIRK_CERT_ENV, DIRK_DIR_SECRETS_ENV, DIRK_KEY_ENV},
@@ -20,6 +21,8 @@ pub struct SignerConfig {
     /// Docker image of the module
     #[serde(default = "default_signer")]
     pub docker_image: String,
+    /// Secret used to sign JWTs
+    pub jwt_secret: Option<String>,
     /// Inner type-specific configuration
     #[serde(flatten)]
     pub inner: SignerType,
@@ -89,6 +92,7 @@ pub struct StartSignerConfig {
     pub server_port: u16,
     pub modules: HashSet<ModuleId>,
     pub dirk: Option<DirkConfig>,
+    pub jwt_secret: String,
 }
 
 impl StartSignerConfig {
@@ -99,9 +103,13 @@ impl StartSignerConfig {
             config.modules.unwrap_or(Vec::new()).iter().map(|module| module.id.clone()).collect();
         let server_port = load_env_var(SIGNER_PORT_ENV)?.parse()?;
 
-        let signer = config.signer.ok_or_eyre("Signer config is missing")?.inner;
+        let signer = config.signer.ok_or_eyre("Signer config is missing")?;
+        let jwt_secret =
+            load_optional_env_var(SIGNER_JWT_SECRET_ENV).or(signer.jwt_secret).ok_or_eyre(
+                "No JWT secret provided for the signer. Set it in the environment or config",
+            )?;
 
-        match signer {
+        match signer.inner {
             SignerType::Local { loader, store, .. } => Ok(StartSignerConfig {
                 chain: config.chain,
                 loader: Some(loader),
@@ -109,6 +117,7 @@ impl StartSignerConfig {
                 modules,
                 store,
                 dirk: None,
+                jwt_secret,
             }),
 
             SignerType::Dirk {
@@ -151,6 +160,7 @@ impl StartSignerConfig {
                             None => None,
                         },
                     }),
+                    jwt_secret,
                 })
             }
 

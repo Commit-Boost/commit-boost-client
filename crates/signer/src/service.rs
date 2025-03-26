@@ -117,7 +117,7 @@ async fn jwt_auth(
 
     let module_id: ModuleId = jsonwebtoken::decode::<JwtClaims>(
         &jwt,
-        &DecodingKey::from_secret("secret".as_ref()),
+        &DecodingKey::from_secret(state.manager.read().await.jwt_secret().as_ref()),
         &validation,
     )
     .map_err(|e| {
@@ -300,10 +300,13 @@ async fn handle_reload(
 
 async fn handle_refresh_token(
     Extension(module_id): Extension<ModuleId>,
-    State(_state): State<SigningState>,
+    State(state): State<SigningState>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
-    let new_token = create_jwt(&module_id)
-        .map_err(|_| SignerModuleError::Internal("Failed to generate new JWT".to_string()))?;
+    let new_token =
+        create_jwt(&module_id, state.manager.read().await.jwt_secret()).map_err(|err| {
+            error!(event = "refresh_token", ?module_id, error = ?err, "Failed to generate new JWT");
+            SignerModuleError::Internal("Failed to generate new JWT".to_string())
+        })?;
 
     Ok(Json(new_token).into_response())
 }
@@ -318,7 +321,7 @@ async fn start_manager(config: StartSignerConfig) -> eyre::Result<SigningManager
 
     match config.dirk {
         Some(dirk) => {
-            let mut manager = DirkManager::new(config.chain, dirk).await?;
+            let mut manager = DirkManager::new(config.chain, config.jwt_secret, dirk).await?;
             if let Some(store) = config.store {
                 manager = manager.with_proxy_store(store.init_from_env()?)?;
             }
@@ -326,7 +329,8 @@ async fn start_manager(config: StartSignerConfig) -> eyre::Result<SigningManager
             Ok(SigningManager::Dirk(manager))
         }
         None => {
-            let mut manager = LocalSigningManager::new(config.chain, proxy_store)?;
+            let mut manager =
+                LocalSigningManager::new(config.chain, config.jwt_secret, proxy_store)?;
             let Some(loader) = config.loader.clone() else {
                 warn!("No loader configured.");
                 return Err(eyre::eyre!("No loader configured"));
