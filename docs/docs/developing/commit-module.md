@@ -58,6 +58,12 @@ let pubkeys = config.signer_client.get_pubkeys().await.unwrap();
 
 Which will call the `get_pubkeys` endpoint of the [SignerAPI](/api), returning all the consensus pubkeys and the corresponding proxy keys, of your module.
 
+Note that the requests are authenticated using a JWT, that must be regularly refreshed as it expires after a certain time. To do so, you can call:
+```rust
+config.signer_client.refresh_token().await.unwrap();
+```
+You have the `SIGNER_JWT_EXPIRATION` constant available in the `commit-boost` crate, which is the time in seconds after which the JWT will expire.
+
 Then, we can request a signature either with a consensus key or with a proxy key:
 
 ### With a consensus key
