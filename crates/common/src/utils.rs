@@ -26,7 +26,7 @@ use crate::{
     config::LogsSettings,
     constants::SIGNER_JWT_EXPIRATION,
     pbs::HEADER_VERSION_VALUE,
-    types::{Chain, ModuleId},
+    types::{Chain, Jwt, ModuleId},
 };
 
 const MILLIS_PER_SECOND: u64 = 1_000;
@@ -281,7 +281,7 @@ pub struct JwtClaims {
 }
 
 /// Create a JWT for the given module id with expiration
-pub fn create_jwt(module_id: &ModuleId, secret: &str) -> eyre::Result<String> {
+pub fn create_jwt(module_id: &ModuleId, secret: &str) -> eyre::Result<Jwt> {
     jsonwebtoken::encode(
         &jsonwebtoken::Header::default(),
         &JwtClaims {
@@ -291,6 +291,24 @@ pub fn create_jwt(module_id: &ModuleId, secret: &str) -> eyre::Result<String> {
         &jsonwebtoken::EncodingKey::from_secret(secret.as_ref()),
     )
     .map_err(Into::into)
+    .map(Jwt::from)
+}
+
+/// Decode a JWT and return the module id
+pub fn decode_jwt(jwt: Jwt, secret: &str) -> eyre::Result<ModuleId> {
+    let mut validation = jsonwebtoken::Validation::default();
+    validation.leeway = 10;
+
+    let module = jsonwebtoken::decode::<JwtClaims>(
+        jwt.as_str(),
+        &jsonwebtoken::DecodingKey::from_secret(secret.as_ref()),
+        &validation,
+    )?
+    .claims
+    .module
+    .into();
+
+    Ok(module)
 }
 
 /// Generates a random string
@@ -332,4 +350,30 @@ pub async fn wait_for_signal() -> eyre::Result<()> {
 pub async fn wait_for_signal() -> eyre::Result<()> {
     tokio::signal::ctrl_c().await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use super::{create_jwt, decode_jwt};
+    use crate::types::{Jwt, ModuleId};
+
+    #[test]
+    fn test_jwt_validation() {
+        // Check valid JWT
+        let jwt = create_jwt(&ModuleId("DA_COMMIT".to_string()), "secret").unwrap();
+        let module = decode_jwt(jwt, "secret".as_ref()).unwrap();
+        assert_eq!(module, ModuleId("DA_COMMIT".to_string()));
+
+        // Check expired JWT
+        let expired_jwt = Jwt::from("eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3NDI5OTU5NDYsIm1vZHVsZSI6IkRBX0NPTU1JVCJ9.iiq4Z2ed2hk3c3c-cn2QOQJWE5XUOc5BoaIPT-I8q-s".to_string());
+        let response = decode_jwt(expired_jwt, "secret");
+        assert!(response.is_err());
+        assert_eq!(response.unwrap_err().to_string(), "ExpiredSignature");
+
+        // Check invalid signature JWT
+        let invalid_jwt = Jwt::from("eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3NDI5OTU5NDYsIm1vZHVsZSI6IkRBX0NPTU1JVCJ9.w9WYdDNzgDjYTvjBkk4GGzywGNBYPxnzU2uJWzPUT1s".to_string());
+        let response = decode_jwt(invalid_jwt, "secret");
+        assert!(response.is_err());
+        assert_eq!(response.unwrap_err().to_string(), "InvalidSignature");
+    }
 }

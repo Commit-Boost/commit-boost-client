@@ -23,12 +23,11 @@ use cb_common::{
     config::StartSignerConfig,
     constants::{COMMIT_BOOST_COMMIT, COMMIT_BOOST_VERSION},
     types::{Chain, Jwt, ModuleId},
-    utils::{create_jwt, JwtClaims},
+    utils::{create_jwt, decode_jwt},
 };
 use cb_metrics::provider::MetricsProvider;
 use eyre::Context;
 use headers::{authorization::Bearer, Authorization};
-use jsonwebtoken::{DecodingKey, Validation};
 use tokio::{net::TcpListener, sync::RwLock};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -112,21 +111,11 @@ async fn jwt_auth(
 ) -> Result<Response, SignerModuleError> {
     let jwt: Jwt = auth.token().to_string().into();
 
-    let mut validation = Validation::default();
-    validation.leeway = 10;
-
-    let module_id: ModuleId = jsonwebtoken::decode::<JwtClaims>(
-        &jwt,
-        &DecodingKey::from_secret(state.manager.read().await.jwt_secret().as_ref()),
-        &validation,
-    )
-    .map_err(|e| {
-        error!("Unauthorized request. Invalid JWT: {e}");
-        SignerModuleError::Unauthorized
-    })?
-    .claims
-    .module
-    .into();
+    let module_id: ModuleId =
+        decode_jwt(jwt, state.manager.read().await.jwt_secret()).map_err(|e| {
+            error!("Unauthorized request. Invalid JWT: {e}");
+            SignerModuleError::Unauthorized
+        })?;
 
     state.modules.get(&module_id).ok_or_else(|| {
         error!("Unauthorized request. Was the module started correctly?");

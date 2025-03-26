@@ -156,7 +156,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                         module_envs.insert(key, val);
                     }
 
-                    envs.insert(jwt_name.clone(), jwt.clone());
+                    envs.insert(jwt_name.clone(), jwt.to_string());
 
                     // networks
                     let module_networks = vec![SIGNER_NETWORK.to_owned()];
