@@ -24,6 +24,7 @@ use tracing_subscriber::{
 
 use crate::{
     config::LogsSettings,
+    constants::SIGNER_JWT_EXPIRATION,
     pbs::HEADER_VERSION_VALUE,
     types::{Chain, ModuleId},
 };
@@ -279,13 +280,13 @@ pub struct JwtClaims {
     pub module: String,
 }
 
-/// Create a JWT for the given module id with a 5 minutes expiration
+/// Create a JWT for the given module id with expiration
 pub fn create_jwt(module_id: &ModuleId, secret: &str) -> eyre::Result<String> {
     jsonwebtoken::encode(
         &jsonwebtoken::Header::default(),
         &JwtClaims {
             module: module_id.to_string(),
-            exp: jsonwebtoken::get_current_timestamp() + 300, // 5 minutes
+            exp: jsonwebtoken::get_current_timestamp() + SIGNER_JWT_EXPIRATION,
         },
         &jsonwebtoken::EncodingKey::from_secret(secret.as_ref()),
     )

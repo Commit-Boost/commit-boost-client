@@ -9,6 +9,7 @@ pub mod prelude {
             load_builder_module_config, load_commit_module_config, load_pbs_config,
             load_pbs_custom_config, LogsSettings, StartCommitModuleConfig, PBS_MODULE_NAME,
         },
+        constants::SIGNER_JWT_EXPIRATION,
         pbs::{BuilderEvent, BuilderEventClient, OnBuilderApiEvent},
         signer::{BlsPublicKey, BlsSignature, EcdsaSignature},
         types::Chain,

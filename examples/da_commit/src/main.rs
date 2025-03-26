@@ -7,7 +7,7 @@ use lazy_static::lazy_static;
 use prometheus::{IntCounter, Registry};
 use serde::Deserialize;
 use tokio::time::sleep;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 // You can define custom metrics and a custom registry for the business logic of
 // your module. These will be automatically scaped by the Prometheus server
@@ -43,7 +43,7 @@ fn default_ecdsa() -> bool {
 }
 
 impl DaCommitService {
-    pub async fn run(self) -> Result<()> {
+    pub async fn run(&mut self) -> Result<()> {
         // the config has the signer_client already setup, we can use it to interact
         // with the Signer API
         let pubkeys = self.config.signer_client.get_pubkeys().await?.keys;
@@ -66,11 +66,20 @@ impl DaCommitService {
         };
 
         let mut data = 0;
+        let mut token_time = 0;
 
         loop {
+            // Refresh JWT if it's about to expire
+            if token_time >= SIGNER_JWT_EXPIRATION * 3 / 4 {
+                self.config.signer_client.refresh_token().await?;
+                debug!("Token refreshed");
+                token_time = 0;
+            }
+
             self.send_request(data, pubkey, proxy_bls, proxy_ecdsa).await?;
             sleep(Duration::from_secs(self.config.extra.sleep_secs)).await;
             data += 1;
+            token_time += self.config.extra.sleep_secs;
         }
     }
 
@@ -134,7 +143,7 @@ async fn main() -> Result<()> {
                 "Starting module with custom data"
             );
 
-            let service = DaCommitService { config };
+            let mut service = DaCommitService { config };
 
             if let Err(err) = service.run().await {
                 error!(%err, "Service failed");

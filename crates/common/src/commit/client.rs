@@ -7,7 +7,9 @@ use serde::Deserialize;
 use url::Url;
 
 use super::{
-    constants::{GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, REQUEST_SIGNATURE_PATH},
+    constants::{
+        GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, REFRESH_TOKEN_PATH, REQUEST_SIGNATURE_PATH,
+    },
     error::SignerClientError,
     request::{
         EncryptionScheme, GenerateProxyRequest, GetPubkeysResponse, ProxyId, SignConsensusRequest,
@@ -150,5 +152,34 @@ impl SignerClient {
         let ecdsa_signed_proxy_delegation = self.generate_proxy_key(&request).await?;
 
         Ok(ecdsa_signed_proxy_delegation)
+    }
+
+    pub async fn refresh_token(&mut self) -> Result<(), SignerClientError> {
+        let url = self.url.join(REFRESH_TOKEN_PATH)?;
+        let res = self.client.post(url).send().await?;
+
+        let status = res.status();
+        let response_bytes = res.bytes().await?;
+
+        if !status.is_success() {
+            return Err(SignerClientError::FailedRequest {
+                status: status.as_u16(),
+                error_msg: String::from_utf8_lossy(&response_bytes).into_owned(),
+            });
+        }
+
+        let new_jwt: String = serde_json::from_slice(&response_bytes)?;
+        let mut headers = HeaderMap::new();
+        let mut auth_value = HeaderValue::from_str(&format!("Bearer {}", new_jwt))
+            .map_err(|e| SignerClientError::InvalidHeader(e))?;
+        auth_value.set_sensitive(true);
+        headers.insert(AUTHORIZATION, auth_value);
+
+        self.client = reqwest::Client::builder()
+            .timeout(DEFAULT_REQUEST_TIMEOUT)
+            .default_headers(headers)
+            .build()?;
+
+        Ok(())
     }
 }
