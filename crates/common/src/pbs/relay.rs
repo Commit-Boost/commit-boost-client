@@ -130,6 +130,7 @@ impl RelayClient {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+
     use alloy::{
         primitives::{hex::FromHex, B256},
         rpc::types::beacon::BlsPublicKey,
@@ -188,8 +189,9 @@ mod tests {
         let slot = 0;
         let parent_hash = B256::ZERO;
         let validator_pubkey = BlsPublicKey::ZERO;
-        // Note: HashMap iteration order is not guaranteed, so we can't predict the exact order of parameters
-        // Instead of hard-coding the order, we'll check that both parameters are present in the URL
+        // Note: HashMap iteration order is not guaranteed, so we can't predict the
+        // exact order of parameters Instead of hard-coding the order, we'll
+        // check that both parameters are present in the URL
         let url_prefix = format!("http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz/eth/v1/builder/header/{slot}/{parent_hash}/{validator_pubkey}?");
 
         let mut get_params = HashMap::new();
