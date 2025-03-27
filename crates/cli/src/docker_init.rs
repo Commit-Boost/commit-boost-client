@@ -89,8 +89,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
             modules.iter().any(|module| matches!(module.kind, ModuleKind::Commit))
         });
 
-    let jwt_secret =
-        load_optional_env_var(SIGNER_JWT_SECRET_ENV).unwrap_or_else(|| random_jwt_secret());
+    let jwt_secret = load_optional_env_var(SIGNER_JWT_SECRET_ENV).unwrap_or_else(random_jwt_secret);
 
     // setup modules
     if let Some(modules_config) = cb_config.modules {
