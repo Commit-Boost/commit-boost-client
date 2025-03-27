@@ -99,8 +99,12 @@ impl StartSignerConfig {
     pub fn load_from_env() -> Result<Self> {
         let config = CommitBoostConfig::from_env_path()?;
 
-        let modules =
-            config.modules.unwrap_or(Vec::new()).iter().map(|module| module.id.clone()).collect();
+        let modules = config
+            .modules
+            .ok_or_eyre("No modules were detected in config")?
+            .iter()
+            .map(|module| module.id.clone())
+            .collect();
         let server_port = load_env_var(SIGNER_PORT_ENV)?.parse()?;
 
         let signer = config.signer.ok_or_eyre("Signer config is missing")?;
