@@ -11,7 +11,7 @@ use axum::http::HeaderValue;
 use blst::min_pk::{PublicKey, Signature};
 use rand::{distr::Alphanumeric, Rng};
 use reqwest::header::HeaderMap;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use ssz::{Decode, Encode};
 use tracing::Level;
@@ -26,7 +26,7 @@ use crate::{
     config::LogsSettings,
     constants::SIGNER_JWT_EXPIRATION,
     pbs::HEADER_VERSION_VALUE,
-    types::{Chain, Jwt, ModuleId},
+    types::{Chain, Jwt, JwtClaims, ModuleId},
 };
 
 const MILLIS_PER_SECOND: u64 = 1_000;
@@ -272,12 +272,6 @@ pub fn alloy_sig_to_blst(signature: &BlsSignature) -> Result<Signature, blst::BL
 
 pub fn blst_pubkey_to_alloy(pubkey: &PublicKey) -> BlsPublicKey {
     BlsPublicKey::from_slice(&pubkey.to_bytes())
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct JwtClaims {
-    pub exp: u64,
-    pub module: String,
 }
 
 /// Create a JWT for the given module id with expiration

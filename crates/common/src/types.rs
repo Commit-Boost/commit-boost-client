@@ -17,6 +17,12 @@ pub struct ModuleId(pub String);
 #[serde(transparent)]
 pub struct Jwt(pub String);
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct JwtClaims {
+    pub exp: u64,
+    pub module: String,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Chain {
     Mainnet,
