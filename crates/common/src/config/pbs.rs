@@ -43,6 +43,8 @@ pub struct RelayConfig {
     pub entry: RelayEntry,
     /// Optional headers to send with each request
     pub headers: Option<HashMap<String, String>>,
+    /// Optional GET parameters to add to each request
+    pub get_params: Option<HashMap<String, String>>,
     /// Whether to enable timing games
     #[serde(default = "default_bool::<false>")]
     pub enable_timing_games: bool,

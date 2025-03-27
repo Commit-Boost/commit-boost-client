@@ -90,7 +90,16 @@ impl RelayClient {
 
     // URL builders
     pub fn get_url(&self, path: &str) -> Result<Url, PbsError> {
-        self.config.entry.url.join(path).map_err(PbsError::UrlParsing)
+        let mut url = self.config.entry.url.join(path).map_err(PbsError::UrlParsing)?;
+
+        if let Some(get_params) = &self.config.get_params {
+            let mut query_pairs = url.query_pairs_mut();
+            for (key, value) in get_params {
+                query_pairs.append_pair(key, value);
+            }
+        }
+
+        Ok(url)
     }
     pub fn builder_api_url(&self, path: &str) -> Result<Url, PbsError> {
         self.get_url(&format!("{BUILDER_API_PATH}{path}"))
@@ -120,6 +129,7 @@ impl RelayClient {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use alloy::{
         primitives::{hex::FromHex, B256},
         rpc::types::beacon::BlsPublicKey,
@@ -171,5 +181,33 @@ mod tests {
             relay.get_header_url(slot, parent_hash, validator_pubkey).unwrap().to_string(),
             expected
         );
+    }
+
+    #[test]
+    fn test_relay_url_with_get_params() {
+        let slot = 0;
+        let parent_hash = B256::ZERO;
+        let validator_pubkey = BlsPublicKey::ZERO;
+        // Note: HashMap iteration order is not guaranteed, so we can't predict the exact order of parameters
+        // Instead of hard-coding the order, we'll check that both parameters are present in the URL
+        let url_prefix = format!("http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz/eth/v1/builder/header/{slot}/{parent_hash}/{validator_pubkey}?");
+
+        let mut get_params = HashMap::new();
+        get_params.insert("param1".to_string(), "value1".to_string());
+        get_params.insert("param2".to_string(), "value2".to_string());
+
+        let relay_config = r#"
+        {
+            "url": "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz"
+        }"#;
+
+        let mut config = serde_json::from_str::<RelayConfig>(relay_config).unwrap();
+        config.get_params = Some(get_params);
+        let relay = RelayClient::new(config).unwrap();
+
+        let url = relay.get_header_url(slot, parent_hash, validator_pubkey).unwrap().to_string();
+        assert!(url.starts_with(&url_prefix));
+        assert!(url.contains("param1=value1"));
+        assert!(url.contains("param2=value2"));
     }
 }
