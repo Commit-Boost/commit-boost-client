@@ -19,8 +19,6 @@ use crate::error::SignerModuleError;
 #[derive(Clone)]
 pub struct LocalSigningManager {
     chain: Chain,
-    /// Secret used to sign JWTs
-    pub(super) jwt_secret: String,
     proxy_store: Option<ProxyStore>,
     consensus_signers: HashMap<BlsPublicKey, ConsensusSigner>,
     proxy_signers: ProxySigners,
@@ -32,14 +30,9 @@ pub struct LocalSigningManager {
 }
 
 impl LocalSigningManager {
-    pub fn new(
-        chain: Chain,
-        jwt_secret: String,
-        proxy_store: Option<ProxyStore>,
-    ) -> eyre::Result<Self> {
+    pub fn new(chain: Chain, proxy_store: Option<ProxyStore>) -> eyre::Result<Self> {
         let mut manager = Self {
             chain,
-            jwt_secret,
             proxy_store,
             consensus_signers: Default::default(),
             proxy_signers: Default::default(),
@@ -278,15 +271,13 @@ mod tests {
     use super::*;
 
     const CHAIN: Chain = Chain::Holesky;
-    const JWT_SECRET: &str = "secret";
 
     lazy_static! {
         static ref MODULE_ID: ModuleId = ModuleId("SAMPLE_MODULE".to_string());
     }
 
     fn init_signing_manager() -> (LocalSigningManager, BlsPublicKey) {
-        let mut signing_manager =
-            LocalSigningManager::new(CHAIN, JWT_SECRET.to_string(), None).unwrap();
+        let mut signing_manager = LocalSigningManager::new(CHAIN, None).unwrap();
 
         let consensus_signer = ConsensusSigner::new_random();
         let consensus_pk = consensus_signer.pubkey();

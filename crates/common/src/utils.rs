@@ -251,11 +251,11 @@ fn format_crates_filter(default_level: &str, crates_level: &str) -> EnvFilter {
 
 pub fn print_logo() {
     println!(
-        r#"   ______                          _ __     ____                   __ 
+        r#"   ______                          _ __     ____                   __
   / ____/___  ____ ___  ____ ___  (_) /_   / __ )____  ____  _____/ /_
  / /   / __ \/ __ `__ \/ __ `__ \/ / __/  / __  / __ \/ __ \/ ___/ __/
-/ /___/ /_/ / / / / / / / / / / / / /_   / /_/ / /_/ / /_/ (__  ) /_  
-\____/\____/_/ /_/ /_/_/ /_/ /_/_/\__/  /_____/\____/\____/____/\__/  
+/ /___/ /_/ / / / / / / / / / / / / /_   / /_/ / /_/ / /_/ (__  ) /_
+\____/\____/_/ /_/ /_/_/ /_/ /_/_/\__/  /_____/\____/\____/____/\__/
                                                                       "#
     )
 }
@@ -294,14 +294,15 @@ pub fn create_jwt(module_id: &ModuleId, secret: &str) -> eyre::Result<Jwt> {
     .map(Jwt::from)
 }
 
-/// Decode a JWT and return the module id
-pub fn decode_jwt(jwt: Jwt, secret: &str) -> eyre::Result<ModuleId> {
+/// Decode a JWT and return the module id. IMPORTANT: This function does not
+/// validate the JWT, it only obtains the module id from the claims.
+pub fn decode_jwt(jwt: Jwt) -> eyre::Result<ModuleId> {
     let mut validation = jsonwebtoken::Validation::default();
-    validation.leeway = 10;
+    validation.insecure_disable_signature_validation();
 
     let module = jsonwebtoken::decode::<JwtClaims>(
         jwt.as_str(),
-        &jsonwebtoken::DecodingKey::from_secret(secret.as_ref()),
+        &jsonwebtoken::DecodingKey::from_secret(&[]),
         &validation,
     )?
     .claims
@@ -309,6 +310,20 @@ pub fn decode_jwt(jwt: Jwt, secret: &str) -> eyre::Result<ModuleId> {
     .into();
 
     Ok(module)
+}
+
+/// Validate a JWT with the given secret
+pub fn validate_jwt(jwt: Jwt, secret: &str) -> eyre::Result<()> {
+    let mut validation = jsonwebtoken::Validation::default();
+    validation.leeway = 10;
+
+    jsonwebtoken::decode::<JwtClaims>(
+        jwt.as_str(),
+        &jsonwebtoken::DecodingKey::from_secret(secret.as_ref()),
+        &validation,
+    )
+    .map(|_| ())
+    .map_err(From::from)
 }
 
 /// Generates a random string
@@ -354,25 +369,27 @@ pub async fn wait_for_signal() -> eyre::Result<()> {
 
 #[cfg(test)]
 mod test {
-    use super::{create_jwt, decode_jwt};
+    use super::{create_jwt, decode_jwt, validate_jwt};
     use crate::types::{Jwt, ModuleId};
 
     #[test]
     fn test_jwt_validation() {
         // Check valid JWT
         let jwt = create_jwt(&ModuleId("DA_COMMIT".to_string()), "secret").unwrap();
-        let module = decode_jwt(jwt, "secret".as_ref()).unwrap();
-        assert_eq!(module, ModuleId("DA_COMMIT".to_string()));
+        let module_id = decode_jwt(jwt.clone()).unwrap();
+        assert_eq!(module_id, ModuleId("DA_COMMIT".to_string()));
+        let response = validate_jwt(jwt, "secret".as_ref());
+        assert!(response.is_ok());
 
         // Check expired JWT
         let expired_jwt = Jwt::from("eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3NDI5OTU5NDYsIm1vZHVsZSI6IkRBX0NPTU1JVCJ9.iiq4Z2ed2hk3c3c-cn2QOQJWE5XUOc5BoaIPT-I8q-s".to_string());
-        let response = decode_jwt(expired_jwt, "secret");
+        let response = validate_jwt(expired_jwt, "secret");
         assert!(response.is_err());
         assert_eq!(response.unwrap_err().to_string(), "ExpiredSignature");
 
         // Check invalid signature JWT
         let invalid_jwt = Jwt::from("eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3NDI5OTU5NDYsIm1vZHVsZSI6IkRBX0NPTU1JVCJ9.w9WYdDNzgDjYTvjBkk4GGzywGNBYPxnzU2uJWzPUT1s".to_string());
-        let response = decode_jwt(invalid_jwt, "secret");
+        let response = validate_jwt(invalid_jwt, "secret");
         assert!(response.is_err());
         assert_eq!(response.unwrap_err().to_string(), "InvalidSignature");
     }

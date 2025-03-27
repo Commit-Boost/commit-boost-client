@@ -7,7 +7,7 @@ use lazy_static::lazy_static;
 use prometheus::{IntCounter, Registry};
 use serde::Deserialize;
 use tokio::time::sleep;
-use tracing::{debug, error, info};
+use tracing::{error, info};
 
 // You can define custom metrics and a custom registry for the business logic of
 // your module. These will be automatically scaped by the Prometheus server
@@ -66,20 +66,11 @@ impl DaCommitService {
         };
 
         let mut data = 0;
-        let mut token_time = 0;
 
         loop {
-            // Refresh JWT if it's about to expire
-            if token_time >= SIGNER_JWT_EXPIRATION * 3 / 4 {
-                self.config.signer_client.refresh_token().await?;
-                debug!("Token refreshed");
-                token_time = 0;
-            }
-
             self.send_request(data, pubkey, proxy_bls, proxy_ecdsa).await?;
             sleep(Duration::from_secs(self.config.extra.sleep_secs)).await;
             data += 1;
-            token_time += self.config.extra.sleep_secs;
         }
     }
 

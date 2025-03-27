@@ -1,4 +1,4 @@
-use std::{collections::HashSet, path::PathBuf};
+use std::{collections::HashMap, path::PathBuf};
 
 use eyre::{bail, OptionExt, Result};
 use serde::{Deserialize, Serialize};
@@ -6,8 +6,8 @@ use tonic::transport::{Certificate, Identity};
 use url::Url;
 
 use super::{
-    constants::SIGNER_IMAGE_DEFAULT, load_optional_env_var, utils::load_env_var, CommitBoostConfig,
-    SIGNER_JWT_SECRET_ENV, SIGNER_PORT_ENV,
+    constants::SIGNER_IMAGE_DEFAULT, load_jwt_secrets, utils::load_env_var, CommitBoostConfig,
+    SIGNER_PORT_ENV,
 };
 use crate::{
     config::{DIRK_CA_CERT_ENV, DIRK_CERT_ENV, DIRK_DIR_SECRETS_ENV, DIRK_KEY_ENV},
@@ -88,37 +88,27 @@ pub struct StartSignerConfig {
     pub loader: Option<SignerLoader>,
     pub store: Option<ProxyStore>,
     pub server_port: u16,
-    pub modules: HashSet<ModuleId>,
+    pub jwts: HashMap<ModuleId, String>,
     pub dirk: Option<DirkConfig>,
-    pub jwt_secret: String,
 }
 
 impl StartSignerConfig {
     pub fn load_from_env() -> Result<Self> {
         let config = CommitBoostConfig::from_env_path()?;
 
-        let modules = config
-            .modules
-            .ok_or_eyre("No modules were detected in config")?
-            .iter()
-            .map(|module| module.id.clone())
-            .collect();
+        let jwts = load_jwt_secrets()?;
         let server_port = load_env_var(SIGNER_PORT_ENV)?.parse()?;
 
-        let signer = config.signer.ok_or_eyre("Signer config is missing")?;
-        let jwt_secret = load_optional_env_var(SIGNER_JWT_SECRET_ENV).ok_or(eyre::eyre!(
-            "No JWT secret provided for the signer. Set it in the {SIGNER_JWT_SECRET_ENV} env var"
-        ))?;
+        let signer = config.signer.ok_or_eyre("Signer config is missing")?.inner;
 
-        match signer.inner {
+        match signer {
             SignerType::Local { loader, store, .. } => Ok(StartSignerConfig {
                 chain: config.chain,
                 loader: Some(loader),
                 server_port,
-                modules,
+                jwts,
                 store,
                 dirk: None,
-                jwt_secret,
             }),
 
             SignerType::Dirk {
@@ -144,7 +134,7 @@ impl StartSignerConfig {
                 Ok(StartSignerConfig {
                     chain: config.chain,
                     server_port,
-                    modules,
+                    jwts,
                     loader: None,
                     store,
                     dirk: Some(DirkConfig {
@@ -161,7 +151,6 @@ impl StartSignerConfig {
                             None => None,
                         },
                     }),
-                    jwt_secret,
                 })
             }
 

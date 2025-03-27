@@ -1,4 +1,4 @@
-use std::{collections::HashSet, net::SocketAddr, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
 use axum::{
     extract::{Request, State},
@@ -12,8 +12,8 @@ use axum_extra::TypedHeader;
 use cb_common::{
     commit::{
         constants::{
-            GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, REFRESH_TOKEN_PATH, RELOAD_PATH,
-            REQUEST_SIGNATURE_PATH, STATUS_PATH,
+            GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, RELOAD_PATH, REQUEST_SIGNATURE_PATH,
+            STATUS_PATH,
         },
         request::{
             EncryptionScheme, GenerateProxyRequest, GetPubkeysResponse, SignConsensusRequest,
@@ -23,7 +23,7 @@ use cb_common::{
     config::StartSignerConfig,
     constants::{COMMIT_BOOST_COMMIT, COMMIT_BOOST_VERSION},
     types::{Chain, Jwt, ModuleId},
-    utils::{create_jwt, decode_jwt},
+    utils::{decode_jwt, validate_jwt},
 };
 use cb_metrics::provider::MetricsProvider;
 use eyre::Context;
@@ -45,38 +45,29 @@ pub struct SigningService;
 struct SigningState {
     /// Manager handling different signing methods
     manager: Arc<RwLock<SigningManager>>,
-    /// Registry of all modules running
-    modules: Arc<HashSet<ModuleId>>,
+    /// Map of modules ids to JWT secrets. This also acts as registry of all
+    /// modules running
+    jwts: Arc<HashMap<ModuleId, String>>,
 }
 
 impl SigningService {
     pub async fn run(config: StartSignerConfig) -> eyre::Result<()> {
-        if config.modules.is_empty() {
+        if config.jwts.is_empty() {
             warn!("Signing service was started but no module is registered. Exiting");
             return Ok(());
         }
 
+        let module_ids: Vec<String> = config.jwts.keys().cloned().map(Into::into).collect();
+
         let state = SigningState {
             manager: Arc::new(RwLock::new(start_manager(config.clone()).await?)),
-            modules: Arc::new(config.modules.clone()),
+            jwts: config.jwts.into(),
         };
 
         let loaded_consensus = state.manager.read().await.available_consensus_signers();
         let loaded_proxies = state.manager.read().await.available_proxy_signers();
 
-        info!(
-            version = COMMIT_BOOST_VERSION,
-            commit_hash = COMMIT_BOOST_COMMIT,
-            modules =? config
-                .modules
-                .iter()
-                .map(|module| module.to_string())
-                .collect::<Vec<String>>(),
-            port =? config.server_port,
-            loaded_consensus,
-            loaded_proxies,
-            "Starting signing service"
-        );
+        info!(version = COMMIT_BOOST_VERSION, commit_hash = COMMIT_BOOST_COMMIT, modules =? module_ids, port =? config.server_port, loaded_consensus, loaded_proxies, "Starting signing service");
 
         SigningService::init_metrics(config.chain)?;
 
@@ -84,7 +75,6 @@ impl SigningService {
             .route(REQUEST_SIGNATURE_PATH, post(handle_request_signature))
             .route(GET_PUBKEYS_PATH, get(handle_get_pubkeys))
             .route(GENERATE_PROXY_KEY_PATH, post(handle_generate_proxy))
-            .route(REFRESH_TOKEN_PATH, get(handle_refresh_token))
             .route_layer(middleware::from_fn_with_state(state.clone(), jwt_auth))
             .route(RELOAD_PATH, post(handle_reload))
             .with_state(state.clone())
@@ -111,13 +101,20 @@ async fn jwt_auth(
 ) -> Result<Response, SignerModuleError> {
     let jwt: Jwt = auth.token().to_string().into();
 
-    let module_id = decode_jwt(jwt, state.manager.read().await.jwt_secret()).map_err(|e| {
+    // We first need to decode it to get the module id and then validate it
+    // with the secret stored in the state
+    let module_id = decode_jwt(jwt.clone()).map_err(|e| {
         error!("Unauthorized request. Invalid JWT: {e}");
         SignerModuleError::Unauthorized
     })?;
 
-    state.modules.get(&module_id).ok_or_else(|| {
+    let jwt_secret = state.jwts.get(&module_id).ok_or_else(|| {
         error!("Unauthorized request. Was the module started correctly?");
+        SignerModuleError::Unauthorized
+    })?;
+
+    validate_jwt(jwt, jwt_secret).map_err(|e| {
+        error!("Unauthorized request. Invalid JWT: {e}");
         SignerModuleError::Unauthorized
     })?;
 
@@ -286,22 +283,6 @@ async fn handle_reload(
     Ok(StatusCode::OK)
 }
 
-async fn handle_refresh_token(
-    Extension(module_id): Extension<ModuleId>,
-    State(state): State<SigningState>,
-) -> Result<impl IntoResponse, SignerModuleError> {
-    let req_id = Uuid::new_v4();
-    debug!(event = "refresh_token", ?req_id, ?module_id, "New request");
-
-    let new_token =
-        create_jwt(&module_id, state.manager.read().await.jwt_secret()).map_err(|err| {
-            error!(event = "refresh_token", ?module_id, error = ?err, "Failed to generate new JWT");
-            SignerModuleError::Internal("Failed to generate new JWT".to_string())
-        })?;
-
-    Ok(Json(new_token).into_response())
-}
-
 async fn start_manager(config: StartSignerConfig) -> eyre::Result<SigningManager> {
     let proxy_store = if let Some(store) = config.store.clone() {
         Some(store.init_from_env()?)
@@ -312,7 +293,7 @@ async fn start_manager(config: StartSignerConfig) -> eyre::Result<SigningManager
 
     match config.dirk {
         Some(dirk) => {
-            let mut manager = DirkManager::new(config.chain, config.jwt_secret, dirk).await?;
+            let mut manager = DirkManager::new(config.chain, dirk).await?;
             if let Some(store) = config.store {
                 manager = manager.with_proxy_store(store.init_from_env()?)?;
             }
@@ -320,8 +301,7 @@ async fn start_manager(config: StartSignerConfig) -> eyre::Result<SigningManager
             Ok(SigningManager::Dirk(manager))
         }
         None => {
-            let mut manager =
-                LocalSigningManager::new(config.chain, config.jwt_secret, proxy_store)?;
+            let mut manager = LocalSigningManager::new(config.chain, proxy_store)?;
             let Some(loader) = config.loader.clone() else {
                 warn!("No loader configured.");
                 return Err(eyre::eyre!("No loader configured"));

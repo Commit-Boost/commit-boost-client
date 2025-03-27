@@ -9,7 +9,7 @@ use cb_common::{
         load_optional_env_var, CommitBoostConfig, LogsSettings, ModuleKind, SignerConfig,
         SignerType, BUILDER_PORT_ENV, BUILDER_URLS_ENV, CHAIN_SPEC_ENV, CONFIG_DEFAULT, CONFIG_ENV,
         DIRK_CA_CERT_DEFAULT, DIRK_CA_CERT_ENV, DIRK_CERT_DEFAULT, DIRK_CERT_ENV,
-        DIRK_DIR_SECRETS_DEFAULT, DIRK_DIR_SECRETS_ENV, DIRK_KEY_DEFAULT, DIRK_KEY_ENV,
+        DIRK_DIR_SECRETS_DEFAULT, DIRK_DIR_SECRETS_ENV, DIRK_KEY_DEFAULT, DIRK_KEY_ENV, JWTS_ENV,
         LOGS_DIR_DEFAULT, LOGS_DIR_ENV, METRICS_PORT_ENV, MODULE_ID_ENV, MODULE_JWT_ENV,
         PBS_ENDPOINT_ENV, PBS_MODULE_NAME, PROXY_DIR_DEFAULT, PROXY_DIR_ENV,
         PROXY_DIR_KEYS_DEFAULT, PROXY_DIR_KEYS_ENV, PROXY_DIR_SECRETS_DEFAULT,
@@ -19,7 +19,8 @@ use cb_common::{
     },
     pbs::{BUILDER_API_PATH, GET_STATUS_PATH},
     signer::{ProxyStore, SignerLoader},
-    utils::{create_jwt, random_jwt_secret},
+    types::ModuleId,
+    utils::random_jwt_secret,
 };
 use docker_compose_types::{
     Compose, DependsCondition, DependsOnOptions, EnvFile, Environment, Healthcheck,
@@ -65,6 +66,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
         Some(get_env_val(CHAIN_SPEC_ENV, &format!("/{file_name}")))
     });
 
+    let mut jwts = IndexMap::new();
     // envs to write in .env file
     let mut envs = IndexMap::new();
     // targets to pass to prometheus
@@ -89,8 +91,6 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
             modules.iter().any(|module| matches!(module.kind, ModuleKind::Commit))
         });
 
-    let jwt_secret = load_optional_env_var(SIGNER_JWT_SECRET_ENV).unwrap_or_else(random_jwt_secret);
-
     // setup modules
     if let Some(modules_config) = cb_config.modules {
         for module in modules_config {
@@ -101,7 +101,8 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                 ModuleKind::Commit => {
                     let mut ports = vec![];
 
-                    let jwt = create_jwt(&module.id, &jwt_secret)?;
+                    let jwt_secret = load_optional_env_var(SIGNER_JWT_SECRET_ENV)
+                        .unwrap_or_else(random_jwt_secret);
                     let jwt_name = format!("CB_JWT_{}", module.id.to_uppercase());
 
                     // module ids are assumed unique, so envs dont override each other
@@ -148,7 +149,8 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                         module_envs.insert(key, val);
                     }
 
-                    envs.insert(jwt_name.clone(), jwt.to_string());
+                    jwts.insert(module.id.clone(), jwt_secret.clone());
+                    envs.insert(jwt_name.clone(), jwt_secret);
 
                     // networks
                     let module_networks = vec![SIGNER_NETWORK.to_owned()];
@@ -327,8 +329,6 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
             panic!("Signer module required but no signer config provided");
         };
 
-        envs.insert(SIGNER_JWT_SECRET_ENV.to_string(), jwt_secret.clone());
-
         match signer_config.inner {
             SignerType::Local { loader, store } => {
                 let mut signer_envs = IndexMap::from([
@@ -482,6 +482,9 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                     let (key, val) = get_env_val(LOGS_DIR_ENV, LOGS_DIR_DEFAULT);
                     signer_envs.insert(key, val);
                 }
+
+                // write jwts to env
+                envs.insert(JWTS_ENV.into(), format_comma_separated(&jwts));
 
                 // volumes
                 let mut volumes = vec![
@@ -660,4 +663,9 @@ fn get_log_volume(config: &LogsSettings, module_id: &str) -> Option<Volumes> {
             LOGS_DIR_DEFAULT
         ))
     })
+}
+
+/// Formats as a comma separated list of key=value
+fn format_comma_separated(map: &IndexMap<ModuleId, String>) -> String {
+    map.iter().map(|(k, v)| format!("{}={}", k, v)).collect::<Vec<_>>().join(",")
 }
