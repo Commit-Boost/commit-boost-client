@@ -66,6 +66,9 @@ url = "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb
 # Headers to send with each request for this relay
 # OPTIONAL
 headers = { X-MyCustomHeader = "MyCustomValue" }
+# GET parameters to add to each request URL for this relay
+# OPTIONAL
+get_params = { param1 = "value1", param2 = "value2" }
 # Whether to enable timing games, as tuned by `target_first_request_ms` and `frequency_get_header_ms`.
 # These values should be carefully chosen for each relay, as each relay has different latency and timing games setups.
 # They should only be used by advanced users, and if mis-configured can result in unforeseen effects, e.g. fetching a lower header value,
@@ -130,7 +133,7 @@ timeout_get_header_ms = 900
 late_in_slot_time_ms = 1500
 # For each mux, one or more [[mux.relays]] can be defined, which will be used for the matching validator pubkeys
 # Only the relays defined here will be used, and the relays defined in the main [[relays]] config will be ignored
-# The fields specified here are the same as in [[relays]] (headers, enable_timing_games, target_first_request_ms, frequency_get_header_ms)
+# The fields specified here are the same as in [[relays]] (headers, get_params, enable_timing_games, target_first_request_ms, frequency_get_header_ms)
 [[mux.relays]]
 id = "mux-relay-1"
 url = "http://0xa119589bb33ef52acbb8116832bec2b58fca590fe5c85eac5d3230b44d5bc09fe73ccd21f88eab31d6de16194d17782e@def.xyz"

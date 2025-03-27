@@ -157,6 +157,7 @@ fn get_mock_validator(bench: BenchConfig) -> RelayClient {
         entry,
         id: None,
         headers: None,
+        get_params: None,
         enable_timing_games: false,
         target_first_request_ms: None,
         frequency_get_header_ms: None,
