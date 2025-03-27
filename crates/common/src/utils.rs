@@ -312,7 +312,7 @@ pub fn decode_jwt(jwt: Jwt, secret: &str) -> eyre::Result<ModuleId> {
 }
 
 /// Generates a random string
-pub fn random_jwt() -> String {
+pub fn random_jwt_secret() -> String {
     rand::rng().sample_iter(&Alphanumeric).take(32).map(char::from).collect()
 }
 

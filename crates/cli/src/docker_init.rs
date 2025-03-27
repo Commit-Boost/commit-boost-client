@@ -19,14 +19,14 @@ use cb_common::{
     },
     pbs::{BUILDER_API_PATH, GET_STATUS_PATH},
     signer::{ProxyStore, SignerLoader},
-    utils::create_jwt,
+    utils::{create_jwt, random_jwt_secret},
 };
 use docker_compose_types::{
     Compose, DependsCondition, DependsOnOptions, EnvFile, Environment, Healthcheck,
     HealthcheckTest, MapOrEmpty, NetworkSettings, Networks, Ports, Service, Services, SingleValue,
     Volumes,
 };
-use eyre::{bail, Result};
+use eyre::Result;
 use indexmap::IndexMap;
 
 /// Name of the docker compose file
@@ -89,15 +89,8 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
             modules.iter().any(|module| matches!(module.kind, ModuleKind::Commit))
         });
 
-    let secret = load_optional_env_var(SIGNER_JWT_SECRET_ENV)
-        .or(cb_config.signer.as_ref().and_then(|signer_config| signer_config.jwt_secret.clone()));
-    let jwt_secret = match (needs_signer_module, secret) {
-        (true, Some(secret)) => secret,
-        (true, None) => {
-            bail!("No JWT secret provided for the signer. Set it in the environment or config")
-        }
-        (false, _) => String::new(), // not needed
-    };
+    let jwt_secret =
+        load_optional_env_var(SIGNER_JWT_SECRET_ENV).unwrap_or_else(|| random_jwt_secret());
 
     // setup modules
     if let Some(modules_config) = cb_config.modules {
@@ -637,7 +630,6 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
 }
 
 /// FOO=${FOO}
-#[allow(dead_code)]
 fn get_env_same(k: &str) -> (String, Option<SingleValue>) {
     get_env_interp(k, k)
 }

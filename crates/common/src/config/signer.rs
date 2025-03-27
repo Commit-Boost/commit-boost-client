@@ -21,8 +21,6 @@ pub struct SignerConfig {
     /// Docker image of the module
     #[serde(default = "default_signer")]
     pub docker_image: String,
-    /// Secret used to sign JWTs
-    pub jwt_secret: Option<String>,
     /// Inner type-specific configuration
     #[serde(flatten)]
     pub inner: SignerType,
@@ -108,10 +106,9 @@ impl StartSignerConfig {
         let server_port = load_env_var(SIGNER_PORT_ENV)?.parse()?;
 
         let signer = config.signer.ok_or_eyre("Signer config is missing")?;
-        let jwt_secret =
-            load_optional_env_var(SIGNER_JWT_SECRET_ENV).or(signer.jwt_secret).ok_or_eyre(
-                "No JWT secret provided for the signer. Set it in the environment or config",
-            )?;
+        let jwt_secret = load_optional_env_var(SIGNER_JWT_SECRET_ENV).ok_or(eyre::eyre!(
+            "No JWT secret provided for the signer. Set it in the {SIGNER_JWT_SECRET_ENV} env var"
+        ))?;
 
         match signer.inner {
             SignerType::Local { loader, store, .. } => Ok(StartSignerConfig {
