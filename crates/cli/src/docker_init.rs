@@ -334,7 +334,6 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                 let mut signer_envs = IndexMap::from([
                     get_env_val(CONFIG_ENV, CONFIG_DEFAULT),
                     get_env_same(JWTS_ENV),
-                    get_env_same(SIGNER_JWT_SECRET_ENV),
                     get_env_uval(SIGNER_PORT_ENV, signer_port as u64),
                 ]);
 
@@ -359,6 +358,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                     signer_envs.insert(key, val);
                 }
 
+                // write jwts to env
                 envs.insert(JWTS_ENV.into(), format_comma_separated(&jwts));
 
                 // volumes
@@ -459,7 +459,6 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                 let mut signer_envs = IndexMap::from([
                     get_env_val(CONFIG_ENV, CONFIG_DEFAULT),
                     get_env_same(JWTS_ENV),
-                    get_env_same(SIGNER_JWT_SECRET_ENV),
                     get_env_uval(SIGNER_PORT_ENV, signer_port as u64),
                     get_env_val(DIRK_CERT_ENV, DIRK_CERT_DEFAULT),
                     get_env_val(DIRK_KEY_ENV, DIRK_KEY_DEFAULT),
