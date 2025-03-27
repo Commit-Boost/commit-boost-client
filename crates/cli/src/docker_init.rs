@@ -149,8 +149,8 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                         module_envs.insert(key, val);
                     }
 
-                    jwts.insert(module.id.clone(), jwt_secret.clone());
-                    envs.insert(jwt_name.clone(), jwt_secret);
+                    envs.insert(jwt_name.clone(), jwt_secret.clone());
+                    jwts.insert(module.id.clone(), jwt_secret);
 
                     // networks
                     let module_networks = vec![SIGNER_NETWORK.to_owned()];
@@ -332,8 +332,9 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
         match signer_config.inner {
             SignerType::Local { loader, store } => {
                 let mut signer_envs = IndexMap::from([
-                    get_env_same(SIGNER_JWT_SECRET_ENV),
                     get_env_val(CONFIG_ENV, CONFIG_DEFAULT),
+                    get_env_same(JWTS_ENV),
+                    get_env_same(SIGNER_JWT_SECRET_ENV),
                     get_env_uval(SIGNER_PORT_ENV, signer_port as u64),
                 ]);
 
@@ -357,6 +358,8 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                     let (key, val) = get_env_val(LOGS_DIR_ENV, LOGS_DIR_DEFAULT);
                     signer_envs.insert(key, val);
                 }
+
+                envs.insert(JWTS_ENV.into(), format_comma_separated(&jwts));
 
                 // volumes
                 let mut volumes = vec![config_volume.clone()];
@@ -455,8 +458,9 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
             SignerType::Dirk { cert_path, key_path, secrets_path, ca_cert_path, store, .. } => {
                 let mut signer_envs = IndexMap::from([
                     get_env_val(CONFIG_ENV, CONFIG_DEFAULT),
-                    get_env_uval(SIGNER_PORT_ENV, signer_port as u64),
+                    get_env_same(JWTS_ENV),
                     get_env_same(SIGNER_JWT_SECRET_ENV),
+                    get_env_uval(SIGNER_PORT_ENV, signer_port as u64),
                     get_env_val(DIRK_CERT_ENV, DIRK_CERT_DEFAULT),
                     get_env_val(DIRK_KEY_ENV, DIRK_KEY_DEFAULT),
                     get_env_val(DIRK_DIR_SECRETS_ENV, DIRK_DIR_SECRETS_DEFAULT),
