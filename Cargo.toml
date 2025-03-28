@@ -70,3 +70,4 @@ typenum = "1.17.0"
 unicode-normalization = "0.1.24"
 url = { version = "2.5.0", features = ["serde"] }
 uuid = { version = "1.8.0", features = ["fast-rng", "serde", "v4"] }
+jsonwebtoken = { version = "9.3.1", default-features = false }

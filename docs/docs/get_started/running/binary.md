@@ -26,7 +26,7 @@ Modules need some environment variables to work correctly.
 - `CB_MUX_PATH_{ID}`: optional, override where to load mux validator keys for mux with `id=\{ID\}`.
 
 ### Signer Module
-- `CB_JWTS`: required, comma-separated list of `MODULE_ID=JWT` to process signature requests.
+- `CB_SIGNER_JWT_SECRET`: secret to use for JWT authentication with the Signer module.
 - `CB_SIGNER_PORT`: required, port to open the signer server on.
 - For loading keys we currently support:
   - `CB_SIGNER_LOADER_FILE`: path to a `.json` with plaintext keys (for testing purposes only).
@@ -45,7 +45,7 @@ Modules need some environment variables to work correctly.
 
 #### Commit modules
 - `CB_SIGNER_URL`: required, url to the signer module server.
-- `CB_SIGNER_JWT`: required, jwt to use for signature requests (needs to match what is in `CB_JWTS`).
+- `CB_SIGNER_JWT`: required, jwt to use for signature requests.
 
 #### Events modules
 - `CB_BUILDER_PORT`: required, port to open to receive builder events from the PBS module.

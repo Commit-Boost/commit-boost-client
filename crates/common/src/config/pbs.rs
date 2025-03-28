@@ -22,13 +22,14 @@ use super::{
 use crate::{
     commit::client::SignerClient,
     config::{
-        load_env_var, load_file_from_env, PbsMuxes, CONFIG_ENV, MODULE_JWT_ENV, SIGNER_URL_ENV,
+        load_env_var, load_file_from_env, PbsMuxes, CONFIG_ENV, MODULE_JWT_ENV, PBS_MODULE_NAME,
+        SIGNER_URL_ENV,
     },
     pbs::{
         BuilderEventPublisher, DefaultTimeout, RelayClient, RelayEntry, DEFAULT_PBS_PORT,
         LATE_IN_SLOT_TIME_MS,
     },
-    types::Chain,
+    types::{Chain, Jwt, ModuleId},
     utils::{
         as_eth_str, default_bool, default_host, default_u16, default_u256, default_u64, WEI_PER_ETH,
     },
@@ -333,9 +334,13 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
 
     let signer_client = if cb_config.pbs.static_config.with_signer {
         // if custom pbs requires a signer client, load jwt
-        let module_jwt = load_env_var(MODULE_JWT_ENV)?;
+        let module_jwt = Jwt(load_env_var(MODULE_JWT_ENV)?);
         let signer_server_url = load_env_var(SIGNER_URL_ENV)?.parse()?;
-        Some(SignerClient::new(signer_server_url, &module_jwt)?)
+        Some(SignerClient::new(
+            signer_server_url,
+            module_jwt,
+            ModuleId(PBS_MODULE_NAME.to_string()),
+        )?)
     } else {
         None
     };

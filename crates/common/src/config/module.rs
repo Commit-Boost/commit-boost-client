@@ -104,7 +104,7 @@ pub fn load_commit_module_config<T: DeserializeOwned>() -> Result<StartCommitMod
         .find(|m| m.static_config.id == module_id)
         .wrap_err(format!("failed to find module for {module_id}"))?;
 
-    let signer_client = SignerClient::new(signer_server_url, &module_jwt)?;
+    let signer_client = SignerClient::new(signer_server_url, module_jwt, module_id)?;
 
     Ok(StartCommitModuleConfig {
         id: module_config.static_config.id,

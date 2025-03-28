@@ -43,7 +43,7 @@ fn default_ecdsa() -> bool {
 }
 
 impl DaCommitService {
-    pub async fn run(self) -> Result<()> {
+    pub async fn run(&mut self) -> Result<()> {
         // the config has the signer_client already setup, we can use it to interact
         // with the Signer API
         let pubkeys = self.config.signer_client.get_pubkeys().await?.keys;
@@ -75,7 +75,7 @@ impl DaCommitService {
     }
 
     pub async fn send_request(
-        &self,
+        &mut self,
         data: u64,
         pubkey: BlsPublicKey,
         proxy_bls: BlsPublicKey,
@@ -84,27 +84,23 @@ impl DaCommitService {
         let datagram = Datagram { data };
 
         let request = SignConsensusRequest::builder(pubkey).with_msg(&datagram);
-        let signature = self.config.signer_client.request_consensus_signature(request);
+        let signature = self.config.signer_client.request_consensus_signature(request).await?;
+
+        info!("Proposer commitment (consensus): {}", signature);
 
         let proxy_request_bls = SignProxyRequest::builder(proxy_bls).with_msg(&datagram);
         let proxy_signature_bls =
-            self.config.signer_client.request_proxy_signature_bls(proxy_request_bls);
+            self.config.signer_client.request_proxy_signature_bls(proxy_request_bls).await?;
 
-        let proxy_signature_ecdsa = proxy_ecdsa.map(|proxy_ecdsa| {
-            let proxy_request_ecdsa = SignProxyRequest::builder(proxy_ecdsa).with_msg(&datagram);
-            self.config.signer_client.request_proxy_signature_ecdsa(proxy_request_ecdsa)
-        });
-
-        let (signature, proxy_signature_bls) = {
-            let res = tokio::join!(signature, proxy_signature_bls);
-            (res.0?, res.1?)
-        };
-
-        info!("Proposer commitment (consensus): {}", signature);
         info!("Proposer commitment (proxy BLS): {}", proxy_signature_bls);
 
-        if let Some(proxy_signature_ecdsa) = proxy_signature_ecdsa {
-            let proxy_signature_ecdsa = proxy_signature_ecdsa.await?;
+        if let Some(proxy_ecdsa) = proxy_ecdsa {
+            let proxy_request_ecdsa = SignProxyRequest::builder(proxy_ecdsa).with_msg(&datagram);
+            let proxy_signature_ecdsa = self
+                .config
+                .signer_client
+                .request_proxy_signature_ecdsa(proxy_request_ecdsa)
+                .await?;
             info!("Proposer commitment (proxy ECDSA): {}", proxy_signature_ecdsa);
         }
 
@@ -134,7 +130,7 @@ async fn main() -> Result<()> {
                 "Starting module with custom data"
             );
 
-            let service = DaCommitService { config };
+            let mut service = DaCommitService { config };
 
             if let Err(err) = service.run().await {
                 error!(%err, "Service failed");

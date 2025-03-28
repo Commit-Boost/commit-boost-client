@@ -14,4 +14,7 @@ pub enum SignerClientError {
 
     #[error("url parse error: {0}")]
     ParseError(#[from] url::ParseError),
+
+    #[error("JWT error: {0}")]
+    JWTError(#[from] eyre::Error),
 }

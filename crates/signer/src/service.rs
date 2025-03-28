@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
 use axum::{
     extract::{Request, State},
@@ -9,7 +9,6 @@ use axum::{
     Extension, Json,
 };
 use axum_extra::TypedHeader;
-use bimap::BiHashMap;
 use cb_common::{
     commit::{
         constants::{
@@ -24,6 +23,7 @@ use cb_common::{
     config::StartSignerConfig,
     constants::{COMMIT_BOOST_COMMIT, COMMIT_BOOST_VERSION},
     types::{Chain, Jwt, ModuleId},
+    utils::{decode_jwt, validate_jwt},
 };
 use cb_metrics::provider::MetricsProvider;
 use eyre::Context;
@@ -45,9 +45,9 @@ pub struct SigningService;
 struct SigningState {
     /// Manager handling different signing methods
     manager: Arc<RwLock<SigningManager>>,
-    /// Map of JWTs to module ids. This also acts as registry of all modules
-    /// running
-    jwts: Arc<BiHashMap<ModuleId, Jwt>>,
+    /// Map of modules ids to JWT secrets. This also acts as registry of all
+    /// modules running
+    jwts: Arc<HashMap<ModuleId, String>>,
 }
 
 impl SigningService {
@@ -57,7 +57,7 @@ impl SigningService {
             return Ok(());
         }
 
-        let module_ids: Vec<String> = config.jwts.left_values().cloned().map(Into::into).collect();
+        let module_ids: Vec<String> = config.jwts.keys().cloned().map(Into::into).collect();
 
         let state = SigningState {
             manager: Arc::new(RwLock::new(start_manager(config.clone()).await?)),
@@ -78,15 +78,13 @@ impl SigningService {
             .route_layer(middleware::from_fn_with_state(state.clone(), jwt_auth))
             .route(RELOAD_PATH, post(handle_reload))
             .with_state(state.clone())
-            .route_layer(middleware::from_fn(log_request));
-        let status_router = axum::Router::new().route(STATUS_PATH, get(handle_status));
+            .route_layer(middleware::from_fn(log_request))
+            .route(STATUS_PATH, get(handle_status));
 
         let address = SocketAddr::from(([0, 0, 0, 0], config.server_port));
         let listener = TcpListener::bind(address).await?;
 
-        axum::serve(listener, axum::Router::new().merge(app).merge(status_router))
-            .await
-            .wrap_err("signer server exited")
+        axum::serve(listener, app).await.wrap_err("signer server exited")
     }
 
     fn init_metrics(network: Chain) -> eyre::Result<()> {
@@ -103,12 +101,24 @@ async fn jwt_auth(
 ) -> Result<Response, SignerModuleError> {
     let jwt: Jwt = auth.token().to_string().into();
 
-    let module_id = state.jwts.get_by_right(&jwt).ok_or_else(|| {
+    // We first need to decode it to get the module id and then validate it
+    // with the secret stored in the state
+    let module_id = decode_jwt(jwt.clone()).map_err(|e| {
+        error!("Unauthorized request. Invalid JWT: {e}");
+        SignerModuleError::Unauthorized
+    })?;
+
+    let jwt_secret = state.jwts.get(&module_id).ok_or_else(|| {
         error!("Unauthorized request. Was the module started correctly?");
         SignerModuleError::Unauthorized
     })?;
 
-    req.extensions_mut().insert(module_id.clone());
+    validate_jwt(jwt, jwt_secret).map_err(|e| {
+        error!("Unauthorized request. Invalid JWT: {e}");
+        SignerModuleError::Unauthorized
+    })?;
+
+    req.extensions_mut().insert(module_id);
 
     Ok(next.run(req).await)
 }

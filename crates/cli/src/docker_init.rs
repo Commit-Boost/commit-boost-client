@@ -6,21 +6,21 @@ use std::{
 
 use cb_common::{
     config::{
-        CommitBoostConfig, LogsSettings, ModuleKind, SignerConfig, SignerType, BUILDER_PORT_ENV,
-        BUILDER_URLS_ENV, CHAIN_SPEC_ENV, CONFIG_DEFAULT, CONFIG_ENV, DIRK_CA_CERT_DEFAULT,
-        DIRK_CA_CERT_ENV, DIRK_CERT_DEFAULT, DIRK_CERT_ENV, DIRK_DIR_SECRETS_DEFAULT,
-        DIRK_DIR_SECRETS_ENV, DIRK_KEY_DEFAULT, DIRK_KEY_ENV, JWTS_ENV, LOGS_DIR_DEFAULT,
-        LOGS_DIR_ENV, METRICS_PORT_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, PBS_ENDPOINT_ENV,
-        PBS_MODULE_NAME, PROXY_DIR_DEFAULT, PROXY_DIR_ENV, PROXY_DIR_KEYS_DEFAULT,
-        PROXY_DIR_KEYS_ENV, PROXY_DIR_SECRETS_DEFAULT, PROXY_DIR_SECRETS_ENV, SIGNER_DEFAULT,
-        SIGNER_DIR_KEYS_DEFAULT, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS_DEFAULT,
-        SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV, SIGNER_MODULE_NAME, SIGNER_PORT_ENV,
-        SIGNER_URL_ENV,
+        load_optional_env_var, CommitBoostConfig, LogsSettings, ModuleKind, SignerConfig,
+        SignerType, BUILDER_PORT_ENV, BUILDER_URLS_ENV, CHAIN_SPEC_ENV, CONFIG_DEFAULT, CONFIG_ENV,
+        DIRK_CA_CERT_DEFAULT, DIRK_CA_CERT_ENV, DIRK_CERT_DEFAULT, DIRK_CERT_ENV,
+        DIRK_DIR_SECRETS_DEFAULT, DIRK_DIR_SECRETS_ENV, DIRK_KEY_DEFAULT, DIRK_KEY_ENV, JWTS_ENV,
+        LOGS_DIR_DEFAULT, LOGS_DIR_ENV, METRICS_PORT_ENV, MODULE_ID_ENV, MODULE_JWT_ENV,
+        PBS_ENDPOINT_ENV, PBS_MODULE_NAME, PROXY_DIR_DEFAULT, PROXY_DIR_ENV,
+        PROXY_DIR_KEYS_DEFAULT, PROXY_DIR_KEYS_ENV, PROXY_DIR_SECRETS_DEFAULT,
+        PROXY_DIR_SECRETS_ENV, SIGNER_DEFAULT, SIGNER_DIR_KEYS_DEFAULT, SIGNER_DIR_KEYS_ENV,
+        SIGNER_DIR_SECRETS_DEFAULT, SIGNER_DIR_SECRETS_ENV, SIGNER_JWT_SECRET_ENV, SIGNER_KEYS_ENV,
+        SIGNER_MODULE_NAME, SIGNER_PORT_ENV, SIGNER_URL_ENV,
     },
     pbs::{BUILDER_API_PATH, GET_STATUS_PATH},
     signer::{ProxyStore, SignerLoader},
     types::ModuleId,
-    utils::random_jwt,
+    utils::random_jwt_secret,
 };
 use docker_compose_types::{
     Compose, DependsCondition, DependsOnOptions, EnvFile, Environment, Healthcheck,
@@ -86,7 +86,10 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
 
     let mut warnings = Vec::new();
 
-    let mut needs_signer_module = cb_config.pbs.with_signer;
+    let needs_signer_module = cb_config.pbs.with_signer ||
+        cb_config.modules.as_ref().is_some_and(|modules| {
+            modules.iter().any(|module| matches!(module.kind, ModuleKind::Commit))
+        });
 
     // setup modules
     if let Some(modules_config) = cb_config.modules {
@@ -97,9 +100,9 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                 // a commit module needs a JWT and access to the signer network
                 ModuleKind::Commit => {
                     let mut ports = vec![];
-                    needs_signer_module = true;
 
-                    let jwt = random_jwt();
+                    let jwt_secret = load_optional_env_var(SIGNER_JWT_SECRET_ENV)
+                        .unwrap_or_else(random_jwt_secret);
                     let jwt_name = format!("CB_JWT_{}", module.id.to_uppercase());
 
                     // module ids are assumed unique, so envs dont override each other
@@ -146,8 +149,8 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                         module_envs.insert(key, val);
                     }
 
-                    envs.insert(jwt_name.clone(), jwt.clone());
-                    jwts.insert(module.id.clone(), jwt);
+                    envs.insert(jwt_name.clone(), jwt_secret.clone());
+                    jwts.insert(module.id.clone(), jwt_secret);
 
                     // networks
                     let module_networks = vec![SIGNER_NETWORK.to_owned()];
