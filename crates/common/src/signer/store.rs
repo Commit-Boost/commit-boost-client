@@ -19,7 +19,7 @@ use eth2_keystore::{
     },
     Uuid, IV_SIZE, SALT_SIZE,
 };
-use eyre::OptionExt;
+use eyre::{Context, OptionExt};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use tracing::{trace, warn};
@@ -195,7 +195,9 @@ impl ProxyStore {
                 let mut ecdsa_map: HashMap<ModuleId, Vec<Address>> = HashMap::new();
 
                 // Iterate over the entries in the base directory
-                for entry in std::fs::read_dir(proxy_dir)? {
+                for entry in std::fs::read_dir(proxy_dir)
+                    .wrap_err_with(|| format!("failed reading proxy dir: {proxy_dir:?}"))?
+                {
                     let entry = entry?;
                     let module_path = entry.path();
 
