@@ -66,6 +66,27 @@ impl GetHeaderResponse {
             VersionedResponse::Electra(data) => data.message.value,
         }
     }
+
+    pub fn transactions_root(&self) -> B256 {
+        match self {
+            GetHeaderResponse::Deneb(data) => data.message.header.transactions_root,
+            GetHeaderResponse::Electra(data) => data.message.header.transactions_root,
+        }
+    }
+
+    pub fn parent_hash(&self) -> B256 {
+        match self {
+            GetHeaderResponse::Deneb(data) => data.message.header.parent_hash,
+            GetHeaderResponse::Electra(data) => data.message.header.parent_hash,
+        }
+    }
+
+    pub fn signautre(&self) -> BlsSignature {
+        match self {
+            GetHeaderResponse::Deneb(data) => data.signature,
+            GetHeaderResponse::Electra(data) => data.signature,
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, Encode, Decode)]
