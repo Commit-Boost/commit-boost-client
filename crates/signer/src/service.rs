@@ -270,6 +270,8 @@ async fn handle_reload(
         }
     };
 
+    state.jwts = config.jwts.clone().into();
+
     let new_manager = match start_manager(config).await {
         Ok(manager) => manager,
         Err(err) => {
