@@ -369,7 +369,7 @@ docker compose -f cb.docker-compose.yml exec cb_signer curl -X POST http://local
 
 The signer module takes 2 optional parameters in the JSON body:
 
-- `jwt_secrets`: a string with a comma-separated list of `<MODULE_ID>=JWT_SECRET` for all modules.
+- `jwt_secrets`: a string with a comma-separated list of `<MODULE_ID>=<JWT_SECRET>` for all modules.
 - `admin_secret`: a string with the secret for the signer admin JWT.
 
 In the case that someone of those isn't present, that parameter won't be updated.

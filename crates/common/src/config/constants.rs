@@ -37,7 +37,7 @@ pub const SIGNER_PORT_ENV: &str = "CB_SIGNER_PORT";
 
 /// Comma separated list module_id=jwt_secret
 pub const JWTS_ENV: &str = "CB_JWTS";
-pub const ADMIN_JWT_ENV: &str = "CB_ADMIN_JWT";
+pub const ADMIN_JWT_ENV: &str = "CB_SIGNER_ADMIN_JWT";
 /// The JWT secret for the signer to validate the modules requests
 pub const SIGNER_JWT_SECRET_ENV: &str = "CB_SIGNER_JWT_SECRET";
 
