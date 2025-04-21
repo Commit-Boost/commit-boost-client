@@ -13,11 +13,11 @@ use cb_common::{
     commit::{
         constants::{
             GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, RELOAD_PATH, REQUEST_SIGNATURE_PATH,
-            STATUS_PATH,
+            REVOKE_JWT, STATUS_PATH,
         },
         request::{
-            EncryptionScheme, GenerateProxyRequest, GetPubkeysResponse, SignConsensusRequest,
-            SignProxyRequest, SignRequest,
+            EncryptionScheme, GenerateProxyRequest, GetPubkeysResponse, RevokeJWTRequest,
+            SignConsensusRequest, SignProxyRequest, SignRequest,
         },
     },
     config::StartSignerConfig,
@@ -47,7 +47,7 @@ struct SigningState {
     manager: Arc<RwLock<SigningManager>>,
     /// Map of modules ids to JWT secrets. This also acts as registry of all
     /// modules running
-    jwts: Arc<HashMap<ModuleId, String>>,
+    jwts: Arc<RwLock<HashMap<ModuleId, String>>>,
 }
 
 impl SigningService {
@@ -61,7 +61,7 @@ impl SigningService {
 
         let state = SigningState {
             manager: Arc::new(RwLock::new(start_manager(config.clone()).await?)),
-            jwts: config.jwts.into(),
+            jwts: Arc::new(RwLock::new(config.jwts)),
         };
 
         let loaded_consensus = state.manager.read().await.available_consensus_signers();
@@ -77,6 +77,7 @@ impl SigningService {
             .route(GENERATE_PROXY_KEY_PATH, post(handle_generate_proxy))
             .route_layer(middleware::from_fn_with_state(state.clone(), jwt_auth))
             .route(RELOAD_PATH, post(handle_reload))
+            .route(REVOKE_JWT, post(handle_revoke_jwt))
             .with_state(state.clone())
             .route_layer(middleware::from_fn(log_request))
             .route(STATUS_PATH, get(handle_status));
@@ -108,7 +109,8 @@ async fn jwt_auth(
         SignerModuleError::Unauthorized
     })?;
 
-    let jwt_secret = state.jwts.get(&module_id).ok_or_else(|| {
+    let guard = state.jwts.read().await;
+    let jwt_secret = guard.get(&module_id).ok_or_else(|| {
         error!("Unauthorized request. Was the module started correctly?");
         SignerModuleError::Unauthorized
     })?;
@@ -270,7 +272,7 @@ async fn handle_reload(
         }
     };
 
-    state.jwts = config.jwts.clone().into();
+    state.jwts = Arc::new(RwLock::new(config.jwts.clone()));
 
     let new_manager = match start_manager(config).await {
         Ok(manager) => manager,
@@ -283,6 +285,17 @@ async fn handle_reload(
     state.manager = Arc::new(RwLock::new(new_manager));
 
     Ok(StatusCode::OK)
+}
+
+async fn handle_revoke_jwt(
+    State(state): State<SigningState>,
+    Json(request): Json<RevokeJWTRequest>,
+) -> Result<impl IntoResponse, SignerModuleError> {
+    let mut guard = state.jwts.write().await;
+    guard
+        .remove(&request.module_id)
+        .ok_or(SignerModuleError::ModuleIdNotFound)
+        .map(|_| StatusCode::OK)
 }
 
 async fn start_manager(config: StartSignerConfig) -> eyre::Result<SigningManager> {

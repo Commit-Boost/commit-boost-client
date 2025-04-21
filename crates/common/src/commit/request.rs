@@ -14,8 +14,11 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    constants::COMMIT_BOOST_DOMAIN, error::BlstErrorWrapper, signature::verify_signed_message,
-    signer::BlsPublicKey, types::Chain,
+    constants::COMMIT_BOOST_DOMAIN,
+    error::BlstErrorWrapper,
+    signature::verify_signed_message,
+    signer::BlsPublicKey,
+    types::{Chain, ModuleId},
 };
 
 pub trait ProxyId: AsRef<[u8]> + Debug + Clone + Copy + TreeHash + Display {}
@@ -198,6 +201,11 @@ pub struct GetPubkeysResponse {
     pub keys: Vec<ConsensusProxyMap>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RevokeJWTRequest {
+    pub module_id: ModuleId,
+}
+
 /// Map of consensus pubkeys to proxies
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ConsensusProxyMap {
@@ -288,7 +296,7 @@ mod tests {
 
         let _: SignedProxyDelegationBls = serde_json::from_str(data).unwrap();
 
-        let data = r#"{ 
+        let data = r#"{
             "message": {
                 "delegator": "0xa3366b54f28e4bf1461926a3c70cdb0ec432b5c92554ecaae3742d33fb33873990cbed1761c68020e6d3c14d30a22050",
                 "proxy": "0x4ca9939a8311a7cab3dde201b70157285fa81a9d"
