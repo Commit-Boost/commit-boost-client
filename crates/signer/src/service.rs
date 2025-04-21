@@ -13,7 +13,7 @@ use cb_common::{
     commit::{
         constants::{
             GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, RELOAD_PATH, REQUEST_SIGNATURE_PATH,
-            REVOKE_JWT, STATUS_PATH,
+            REVOKE_MODULE_PATH, STATUS_PATH,
         },
         request::{
             EncryptionScheme, GenerateProxyRequest, GetPubkeysResponse, RevokeJWTRequest,
@@ -84,7 +84,7 @@ impl SigningService {
 
         let admin_app = axum::Router::new()
             .route(RELOAD_PATH, post(handle_reload))
-            .route(REVOKE_JWT, post(handle_revoke_jwt))
+            .route(REVOKE_MODULE_PATH, post(handle_revoke_module))
             .route_layer(middleware::from_fn_with_state(state.clone(), admin_auth))
             .with_state(state.clone())
             .route_layer(middleware::from_fn(log_request))
@@ -311,7 +311,7 @@ async fn handle_reload(
     Ok(StatusCode::OK)
 }
 
-async fn handle_revoke_jwt(
+async fn handle_revoke_module(
     State(state): State<SigningState>,
     Json(request): Json<RevokeJWTRequest>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
