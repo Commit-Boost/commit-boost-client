@@ -365,6 +365,15 @@ Commit-Boost supports hot-reloading the configuration file. This means that you 
 docker compose -f cb.docker-compose.yml exec cb_signer curl -X POST http://localhost:20000/reload
 ```
 
+### Signer module reload
+
+The signer module takes 2 optional parameters in the JSON body:
+
+- `jwt_secrets`: a string with a comma-separated list of `<MODULE_ID>=JWT_SECRET` for all modules.
+- `admin_secret`: a string with the secret for the signer admin JWT.
+
+In the case that someone of those isn't present, that parameter won't be updated.
+
 ### Notes
 
 - The hot reload feature is available for PBS modules (both default and custom) and signer module.
