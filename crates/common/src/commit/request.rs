@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fmt::{self, Debug, Display},
     str::FromStr,
 };
@@ -9,11 +10,12 @@ use alloy::{
     rpc::types::beacon::BlsSignature,
 };
 use derive_more::derive::From;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
+    config::decode_string_to_map,
     constants::COMMIT_BOOST_DOMAIN,
     error::BlstErrorWrapper,
     signature::verify_signed_message,
@@ -202,7 +204,27 @@ pub struct GetPubkeysResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RevokeJWTRequest {
+pub struct ReloadRequest {
+    #[serde(default, deserialize_with = "deserialize_jwt_secrets")]
+    pub jwt_secrets: Option<HashMap<ModuleId, String>>,
+    pub admin_secret: Option<String>,
+}
+
+pub fn deserialize_jwt_secrets<'de, D>(
+    deserializer: D,
+) -> Result<Option<HashMap<ModuleId, String>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw: String = Deserialize::deserialize(deserializer)?;
+
+    decode_string_to_map(&raw)
+        .map(|x| Some(x))
+        .map_err(|_| serde::de::Error::custom("Invalid format".to_string()))
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RevokeModuleRequest {
     pub module_id: ModuleId,
 }
 

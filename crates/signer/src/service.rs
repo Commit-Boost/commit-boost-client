@@ -16,8 +16,8 @@ use cb_common::{
             REVOKE_MODULE_PATH, STATUS_PATH,
         },
         request::{
-            EncryptionScheme, GenerateProxyRequest, GetPubkeysResponse, RevokeJWTRequest,
-            SignConsensusRequest, SignProxyRequest, SignRequest,
+            EncryptionScheme, GenerateProxyRequest, GetPubkeysResponse, ReloadRequest,
+            RevokeModuleRequest, SignConsensusRequest, SignProxyRequest, SignRequest,
         },
     },
     config::StartSignerConfig,
@@ -282,6 +282,7 @@ async fn handle_generate_proxy(
 
 async fn handle_reload(
     State(mut state): State<SigningState>,
+    Json(request): Json<ReloadRequest>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
     let req_id = Uuid::new_v4();
 
@@ -295,8 +296,13 @@ async fn handle_reload(
         }
     };
 
-    state.jwts = Arc::new(RwLock::new(config.jwts.clone()));
-    state.admin_secret = Arc::new(RwLock::new(config.admin_secret.clone()));
+    if let Some(jwt_secrets) = request.jwt_secrets {
+        *state.jwts.write().await = jwt_secrets;
+    }
+
+    if let Some(admin_secret) = request.admin_secret {
+        *state.admin_secret.write().await = admin_secret;
+    }
 
     let new_manager = match start_manager(config).await {
         Ok(manager) => manager,
@@ -313,7 +319,7 @@ async fn handle_reload(
 
 async fn handle_revoke_module(
     State(state): State<SigningState>,
-    Json(request): Json<RevokeJWTRequest>,
+    Json(request): Json<RevokeModuleRequest>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
     let mut guard = state.jwts.write().await;
     guard

@@ -31,7 +31,7 @@ pub fn load_jwt_secrets() -> Result<(String, HashMap<ModuleId, String>)> {
     decode_string_to_map(&jwt_secrets).map(|secrets| (admin_jwt, secrets))
 }
 
-fn decode_string_to_map(raw: &str) -> Result<HashMap<ModuleId, String>> {
+pub fn decode_string_to_map(raw: &str) -> Result<HashMap<ModuleId, String>> {
     // trim the string and split for comma
     raw.trim()
         .split(',')
