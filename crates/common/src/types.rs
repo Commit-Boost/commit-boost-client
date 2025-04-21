@@ -23,6 +23,12 @@ pub struct JwtClaims {
     pub module: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct JwtAdmin {
+    pub exp: u64,
+    pub admin: bool,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Chain {
     Mainnet,

@@ -89,6 +89,7 @@ pub struct StartSignerConfig {
     pub store: Option<ProxyStore>,
     pub server_port: u16,
     pub jwts: HashMap<ModuleId, String>,
+    pub admin_secret: String,
     pub dirk: Option<DirkConfig>,
 }
 
@@ -96,7 +97,7 @@ impl StartSignerConfig {
     pub fn load_from_env() -> Result<Self> {
         let config = CommitBoostConfig::from_env_path()?;
 
-        let jwts = load_jwt_secrets()?;
+        let (admin_secret, jwts) = load_jwt_secrets()?;
         let server_port = load_env_var(SIGNER_PORT_ENV)?.parse()?;
 
         let signer = config.signer.ok_or_eyre("Signer config is missing")?.inner;
@@ -107,6 +108,7 @@ impl StartSignerConfig {
                 loader: Some(loader),
                 server_port,
                 jwts,
+                admin_secret,
                 store,
                 dirk: None,
             }),
@@ -135,6 +137,7 @@ impl StartSignerConfig {
                     chain: config.chain,
                     server_port,
                     jwts,
+                    admin_secret,
                     loader: None,
                     store,
                     dirk: Some(DirkConfig {

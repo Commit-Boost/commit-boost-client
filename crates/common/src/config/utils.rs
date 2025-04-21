@@ -3,7 +3,7 @@ use std::{collections::HashMap, path::Path};
 use eyre::{bail, Context, Result};
 use serde::de::DeserializeOwned;
 
-use super::JWTS_ENV;
+use super::{ADMIN_JWT_ENV, JWTS_ENV};
 use crate::types::ModuleId;
 
 pub fn load_env_var(env: &str) -> Result<String> {
@@ -25,9 +25,10 @@ pub fn load_file_from_env<T: DeserializeOwned>(env: &str) -> Result<T> {
 }
 
 /// Loads a map of module id -> jwt secret from a json env
-pub fn load_jwt_secrets() -> Result<HashMap<ModuleId, String>> {
+pub fn load_jwt_secrets() -> Result<(String, HashMap<ModuleId, String>)> {
+    let admin_jwt = std::env::var(ADMIN_JWT_ENV).wrap_err(format!("{ADMIN_JWT_ENV} is not set"))?;
     let jwt_secrets = std::env::var(JWTS_ENV).wrap_err(format!("{JWTS_ENV} is not set"))?;
-    decode_string_to_map(&jwt_secrets)
+    decode_string_to_map(&jwt_secrets).map(|secrets| (admin_jwt, secrets))
 }
 
 fn decode_string_to_map(raw: &str) -> Result<HashMap<ModuleId, String>> {
