@@ -29,6 +29,7 @@ jsonwebtoken.workspace = true
 pbkdf2.workspace = true
 rand.workspace = true
 rayon.workspace = true
+rcgen.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

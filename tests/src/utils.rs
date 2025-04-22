@@ -22,6 +22,7 @@ use cb_common::{
     utils::default_host,
 };
 use eyre::Result;
+use rcgen::generate_simple_self_signed;
 
 pub fn get_local_address(port: u16) -> String {
     format!("http://0.0.0.0:{port}")
@@ -131,6 +132,7 @@ pub fn get_signer_config(loader: SignerLoader) -> SignerConfig {
         jwt_auth_fail_limit: SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT,
         jwt_auth_fail_timeout_seconds: SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT,
         inner: SignerType::Local { loader, store: None },
+        tls_certificates: None,
     }
 }
 
@@ -141,17 +143,22 @@ pub fn get_start_signer_config(
     admin_secret: String,
 ) -> StartSignerConfig {
     match signer_config.inner {
-        SignerType::Local { loader, .. } => StartSignerConfig {
-            chain,
-            loader: Some(loader),
-            store: None,
-            endpoint: SocketAddr::new(signer_config.host.into(), signer_config.port),
-            mod_signing_configs: mod_signing_configs.clone(),
-            admin_secret,
-            jwt_auth_fail_limit: signer_config.jwt_auth_fail_limit,
-            jwt_auth_fail_timeout_seconds: signer_config.jwt_auth_fail_timeout_seconds,
-            dirk: None,
-        },
+        SignerType::Local { loader, .. } => {
+            let rcgen::CertifiedKey { cert, key_pair } =
+                generate_simple_self_signed(vec![]).unwrap();
+            StartSignerConfig {
+                chain,
+                loader: Some(loader),
+                store: None,
+                endpoint: SocketAddr::new(signer_config.host.into(), signer_config.port),
+                mod_signing_configs: mod_signing_configs.clone(),
+                admin_secret,
+                jwt_auth_fail_limit: signer_config.jwt_auth_fail_limit,
+                jwt_auth_fail_timeout_seconds: signer_config.jwt_auth_fail_timeout_seconds,
+                dirk: None,
+                tls_certificates: (cert.pem().into_bytes(), key_pair.serialize_pem().into_bytes()),
+            }
+        }
         _ => panic!("Only local signers are supported in tests"),
     }
 }
