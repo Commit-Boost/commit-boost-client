@@ -9,6 +9,7 @@ use axum::{
     Extension, Json,
 };
 use axum_extra::TypedHeader;
+use axum_server::tls_rustls::RustlsConfig;
 use cb_common::{
     commit::{
         constants::{
@@ -28,7 +29,8 @@ use cb_common::{
 use cb_metrics::provider::MetricsProvider;
 use eyre::Context;
 use headers::{authorization::Bearer, Authorization};
-use tokio::{net::TcpListener, sync::RwLock};
+use rustls::crypto::aws_lc_rs;
+use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -82,9 +84,17 @@ impl SigningService {
             .route(STATUS_PATH, get(handle_status));
 
         let address = SocketAddr::from(([0, 0, 0, 0], config.server_port));
-        let listener = TcpListener::bind(address).await?;
 
-        axum::serve(listener, app).await.wrap_err("signer server exited")
+        aws_lc_rs::default_provider()
+            .install_default()
+            .map_err(|_| eyre::eyre!("Failed to install TLS provider"))?;
+        let tls_config =
+            RustlsConfig::from_pem(config.tls_certificates.0, config.tls_certificates.1).await?;
+
+        axum_server::bind_rustls(address, tls_config)
+            .serve(app.into_make_service())
+            .await
+            .wrap_err("signer server exited")
     }
 
     fn init_metrics(network: Chain) -> eyre::Result<()> {

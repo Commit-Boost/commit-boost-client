@@ -9,6 +9,7 @@ version.workspace = true
 alloy.workspace = true
 axum.workspace = true
 axum-extra.workspace = true
+axum-server.workspace = true
 bimap.workspace = true
 blsful.workspace = true
 cb-common.workspace = true
@@ -16,17 +17,18 @@ cb-metrics.workspace = true
 eyre.workspace = true
 futures.workspace = true
 headers.workspace = true
+jsonwebtoken.workspace = true
 lazy_static.workspace = true
 prometheus.workspace = true
 prost.workspace = true
 rand.workspace = true
+rustls.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tonic.workspace = true
 tracing.workspace = true
 tree_hash.workspace = true
 uuid.workspace = true
-jsonwebtoken.workspace = true
 
 [build-dependencies]
 tonic-build.workspace = true

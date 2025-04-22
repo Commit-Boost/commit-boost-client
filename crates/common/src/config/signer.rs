@@ -1,6 +1,7 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use eyre::{bail, OptionExt, Result};
+use rcgen::generate_simple_self_signed;
 use serde::{Deserialize, Serialize};
 use tonic::transport::{Certificate, Identity};
 use url::Url;
@@ -24,6 +25,7 @@ pub struct SignerConfig {
     /// Inner type-specific configuration
     #[serde(flatten)]
     pub inner: SignerType,
+    pub tls_certificates: Option<PathBuf>,
 }
 
 fn default_signer() -> String {
@@ -90,6 +92,7 @@ pub struct StartSignerConfig {
     pub server_port: u16,
     pub jwts: HashMap<ModuleId, String>,
     pub dirk: Option<DirkConfig>,
+    pub tls_certificates: (Vec<u8>, Vec<u8>),
 }
 
 impl StartSignerConfig {
@@ -99,9 +102,22 @@ impl StartSignerConfig {
         let jwts = load_jwt_secrets()?;
         let server_port = load_env_var(SIGNER_PORT_ENV)?.parse()?;
 
-        let signer = config.signer.ok_or_eyre("Signer config is missing")?.inner;
+        let signer = config.signer.ok_or_eyre("Signer config is missing")?;
 
-        match signer {
+        let tls_certificates = match signer.tls_certificates {
+            Some(certs_path) => {
+                let cert = std::fs::read(certs_path.join("cert.pem"))?;
+                let key = std::fs::read(certs_path.join("key.pem"))?;
+                (cert, key)
+            }
+            None => {
+                let rcgen::CertifiedKey { cert, key_pair } =
+                    generate_simple_self_signed(vec![]).unwrap();
+                (cert.pem().into_bytes(), key_pair.serialize_pem().into_bytes())
+            }
+        };
+
+        match signer.inner {
             SignerType::Local { loader, store, .. } => Ok(StartSignerConfig {
                 chain: config.chain,
                 loader: Some(loader),
@@ -109,6 +125,7 @@ impl StartSignerConfig {
                 jwts,
                 store,
                 dirk: None,
+                tls_certificates,
             }),
 
             SignerType::Dirk {
@@ -151,6 +168,7 @@ impl StartSignerConfig {
                             None => None,
                         },
                     }),
+                    tls_certificates,
                 })
             }
 
