@@ -221,8 +221,8 @@ impl StartSignerConfig {
                 (cert, key)
             }
             None => {
-                let rcgen::CertifiedKey { cert, key_pair } =
-                    generate_simple_self_signed(vec![]).unwrap();
+                let rcgen::CertifiedKey { cert, key_pair } = generate_simple_self_signed(vec![])
+                    .map_err(|e| eyre::eyre!("Failed to generate TLS certificate: {e}"))?;
                 (cert.pem().into_bytes(), key_pair.serialize_pem().into_bytes())
             }
         };
