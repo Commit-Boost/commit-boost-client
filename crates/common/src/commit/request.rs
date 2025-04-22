@@ -219,7 +219,7 @@ where
     let raw: String = Deserialize::deserialize(deserializer)?;
 
     decode_string_to_map(&raw)
-        .map(|x| Some(x))
+        .map(Some)
         .map_err(|_| serde::de::Error::custom("Invalid format".to_string()))
 }
 
