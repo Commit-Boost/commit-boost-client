@@ -659,6 +659,11 @@ fn load_distributed_accounts(
             continue;
         };
 
+        if participant_id == 0 {
+            warn!("Skiping invalid participant ID (0)");
+            continue
+        }
+
         match consensus_accounts.get_mut(&public_key) {
             Some(Account::Distributed(DistributedAccount { participants, .. })) => {
                 participants.insert(participant_id as u32, channel.clone());
