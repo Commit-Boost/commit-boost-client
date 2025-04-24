@@ -660,7 +660,10 @@ fn load_distributed_accounts(
         };
 
         if participant_id == 0 {
-            warn!("Skiping invalid participant ID (0)");
+            warn!(
+                "Skiping invalid participant ID (0) for account {} in host {host_name}",
+                account.name
+            );
             continue
         }
 
