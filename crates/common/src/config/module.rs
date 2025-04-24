@@ -10,7 +10,7 @@ use crate::{
         constants::{CONFIG_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, SIGNER_URL_ENV},
         load_env_var,
         utils::load_file_from_env,
-        BUILDER_PORT_ENV,
+        SignerConfig, BUILDER_PORT_ENV,
     },
     types::{Chain, Jwt, ModuleId},
 };
@@ -82,6 +82,7 @@ pub fn load_commit_module_config<T: DeserializeOwned>() -> Result<StartCommitMod
     struct StubConfig<U> {
         chain: Chain,
         modules: Vec<ThisModule<U>>,
+        signer: SignerConfig,
     }
 
     // load module config including the extra data (if any)
@@ -104,7 +105,12 @@ pub fn load_commit_module_config<T: DeserializeOwned>() -> Result<StartCommitMod
         .find(|m| m.static_config.id == module_id)
         .wrap_err(format!("failed to find module for {module_id}"))?;
 
-    let signer_client = SignerClient::new(signer_server_url, module_jwt, module_id)?;
+    let signer_client = SignerClient::new(
+        signer_server_url,
+        cb_config.signer.tls_certificates.map(|path| path.join("cert.pem")),
+        module_jwt,
+        module_id,
+    )?;
 
     Ok(StartCommitModuleConfig {
         id: module_config.static_config.id,

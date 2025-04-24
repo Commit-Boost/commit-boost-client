@@ -1,4 +1,7 @@
+use std::path::PathBuf;
+
 use alloy::{primitives::Address, rpc::types::beacon::BlsSignature};
+use reqwest::Certificate;
 use serde::Deserialize;
 use url::Url;
 
@@ -30,12 +33,26 @@ pub struct SignerClient {
 
 impl SignerClient {
     /// Create a new SignerClient
-    pub fn new(signer_server_url: Url, jwt_secret: Jwt, module_id: ModuleId) -> eyre::Result<Self> {
-        let client = reqwest::Client::builder()
-            .timeout(DEFAULT_REQUEST_TIMEOUT)
-            .build()?;
+    pub fn new(
+        signer_server_url: Url,
+        cert_path: Option<PathBuf>,
+        jwt_secret: Jwt,
+        module_id: ModuleId,
+    ) -> eyre::Result<Self> {
+        let mut builder =
+            reqwest::Client::builder().timeout(DEFAULT_REQUEST_TIMEOUT).use_rustls_tls();
 
-        Ok(Self { url: signer_server_url, client, module_id, jwt_secret, nonce: 0 })
+        if let Some(path) = cert_path {
+            builder = builder.add_root_certificate(Certificate::from_pem(&std::fs::read(path)?)?);
+        }
+
+        Ok(Self {
+            url: signer_server_url,
+            client: builder.build()?,
+            module_id,
+            jwt_secret,
+            nonce: 0,
+        })
     }
 
     fn build_jwt(&self) -> Result<Jwt, SignerClientError> {
