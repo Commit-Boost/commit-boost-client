@@ -43,31 +43,19 @@ pub struct SignerClient {
 impl SignerClient {
     /// Create a new SignerClient
     pub fn new(signer_server_url: Url, jwt_secret: Jwt, module_id: ModuleId) -> eyre::Result<Self> {
-        let jwt = create_jwt(&module_id, &jwt_secret, None)?;
-
-        let mut auth_value =
-            HeaderValue::from_str(&format!("Bearer {}", jwt)).wrap_err("invalid jwt")?;
-        auth_value.set_sensitive(true);
-
-        let mut headers = HeaderMap::new();
-        headers.insert(AUTHORIZATION, auth_value);
-
-        let client = reqwest::Client::builder()
-            .timeout(DEFAULT_REQUEST_TIMEOUT)
-            .default_headers(headers)
-            .build()?;
+        let client = reqwest::Client::builder().timeout(DEFAULT_REQUEST_TIMEOUT).build()?;
 
         Ok(Self {
             url: signer_server_url,
             client,
-            last_jwt_refresh: Instant::now(),
+            last_jwt_refresh: Instant::now() - Duration::from_secs(SIGNER_JWT_EXPIRATION),
             module_id,
             jwt_secret,
         })
     }
 
     fn refresh_jwt(&mut self) -> Result<(), SignerClientError> {
-        if self.last_jwt_refresh.elapsed() > Duration::from_secs(SIGNER_JWT_EXPIRATION) {
+        if self.last_jwt_refresh.elapsed() >= Duration::from_secs(SIGNER_JWT_EXPIRATION) {
             let jwt = create_jwt(&self.module_id, &self.jwt_secret, None)?;
 
             let mut auth_value =
