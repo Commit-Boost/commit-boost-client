@@ -1,6 +1,4 @@
 use alloy::{primitives::Address, rpc::types::beacon::BlsSignature};
-use eyre::WrapErr;
-use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use serde::Deserialize;
 use url::Url;
 
@@ -33,18 +31,8 @@ pub struct SignerClient {
 impl SignerClient {
     /// Create a new SignerClient
     pub fn new(signer_server_url: Url, jwt_secret: Jwt, module_id: ModuleId) -> eyre::Result<Self> {
-        let jwt = create_jwt(&module_id, 0, &jwt_secret)?;
-
-        let mut auth_value =
-            HeaderValue::from_str(&format!("Bearer {}", jwt)).wrap_err("invalid jwt")?;
-        auth_value.set_sensitive(true);
-
-        let mut headers = HeaderMap::new();
-        headers.insert(AUTHORIZATION, auth_value);
-
         let client = reqwest::Client::builder()
             .timeout(DEFAULT_REQUEST_TIMEOUT)
-            .default_headers(headers)
             .build()?;
 
         Ok(Self { url: signer_server_url, client, module_id, jwt_secret, nonce: 0 })
