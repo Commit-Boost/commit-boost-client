@@ -1,8 +1,11 @@
-use std::time::{Duration, Instant};
+use std::path::PathBuf;
 
 use alloy::primitives::Address;
 use eyre::WrapErr;
-use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
+use reqwest::{
+    header::{HeaderMap, HeaderValue, AUTHORIZATION},
+    Certificate,
+};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -22,7 +25,6 @@ use crate::{
         },
         response::{BlsSignResponse, EcdsaSignResponse},
     },
-    constants::SIGNER_JWT_EXPIRATION,
     signer::BlsPublicKey,
     types::{Jwt, ModuleId},
     utils::create_jwt,
@@ -35,41 +37,42 @@ pub struct SignerClient {
     /// Url endpoint of the Signer Module
     url: Url,
     client: reqwest::Client,
-    last_jwt_refresh: Instant,
     module_id: ModuleId,
     jwt_secret: Jwt,
 }
 
 impl SignerClient {
     /// Create a new SignerClient
-    pub fn new(signer_server_url: Url, jwt_secret: Jwt, module_id: ModuleId) -> eyre::Result<Self> {
-        let client = reqwest::Client::builder().timeout(DEFAULT_REQUEST_TIMEOUT).build()?;
+    pub fn new(
+        signer_server_url: Url,
+        cert_path: Option<PathBuf>,
+        jwt_secret: Jwt,
+        module_id: ModuleId,
+    ) -> eyre::Result<Self> {
+        let mut builder =
+            reqwest::Client::builder().timeout(DEFAULT_REQUEST_TIMEOUT).use_rustls_tls();
 
-        Ok(Self {
-            url: signer_server_url,
-            client,
-            last_jwt_refresh: Instant::now() - Duration::from_secs(SIGNER_JWT_EXPIRATION),
-            module_id,
-            jwt_secret,
-        })
+        if let Some(path) = cert_path {
+            builder = builder.add_root_certificate(Certificate::from_pem(&std::fs::read(path)?)?);
+        }
+
+        Ok(Self { url: signer_server_url, client: builder.build()?, module_id, jwt_secret })
     }
 
     fn refresh_jwt(&mut self) -> Result<(), SignerClientError> {
-        if self.last_jwt_refresh.elapsed() >= Duration::from_secs(SIGNER_JWT_EXPIRATION) {
-            let jwt = create_jwt(&self.module_id, &self.jwt_secret, None)?;
+        let jwt = create_jwt(&self.module_id, &self.jwt_secret, None)?;
 
-            let mut auth_value =
-                HeaderValue::from_str(&format!("Bearer {}", jwt)).wrap_err("invalid jwt")?;
-            auth_value.set_sensitive(true);
+        let mut auth_value =
+            HeaderValue::from_str(&format!("Bearer {}", jwt)).wrap_err("invalid jwt")?;
+        auth_value.set_sensitive(true);
 
-            let mut headers = HeaderMap::new();
-            headers.insert(AUTHORIZATION, auth_value);
+        let mut headers = HeaderMap::new();
+        headers.insert(AUTHORIZATION, auth_value);
 
-            self.client = reqwest::Client::builder()
-                .timeout(DEFAULT_REQUEST_TIMEOUT)
-                .default_headers(headers)
-                .build()?;
-        }
+        self.client = reqwest::Client::builder()
+            .timeout(DEFAULT_REQUEST_TIMEOUT)
+            .default_headers(headers)
+            .build()?;
 
         Ok(())
     }
