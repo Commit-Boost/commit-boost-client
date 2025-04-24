@@ -78,7 +78,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
         if let Some(SignerConfig { inner: SignerType::Remote { url }, .. }) = &cb_config.signer {
             url.to_string()
         } else {
-            format!("http://cb_signer:{signer_port}")
+            format!("https://cb_signer:{signer_port}")
         };
 
     let builder_events_port = 30000;
@@ -441,7 +441,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                     environment: Environment::KvPair(signer_envs),
                     healthcheck: Some(Healthcheck {
                         test: Some(HealthcheckTest::Single(format!(
-                            "curl -f http://localhost:{signer_port}/status"
+                            "curl -k -f https://localhost:{signer_port}/status"
                         ))),
                         interval: Some("30s".into()),
                         timeout: Some("5s".into()),
