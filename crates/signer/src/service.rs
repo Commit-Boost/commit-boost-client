@@ -47,9 +47,9 @@ pub struct SigningService;
 struct SigningState {
     /// Manager handling different signing methods
     manager: Arc<RwLock<SigningManager>>,
-    /// Map of modules ids to JWT secrets. This also acts as registry of all
-    /// modules running
-    jwts: Arc<HashMap<ModuleId, String>>,
+    /// Map of modules ids to (nonce, JWT secret). This also acts as registry of
+    /// all modules running
+    jwts: Arc<RwLock<HashMap<ModuleId, (usize, String)>>>,
 }
 
 impl SigningService {
@@ -63,7 +63,13 @@ impl SigningService {
 
         let state = SigningState {
             manager: Arc::new(RwLock::new(start_manager(config.clone()).await?)),
-            jwts: config.jwts.into(),
+            jwts: Arc::new(RwLock::new(
+                config
+                    .jwts
+                    .iter()
+                    .map(|(module_id, jwt_secret)| (module_id.clone(), (0, jwt_secret.clone())))
+                    .collect::<HashMap<ModuleId, (usize, String)>>(),
+            )),
         };
 
         let loaded_consensus = state.manager.read().await.available_consensus_signers();
@@ -118,15 +124,18 @@ async fn jwt_auth(
         SignerModuleError::Unauthorized
     })?;
 
-    let jwt_secret = state.jwts.get(&module_id).ok_or_else(|| {
+    let mut jwt_guard = state.jwts.write().await;
+    let (expected_nonce, jwt_secret) = jwt_guard.get_mut(&module_id).ok_or_else(|| {
         error!("Unauthorized request. Was the module started correctly?");
         SignerModuleError::Unauthorized
     })?;
 
-    validate_jwt(jwt, jwt_secret).map_err(|e| {
+    validate_jwt(jwt, *expected_nonce, jwt_secret.as_str()).map_err(|e| {
         error!("Unauthorized request. Invalid JWT: {e}");
         SignerModuleError::Unauthorized
     })?;
+
+    *expected_nonce += 1;
 
     req.extensions_mut().insert(module_id);
 
