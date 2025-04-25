@@ -359,7 +359,7 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
         let signer_server_url = load_env_var(SIGNER_URL_ENV)?.parse()?;
         Some(SignerClient::new(
             signer_server_url,
-            cb_config.signer.tls_certificates.map(|path| path.join("cert.pem")),
+            cb_config.signer.tls_certificates.join("cert.pem"),
             module_jwt,
             ModuleId(PBS_MODULE_NAME.to_string()),
         )?)

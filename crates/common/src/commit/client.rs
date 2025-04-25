@@ -45,16 +45,14 @@ impl SignerClient {
     /// Create a new SignerClient
     pub fn new(
         signer_server_url: Url,
-        cert_path: Option<PathBuf>,
+        cert_path: PathBuf,
         jwt_secret: Jwt,
         module_id: ModuleId,
     ) -> eyre::Result<Self> {
         let mut builder =
             reqwest::Client::builder().timeout(DEFAULT_REQUEST_TIMEOUT).use_rustls_tls();
 
-        if let Some(path) = cert_path {
-            builder = builder.add_root_certificate(Certificate::from_pem(&std::fs::read(path)?)?);
-        }
+        builder = builder.add_root_certificate(Certificate::from_pem(&std::fs::read(cert_path)?)?);
 
         Ok(Self { url: signer_server_url, client: builder.build()?, module_id, jwt_secret })
     }

@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     net::{Ipv4Addr, SocketAddr},
+    path::PathBuf,
     sync::{Arc, Once},
 };
 
@@ -132,7 +133,7 @@ pub fn get_signer_config(loader: SignerLoader) -> SignerConfig {
         jwt_auth_fail_limit: SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT,
         jwt_auth_fail_timeout_seconds: SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT,
         inner: SignerType::Local { loader, store: None },
-        tls_certificates: None,
+        tls_certificates: PathBuf::new(),
     }
 }
 
