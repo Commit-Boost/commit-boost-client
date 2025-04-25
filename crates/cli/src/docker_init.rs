@@ -29,6 +29,7 @@ use docker_compose_types::{
 };
 use eyre::Result;
 use indexmap::IndexMap;
+use rcgen::generate_simple_self_signed;
 
 /// Name of the docker compose file
 pub(super) const CB_COMPOSE_FILE: &str = "cb.docker-compose.yml";
@@ -86,10 +87,14 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
 
     let mut warnings = Vec::new();
 
-    let needs_signer_module = cb_config.pbs.with_signer ||
-        cb_config.modules.as_ref().is_some_and(|modules| {
+    let needs_signer_module = cb_config.pbs.with_signer
+        || cb_config.modules.as_ref().is_some_and(|modules| {
             modules.iter().any(|module| matches!(module.kind, ModuleKind::Commit))
         });
+
+    // If signer config is not set, certs_path doesn't really matter
+    let certs_path =
+        cb_config.signer.as_ref().map(|config| config.tls_certificates.clone()).unwrap_or_default();
 
     // setup modules
     if let Some(modules_config) = cb_config.modules {
@@ -159,12 +164,17 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                     let mut module_volumes = vec![config_volume.clone()];
                     module_volumes.extend(chain_spec_volume.clone());
                     module_volumes.extend(get_log_volume(&cb_config.logs, &module.id));
+                    module_volumes.push(Volumes::Simple(format!(
+                        "{}:/certs/cert.pem:ro",
+                        certs_path.join("cert.pem").display()
+                    )));
 
                     // depends_on
                     let mut module_dependencies = IndexMap::new();
-                    module_dependencies.insert("cb_signer".into(), DependsCondition {
-                        condition: "service_healthy".into(),
-                    });
+                    module_dependencies.insert(
+                        "cb_signer".into(),
+                        DependsCondition { condition: "service_healthy".into() },
+                    );
 
                     Service {
                         container_name: Some(module_cid.clone()),
@@ -299,6 +309,12 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
     // volumes
     pbs_volumes.extend(chain_spec_volume.clone());
     pbs_volumes.extend(get_log_volume(&cb_config.logs, PBS_MODULE_NAME));
+    if needs_signer_module {
+        pbs_volumes.push(Volumes::Simple(format!(
+            "{}:/certs/cert.pem:ro",
+            certs_path.join("cert.pem").display()
+        )));
+    }
 
     let pbs_service = Service {
         container_name: Some("cb_pbs".to_owned()),
@@ -428,6 +444,31 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                 }
 
                 volumes.extend(get_log_volume(&cb_config.logs, SIGNER_MODULE_NAME));
+
+                if !certs_path.try_exists()? {
+                    std::fs::create_dir(certs_path.clone())?;
+                }
+
+                if !certs_path.join("cert.pem").try_exists()?
+                    || !certs_path.join("key.pem").try_exists()?
+                {
+                    let (cert, key): (String, String) =
+                        generate_simple_self_signed(vec!["cb_signer".to_string()])
+                            .map(|x| (x.cert.pem(), x.key_pair.serialize_pem()))
+                            .map_err(|e| eyre::eyre!("Failed to generate TLS certificate: {e}"))?;
+
+                    std::fs::write(certs_path.join("cert.pem"), &cert)?;
+                    std::fs::write(certs_path.join("key.pem"), &key)?;
+                }
+
+                volumes.push(Volumes::Simple(format!(
+                    "{}:/certs/cert.pem:ro",
+                    certs_path.join("cert.pem").display()
+                )));
+                volumes.push(Volumes::Simple(format!(
+                    "{}:/certs/key.pem:ro",
+                    certs_path.join("key.pem").display()
+                )));
 
                 // networks
                 let signer_networks = vec![SIGNER_NETWORK.to_owned()];

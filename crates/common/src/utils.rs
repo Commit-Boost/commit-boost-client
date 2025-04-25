@@ -319,7 +319,7 @@ pub fn validate_jwt(jwt: Jwt, expected_nonce: usize, secret: &str) -> eyre::Resu
     )?;
 
     if jwt.claims.jti == expected_nonce {
-        return Ok(());
+        Ok(())
     } else {
         eyre::bail!("Unexpected nonce")
     }

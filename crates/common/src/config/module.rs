@@ -107,7 +107,7 @@ pub fn load_commit_module_config<T: DeserializeOwned>() -> Result<StartCommitMod
 
     let signer_client = SignerClient::new(
         signer_server_url,
-        cb_config.signer.tls_certificates.map(|path| path.join("cert.pem")),
+        cb_config.signer.tls_certificates.join("cert.pem"),
         module_jwt,
         module_id,
     )?;

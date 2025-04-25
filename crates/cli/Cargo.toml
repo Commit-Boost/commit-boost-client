@@ -11,4 +11,5 @@ clap.workspace = true
 docker-compose-types.workspace = true
 eyre.workspace = true
 indexmap.workspace = true
+rcgen.workspace = true
 serde_yaml.workspace = true

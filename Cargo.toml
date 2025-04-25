@@ -21,7 +21,7 @@ alloy = { version = "0.12", features = [
 async-trait = "0.1.80"
 axum = { version = "0.8.1", features = ["macros"] }
 axum-extra = { version = "0.10.0", features = ["typed-header"] }
-axum-server = {version = "0.7.2", features = ["tls-rustls"]}
+axum-server = { version = "0.7.2", features = ["tls-rustls"] }
 base64 = "0.22.1"
 bimap = { version = "0.6.3", features = ["serde"] }
 blsful = "2.5"
@@ -53,7 +53,7 @@ prometheus = "0.13.4"
 prost = "0.13.4"
 rand = { version = "0.9", features = ["os_rng"] }
 rcgen = "0.13.2"
-reqwest = { version = "0.12.4", features = ["json", "stream", "rustls-tls"] }
+reqwest = { version = "0.12.4", features = ["json", "rustls-tls", "stream"] }
 rustls = "0.23.23"
 serde = { version = "1.0.202", features = ["derive"] }
 serde_json = "1.0.117"
