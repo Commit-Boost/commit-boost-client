@@ -15,7 +15,8 @@ use cb_common::{
         PROXY_DIR_KEYS_DEFAULT, PROXY_DIR_KEYS_ENV, PROXY_DIR_SECRETS_DEFAULT,
         PROXY_DIR_SECRETS_ENV, SIGNER_DEFAULT, SIGNER_DIR_KEYS_DEFAULT, SIGNER_DIR_KEYS_ENV,
         SIGNER_DIR_SECRETS_DEFAULT, SIGNER_DIR_SECRETS_ENV, SIGNER_ENDPOINT_ENV, SIGNER_KEYS_ENV,
-        SIGNER_MODULE_NAME, SIGNER_PORT_DEFAULT, SIGNER_URL_ENV,
+        SIGNER_MODULE_NAME, SIGNER_PORT_DEFAULT, SIGNER_TLS_CERTIFICATES_DEFAULT,
+        SIGNER_TLS_CERTIFICATE_NAME, SIGNER_TLS_KEY_NAME, SIGNER_URL_ENV,
     },
     pbs::{BUILDER_V1_API_PATH, GET_STATUS_PATH},
     signer::{ProxyStore, SignerLoader},
@@ -87,8 +88,8 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
 
     let mut warnings = Vec::new();
 
-    let needs_signer_module = cb_config.pbs.with_signer
-        || cb_config.modules.as_ref().is_some_and(|modules| {
+    let needs_signer_module = cb_config.pbs.with_signer ||
+        cb_config.modules.as_ref().is_some_and(|modules| {
             modules.iter().any(|module| matches!(module.kind, ModuleKind::Commit))
         });
 
@@ -164,16 +165,17 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                     module_volumes.extend(chain_spec_volume.clone());
                     module_volumes.extend(get_log_volume(&cb_config.logs, &module.id));
                     module_volumes.push(Volumes::Simple(format!(
-                        "{}:/certs/cert.pem:ro",
-                        certs_path.join("cert.pem").display()
+                        "{}:{}/{}:ro",
+                        certs_path.join(SIGNER_TLS_CERTIFICATE_NAME).display(),
+                        SIGNER_TLS_CERTIFICATES_DEFAULT,
+                        SIGNER_TLS_CERTIFICATE_NAME
                     )));
 
                     // depends_on
                     let mut module_dependencies = IndexMap::new();
-                    module_dependencies.insert(
-                        "cb_signer".into(),
-                        DependsCondition { condition: "service_healthy".into() },
-                    );
+                    module_dependencies.insert("cb_signer".into(), DependsCondition {
+                        condition: "service_healthy".into(),
+                    });
 
                     Service {
                         container_name: Some(module_cid.clone()),
@@ -310,8 +312,10 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
     pbs_volumes.extend(get_log_volume(&cb_config.logs, PBS_MODULE_NAME));
     if needs_signer_module {
         pbs_volumes.push(Volumes::Simple(format!(
-            "{}:/certs/cert.pem:ro",
-            certs_path.join("cert.pem").display()
+            "{}:{}/{}:ro",
+            certs_path.join(SIGNER_TLS_CERTIFICATE_NAME).display(),
+            SIGNER_TLS_CERTIFICATES_DEFAULT,
+            SIGNER_TLS_CERTIFICATE_NAME
         )));
     }
 
@@ -457,25 +461,29 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                     std::fs::create_dir(certs_path.clone())?;
                 }
 
-                if !certs_path.join("cert.pem").try_exists()?
-                    || !certs_path.join("key.pem").try_exists()?
+                if !certs_path.join(SIGNER_TLS_CERTIFICATE_NAME).try_exists()? ||
+                    !certs_path.join(SIGNER_TLS_KEY_NAME).try_exists()?
                 {
                     let (cert, key): (String, String) =
                         generate_simple_self_signed(vec!["cb_signer".to_string()])
                             .map(|x| (x.cert.pem(), x.key_pair.serialize_pem()))
                             .map_err(|e| eyre::eyre!("Failed to generate TLS certificate: {e}"))?;
 
-                    std::fs::write(certs_path.join("cert.pem"), &cert)?;
-                    std::fs::write(certs_path.join("key.pem"), &key)?;
+                    std::fs::write(certs_path.join(SIGNER_TLS_CERTIFICATE_NAME), &cert)?;
+                    std::fs::write(certs_path.join(SIGNER_TLS_KEY_NAME), &key)?;
                 }
 
                 volumes.push(Volumes::Simple(format!(
-                    "{}:/certs/cert.pem:ro",
-                    certs_path.join("cert.pem").display()
+                    "{}:{}/{}:ro",
+                    certs_path.join(SIGNER_TLS_CERTIFICATE_NAME).display(),
+                    SIGNER_TLS_CERTIFICATES_DEFAULT,
+                    SIGNER_TLS_CERTIFICATE_NAME
                 )));
                 volumes.push(Volumes::Simple(format!(
-                    "{}:/certs/key.pem:ro",
-                    certs_path.join("key.pem").display()
+                    "{}:{}/{}:ro",
+                    certs_path.join(SIGNER_TLS_KEY_NAME).display(),
+                    SIGNER_TLS_CERTIFICATES_DEFAULT,
+                    SIGNER_TLS_KEY_NAME
                 )));
 
                 // networks

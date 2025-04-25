@@ -11,7 +11,7 @@ use crate::{
         constants::{CONFIG_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, SIGNER_URL_ENV},
         load_env_var,
         utils::load_file_from_env,
-        SignerConfig, BUILDER_PORT_ENV,
+        SignerConfig, BUILDER_PORT_ENV, SIGNER_TLS_CERTIFICATE_NAME,
     },
     types::{Chain, Jwt, ModuleId},
 };
@@ -110,7 +110,7 @@ pub fn load_commit_module_config<T: DeserializeOwned>() -> Result<StartCommitMod
 
     let signer_client = SignerClient::new(
         signer_server_url,
-        cb_config.signer.tls_certificates.join("cert.pem"),
+        cb_config.signer.tls_certificates.join(SIGNER_TLS_CERTIFICATE_NAME),
         module_jwt,
         module_id,
     )?;
