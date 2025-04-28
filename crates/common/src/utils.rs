@@ -381,13 +381,13 @@ mod test {
         assert!(response.is_ok());
 
         // Check expired JWT
-        let expired_jwt = Jwt::from("eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3NDI5OTU5NDYsIm1vZHVsZSI6IkRBX0NPTU1JVCJ9.iiq4Z2ed2hk3c3c-cn2QOQJWE5XUOc5BoaIPT-I8q-s".to_string());
+        let expired_jwt = Jwt::from("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjEyMzQ1Njc4OTAsIm1vZHVsZSI6IkRBX0NPTU1JVCIsImp0aSI6NX0.8P_2nScYiMhs9yUzI5M5QgJ_onQHxjeZ5C28ryx3nM0".to_string());
         let response = validate_jwt(expired_jwt, 5, "secret");
         assert!(response.is_err());
         assert_eq!(response.unwrap_err().to_string(), "ExpiredSignature");
 
         // Check invalid signature JWT
-        let invalid_jwt = Jwt::from("eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3NDI5OTU5NDYsIm1vZHVsZSI6IkRBX0NPTU1JVCJ9.w9WYdDNzgDjYTvjBkk4GGzywGNBYPxnzU2uJWzPUT1s".to_string());
+        let invalid_jwt = Jwt::from("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjEyMzQ1Njc4OTAsIm1vZHVsZSI6IkRBX0NPTU1JVCIsImp0aSI6NX0.G8qe1KJkrJZMg6cOjqAWR05z_F0pODVBnl-f6f5_oKs".to_string());
         let response = validate_jwt(invalid_jwt, 5, "secret");
         assert!(response.is_err());
         assert_eq!(response.unwrap_err().to_string(), "InvalidSignature");
