@@ -295,11 +295,12 @@ pub fn load_bls_signer(keys_path: PathBuf, secrets_path: PathBuf) -> eyre::Resul
 }
 
 pub fn load_ecdsa_signer(keys_path: PathBuf, secrets_path: PathBuf) -> eyre::Result<EcdsaSigner> {
-    let key_file = std::fs::File::open(keys_path.to_string_lossy().to_string())?;
+    let key_file = std::fs::File::open(keys_path)?;
     let key_reader = std::io::BufReader::new(key_file);
     let keystore: JsonKeystore = serde_json::from_reader(key_reader)?;
     let password = std::fs::read(secrets_path)?;
-    let decrypted_password = eth2_keystore::decrypt(&password, &keystore.crypto).unwrap();
+    let decrypted_password = eth2_keystore::decrypt(&password, &keystore.crypto)
+        .map_err(|_| eyre::eyre!("Error decrypting ECDSA keystore"))?;
 
     EcdsaSigner::new_from_bytes(decrypted_password.as_bytes())
 }
