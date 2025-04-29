@@ -123,6 +123,17 @@ impl MuxConfig {
     pub fn loader_env(&self) -> Option<(String, String, String)> {
         self.loader.as_ref().and_then(|loader| match loader {
             MuxKeysLoader::File(path_buf) => {
+                if !path_buf.try_exists().is_ok_and(|exists| exists) {
+                    panic!("path doesn't exist: {:?}", path_buf);
+                }
+
+                if !path_buf
+                    .file_name()
+                    .is_some_and(|name| name.to_string_lossy().to_lowercase().ends_with(".json"))
+                {
+                    panic!("file doesn't have a .json extension");
+                }
+
                 let path =
                     path_buf.to_str().unwrap_or_else(|| panic!("invalid path: {:?}", path_buf));
                 let internal_path = get_mux_path(&self.id);
