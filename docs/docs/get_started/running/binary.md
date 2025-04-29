@@ -28,6 +28,7 @@ Modules need some environment variables to work correctly.
 ### Signer Module
 - `CB_SIGNER_JWT_SECRET`: secret to use for JWT authentication with the Signer module.
 - `CB_SIGNER_PORT`: required, port to open the signer server on.
+- `CB_SIGNER_TLS_CERTIFICATES`: path to the TLS certificates for the server.
 - For loading keys we currently support:
   - `CB_SIGNER_LOADER_FILE`: path to a `.json` with plaintext keys (for testing purposes only).
   - `CB_SIGNER_LOADER_FORMAT`, `CB_SIGNER_LOADER_KEYS_DIR` and `CB_SIGNER_LOADER_SECRETS_DIR`: paths to the `keys` and `secrets` directories or files (ERC-2335 style keystores, see [Signer config](../configuration/#signer-module) for more info).
