@@ -168,6 +168,9 @@ jwt_auth_fail_limit = 3
 # How long to block a client from Signer access, in seconds, if it failed JWT authentication too many times
 # OPTIONAL, DEFAULT: 300
 jwt_auth_fail_timeout_seconds = 300
+# Path to the TLS certificates for the signer server
+# OPTION, DEFAULT: ./certs
+# tls_certificates = "./certs"
 
 # For Remote signer:
 # [signer.remote]
