@@ -240,6 +240,10 @@ async fn fetch_lido_registry_keys(
     let total_keys =
         registry.getTotalSigningKeyCount(node_operator_id).call().await?._0.try_into()?;
 
+    if total_keys == 0 {
+        return Ok(Vec::new());
+    }
+
     debug!("fetching {total_keys} total keys");
 
     const CALL_BATCH_SIZE: u64 = 250u64;
