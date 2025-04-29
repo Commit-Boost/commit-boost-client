@@ -57,9 +57,7 @@ impl SignerLoader {
     pub fn load_from_env(self) -> eyre::Result<Vec<ConsensusSigner>> {
         Ok(match self {
             SignerLoader::File { key_path } => {
-                let path = load_env_var(SIGNER_KEYS_ENV).unwrap_or(
-                    key_path.to_str().ok_or_eyre("Missing signer key path")?.to_string(),
-                );
+                let path = load_env_var(SIGNER_KEYS_ENV).map(PathBuf::from).unwrap_or(key_path);
                 let file = std::fs::read_to_string(path)
                     .unwrap_or_else(|_| panic!("Unable to find keys file"));
 
