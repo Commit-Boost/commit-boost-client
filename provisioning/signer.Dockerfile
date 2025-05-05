@@ -1,22 +1,72 @@
-FROM lukemathwalker/cargo-chef:latest-rust-1.83 AS chef
+# This will be the main build image
+FROM --platform=${BUILDPLATFORM} lukemathwalker/cargo-chef:latest-rust-1.83 AS chef
+ARG TARGETOS TARGETARCH BUILDPLATFORM
 WORKDIR /app
 
-FROM chef AS planner
+# Planner stage
+FROM --platform=${BUILDPLATFORM} chef AS planner
+ARG TARGETOS TARGETARCH BUILDPLATFORM
 COPY . .
 RUN cargo chef prepare --recipe-path recipe.json
 
-FROM chef AS builder 
+# Builder stage
+FROM --platform=${BUILDPLATFORM} chef AS builder 
+ARG TARGETOS TARGETARCH BUILDPLATFORM
 COPY --from=planner /app/recipe.json recipe.json
-
-RUN cargo chef cook --release --recipe-path recipe.json
-
-RUN apt-get update && apt-get install -y protobuf-compiler
-
 COPY . .
-RUN cargo build --release --bin commit-boost-signer
 
+# Get the latest Protoc since the one in the Debian repo is incredibly old
+RUN apt update && apt install -y unzip curl ca-certificates && \
+  PROTOC_VERSION=$(curl -s "https://api.github.com/repos/protocolbuffers/protobuf/releases/latest" | grep -Po '"tag_name": "v\K[0-9.]+') && \
+  if [ "$BUILDPLATFORM" = "linux/amd64" ]; then \
+    PROTOC_ARCH=x86_64; \
+  elif [ "$BUILDPLATFORM" = "linux/arm64" ]; then \
+    PROTOC_ARCH=aarch_64; \
+  else \
+    echo "${BUILDPLATFORM} is not supported."; \
+    exit 1; \
+  fi && \
+  curl -Lo protoc.zip https://github.com/protocolbuffers/protobuf/releases/latest/download/protoc-$PROTOC_VERSION-linux-$PROTOC_ARCH.zip && \
+  unzip -q protoc.zip bin/protoc -d /usr && \
+  unzip -q protoc.zip "include/google/*" -d /usr && \
+  chmod a+x /usr/bin/protoc && \
+  rm -rf protoc.zip
 
-FROM debian:bookworm-20240904-slim AS runtime
+# Build the application
+RUN if [ "$BUILDPLATFORM" = "linux/amd64" -a "$TARGETARCH" = "arm64" ]; then \
+      # We're on x64, cross-compiling for arm64 - get OpenSSL and zlib for arm64, and set up the GCC vars
+      dpkg --add-architecture arm64 && \
+      apt update && \
+      apt install -y gcc-aarch64-linux-gnu libssl-dev:arm64 zlib1g-dev:arm64 && \
+      rustup target add aarch64-unknown-linux-gnu && \
+      TARGET="aarch64-unknown-linux-gnu" && \
+      TARGET_FLAG="--target=${TARGET}" && \
+      export PKG_CONFIG_ALLOW_CROSS="true" && \
+      export PKG_CONFIG_PATH="/usr/lib/aarch64-linux-gnu/pkgconfig" && \
+      export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER="/usr/bin/aarch64-linux-gnu-ld" && \
+      export RUSTFLAGS="-L $(dirname $(aarch64-linux-gnu-gcc -print-libgcc-file-name))"; \
+    elif [ "$BUILDPLATFORM" = "linux/arm64" -a "$TARGETARCH" = "amd64" ]; then \
+      # We're on arm64, cross-compiling for x64 - get OpenSSL and zlib for x64, and set up the GCC vars
+      dpkg --add-architecture amd64 && \
+      apt update && \
+      apt install -y gcc-x86-64-linux-gnu libssl-dev:amd64 zlib1g-dev:amd64 && \
+      rustup target add x86_64-unknown-linux-gnu && \
+      TARGET="x86_64-unknown-linux-gnu" && \
+      TARGET_FLAG="--target=${TARGET}" && \
+      export PKG_CONFIG_ALLOW_CROSS="true" && \
+      export PKG_CONFIG_PATH="/usr/lib/x86_64-linux-gnu/pkgconfig"; \
+      export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER="/usr/bin/x86_64-linux-gnu-ld"; \
+      export RUSTFLAGS="-L $(dirname $(x86_64-linux-gnu-gcc -print-libgcc-file-name))"; \
+    fi && \
+    # Build the signer - general setup that works with or without cross-compilation
+    cargo chef cook ${TARGET_FLAG} --release --recipe-path recipe.json && \
+    cargo build ${TARGET_FLAG} --release --bin commit-boost-signer && \
+    if [ ! -z "$TARGET" ]; then \
+      # If we're cross-compiling, we need to move the binary out of the target dir
+      mv target/${TARGET}/release/commit-boost-signer target/release/commit-boost-signer; \
+    fi
+
+FROM debian:bookworm-slim AS runtime
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y \
