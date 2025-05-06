@@ -1,22 +1,120 @@
-FROM lukemathwalker/cargo-chef:latest-rust-1.83 AS chef
+# This will be the main build image
+FROM --platform=${BUILDPLATFORM} lukemathwalker/cargo-chef:latest-rust-1.83 AS chef
+ARG TARGETOS TARGETARCH BUILDPLATFORM OPENSSL_VENDORED
 WORKDIR /app
 
-FROM chef AS planner
+FROM --platform=${BUILDPLATFORM} chef AS planner
+ARG TARGETOS TARGETARCH BUILDPLATFORM OPENSSL_VENDORED
 COPY . .
 RUN cargo chef prepare --recipe-path recipe.json
 
-FROM chef AS builder 
+FROM --platform=${BUILDPLATFORM} chef AS builder
+ARG TARGETOS TARGETARCH BUILDPLATFORM OPENSSL_VENDORED
+ENV BUILD_VAR_SCRIPT=/tmp/env.sh
 COPY --from=planner /app/recipe.json recipe.json
 
-RUN cargo chef cook --release --recipe-path recipe.json
+# Set up the build environment for cross-compilation if needed
+RUN if [ "$BUILDPLATFORM" = "linux/amd64" -a "$TARGETARCH" = "arm64" ]; then \
+      # We're on x64, cross-compiling for arm64
+      rustup target add aarch64-unknown-linux-gnu && \
+      apt update && \
+      apt install -y gcc-aarch64-linux-gnu && \
+      echo "#!/bin/sh" > ${BUILD_VAR_SCRIPT} && \
+      echo "export TARGET=aarch64-unknown-linux-gnu" >> ${BUILD_VAR_SCRIPT} && \
+      echo "export TARGET_FLAG=--target=aarch64-unknown-linux-gnu" >> ${BUILD_VAR_SCRIPT} && \
+      echo "export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=/usr/bin/aarch64-linux-gnu-gcc" >> ${BUILD_VAR_SCRIPT} && \
+      echo "export RUSTFLAGS=\"-L /usr/aarch64-linux-gnu/lib -L $(dirname $(aarch64-linux-gnu-gcc -print-libgcc-file-name))\"" >> ${BUILD_VAR_SCRIPT} && \
+      if [ "$OPENSSL_VENDORED" != "true" ]; then \
+        # If we're linking to OpenSSL dynamically, we have to set it up for cross-compilation
+        dpkg --add-architecture arm64 && \
+        apt update && \
+        apt install -y libssl-dev:arm64 zlib1g-dev:arm64 && \
+        echo "export PKG_CONFIG_ALLOW_CROSS=true" >> ${BUILD_VAR_SCRIPT} && \
+        echo "export PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig" >> ${BUILD_VAR_SCRIPT} && \
+        echo "export OPENSSL_INCLUDE_DIR=/usr/include/aarch64-linux-gnu" >> ${BUILD_VAR_SCRIPT} && \
+        echo "export OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu" >> ${BUILD_VAR_SCRIPT}; \
+      fi; \
+    elif [ "$BUILDPLATFORM" = "linux/arm64" -a "$TARGETARCH" = "amd64" ]; then \
+      # We're on arm64, cross-compiling for x64
+      rustup target add x86_64-unknown-linux-gnu && \
+      apt update && \
+      apt install -y gcc-x86-64-linux-gnu && \
+      echo "#!/bin/sh" > ${BUILD_VAR_SCRIPT} && \
+      echo "export TARGET=x86_64-unknown-linux-gnu" >> ${BUILD_VAR_SCRIPT} && \
+      echo "export TARGET_FLAG=--target=x86_64-unknown-linux-gnu" >> ${BUILD_VAR_SCRIPT} && \
+      echo "export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=/usr/bin/x86_64-linux-gnu-gcc" >> ${BUILD_VAR_SCRIPT} && \
+      echo "export RUSTFLAGS=\"-L /usr/x86_64-linux-gnu/lib -L $(dirname $(x86_64-linux-gnu-gcc -print-libgcc-file-name))\"" >> ${BUILD_VAR_SCRIPT} && \
+      if [ "$OPENSSL_VENDORED" != "true" ]; then \
+        # If we're linking to OpenSSL dynamically, we have to set it up for cross-compilation
+        dpkg --add-architecture amd64 && \
+        apt update && \
+        apt install -y libssl-dev:amd64 zlib1g-dev:amd64 && \
+        echo "export PKG_CONFIG_ALLOW_CROSS=true" >> ${BUILD_VAR_SCRIPT} && \
+        echo "export PKG_CONFIG_LIBDIR=/usr/lib/x86_64-linux-gnu/pkgconfig" >> ${BUILD_VAR_SCRIPT} && \
+        echo "export OPENSSL_INCLUDE_DIR=/usr/include/x86_64-linux-gnu" >> ${BUILD_VAR_SCRIPT} && \
+        echo "export OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu" >> ${BUILD_VAR_SCRIPT}; \
+      fi; \
+    fi
 
-RUN apt-get update && apt-get install -y protobuf-compiler
+# Run cook to prep the build 
+RUN if [ -f ${BUILD_VAR_SCRIPT} ]; then \
+      . ${BUILD_VAR_SCRIPT} && \
+      echo "Cross-compilation environment set up for ${TARGET}"; \
+    else \
+      echo "No cross-compilation needed"; \
+    fi && \
+    if [ "$OPENSSL_VENDORED" = "true" ]; then \
+      echo "Using vendored OpenSSL" && \
+      FEATURE_OPENSSL_VENDORED='--features openssl-vendored'; \
+    else \
+      echo "Using system OpenSSL"; \
+    fi && \
+    export GIT_HASH=$(git rev-parse HEAD) && \
+    cargo chef cook ${TARGET_FLAG} --release --recipe-path recipe.json ${FEATURE_OPENSSL_VENDORED}
 
+# Now we can copy the source files - chef cook wants to run before this step
 COPY . .
-RUN cargo build --release --bin commit-boost-pbs
 
+# Get the latest Protoc since the one in the Debian repo is incredibly old
+RUN apt update && apt install -y unzip curl ca-certificates && \
+  PROTOC_VERSION=$(curl -s "https://api.github.com/repos/protocolbuffers/protobuf/releases/latest" | grep -Po '"tag_name": "v\K[0-9.]+') && \
+  if [ "$BUILDPLATFORM" = "linux/amd64" ]; then \
+    PROTOC_ARCH=x86_64; \
+  elif [ "$BUILDPLATFORM" = "linux/arm64" ]; then \
+    PROTOC_ARCH=aarch_64; \
+  else \
+    echo "${BUILDPLATFORM} is not supported."; \
+    exit 1; \
+  fi && \
+  curl -Lo protoc.zip https://github.com/protocolbuffers/protobuf/releases/latest/download/protoc-$PROTOC_VERSION-linux-$PROTOC_ARCH.zip && \
+  unzip -q protoc.zip bin/protoc -d /usr && \
+  unzip -q protoc.zip "include/google/*" -d /usr && \
+  chmod a+x /usr/bin/protoc && \
+  rm -rf protoc.zip
 
-FROM debian:bookworm-20240904-slim AS runtime
+# Build the application
+RUN if [ -f ${BUILD_VAR_SCRIPT} ]; then \
+      chmod +x ${BUILD_VAR_SCRIPT} && \
+      . ${BUILD_VAR_SCRIPT} && \
+      echo "Cross-compilation environment set up for ${TARGET}"; \
+    else \
+      echo "No cross-compilation needed"; \
+    fi && \
+    if [ "$OPENSSL_VENDORED" = "true" ]; then \
+      echo "Using vendored OpenSSL" && \
+      FEATURE_OPENSSL_VENDORED='--features openssl-vendored'; \
+    else \
+      echo "Using system OpenSSL"; \
+    fi && \
+    export GIT_HASH=$(git rev-parse HEAD) && \
+    cargo build ${TARGET_FLAG} --release --bin commit-boost-pbs ${FEATURE_OPENSSL_VENDORED} && \
+    if [ ! -z "$TARGET" ]; then \
+      # If we're cross-compiling, we need to move the binary out of the target dir
+      mv target/${TARGET}/release/commit-boost-pbs target/release/commit-boost-pbs; \
+    fi
+
+# Assemble the runner image
+FROM debian:bookworm-slim AS runtime
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y \

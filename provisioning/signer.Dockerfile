@@ -35,8 +35,6 @@ RUN if [ "$BUILDPLATFORM" = "linux/amd64" -a "$TARGETARCH" = "arm64" ]; then \
         echo "export PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig" >> ${BUILD_VAR_SCRIPT} && \
         echo "export OPENSSL_INCLUDE_DIR=/usr/include/aarch64-linux-gnu" >> ${BUILD_VAR_SCRIPT} && \
         echo "export OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu" >> ${BUILD_VAR_SCRIPT}; \
-      else \
-        echo "export FEATURE_OPENSSL_VENDORED='--features openssl-vendored'" >> ${BUILD_VAR_SCRIPT}; \
       fi; \
     elif [ "$BUILDPLATFORM" = "linux/arm64" -a "$TARGETARCH" = "amd64" ]; then \
       # We're on arm64, cross-compiling for x64
@@ -57,22 +55,26 @@ RUN if [ "$BUILDPLATFORM" = "linux/amd64" -a "$TARGETARCH" = "arm64" ]; then \
         echo "export PKG_CONFIG_LIBDIR=/usr/lib/x86_64-linux-gnu/pkgconfig" >> ${BUILD_VAR_SCRIPT} && \
         echo "export OPENSSL_INCLUDE_DIR=/usr/include/x86_64-linux-gnu" >> ${BUILD_VAR_SCRIPT} && \
         echo "export OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu" >> ${BUILD_VAR_SCRIPT}; \
-      else \
-        echo "export FEATURE_OPENSSL_VENDORED='--features openssl-vendored'" >> ${BUILD_VAR_SCRIPT}; \
       fi; \
     fi
 
 # Run cook to prep the build 
 RUN if [ -f ${BUILD_VAR_SCRIPT} ]; then \
-      source ${BUILD_VAR_SCRIPT}; \
+      . ${BUILD_VAR_SCRIPT} && \
       echo "Cross-compilation environment set up for ${TARGET}"; \
     else \
       echo "No cross-compilation needed"; \
     fi && \
+    if [ "$OPENSSL_VENDORED" = "true" ]; then \
+      echo "Using vendored OpenSSL" && \
+      FEATURE_OPENSSL_VENDORED='--features openssl-vendored'; \
+    else \
+      echo "Using system OpenSSL"; \
+    fi && \
     export GIT_HASH=$(git rev-parse HEAD) && \
     cargo chef cook ${TARGET_FLAG} --release --recipe-path recipe.json ${FEATURE_OPENSSL_VENDORED}
 
-# Now we can copy the source files
+# Now we can copy the source files - chef cook wants to run before this step
 COPY . .
 
 # Get the latest Protoc since the one in the Debian repo is incredibly old
@@ -95,10 +97,16 @@ RUN apt update && apt install -y unzip curl ca-certificates && \
 # Build the application
 RUN if [ -f ${BUILD_VAR_SCRIPT} ]; then \
       chmod +x ${BUILD_VAR_SCRIPT} && \
-      . ${BUILD_VAR_SCRIPT}; \
+      . ${BUILD_VAR_SCRIPT} && \
       echo "Cross-compilation environment set up for ${TARGET}"; \
     else \
       echo "No cross-compilation needed"; \
+    fi && \
+    if [ "$OPENSSL_VENDORED" = "true" ]; then \
+      echo "Using vendored OpenSSL" && \
+      FEATURE_OPENSSL_VENDORED='--features openssl-vendored'; \
+    else \
+      echo "Using system OpenSSL"; \
     fi && \
     export GIT_HASH=$(git rev-parse HEAD) && \
     cargo build ${TARGET_FLAG} --release --bin commit-boost-signer ${FEATURE_OPENSSL_VENDORED} && \
