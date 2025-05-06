@@ -1,17 +1,17 @@
 # This will be the main build image
 FROM --platform=${BUILDPLATFORM} lukemathwalker/cargo-chef:latest-rust-1.83 AS chef
-ARG TARGETOS TARGETARCH BUILDPLATFORM
+ARG TARGETOS TARGETARCH BUILDPLATFORM OPENSSL_VENDORED
 WORKDIR /app
 
 # Planner stage
 FROM --platform=${BUILDPLATFORM} chef AS planner
-ARG TARGETOS TARGETARCH BUILDPLATFORM
+ARG TARGETOS TARGETARCH BUILDPLATFORM OPENSSL_VENDORED
 COPY . .
 RUN cargo chef prepare --recipe-path recipe.json
 
 # Builder stage
 FROM --platform=${BUILDPLATFORM} chef AS builder 
-ARG TARGETOS TARGETARCH BUILDPLATFORM
+ARG TARGETOS TARGETARCH BUILDPLATFORM OPENSSL_VENDORED
 COPY --from=planner /app/recipe.json recipe.json
 COPY . .
 
@@ -34,30 +34,45 @@ RUN apt update && apt install -y unzip curl ca-certificates && \
 
 # Build the application
 RUN if [ "$BUILDPLATFORM" = "linux/amd64" -a "$TARGETARCH" = "arm64" ]; then \
-      # We're on x64, cross-compiling for arm64 - get OpenSSL and zlib for arm64, and set up the GCC vars
+      # We're on x64, cross-compiling for arm64
       rustup target add aarch64-unknown-linux-gnu && \
-      #dpkg --add-architecture arm64 && \
       apt update && \
-      apt install -y gcc-aarch64-linux-gnu libssl-dev:arm64 zlib1g-dev:arm64 && \
+      apt install -y gcc-aarch64-linux-gnu && \
+      if [ "$OPENSSL_VENDORED" != "true" ]; then \
+        # If we're linking to OpenSSL dynamically, we have to set it up for cross-compilation
+        dpkg --add-architecture arm64 && \
+        apt update && \
+        apt install -y libssl-dev:arm64 zlib1g-dev:arm64 && \
+        export PKG_CONFIG_ALLOW_CROSS="true" && \
+        export PKG_CONFIG_LIBDIR="/usr/lib/aarch64-linux-gnu/pkgconfig" && \
+        export OPENSSL_INCLUDE_DIR=/usr/include/aarch64-linux-gnu && \
+        export OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu && \
+        FEATURE_OPENSSL_VENDORED="--features openssl-vendored"; \
+      fi && \
       TARGET="aarch64-unknown-linux-gnu" && \
       TARGET_FLAG="--target=${TARGET}" && \
-      # export PKG_CONFIG_ALLOW_CROSS="true" && \
-      # export PKG_CONFIG_LIBDIR="/usr/lib/aarch64-linux-gnu/pkgconfig" && \
       export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER="/usr/bin/aarch64-linux-gnu-gcc" && \
-      export RUSTFLAGS="-L /usr/aarch64-linux-gnu/lib -L $(dirname $(aarch64-linux-gnu-gcc -print-libgcc-file-name))" && \
-      FEATURE_OPENSSL_VENDORED="--features openssl-vendored"; \
+      export RUSTFLAGS="-L /usr/aarch64-linux-gnu/lib -L $(dirname $(aarch64-linux-gnu-gcc -print-libgcc-file-name))"; \
     elif [ "$BUILDPLATFORM" = "linux/arm64" -a "$TARGETARCH" = "amd64" ]; then \
-      # We're on arm64, cross-compiling for x64 - get OpenSSL and zlib for x64, and set up the GCC vars
-      dpkg --add-architecture amd64 && \
-      apt update && \
-      apt install -y gcc-x86-64-linux-gnu libssl-dev:amd64 zlib1g-dev:amd64 && \
+      # We're on arm64, cross-compiling for x64
       rustup target add x86_64-unknown-linux-gnu && \
+      apt update && \
+      apt install -y gcc-x86-64-linux-gnu && \
+      if [ "$OPENSSL_VENDORED" != "true" ]; then \
+        # If we're linking to OpenSSL dynamically, we have to set it up for cross-compilation
+        dpkg --add-architecture amd64 && \
+        apt update && \
+        apt install -y libssl-dev:amd64 zlib1g-dev:amd64 && \
+        export PKG_CONFIG_ALLOW_CROSS="true" && \
+        export PKG_CONFIG_LIBDIR="/usr/lib/x86_64-linux-gnu/pkgconfig" && \
+        export OPENSSL_INCLUDE_DIR=/usr/include/x86_64-linux-gnu && \
+        export OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu && \
+        FEATURE_OPENSSL_VENDORED="--features openssl-vendored"; \
+      fi && \
       TARGET="x86_64-unknown-linux-gnu" && \
       TARGET_FLAG="--target=${TARGET}" && \
-      export PKG_CONFIG_ALLOW_CROSS="true" && \
-      export PKG_CONFIG_PATH="/usr/lib/x86_64-linux-gnu/pkgconfig"; \
       export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER="/usr/bin/x86_64-linux-gnu-gcc"; \
-      export RUSTFLAGS="-L $(dirname $(x86_64-linux-gnu-gcc -print-libgcc-file-name))"; \
+      export RUSTFLAGS="-L /usr/x86_64-linux-gnu/lib -L $(dirname $(x86_64-linux-gnu-gcc -print-libgcc-file-name))"; \
     fi && \
     # Build the signer - general setup that works with or without cross-compilation
     # cargo chef cook ${TARGET_FLAG} --release --recipe-path recipe.json && \
