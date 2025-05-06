@@ -46,7 +46,8 @@ RUN if [ "$BUILDPLATFORM" = "linux/amd64" -a "$TARGETARCH" = "arm64" ]; then \
         export PKG_CONFIG_ALLOW_CROSS="true" && \
         export PKG_CONFIG_LIBDIR="/usr/lib/aarch64-linux-gnu/pkgconfig" && \
         export OPENSSL_INCLUDE_DIR=/usr/include/aarch64-linux-gnu && \
-        export OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu && \
+        export OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu; \
+      else \
         FEATURE_OPENSSL_VENDORED="--features openssl-vendored"; \
       fi && \
       TARGET="aarch64-unknown-linux-gnu" && \
@@ -66,7 +67,8 @@ RUN if [ "$BUILDPLATFORM" = "linux/amd64" -a "$TARGETARCH" = "arm64" ]; then \
         export PKG_CONFIG_ALLOW_CROSS="true" && \
         export PKG_CONFIG_LIBDIR="/usr/lib/x86_64-linux-gnu/pkgconfig" && \
         export OPENSSL_INCLUDE_DIR=/usr/include/x86_64-linux-gnu && \
-        export OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu && \
+        export OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu; \
+      else \
         FEATURE_OPENSSL_VENDORED="--features openssl-vendored"; \
       fi && \
       TARGET="x86_64-unknown-linux-gnu" && \
