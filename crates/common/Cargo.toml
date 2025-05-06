@@ -41,3 +41,7 @@ tree_hash_derive.workspace = true
 unicode-normalization.workspace = true
 url.workspace = true
 jsonwebtoken.workspace = true
+openssl = { version = "0.10", optional = true, features = ["vendored"] }
+
+[features]
+openssl-vendored = ["openssl/vendored"]
