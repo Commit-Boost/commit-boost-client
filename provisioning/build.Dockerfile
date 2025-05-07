@@ -1,19 +1,35 @@
 # This will be the main build image
 FROM --platform=${BUILDPLATFORM} lukemathwalker/cargo-chef:latest-rust-1.83 AS chef
-ARG TARGETOS TARGETARCH BUILDPLATFORM OPENSSL_VENDORED
+ARG TARGETOS TARGETARCH BUILDPLATFORM OPENSSL_VENDORED TARGET_CRATE
 WORKDIR /app
 
-# Planner stage
 FROM --platform=${BUILDPLATFORM} chef AS planner
-ARG TARGETOS TARGETARCH BUILDPLATFORM OPENSSL_VENDORED
+ARG TARGETOS TARGETARCH BUILDPLATFORM OPENSSL_VENDORED TARGET_CRATE
 COPY . .
 RUN cargo chef prepare --recipe-path recipe.json
 
-# Builder stage
-FROM --platform=${BUILDPLATFORM} chef AS builder 
-ARG TARGETOS TARGETARCH BUILDPLATFORM OPENSSL_VENDORED
+FROM --platform=${BUILDPLATFORM} chef AS builder
+ARG TARGETOS TARGETARCH BUILDPLATFORM OPENSSL_VENDORED TARGET_CRATE
+RUN test -n "$TARGET_CRATE" || (echo "TARGET_CRATE must be set to the service / binary you want to build" && false)
 ENV BUILD_VAR_SCRIPT=/tmp/env.sh
 COPY --from=planner /app/recipe.json recipe.json
+
+# Get the latest Protoc since the one in the Debian repo is incredibly old
+RUN apt update && apt install -y unzip curl ca-certificates && \
+  PROTOC_VERSION=$(curl -s "https://api.github.com/repos/protocolbuffers/protobuf/releases/latest" | grep -Po '"tag_name": "v\K[0-9.]+') && \
+  if [ "$BUILDPLATFORM" = "linux/amd64" ]; then \
+    PROTOC_ARCH=x86_64; \
+  elif [ "$BUILDPLATFORM" = "linux/arm64" ]; then \
+    PROTOC_ARCH=aarch_64; \
+  else \
+    echo "${BUILDPLATFORM} is not supported."; \
+    exit 1; \
+  fi && \
+  curl -Lo protoc.zip https://github.com/protocolbuffers/protobuf/releases/latest/download/protoc-$PROTOC_VERSION-linux-$PROTOC_ARCH.zip && \
+  unzip -q protoc.zip bin/protoc -d /usr && \
+  unzip -q protoc.zip "include/google/*" -d /usr && \
+  chmod a+x /usr/bin/protoc && \
+  rm -rf protoc.zip
 
 # Set up the build environment for cross-compilation if needed
 RUN if [ "$BUILDPLATFORM" = "linux/amd64" -a "$TARGETARCH" = "arm64" ]; then \
@@ -77,23 +93,6 @@ RUN if [ -f ${BUILD_VAR_SCRIPT} ]; then \
 # Now we can copy the source files - chef cook wants to run before this step
 COPY . .
 
-# Get the latest Protoc since the one in the Debian repo is incredibly old
-RUN apt update && apt install -y unzip curl ca-certificates && \
-  PROTOC_VERSION=$(curl -s "https://api.github.com/repos/protocolbuffers/protobuf/releases/latest" | grep -Po '"tag_name": "v\K[0-9.]+') && \
-  if [ "$BUILDPLATFORM" = "linux/amd64" ]; then \
-    PROTOC_ARCH=x86_64; \
-  elif [ "$BUILDPLATFORM" = "linux/arm64" ]; then \
-    PROTOC_ARCH=aarch_64; \
-  else \
-    echo "${BUILDPLATFORM} is not supported."; \
-    exit 1; \
-  fi && \
-  curl -Lo protoc.zip https://github.com/protocolbuffers/protobuf/releases/latest/download/protoc-$PROTOC_VERSION-linux-$PROTOC_ARCH.zip && \
-  unzip -q protoc.zip bin/protoc -d /usr && \
-  unzip -q protoc.zip "include/google/*" -d /usr && \
-  chmod a+x /usr/bin/protoc && \
-  rm -rf protoc.zip
-
 # Build the application
 RUN if [ -f ${BUILD_VAR_SCRIPT} ]; then \
       chmod +x ${BUILD_VAR_SCRIPT} && \
@@ -109,29 +108,13 @@ RUN if [ -f ${BUILD_VAR_SCRIPT} ]; then \
       echo "Using system OpenSSL"; \
     fi && \
     export GIT_HASH=$(git rev-parse HEAD) && \
-    cargo build ${TARGET_FLAG} --release --bin commit-boost-signer ${FEATURE_OPENSSL_VENDORED} && \
+    cargo build ${TARGET_FLAG} --release --bin ${TARGET_CRATE} ${FEATURE_OPENSSL_VENDORED} && \
     if [ ! -z "$TARGET" ]; then \
       # If we're cross-compiling, we need to move the binary out of the target dir
-      mv target/${TARGET}/release/commit-boost-signer target/release/commit-boost-signer; \
+      mv target/${TARGET}/release/${TARGET_CRATE} target/release/${TARGET_CRATE}; \
     fi
 
-# Assemble the runner image
-FROM debian:bookworm-slim AS runtime
-WORKDIR /app
-
-RUN apt-get update && apt-get install -y \
-  openssl \
-  ca-certificates \
-  libssl3 \
-  libssl-dev \
-  curl \
-  && apt-get clean autoclean \
-  && rm -rf /var/lib/apt/lists/*
-
-COPY --from=builder /app/target/release/commit-boost-signer /usr/local/bin
-
-RUN groupadd -g 10001 commitboost && \
-  useradd -u 10001 -g commitboost -s /sbin/nologin commitboost
-USER commitboost
-
-ENTRYPOINT ["/usr/local/bin/commit-boost-signer"]
+# Copy the output
+FROM scratch AS output
+ARG TARGET_CRATE
+COPY --from=builder /app/target/release/${TARGET_CRATE} /${TARGET_CRATE}
