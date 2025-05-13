@@ -14,23 +14,6 @@ RUN test -n "$TARGET_CRATE" || (echo "TARGET_CRATE must be set to the service / 
 ENV BUILD_VAR_SCRIPT=/tmp/env.sh
 COPY --from=planner /app/recipe.json recipe.json
 
-# Get the latest Protoc since the one in the Debian repo is incredibly old
-RUN apt update && apt install -y unzip curl ca-certificates && \
-  PROTOC_VERSION=$(curl -s "https://api.github.com/repos/protocolbuffers/protobuf/releases/latest" | grep -Po '"tag_name": "v\K[0-9.]+') && \
-  if [ "$BUILDPLATFORM" = "linux/amd64" ]; then \
-    PROTOC_ARCH=x86_64; \
-  elif [ "$BUILDPLATFORM" = "linux/arm64" ]; then \
-    PROTOC_ARCH=aarch_64; \
-  else \
-    echo "${BUILDPLATFORM} is not supported."; \
-    exit 1; \
-  fi && \
-  curl -Lo protoc.zip https://github.com/protocolbuffers/protobuf/releases/latest/download/protoc-$PROTOC_VERSION-linux-$PROTOC_ARCH.zip && \
-  unzip -q protoc.zip bin/protoc -d /usr && \
-  unzip -q protoc.zip "include/google/*" -d /usr && \
-  chmod a+x /usr/bin/protoc && \
-  rm -rf protoc.zip
-
 # Set up the build environment for cross-compilation if needed
 RUN if [ "$BUILDPLATFORM" = "linux/amd64" -a "$TARGETARCH" = "arm64" ]; then \
       # We're on x64, cross-compiling for arm64
@@ -89,6 +72,10 @@ RUN if [ -f ${BUILD_VAR_SCRIPT} ]; then \
     fi && \
     export GIT_HASH=$(git rev-parse HEAD) && \
     cargo chef cook ${TARGET_FLAG} --release --recipe-path recipe.json ${FEATURE_OPENSSL_VENDORED}
+
+# Get the latest Protoc since the one in the Debian repo is incredibly old
+COPY provisioning/protoc.sh provisioning/protoc.sh
+RUN provisioning/protoc.sh
 
 # Now we can copy the source files - chef cook wants to run before this step
 COPY . .
