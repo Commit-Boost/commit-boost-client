@@ -98,9 +98,11 @@ jobs:
           - commit-boost-signer
         include:
           # - target: x86_64-apple-darwin
-          #  os: macos-latest-large
+          #   os: macos-latest-large
+          #   package-suffix: x86-64
           - target: aarch64-apple-darwin
             os: macos-latest
+            package-suffix: arm64
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
@@ -145,18 +147,18 @@ jobs:
       - name: Build binary (Darwin)
         run: cargo build --release --target ${{ matrix.target }} --bin ${{ matrix.name }}
 
-      - name: Package binary (Unix)
+      - name: Package binary (Darwin)
         run: |
           cd target/${{ matrix.target }}/release
-          tar -czvf ${{ matrix.name }}-${{ github.ref_name }}-${{ matrix.target }}.tar.gz ${{ matrix.name }}
-          mv ${{ matrix.name }}-${{ github.ref_name }}-${{ matrix.target }}.tar.gz ../../../
+          tar -czvf ${{ matrix.name }}-${{ github.ref_name }}-darwin_${{ matrix.package-suffix }}.tar.gz ${{ matrix.name }}
+          mv ${{ matrix.name }}-${{ github.ref_name }}-darwin_${{ matrix.package-suffix }}.tar.gz ../../../
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.name }}-${{ github.ref_name }}-${{ matrix.target }}
+          name: ${{ matrix.name }}-${{ github.ref_name }}-darwin_${{ matrix.package-suffix }}
           path: |
-            ${{ matrix.name }}-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
+            ${{ matrix.name }}-${{ github.ref_name }}-darwin_${{ matrix.package-suffix }}.tar.gz
 
   # Builds the PBS Docker image
   build-and-push-pbs-docker:
@@ -208,8 +210,6 @@ jobs:
           tags: |
             ghcr.io/commit-boost/pbs:${{ github.ref_name }}
             ${{ !contains(github.ref_name, 'rc') && 'ghcr.io/commit-boost/pbs:latest' || '' }}
-          cache-from: type=registry,ref=ghcr.io/commit-boost/pbs:buildcache
-          cache-to: type=registry,ref=ghcr.io/commit-boost/pbs:buildcache,mode=max
           file: provisioning/pbs.Dockerfile
 
   # Builds the Signer Docker image
@@ -262,8 +262,6 @@ jobs:
           tags: |
             ghcr.io/commit-boost/signer:${{ github.ref_name }}
             ${{ !contains(github.ref_name, 'rc') && 'ghcr.io/commit-boost/signer:latest' || '' }}
-          cache-from: type=registry,ref=ghcr.io/commit-boost/signer:buildcache
-          cache-to: type=registry,ref=ghcr.io/commit-boost/signer:buildcache,mode=max
           file: provisioning/signer.Dockerfile
 
   # Creates a draft release on GitHub with the binaries
