@@ -26,11 +26,11 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: nightly-2025-02-26
+          toolchain: 1.83
           components: clippy, rustfmt
 
       - name: Install protoc
-        run: sudo apt-get install protobuf-compiler
+        run: sudo provisioning/protoc.sh
 
       - name: Setup just
         uses: extractions/setup-just@v2

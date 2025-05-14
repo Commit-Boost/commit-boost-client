@@ -1,5 +1,5 @@
-# Makes sure the nightly-2025-02-26 toolchain is installed
-toolchain := "nightly-2025-02-26"
+# Makes sure the same toolchain as the source is installed
+toolchain := 1.83
 
 fmt:
   rustup toolchain install {{toolchain}} > /dev/null 2>&1 && \
