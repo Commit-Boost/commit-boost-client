@@ -1,8 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    io::Write,
-    path::PathBuf,
-};
+use std::{collections::HashMap, io::Write, path::PathBuf};
 
 use alloy::{hex, rpc::types::beacon::constants::BLS_SIGNATURE_BYTES_LEN};
 use blsful::inner_types::{Field, G2Affine, G2Projective, Group, Scalar};
@@ -107,14 +103,8 @@ impl DirkManager {
                 }
             };
 
-            let wallets: HashSet<String> = host
-                .accounts
-                .iter()
-                .map(|account| decompose_name(account).unwrap_or_default().0)
-                .collect();
-
             let accounts_response = match ListerClient::new(channel.clone())
-                .list_accounts(ListAccountsRequest { paths: wallets.into_iter().collect() })
+                .list_accounts(ListAccountsRequest { paths: host.wallets.clone() })
                 .await
             {
                 Ok(res) => res,
@@ -130,12 +120,7 @@ impl DirkManager {
             }
 
             let accounts_response = accounts_response.into_inner();
-            load_simple_accounts(
-                accounts_response.accounts,
-                &host,
-                &channel,
-                &mut consensus_accounts,
-            );
+            load_simple_accounts(accounts_response.accounts, &channel, &mut consensus_accounts);
             load_distributed_accounts(
                 accounts_response.distributed_accounts,
                 &host,
@@ -144,15 +129,6 @@ impl DirkManager {
             )
             .map_err(|error| warn!("{error}"))
             .ok();
-
-            for account in host.accounts {
-                if !consensus_accounts
-                    .values()
-                    .any(|account| account.full_name() == account.full_name())
-                {
-                    warn!("Account {account} not found in server {}", host.url);
-                }
-            }
         }
 
         debug!(
@@ -595,15 +571,10 @@ fn decompose_name(full_name: &str) -> eyre::Result<(String, String)> {
 /// Load `SimpleAccount`s into the consensus accounts map
 fn load_simple_accounts(
     accounts: Vec<crate::proto::v1::Account>,
-    host: &DirkHostConfig,
     channel: &Channel,
     consensus_accounts: &mut HashMap<BlsPublicKey, Account>,
 ) {
     for account in accounts {
-        if !host.accounts.contains(&account.name) {
-            continue;
-        }
-
         let Ok((wallet, name)) = decompose_name(&account.name) else {
             warn!("Invalid account name {}", account.name);
             continue;
@@ -643,10 +614,6 @@ fn load_distributed_accounts(
         .ok_or(eyre::eyre!("Host name not found for server {}", host.url))?;
 
     for account in accounts {
-        if !host.accounts.contains(&account.name) {
-            continue;
-        }
-
         let Ok(public_key) = BlsPublicKey::try_from(account.composite_public_key.as_slice()) else {
             warn!("Failed to parse composite public key for account {}", account.name);
             continue;

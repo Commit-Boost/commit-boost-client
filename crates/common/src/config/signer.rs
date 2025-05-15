@@ -37,8 +37,8 @@ pub struct DirkHostConfig {
     pub server_name: Option<String>,
     /// Complete URL of the Dirk server
     pub url: Url,
-    /// Accounts used as consensus keys
-    pub accounts: Vec<String>,
+    /// Wallets to load consensus keys from
+    pub wallets: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
