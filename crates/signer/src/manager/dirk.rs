@@ -33,10 +33,10 @@ enum Account {
 }
 
 impl Account {
-    pub fn full_name(&self) -> String {
+    pub fn name(&self) -> &str {
         match self {
-            Account::Simple(account) => format!("{}/{}", account.wallet, account.name),
-            Account::Distributed(account) => format!("{}/{}", account.wallet, account.name),
+            Account::Simple(account) => &account.name,
+            Account::Distributed(account) => &account.name,
         }
     }
 }
@@ -45,7 +45,6 @@ impl Account {
 struct SimpleAccount {
     public_key: BlsPublicKey,
     connection: Channel,
-    wallet: String,
     name: String,
 }
 
@@ -54,7 +53,6 @@ struct DistributedAccount {
     composite_public_key: BlsPublicKey,
     participants: HashMap<u32, Channel>,
     threshold: u32,
-    wallet: String,
     name: String,
 }
 
@@ -269,10 +267,7 @@ impl DirkManager {
                     .sign(SignRequest {
                         data: object_root.to_vec(),
                         domain: compute_domain(self.chain, COMMIT_BOOST_DOMAIN).to_vec(),
-                        id: Some(sign_request::Id::Account(format!(
-                            "{}/{}",
-                            account.wallet, account.name
-                        ))),
+                        id: Some(sign_request::Id::Account(account.name.clone())),
                     })
                     .map(|res| (res, *id))
                     .await
@@ -368,7 +363,7 @@ impl DirkManager {
 
         let response = AccountManagerClient::new(consensus.connection.clone())
             .generate(GenerateRequest {
-                account: format!("{}/{}/{module}/{uuid}", consensus.wallet, consensus.name),
+                account: format!("{}/{module}/{uuid}", consensus.name),
                 passphrase: password.as_bytes().to_vec(),
                 participants: 1,
                 signing_threshold: 1,
@@ -394,7 +389,6 @@ impl DirkManager {
             inner: Account::Simple(SimpleAccount {
                 public_key: proxy_key,
                 connection: consensus.connection.clone(),
-                wallet: consensus.wallet.clone(),
                 name: format!("{}/{module}/{uuid}", consensus.name),
             }),
         };
@@ -426,7 +420,7 @@ impl DirkManager {
         for (id, channel) in consensus.participants.iter() {
             let Ok(response) = AccountManagerClient::new(channel.clone())
                 .generate(GenerateRequest {
-                    account: format!("{}/{}/{module}/{uuid}", consensus.wallet, consensus.name),
+                    account: format!("{}/{module}/{uuid}", consensus.name),
                     passphrase: password.as_bytes().to_vec(),
                     participants: consensus.participants.len() as u32,
                     signing_threshold: consensus.threshold,
@@ -455,7 +449,6 @@ impl DirkManager {
                     composite_public_key: proxy_key,
                     participants: consensus.participants.clone(),
                     threshold: consensus.threshold,
-                    wallet: consensus.wallet.clone(),
                     name: format!("{}/{module}/{uuid}", consensus.name),
                 }),
             };
@@ -482,8 +475,8 @@ impl DirkManager {
 
     /// Store the password for a proxy account in disk
     fn store_password(&self, account: &ProxyAccount, password: String) -> eyre::Result<()> {
-        let full_name = account.inner.full_name();
-        let (parent, name) = full_name.rsplit_once('/').ok_or_eyre("Invalid account name")?;
+        let name = account.inner.name();
+        let (parent, name) = name.rsplit_once('/').ok_or_eyre("Invalid account name")?;
         let parent_path = self.secrets_path.join(parent);
 
         std::fs::create_dir_all(parent_path.clone())?;
@@ -506,7 +499,7 @@ impl DirkManager {
             let request = async move {
                 let response = AccountManagerClient::new(channel.clone())
                     .unlock(UnlockAccountRequest {
-                        account: account.full_name(),
+                        account: account.name().to_string(),
                         passphrase: password.as_bytes().to_vec(),
                     })
                     .await;
@@ -560,14 +553,6 @@ async fn connect(
         .map_err(eyre::Error::from)
 }
 
-/// Decompose a full account name into wallet and name
-fn decompose_name(full_name: &str) -> eyre::Result<(String, String)> {
-    full_name
-        .split_once('/')
-        .map(|(wallet, name)| (wallet.to_string(), name.to_string()))
-        .ok_or_else(|| eyre::eyre!("Invalid account name"))
-}
-
 /// Load `SimpleAccount`s into the consensus accounts map
 fn load_simple_accounts(
     accounts: Vec<crate::proto::v1::Account>,
@@ -575,11 +560,6 @@ fn load_simple_accounts(
     consensus_accounts: &mut HashMap<BlsPublicKey, Account>,
 ) {
     for account in accounts {
-        let Ok((wallet, name)) = decompose_name(&account.name) else {
-            warn!("Invalid account name {}", account.name);
-            continue;
-        };
-
         match BlsPublicKey::try_from(account.public_key.as_slice()) {
             Ok(public_key) => {
                 consensus_accounts.insert(
@@ -587,8 +567,7 @@ fn load_simple_accounts(
                     Account::Simple(SimpleAccount {
                         public_key,
                         connection: channel.clone(),
-                        wallet,
-                        name,
+                        name: account.name,
                     }),
                 );
             }
@@ -631,11 +610,6 @@ fn load_distributed_accounts(
                 participants.insert(participant_id as u32, channel.clone());
             }
             None => {
-                let Ok((wallet, name)) = decompose_name(&account.name) else {
-                    warn!("Invalid account name {}", account.name);
-                    continue;
-                };
-
                 let mut participants = HashMap::with_capacity(account.participants.len());
                 participants.insert(participant_id as u32, channel.clone());
 
@@ -645,8 +619,7 @@ fn load_distributed_accounts(
                         composite_public_key: public_key,
                         participants,
                         threshold: account.signing_threshold,
-                        wallet,
-                        name,
+                        name: account.name,
                     }),
                 );
             }
