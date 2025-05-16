@@ -10,7 +10,7 @@ fmt-check:
   cargo +{{toolchain}} fmt --check
 
 clippy:
-  cargo clippy --all-features --no-deps -- -D warnings
+  cargo +{{toolchain}} clippy --all-features --no-deps -- -D warnings
 
 docker-build-pbs:
   docker build -t commitboost_pbs_default . -f ./provisioning/pbs.Dockerfile
