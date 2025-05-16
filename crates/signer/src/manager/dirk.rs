@@ -560,6 +560,11 @@ fn load_simple_accounts(
     consensus_accounts: &mut HashMap<BlsPublicKey, Account>,
 ) {
     for account in accounts {
+        if name_matches_proxy(&account.name) {
+            debug!(account = account.name, "Ignoring account assuming it's a proxy key");
+            continue;
+        }
+
         match BlsPublicKey::try_from(account.public_key.as_slice()) {
             Ok(public_key) => {
                 consensus_accounts.insert(
@@ -593,6 +598,11 @@ fn load_distributed_accounts(
         .ok_or(eyre::eyre!("Host name not found for server {}", host.url))?;
 
     for account in accounts {
+        if name_matches_proxy(&account.name) {
+            debug!(account = account.name, "Ignoring account assuming it's a proxy key");
+            continue;
+        }
+
         let Ok(public_key) = BlsPublicKey::try_from(account.composite_public_key.as_slice()) else {
             warn!("Failed to parse composite public key for account {}", account.name);
             continue;
@@ -677,6 +687,14 @@ fn aggregate_partial_signatures(partials: &[(BlsSignature, u32)]) -> eyre::Resul
 fn random_password() -> String {
     let password_bytes: [u8; 32] = rand::rng().random();
     hex::encode(password_bytes)
+}
+
+/// Returns whether the name of an account has a proxy name format.
+///
+/// i.e., `{wallet}/{consensus_proxy}/{module}/{uuid}`
+fn name_matches_proxy(name: &str) -> bool {
+    name.split("/").count() > 3 &&
+        name.rsplit_once("/").is_some_and(|(_, name)| uuid::Uuid::parse_str(name).is_ok())
 }
 
 mod test {
