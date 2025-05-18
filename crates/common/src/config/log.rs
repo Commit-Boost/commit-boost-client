@@ -8,7 +8,12 @@ use crate::utils::default_bool;
 
 #[derive(Clone, Default, Debug, Deserialize, Serialize)]
 pub struct LogsSettings {
+    /// Whether to export OpenTelemetry traces
+    #[serde(default = "default_bool::<false>")]
+    pub export_traces: bool,
+    #[serde(default)]
     pub stdout: StdoutLogSettings,
+    #[serde(default)]
     pub file: FileLogSettings,
 }
 

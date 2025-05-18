@@ -72,6 +72,12 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
     // targets to pass to prometheus
     let mut targets = Vec::new();
 
+    let mut service_common_envs = IndexMap::new();
+    for (key, val) in cb_config.env {
+        let (key, val) = get_env_val(key.as_str(), val.as_str());
+        service_common_envs.insert(key, val);
+    }
+
     // address for signer API communication
     let signer_port = 20000;
     let signer_server =
@@ -112,6 +118,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                         get_env_interp(MODULE_JWT_ENV, &jwt_name),
                         get_env_val(SIGNER_URL_ENV, &signer_server),
                     ]);
+                    module_envs.extend(service_common_envs.clone());
 
                     // Pass on the env variables
                     if let Some(envs) = module.env {
@@ -198,6 +205,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                         get_env_val(CONFIG_ENV, CONFIG_DEFAULT),
                         get_env_uval(BUILDER_PORT_ENV, builder_events_port),
                     ]);
+                    module_envs.extend(service_common_envs.clone());
 
                     if let Some((key, val)) = chain_spec_env.clone() {
                         module_envs.insert(key, val);
@@ -247,6 +255,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
     // setup pbs service
 
     let mut pbs_envs = IndexMap::from([get_env_val(CONFIG_ENV, CONFIG_DEFAULT)]);
+    pbs_envs.extend(service_common_envs.clone());
     let mut pbs_volumes = vec![config_volume.clone()];
 
     // ports
@@ -336,6 +345,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                     get_env_same(JWTS_ENV),
                     get_env_uval(SIGNER_PORT_ENV, signer_port as u64),
                 ]);
+                signer_envs.extend(service_common_envs.clone());
 
                 let mut ports = vec![];
 
@@ -464,6 +474,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                     get_env_val(DIRK_KEY_ENV, DIRK_KEY_DEFAULT),
                     get_env_val(DIRK_DIR_SECRETS_ENV, DIRK_DIR_SECRETS_DEFAULT),
                 ]);
+                signer_envs.extend(service_common_envs.clone());
 
                 let mut ports = vec![];
 
