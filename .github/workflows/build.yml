@@ -37,8 +37,8 @@ jobs:
         with:
           context: .
           push: true
-          platforms: linux/amd64
-          tags: ghcr.io/commit-boost/pbs:${{ github.ref_name }}
+          platforms: linux/amd64,linux/arm64
+          tags: ghcr.io/commit-boost/pbs:otel-support
           cache-from: type=registry,ref=ghcr.io/commit-boost/pbs:buildcache
           cache-to: type=registry,ref=ghcr.io/commit-boost/pbs:buildcache,mode=max
           file: provisioning/pbs.Dockerfile
