@@ -1,0 +1,44 @@
+name: Build PBS Docker Image
+
+on:
+  push:
+    branches:
+      - "lt/otel-support"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push-pbs-docker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: true
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push PBS Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          tags: ghcr.io/commit-boost/pbs:${{ github.ref_name }}
+          cache-from: type=registry,ref=ghcr.io/commit-boost/pbs:buildcache
+          cache-to: type=registry,ref=ghcr.io/commit-boost/pbs:buildcache,mode=max
+          file: provisioning/pbs.Dockerfile
