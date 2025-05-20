@@ -64,8 +64,14 @@ impl SigningService {
             jwts: config.jwts.into(),
         };
 
-        let loaded_consensus = state.manager.read().await.available_consensus_signers();
-        let loaded_proxies = state.manager.read().await.available_proxy_signers();
+        // Get the signer counts
+        let loaded_consensus: usize;
+        let loaded_proxies: usize;
+        {
+            let manager = state.manager.read().await;
+            loaded_consensus = manager.available_consensus_signers();
+            loaded_proxies = manager.available_proxy_signers();
+        }
 
         info!(version = COMMIT_BOOST_VERSION, commit_hash = COMMIT_BOOST_COMMIT, modules =? module_ids, endpoint =? config.endpoint, loaded_consensus, loaded_proxies, "Starting signing service");
 
