@@ -65,6 +65,8 @@ We currently support Lighthouse, Prysm, Teku and Lodestar's keystores so it's ea
   #### Config:
   ```toml
   [signer]
+  port = 20000
+
   [signer.local.loader]
   format = "lighthouse"
   keys_path = "keys"
@@ -111,6 +113,8 @@ We currently support Lighthouse, Prysm, Teku and Lodestar's keystores so it's ea
   #### Config:
   ```toml
   [signer]
+  port = 20000
+  
   [signer.local.loader]
   format = "teku"
   keys_path = "keys"
@@ -133,6 +137,8 @@ We currently support Lighthouse, Prysm, Teku and Lodestar's keystores so it's ea
   #### Config:
   ```toml
   [signer]
+  port = 20000
+  
   [signer.local.loader]
   format = "lodestar"
   keys_path = "keys"
@@ -299,6 +305,8 @@ port = 18550
 url = ""
 
 [signer]
+port = 20000
+
 [signer.loader]
 format = "lighthouse"
 keys_path = "/path/to/keys"

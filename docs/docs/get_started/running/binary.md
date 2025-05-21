@@ -22,12 +22,12 @@ Modules need some environment variables to work correctly.
 
 ### PBS Module
 - `CB_BUILDER_URLS`: optional, comma-separated list of urls to `events` modules where to post builder events.
-- `CB_PBS_ENDPOINT`: optional, override the endpoint where the PBS module will open the port for the beacon node.
+- `CB_PBS_ENDPOINT`: optional, override to specify the `IP:port` endpoint where the PBS module will open the port for the beacon node.
 - `CB_MUX_PATH_{ID}`: optional, override where to load mux validator keys for mux with `id=\{ID\}`.
 
 ### Signer Module
 - `CB_SIGNER_JWT_SECRET`: secret to use for JWT authentication with the Signer module.
-- `CB_SIGNER_PORT`: required, port to open the signer server on.
+- `CB_SIGNER_ENDPOINT`: optional, override to specify the `IP:port` endpoint to bind the signer server to.
 - For loading keys we currently support:
   - `CB_SIGNER_LOADER_FILE`: path to a `.json` with plaintext keys (for testing purposes only).
   - `CB_SIGNER_LOADER_FORMAT`, `CB_SIGNER_LOADER_KEYS_DIR` and `CB_SIGNER_LOADER_SECRETS_DIR`: paths to the `keys` and `secrets` directories or files (ERC-2335 style keystores, see [Signer config](../configuration/#signer-module) for more info).
