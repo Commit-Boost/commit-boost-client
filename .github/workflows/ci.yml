@@ -28,6 +28,9 @@ jobs:
         with:
           toolchain: nightly-2025-02-26
           components: clippy, rustfmt
+      
+      - name: Install Clippy on prod toolchain
+        run: rustup component add --toolchain 1.83.0-x86_64-unknown-linux-gnu clippy
 
       - name: Install protoc
         run: sudo provisioning/protoc.sh
