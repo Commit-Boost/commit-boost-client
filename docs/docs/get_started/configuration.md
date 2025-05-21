@@ -39,6 +39,13 @@ Commit-Boost supports both local and remote signers. The signer module is respon
 To start a local signer module, you need to include its parameters in the config file
 
 ```toml
+[pbs]
+...
+with_signer = true
+
+[signer]
+port = 20000
+
 [signer.local.loader]
 format = "lighthouse"
 keys_path = "/path/to/keys"
@@ -64,6 +71,10 @@ We currently support Lighthouse, Prysm, Teku and Lodestar's keystores so it's ea
 
   #### Config:
   ```toml
+  [pbs]
+  ...
+  with_signer = true
+
   [signer]
   port = 20000
 
@@ -89,7 +100,13 @@ We currently support Lighthouse, Prysm, Teku and Lodestar's keystores so it's ea
 
   #### Config:
   ```toml
+  [pbs]
+  ...
+  with_signer = true
+
   [signer]
+  port = 20000
+
   [signer.local.loader]
   format = "prysm"
   keys_path = "wallet/direct/accounts/all-accounts.keystore.json"
@@ -112,6 +129,10 @@ We currently support Lighthouse, Prysm, Teku and Lodestar's keystores so it's ea
 
   #### Config:
   ```toml
+  [pbs]
+  ...
+  with_signer = true
+
   [signer]
   port = 20000
   
@@ -136,6 +157,10 @@ We currently support Lighthouse, Prysm, Teku and Lodestar's keystores so it's ea
 
   #### Config:
   ```toml
+  [pbs]
+  ...
+  with_signer = true
+
   [signer]
   port = 20000
   

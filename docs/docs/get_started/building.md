@@ -166,7 +166,6 @@ This will create a binary in `./target/release/commit-boost-signer`. To verify i
 The signer needs the following environment variables set:
 - `CB_CONFIG` = path of your config file.
 - `CB_JWTS` = a dummy key-value pair of [JWT](https://en.wikipedia.org/wiki/JSON_Web_Token) values for various services. Since we don't need them for the sake of just testing the binary, we can use something like `"test_jwts=dummy"`.
-- `CB_SIGNER_PORT` = the network port to listen for signer requests on. Default is `20000`.
 
 Set these values, create the `keys` and `secrets` directories listed in the configuration file, and run the binary:
 
