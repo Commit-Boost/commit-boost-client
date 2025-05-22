@@ -4,7 +4,8 @@ use std::{
     path::PathBuf,
 };
 
-use eyre::{bail, OptionExt, Result};
+use docker_image::DockerImage;
+use eyre::{bail, ensure, OptionExt, Result};
 use serde::{Deserialize, Serialize};
 use tonic::transport::{Certificate, Identity};
 use url::Url;
@@ -40,6 +41,7 @@ pub struct SignerConfig {
     pub docker_image: String,
 
     /// Number of JWT auth failures before rate limiting an endpoint
+    /// If set to 0, no rate limiting will be applied
     #[serde(default = "default_u32::<DEFAULT_JWT_AUTH_FAIL_LIMIT>")]
     pub jwt_auth_fail_limit: u32,
 
@@ -51,6 +53,23 @@ pub struct SignerConfig {
     /// Inner type-specific configuration
     #[serde(flatten)]
     pub inner: SignerType,
+}
+
+impl SignerConfig {
+    /// Validate the signer config
+    pub async fn validate(&self) -> Result<()> {
+        // Port must be positive
+        ensure!(self.port > 0, "Port must be positive");
+
+        // The Docker tag must parse
+        ensure!(!self.docker_image.is_empty(), "Docker image is empty");
+        ensure!(
+            DockerImage::parse(&self.docker_image).is_ok(),
+            format!("Invalid Docker image: {}", self.docker_image)
+        );
+
+        Ok(())
+    }
 }
 
 fn default_signer() -> String {

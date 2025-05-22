@@ -1488,6 +1488,7 @@ dependencies = [
  "cipher 0.4.4",
  "ctr 0.9.2",
  "derive_more 2.0.1",
+ "docker-image",
  "eth2_keystore",
  "ethereum_serde_utils",
  "ethereum_ssz 0.8.3",
@@ -2156,6 +2157,16 @@ dependencies = [
  "indexmap 2.8.0",
  "serde",
  "serde_yaml",
+]
+
+[[package]]
+name = "docker-image"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f40ed901b8f2157bafce6e96f39217f7b1a4af32d84266d251ed7c22ce001f0b"
+dependencies = [
+ "lazy_static",
+ "regex",
 ]
 
 [[package]]
