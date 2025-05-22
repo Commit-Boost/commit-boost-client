@@ -11,13 +11,17 @@ use url::Url;
 
 use super::{
     load_jwt_secrets, load_optional_env_var, utils::load_env_var, CommitBoostConfig,
-    SIGNER_ENDPOINT_ENV, SIGNER_IMAGE_DEFAULT,
+    SIGNER_ENDPOINT_ENV, SIGNER_IMAGE_DEFAULT, SIGNER_JWT_AUTH_FAIL_LIMIT_ENV,
+    SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_ENV,
 };
 use crate::{
     config::{DIRK_CA_CERT_ENV, DIRK_CERT_ENV, DIRK_DIR_SECRETS_ENV, DIRK_KEY_ENV},
-    signer::{ProxyStore, SignerLoader, DEFAULT_SIGNER_PORT},
+    signer::{
+        ProxyStore, SignerLoader, DEFAULT_JWT_AUTH_FAIL_LIMIT,
+        DEFAULT_JWT_AUTH_FAIL_TIMEOUT_SECONDS, DEFAULT_SIGNER_PORT,
+    },
     types::{Chain, ModuleId},
-    utils::{default_host, default_u16},
+    utils::{default_host, default_u16, default_u32},
 };
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -26,12 +30,24 @@ pub struct SignerConfig {
     /// Host address to listen for signer API calls on
     #[serde(default = "default_host")]
     pub host: Ipv4Addr,
+
     /// Port to listen for signer API calls on
     #[serde(default = "default_u16::<DEFAULT_SIGNER_PORT>")]
     pub port: u16,
+
     /// Docker image of the module
     #[serde(default = "default_signer")]
     pub docker_image: String,
+
+    /// Number of JWT auth failures before rate limiting an endpoint
+    #[serde(default = "default_u32::<DEFAULT_JWT_AUTH_FAIL_LIMIT>")]
+    pub jwt_auth_fail_limit: u32,
+
+    /// Duration in seconds to rate limit an endpoint after the JWT auth failure
+    /// limit has been reached
+    #[serde(default = "default_u32::<DEFAULT_JWT_AUTH_FAIL_TIMEOUT_SECONDS>")]
+    pub jwt_auth_fail_timeout_seconds: u32,
+
     /// Inner type-specific configuration
     #[serde(flatten)]
     pub inner: SignerType,
@@ -100,6 +116,8 @@ pub struct StartSignerConfig {
     pub store: Option<ProxyStore>,
     pub endpoint: SocketAddr,
     pub jwts: HashMap<ModuleId, String>,
+    pub jwt_auth_fail_limit: u32,
+    pub jwt_auth_fail_timeout_seconds: u32,
     pub dirk: Option<DirkConfig>,
 }
 
@@ -120,6 +138,29 @@ impl StartSignerConfig {
             }
         };
 
+        // Load the JWT auth fail limit the same way
+        let jwt_auth_fail_limit =
+            if let Some(limit) = load_optional_env_var(SIGNER_JWT_AUTH_FAIL_LIMIT_ENV) {
+                limit.parse()?
+            } else {
+                match config.signer {
+                    Some(ref signer) => signer.jwt_auth_fail_limit,
+                    None => DEFAULT_JWT_AUTH_FAIL_LIMIT,
+                }
+            };
+
+        // Load the JWT auth fail timeout the same way
+        let jwt_auth_fail_timeout_seconds = if let Some(timeout) =
+            load_optional_env_var(SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_ENV)
+        {
+            timeout.parse()?
+        } else {
+            match config.signer {
+                Some(ref signer) => signer.jwt_auth_fail_timeout_seconds,
+                None => DEFAULT_JWT_AUTH_FAIL_TIMEOUT_SECONDS,
+            }
+        };
+
         let signer = config.signer.ok_or_eyre("Signer config is missing")?.inner;
 
         match signer {
@@ -128,6 +169,8 @@ impl StartSignerConfig {
                 loader: Some(loader),
                 endpoint,
                 jwts,
+                jwt_auth_fail_limit,
+                jwt_auth_fail_timeout_seconds,
                 store,
                 dirk: None,
             }),
@@ -156,6 +199,8 @@ impl StartSignerConfig {
                     chain: config.chain,
                     endpoint,
                     jwts,
+                    jwt_auth_fail_limit,
+                    jwt_auth_fail_timeout_seconds,
                     loader: None,
                     store,
                     dirk: Some(DirkConfig {

@@ -137,6 +137,10 @@ pub const fn default_u64<const U: u64>() -> u64 {
     U
 }
 
+pub const fn default_u32<const U: u32>() -> u32 {
+    U
+}
+
 pub const fn default_u16<const U: u16>() -> u16 {
     U
 }
