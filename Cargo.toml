@@ -57,6 +57,7 @@ serde_json = "1.0.117"
 serde_yaml = "0.9.33"
 sha2 = "0.10.8"
 ssz_types = "0.10"
+tempfile = "3.20.0"
 thiserror = "2.0.12"
 tokio = { version = "1.37.0", features = ["full"] }
 toml = "0.8.13"
