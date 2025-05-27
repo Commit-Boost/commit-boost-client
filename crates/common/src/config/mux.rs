@@ -290,6 +290,7 @@ async fn fetch_ssv_pubkeys(
     let chain_name = match chain {
         Chain::Mainnet => "mainnet",
         Chain::Holesky => "holesky",
+        Chain::Hoodi => "hoodi",
         _ => bail!("SSV network is not supported for chain: {chain:?}"),
     };
 
