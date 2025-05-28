@@ -3,7 +3,7 @@ TERMS OF USE
 
 PLEASE READ THE FOLLOWING TERMS AND CONDITIONS (THE “TERMS”) WHICH CONSTITUTE THE AGREEMENT BETWEEN YOU OR ANY ENTITY ON WHOSE BEHALF YOU ACCESS OR USE THE FEATURES DESCRIBED HEREIN (“USER” OR “YOU”), AND COMMIT-BOOST, INC. (“COMMIT-BOOST”). THIS AGREEMENT REPRESENTS THE ENTIRE AGREEMENT CONCERNING THE FEATURES BETWEEN THE PARTIES AND IT SUPERSEDES ANY PRIOR PROPOSAL, REPRESENTATION, OR UNDERSTANDING BETWEEN THE PARTIES. COMMIT-BOOST AND USER ARE HEREINAFTER JOINTLY DEFINED AS THE “PARTIES” OR INDIVIDUALLY A “PARTY”.
 
-These Terms of Use (as amended or supplemented from time to time, these "Terms") explain the terms and conditions by which you may access and/or use Commit-Boost, Inc.’s website, https://github.com/Commit-Boost, tools, software, documentation, and other online properties (collectively, “Features”) provided by the Commit-Boost, Inc. (“Commit-Boost,” “we,” “us,” or “our”) repository. 
+These Terms of Use (as amended or supplemented from time to time, these "Terms") explain the terms and conditions by which you may access and/or use Commit-Boost, Inc.’s website, https://github.com/Commit-Boost, tools, software, documentation, projects, and other online properties (collectively, “Features”) provided by the Commit-Boost, Inc. (“Commit-Boost,” “we,” “us,” or “our”) repository. 
 
 All access and use of the Features is subject to these Terms. By accessing or otherwise using the Features, you acknowledge that you have read, understood, and agree to be bound by these Terms. If you do not accept the terms and conditions of these Terms, you will not access, browse, or otherwise use the Features.
  
