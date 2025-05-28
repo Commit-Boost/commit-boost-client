@@ -217,10 +217,12 @@ sol! {
     "src/abi/LidoNORegistry.json"
 }
 
+// Fetching Lido Curated Module
 fn lido_registry_address(chain: Chain) -> eyre::Result<Address> {
     match chain {
         Chain::Mainnet => Ok(address!("55032650b14df07b85bF18A3a3eC8E0Af2e028d5")),
         Chain::Holesky => Ok(address!("595F64Ddc3856a3b5Ff4f4CC1d1fb4B46cFd2bAC")),
+        Chain::Hoodi => Ok(address!("5cDbE1590c083b5A2A64427fAA63A7cfDB91FbB5")),
         Chain::Sepolia => Ok(address!("33d6E15047E8644F8DDf5CD05d202dfE587DA6E3")),
         _ => bail!("Lido registry not supported for chain: {chain:?}"),
     }
@@ -290,6 +292,7 @@ async fn fetch_ssv_pubkeys(
     let chain_name = match chain {
         Chain::Mainnet => "mainnet",
         Chain::Holesky => "holesky",
+        Chain::Hoodi => "hoodi",
         _ => bail!("SSV network is not supported for chain: {chain:?}"),
     };
 
