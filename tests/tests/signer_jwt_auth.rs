@@ -75,3 +75,52 @@ async fn test_signer_jwt_auth_success() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_signer_jwt_auth_fail() -> Result<()> {
+    setup_test_env();
+    let chain = Chain::Hoodi;
+
+    // Mock JWT secrets
+    let module_id = ModuleId(JWT_MODULE.to_string());
+    let mut jwts = HashMap::new();
+    jwts.insert(module_id.clone(), JWT_SECRET.to_string());
+
+    // Create a signer config
+    let loader = SignerLoader::ValidatorsDir {
+        keys_path: "data/keystores/keys".into(),
+        secrets_path: "data/keystores/secrets".into(),
+        format: ValidatorKeysFormat::Lighthouse,
+    };
+    let config = get_signer_config(loader);
+    let host = config.host;
+    let port = config.port;
+    let start_config = get_start_signer_config(config, chain, jwts);
+
+    // Run the Signer
+    let server_handle = tokio::spawn(SigningService::run(start_config));
+
+    // Make sure the server is running
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    if server_handle.is_finished() {
+        return Err(eyre::eyre!(
+            "Signer service failed to start: {}",
+            server_handle.await.unwrap_err()
+        ));
+    }
+
+    // Create a JWT header
+    let jwt = create_jwt(&module_id, "incorrect secret")?;
+
+    // Run a pubkeys request
+    let client = reqwest::Client::new();
+    let url = format!("http://{}:{}{}", host, port, GET_PUBKEYS_PATH);
+    let response = client.get(&url).bearer_auth(jwt).send().await?;
+    assert!(response.status().is_client_error(), "Failed to authenticate with JWT");
+    info!(
+        "Server returned expected error code {} for invalid JWT: {}",
+        response.status(),
+        response.text().await.unwrap_or_else(|_| "No response body".to_string())
+    );
+    Ok(())
+}
