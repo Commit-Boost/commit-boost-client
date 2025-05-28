@@ -21,7 +21,7 @@ const JWT_SECRET: &str = "test-jwt-secret";
 async fn test_signer_jwt_auth_success() -> Result<()> {
     setup_test_env();
     let module_id = ModuleId(JWT_MODULE.to_string());
-    let start_config = start_server().await?;
+    let start_config = start_server(20100).await?;
 
     // Run a pubkeys request
     let jwt = create_jwt(&module_id, JWT_SECRET)?;
@@ -39,7 +39,7 @@ async fn test_signer_jwt_auth_success() -> Result<()> {
 async fn test_signer_jwt_auth_fail() -> Result<()> {
     setup_test_env();
     let module_id = ModuleId(JWT_MODULE.to_string());
-    let start_config = start_server().await?;
+    let start_config = start_server(20200).await?;
 
     // Run a pubkeys request - this should fail due to invalid JWT
     let jwt = create_jwt(&module_id, "incorrect secret")?;
@@ -59,7 +59,7 @@ async fn test_signer_jwt_auth_fail() -> Result<()> {
 async fn test_signer_jwt_rate_limit() -> Result<()> {
     setup_test_env();
     let module_id = ModuleId(JWT_MODULE.to_string());
-    let start_config = start_server().await?;
+    let start_config = start_server(20300).await?;
 
     // Run as many pubkeys requests as the fail limit
     let jwt = create_jwt(&module_id, "incorrect secret")?;
@@ -88,7 +88,7 @@ async fn test_signer_jwt_rate_limit() -> Result<()> {
 
 // Starts the signer moduler server on a separate task and returns its
 // configuration
-async fn start_server() -> Result<StartSignerConfig> {
+async fn start_server(port: u16) -> Result<StartSignerConfig> {
     setup_test_env();
     let chain = Chain::Hoodi;
 
@@ -104,6 +104,7 @@ async fn start_server() -> Result<StartSignerConfig> {
         format: ValidatorKeysFormat::Lighthouse,
     };
     let mut config = get_signer_config(loader);
+    config.port = port;
     config.jwt_auth_fail_limit = 3; // Set a low fail limit for testing
     config.jwt_auth_fail_timeout_seconds = 3; // Set a short timeout for testing
     let start_config = get_start_signer_config(config, chain, jwts);
