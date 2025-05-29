@@ -1,6 +1,6 @@
 FROM debian:bookworm-slim
 ARG BINARIES_PATH TARGETOS TARGETARCH
-COPY ${BINARIES_PATH}/commit-boost-pbs-${TARGETOS}-${TARGETARCH} /usr/local/bin/commit-boost-pbs
+COPY ${BINARIES_PATH}/${TARGETOS}_${TARGETARCH}/commit-boost-pbs /usr/local/bin/commit-boost-pbs
 RUN apt-get update && apt-get install -y \
   openssl \
   ca-certificates \
