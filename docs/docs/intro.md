@@ -24,3 +24,5 @@ Commit-Boost runs as a single sidecar composed of multiple modules:
 <br/>
 
 Commit-Boost is being developed in Rust from scratch, and has been designed with safety and modularity at its core, with the goal of not limiting the market downstream including stakeholders, flows, proposer commitments, enforcement mechanisms, etc.
+
+Please see Commit-Boost, Inc's [terms of service](https://github.com/Commit-Boost/commit-boost-client/blob/main/TERMS-OF-USE.md). 
