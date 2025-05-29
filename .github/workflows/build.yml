@@ -1,0 +1,44 @@
+name: Build Signer Docker Image
+
+on:
+  push:
+    branches:
+      - "mb/remove_accounts"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push-signer-docker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: true
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push signer Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ghcr.io/commit-boost/signer:dirk-easier-config
+          cache-from: type=registry,ref=ghcr.io/commit-boost/signer:buildcache
+          cache-to: type=registry,ref=ghcr.io/commit-boost/signer:buildcache,mode=max
+          file: provisioning/signer.Dockerfile
