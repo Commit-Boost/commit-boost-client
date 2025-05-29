@@ -1,7 +1,10 @@
 # This will be the main build image
-FROM --platform=${BUILDPLATFORM} lukemathwalker/cargo-chef:latest-rust-1.83 AS chef
+FROM --platform=${BUILDPLATFORM} rust:1.83-slim-bookworm AS chef
 ARG TARGETOS TARGETARCH BUILDPLATFORM TARGET_CRATE
+ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 WORKDIR /app
+RUN cargo install cargo-chef --locked && \
+    rm -rf $CARGO_HOME/registry/
 
 FROM --platform=${BUILDPLATFORM} chef AS planner
 ARG TARGETOS TARGETARCH BUILDPLATFORM TARGET_CRATE
@@ -20,8 +23,8 @@ RUN if [ "$BUILDPLATFORM" = "linux/amd64" -a "$TARGETARCH" = "arm64" ]; then \
       rustup target add aarch64-unknown-linux-gnu && \
       dpkg --add-architecture arm64 && \
       apt update && \
-      apt install -y gcc-aarch64-linux-gnu libssl-dev:arm64 zlib1g-dev:arm64 && \
-      echo "#!/bin/sh" > ${BUILD_VAR_SCRIPT} && \
+      apt install -y gcc-aarch64-linux-gnu && \
+      echo '#!/bin/sh' > ${BUILD_VAR_SCRIPT} && \
       echo "export TARGET=aarch64-unknown-linux-gnu" >> ${BUILD_VAR_SCRIPT} && \
       echo "export TARGET_FLAG=--target=aarch64-unknown-linux-gnu" >> ${BUILD_VAR_SCRIPT} && \
       echo "export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=/usr/bin/aarch64-linux-gnu-gcc" >> ${BUILD_VAR_SCRIPT} && \
@@ -35,8 +38,8 @@ RUN if [ "$BUILDPLATFORM" = "linux/amd64" -a "$TARGETARCH" = "arm64" ]; then \
       rustup target add x86_64-unknown-linux-gnu && \
       dpkg --add-architecture amd64 && \
       apt update && \
-      apt install -y gcc-x86-64-linux-gnu libssl-dev:amd64 zlib1g-dev:amd64 && \
-      echo "#!/bin/sh" > ${BUILD_VAR_SCRIPT} && \
+      apt install -y gcc-x86-64-linux-gnu && \
+      echo '#!/bin/sh' > ${BUILD_VAR_SCRIPT} && \
       echo "export TARGET=x86_64-unknown-linux-gnu" >> ${BUILD_VAR_SCRIPT} && \
       echo "export TARGET_FLAG=--target=x86_64-unknown-linux-gnu" >> ${BUILD_VAR_SCRIPT} && \
       echo "export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=/usr/bin/x86_64-linux-gnu-gcc" >> ${BUILD_VAR_SCRIPT} && \
@@ -49,12 +52,14 @@ RUN if [ "$BUILDPLATFORM" = "linux/amd64" -a "$TARGETARCH" = "arm64" ]; then \
 
 # Run cook to prep the build 
 RUN if [ -f ${BUILD_VAR_SCRIPT} ]; then \
+      chmod +x ${BUILD_VAR_SCRIPT} && \
       . ${BUILD_VAR_SCRIPT} && \
       echo "Cross-compilation environment set up for ${TARGET}"; \
     else \
       echo "No cross-compilation needed"; \
     fi && \
-    export GIT_HASH=$(git rev-parse HEAD) && \
+    apt update && \
+    apt install -y git libssl-dev:${TARGETARCH} zlib1g-dev:${TARGETARCH} pkg-config && \ 
     cargo chef cook ${TARGET_FLAG} --release --recipe-path recipe.json
 
 # Get the latest Protoc since the one in the Debian repo is incredibly old

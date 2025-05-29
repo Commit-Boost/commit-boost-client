@@ -5,31 +5,27 @@ Commit-Boost's components are all written in [Rust](https://www.rust-lang.org/).
 
 ## Building via the Docker Builder
 
-For convenience, Commit-Boost has Dockerized the build environment for Linux `x64` and `arm64` platforms. All of the prerequisites, cross-compilation tooling, and configuration are handled by the builder image. If you would like to build the CLI, PBS module, or Signer binaries and Docker images from source, you are welcome to use the Docker builder process.
+For convenience, Commit-Boost has Dockerized the build environment for Linux `x64` and `arm64` platforms. It utilizes Docker's powerful [buildx](https://docs.docker.com/reference/cli/docker/buildx/) system. All of the prerequisites, cross-compilation tooling, and configuration are handled by the builder image. If you would like to build the CLI, PBS module, or Signer binaries and Docker images from source, you are welcome to use the Docker builder process.
 
 To use the builder, you will need to have [Docker Engine](https://docs.docker.com/engine/install/) installed on your system. Please follow the instructions to install it first.
 
 :::note
-The build script assumes that you've added your user account to the `docker` group with the Linux [post-install steps](https://docs.docker.com/engine/install/linux-postinstall/). If you haven't, then you'll need to run the build script below as `root` or modify it so each call to `docker` within it is run as the root user (e.g., with `sudo`).
+The build system assumes that you've added your user account to the `docker` group with the Linux [post-install steps](https://docs.docker.com/engine/install/linux-postinstall/). If you haven't, then you'll need to run the build script below as `root` or modify it so each call to `docker` within it is run as the root user (e.g., with `sudo`).
 :::
 
-We provide a build script called `build-linux.sh` to automate the process:
+The Docker builder is built into the project's `justfile` which is used to invoke many facets of Commit Boost development. To use it, you'll need to install [Just](https://github.com/casey/just) on your system.
 
-```
-$ ./build-linux.sh
-Usage: build.sh [options] -v <version number>
-This script assumes it is in the commit-boost-client repository directory.
-Options:
-	-a	Build all of the artifacts (CLI, PBS, and Signer, along with Docker images)
-	-c	Build the Commit-Boost CLI binaries
-	-p	Build the PBS module binary and its Docker container
-	-s	Build the Signer module binary and its Docker container
-	-o	When passed with a build, upload the resulting image tags to a local Docker registry specified in $LOCAL_DOCKER_REGISTRY
-```
+Use `just --list` to show all of the actions - there are many. The `justfile` provides granular actions, called "recipes", for building just the binaries of a specific crate (such as the CLI, `pbs`, or `signer`), as well as actions to build the Docker images for the PBS and Signer modules.
 
-The script utilizes Docker's [buildx](https://docs.docker.com/reference/cli/docker/buildx/) system to both create a multiarch-capable builder and cross-compile for both Linux architectures. You are free to modify it to produce only the artifacts relevant to you if so desired.
+Below is a brief summary of the relevant ones for building the Commit-Boost artifacts:
 
-The `version` provided will be used to house the output binaries in `./build/$VERSION`, and act as the version tag for the Docker images when they're added to your local system or uploaded to your local Docker repository.
+- `build-all <version>` will build the `commit-boost-cli`, `commit-boost-pbs`, and `commit-boost-signer` binaries for your local system architecture. It will also create Docker images called `commit-boost/pbs:<version>` and `commit-boost/signer:<version>` and load them into your local Docker registry for use.
+- `build-cli-bin <version>`, `build-pbs-bin <version>`, and `build-signer-bin <version>` can be used to create the `commit-boost-cli`, `commit-boost-pbs`, and `commit-boost-signer` binaries, respectively.
+- `build-pbs-img <version>` and `build-signer-img <version>` can be used to create the Docker images for the PBS and Signer modules, respectively.
+
+The `version` provided will be used to house the output binaries in `./build/<version>`, and act as the version tag for the Docker images when they're added to your local system or uploaded to your local Docker repository.
+
+If you're interested in building the binaries and/or Docker images for multiple architectures (currently Linux `amd64` and `arm64`), use the variants of those recipes that have the `-multiarch` suffix. Note that building a multiarch Docker image manifest will require the use of a [custom Docker registry](https://www.digitalocean.com/community/tutorials/how-to-set-up-a-private-docker-registry-on-ubuntu-20-04), as the local registry built into Docker does not have multiarch manifest support.
 
 
 ## Building Manually
@@ -57,23 +53,16 @@ sudo apt update && sudo apt install -y openssl ca-certificates libssl3 libssl-de
 Install the Protobuf compiler:
 
 :::note
-While many package repositories provide a `protobuf-compiler` package in lieu of manually installing protoc, we've found at the time of this writing that most of them use v3.21 which is quite out of date. We recommend getting the latest version manually.
+While many package repositories provide a `protobuf-compiler` package in lieu of manually installing protoc, we've found at the time of this writing that Debian-based ones use v3.21 which is quite out of date. We recommend getting the latest version manually.
 :::
 
+We provide a convenient recipe to install the latest version directly from the GitHub releases page:
+
 ```bash
-PROTOC_VERSION=$(curl -s "https://api.github.com/repos/protocolbuffers/protobuf/releases/latest" | grep -Po '"tag_name": "v\K[0-9.]+')
-MACHINE_ARCH=$(uname -m)
-case "${MACHINE_ARCH}" in
-    aarch64) PROTOC_ARCH=aarch_64;;
-    x86_64) PROTOC_ARCH=x86_64;;
-    *) echo "${MACHINE_ARCH} is not supported."; exit 1;;
-esac
-curl -sLo protoc.zip https://github.com/protocolbuffers/protobuf/releases/latest/download/protoc-$PROTOC_VERSION-linux-$PROTOC_ARCH.zip
-sudo unzip -q protoc.zip bin/protoc -d /usr
-sudo unzip -q protoc.zip "include/google/*" -d /usr
-sudo chmod a+x /usr/bin/protoc
-rm -rf protoc.zip
+just install-protoc
 ```
+
+This works on OSX and Linux systems, but you are welcome to download and install it manually as well.
 
 With the prerequisites set up, pull the repository:
 ```bash
