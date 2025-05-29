@@ -25,7 +25,7 @@ use cb_common::{
     types::Chain,
     utils::{blst_pubkey_to_alloy, timestamp_of_slot_start_sec},
 };
-use cb_pbs::MAX_SIZE_SUBMIT_BLOCK;
+use cb_pbs::MAX_SIZE_SUBMIT_BLOCK_RESPONSE;
 use tokio::net::TcpListener;
 use tracing::debug;
 use tree_hash::TreeHash;
@@ -136,7 +136,7 @@ async fn handle_register_validator(
 async fn handle_submit_block(State(state): State<Arc<MockRelayState>>) -> Response {
     state.received_submit_block.fetch_add(1, Ordering::Relaxed);
     if state.large_body() {
-        (StatusCode::OK, Json(vec![1u8; 1 + MAX_SIZE_SUBMIT_BLOCK])).into_response()
+        (StatusCode::OK, Json(vec![1u8; 1 + MAX_SIZE_SUBMIT_BLOCK_RESPONSE])).into_response()
     } else {
         let response = SubmitBlindedBlockResponse::default();
         (StatusCode::OK, Json(response)).into_response()
