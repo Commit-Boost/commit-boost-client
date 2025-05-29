@@ -53,23 +53,16 @@ sudo apt update && sudo apt install -y openssl ca-certificates libssl3 libssl-de
 Install the Protobuf compiler:
 
 :::note
-While many package repositories provide a `protobuf-compiler` package in lieu of manually installing protoc, we've found at the time of this writing that most of them use v3.21 which is quite out of date. We recommend getting the latest version manually.
+While many package repositories provide a `protobuf-compiler` package in lieu of manually installing protoc, we've found at the time of this writing that Debian-based ones use v3.21 which is quite out of date. We recommend getting the latest version manually.
 :::
 
+We provide a convenient recipe to install the latest version directly from the GitHub releases page:
+
 ```bash
-PROTOC_VERSION=$(curl -s "https://api.github.com/repos/protocolbuffers/protobuf/releases/latest" | grep -Po '"tag_name": "v\K[0-9.]+')
-MACHINE_ARCH=$(uname -m)
-case "${MACHINE_ARCH}" in
-    aarch64) PROTOC_ARCH=aarch_64;;
-    x86_64) PROTOC_ARCH=x86_64;;
-    *) echo "${MACHINE_ARCH} is not supported."; exit 1;;
-esac
-curl -sLo protoc.zip https://github.com/protocolbuffers/protobuf/releases/latest/download/protoc-$PROTOC_VERSION-linux-$PROTOC_ARCH.zip
-sudo unzip -q protoc.zip bin/protoc -d /usr
-sudo unzip -q protoc.zip "include/google/*" -d /usr
-sudo chmod a+x /usr/bin/protoc
-rm -rf protoc.zip
+just install-protoc
 ```
+
+This works on OSX and Linux systems, but you are welcome to download and install it manually as well.
 
 With the prerequisites set up, pull the repository:
 ```bash

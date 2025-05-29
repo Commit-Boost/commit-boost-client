@@ -21,7 +21,10 @@ case "$(uname)" in
     Linux*)
         PROTOC_OS="linux" ;
         TARGET_DIR="/usr" ; # Assumes the script is run as root or the user can do it manually
-        apt update && apt install -y unzip curl ca-certificates jq ;;
+        if [ $(id -u) != "0" ]; then
+            CMD_PREFIX="sudo " ;
+        fi
+        ${CMD_PREFIX}apt update && ${CMD_PREFIX}apt install -y unzip curl ca-certificates jq ;;
     *)
         echo "Unsupported OS: $(uname)" ;
         exit 1 ;;
@@ -50,8 +53,8 @@ echo "Installing protoc: $PROTOC_VERSION-$PROTOC_OS-$PROTOC_ARCH"
 
 # Download and install protoc
 curl --retry 10 --retry-delay 2 --retry-all-errors -fsLo protoc.zip https://github.com/protocolbuffers/protobuf/releases/latest/download/protoc-$PROTOC_VERSION-$PROTOC_OS-$PROTOC_ARCH.zip || fail "Failed to download protoc"
-unzip -q protoc.zip bin/protoc -d $TARGET_DIR || fail "Failed to unzip protoc"
-unzip -q protoc.zip "include/google/*" -d $TARGET_DIR || fail "Failed to unzip protoc includes"
-chmod a+x $TARGET_DIR/bin/protoc || fail "Failed to set executable permissions for protoc"
+${CMD_PREFIX}unzip -qo protoc.zip bin/protoc -d $TARGET_DIR || fail "Failed to unzip protoc"
+${CMD_PREFIX}unzip -qo protoc.zip "include/google/*" -d $TARGET_DIR || fail "Failed to unzip protoc includes"
+${CMD_PREFIX}chmod a+x $TARGET_DIR/bin/protoc || fail "Failed to set executable permissions for protoc"
 rm -rf protoc.zip || fail "Failed to remove protoc zip file"
 echo "protoc ${PROTOC_VERSION} installed successfully for ${PROTOC_OS} ${PROTOC_ARCH}"

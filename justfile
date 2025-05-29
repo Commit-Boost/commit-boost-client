@@ -179,6 +179,9 @@ _docker-build-image-multiarch version crate local-docker-registry: _create-docke
 # === Utilities ===
 # =================
 
+install-protoc:
+  provisioning/protoc.sh
+
 docker-build-test-modules:
   docker build -t test_da_commit . -f examples/da_commit/Dockerfile
   docker build -t test_builder_log . -f examples/builder_log/Dockerfile
