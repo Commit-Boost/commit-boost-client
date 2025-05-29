@@ -90,7 +90,11 @@ impl RelayClient {
 
     // URL builders
     pub fn get_url(&self, path: &str) -> Result<Url, PbsError> {
-        self.config.entry.url.join(path).map_err(PbsError::UrlParsing)
+        let query = self.config.entry.url.query();
+        let mut url = self.config.entry.url.join(path).map_err(PbsError::UrlParsing)?;
+        url.set_query(query);
+
+        Ok(url)
     }
     pub fn builder_api_url(&self, path: &str) -> Result<Url, PbsError> {
         self.get_url(&format!("{BUILDER_API_PATH}{path}"))
@@ -170,6 +174,43 @@ mod tests {
         assert_eq!(
             relay.get_header_url(slot, parent_hash, validator_pubkey).unwrap().to_string(),
             expected
+        );
+    }
+
+    #[test]
+    fn test_relay_url_with_query_params() {
+        let slot = 0;
+        let parent_hash = B256::ZERO;
+        let validator_pubkey = BlsPublicKey::ZERO;
+        let expected = format!("http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz/eth/v1/builder/header/{slot}/{parent_hash}/{validator_pubkey}?id=testid&auth=token");
+
+        let relay_config = r#"
+        {
+            "url": "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz?id=testid&auth=token"
+        }"#;
+
+        let config = serde_json::from_str::<RelayConfig>(relay_config).unwrap();
+        let relay = RelayClient::new(config).unwrap();
+
+        assert_eq!(
+            relay.get_header_url(slot, parent_hash, validator_pubkey).unwrap().to_string(),
+            expected
+        );
+
+        // Test other URL methods preserve query params too
+        assert_eq!(
+            relay.get_status_url().unwrap().to_string(),
+            "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz/eth/v1/builder/status?id=testid&auth=token"
+        );
+
+        assert_eq!(
+            relay.register_validator_url().unwrap().to_string(),
+            "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz/eth/v1/builder/validators?id=testid&auth=token"
+        );
+
+        assert_eq!(
+            relay.submit_block_url().unwrap().to_string(),
+            "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz/eth/v1/builder/blinded_blocks?id=testid&auth=token"
         );
     }
 }
