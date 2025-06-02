@@ -10,11 +10,86 @@ permissions:
   packages: write
 
 jobs:
-  build-binaries:
+  # Builds the x64 and arm64 binaries for Linux, for all 3 crates, via the Docker builder
+  build-binaries-linux:
     strategy:
       matrix:
         target:
-          - x86_64-unknown-linux-gnu
+          - amd64
+          - arm64
+        name:
+          - commit-boost-cli
+          - commit-boost-pbs
+          - commit-boost-signer
+        include:
+          - target: amd64
+            package-suffix: x86-64
+          - target: arm64
+            package-suffix: arm64
+          - name: commit-boost-cli
+            target-crate: cli
+          - name: commit-boost-pbs
+            target-crate: pbs
+          - name: commit-boost-signer
+            target-crate: signer
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: "stable"
+          fetch-depth: 0
+          submodules: true
+
+      - name: Log commit hash
+        run: |
+          echo "Releasing commit: $(git rev-parse HEAD)"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build binary (Linux)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=registry,ref=ghcr.io/commit-boost/buildcache:${{ matrix.target-crate}}
+          cache-to: type=registry,ref=ghcr.io/commit-boost/buildcache:${{ matrix.target-crate }},mode=max
+          file: provisioning/build.Dockerfile
+          outputs: type=local,dest=build
+          build-args: |
+            TARGET_CRATE=${{ matrix.name }}
+
+      - name: Package binary (Linux)
+        run: |
+          cd build/linux_${{ matrix.target }}
+          tar -czvf ${{ matrix.name }}-${{ github.ref_name }}-linux_${{ matrix.package-suffix }}.tar.gz ${{ matrix.name }}
+          mv ${{ matrix.name }}-${{ github.ref_name }}-linux_${{ matrix.package-suffix }}.tar.gz ../../
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}-${{ github.ref_name }}-linux_${{ matrix.package-suffix }}
+          path: |
+            ${{ matrix.name }}-${{ github.ref_name }}-linux_${{ matrix.package-suffix }}.tar.gz
+
+  # Builds the arm64 binaries for Darwin, for all 3 crates, natively
+  build-binaries-darwin:
+    strategy:
+      matrix:
+        target:
+          # x64 requires macos-latest-large which is not available in the free tier
           # - x86_64-apple-darwin
           - aarch64-apple-darwin
         name:
@@ -22,12 +97,12 @@ jobs:
           - commit-boost-pbs
           - commit-boost-signer
         include:
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
           # - target: x86_64-apple-darwin
-          #   os: macos-latest
+          #   os: macos-latest-large
+          #   package-suffix: x86-64
           - target: aarch64-apple-darwin
             os: macos-latest
+            package-suffix: arm64
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
@@ -40,6 +115,12 @@ jobs:
       - name: Log commit hash
         run: |
           echo "Releasing commit: $(git rev-parse HEAD)"
+
+      - name: Install Protoc
+        run:
+          # Brew's version is much more up to date than the Linux ones, and installing the latest via script runs into curl issues so for now, brew's easier to use
+          # provisioning/protoc.sh
+          brew install protobuf
 
       - name: Cache Cargo registry
         uses: actions/cache@v3
@@ -63,48 +144,25 @@ jobs:
             ${{ runner.os }}-cargo-build-${{ matrix.target }}-
             ${{ runner.os }}-cargo-build-
 
-      - name: Install protoc (Ubuntu)
-        if: runner.os == 'Linux'
-        run: sudo apt-get install protobuf-compiler
-
-      - name: Install protoc (macOS)
-        if: runner.os == 'macOS'
-        run: brew install protobuf
-
-      - name: Set up Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-          target: ${{ matrix.target }}
-
-      - name: Build binary
+      - name: Build binary (Darwin)
         run: cargo build --release --target ${{ matrix.target }} --bin ${{ matrix.name }}
-        env:
-          CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: gcc
 
-      - name: Package binary (Unix)
-        if: runner.os != 'Windows'
+      - name: Package binary (Darwin)
         run: |
           cd target/${{ matrix.target }}/release
-          tar -czvf ${{ matrix.name }}-${{ github.ref_name }}-${{ matrix.target }}.tar.gz ${{ matrix.name }}
-          mv ${{ matrix.name }}-${{ github.ref_name }}-${{ matrix.target }}.tar.gz ../../../
-
-      - name: Package binary (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          7z a ${{ matrix.name }}-${{ github.ref_name }}-${{ matrix.target }}.zip target\${{ matrix.target }}\release\${{ matrix.name }}.exe
+          tar -czvf ${{ matrix.name }}-${{ github.ref_name }}-darwin_${{ matrix.package-suffix }}.tar.gz ${{ matrix.name }}
+          mv ${{ matrix.name }}-${{ github.ref_name }}-darwin_${{ matrix.package-suffix }}.tar.gz ../../../
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.name }}-${{ github.ref_name }}-${{ matrix.target }}
+          name: ${{ matrix.name }}-${{ github.ref_name }}-darwin_${{ matrix.package-suffix }}
           path: |
-            ${{ matrix.name }}-${{ github.ref_name }}-${{ matrix.target }}.${{ runner.os == 'Windows' && 'zip' || 'tar.gz' }}
+            ${{ matrix.name }}-${{ github.ref_name }}-darwin_${{ matrix.package-suffix }}.tar.gz
 
+  # Builds the PBS Docker image
   build-and-push-pbs-docker:
-    needs: [build-binaries]
+    needs: [build-binaries-linux]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -113,6 +171,20 @@ jobs:
           ref: "stable"
           fetch-depth: 0
           submodules: true
+
+      - name: Download binary archives
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+          pattern: "commit-boost-*"
+
+      - name: Extract binaries
+        run: |
+          mkdir -p ./artifacts/bin
+          tar -xzf ./artifacts/commit-boost-pbs-${{ github.ref_name }}-linux_x86-64/commit-boost-pbs-${{ github.ref_name }}-linux_x86-64.tar.gz -C ./artifacts/bin
+          mv ./artifacts/bin/commit-boost-pbs ./artifacts/bin/commit-boost-pbs-linux-amd64
+          tar -xzf ./artifacts/commit-boost-pbs-${{ github.ref_name }}-linux_arm64/commit-boost-pbs-${{ github.ref_name }}-linux_arm64.tar.gz -C ./artifacts/bin
+          mv ./artifacts/bin/commit-boost-pbs ./artifacts/bin/commit-boost-pbs-linux-arm64
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -133,15 +205,16 @@ jobs:
           context: .
           push: true
           platforms: linux/amd64,linux/arm64
+          build-args: |
+            BINARIES_PATH=./artifacts/bin
           tags: |
             ghcr.io/commit-boost/pbs:${{ github.ref_name }}
             ${{ !contains(github.ref_name, 'rc') && 'ghcr.io/commit-boost/pbs:latest' || '' }}
-          cache-from: type=registry,ref=ghcr.io/commit-boost/pbs:buildcache
-          cache-to: type=registry,ref=ghcr.io/commit-boost/pbs:buildcache,mode=max
           file: provisioning/pbs.Dockerfile
 
+  # Builds the Signer Docker image
   build-and-push-signer-docker:
-    needs: [build-binaries]
+    needs: [build-binaries-linux]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -150,6 +223,20 @@ jobs:
           ref: "stable"
           fetch-depth: 0
           submodules: true
+
+      - name: Download binary archives
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+          pattern: "commit-boost-*"
+
+      - name: Extract binaries
+        run: |
+          mkdir -p ./artifacts/bin
+          tar -xzf ./artifacts/commit-boost-signer-${{ github.ref_name }}-linux_x86-64/commit-boost-signer-${{ github.ref_name }}-linux_x86-64.tar.gz -C ./artifacts/bin
+          mv ./artifacts/bin/commit-boost-signer ./artifacts/bin/commit-boost-signer-linux-amd64
+          tar -xzf ./artifacts/commit-boost-signer-${{ github.ref_name }}-linux_arm64/commit-boost-signer-${{ github.ref_name }}-linux_arm64.tar.gz -C ./artifacts/bin
+          mv ./artifacts/bin/commit-boost-signer ./artifacts/bin/commit-boost-signer-linux-arm64
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -170,16 +257,18 @@ jobs:
           context: .
           push: true
           platforms: linux/amd64,linux/arm64
+          build-args: |
+            BINARIES_PATH=./artifacts/bin
           tags: |
             ghcr.io/commit-boost/signer:${{ github.ref_name }}
             ${{ !contains(github.ref_name, 'rc') && 'ghcr.io/commit-boost/signer:latest' || '' }}
-          cache-from: type=registry,ref=ghcr.io/commit-boost/signer:buildcache
-          cache-to: type=registry,ref=ghcr.io/commit-boost/signer:buildcache,mode=max
           file: provisioning/signer.Dockerfile
 
+  # Creates a draft release on GitHub with the binaries
   finalize-release:
     needs:
-      - build-binaries
+      - build-binaries-linux
+      - build-binaries-darwin
       - build-and-push-pbs-docker
       - build-and-push-signer-docker
     runs-on: ubuntu-latest
