@@ -121,6 +121,8 @@ url = "https://0xafa4c6985aa049fb79dd37010438cfebeb0f2bd42b115b89dd678dab0670c1d
 enabled = true
 
 [signer]
+port = 20000
+
 [signer.local.loader]
 format = "lighthouse"
 keys_path = "/tmp/keys"
@@ -160,14 +162,14 @@ Set these values, create the `keys` and `secrets` directories listed in the conf
 
 ```
 mkdir -p /tmp/keys && mkdir -p /tmp/secrets
-CB_CONFIG=cb-config.toml CB_JWTS="test_jwts=dummy" CB_SIGNER_PORT=20000 ./target/release/commit-boost-signer
+CB_CONFIG=cb-config.toml CB_JWTS="test_jwts=dummy" ./target/release/commit-boost-signer
 ```
 
 You should see output like this:
 ```
-2025-05-07T21:43:46.385535Z  WARN Proxy store not configured. Proxies keys and delegations will not be persisted
-2025-05-07T21:43:46.393507Z  INFO Starting signing service version="0.7.0" commit_hash="58082edb1213596667afe8c3950cd997ab85f4f3" modules=["test_jwts"] port=20000 loaded_consensus=0 loaded_proxies=0
-2025-05-07T21:43:46.393574Z  WARN No metrics server configured
+2025-06-03T04:57:19.815702Z  WARN Proxy store not configured. Proxies keys and delegations will not be persisted
+2025-06-03T04:57:19.818193Z  INFO Starting signing service version="0.8.0-rc.1" commit_hash="3eed5268f07803c55cca7d7e2e14a7017098f797" modules=["test"] endpoint=127.0.0.1:20000 loaded_consensus=0 loaded_proxies=0
+2025-06-03T04:57:19.818229Z  WARN No metrics server configured
 ```
 
 If you do, then the binary works.
