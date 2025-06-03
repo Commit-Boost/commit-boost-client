@@ -16,7 +16,7 @@ use tracing::{debug, info};
 use url::Url;
 
 use super::{load_optional_env_var, PbsConfig, RelayConfig, MUX_PATH_ENV};
-use crate::{pbs::RelayClient, types::Chain};
+use crate::{config::remove_duplicate_keys, pbs::RelayClient, types::Chain};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct PbsMuxes {
@@ -277,8 +277,9 @@ async fn fetch_lido_registry_keys(
     }
 
     ensure!(keys.len() == total_keys as usize, "expected {total_keys} keys, got {}", keys.len());
-    let unique = keys.iter().collect::<HashSet<_>>();
-    ensure!(unique.len() == keys.len(), "found duplicate keys in registry");
+
+    // Remove duplicates
+    keys = remove_duplicate_keys(keys);
 
     Ok(keys)
 }
@@ -326,8 +327,8 @@ async fn fetch_ssv_pubkeys(
         }
     }
 
-    let unique = pubkeys.iter().collect::<HashSet<_>>();
-    ensure!(unique.len() == pubkeys.len(), "found duplicate keys in registry");
+    // Remove duplicates
+    pubkeys = remove_duplicate_keys(pubkeys);
 
     Ok(pubkeys)
 }
