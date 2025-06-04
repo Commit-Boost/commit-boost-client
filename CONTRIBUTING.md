@@ -1,4 +1,4 @@
-# Contributors Guide
+# Contributor's Guide
 
 Commit-Boost is community driven and we welcome all contributions.
 
