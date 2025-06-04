@@ -2,6 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
 
 use alloy::{
@@ -16,7 +17,11 @@ use tracing::{debug, info};
 use url::Url;
 
 use super::{load_optional_env_var, PbsConfig, RelayConfig, MUX_PATH_ENV};
-use crate::{pbs::RelayClient, types::Chain};
+use crate::{
+    config::{safe_read_http_response, MUXER_HTTP_TIMEOUT_DEFAULT},
+    pbs::RelayClient,
+    types::Chain,
+};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct PbsMuxes {
@@ -142,10 +147,12 @@ pub enum MuxKeysLoader {
     File(PathBuf),
     HTTP {
         url: String,
+        timeout: Option<u64>,
     },
     Registry {
         registry: NORegistry,
         node_operator_id: u64,
+        timeout: Option<u64>,
     },
 }
 
@@ -174,15 +181,21 @@ impl MuxKeysLoader {
                 serde_json::from_str(&file).wrap_err("failed to parse mux keys file")
             }
 
-            Self::HTTP { url } => {
-                let client = reqwest::Client::new();
+            Self::HTTP { url, timeout } => {
+                let url = Url::parse(url).wrap_err("failed to parse mux keys URL")?;
+                if url.scheme() != "https" {
+                    bail!("mux keys URL must use HTTPS");
+                }
+                let client = reqwest::ClientBuilder::new()
+                    .timeout(Duration::from_secs(timeout.unwrap_or(MUXER_HTTP_TIMEOUT_DEFAULT)))
+                    .build()?;
                 let response = client.get(url).send().await?;
-                let pubkeys = response.text().await?;
+                let pubkeys = safe_read_http_response(response).await?;
                 serde_json::from_str(&pubkeys)
-                    .wrap_err("failed to fetch mux keys from http endpoint")
+                    .wrap_err("failed to fetch mux keys from HTTP endpoint")
             }
 
-            Self::Registry { registry, node_operator_id } => match registry {
+            Self::Registry { registry, node_operator_id, timeout } => match registry {
                 NORegistry::Lido => {
                     let Some(rpc_url) = rpc_url else {
                         bail!("Lido registry requires RPC URL to be set in the PBS config");
@@ -190,7 +203,9 @@ impl MuxKeysLoader {
 
                     fetch_lido_registry_keys(rpc_url, chain, U256::from(*node_operator_id)).await
                 }
-                NORegistry::SSV => fetch_ssv_pubkeys(chain, U256::from(*node_operator_id)).await,
+                NORegistry::SSV => {
+                    fetch_ssv_pubkeys(chain, U256::from(*node_operator_id), timeout).await
+                }
             },
         }
     }
@@ -286,6 +301,7 @@ async fn fetch_lido_registry_keys(
 async fn fetch_ssv_pubkeys(
     chain: Chain,
     node_operator_id: U256,
+    timeout: &Option<u64>,
 ) -> eyre::Result<Vec<BlsPublicKey>> {
     const MAX_PER_PAGE: usize = 100;
 
@@ -296,7 +312,9 @@ async fn fetch_ssv_pubkeys(
         _ => bail!("SSV network is not supported for chain: {chain:?}"),
     };
 
-    let client = reqwest::Client::new();
+    let client = reqwest::ClientBuilder::new()
+        .timeout(Duration::from_secs(timeout.unwrap_or(MUXER_HTTP_TIMEOUT_DEFAULT)))
+        .build()?;
     let mut pubkeys: Vec<BlsPublicKey> = vec![];
     let mut page = 1;
 
@@ -308,9 +326,12 @@ async fn fetch_ssv_pubkeys(
             ))
             .send()
             .await
-            .map_err(|e| eyre::eyre!("Error sending request to SSV network API: {e}"))?
-            .json::<SSVResponse>()
-            .await?;
+            .map_err(|e| eyre::eyre!("Error sending request to SSV network API: {e}"))?;
+
+        // Parse the response as JSON
+        let body_string = safe_read_http_response(response).await?;
+        let response = serde_json::from_slice::<SSVResponse>(body_string.as_bytes())
+            .wrap_err("failed to parse SSV response")?;
 
         pubkeys.extend(response.validators.iter().map(|v| v.pubkey).collect::<Vec<BlsPublicKey>>());
         page += 1;
@@ -393,7 +414,7 @@ mod tests {
         let chain = Chain::Holesky;
         let node_operator_id = U256::from(200);
 
-        let pubkeys = fetch_ssv_pubkeys(chain, node_operator_id).await?;
+        let pubkeys = fetch_ssv_pubkeys(chain, node_operator_id, &None).await?;
 
         assert_eq!(pubkeys.len(), 3);
 
