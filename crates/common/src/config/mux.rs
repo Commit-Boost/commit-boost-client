@@ -312,27 +312,16 @@ async fn fetch_ssv_pubkeys(
         _ => bail!("SSV network is not supported for chain: {chain:?}"),
     };
 
-    let client = reqwest::ClientBuilder::new()
-        .timeout(Duration::from_secs(timeout.unwrap_or(MUXER_HTTP_TIMEOUT_DEFAULT)))
-        .build()?;
     let mut pubkeys: Vec<BlsPublicKey> = vec![];
     let mut page = 1;
 
     loop {
-        let response = client
-            .get(format!(
-                "https://api.ssv.network/api/v4/{}/validators/in_operator/{}?perPage={}&page={}",
-                chain_name, node_operator_id, MAX_PER_PAGE, page
-            ))
-            .send()
-            .await
-            .map_err(|e| eyre::eyre!("Error sending request to SSV network API: {e}"))?;
+        let url = format!(
+            "https://api.ssv.network/api/v4/{}/validators/in_operator/{}?perPage={}&page={}",
+            chain_name, node_operator_id, MAX_PER_PAGE, page
+        );
 
-        // Parse the response as JSON
-        let body_string = safe_read_http_response(response).await?;
-        let response = serde_json::from_slice::<SSVResponse>(body_string.as_bytes())
-            .wrap_err("failed to parse SSV response")?;
-
+        let response = fetch_ssv_pubkeys_from_url(&url, timeout).await?;
         pubkeys.extend(response.validators.iter().map(|v| v.pubkey).collect::<Vec<BlsPublicKey>>());
         page += 1;
 
@@ -351,6 +340,24 @@ async fn fetch_ssv_pubkeys(
     ensure!(unique.len() == pubkeys.len(), "found duplicate keys in registry");
 
     Ok(pubkeys)
+}
+
+async fn fetch_ssv_pubkeys_from_url(url: &str, timeout: &Option<u64>) -> eyre::Result<SSVResponse> {
+    let client = reqwest::ClientBuilder::new()
+        .timeout(Duration::from_secs(timeout.unwrap_or(MUXER_HTTP_TIMEOUT_DEFAULT)))
+        .build()?;
+    let response = client.get(url).send().await.map_err(|e| {
+        if e.is_timeout() {
+            eyre::eyre!("Request to SSV network API timed out: {e}")
+        } else {
+            eyre::eyre!("Error sending request to SSV network API: {e}")
+        }
+    })?;
+
+    // Parse the response as JSON
+    let body_string = safe_read_http_response(response).await?;
+    serde_json::from_slice::<SSVResponse>(body_string.as_bytes())
+        .wrap_err("failed to parse SSV response")
 }
 
 #[derive(Deserialize)]
@@ -372,10 +379,17 @@ struct SSVPagination {
 
 #[cfg(test)]
 mod tests {
-    use alloy::{primitives::U256, providers::ProviderBuilder};
+    use std::net::SocketAddr;
+
+    use alloy::{hex::FromHex, primitives::U256, providers::ProviderBuilder};
+    use axum::{response::Response, routing::get};
+    use tokio::{net::TcpListener, task::JoinHandle};
     use url::Url;
 
     use super::*;
+    use crate::config::MUXER_HTTP_MAX_LENGTH;
+
+    const TEST_HTTP_TIMEOUT: u64 = 2;
 
     #[tokio::test]
     async fn test_lido_registry_address() -> eyre::Result<()> {
@@ -410,14 +424,130 @@ mod tests {
     }
 
     #[tokio::test]
+    /// Tests that a successful SSV network fetch is handled and parsed properly
     async fn test_ssv_network_fetch() -> eyre::Result<()> {
-        let chain = Chain::Holesky;
-        let node_operator_id = U256::from(200);
+        // Start the mock server
+        let port = 30100;
+        let _server_handle = create_mock_server(port).await?;
+        let url = format!("http://localhost:{port}/ssv");
+        let response = fetch_ssv_pubkeys_from_url(&url, &None).await?;
 
-        let pubkeys = fetch_ssv_pubkeys(chain, node_operator_id, &None).await?;
+        // Make sure the response is correct
+        // NOTE: requires that ssv_data.json dpesn't change
+        assert_eq!(response.validators.len(), 3);
+        let expected_pubkeys = [
+            BlsPublicKey::from_hex(
+                "0x967ba17a3e7f82a25aa5350ec34d6923e28ad8237b5a41efe2c5e325240d74d87a015bf04634f21900963539c8229b2a",
+            )?,
+            BlsPublicKey::from_hex(
+                "0xac769e8cec802e8ffee34de3253be8f438a0c17ee84bdff0b6730280d24b5ecb77ebc9c985281b41ee3bda8663b6658c",
+            )?,
+            BlsPublicKey::from_hex(
+                "0x8c866a5a05f3d45c49b457e29365259021a509c5daa82e124f9701a960ee87b8902e87175315ab638a3d8b1115b23639",
+            )?,
+        ];
+        for (i, validator) in response.validators.iter().enumerate() {
+            assert_eq!(validator.pubkey, expected_pubkeys[i]);
+        }
 
-        assert_eq!(pubkeys.len(), 3);
+        // Clean up the server handle
+        _server_handle.abort();
+        info!("SSV network fetch test passed successfully");
 
         Ok(())
+    }
+
+    #[tokio::test]
+    /// Tests that the SSV network fetch is handled properly when the request
+    /// times out
+    async fn test_ssv_network_fetch_timeout() -> eyre::Result<()> {
+        // Start the mock server
+        let port = 30101;
+        let _server_handle = create_mock_server(port).await?;
+        let url = format!("http://localhost:{port}/timeout");
+        let response = fetch_ssv_pubkeys_from_url(&url, &Some(TEST_HTTP_TIMEOUT)).await;
+
+        // The response should fail due to timeout
+        assert!(response.is_err(), "Expected timeout error, but got success");
+        if let Err(e) = response {
+            assert!(e.to_string().contains("timed out"), "Expected timeout error, got: {}", e);
+        }
+
+        // Clean up the server handle
+        _server_handle.abort();
+        info!("SSV network fetch test passed successfully");
+
+        Ok(())
+    }
+
+    /// Creates a simple mock server to simulate the SSV API endpoint under
+    /// various conditions for testing
+    async fn create_mock_server(port: u16) -> Result<JoinHandle<()>, axum::Error> {
+        let router = axum::Router::new()
+            .route("/ssv", get(handle_ssv))
+            .route("/big_content_length", get(handle_big_content_length))
+            .route("/big_data", get(handle_big_data))
+            .route("/timeout", get(handle_timeout))
+            .into_make_service();
+
+        let address = SocketAddr::from(([127, 0, 0, 1], port));
+        let listener = TcpListener::bind(address).await.map_err(axum::Error::new)?;
+        let server = axum::serve(listener, router).with_graceful_shutdown(async {
+            tokio::signal::ctrl_c().await.expect("Failed to listen for shutdown signal");
+        });
+        let result = Ok(tokio::spawn(async move {
+            if let Err(e) = server.await {
+                eprintln!("Server error: {}", e);
+            }
+        }));
+        info!("Mock server started on http://localhost:{port}/");
+        result
+    }
+
+    /// Sends the good SSV JSON data to the client
+    async fn handle_ssv() -> Response {
+        // Read the JSON data
+        let data = include_str!("../../../../tests/data/ssv_valid.json");
+
+        // Create a valid response
+        Response::builder()
+            .status(200)
+            .header("Content-Type", "application/json")
+            .body(data.into())
+            .unwrap()
+    }
+
+    /// Send an empty response with a large content length
+    async fn handle_big_content_length() -> Response {
+        // Create a response with the content length set to some really large value
+        let body = "";
+        Response::builder()
+            .status(200)
+            .header("Content-Type", "application/json")
+            .header("Content-Length", 2 * MUXER_HTTP_MAX_LENGTH)
+            .body(body.into())
+            .unwrap()
+    }
+
+    /// Sends a response with a large body but no content length
+    async fn handle_big_data() -> Response {
+        // Create a response with a large body but no content length
+        let body = "f".repeat(2 * MUXER_HTTP_MAX_LENGTH as usize);
+        Response::builder()
+            .status(200)
+            .header("Content-Type", "application/text")
+            .body(body.into())
+            .unwrap()
+    }
+
+    /// Simulates a timeout by sleeping for a long time
+    async fn handle_timeout() -> Response {
+        // Sleep for a long time to simulate a timeout
+        tokio::time::sleep(std::time::Duration::from_secs(2 * TEST_HTTP_TIMEOUT)).await;
+        Response::builder()
+            .status(200)
+            .header("Content-Type", "application/text")
+            .body("Timeout response".into())
+            .unwrap()
     }
 }
