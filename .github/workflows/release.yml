@@ -182,9 +182,9 @@ jobs:
         run: |
           mkdir -p ./artifacts/bin
           tar -xzf ./artifacts/commit-boost-pbs-${{ github.ref_name }}-linux_x86-64/commit-boost-pbs-${{ github.ref_name }}-linux_x86-64.tar.gz -C ./artifacts/bin
-          mv ./artifacts/bin/commit-boost-pbs ./artifacts/bin/commit-boost-pbs-linux-amd64
+          mv ./artifacts/bin/commit-boost-pbs ./artifacts/bin/linux_amd64/commit-boost-pbs
           tar -xzf ./artifacts/commit-boost-pbs-${{ github.ref_name }}-linux_arm64/commit-boost-pbs-${{ github.ref_name }}-linux_arm64.tar.gz -C ./artifacts/bin
-          mv ./artifacts/bin/commit-boost-pbs ./artifacts/bin/commit-boost-pbs-linux-arm64
+          mv ./artifacts/bin/commit-boost-pbs ./artifacts/bin/linux_arm64/commit-boost-pbs
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -234,9 +234,9 @@ jobs:
         run: |
           mkdir -p ./artifacts/bin
           tar -xzf ./artifacts/commit-boost-signer-${{ github.ref_name }}-linux_x86-64/commit-boost-signer-${{ github.ref_name }}-linux_x86-64.tar.gz -C ./artifacts/bin
-          mv ./artifacts/bin/commit-boost-signer ./artifacts/bin/commit-boost-signer-linux-amd64
+          mv ./artifacts/bin/commit-boost-signer ./artifacts/bin/linux_amd64/commit-boost-signer
           tar -xzf ./artifacts/commit-boost-signer-${{ github.ref_name }}-linux_arm64/commit-boost-signer-${{ github.ref_name }}-linux_arm64.tar.gz -C ./artifacts/bin
-          mv ./artifacts/bin/commit-boost-signer ./artifacts/bin/commit-boost-signer-linux-arm64
+          mv ./artifacts/bin/commit-boost-signer ./artifacts/bin/linux_arm64/commit-boost-signer
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
