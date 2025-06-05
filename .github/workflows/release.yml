@@ -180,7 +180,8 @@ jobs:
 
       - name: Extract binaries
         run: |
-          mkdir -p ./artifacts/bin
+          mkdir -p ./artifacts/bin/linux_amd64
+          mkdir -p ./artifacts/bin/linux_arm64
           tar -xzf ./artifacts/commit-boost-pbs-${{ github.ref_name }}-linux_x86-64/commit-boost-pbs-${{ github.ref_name }}-linux_x86-64.tar.gz -C ./artifacts/bin
           mv ./artifacts/bin/commit-boost-pbs ./artifacts/bin/linux_amd64/commit-boost-pbs
           tar -xzf ./artifacts/commit-boost-pbs-${{ github.ref_name }}-linux_arm64/commit-boost-pbs-${{ github.ref_name }}-linux_arm64.tar.gz -C ./artifacts/bin
@@ -232,7 +233,8 @@ jobs:
 
       - name: Extract binaries
         run: |
-          mkdir -p ./artifacts/bin
+          mkdir -p ./artifacts/bin/linux_amd64
+          mkdir -p ./artifacts/bin/linux_arm64
           tar -xzf ./artifacts/commit-boost-signer-${{ github.ref_name }}-linux_x86-64/commit-boost-signer-${{ github.ref_name }}-linux_x86-64.tar.gz -C ./artifacts/bin
           mv ./artifacts/bin/commit-boost-signer ./artifacts/bin/linux_amd64/commit-boost-signer
           tar -xzf ./artifacts/commit-boost-signer-${{ github.ref_name }}-linux_arm64/commit-boost-signer-${{ github.ref_name }}-linux_arm64.tar.gz -C ./artifacts/bin
