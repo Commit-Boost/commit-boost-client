@@ -659,9 +659,22 @@ fn load_distributed_accounts(
             continue;
         };
 
+        if participant_id == 0 {
+            warn!(
+                "Skiping invalid participant ID (0) for account {} in host {host_name}",
+                account.name
+            );
+            continue
+        }
+
         match consensus_accounts.get_mut(&public_key) {
             Some(Account::Distributed(DistributedAccount { participants, .. })) => {
-                participants.insert(participant_id as u32, channel.clone());
+                if participants.insert(participant_id as u32, channel.clone()).is_some() {
+                    warn!(
+                        "Duplicated participant ID ({participant_id}) for account {} in host {host_name}. Keeping this host",
+                        account.name
+                    );
+                }
             }
             None => {
                 let Ok((wallet, name)) = decompose_name(&account.name) else {
