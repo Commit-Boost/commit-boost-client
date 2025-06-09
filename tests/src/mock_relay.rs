@@ -2,8 +2,7 @@ use std::{
     net::SocketAddr,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc,
-        RwLock
+        Arc, RwLock,
     },
 };
 

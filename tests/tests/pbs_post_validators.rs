@@ -248,7 +248,8 @@ async fn test_register_validators_does_not_retry_on_429() -> Result<()> {
     // Should only be called once (no retry)
     assert_eq!(mock_state.received_register_validator(), 1);
     // Expected to return 429 status code
-    // But it returns `No relay passed register_validator successfully` with 502 status code
+    // But it returns `No relay passed register_validator successfully` with 502
+    // status code
     assert_eq!(res.status(), StatusCode::BAD_GATEWAY);
 
     Ok(())

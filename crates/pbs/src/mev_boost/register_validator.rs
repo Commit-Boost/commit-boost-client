@@ -110,11 +110,10 @@ async fn send_register_validator_with_timeout(
 
             Err(err) if err.should_retry() => {
                 retry += 1;
-                if retry >=retry_limit {
+                if retry >= retry_limit {
                     error!(
                         relay_id = relay.id.as_str(),
-                        retry,
-                        "reached retry limit for validator registration"
+                        retry, "reached retry limit for validator registration"
                     );
                     return Err(err);
                 }
@@ -131,7 +130,6 @@ async fn send_register_validator_with_timeout(
 
             Err(err) => return Err(err),
         };
-
     }
 }
 

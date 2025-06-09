@@ -27,11 +27,12 @@ use crate::{
     },
     pbs::{
         BuilderEventPublisher, DefaultTimeout, RelayClient, RelayEntry, DEFAULT_PBS_PORT,
-        LATE_IN_SLOT_TIME_MS, REGISTER_VALIDATOR_RETRY_LIMIT
+        LATE_IN_SLOT_TIME_MS, REGISTER_VALIDATOR_RETRY_LIMIT,
     },
     types::{Chain, Jwt, ModuleId},
     utils::{
-        as_eth_str, default_bool, default_host, default_u16, default_u256, default_u64, default_u32, WEI_PER_ETH,
+        as_eth_str, default_bool, default_host, default_u16, default_u256, default_u32,
+        default_u64, WEI_PER_ETH,
     },
 };
 
@@ -143,7 +144,10 @@ impl PbsConfig {
             self.timeout_get_header_ms < self.late_in_slot_time_ms,
             "timeout_get_header_ms must be less than late_in_slot_time_ms"
         );
-        ensure!(self.register_validator_retry_limit > 0,"register_validator_retry_limit must be greater than 0");
+        ensure!(
+            self.register_validator_retry_limit > 0,
+            "register_validator_retry_limit must be greater than 0"
+        );
 
         ensure!(
             self.min_bid_wei < U256::from(WEI_PER_ETH),
