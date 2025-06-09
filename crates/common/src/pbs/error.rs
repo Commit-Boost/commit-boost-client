@@ -37,7 +37,18 @@ impl PbsError {
 
     /// Whether the error is retryable in requests to relays
     pub fn should_retry(&self) -> bool {
-        matches!(self, PbsError::RelayResponse { .. } | PbsError::Reqwest { .. })
+        match self {
+            PbsError::Reqwest(err) =>{
+                // Retry on timeout or connection error
+                err.is_timeout() || err.is_connect()
+            }
+            PbsError::RelayResponse { code,..} => match *code{
+                500..509 => true, // Retry on server errors
+                400 | 429 => false, // Do not retry if rate limited or bad request
+                _ => false,
+            },
+            _ => false,
+        }
     }
 }
 
