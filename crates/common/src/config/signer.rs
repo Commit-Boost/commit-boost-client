@@ -31,11 +31,9 @@ pub struct SignerConfig {
     /// Host address to listen for signer API calls on
     #[serde(default = "default_host")]
     pub host: Ipv4Addr,
-
     /// Port to listen for signer API calls on
     #[serde(default = "default_u16::<DEFAULT_SIGNER_PORT>")]
     pub port: u16,
-
     /// Docker image of the module
     #[serde(default = "default_signer")]
     pub docker_image: String,
@@ -83,8 +81,8 @@ pub struct DirkHostConfig {
     pub server_name: Option<String>,
     /// Complete URL of the Dirk server
     pub url: Url,
-    /// Accounts used as consensus keys
-    pub accounts: Vec<String>,
+    /// Wallets to load consensus keys from
+    pub wallets: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

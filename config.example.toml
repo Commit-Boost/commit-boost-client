@@ -178,13 +178,13 @@ port = 20000
 # server_name = "localhost-1"
 # Complete URL of a Dirk gateway
 # url = "https://localhost:8881"
-# Accounts to use as consensus keys
-# accounts = ["Wallet1/Account1", "DistributedWallet/Account1"]
+# Wallets to load consensus keys from
+# accounts = ["Wallet1", "DistributedWallet"]
 
 # [[signer.dirk.hosts]]
 # server_name = "localhost-2"
 # url = "https://localhost:8882"
-# accounts = ["Wallet2/Account2", "DistributedWallet/Account1"]
+# accounts = ["Wallet2", "DistributedWallet"]
 
 # Configuration for how the Signer module should store proxy delegations.
 # OPTIONAL
