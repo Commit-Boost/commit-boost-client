@@ -1,11 +1,14 @@
-use std::{collections::HashMap, path::Path};
+use std::{collections::HashMap, env, path::Path};
 
 use bytes::{BufMut, BytesMut};
 use eyre::{bail, Context, Result};
 use serde::de::DeserializeOwned;
 
 use super::JWTS_ENV;
-use crate::{config::MUXER_HTTP_MAX_LENGTH, types::ModuleId};
+use crate::{
+    config::{CB_TEST_HTTP_DISABLE_CONTENT_LENGTH_ENV, MUXER_HTTP_MAX_LENGTH},
+    types::ModuleId,
+};
 
 pub fn load_env_var(env: &str) -> Result<String> {
     std::env::var(env).wrap_err(format!("{env} is not set"))
@@ -34,8 +37,14 @@ pub fn load_jwt_secrets() -> Result<HashMap<ModuleId, String>> {
 /// Reads an HTTP response safely, erroring out if it failed or if the body is
 /// too large.
 pub async fn safe_read_http_response(mut response: reqwest::Response) -> Result<String> {
+    // Get the content length from the response headers
+    let mut content_length = response.content_length();
+    if env::var(CB_TEST_HTTP_DISABLE_CONTENT_LENGTH_ENV).is_ok() {
+        content_length = None;
+    }
+
     // Break if content length is provided but it's too big
-    if let Some(length) = response.content_length() {
+    if let Some(length) = content_length {
         if length > MUXER_HTTP_MAX_LENGTH {
             bail!("Response content length ({length}) exceeds the maximum allowed length ({MUXER_HTTP_MAX_LENGTH} bytes)");
         }

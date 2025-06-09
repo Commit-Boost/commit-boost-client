@@ -42,3 +42,5 @@ tree_hash_derive.workspace = true
 unicode-normalization.workspace = true
 url.workspace = true
 jsonwebtoken.workspace = true
+serial_test.workspace = true
+scopeguard.workspace = true

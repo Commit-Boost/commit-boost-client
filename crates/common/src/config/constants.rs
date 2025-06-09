@@ -89,3 +89,6 @@ pub const SIGNER_URL_ENV: &str = "CB_SIGNER_URL";
 /// Events modules
 /// Where to receive builder events
 pub const BUILDER_PORT_ENV: &str = "CB_BUILDER_PORT";
+
+///////////////////////// TESTING CONSTANTS /////////////////////////
+pub const CB_TEST_HTTP_DISABLE_CONTENT_LENGTH_ENV: &str = "CB_TEST_HTTP_DISABLE_CONTENT_LENGTH";

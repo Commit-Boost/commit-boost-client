@@ -383,15 +383,17 @@ struct SSVPagination {
 
 #[cfg(test)]
 mod tests {
-    use std::net::SocketAddr;
+    use std::{env, net::SocketAddr};
 
     use alloy::{hex::FromHex, primitives::U256, providers::ProviderBuilder};
     use axum::{response::Response, routing::get};
+    use scopeguard::defer;
+    use serial_test::serial;
     use tokio::{net::TcpListener, task::JoinHandle};
     use url::Url;
 
     use super::*;
-    use crate::config::MUXER_HTTP_MAX_LENGTH;
+    use crate::config::{CB_TEST_HTTP_DISABLE_CONTENT_LENGTH_ENV, MUXER_HTTP_MAX_LENGTH};
 
     const TEST_HTTP_TIMEOUT: u64 = 2;
 
@@ -456,7 +458,34 @@ mod tests {
 
         // Clean up the server handle
         _server_handle.abort();
-        info!("SSV network fetch test passed successfully");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    /// Tests that the SSV network fetch is handled properly when the response's
+    /// body is too large
+    async fn test_ssv_network_fetch_big_data() -> eyre::Result<()> {
+        // Start the mock server
+        let port = 30101;
+        env::remove_var(CB_TEST_HTTP_DISABLE_CONTENT_LENGTH_ENV);
+        let _server_handle = create_mock_server(port).await?;
+        let url = format!("http://localhost:{port}/big_data");
+        let response = fetch_ssv_pubkeys_from_url(&url, &Some(120)).await;
+
+        // The response should fail due to content length being too big
+        assert!(response.is_err(), "Expected error due to big content length, but got success");
+        if let Err(e) = response {
+            assert!(
+                e.to_string().contains("content length") &&
+                    e.to_string().contains("exceeds the maximum allowed length"),
+                "Expected content length error, got: {e}",
+            );
+        }
+
+        // Clean up the server handle
+        _server_handle.abort();
 
         Ok(())
     }
@@ -466,7 +495,7 @@ mod tests {
     /// times out
     async fn test_ssv_network_fetch_timeout() -> eyre::Result<()> {
         // Start the mock server
-        let port = 30101;
+        let port = 30102;
         let _server_handle = create_mock_server(port).await?;
         let url = format!("http://localhost:{port}/timeout");
         let response = fetch_ssv_pubkeys_from_url(&url, &Some(TEST_HTTP_TIMEOUT)).await;
@@ -479,7 +508,34 @@ mod tests {
 
         // Clean up the server handle
         _server_handle.abort();
-        info!("SSV network fetch test passed successfully");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    /// Tests that the SSV network fetch is handled properly when the response's
+    /// content-length header is missing
+    async fn test_ssv_network_fetch_big_data_without_content_length() -> eyre::Result<()> {
+        // Start the mock server
+        let port = 30103;
+        env::set_var(CB_TEST_HTTP_DISABLE_CONTENT_LENGTH_ENV, "1");
+        defer! { env::remove_var(CB_TEST_HTTP_DISABLE_CONTENT_LENGTH_ENV); }
+        let _server_handle = create_mock_server(port).await?;
+        let url = format!("http://localhost:{port}/big_data");
+        let response = fetch_ssv_pubkeys_from_url(&url, &Some(120)).await;
+
+        // The response should fail due to timeout
+        assert!(response.is_err(), "Expected error due to body size, but got success");
+        if let Err(e) = response {
+            assert!(
+                e.to_string().contains("Response body exceeds the maximum allowed length "),
+                "Expected content length error, got: {e}",
+            );
+        }
+
+        // Clean up the server handle
+        _server_handle.abort();
 
         Ok(())
     }
@@ -489,7 +545,6 @@ mod tests {
     async fn create_mock_server(port: u16) -> Result<JoinHandle<()>, axum::Error> {
         let router = axum::Router::new()
             .route("/ssv", get(handle_ssv))
-            .route("/big_content_length", get(handle_big_content_length))
             .route("/big_data", get(handle_big_data))
             .route("/timeout", get(handle_timeout))
             .into_make_service();
@@ -518,18 +573,6 @@ mod tests {
             .status(200)
             .header("Content-Type", "application/json")
             .body(data.into())
-            .unwrap()
-    }
-
-    /// Send an empty response with a large content length
-    async fn handle_big_content_length() -> Response {
-        // Create a response with the content length set to some really large value
-        let body = "";
-        Response::builder()
-            .status(200)
-            .header("Content-Type", "application/json")
-            .header("Content-Length", 2 * MUXER_HTTP_MAX_LENGTH)
-            .body(body.into())
             .unwrap()
     }
 
