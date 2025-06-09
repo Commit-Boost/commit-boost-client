@@ -109,20 +109,17 @@ impl StartSignerConfig {
 
         let jwts = load_jwt_secrets()?;
 
-        // Load the server endpoint first from the env var, then the config, and finally
-        // the defaults
+        let signer_config = config.signer.ok_or_eyre("Signer config is missing")?;
+
+        // Load the server endpoint first from the env var if present, otherwise the
+        // config
         let endpoint = if let Some(endpoint) = load_optional_env_var(SIGNER_ENDPOINT_ENV) {
             endpoint.parse()?
         } else {
-            match config.signer {
-                Some(ref signer) => SocketAddr::from((signer.host, signer.port)),
-                None => SocketAddr::from((default_host(), DEFAULT_SIGNER_PORT)),
-            }
+            SocketAddr::from((signer_config.host, signer_config.port))
         };
 
-        let signer = config.signer.ok_or_eyre("Signer config is missing")?.inner;
-
-        match signer {
+        match signer_config.inner {
             SignerType::Local { loader, store, .. } => Ok(StartSignerConfig {
                 chain: config.chain,
                 loader: Some(loader),
