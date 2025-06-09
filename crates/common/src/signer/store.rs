@@ -426,7 +426,7 @@ fn store_erc2335_key<T: ProxyId>(
     secrets_path: &Path,
     scheme: EncryptionScheme,
 ) -> eyre::Result<()> {
-    let proxy_pubkey = delegation.message.proxy;
+    let proxy_delegation = delegation.message.proxy;
 
     let password_bytes: [u8; 32] = rand::rng().random();
     let password = hex::encode(password_bytes);
@@ -436,7 +436,7 @@ fn store_erc2335_key<T: ProxyId>(
         .join(&module_id.0)
         .join(scheme.to_string());
     std::fs::create_dir_all(&pass_path)?;
-    let pass_path = pass_path.join(proxy_pubkey.to_string());
+    let pass_path = pass_path.join(proxy_delegation.to_string());
     let mut pass_file = std::fs::File::create(&pass_path)?;
     pass_file.write_all(password.as_bytes())?;
 
@@ -445,7 +445,7 @@ fn store_erc2335_key<T: ProxyId>(
         .join(&module_id.0)
         .join(scheme.to_string());
     std::fs::create_dir_all(&sig_path)?;
-    let sig_path = sig_path.join(format!("{}.sig", proxy_pubkey));
+    let sig_path = sig_path.join(format!("{}.sig", proxy_delegation));
 
     let mut sig_file = std::fs::File::create(sig_path)?;
     sig_file.write_all(delegation.signature.to_string().as_bytes())?;
@@ -489,7 +489,7 @@ fn store_erc2335_key<T: ProxyId>(
         .join(&module_id.0)
         .join(scheme.to_string());
     std::fs::create_dir_all(&json_path)?;
-    let json_path = json_path.join(format!("{}.json", proxy_pubkey));
+    let json_path = json_path.join(format!("{}.json", proxy_delegation));
     let mut json_file = std::fs::File::create(&json_path)?;
     json_file.write_all(serde_json::to_string(&keystore)?.as_bytes())?;
 
