@@ -88,18 +88,21 @@ let proxy_pubkey = proxy_delegation.message.proxy;
 
 // or ECDSA proxy
 let proxy_delegation = self.config.signer_client.generate_proxy_key_ecdsa(pubkey).await?;
-let proxy_pubkey = proxy_delegation.message.proxy;
+let proxy_address = proxy_delegation.message.proxy;
 ```
 
 Where `pubkey` is the validator (consensus) public key for which a proxy is to be generated.
 
 Then you can use the generated proxy key to request a signature:
 ```rust
+// if `proxy_pubkey` is a BLS proxy
 let datagram = Datagram { data: 1 };
 let request = SignProxyRequest::builder(proxy_pubkey).with_msg(&datagram);
-// if `proxy_pubkey` is a BLS proxy
 let signature = config.signer_client.request_proxy_signature_bls(&request).await.unwrap();
+
 // or for ECDSA proxy
+let datagram = Datagram { data: 1 };
+let request = SignProxyRequest::builder(proxy_address).with_msg(&datagram);
 let signature = config.signer_client.request_proxy_signature_ecdsa(&request).await.unwrap();
 ```
 

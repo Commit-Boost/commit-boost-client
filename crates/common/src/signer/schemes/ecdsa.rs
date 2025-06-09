@@ -1,7 +1,7 @@
 use std::{ops::Deref, str::FromStr};
 
 use alloy::{
-    primitives::{Address, PrimitiveSignature, B256},
+    primitives::{Address, PrimitiveSignature},
     signers::{local::PrivateKeySigner, SignerSync},
 };
 use eyre::ensure;
@@ -63,8 +63,7 @@ pub enum EcdsaSigner {
 
 impl EcdsaSigner {
     pub fn new_random() -> Self {
-        let secret = B256::random();
-        Self::new_from_bytes(secret.as_slice()).unwrap()
+        Self::Local(PrivateKeySigner::random())
     }
 
     pub fn new_from_bytes(bytes: &[u8]) -> eyre::Result<Self> {

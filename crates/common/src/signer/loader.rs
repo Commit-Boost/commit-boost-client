@@ -57,9 +57,7 @@ impl SignerLoader {
     pub fn load_from_env(self) -> eyre::Result<Vec<ConsensusSigner>> {
         Ok(match self {
             SignerLoader::File { key_path } => {
-                let path = load_env_var(SIGNER_KEYS_ENV).unwrap_or(
-                    key_path.to_str().ok_or_eyre("Missing signer key path")?.to_string(),
-                );
+                let path = load_env_var(SIGNER_KEYS_ENV).map(PathBuf::from).unwrap_or(key_path);
                 let file = std::fs::read_to_string(path)
                     .unwrap_or_else(|_| panic!("Unable to find keys file"));
 
@@ -73,12 +71,10 @@ impl SignerLoader {
             SignerLoader::ValidatorsDir { keys_path, secrets_path, format } => {
                 // TODO: hacky way to load for now, we should support reading the
                 // definitions.yml file
-                let keys_path = load_env_var(SIGNER_DIR_KEYS_ENV).unwrap_or(
-                    keys_path.to_str().ok_or_eyre("Missing signer keys path")?.to_string(),
-                );
-                let secrets_path = load_env_var(SIGNER_DIR_SECRETS_ENV).unwrap_or(
-                    secrets_path.to_str().ok_or_eyre("Missing signer secrets path")?.to_string(),
-                );
+                let keys_path =
+                    load_env_var(SIGNER_DIR_KEYS_ENV).map(PathBuf::from).unwrap_or(keys_path);
+                let secrets_path =
+                    load_env_var(SIGNER_DIR_SECRETS_ENV).map(PathBuf::from).unwrap_or(secrets_path);
 
                 return match format {
                     ValidatorKeysFormat::Lighthouse => {
@@ -114,8 +110,8 @@ impl<'de> Deserialize<'de> for FileKey {
 }
 
 fn load_from_lighthouse_format(
-    keys_path: String,
-    secrets_path: String,
+    keys_path: PathBuf,
+    secrets_path: PathBuf,
 ) -> eyre::Result<Vec<ConsensusSigner>> {
     let entries = fs::read_dir(keys_path.clone())?;
 
@@ -129,8 +125,8 @@ fn load_from_lighthouse_format(
         if path.is_dir() {
             if let Some(maybe_pubkey) = path.file_name().and_then(|d| d.to_str()) {
                 if let Ok(pubkey) = BlsPublicKey::from_hex(maybe_pubkey) {
-                    let ks_path = format!("{}/{}/voting-keystore.json", keys_path, maybe_pubkey);
-                    let pw_path = format!("{}/{}", secrets_path, pubkey);
+                    let ks_path = keys_path.join(maybe_pubkey).join("voting-keystore.json");
+                    let pw_path = secrets_path.join(pubkey.to_string());
 
                     match load_one(ks_path, pw_path) {
                         Ok(signer) => signers.push(signer),
@@ -147,8 +143,8 @@ fn load_from_lighthouse_format(
 }
 
 fn load_from_teku_format(
-    keys_path: String,
-    secrets_path: String,
+    keys_path: PathBuf,
+    secrets_path: PathBuf,
 ) -> eyre::Result<Vec<ConsensusSigner>> {
     let entries = fs::read_dir(keys_path.clone())?;
     let mut signers = Vec::new();
@@ -171,8 +167,8 @@ fn load_from_teku_format(
             .0;
 
         match load_one(
-            format!("{keys_path}/{file_name}.json"),
-            format!("{secrets_path}/{file_name}.txt"),
+            keys_path.join(format!("{file_name}.json")),
+            secrets_path.join(format!("{file_name}.txt")),
         ) {
             Ok(signer) => signers.push(signer),
             Err(e) => warn!("Sign load error: {e}"),
@@ -183,8 +179,8 @@ fn load_from_teku_format(
 }
 
 fn load_from_lodestar_format(
-    keys_path: String,
-    password_path: String,
+    keys_path: PathBuf,
+    password_path: PathBuf,
 ) -> eyre::Result<Vec<ConsensusSigner>> {
     let entries = fs::read_dir(keys_path)?;
     let mut signers = Vec::new();
@@ -198,15 +194,7 @@ fn load_from_lodestar_format(
             continue;
         }
 
-        let key_path = match path.as_os_str().to_str() {
-            Some(key_path) => key_path,
-            None => {
-                warn!("Path {path:?} cannot be converted to string");
-                continue;
-            }
-        };
-
-        match load_one(key_path.to_string(), password_path.clone()) {
+        match load_one(path, password_path.clone()) {
             Ok(signer) => signers.push(signer),
             Err(e) => warn!("Sign load error: {e}"),
         }
@@ -233,8 +221,8 @@ fn load_from_lodestar_format(
 /// }
 /// ```
 fn load_from_prysm_format(
-    accounts_path: String,
-    password_path: String,
+    accounts_path: PathBuf,
+    password_path: PathBuf,
 ) -> eyre::Result<Vec<ConsensusSigner>> {
     let accounts_file = File::open(accounts_path)?;
     let accounts_reader = BufReader::new(accounts_file);
@@ -281,25 +269,26 @@ fn load_from_prysm_format(
     Ok(signers)
 }
 
-fn load_one(ks_path: String, pw_path: String) -> eyre::Result<ConsensusSigner> {
+fn load_one(ks_path: PathBuf, pw_path: PathBuf) -> eyre::Result<ConsensusSigner> {
     let keystore = Keystore::from_json_file(ks_path).map_err(|_| eyre!("failed reading json"))?;
-    let password =
-        fs::read(pw_path.clone()).map_err(|e| eyre!("Failed to read password ({pw_path}): {e}"))?;
+    let password = fs::read(pw_path.clone())
+        .map_err(|e| eyre!("Failed to read password ({}): {e}", pw_path.display()))?;
     let key =
         keystore.decrypt_keypair(&password).map_err(|_| eyre!("failed decrypting keypair"))?;
     ConsensusSigner::new_from_bytes(key.sk.serialize().as_bytes())
 }
 
 pub fn load_bls_signer(keys_path: PathBuf, secrets_path: PathBuf) -> eyre::Result<BlsSigner> {
-    load_one(keys_path.to_string_lossy().to_string(), secrets_path.to_string_lossy().to_string())
+    load_one(keys_path, secrets_path)
 }
 
 pub fn load_ecdsa_signer(keys_path: PathBuf, secrets_path: PathBuf) -> eyre::Result<EcdsaSigner> {
-    let key_file = std::fs::File::open(keys_path.to_string_lossy().to_string())?;
+    let key_file = std::fs::File::open(keys_path)?;
     let key_reader = std::io::BufReader::new(key_file);
     let keystore: JsonKeystore = serde_json::from_reader(key_reader)?;
     let password = std::fs::read(secrets_path)?;
-    let decrypted_password = eth2_keystore::decrypt(&password, &keystore.crypto).unwrap();
+    let decrypted_password = eth2_keystore::decrypt(&password, &keystore.crypto)
+        .map_err(|_| eyre::eyre!("Error decrypting ECDSA keystore"))?;
 
     EcdsaSigner::new_from_bytes(decrypted_password.as_bytes())
 }

@@ -146,15 +146,14 @@ impl StartSignerConfig {
 
         let jwts = load_jwt_secrets()?;
 
-        // Load the server endpoint first from the env var, then the config, and finally
-        // the defaults
+        let signer_config = config.signer.ok_or_eyre("Signer config is missing")?;
+
+        // Load the server endpoint first from the env var if present, otherwise the
+        // config
         let endpoint = if let Some(endpoint) = load_optional_env_var(SIGNER_ENDPOINT_ENV) {
             endpoint.parse()?
         } else {
-            match config.signer {
-                Some(ref signer) => SocketAddr::from((signer.host, signer.port)),
-                None => SocketAddr::from((default_host(), DEFAULT_SIGNER_PORT)),
-            }
+            SocketAddr::from((signer_config.host, signer_config.port))
         };
 
         // Load the JWT auth fail limit the same way
@@ -162,10 +161,7 @@ impl StartSignerConfig {
             if let Some(limit) = load_optional_env_var(SIGNER_JWT_AUTH_FAIL_LIMIT_ENV) {
                 limit.parse()?
             } else {
-                match config.signer {
-                    Some(ref signer) => signer.jwt_auth_fail_limit,
-                    None => DEFAULT_JWT_AUTH_FAIL_LIMIT,
-                }
+                signer_config.jwt_auth_fail_limit
             };
 
         // Load the JWT auth fail timeout the same way
@@ -174,15 +170,10 @@ impl StartSignerConfig {
         {
             timeout.parse()?
         } else {
-            match config.signer {
-                Some(ref signer) => signer.jwt_auth_fail_timeout_seconds,
-                None => DEFAULT_JWT_AUTH_FAIL_TIMEOUT_SECONDS,
-            }
+            signer_config.jwt_auth_fail_timeout_seconds
         };
 
-        let signer = config.signer.ok_or_eyre("Signer config is missing")?.inner;
-
-        match signer {
+        match signer_config.inner {
             SignerType::Local { loader, store, .. } => Ok(StartSignerConfig {
                 chain: config.chain,
                 loader: Some(loader),

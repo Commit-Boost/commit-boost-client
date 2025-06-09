@@ -42,8 +42,6 @@ pub const SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_ENV: &str =
 
 /// Comma separated list module_id=jwt_secret
 pub const JWTS_ENV: &str = "CB_JWTS";
-/// The JWT secret for the signer to validate the modules requests
-pub const SIGNER_JWT_SECRET_ENV: &str = "CB_SIGNER_JWT_SECRET";
 
 /// Path to json file with plaintext keys (testing only)
 pub const SIGNER_KEYS_ENV: &str = "CB_SIGNER_LOADER_FILE";
