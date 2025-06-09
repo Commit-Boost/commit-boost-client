@@ -1,4 +1,4 @@
-use std::{collections::HashMap, net::SocketAddr, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use axum::{
     extract::{Request, State},
@@ -67,7 +67,7 @@ impl SigningService {
         let loaded_consensus = state.manager.read().await.available_consensus_signers();
         let loaded_proxies = state.manager.read().await.available_proxy_signers();
 
-        info!(version = COMMIT_BOOST_VERSION, commit_hash = COMMIT_BOOST_COMMIT, modules =? module_ids, port =? config.server_port, loaded_consensus, loaded_proxies, "Starting signing service");
+        info!(version = COMMIT_BOOST_VERSION, commit_hash = COMMIT_BOOST_COMMIT, modules =? module_ids, endpoint =? config.endpoint, loaded_consensus, loaded_proxies, "Starting signing service");
 
         SigningService::init_metrics(config.chain)?;
 
@@ -81,8 +81,7 @@ impl SigningService {
             .route_layer(middleware::from_fn(log_request))
             .route(STATUS_PATH, get(handle_status));
 
-        let address = SocketAddr::from(([0, 0, 0, 0], config.server_port));
-        let listener = TcpListener::bind(address).await?;
+        let listener = TcpListener::bind(config.endpoint).await?;
 
         axum::serve(listener, app).await.wrap_err("signer server exited")
     }

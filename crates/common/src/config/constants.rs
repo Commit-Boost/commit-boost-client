@@ -33,7 +33,7 @@ pub const SIGNER_IMAGE_DEFAULT: &str = "ghcr.io/commit-boost/signer:latest";
 pub const SIGNER_MODULE_NAME: &str = "signer";
 
 /// Where the signer module should open the server
-pub const SIGNER_PORT_ENV: &str = "CB_SIGNER_PORT";
+pub const SIGNER_ENDPOINT_ENV: &str = "CB_SIGNER_ENDPOINT";
 
 /// Comma separated list module_id=jwt_secret
 pub const JWTS_ENV: &str = "CB_JWTS";

@@ -1,4 +1,8 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::HashMap,
+    net::{Ipv4Addr, SocketAddr},
+    path::PathBuf,
+};
 
 use eyre::{bail, OptionExt, Result};
 use serde::{Deserialize, Serialize};
@@ -6,18 +10,25 @@ use tonic::transport::{Certificate, Identity};
 use url::Url;
 
 use super::{
-    constants::SIGNER_IMAGE_DEFAULT, load_jwt_secrets, utils::load_env_var, CommitBoostConfig,
-    SIGNER_PORT_ENV,
+    load_jwt_secrets, load_optional_env_var, utils::load_env_var, CommitBoostConfig,
+    SIGNER_ENDPOINT_ENV, SIGNER_IMAGE_DEFAULT,
 };
 use crate::{
     config::{DIRK_CA_CERT_ENV, DIRK_CERT_ENV, DIRK_DIR_SECRETS_ENV, DIRK_KEY_ENV},
-    signer::{ProxyStore, SignerLoader},
+    signer::{ProxyStore, SignerLoader, DEFAULT_SIGNER_PORT},
     types::{Chain, ModuleId},
+    utils::{default_host, default_u16},
 };
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct SignerConfig {
+    /// Host address to listen for signer API calls on
+    #[serde(default = "default_host")]
+    pub host: Ipv4Addr,
+    /// Port to listen for signer API calls on
+    #[serde(default = "default_u16::<DEFAULT_SIGNER_PORT>")]
+    pub port: u16,
     /// Docker image of the module
     #[serde(default = "default_signer")]
     pub docker_image: String,
@@ -87,7 +98,7 @@ pub struct StartSignerConfig {
     pub chain: Chain,
     pub loader: Option<SignerLoader>,
     pub store: Option<ProxyStore>,
-    pub server_port: u16,
+    pub endpoint: SocketAddr,
     pub jwts: HashMap<ModuleId, String>,
     pub dirk: Option<DirkConfig>,
 }
@@ -97,15 +108,22 @@ impl StartSignerConfig {
         let config = CommitBoostConfig::from_env_path()?;
 
         let jwts = load_jwt_secrets()?;
-        let server_port = load_env_var(SIGNER_PORT_ENV)?.parse()?;
 
-        let signer = config.signer.ok_or_eyre("Signer config is missing")?.inner;
+        let signer_config = config.signer.ok_or_eyre("Signer config is missing")?;
 
-        match signer {
+        // Load the server endpoint first from the env var if present, otherwise the
+        // config
+        let endpoint = if let Some(endpoint) = load_optional_env_var(SIGNER_ENDPOINT_ENV) {
+            endpoint.parse()?
+        } else {
+            SocketAddr::from((signer_config.host, signer_config.port))
+        };
+
+        match signer_config.inner {
             SignerType::Local { loader, store, .. } => Ok(StartSignerConfig {
                 chain: config.chain,
                 loader: Some(loader),
-                server_port,
+                endpoint,
                 jwts,
                 store,
                 dirk: None,
@@ -133,7 +151,7 @@ impl StartSignerConfig {
 
                 Ok(StartSignerConfig {
                     chain: config.chain,
-                    server_port,
+                    endpoint,
                     jwts,
                     loader: None,
                     store,
