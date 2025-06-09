@@ -5,7 +5,7 @@ resolver = "2"
 [workspace.package]
 edition = "2021"
 rust-version = "1.83"
-version = "0.8.0-rc.1"
+version = "0.8.0-rc.2"
 
 [workspace.dependencies]
 aes = "0.8"
@@ -44,6 +44,7 @@ eyre = "0.6.12"
 futures = "0.3.30"
 headers = "0.4.0"
 indexmap = "2.2.6"
+jsonwebtoken = { version = "9.3.1", default-features = false }
 lazy_static = "1.5.0"
 parking_lot = "0.12.3"
 pbkdf2 = "0.12.2"
@@ -70,4 +71,3 @@ typenum = "1.17.0"
 unicode-normalization = "0.1.24"
 url = { version = "2.5.0", features = ["serde"] }
 uuid = { version = "1.8.0", features = ["fast-rng", "serde", "v4"] }
-jsonwebtoken = { version = "9.3.1", default-features = false }
