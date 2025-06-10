@@ -18,7 +18,7 @@ use url::Url;
 
 use super::{load_optional_env_var, PbsConfig, RelayConfig, MUX_PATH_ENV};
 use crate::{
-    config::{safe_read_http_response, HTTP_TIMEOUT_SECONDS_DEFAULT, HTTP_TIMEOUT_SECONDS_ENV},
+    config::{safe_read_http_response, HTTP_TIMEOUT_SECONDS_ENV},
     pbs::RelayClient,
     types::Chain,
 };
@@ -397,7 +397,10 @@ mod tests {
     use url::Url;
 
     use super::*;
-    use crate::config::{CB_TEST_HTTP_DISABLE_CONTENT_LENGTH_ENV, MUXER_HTTP_MAX_LENGTH};
+    use crate::config::{
+        CB_TEST_HTTP_DISABLE_CONTENT_LENGTH_ENV, HTTP_TIMEOUT_SECONDS_DEFAULT,
+        MUXER_HTTP_MAX_LENGTH,
+    };
 
     const TEST_HTTP_TIMEOUT: u64 = 2;
 
