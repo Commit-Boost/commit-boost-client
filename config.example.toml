@@ -55,6 +55,9 @@ extra_validation_enabled = false
 # Execution Layer RPC url to use for extra validation
 # OPTIONAL
 rpc_url = "https://ethereum-holesky-rpc.publicnode.com"
+# Timeout for any HTTP requests sent from the PBS module to other services, in seconds
+# OPTIONAL, DEFAULT: 10
+http_timeout_seconds = 10
 
 # The PBS module needs one or more [[relays]] as defined below.
 [[relays]]
