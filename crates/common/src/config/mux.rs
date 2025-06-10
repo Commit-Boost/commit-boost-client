@@ -18,7 +18,7 @@ use url::Url;
 
 use super::{load_optional_env_var, PbsConfig, RelayConfig, MUX_PATH_ENV};
 use crate::{
-    config::{safe_read_http_response, MUXER_HTTP_TIMEOUT_DEFAULT},
+    config::{safe_read_http_response, HTTP_TIMEOUT_SECONDS_DEFAULT, HTTP_TIMEOUT_SECONDS_ENV},
     pbs::RelayClient,
     types::Chain,
 };
@@ -43,13 +43,19 @@ impl PbsMuxes {
         chain: Chain,
         default_pbs: &PbsConfig,
     ) -> eyre::Result<HashMap<BlsPublicKey, RuntimeMuxConfig>> {
+        let http_timeout = match load_optional_env_var(HTTP_TIMEOUT_SECONDS_ENV) {
+            Some(timeout_str) => Duration::from_secs(timeout_str.parse::<u64>()?),
+            None => Duration::from_secs(default_pbs.http_timeout_seconds),
+        };
+
         let mut muxes = self.muxes;
 
         for mux in muxes.iter_mut() {
             ensure!(!mux.relays.is_empty(), "mux config {} must have at least one relay", mux.id);
 
             if let Some(loader) = &mux.loader {
-                let extra_keys = loader.load(&mux.id, chain, default_pbs.rpc_url.clone()).await?;
+                let extra_keys =
+                    loader.load(&mux.id, chain, default_pbs.rpc_url.clone(), http_timeout).await?;
                 mux.validator_pubkeys.extend(extra_keys);
             }
 
@@ -147,12 +153,10 @@ pub enum MuxKeysLoader {
     File(PathBuf),
     HTTP {
         url: String,
-        timeout: Option<u64>,
     },
     Registry {
         registry: NORegistry,
         node_operator_id: u64,
-        timeout: Option<u64>,
     },
 }
 
@@ -170,6 +174,7 @@ impl MuxKeysLoader {
         mux_id: &str,
         chain: Chain,
         rpc_url: Option<Url>,
+        http_timeout: Duration,
     ) -> eyre::Result<Vec<BlsPublicKey>> {
         match self {
             Self::File(config_path) => {
@@ -181,21 +186,19 @@ impl MuxKeysLoader {
                 serde_json::from_str(&file).wrap_err("failed to parse mux keys file")
             }
 
-            Self::HTTP { url, timeout } => {
+            Self::HTTP { url } => {
                 let url = Url::parse(url).wrap_err("failed to parse mux keys URL")?;
                 if url.scheme() != "https" {
                     bail!("mux keys URL must use HTTPS");
                 }
-                let client = reqwest::ClientBuilder::new()
-                    .timeout(Duration::from_secs(timeout.unwrap_or(MUXER_HTTP_TIMEOUT_DEFAULT)))
-                    .build()?;
+                let client = reqwest::ClientBuilder::new().timeout(http_timeout).build()?;
                 let response = client.get(url).send().await?;
                 let pubkeys = safe_read_http_response(response).await?;
                 serde_json::from_str(&pubkeys)
                     .wrap_err("failed to fetch mux keys from HTTP endpoint")
             }
 
-            Self::Registry { registry, node_operator_id, timeout } => match registry {
+            Self::Registry { registry, node_operator_id } => match registry {
                 NORegistry::Lido => {
                     let Some(rpc_url) = rpc_url else {
                         bail!("Lido registry requires RPC URL to be set in the PBS config");
@@ -204,7 +207,7 @@ impl MuxKeysLoader {
                     fetch_lido_registry_keys(rpc_url, chain, U256::from(*node_operator_id)).await
                 }
                 NORegistry::SSV => {
-                    fetch_ssv_pubkeys(chain, U256::from(*node_operator_id), timeout).await
+                    fetch_ssv_pubkeys(chain, U256::from(*node_operator_id), http_timeout).await
                 }
             },
         }
@@ -305,7 +308,7 @@ async fn fetch_lido_registry_keys(
 async fn fetch_ssv_pubkeys(
     chain: Chain,
     node_operator_id: U256,
-    timeout: &Option<u64>,
+    http_timeout: Duration,
 ) -> eyre::Result<Vec<BlsPublicKey>> {
     const MAX_PER_PAGE: usize = 100;
 
@@ -325,7 +328,7 @@ async fn fetch_ssv_pubkeys(
             chain_name, node_operator_id, MAX_PER_PAGE, page
         );
 
-        let response = fetch_ssv_pubkeys_from_url(&url, timeout).await?;
+        let response = fetch_ssv_pubkeys_from_url(&url, http_timeout).await?;
         pubkeys.extend(response.validators.iter().map(|v| v.pubkey).collect::<Vec<BlsPublicKey>>());
         page += 1;
 
@@ -346,10 +349,11 @@ async fn fetch_ssv_pubkeys(
     Ok(pubkeys)
 }
 
-async fn fetch_ssv_pubkeys_from_url(url: &str, timeout: &Option<u64>) -> eyre::Result<SSVResponse> {
-    let client = reqwest::ClientBuilder::new()
-        .timeout(Duration::from_secs(timeout.unwrap_or(MUXER_HTTP_TIMEOUT_DEFAULT)))
-        .build()?;
+async fn fetch_ssv_pubkeys_from_url(
+    url: &str,
+    http_timeout: Duration,
+) -> eyre::Result<SSVResponse> {
+    let client = reqwest::ClientBuilder::new().timeout(http_timeout).build()?;
     let response = client.get(url).send().await.map_err(|e| {
         if e.is_timeout() {
             eyre::eyre!("Request to SSV network API timed out: {e}")
@@ -436,7 +440,9 @@ mod tests {
         let port = 30100;
         let _server_handle = create_mock_server(port).await?;
         let url = format!("http://localhost:{port}/ssv");
-        let response = fetch_ssv_pubkeys_from_url(&url, &None).await?;
+        let response =
+            fetch_ssv_pubkeys_from_url(&url, Duration::from_secs(HTTP_TIMEOUT_SECONDS_DEFAULT))
+                .await?;
 
         // Make sure the response is correct
         // NOTE: requires that ssv_data.json dpesn't change
@@ -472,7 +478,7 @@ mod tests {
         env::remove_var(CB_TEST_HTTP_DISABLE_CONTENT_LENGTH_ENV);
         let _server_handle = create_mock_server(port).await?;
         let url = format!("http://localhost:{port}/big_data");
-        let response = fetch_ssv_pubkeys_from_url(&url, &Some(120)).await;
+        let response = fetch_ssv_pubkeys_from_url(&url, Duration::from_secs(120)).await;
 
         // The response should fail due to content length being too big
         assert!(response.is_err(), "Expected error due to big content length, but got success");
@@ -498,7 +504,8 @@ mod tests {
         let port = 30102;
         let _server_handle = create_mock_server(port).await?;
         let url = format!("http://localhost:{port}/timeout");
-        let response = fetch_ssv_pubkeys_from_url(&url, &Some(TEST_HTTP_TIMEOUT)).await;
+        let response =
+            fetch_ssv_pubkeys_from_url(&url, Duration::from_secs(TEST_HTTP_TIMEOUT)).await;
 
         // The response should fail due to timeout
         assert!(response.is_err(), "Expected timeout error, but got success");
@@ -523,7 +530,7 @@ mod tests {
         defer! { env::remove_var(CB_TEST_HTTP_DISABLE_CONTENT_LENGTH_ENV); }
         let _server_handle = create_mock_server(port).await?;
         let url = format!("http://localhost:{port}/big_data");
-        let response = fetch_ssv_pubkeys_from_url(&url, &Some(120)).await;
+        let response = fetch_ssv_pubkeys_from_url(&url, Duration::from_secs(120)).await;
 
         // The response should fail due to timeout
         assert!(response.is_err(), "Expected error due to body size, but got success");

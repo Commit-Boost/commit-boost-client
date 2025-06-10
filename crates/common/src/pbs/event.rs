@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::{net::SocketAddr, time::Duration};
 
 use alloy::{primitives::B256, rpc::types::beacon::relay::ValidatorRegistration};
 use async_trait::async_trait;
@@ -8,7 +8,7 @@ use axum::{
     routing::post,
     Json,
 };
-use eyre::bail;
+use eyre::{bail, Result};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
@@ -19,7 +19,10 @@ use super::{
     GetHeaderParams, GetHeaderResponse, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
 };
 use crate::{
-    config::{load_optional_env_var, BUILDER_URLS_ENV},
+    config::{
+        load_optional_env_var, BUILDER_URLS_ENV, HTTP_TIMEOUT_SECONDS_DEFAULT,
+        HTTP_TIMEOUT_SECONDS_ENV,
+    },
     pbs::BUILDER_EVENTS_PATH,
 };
 
@@ -48,11 +51,24 @@ pub struct BuilderEventPublisher {
 }
 
 impl BuilderEventPublisher {
-    pub fn new(endpoints: Vec<Url>) -> Self {
-        Self { client: reqwest::Client::new(), endpoints }
+    pub fn new(endpoints: Vec<Url>, http_timeout: Duration) -> Result<Self> {
+        for endpoint in &endpoints {
+            if endpoint.scheme() != "https" {
+                bail!("BuilderEventPublisher endpoints must use HTTPS (endpoint {endpoint} is invalid)");
+            }
+        }
+        Ok(Self {
+            client: reqwest::ClientBuilder::new().timeout(http_timeout).build().unwrap(),
+            endpoints,
+        })
     }
 
-    pub fn new_from_env() -> eyre::Result<Option<Self>> {
+    pub fn new_from_env() -> Result<Option<Self>> {
+        let http_timeout = match load_optional_env_var(HTTP_TIMEOUT_SECONDS_ENV) {
+            Some(timeout_str) => Duration::from_secs(timeout_str.parse::<u64>()?),
+            None => Duration::from_secs(HTTP_TIMEOUT_SECONDS_DEFAULT),
+        };
+
         load_optional_env_var(BUILDER_URLS_ENV)
             .map(|joined| {
                 let endpoints = joined
@@ -62,9 +78,9 @@ impl BuilderEventPublisher {
                         let url = base.trim().parse::<Url>()?.join(BUILDER_EVENTS_PATH)?;
                         Ok(url)
                     })
-                    .collect::<eyre::Result<Vec<_>>>()?;
+                    .collect::<Result<Vec<_>>>()?;
 
-                Ok(Self::new(endpoints))
+                Self::new(endpoints, http_timeout)
             })
             .transpose()
     }

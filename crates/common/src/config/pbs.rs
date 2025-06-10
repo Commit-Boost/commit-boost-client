@@ -17,7 +17,7 @@ use url::Url;
 
 use super::{
     constants::PBS_IMAGE_DEFAULT, load_optional_env_var, CommitBoostConfig, RuntimeMuxConfig,
-    PBS_ENDPOINT_ENV,
+    HTTP_TIMEOUT_SECONDS_DEFAULT, PBS_ENDPOINT_ENV,
 };
 use crate::{
     commit::client::SignerClient,
@@ -122,6 +122,9 @@ pub struct PbsConfig {
     pub extra_validation_enabled: bool,
     /// Execution Layer RPC url to use for extra validation
     pub rpc_url: Option<Url>,
+    /// Timeout for HTTP requests in seconds
+    #[serde(default = "default_u64::<HTTP_TIMEOUT_SECONDS_DEFAULT>")]
+    pub http_timeout_seconds: u64,
 }
 
 impl PbsConfig {

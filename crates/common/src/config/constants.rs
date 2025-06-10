@@ -74,8 +74,9 @@ pub const PROXY_DIR_SECRETS_DEFAULT: &str = "/proxy_secrets";
 
 ////////////////////////// MUXER //////////////////////////
 
-/// Timeout for Muxer HTTP requests, in seconds
-pub const MUXER_HTTP_TIMEOUT_DEFAULT: u64 = 10;
+/// Timeout for HTTP requests, in seconds
+pub const HTTP_TIMEOUT_SECONDS_ENV: &str = "CB_HTTP_TIMEOUT_SECONDS";
+pub const HTTP_TIMEOUT_SECONDS_DEFAULT: u64 = 10;
 
 /// Max content length for Muxer HTTP responses, in bytes
 pub const MUXER_HTTP_MAX_LENGTH: u64 = 1024 * 1024 * 1024 * 10; // 10 MiB
