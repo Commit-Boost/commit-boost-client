@@ -18,7 +18,7 @@ ca_cert_path = "/path/to/ca.crt"
 # Example of a single Dirk host
 [[signer.dirk.hosts]]
 url = "https://gateway.dirk.url"
-accounts = ["wallet1/accountX", "wallet2/accountY"]
+wallets = ["wallet1", "wallet2"]
 
 [signer.dirk.store]
 proxy_dir = "/path/to/proxies"

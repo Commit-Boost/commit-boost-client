@@ -148,6 +148,13 @@ url = "http://0xa119589bb33ef52acbb8116832bec2b58fca590fe5c85eac5d3230b44d5bc09f
 # Docker image to use for the Signer module.
 # OPTIONAL, DEFAULT: ghcr.io/commit-boost/signer:latest
 # docker_image = "ghcr.io/commit-boost/signer:latest"
+# Host to bind the Signer API server to
+# OPTIONAL, DEFAULT: 127.0.0.1
+host = "127.0.0.1"
+# Port to listen for Signer API calls on
+# OPTIONAL, DEFAULT: 20000
+port = 20000
+
 # For Remote signer:
 # [signer.remote]
 # URL of the Web3Signer instance
@@ -171,13 +178,13 @@ url = "http://0xa119589bb33ef52acbb8116832bec2b58fca590fe5c85eac5d3230b44d5bc09f
 # server_name = "localhost-1"
 # Complete URL of a Dirk gateway
 # url = "https://localhost:8881"
-# Accounts to use as consensus keys
-# accounts = ["Wallet1/Account1", "DistributedWallet/Account1"]
+# Wallets to load consensus keys from
+# accounts = ["Wallet1", "DistributedWallet"]
 
 # [[signer.dirk.hosts]]
 # server_name = "localhost-2"
 # url = "https://localhost:8882"
-# accounts = ["Wallet2/Account2", "DistributedWallet/Account1"]
+# accounts = ["Wallet2", "DistributedWallet"]
 
 # Configuration for how the Signer module should store proxy delegations.
 # OPTIONAL

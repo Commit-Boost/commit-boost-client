@@ -17,6 +17,7 @@ bytes.workspace = true
 cipher.workspace = true
 ctr.workspace = true
 derive_more.workspace = true
+docker-image.workspace = true
 eth2_keystore.workspace = true
 ethereum_serde_utils.workspace = true
 ethereum_ssz.workspace = true

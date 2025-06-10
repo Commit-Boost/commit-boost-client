@@ -37,6 +37,7 @@ color-eyre = "0.6.3"
 ctr = "0.9.2"
 derive_more = { version = "2.0.1", features = ["deref", "display", "from", "into"] }
 docker-compose-types = "0.16.0"
+docker-image = "0.2.1"
 eth2_keystore = { git = "https://github.com/sigp/lighthouse", rev = "8d058e4040b765a96aa4968f4167af7571292be2" }
 ethereum_serde_utils = "0.7.0"
 ethereum_ssz = "0.8"
@@ -60,6 +61,7 @@ serde_yaml = "0.9.33"
 serial_test = "3.2.0"
 sha2 = "0.10.8"
 ssz_types = "0.10"
+tempfile = "3.20.0"
 thiserror = "2.0.12"
 tokio = { version = "1.37.0", features = ["full"] }
 toml = "0.8.13"
