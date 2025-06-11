@@ -27,11 +27,12 @@ use crate::{
     },
     pbs::{
         BuilderEventPublisher, DefaultTimeout, RelayClient, RelayEntry, DEFAULT_PBS_PORT,
-        LATE_IN_SLOT_TIME_MS,
+        LATE_IN_SLOT_TIME_MS, REGISTER_VALIDATOR_RETRY_LIMIT,
     },
     types::{Chain, Jwt, ModuleId},
     utils::{
-        as_eth_str, default_bool, default_host, default_u16, default_u256, default_u64, WEI_PER_ETH,
+        as_eth_str, default_bool, default_host, default_u16, default_u256, default_u32,
+        default_u64, WEI_PER_ETH,
     },
 };
 
@@ -122,6 +123,9 @@ pub struct PbsConfig {
     pub extra_validation_enabled: bool,
     /// Execution Layer RPC url to use for extra validation
     pub rpc_url: Option<Url>,
+    /// Maximum number of retries for validator registration request per relay
+    #[serde(default = "default_u32::<REGISTER_VALIDATOR_RETRY_LIMIT>")]
+    pub register_validator_retry_limit: u32,
 }
 
 impl PbsConfig {
@@ -139,6 +143,10 @@ impl PbsConfig {
         ensure!(
             self.timeout_get_header_ms < self.late_in_slot_time_ms,
             "timeout_get_header_ms must be less than late_in_slot_time_ms"
+        );
+        ensure!(
+            self.register_validator_retry_limit > 0,
+            "register_validator_retry_limit must be greater than 0"
         );
 
         ensure!(
