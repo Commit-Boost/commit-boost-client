@@ -179,7 +179,7 @@ mod tests {
             [[modules]]
             module_name = "2nd_test_module"
             jwt_secret = "another-secret"
-            signing_id = "0202020202020202020202020202020202020202020202020202020202020202"
+            signing_id = "0x0202020202020202020202020202020202020202020202020202020202020202"
         "#;
 
         // Load the JWT configuration
@@ -219,6 +219,189 @@ mod tests {
             "Signing ID mismatch for '2nd_test_module'"
         );
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_jwt_from_env() -> Result<()> {
+        let jwt = "supersecret-env";
+        let jwt_env = "CB_TEST_MODULE_JTW";
+        let toml_str = r#"
+            [[modules]]
+            module_name = "test_module"
+            jwt_env = "CB_TEST_MODULE_JTW"
+            signing_id = "0101010101010101010101010101010101010101010101010101010101010101"
+        "#;
+
+        // Set the environment variable
+        std::env::set_var(jwt_env, jwt);
+        struct EnvVarGuard {
+            env_name: &'static str,
+        }
+        impl Drop for EnvVarGuard {
+            fn drop(&mut self) {
+                std::env::remove_var(self.env_name);
+            }
+        }
+
+        // Load the JWT configuration
+        let jwts: HashMap<ModuleId, JwtConfig>;
+        {
+            let _env_guard = EnvVarGuard { env_name: jwt_env };
+            let jwt_config_file: JwtConfigFile =
+                toml::from_str(toml_str).expect("Failed to deserialize JWT config");
+            jwts = load_impl(jwt_config_file).await?;
+        }
+        assert!(jwts.len() == 1, "Expected 1 JWT configuration");
+
+        // Check the module
+        let module_id = ModuleId("test_module".to_string());
+        let module = jwts.get(&module_id).expect("Missing 'test_module' in JWT configs");
+        assert_eq!(module.module_name, module_id, "Module name mismatch for 'test_module'");
+        assert_eq!(
+            module.jwt_secret,
+            Jwt(jwt.to_string()),
+            "JWT secret mismatch for 'test_module'"
+        );
+        assert_eq!(
+            module.signing_id,
+            b256!("0101010101010101010101010101010101010101010101010101010101010101"),
+            "Signing ID mismatch for 'test_module'"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_jwt_from_file() -> Result<()> {
+        let jwt = "supersecret-file";
+        let cwd = std::env::current_dir()?;
+        let mut jwt_file_path = cwd.join("../../tests/data/module-jwt.txt");
+        jwt_file_path = jwt_file_path.canonicalize()?;
+        let toml_str = format!(
+            r#"
+            [[modules]]
+            module_name = "test_module"
+            jwt_file = "{}"
+            signing_id = "0101010101010101010101010101010101010101010101010101010101010101"
+        "#,
+            jwt_file_path.display()
+        );
+
+        // Load the JWT configuration
+        let jwt_config_file: JwtConfigFile =
+            toml::from_str(&toml_str).expect("Failed to deserialize JWT config");
+        let jwts = load_impl(jwt_config_file).await?;
+        assert!(jwts.len() == 1, "Expected 1 JWT configuration");
+
+        // Check the module
+        let module_id = ModuleId("test_module".to_string());
+        let module = jwts.get(&module_id).expect("Missing 'test_module' in JWT configs");
+        assert_eq!(module.module_name, module_id, "Module name mismatch for 'test_module'");
+        assert_eq!(
+            module.jwt_secret,
+            Jwt(jwt.to_string()),
+            "JWT secret mismatch for 'test_module'"
+        );
+        assert_eq!(
+            module.signing_id,
+            b256!("0101010101010101010101010101010101010101010101010101010101010101"),
+            "Signing ID mismatch for 'test_module'"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_duplicate_module_names() -> Result<()> {
+        let toml_str = r#"
+            [[modules]]
+            module_name = "test_module"
+            jwt_secret = "supersecret"
+            signing_id = "0101010101010101010101010101010101010101010101010101010101010101"
+
+            [[modules]]
+            module_name = "test_module"  # Duplicate name
+            jwt_secret = "another-secret"
+            signing_id = "0202020202020202020202020202020202020202020202020202020202020202"
+        "#;
+        let jwt_config_file: JwtConfigFile =
+            toml::from_str(toml_str).expect("Failed to deserialize JWT config");
+        let result = load_impl(jwt_config_file).await;
+        assert!(result.is_err(), "Expected error due to duplicate module names");
+        if let Err(e) = result {
+            assert_eq!(&e.to_string(), "Duplicate JWT configuration for module 'test_module'");
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_duplicate_signing_ids() -> Result<()> {
+        let toml_str = r#"
+            [[modules]]
+            module_name = "test_module"
+            jwt_secret = "supersecret"
+            signing_id = "0101010101010101010101010101010101010101010101010101010101010101"
+
+            [[modules]]
+            module_name = "2nd_test_module"
+            jwt_secret = "another-secret"
+            signing_id = "0101010101010101010101010101010101010101010101010101010101010101"  # Duplicate signing ID
+        "#;
+        let jwt_config_file: JwtConfigFile =
+            toml::from_str(toml_str).expect("Failed to deserialize JWT config");
+        let result = load_impl(jwt_config_file).await;
+        assert!(result.is_err(), "Expected error due to duplicate signing IDs");
+        if let Err(e) = result {
+            assert_eq!(&e.to_string(),"Duplicate signing ID '0x0101010101010101010101010101010101010101010101010101010101010101' for module '2nd_test_module'");
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_missing_jwt_secret() -> Result<()> {
+        let toml_str = r#"
+            [[modules]]
+            module_name = "test_module"
+            signing_id = "0101010101010101010101010101010101010101010101010101010101010101"
+        "#;
+        let jwt_config_file: JwtConfigFile =
+            toml::from_str(toml_str).expect("Failed to deserialize JWT config");
+        let result = load_impl(jwt_config_file).await;
+        assert!(result.is_err(), "Expected error due to missing JWT secret");
+        if let Err(e) = result {
+            assert_eq!(&e.to_string(), "No JWT secret provided");
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_empty_jwt_secret() -> Result<()> {
+        let cfg = JwtConfig {
+            module_name: ModuleId("test_module".to_string()),
+            jwt_secret: Jwt("".to_string()),
+            signing_id: b256!("0101010101010101010101010101010101010101010101010101010101010101"),
+        };
+
+        let result = cfg.validate().await;
+        assert!(result.is_err(), "Expected error due to empty JWT secret");
+        if let Err(e) = result {
+            assert_eq!(&e.to_string(), "JWT secret cannot be empty");
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_zero_signing_id() -> Result<()> {
+        let cfg = JwtConfig {
+            module_name: ModuleId("test_module".to_string()),
+            jwt_secret: Jwt("supersecret".to_string()),
+            signing_id: b256!("0000000000000000000000000000000000000000000000000000000000000000"),
+        };
+        let result = cfg.validate().await;
+        assert!(result.is_err(), "Expected error due to zero signing ID");
+        if let Err(e) = result {
+            assert_eq!(&e.to_string(), "Signing ID cannot be zero");
+        }
         Ok(())
     }
 }
