@@ -9,6 +9,8 @@ use alloy::{
 };
 use axum::http::HeaderValue;
 use blst::min_pk::{PublicKey, Signature};
+use opentelemetry::trace::TracerProvider as _;
+use opentelemetry_otlp::OTEL_EXPORTER_OTLP_PROTOCOL;
 use rand::{distr::Alphanumeric, Rng};
 use reqwest::header::HeaderMap;
 use serde::{de::DeserializeOwned, Serialize};
@@ -16,6 +18,7 @@ use serde_json::Value;
 use ssz::{Decode, Encode};
 use tracing::Level;
 use tracing_appender::{non_blocking::WorkerGuard, rolling::Rotation};
+use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::{
     fmt::{format::Format, Layer},
     prelude::*,
@@ -238,6 +241,32 @@ pub fn initialize_tracing_log(
             layers.push(layer);
         }
     };
+
+    if settings.export_traces {
+        // grpc by default
+        let exporter = if let Ok(protocol) = std::env::var(OTEL_EXPORTER_OTLP_PROTOCOL) {
+            if protocol.contains("http") {
+                opentelemetry_otlp::SpanExporter::builder().with_http().build()?
+            } else {
+                opentelemetry_otlp::SpanExporter::builder().with_tonic().build()?
+            }
+        } else {
+            opentelemetry_otlp::SpanExporter::builder().with_tonic().build()?
+        };
+
+        let tracer = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+            .with_batch_exporter(exporter)
+            .build()
+            .tracer("commit_boost");
+
+        let layer = OpenTelemetryLayer::new(tracer)
+            .with_tracked_inactivity(false)
+            .with_threads(false)
+            .with_filter(format_crates_filter("info", "trace"))
+            .boxed();
+
+        layers.push(layer);
+    }
 
     tracing_subscriber::registry().with(layers).init();
 

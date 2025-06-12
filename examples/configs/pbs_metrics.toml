@@ -1,4 +1,4 @@
-# PBS + metrics + logs to file
+# PBS + metrics + export traces
 
 chain = "Holesky"
 
@@ -13,4 +13,9 @@ url = "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb
 enabled = true
 
 [logs]
-log_dir_path = "./logs"
+export_traces = true
+
+
+[env]
+OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4317"
+OTEL_SERVICE_NAME = "pbs"

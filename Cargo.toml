@@ -46,6 +46,9 @@ headers = "0.4.0"
 indexmap = "2.2.6"
 jsonwebtoken = { version = "9.3.1", default-features = false }
 lazy_static = "1.5.0"
+opentelemetry = { version = "0.29", features = ["trace"] }
+opentelemetry-otlp = { version = "0.29", features = ["grpc-tonic", "http-proto", "trace"] }
+opentelemetry_sdk = { version = "0.29", features = ["rt-tokio", "trace"] }
 parking_lot = "0.12.3"
 pbkdf2 = "0.12.2"
 prometheus = "0.13.4"
@@ -64,6 +67,7 @@ tonic = { version = "0.12.3", features = ["channel", "prost", "tls"] }
 tonic-build = "0.12.3"
 tracing = "0.1.40"
 tracing-appender = "0.2.3"
+tracing-opentelemetry = "0.30"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 tree_hash = "0.9"
 tree_hash_derive = "0.9"

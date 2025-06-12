@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
 use eyre::Result;
 use serde::{Deserialize, Serialize};
@@ -35,6 +35,8 @@ pub struct CommitBoostConfig {
     pub metrics: Option<MetricsConfig>,
     #[serde(default)]
     pub logs: LogsSettings,
+    #[serde(default)]
+    pub env: HashMap<String, String>,
 }
 
 impl CommitBoostConfig {
@@ -81,6 +83,7 @@ impl CommitBoostConfig {
             signer: helper_config.signer,
             metrics: helper_config.metrics,
             logs: helper_config.logs,
+            env: helper_config.env,
         };
 
         Ok(config)
@@ -120,4 +123,6 @@ struct HelperConfig {
     metrics: Option<MetricsConfig>,
     #[serde(default)]
     logs: LogsSettings,
+    #[serde(default)]
+    env: HashMap<String, String>,
 }

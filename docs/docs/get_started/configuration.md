@@ -405,3 +405,17 @@ docker compose -f cb.docker-compose.yml exec cb_signer curl -X POST http://local
 - If running in Docker containers, changes in `volumes` will not be applied, as it requires the container to be recreated. Be careful if changing a path to a local file as it may not be accessible from the container.
 - Custom PBS modules may override the default behaviour of the hot reload feature to parse extra configuration fields. Check the [examples](https://github.com/Commit-Boost/commit-boost-client/blob/main/examples/status_api/src/main.rs) for more details.
 - In case the reload fails (most likely because of some misconfigured option), the server will return a 500 error and the previous configuration will be kept.
+
+## OpenTelemetry
+All modules support exporting OTEL traces to an external endpoint. To enable this, make sure to set
+```toml
+[logs]
+export_traces = true
+```
+and set the relevant OTEL environment variables, either via the `[env]` section, or directly in your docker compose / binary. As an example you could set:
+```toml
+[env]
+OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4317"
+OTEL_SERVICE_NAME = "pbs"
+```
+to export traces to a local instance via GRPC. For more information on what variables to use, check out the official [OTEL exporter reference](https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/protocol/exporter.md).

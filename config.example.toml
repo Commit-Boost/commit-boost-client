@@ -129,8 +129,8 @@ loader = "./tests/data/mux_keys.example.json"
 # loader = { url = "http://localhost:8000/keys" }
 # loader = { registry = "lido", node_operator_id = 8 }
 # loader = { registry = "ssv", node_operator_id = 8 }
-timeout_get_header_ms = 900
 late_in_slot_time_ms = 1500
+timeout_get_header_ms = 900
 # For each mux, one or more [[mux.relays]] can be defined, which will be used for the matching validator pubkeys
 # Only the relays defined here will be used, and the relays defined in the main [[relays]] config will be ignored
 # The fields specified here are the same as in [[relays]] (headers, get_params, enable_timing_games, target_first_request_ms, frequency_get_header_ms)
@@ -261,6 +261,12 @@ host = "127.0.0.1"
 # OPTIONAL, DEFAULT: 10000
 start_port = 10000
 
+[logs]
+# Whether to export OpenTelemtry traces. OTEL is configured via env variables, set those in the [env] section or in your docker compose.
+# For more info see: https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/protocol/exporter.md
+# OPTIONAL, DEFAULT: false
+export_traces = false
+
 # Configuration stdout logs
 # OPTIONAL, DEFAULT: enabled
 [logs.stdout]
@@ -295,3 +301,8 @@ dir_path = "./logs"
 # Maximum number of log files to keep
 # OPTIONAL
 max_files = 30
+
+# Env variables set for all services.
+# OPTIONAL
+[env]
+A_COMMON_ENV = "a_common_value"
