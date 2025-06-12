@@ -26,7 +26,7 @@ struct JwtConfigOnDisk {
 
 impl JwtConfigOnDisk {
     /// Load the JWT secret from the provides sources, in order of precedence.
-    async fn load_jwt_secret(&self) -> Result<Jwt> {
+    fn load_jwt_secret(&self) -> Result<String> {
         // Start with the environment variable
         let jwt_string = if let Some(jwt_env) = &self.jwt_env {
             // Load JWT secret from environment variable
@@ -48,7 +48,7 @@ impl JwtConfigOnDisk {
             bail!("No JWT secret provided");
         };
 
-        Ok(Jwt(jwt_string))
+        Ok(jwt_string)
     }
 }
 
@@ -57,13 +57,13 @@ struct JwtConfigFile {
     modules: Vec<JwtConfigOnDisk>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct JwtConfig {
     /// Human-readable name of the module.
     pub module_name: ModuleId,
 
     /// The JWT secret for the module to communicate with the signer module.
-    pub jwt_secret: Jwt,
+    pub jwt_secret: String,
 
     /// A unique identifier for the module, which is used when signing requests
     /// to generate signatures for this module. Must be a 32-byte hex string.
@@ -72,8 +72,7 @@ pub struct JwtConfig {
 }
 
 impl JwtConfig {
-    //
-    pub async fn validate(&self) -> Result<()> {
+    pub fn validate(&self) -> Result<()> {
         // Ensure the JWT secret is not empty
         if self.jwt_secret.is_empty() {
             bail!("JWT secret cannot be empty");
@@ -89,7 +88,7 @@ impl JwtConfig {
 }
 
 /// Load the JWT configuration from a file.
-pub async fn load(config_file_path: &Path) -> Result<HashMap<ModuleId, JwtConfig>> {
+pub fn load(config_file_path: &Path) -> Result<HashMap<ModuleId, JwtConfig>> {
     // Make sure the file is legal
     if !config_file_path.is_absolute() {
         bail!("JWT config file '{}' must be an absolute path", config_file_path.display());
@@ -122,21 +121,21 @@ pub async fn load(config_file_path: &Path) -> Result<HashMap<ModuleId, JwtConfig
         eyre::eyre!("Failed to parse JWT config '{}': {}", config_file_path.display(), e)
     })?;
 
-    load_impl(jwt_configs).await
+    load_impl(jwt_configs)
 }
 
 /// Implementation for loading a JWT configuration from a file.
-async fn load_impl(config_file: JwtConfigFile) -> Result<HashMap<ModuleId, JwtConfig>> {
+fn load_impl(config_file: JwtConfigFile) -> Result<HashMap<ModuleId, JwtConfig>> {
     // Load the JWT secrets and validate them
     let mut jwt_configs = HashMap::new();
     for raw_config in config_file.modules {
-        let jwt_secret = raw_config.load_jwt_secret().await?;
+        let jwt_secret = raw_config.load_jwt_secret()?;
         let jwt_config = JwtConfig {
             module_name: raw_config.module_name.clone(),
             jwt_secret,
             signing_id: raw_config.signing_id,
         };
-        jwt_config.validate().await?;
+        jwt_config.validate()?;
 
         // Make sure there are no duplicate module names
         if jwt_configs.contains_key(&raw_config.module_name) {
@@ -185,7 +184,7 @@ mod tests {
         // Load the JWT configuration
         let jwt_config_file: JwtConfigFile =
             toml::from_str(toml_str).expect("Failed to deserialize JWT config");
-        let jwts = load_impl(jwt_config_file).await?;
+        let jwts = load_impl(jwt_config_file)?;
         assert!(jwts.len() == 2, "Expected 2 JWT configurations");
 
         // Check the first module
@@ -194,7 +193,7 @@ mod tests {
         assert_eq!(module_1.module_name, module_id_1, "Module name mismatch for 'test_module'");
         assert_eq!(
             module_1.jwt_secret,
-            Jwt("supersecret".to_string()),
+            "supersecret".to_string(),
             "JWT secret mismatch for 'test_module'"
         );
         assert_eq!(
@@ -210,7 +209,7 @@ mod tests {
         assert_eq!(module_2.module_name, module_id_2, "Module name mismatch for '2nd_test_module'");
         assert_eq!(
             module_2.jwt_secret,
-            Jwt("another-secret".to_string()),
+            "another-secret".to_string(),
             "JWT secret mismatch for '2nd_test_module'"
         );
         assert_eq!(
@@ -250,7 +249,7 @@ mod tests {
             let _env_guard = EnvVarGuard { env_name: jwt_env };
             let jwt_config_file: JwtConfigFile =
                 toml::from_str(toml_str).expect("Failed to deserialize JWT config");
-            jwts = load_impl(jwt_config_file).await?;
+            jwts = load_impl(jwt_config_file)?;
         }
         assert!(jwts.len() == 1, "Expected 1 JWT configuration");
 
@@ -258,11 +257,7 @@ mod tests {
         let module_id = ModuleId("test_module".to_string());
         let module = jwts.get(&module_id).expect("Missing 'test_module' in JWT configs");
         assert_eq!(module.module_name, module_id, "Module name mismatch for 'test_module'");
-        assert_eq!(
-            module.jwt_secret,
-            Jwt(jwt.to_string()),
-            "JWT secret mismatch for 'test_module'"
-        );
+        assert_eq!(module.jwt_secret, jwt.to_string(), "JWT secret mismatch for 'test_module'");
         assert_eq!(
             module.signing_id,
             b256!("0101010101010101010101010101010101010101010101010101010101010101"),
@@ -290,18 +285,14 @@ mod tests {
         // Load the JWT configuration
         let jwt_config_file: JwtConfigFile =
             toml::from_str(&toml_str).expect("Failed to deserialize JWT config");
-        let jwts = load_impl(jwt_config_file).await?;
+        let jwts = load_impl(jwt_config_file)?;
         assert!(jwts.len() == 1, "Expected 1 JWT configuration");
 
         // Check the module
         let module_id = ModuleId("test_module".to_string());
         let module = jwts.get(&module_id).expect("Missing 'test_module' in JWT configs");
         assert_eq!(module.module_name, module_id, "Module name mismatch for 'test_module'");
-        assert_eq!(
-            module.jwt_secret,
-            Jwt(jwt.to_string()),
-            "JWT secret mismatch for 'test_module'"
-        );
+        assert_eq!(module.jwt_secret, jwt.to_string(), "JWT secret mismatch for 'test_module'");
         assert_eq!(
             module.signing_id,
             b256!("0101010101010101010101010101010101010101010101010101010101010101"),
@@ -325,7 +316,7 @@ mod tests {
         "#;
         let jwt_config_file: JwtConfigFile =
             toml::from_str(toml_str).expect("Failed to deserialize JWT config");
-        let result = load_impl(jwt_config_file).await;
+        let result = load_impl(jwt_config_file);
         assert!(result.is_err(), "Expected error due to duplicate module names");
         if let Err(e) = result {
             assert_eq!(&e.to_string(), "Duplicate JWT configuration for module 'test_module'");
@@ -348,7 +339,7 @@ mod tests {
         "#;
         let jwt_config_file: JwtConfigFile =
             toml::from_str(toml_str).expect("Failed to deserialize JWT config");
-        let result = load_impl(jwt_config_file).await;
+        let result = load_impl(jwt_config_file);
         assert!(result.is_err(), "Expected error due to duplicate signing IDs");
         if let Err(e) = result {
             assert_eq!(&e.to_string(),"Duplicate signing ID '0x0101010101010101010101010101010101010101010101010101010101010101' for module '2nd_test_module'");
@@ -365,7 +356,7 @@ mod tests {
         "#;
         let jwt_config_file: JwtConfigFile =
             toml::from_str(toml_str).expect("Failed to deserialize JWT config");
-        let result = load_impl(jwt_config_file).await;
+        let result = load_impl(jwt_config_file);
         assert!(result.is_err(), "Expected error due to missing JWT secret");
         if let Err(e) = result {
             assert_eq!(&e.to_string(), "No JWT secret provided");
@@ -377,11 +368,11 @@ mod tests {
     async fn test_empty_jwt_secret() -> Result<()> {
         let cfg = JwtConfig {
             module_name: ModuleId("test_module".to_string()),
-            jwt_secret: Jwt("".to_string()),
+            jwt_secret: "".to_string(),
             signing_id: b256!("0101010101010101010101010101010101010101010101010101010101010101"),
         };
 
-        let result = cfg.validate().await;
+        let result = cfg.validate();
         assert!(result.is_err(), "Expected error due to empty JWT secret");
         if let Err(e) = result {
             assert_eq!(&e.to_string(), "JWT secret cannot be empty");
@@ -394,10 +385,10 @@ mod tests {
     async fn test_zero_signing_id() -> Result<()> {
         let cfg = JwtConfig {
             module_name: ModuleId("test_module".to_string()),
-            jwt_secret: Jwt("supersecret".to_string()),
+            jwt_secret: "supersecret".to_string(),
             signing_id: b256!("0000000000000000000000000000000000000000000000000000000000000000"),
         };
-        let result = cfg.validate().await;
+        let result = cfg.validate();
         assert!(result.is_err(), "Expected error due to zero signing ID");
         if let Err(e) = result {
             assert_eq!(&e.to_string(), "Signing ID cannot be zero");

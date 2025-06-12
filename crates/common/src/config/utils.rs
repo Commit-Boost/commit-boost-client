@@ -3,7 +3,6 @@ use std::{collections::HashMap, path::Path};
 use eyre::{bail, Context, Result};
 use serde::de::DeserializeOwned;
 
-use super::JWTS_ENV;
 use crate::types::ModuleId;
 
 pub fn load_env_var(env: &str) -> Result<String> {
@@ -24,12 +23,7 @@ pub fn load_file_from_env<T: DeserializeOwned>(env: &str) -> Result<T> {
     load_from_file(&path)
 }
 
-/// Loads a map of module id -> jwt secret from a json env
-pub fn load_jwt_secrets() -> Result<HashMap<ModuleId, String>> {
-    let jwt_secrets = std::env::var(JWTS_ENV).wrap_err(format!("{JWTS_ENV} is not set"))?;
-    decode_string_to_map(&jwt_secrets)
-}
-
+/// TODO: This was only used by the old JWT loader, can it be removed now?
 fn decode_string_to_map(raw: &str) -> Result<HashMap<ModuleId, String>> {
     // trim the string and split for comma
     raw.trim()
@@ -48,6 +42,7 @@ fn decode_string_to_map(raw: &str) -> Result<HashMap<ModuleId, String>> {
 mod tests {
     use super::*;
 
+    /// TODO: This was only used by the old JWT loader, can it be removed now?
     #[test]
     fn test_decode_string_to_map() {
         let raw = " KEY=VALUE , KEY2=value2 ";

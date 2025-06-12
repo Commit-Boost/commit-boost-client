@@ -25,7 +25,7 @@ use cb_common::{
             SignProxyRequest, SignRequest,
         },
     },
-    config::StartSignerConfig,
+    config::{JwtConfig, StartSignerConfig},
     constants::{COMMIT_BOOST_COMMIT, COMMIT_BOOST_VERSION},
     types::{Chain, Jwt, ModuleId},
     utils::{decode_jwt, validate_jwt},
@@ -60,9 +60,9 @@ struct SigningState {
     /// Manager handling different signing methods
     manager: Arc<RwLock<SigningManager>>,
 
-    /// Map of modules ids to JWT secrets. This also acts as registry of all
-    /// modules running
-    jwts: Arc<HashMap<ModuleId, String>>,
+    /// Map of modules ids to JWT configurations. This also acts as registry of
+    /// all modules running
+    jwts: Arc<HashMap<ModuleId, JwtConfig>>,
 
     /// Map of JWT failures per peer
     jwt_auth_failures: Arc<RwLock<HashMap<String, JwtAuthFailureInfo>>>,
@@ -216,12 +216,12 @@ async fn check_jwt_auth(
         SignerModuleError::Unauthorized
     })?;
 
-    let jwt_secret = state.jwts.get(&module_id).ok_or_else(|| {
+    let jwt_config = state.jwts.get(&module_id).ok_or_else(|| {
         error!("Unauthorized request. Was the module started correctly?");
         SignerModuleError::Unauthorized
     })?;
 
-    validate_jwt(jwt, jwt_secret).map_err(|e| {
+    validate_jwt(jwt, &jwt_config.jwt_secret).map_err(|e| {
         error!("Unauthorized request. Invalid JWT: {e}");
         SignerModuleError::Unauthorized
     })?;

@@ -5,22 +5,23 @@ use std::{
 };
 
 use docker_image::DockerImage;
-use eyre::{bail, ensure, OptionExt, Result};
+use eyre::{bail, ensure, Context, OptionExt, Result};
 use serde::{Deserialize, Serialize};
 use tonic::transport::{Certificate, Identity};
 use url::Url;
 
 use super::{
-    load_jwt_secrets, load_optional_env_var, utils::load_env_var, CommitBoostConfig,
-    SIGNER_ENDPOINT_ENV, SIGNER_IMAGE_DEFAULT, SIGNER_JWT_AUTH_FAIL_LIMIT_ENV,
-    SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_ENV,
+    load_optional_env_var, utils::load_env_var, CommitBoostConfig, SIGNER_ENDPOINT_ENV,
+    SIGNER_IMAGE_DEFAULT, SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT, SIGNER_JWT_AUTH_FAIL_LIMIT_ENV,
+    SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT, SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_ENV,
+    SIGNER_PORT_DEFAULT,
 };
 use crate::{
-    config::{DIRK_CA_CERT_ENV, DIRK_CERT_ENV, DIRK_DIR_SECRETS_ENV, DIRK_KEY_ENV},
-    signer::{
-        ProxyStore, SignerLoader, DEFAULT_JWT_AUTH_FAIL_LIMIT,
-        DEFAULT_JWT_AUTH_FAIL_TIMEOUT_SECONDS, DEFAULT_SIGNER_PORT,
+    config::{
+        jwt, JwtConfig, DIRK_CA_CERT_ENV, DIRK_CERT_ENV, DIRK_DIR_SECRETS_ENV, DIRK_KEY_ENV,
+        SIGNER_JWT_CONFIG_FILE_ENV,
     },
+    signer::{ProxyStore, SignerLoader},
     types::{Chain, ModuleId},
     utils::{default_host, default_u16, default_u32},
 };
@@ -32,21 +33,24 @@ pub struct SignerConfig {
     #[serde(default = "default_host")]
     pub host: Ipv4Addr,
     /// Port to listen for signer API calls on
-    #[serde(default = "default_u16::<DEFAULT_SIGNER_PORT>")]
+    #[serde(default = "default_u16::<SIGNER_PORT_DEFAULT>")]
     pub port: u16,
     /// Docker image of the module
-    #[serde(default = "default_signer")]
+    #[serde(default = "default_signer_image")]
     pub docker_image: String,
 
     /// Number of JWT auth failures before rate limiting an endpoint
     /// If set to 0, no rate limiting will be applied
-    #[serde(default = "default_u32::<DEFAULT_JWT_AUTH_FAIL_LIMIT>")]
+    #[serde(default = "default_u32::<SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT>")]
     pub jwt_auth_fail_limit: u32,
 
     /// Duration in seconds to rate limit an endpoint after the JWT auth failure
     /// limit has been reached
-    #[serde(default = "default_u32::<DEFAULT_JWT_AUTH_FAIL_TIMEOUT_SECONDS>")]
+    #[serde(default = "default_u32::<SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT>")]
     pub jwt_auth_fail_timeout_seconds: u32,
+
+    /// Path to the JWT config file - must be set explicitly
+    pub jwt_config_file: PathBuf,
 
     /// Inner type-specific configuration
     #[serde(flatten)]
@@ -70,7 +74,7 @@ impl SignerConfig {
     }
 }
 
-fn default_signer() -> String {
+fn default_signer_image() -> String {
     SIGNER_IMAGE_DEFAULT.to_string()
 }
 
@@ -132,7 +136,7 @@ pub struct StartSignerConfig {
     pub loader: Option<SignerLoader>,
     pub store: Option<ProxyStore>,
     pub endpoint: SocketAddr,
-    pub jwts: HashMap<ModuleId, String>,
+    pub jwts: HashMap<ModuleId, JwtConfig>,
     pub jwt_auth_fail_limit: u32,
     pub jwt_auth_fail_timeout_seconds: u32,
     pub dirk: Option<DirkConfig>,
@@ -141,8 +145,6 @@ pub struct StartSignerConfig {
 impl StartSignerConfig {
     pub fn load_from_env() -> Result<Self> {
         let config = CommitBoostConfig::from_env_path()?;
-
-        let jwts = load_jwt_secrets()?;
 
         let signer_config = config.signer.ok_or_eyre("Signer config is missing")?;
 
@@ -170,6 +172,16 @@ impl StartSignerConfig {
         } else {
             signer_config.jwt_auth_fail_timeout_seconds
         };
+
+        // Load the JWT config file
+        let jwt_config_path = if let Some(path) = load_optional_env_var(SIGNER_JWT_CONFIG_FILE_ENV)
+        {
+            PathBuf::from(path)
+        } else {
+            signer_config.jwt_config_file
+        };
+        let jwts = jwt::load(&jwt_config_path)
+            .wrap_err_with(|| format!("Failed to load JWT config from {jwt_config_path:?}"))?;
 
         match signer_config.inner {
             SignerType::Local { loader, store, .. } => Ok(StartSignerConfig {

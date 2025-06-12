@@ -1,9 +1,12 @@
 use std::{collections::HashMap, time::Duration};
 
-use alloy::{hex, primitives::FixedBytes};
+use alloy::{
+    hex,
+    primitives::{b256, FixedBytes, B256},
+};
 use cb_common::{
     commit::{constants::GET_PUBKEYS_PATH, request::GetPubkeysResponse},
-    config::StartSignerConfig,
+    config::{JwtConfig, StartSignerConfig},
     signer::{SignerLoader, ValidatorKeysFormat},
     types::{Chain, ModuleId},
     utils::create_jwt,
@@ -16,6 +19,8 @@ use tracing::info;
 
 const JWT_MODULE: &str = "test-module";
 const JWT_SECRET: &str = "test-jwt-secret";
+const JWT_SIGNING_ID: B256 =
+    b256!("0x0123456789012345678901234567890123456789012345678901234567890123");
 
 #[tokio::test]
 async fn test_signer_jwt_auth_success() -> Result<()> {
@@ -95,7 +100,11 @@ async fn start_server(port: u16) -> Result<StartSignerConfig> {
     // Mock JWT secrets
     let module_id = ModuleId(JWT_MODULE.to_string());
     let mut jwts = HashMap::new();
-    jwts.insert(module_id.clone(), JWT_SECRET.to_string());
+    jwts.insert(module_id.clone(), JwtConfig {
+        module_name: module_id,
+        jwt_secret: JWT_SECRET.to_string(),
+        signing_id: JWT_SIGNING_ID,
+    });
 
     // Create a signer config
     let loader = SignerLoader::ValidatorsDir {
