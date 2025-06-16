@@ -8,7 +8,7 @@ use alloy::primitives::B256;
 use eyre::{bail, Result};
 use serde::Deserialize;
 
-use crate::types::{Jwt, ModuleId};
+use crate::types::ModuleId;
 
 /// Underlying implementation of the JWT configuration that's deserialized from
 /// disk.

@@ -5,6 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use alloy::primitives::B256;
 use axum::{
     extract::{ConnectInfo, Request, State},
     http::StatusCode,
@@ -39,6 +40,7 @@ use uuid::Uuid;
 
 use crate::{
     error::SignerModuleError,
+    hasher::{keccak::KeccakHasher, SigningHasher},
     manager::{dirk::DirkManager, local::LocalSigningManager, SigningManager},
     metrics::{uri_to_tag, SIGNER_METRICS_REGISTRY, SIGNER_STATUS},
 };
@@ -56,9 +58,12 @@ struct JwtAuthFailureInfo {
 }
 
 #[derive(Clone)]
-struct SigningState {
+struct SigningState<H: SigningHasher> {
     /// Manager handling different signing methods
     manager: Arc<RwLock<SigningManager>>,
+
+    /// Hasher used to create unique hashes for signing requests
+    hasher: H,
 
     /// Map of modules ids to JWT configurations. This also acts as registry of
     /// all modules running
@@ -83,6 +88,7 @@ impl SigningService {
 
         let state = SigningState {
             manager: Arc::new(RwLock::new(start_manager(config.clone()).await?)),
+            hasher: KeccakHasher::new(),
             jwts: config.jwts.into(),
             jwt_auth_failures: Arc::new(RwLock::new(HashMap::new())),
             jwt_auth_fail_limit: config.jwt_auth_fail_limit,
@@ -134,8 +140,8 @@ impl SigningService {
 }
 
 /// Authentication middleware layer
-async fn jwt_auth(
-    State(state): State<SigningState>,
+async fn jwt_auth<H: SigningHasher>(
+    State(state): State<SigningState<H>>,
     TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
     addr: ConnectInfo<SocketAddr>,
     mut req: Request,
@@ -166,8 +172,8 @@ async fn jwt_auth(
 
 /// Checks if the incoming request needs to be rate limited due to previous JWT
 /// authentication failures
-async fn check_jwt_rate_limit(
-    state: &SigningState,
+async fn check_jwt_rate_limit<H: SigningHasher>(
+    state: &SigningState<H>,
     client_ip: &String,
 ) -> Result<(), SignerModuleError> {
     let mut failures = state.jwt_auth_failures.write().await;
@@ -203,9 +209,9 @@ async fn check_jwt_rate_limit(
 }
 
 /// Checks if a request can successfully authenticate with the JWT secret
-async fn check_jwt_auth(
+async fn check_jwt_auth<H: SigningHasher>(
     auth: &Authorization<Bearer>,
-    state: &SigningState,
+    state: &SigningState<H>,
 ) -> Result<ModuleId, SignerModuleError> {
     let jwt: Jwt = auth.token().to_string().into();
 
@@ -242,9 +248,9 @@ async fn handle_status() -> Result<impl IntoResponse, SignerModuleError> {
 }
 
 /// Implements get_pubkeys from the Signer API
-async fn handle_get_pubkeys(
+async fn handle_get_pubkeys<H: SigningHasher>(
     Extension(module_id): Extension<ModuleId>,
-    State(state): State<SigningState>,
+    State(state): State<SigningState<H>>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
     let req_id = Uuid::new_v4();
 
@@ -263,44 +269,55 @@ async fn handle_get_pubkeys(
 }
 
 /// Implements request_signature from the Signer API
-async fn handle_request_signature(
+async fn handle_request_signature<H: SigningHasher>(
     Extension(module_id): Extension<ModuleId>,
-    State(state): State<SigningState>,
+    State(state): State<SigningState<H>>,
     Json(request): Json<SignRequest>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
     let req_id = Uuid::new_v4();
-
+    let signing_id = &state.jwts[&module_id].signing_id;
     debug!(event = "request_signature", ?module_id, %request, ?req_id, "New request");
 
     let manager = state.manager.read().await;
     let res = match &*manager {
         SigningManager::Local(local_manager) => match request {
-            SignRequest::Consensus(SignConsensusRequest { object_root, pubkey }) => local_manager
-                .sign_consensus(&pubkey, &object_root)
-                .await
-                .map(|sig| Json(sig).into_response()),
-            SignRequest::ProxyBls(SignProxyRequest { object_root, proxy: bls_key }) => {
+            SignRequest::Consensus(SignConsensusRequest { ref object_root, ref pubkey }) => {
+                let hash = state.hasher.hash(object_root, signing_id);
                 local_manager
-                    .sign_proxy_bls(&bls_key, &object_root)
+                    .sign_consensus(pubkey, &hash)
                     .await
                     .map(|sig| Json(sig).into_response())
             }
-            SignRequest::ProxyEcdsa(SignProxyRequest { object_root, proxy: ecdsa_key }) => {
+            SignRequest::ProxyBls(SignProxyRequest { ref object_root, proxy: ref bls_key }) => {
+                let hash = state.hasher.hash(object_root, signing_id);
                 local_manager
-                    .sign_proxy_ecdsa(&ecdsa_key, &object_root)
+                    .sign_proxy_bls(bls_key, &hash)
+                    .await
+                    .map(|sig| Json(sig).into_response())
+            }
+            SignRequest::ProxyEcdsa(SignProxyRequest { ref object_root, proxy: ref ecdsa_key }) => {
+                let hash = state.hasher.hash(object_root, signing_id);
+                local_manager
+                    .sign_proxy_ecdsa(ecdsa_key, &hash)
                     .await
                     .map(|sig| Json(sig).into_response())
             }
         },
         SigningManager::Dirk(dirk_manager) => match request {
-            SignRequest::Consensus(SignConsensusRequest { object_root, pubkey }) => dirk_manager
-                .request_consensus_signature(&pubkey, *object_root)
-                .await
-                .map(|sig| Json(sig).into_response()),
-            SignRequest::ProxyBls(SignProxyRequest { object_root, proxy: bls_key }) => dirk_manager
-                .request_proxy_signature(&bls_key, *object_root)
-                .await
-                .map(|sig| Json(sig).into_response()),
+            SignRequest::Consensus(SignConsensusRequest { ref object_root, ref pubkey }) => {
+                let hash = state.hasher.hash(object_root, signing_id);
+                dirk_manager
+                    .request_consensus_signature(pubkey, &hash)
+                    .await
+                    .map(|sig| Json(sig).into_response())
+            }
+            SignRequest::ProxyBls(SignProxyRequest { ref object_root, proxy: ref bls_key }) => {
+                let hash = state.hasher.hash(object_root, signing_id);
+                dirk_manager
+                    .request_proxy_signature(bls_key, &hash)
+                    .await
+                    .map(|sig| Json(sig).into_response())
+            }
             SignRequest::ProxyEcdsa(_) => {
                 error!(
                     event = "request_signature",
@@ -320,9 +337,9 @@ async fn handle_request_signature(
     res
 }
 
-async fn handle_generate_proxy(
+async fn handle_generate_proxy<H: SigningHasher>(
     Extension(module_id): Extension<ModuleId>,
-    State(state): State<SigningState>,
+    State(state): State<SigningState<H>>,
     Json(request): Json<GenerateProxyRequest>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
     let req_id = Uuid::new_v4();
@@ -360,8 +377,8 @@ async fn handle_generate_proxy(
     res
 }
 
-async fn handle_reload(
-    State(mut state): State<SigningState>,
+async fn handle_reload<H: SigningHasher>(
+    State(mut state): State<SigningState<H>>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
     let req_id = Uuid::new_v4();
 

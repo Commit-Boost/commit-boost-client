@@ -192,7 +192,7 @@ impl DirkManager {
     pub async fn request_consensus_signature(
         &self,
         pubkey: &BlsPublicKey,
-        object_root: [u8; 32],
+        object_root: &[u8; 32],
     ) -> Result<BlsSignature, SignerModuleError> {
         match self.consensus_accounts.get(pubkey) {
             Some(Account::Simple(account)) => {
@@ -209,7 +209,7 @@ impl DirkManager {
     pub async fn request_proxy_signature(
         &self,
         pubkey: &BlsPublicKey,
-        object_root: [u8; 32],
+        object_root: &[u8; 32],
     ) -> Result<BlsSignature, SignerModuleError> {
         match self.proxy_accounts.get(pubkey) {
             Some(ProxyAccount { inner: Account::Simple(account), .. }) => {
@@ -226,7 +226,7 @@ impl DirkManager {
     async fn request_simple_signature(
         &self,
         account: &SimpleAccount,
-        object_root: [u8; 32],
+        object_root: &[u8; 32],
     ) -> Result<BlsSignature, SignerModuleError> {
         let domain = compute_domain(self.chain, COMMIT_BOOST_DOMAIN);
 
@@ -256,7 +256,7 @@ impl DirkManager {
     async fn request_distributed_signature(
         &self,
         account: &DistributedAccount,
-        object_root: [u8; 32],
+        object_root: &[u8; 32],
     ) -> Result<BlsSignature, SignerModuleError> {
         let mut partials = Vec::with_capacity(account.participants.len());
         let mut requests = Vec::with_capacity(account.participants.len());
@@ -336,7 +336,7 @@ impl DirkManager {
         let message =
             ProxyDelegation { delegator: consensus, proxy: proxy_account.inner.public_key() };
         let delegation_signature =
-            self.request_consensus_signature(&consensus, message.tree_hash_root().0).await?;
+            self.request_consensus_signature(&consensus, &message.tree_hash_root().0).await?;
 
         let delegation = SignedProxyDelegation { message, signature: delegation_signature };
 

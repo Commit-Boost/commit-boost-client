@@ -14,8 +14,8 @@ use cb_common::{
         PROXY_DIR_DEFAULT, PROXY_DIR_ENV, PROXY_DIR_KEYS_DEFAULT, PROXY_DIR_KEYS_ENV,
         PROXY_DIR_SECRETS_DEFAULT, PROXY_DIR_SECRETS_ENV, SIGNER_DEFAULT, SIGNER_DIR_KEYS_DEFAULT,
         SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS_DEFAULT, SIGNER_DIR_SECRETS_ENV,
-        SIGNER_ENDPOINT_ENV, SIGNER_KEYS_ENV, SIGNER_MODULE_NAME, SIGNER_PORT_DEFAULT,
-        SIGNER_URL_ENV,
+        SIGNER_ENDPOINT_ENV, SIGNER_JWT_AUTH_FAIL_LIMIT_ENV, SIGNER_JWT_CONFIG_FILE_ENV,
+        SIGNER_KEYS_ENV, SIGNER_MODULE_NAME, SIGNER_PORT_DEFAULT, SIGNER_URL_ENV,
     },
     pbs::{BUILDER_API_PATH, GET_STATUS_PATH},
     signer::{ProxyStore, SignerLoader},
@@ -330,10 +330,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
 
         match signer_config.inner {
             SignerType::Local { loader, store } => {
-                let mut signer_envs = IndexMap::from([
-                    get_env_val(CONFIG_ENV, CONFIG_DEFAULT),
-                    get_env_same(JWTS_ENV),
-                ]);
+                let mut signer_envs = IndexMap::from([get_env_val(CONFIG_ENV, CONFIG_DEFAULT)]);
 
                 // Bind the signer API to 0.0.0.0
                 let container_endpoint =
@@ -363,9 +360,6 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                     let (key, val) = get_env_val(LOGS_DIR_ENV, LOGS_DIR_DEFAULT);
                     signer_envs.insert(key, val);
                 }
-
-                // write jwts to env
-                envs.insert(JWTS_ENV.into(), format_comma_separated(&jwts));
 
                 // volumes
                 let mut volumes = vec![config_volume.clone()];
@@ -464,7 +458,6 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
             SignerType::Dirk { cert_path, key_path, secrets_path, ca_cert_path, store, .. } => {
                 let mut signer_envs = IndexMap::from([
                     get_env_val(CONFIG_ENV, CONFIG_DEFAULT),
-                    get_env_same(JWTS_ENV),
                     get_env_val(DIRK_CERT_ENV, DIRK_CERT_DEFAULT),
                     get_env_val(DIRK_KEY_ENV, DIRK_KEY_DEFAULT),
                     get_env_val(DIRK_DIR_SECRETS_ENV, DIRK_DIR_SECRETS_DEFAULT),
@@ -498,9 +491,6 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                     let (key, val) = get_env_val(LOGS_DIR_ENV, LOGS_DIR_DEFAULT);
                     signer_envs.insert(key, val);
                 }
-
-                // write jwts to env
-                envs.insert(JWTS_ENV.into(), format_comma_separated(&jwts));
 
                 // volumes
                 let mut volumes = vec![
