@@ -144,10 +144,10 @@ url = "http://0xa119589bb33ef52acbb8116832bec2b58fca590fe5c85eac5d3230b44d5bc09f
 #   - Dirk: a remote Dirk instance
 #   - Local: a local Signer module
 # More details on the docs (https://commit-boost.github.io/commit-boost-client/get_started/configuration/#signer-module)
-# [signer]
+[signer]
 # Docker image to use for the Signer module.
 # OPTIONAL, DEFAULT: ghcr.io/commit-boost/signer:latest
-# docker_image = "ghcr.io/commit-boost/signer:latest"
+docker_image = "ghcr.io/commit-boost/signer:latest"
 # Host to bind the Signer API server to
 # OPTIONAL, DEFAULT: 127.0.0.1
 host = "127.0.0.1"
@@ -156,10 +156,15 @@ host = "127.0.0.1"
 port = 20000
 # Number of JWT authentication attempts a client can fail before blocking that client temporarily from Signer access
 # OPTIONAL, DEFAULT: 3
-jwt_auth_fail_limit: 3
+jwt_auth_fail_limit = 3
 # How long to block a client from Signer access, in seconds, if it failed JWT authentication too many times
 # OPTIONAL, DEFAULT: 300
-jwt_auth_fail_timeout_seconds: 300
+jwt_auth_fail_timeout_seconds = 300
+# The path of the file on-disk with the JWT and signing ID configuration for each module.
+# If you use modules in your setup, you'll need this for them to authenticate with Commit Boost properly.
+# If you don't, you can leave this blank.
+# See <PLACEHOLDER> for more information on the module JWT configuration file.
+jwt_config_file = "./tests/data/configs/jwt.happy.toml"
 
 # For Remote signer:
 # [signer.remote]

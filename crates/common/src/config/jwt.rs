@@ -88,7 +88,7 @@ impl JwtConfig {
 }
 
 /// Load the JWT configuration from a file.
-pub fn load(config_file_path: &Path) -> Result<HashMap<ModuleId, JwtConfig>> {
+pub fn load_jwt_config_file(config_file_path: &Path) -> Result<HashMap<ModuleId, JwtConfig>> {
     // Make sure the file is legal
     if !config_file_path.is_absolute() {
         bail!("JWT config file '{}' must be an absolute path", config_file_path.display());

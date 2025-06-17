@@ -5,7 +5,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use alloy::primitives::B256;
 use axum::{
     extract::{ConnectInfo, Request, State},
     http::StatusCode,
@@ -58,7 +57,10 @@ struct JwtAuthFailureInfo {
 }
 
 #[derive(Clone)]
-struct SigningState<H: SigningHasher> {
+struct SigningState<H>
+where
+    H: SigningHasher,
+{
     /// Manager handling different signing methods
     manager: Arc<RwLock<SigningManager>>,
 
@@ -283,6 +285,7 @@ async fn handle_request_signature<H: SigningHasher>(
         SigningManager::Local(local_manager) => match request {
             SignRequest::Consensus(SignConsensusRequest { ref object_root, ref pubkey }) => {
                 let hash = state.hasher.hash(object_root, signing_id);
+                info!("Signing hash: {hash:?}");
                 local_manager
                     .sign_consensus(pubkey, &hash)
                     .await

@@ -8,8 +8,8 @@ use std::{
 use alloy::{primitives::U256, rpc::types::beacon::BlsPublicKey};
 use cb_common::{
     config::{
-        JwtConfig, PbsConfig, PbsModuleConfig, RelayConfig, SignerConfig, SignerType,
-        StartSignerConfig, SIGNER_IMAGE_DEFAULT, SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT,
+        load_jwt_config_file, JwtConfig, PbsConfig, PbsModuleConfig, RelayConfig, SignerConfig,
+        SignerType, StartSignerConfig, SIGNER_IMAGE_DEFAULT, SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT,
         SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT, SIGNER_PORT_DEFAULT,
     },
     pbs::{RelayClient, RelayEntry},
@@ -115,7 +115,7 @@ pub fn get_signer_config(loader: SignerLoader) -> SignerConfig {
 pub fn get_start_signer_config(
     signer_config: SignerConfig,
     chain: Chain,
-    jwts: HashMap<ModuleId, JwtConfig>,
+    jwts: &HashMap<ModuleId, JwtConfig>,
 ) -> StartSignerConfig {
     match signer_config.inner {
         SignerType::Local { loader, .. } => StartSignerConfig {
@@ -123,11 +123,19 @@ pub fn get_start_signer_config(
             loader: Some(loader),
             store: None,
             endpoint: SocketAddr::new(signer_config.host.into(), signer_config.port),
-            jwts,
+            jwts: jwts.clone(),
             jwt_auth_fail_limit: signer_config.jwt_auth_fail_limit,
             jwt_auth_fail_timeout_seconds: signer_config.jwt_auth_fail_timeout_seconds,
             dirk: None,
         },
         _ => panic!("Only local signers are supported in tests"),
     }
+}
+
+/// Loads the JWT config from the test file
+pub fn get_jwt_config() -> HashMap<ModuleId, JwtConfig> {
+    let cwd = std::env::current_dir().unwrap();
+    let mut jwt_file_path = cwd.join("data/configs/jwt.happy.toml");
+    jwt_file_path = jwt_file_path.canonicalize().unwrap();
+    load_jwt_config_file(&jwt_file_path).expect("Failed to load JWT config")
 }

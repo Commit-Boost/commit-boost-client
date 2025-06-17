@@ -1,0 +1,4 @@
+[[modules]]
+module_name = "test-module"
+jwt_secret = "supersecret"
+signing_id = "0x6a33a23ef26a4836979edff86c493a69b26ccf0b4a16491a815a13787657431b"

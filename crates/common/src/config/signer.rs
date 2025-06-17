@@ -180,7 +180,7 @@ impl StartSignerConfig {
         } else {
             signer_config.jwt_config_file
         };
-        let jwts = jwt::load(&jwt_config_path)
+        let jwts = jwt::load_jwt_config_file(&jwt_config_path)
             .wrap_err_with(|| format!("Failed to load JWT config from {jwt_config_path:?}"))?;
 
         match signer_config.inner {
