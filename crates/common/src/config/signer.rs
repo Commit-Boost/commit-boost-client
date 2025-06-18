@@ -49,8 +49,8 @@ pub struct SignerConfig {
     #[serde(default = "default_u32::<SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT>")]
     pub jwt_auth_fail_timeout_seconds: u32,
 
-    /// Path to the JWT config file - must be set explicitly
-    pub jwt_config_file: PathBuf,
+    /// Path to the JWT config file if the signer is used with modules
+    pub jwt_config_file: Option<PathBuf>,
 
     /// Inner type-specific configuration
     #[serde(flatten)]
@@ -173,15 +173,20 @@ impl StartSignerConfig {
             signer_config.jwt_auth_fail_timeout_seconds
         };
 
-        // Load the JWT config file
-        let jwt_config_path = if let Some(path) = load_optional_env_var(SIGNER_JWT_CONFIG_FILE_ENV)
-        {
-            PathBuf::from(path)
-        } else {
-            signer_config.jwt_config_file
+        // Load the JWT config file if set - if not set or empty, use an empty JWT
+        // config so there won't be any modules
+        let mut jwts = HashMap::new();
+        if let Some(path) = load_optional_env_var(SIGNER_JWT_CONFIG_FILE_ENV) {
+            if !path.is_empty() {
+                jwts = jwt::load_jwt_config_file(&PathBuf::from(path.clone()))
+                    .wrap_err_with(|| format!("Failed to load JWT config from '{path:?}'"))?;
+            }
+        } else if let Some(path) = &signer_config.jwt_config_file {
+            if !path.as_os_str().is_empty() {
+                jwts = jwt::load_jwt_config_file(path)
+                    .wrap_err_with(|| format!("Failed to load JWT config from '{path:?}'"))?;
+            }
         };
-        let jwts = jwt::load_jwt_config_file(&jwt_config_path)
-            .wrap_err_with(|| format!("Failed to load JWT config from {jwt_config_path:?}"))?;
 
         match signer_config.inner {
             SignerType::Local { loader, store, .. } => Ok(StartSignerConfig {

@@ -16,7 +16,6 @@ use cb_tests::{
 };
 use eyre::Result;
 use reqwest::StatusCode;
-use tracing::info;
 
 const MODULE_ID_1: &str = "test-module";
 const MODULE_ID_2: &str = "another-module";

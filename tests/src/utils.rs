@@ -107,7 +107,7 @@ pub fn get_signer_config(loader: SignerLoader) -> SignerConfig {
         docker_image: SIGNER_IMAGE_DEFAULT.to_string(),
         jwt_auth_fail_limit: SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT,
         jwt_auth_fail_timeout_seconds: SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT,
-        jwt_config_file: PathBuf::from(""),
+        jwt_config_file: None,
         inner: SignerType::Local { loader, store: None },
     }
 }
