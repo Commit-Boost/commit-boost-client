@@ -2,3 +2,8 @@
 module_name = "test-module"
 jwt_secret = "supersecret"
 signing_id = "0x6a33a23ef26a4836979edff86c493a69b26ccf0b4a16491a815a13787657431b"
+
+[[modules]]
+module_name = "another-module"
+jwt_secret = "secondsecret"
+signing_id = "0x61fe00135d7b4912a8c63ada215ac2e62326e6e7b30f49a29fcf9779d7ad800d"
