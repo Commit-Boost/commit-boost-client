@@ -160,11 +160,6 @@ jwt_auth_fail_limit = 3
 # How long to block a client from Signer access, in seconds, if it failed JWT authentication too many times
 # OPTIONAL, DEFAULT: 300
 jwt_auth_fail_timeout_seconds = 300
-# The path of the file on-disk with the JWT and signing ID configuration for each module.
-# If you use modules in your setup, you'll need this for them to authenticate with Commit Boost properly.
-# If you don't, you can leave this blank.
-# See <PLACEHOLDER> for more information on the module JWT configuration file.
-jwt_config_file = "./tests/data/configs/jwt.happy.toml"
 
 # For Remote signer:
 # [signer.remote]

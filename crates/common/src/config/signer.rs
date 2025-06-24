@@ -18,8 +18,8 @@ use super::{
 };
 use crate::{
     config::{
-        jwt, JwtConfig, DIRK_CA_CERT_ENV, DIRK_CERT_ENV, DIRK_DIR_SECRETS_ENV, DIRK_KEY_ENV,
-        SIGNER_JWT_CONFIG_FILE_ENV,
+        jwt, load_file_from_env, JwtConfig, DIRK_CA_CERT_ENV, DIRK_CERT_ENV, DIRK_DIR_SECRETS_ENV,
+        DIRK_KEY_ENV, SIGNER_JWT_CONFIG_FILE_ENV,
     },
     signer::{ProxyStore, SignerLoader},
     types::{Chain, ModuleId},
@@ -48,9 +48,6 @@ pub struct SignerConfig {
     /// limit has been reached
     #[serde(default = "default_u32::<SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT>")]
     pub jwt_auth_fail_timeout_seconds: u32,
-
-    /// Path to the JWT config file if the signer is used with modules
-    pub jwt_config_file: Option<PathBuf>,
 
     /// Inner type-specific configuration
     #[serde(flatten)]
@@ -148,6 +145,15 @@ impl StartSignerConfig {
 
         let signer_config = config.signer.ok_or_eyre("Signer config is missing")?;
 
+        // Load the JWT config file
+        let jwt_config_path = load_env_var(SIGNER_JWT_CONFIG_FILE_ENV)
+            .wrap_err("Failed to load JWT config file from environment")?;
+        if jwt_config_path.is_empty() {
+            bail!("JWT config file path is empty");
+        }
+        let jwts = jwt::load_jwt_config_file(&PathBuf::from(&jwt_config_path))
+            .wrap_err_with(|| format!("Failed to load JWT config from '{jwt_config_path:?}'"))?;
+
         // Load the server endpoint first from the env var if present, otherwise the
         // config
         let endpoint = if let Some(endpoint) = load_optional_env_var(SIGNER_ENDPOINT_ENV) {
@@ -171,21 +177,6 @@ impl StartSignerConfig {
             timeout.parse()?
         } else {
             signer_config.jwt_auth_fail_timeout_seconds
-        };
-
-        // Load the JWT config file if set - if not set or empty, use an empty JWT
-        // config so there won't be any modules
-        let mut jwts = HashMap::new();
-        if let Some(path) = load_optional_env_var(SIGNER_JWT_CONFIG_FILE_ENV) {
-            if !path.is_empty() {
-                jwts = jwt::load_jwt_config_file(&PathBuf::from(path.clone()))
-                    .wrap_err_with(|| format!("Failed to load JWT config from '{path:?}'"))?;
-            }
-        } else if let Some(path) = &signer_config.jwt_config_file {
-            if !path.as_os_str().is_empty() {
-                jwts = jwt::load_jwt_config_file(path)
-                    .wrap_err_with(|| format!("Failed to load JWT config from '{path:?}'"))?;
-            }
         };
 
         match signer_config.inner {

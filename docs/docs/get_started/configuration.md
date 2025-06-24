@@ -310,6 +310,7 @@ Delegation signatures will be stored in files with the format `<proxy_dir>/deleg
 
 A full example of a config file with Dirk can be found [here](https://github.com/Commit-Boost/commit-boost-client/blob/main/examples/configs/dirk_signer.toml).
 
+
 ## Custom module
 We currently provide a test module that needs to be built locally. To build the module run:
 ```bash
@@ -357,6 +358,34 @@ A few things to note:
 - There is now a `[[modules]]` section which at a minimum needs to specify the module `id`, `type` and `docker_image`. Additional parameters needed for the business logic of the module will also be here,
 
 To learn more about developing modules, check out [here](/category/developing).
+
+
+## JWT Config File
+
+The Signer service's API is not configured to be used publically by arbitrary clients - access to it is whitelisted to applications (modules) that you permit in the Signer's configuration files. Each module that interacts with the Signer service must authenticate via a [JWT](https://en.wikipedia.org/wiki/JSON_Web_Token) included in its HTTP request headers. The secret authentication string for these JWTs is a unique value assigned to each module that you permit. Configuration for these secrets is done in the **JWT configuration file**. Any module that attempts to access the Signer API, but is not able to provide a JWT with an authentication secret, will be denied access.
+
+The JWT configuration file is a TOML file, similar to the Commit Boost configuration file, but is kept separate for isolation when using Docker containers. It has the following structure:
+
+```toml
+[[modules]]
+module_name = "test-module"
+jwt_secret = "supersecret"
+signing_id = "0x6a33a23ef26a4836979edff86c493a69b26ccf0b4a16491a815a13787657431b"
+
+[[modules]]
+module_name = "another-module"
+jwt_secret = "secondsecret"
+signing_id = "0x61fe00135d7b4912a8c63ada215ac2e62326e6e7b30f49a29fcf9779d7ad800d"
+```
+
+Each module that should be allowed to access the Signer API must have an entry in this file, prefixed with the `[[modules]]` line. Each one must have the following fields:
+
+- `module_name`: The unique name (preferably human-readable) to assign to the module. This is primarily used as an identifier for it in things like logging messages.
+- `jwt_secret`: The unique secret string that the module must provide in its JWT header for authentication. The module must have this same secret embedded in its own configuration. If using Commit Boost's Docker Compose generator, the generated container files will provide this value to each respective module's Docker container as the `CB_SIGNER_JWT` environment variable.
+- `signing_id`: A 32-byte hex string unique to the module that will be used by the Signer service during signing requests from the module to generate signatures that are unique to the requesting module. This should *not* change and will typically come from the documentation provided by the module authors. If using Commit Boost's Docker Compose generator, it will *not* be provided to the module in the environment variable; the module's own code must have this value built into it ahead of time. See the [Module Signing ID](../developing/commit-module.md#module-signing-id) section below for more details.
+
+This file can be named anything, as long as it ends with a `.toml` extension, and saved anywhere accessible by the Commit Boost CLI and Docker daemon (if using the Docker Compose generator and Docker mode). The location for the file must be specified in the `CB_SIGNER_JWT_CONFIG_FILE` environment variable of the machine (or container) running the Signer service.
+
 
 ## Vouch
 [Vouch](https://github.com/attestantio/vouch) is a multi-node validator client built by [Attestant](https://www.attestant.io/). Vouch is particular in that it also integrates an MEV-Boost client to interact with relays. The Commit-Boost PBS module is compatible with the Vouch `blockrelay` since it implements the same Builder-API as relays. For example, depending on your setup and preference, you may want to fetch headers from a given relay using Commit-Boost vs using the built-in Vouch `blockrelay`.
