@@ -1,6 +1,12 @@
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
-use cb_common::{commit::constants::GET_PUBKEYS_PATH, types::ModuleId, utils::create_jwt};
+use alloy::primitives::b256;
+use cb_common::{
+    commit::constants::GET_PUBKEYS_PATH,
+    config::{load_module_signing_configs, ModuleSigningConfig},
+    types::ModuleId,
+    utils::create_jwt,
+};
 use cb_tests::{
     signer_service::{start_server, verify_pubkeys},
     utils::{self, setup_test_env},
@@ -11,13 +17,27 @@ use tracing::info;
 
 const JWT_MODULE: &str = "test-module";
 
+async fn create_mod_signing_configs() -> HashMap<ModuleId, ModuleSigningConfig> {
+    let mut cfg =
+        utils::get_commit_boost_config(utils::get_pbs_static_config(utils::get_pbs_config(0)));
+
+    let module_id = ModuleId(JWT_MODULE.to_string());
+    let signing_id = b256!("0101010101010101010101010101010101010101010101010101010101010101");
+
+    cfg.modules = Some(vec![utils::create_module_config(&module_id, &signing_id)]);
+
+    let jwts = HashMap::from([(module_id.clone(), "supersecret".to_string())]);
+
+    load_module_signing_configs(&cfg, &jwts).unwrap()
+}
+
 #[tokio::test]
 async fn test_signer_jwt_auth_success() -> Result<()> {
     setup_test_env();
     let module_id = ModuleId(JWT_MODULE.to_string());
-    let jwts = utils::get_jwt_config();
-    let start_config = start_server(20100, &jwts).await?;
-    let jwt_config = jwts.get(&module_id).expect("JWT config for test module not found");
+    let mod_cfgs = create_mod_signing_configs().await;
+    let start_config = start_server(20100, &mod_cfgs).await?;
+    let jwt_config = mod_cfgs.get(&module_id).expect("JWT config for test module not found");
 
     // Run a pubkeys request
     let jwt = create_jwt(&module_id, &jwt_config.jwt_secret)?;
@@ -35,8 +55,8 @@ async fn test_signer_jwt_auth_success() -> Result<()> {
 async fn test_signer_jwt_auth_fail() -> Result<()> {
     setup_test_env();
     let module_id = ModuleId(JWT_MODULE.to_string());
-    let jwts = utils::get_jwt_config();
-    let start_config = start_server(20101, &jwts).await?;
+    let mod_cfgs = create_mod_signing_configs().await;
+    let start_config = start_server(20101, &mod_cfgs).await?;
 
     // Run a pubkeys request - this should fail due to invalid JWT
     let jwt = create_jwt(&module_id, "incorrect secret")?;
@@ -56,9 +76,9 @@ async fn test_signer_jwt_auth_fail() -> Result<()> {
 async fn test_signer_jwt_rate_limit() -> Result<()> {
     setup_test_env();
     let module_id = ModuleId(JWT_MODULE.to_string());
-    let jwts = utils::get_jwt_config();
-    let start_config = start_server(20102, &jwts).await?;
-    let jwt_config = jwts.get(&module_id).expect("JWT config for test module not found");
+    let mod_cfgs = create_mod_signing_configs().await;
+    let start_config = start_server(20102, &mod_cfgs).await?;
+    let mod_cfg = mod_cfgs.get(&module_id).expect("JWT config for test module not found");
 
     // Run as many pubkeys requests as the fail limit
     let jwt = create_jwt(&module_id, "incorrect secret")?;
@@ -70,7 +90,7 @@ async fn test_signer_jwt_rate_limit() -> Result<()> {
     }
 
     // Run another request - this should fail due to rate limiting now
-    let jwt = create_jwt(&module_id, &jwt_config.jwt_secret)?;
+    let jwt = create_jwt(&module_id, &mod_cfg.jwt_secret)?;
     let response = client.get(&url).bearer_auth(&jwt).send().await?;
     assert!(response.status() == StatusCode::TOO_MANY_REQUESTS);
 

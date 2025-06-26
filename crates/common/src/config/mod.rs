@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 use crate::types::{load_chain_from_file, Chain, ChainLoader, ForkVersion};
 
 mod constants;
-mod jwt;
 mod log;
 mod metrics;
 mod module;
@@ -16,7 +15,6 @@ mod signer;
 mod utils;
 
 pub use constants::*;
-pub use jwt::*;
 pub use log::*;
 pub use metrics::*;
 pub use module::*;

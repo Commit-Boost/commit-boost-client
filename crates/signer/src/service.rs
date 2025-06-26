@@ -25,7 +25,7 @@ use cb_common::{
             SignProxyRequest, SignRequest,
         },
     },
-    config::{JwtConfig, StartSignerConfig},
+    config::{ModuleSigningConfig, StartSignerConfig},
     constants::{COMMIT_BOOST_COMMIT, COMMIT_BOOST_VERSION},
     types::{Chain, Jwt, ModuleId},
     utils::{decode_jwt, validate_jwt},
@@ -69,7 +69,7 @@ where
 
     /// Map of modules ids to JWT configurations. This also acts as registry of
     /// all modules running
-    jwts: Arc<HashMap<ModuleId, JwtConfig>>,
+    jwts: Arc<HashMap<ModuleId, ModuleSigningConfig>>,
 
     /// Map of JWT failures per peer
     jwt_auth_failures: Arc<RwLock<HashMap<String, JwtAuthFailureInfo>>>,
@@ -81,17 +81,18 @@ where
 
 impl SigningService {
     pub async fn run(config: StartSignerConfig) -> eyre::Result<()> {
-        if config.jwts.is_empty() {
+        if config.mod_signing_configs.is_empty() {
             warn!("Signing service was started but no module is registered. Exiting");
             return Ok(());
         }
 
-        let module_ids: Vec<String> = config.jwts.keys().cloned().map(Into::into).collect();
+        let module_ids: Vec<String> =
+            config.mod_signing_configs.keys().cloned().map(Into::into).collect();
 
         let state = SigningState {
             manager: Arc::new(RwLock::new(start_manager(config.clone()).await?)),
             hasher: KeccakHasher::new(),
-            jwts: config.jwts.into(),
+            jwts: config.mod_signing_configs.into(),
             jwt_auth_failures: Arc::new(RwLock::new(HashMap::new())),
             jwt_auth_fail_limit: config.jwt_auth_fail_limit,
             jwt_auth_fail_timeout: Duration::from_secs(config.jwt_auth_fail_timeout_seconds as u64),

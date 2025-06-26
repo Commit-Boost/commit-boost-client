@@ -4,12 +4,17 @@ use std::{
     sync::{Arc, Once},
 };
 
-use alloy::{primitives::U256, rpc::types::beacon::BlsPublicKey};
+use alloy::{
+    primitives::{B256, U256},
+    rpc::types::beacon::BlsPublicKey,
+};
 use cb_common::{
     config::{
-        load_jwt_config_file, JwtConfig, PbsConfig, PbsModuleConfig, RelayConfig, SignerConfig,
-        SignerType, StartSignerConfig, SIGNER_IMAGE_DEFAULT, SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT,
-        SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT, SIGNER_PORT_DEFAULT,
+        CommitBoostConfig, LogsSettings, ModuleKind, ModuleSigningConfig, PbsConfig,
+        PbsModuleConfig, RelayConfig, SignerConfig, SignerType, StartSignerConfig,
+        StaticModuleConfig, StaticPbsConfig, SIGNER_IMAGE_DEFAULT,
+        SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT, SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT,
+        SIGNER_PORT_DEFAULT,
     },
     pbs::{RelayClient, RelayEntry},
     signer::SignerLoader,
@@ -65,7 +70,7 @@ pub fn generate_mock_relay_with_batch_size(
     RelayClient::new(config)
 }
 
-pub fn get_pbs_static_config(port: u16) -> PbsConfig {
+pub fn get_pbs_config(port: u16) -> PbsConfig {
     PbsConfig {
         host: Ipv4Addr::UNSPECIFIED,
         port,
@@ -79,6 +84,23 @@ pub fn get_pbs_static_config(port: u16) -> PbsConfig {
         late_in_slot_time_ms: u64::MAX,
         extra_validation_enabled: false,
         rpc_url: None,
+    }
+}
+
+pub fn get_pbs_static_config(pbs_config: PbsConfig) -> StaticPbsConfig {
+    StaticPbsConfig { docker_image: String::from(""), pbs_config, with_signer: true }
+}
+
+pub fn get_commit_boost_config(pbs_static_config: StaticPbsConfig) -> CommitBoostConfig {
+    CommitBoostConfig {
+        chain: Chain::Hoodi,
+        relays: vec![],
+        pbs: pbs_static_config,
+        muxes: None,
+        modules: Some(vec![]),
+        signer: None,
+        metrics: None,
+        logs: LogsSettings::default(),
     }
 }
 
@@ -113,7 +135,7 @@ pub fn get_signer_config(loader: SignerLoader) -> SignerConfig {
 pub fn get_start_signer_config(
     signer_config: SignerConfig,
     chain: Chain,
-    jwts: &HashMap<ModuleId, JwtConfig>,
+    mod_signing_configs: &HashMap<ModuleId, ModuleSigningConfig>,
 ) -> StartSignerConfig {
     match signer_config.inner {
         SignerType::Local { loader, .. } => StartSignerConfig {
@@ -121,7 +143,7 @@ pub fn get_start_signer_config(
             loader: Some(loader),
             store: None,
             endpoint: SocketAddr::new(signer_config.host.into(), signer_config.port),
-            jwts: jwts.clone(),
+            mod_signing_configs: mod_signing_configs.clone(),
             jwt_auth_fail_limit: signer_config.jwt_auth_fail_limit,
             jwt_auth_fail_timeout_seconds: signer_config.jwt_auth_fail_timeout_seconds,
             dirk: None,
@@ -130,10 +152,13 @@ pub fn get_start_signer_config(
     }
 }
 
-/// Loads the JWT config from the test file
-pub fn get_jwt_config() -> HashMap<ModuleId, JwtConfig> {
-    let cwd = std::env::current_dir().unwrap();
-    let mut jwt_file_path = cwd.join("data/configs/jwt.happy.toml");
-    jwt_file_path = jwt_file_path.canonicalize().unwrap();
-    load_jwt_config_file(&jwt_file_path).expect("Failed to load JWT config")
+pub fn create_module_config(id: &ModuleId, signing_id: &B256) -> StaticModuleConfig {
+    StaticModuleConfig {
+        id: id.clone(),
+        signing_id: Some(*signing_id),
+        docker_image: String::from(""),
+        env: None,
+        env_file: None,
+        kind: ModuleKind::Commit,
+    }
 }

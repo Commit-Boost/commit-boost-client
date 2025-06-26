@@ -3,7 +3,7 @@ use std::{collections::HashMap, time::Duration};
 use alloy::{hex, primitives::FixedBytes};
 use cb_common::{
     commit::request::GetPubkeysResponse,
-    config::{JwtConfig, StartSignerConfig},
+    config::{ModuleSigningConfig, StartSignerConfig},
     signer::{SignerLoader, ValidatorKeysFormat},
     types::{Chain, ModuleId},
 };
@@ -18,7 +18,7 @@ use crate::utils::{get_signer_config, get_start_signer_config};
 // configuration
 pub async fn start_server(
     port: u16,
-    jwts: &HashMap<ModuleId, JwtConfig>,
+    mod_signing_configs: &HashMap<ModuleId, ModuleSigningConfig>,
 ) -> Result<StartSignerConfig> {
     let chain = Chain::Hoodi;
 
@@ -32,7 +32,7 @@ pub async fn start_server(
     config.port = port;
     config.jwt_auth_fail_limit = 3; // Set a low fail limit for testing
     config.jwt_auth_fail_timeout_seconds = 3; // Set a short timeout for testing
-    let start_config = get_start_signer_config(config, chain, jwts);
+    let start_config = get_start_signer_config(config, chain, mod_signing_configs);
 
     // Run the Signer
     let server_handle = tokio::spawn(SigningService::run(start_config.clone()));

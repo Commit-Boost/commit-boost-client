@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use alloy::{
     hex,
     primitives::{b256, FixedBytes},
@@ -7,6 +9,7 @@ use cb_common::{
         constants::REQUEST_SIGNATURE_PATH,
         request::{SignConsensusRequest, SignRequest},
     },
+    config::{load_module_signing_configs, ModuleSigningConfig},
     types::ModuleId,
     utils::create_jwt,
 };
@@ -21,8 +24,28 @@ const MODULE_ID_1: &str = "test-module";
 const MODULE_ID_2: &str = "another-module";
 const PUBKEY_1: [u8; 48] =
     hex!("883827193f7627cd04e621e1e8d56498362a52b2a30c9a1c72036eb935c4278dee23d38a24d2f7dda62689886f0c39f4");
-const PUBKEY_2: [u8; 48] =
-    hex!("b3a22e4a673ac7a153ab5b3c17a4dbef55f7e47210b20c0cbb0e66df5b36bb49ef808577610b034172e955d2312a61b9");
+
+async fn create_mod_signing_configs() -> HashMap<ModuleId, ModuleSigningConfig> {
+    let mut cfg =
+        utils::get_commit_boost_config(utils::get_pbs_static_config(utils::get_pbs_config(0)));
+
+    let module_id_1 = ModuleId(MODULE_ID_1.to_string());
+    let signing_id_1 = b256!("0x6a33a23ef26a4836979edff86c493a69b26ccf0b4a16491a815a13787657431b");
+    let module_id_2 = ModuleId(MODULE_ID_2.to_string());
+    let signing_id_2 = b256!("0x61fe00135d7b4912a8c63ada215ac2e62326e6e7b30f49a29fcf9779d7ad800d");
+
+    cfg.modules = Some(vec![
+        utils::create_module_config(&module_id_1, &signing_id_1),
+        utils::create_module_config(&module_id_2, &signing_id_2),
+    ]);
+
+    let jwts = HashMap::from([
+        (module_id_1.clone(), "supersecret".to_string()),
+        (module_id_2.clone(), "anothersecret".to_string()),
+    ]);
+
+    load_module_signing_configs(&cfg, &jwts).unwrap()
+}
 
 /// Makes sure the signer service signs requests correctly, using the module's
 /// signing ID
@@ -30,9 +53,9 @@ const PUBKEY_2: [u8; 48] =
 async fn test_signer_sign_request_good() -> Result<()> {
     setup_test_env();
     let module_id = ModuleId(MODULE_ID_1.to_string());
-    let jwts = utils::get_jwt_config();
-    let start_config = start_server(20200, &jwts).await?;
-    let jwt_config = jwts.get(&module_id).expect("JWT config for test module not found");
+    let mod_cfgs = create_mod_signing_configs().await;
+    let start_config = start_server(20200, &mod_cfgs).await?;
+    let jwt_config = mod_cfgs.get(&module_id).expect("JWT config for test module not found");
 
     // Send a signing request
     let object_root = b256!("0x0123456789012345678901234567890123456789012345678901234567890123");
@@ -62,9 +85,9 @@ async fn test_signer_sign_request_good() -> Result<()> {
 async fn test_signer_sign_request_different_module() -> Result<()> {
     setup_test_env();
     let module_id = ModuleId(MODULE_ID_2.to_string());
-    let jwts = utils::get_jwt_config();
-    let start_config = start_server(20201, &jwts).await?;
-    let jwt_config = jwts.get(&module_id).expect("JWT config for 2nd test module not found");
+    let mod_cfgs = create_mod_signing_configs().await;
+    let start_config = start_server(20201, &mod_cfgs).await?;
+    let jwt_config = mod_cfgs.get(&module_id).expect("JWT config for 2nd test module not found");
 
     // Send a signing request
     let object_root = b256!("0x0123456789012345678901234567890123456789012345678901234567890123");

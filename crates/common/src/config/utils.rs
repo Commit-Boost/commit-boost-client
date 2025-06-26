@@ -1,7 +1,9 @@
-use std::path::Path;
+use std::{collections::HashMap, path::Path};
 
-use eyre::{Context, Result};
+use eyre::{bail, Context, Result};
 use serde::de::DeserializeOwned;
+
+use crate::{config::JWTS_ENV, types::ModuleId};
 
 pub fn load_env_var(env: &str) -> Result<String> {
     std::env::var(env).wrap_err(format!("{env} is not set"))
@@ -21,8 +23,12 @@ pub fn load_file_from_env<T: DeserializeOwned>(env: &str) -> Result<T> {
     load_from_file(&path)
 }
 
-// TODO: This was only used by the old JWT loader, can it be removed now?
-/*
+/// Loads a map of module id -> jwt secret from a json env
+pub fn load_jwt_secrets() -> Result<HashMap<ModuleId, String>> {
+    let jwt_secrets = std::env::var(JWTS_ENV).wrap_err(format!("{JWTS_ENV} is not set"))?;
+    decode_string_to_map(&jwt_secrets)
+}
+
 fn decode_string_to_map(raw: &str) -> Result<HashMap<ModuleId, String>> {
     // trim the string and split for comma
     raw.trim()
@@ -52,4 +58,3 @@ mod tests {
         assert_eq!(map.get(&ModuleId("KEY2".into())), Some(&"value2".to_string()));
     }
 }
-*/

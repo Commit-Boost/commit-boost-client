@@ -239,6 +239,8 @@ proxy_dir = "./proxies"
 [[modules]]
 # Unique ID of the module
 id = "DA_COMMIT"
+# Unique hash that the Signer service will combine with the incoming data in signing requests to generate a signature specific to this module
+signing_id = "0x6a33a23ef26a4836979edff86c493a69b26ccf0b4a16491a815a13787657431b"
 # Type of the module. Supported values: commit, events
 type = "commit"
 # Docker image of the module
