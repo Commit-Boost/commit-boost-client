@@ -10,7 +10,7 @@ use tree_hash::TreeHash;
 use crate::{
     constants::COMMIT_BOOST_DOMAIN,
     signature::{compute_domain, compute_signing_root},
-    types::Chain,
+    types::{self, Chain},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -87,22 +87,37 @@ impl EcdsaSigner {
         &self,
         chain: Chain,
         object_root: [u8; 32],
+        module_signing_id: Option<[u8; 32]>,
     ) -> Result<EcdsaSignature, alloy::signers::Error> {
         match self {
             EcdsaSigner::Local(sk) => {
                 let domain = compute_domain(chain, COMMIT_BOOST_DOMAIN);
-                let signing_root = compute_signing_root(object_root, domain).into();
+                let signing_root = match module_signing_id {
+                    Some(id) => {
+                        let signing_data = types::PropCommitSigningData {
+                            object_root,
+                            module_signing_id: id,
+                            signing_domain: domain,
+                        };
+                        compute_signing_root(&signing_data).into()
+                    }
+                    None => {
+                        let signing_data =
+                            types::BeaconSigningData { object_root, signing_domain: domain };
+                        compute_signing_root(&signing_data).into()
+                    }
+                };
                 sk.sign_hash_sync(&signing_root).map(EcdsaSignature::from)
             }
         }
     }
-
     pub async fn sign_msg(
         &self,
         chain: Chain,
         msg: &impl TreeHash,
+        module_signing_id: Option<[u8; 32]>,
     ) -> Result<EcdsaSignature, alloy::signers::Error> {
-        self.sign(chain, msg.tree_hash_root().0).await
+        self.sign(chain, msg.tree_hash_root().0, module_signing_id).await
     }
 }
 
@@ -124,15 +139,38 @@ mod test {
     use super::*;
 
     #[tokio::test]
-    async fn test_ecdsa_signer() {
+    async fn test_ecdsa_signer_noncommit() {
         let pk = bytes!("88bcd6672d95bcba0d52a3146494ed4d37675af4ed2206905eb161aa99a6c0d1");
         let signer = EcdsaSigner::new_from_bytes(&pk).unwrap();
 
         let object_root = [1; 32];
-        let signature = signer.sign(Chain::Holesky, object_root).await.unwrap();
+        let signature = signer.sign(Chain::Holesky, object_root, None).await.unwrap();
 
         let domain = compute_domain(Chain::Holesky, COMMIT_BOOST_DOMAIN);
-        let msg = compute_signing_root(object_root, domain);
+        let signing_data = types::BeaconSigningData { object_root, signing_domain: domain };
+        let msg = compute_signing_root(&signing_data);
+
+        assert_eq!(msg, hex!("219ca7a673b2cbbf67bec6c9f60f78bd051336d57b68d1540190f30667e86725"));
+
+        let address = signer.address();
+        let verified = verify_ecdsa_signature(&address, &msg, &signature);
+        assert!(verified.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_ecdsa_signer_prop_commit() {
+        let pk = bytes!("88bcd6672d95bcba0d52a3146494ed4d37675af4ed2206905eb161aa99a6c0d1");
+        let signer = EcdsaSigner::new_from_bytes(&pk).unwrap();
+
+        let object_root = [1; 32];
+        let module_signing_id = [2; 32];
+        let signature =
+            signer.sign(Chain::Holesky, object_root, Some(module_signing_id)).await.unwrap();
+
+        let domain = compute_domain(Chain::Holesky, COMMIT_BOOST_DOMAIN);
+        let signing_data =
+            types::PropCommitSigningData { object_root, module_signing_id, signing_domain: domain };
+        let msg = compute_signing_root(&signing_data);
 
         assert_eq!(msg, hex!("219ca7a673b2cbbf67bec6c9f60f78bd051336d57b68d1540190f30667e86725"));
 

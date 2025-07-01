@@ -334,7 +334,7 @@ pub fn load_module_signing_configs(
                     )
                 }
                 None => {
-                    seen_signing_ids.insert(module_signing_config.signing_id.clone(), &module.id);
+                    seen_signing_ids.insert(module_signing_config.signing_id, &module.id);
                     signing_id
                 }
             };

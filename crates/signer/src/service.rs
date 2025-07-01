@@ -288,21 +288,21 @@ async fn handle_request_signature<H: SigningHasher>(
                 let hash = state.hasher.hash(object_root, signing_id);
                 info!("Signing hash: {hash:?}");
                 local_manager
-                    .sign_consensus(pubkey, &hash)
+                    .sign_consensus(pubkey, &hash, Some(signing_id))
                     .await
                     .map(|sig| Json(sig).into_response())
             }
             SignRequest::ProxyBls(SignProxyRequest { ref object_root, proxy: ref bls_key }) => {
                 let hash = state.hasher.hash(object_root, signing_id);
                 local_manager
-                    .sign_proxy_bls(bls_key, &hash)
+                    .sign_proxy_bls(bls_key, &hash, Some(signing_id))
                     .await
                     .map(|sig| Json(sig).into_response())
             }
             SignRequest::ProxyEcdsa(SignProxyRequest { ref object_root, proxy: ref ecdsa_key }) => {
                 let hash = state.hasher.hash(object_root, signing_id);
                 local_manager
-                    .sign_proxy_ecdsa(ecdsa_key, &hash)
+                    .sign_proxy_ecdsa(ecdsa_key, &hash, Some(signing_id))
                     .await
                     .map(|sig| Json(sig).into_response())
             }

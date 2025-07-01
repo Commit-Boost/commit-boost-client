@@ -498,6 +498,7 @@ fn validate_signature<T: TreeHash>(
         &received_relay_pubkey,
         &message,
         signature,
+        None,
         APPLICATION_BUILDER_DOMAIN,
     )
     .map_err(ValidationError::Sigverify)?;

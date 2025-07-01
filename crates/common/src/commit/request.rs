@@ -57,6 +57,7 @@ impl<T: ProxyId> SignedProxyDelegation<T> {
             &self.message.delegator,
             &self.message,
             &self.signature,
+            None,
             COMMIT_BOOST_DOMAIN,
         )
     }

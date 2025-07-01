@@ -532,7 +532,8 @@ mod test {
             delegator: consensus_signer.pubkey(),
             proxy: proxy_signer.pubkey(),
         };
-        let signature = consensus_signer.sign(Chain::Mainnet, message.tree_hash_root().0).await;
+        let signature =
+            consensus_signer.sign(Chain::Mainnet, message.tree_hash_root().0, None).await;
         let delegation = SignedProxyDelegationBls { signature, message };
         let proxy_signer = BlsProxySigner { signer: proxy_signer, delegation };
 
@@ -645,7 +646,8 @@ mod test {
             delegator: consensus_signer.pubkey(),
             proxy: proxy_signer.pubkey(),
         };
-        let signature = consensus_signer.sign(Chain::Mainnet, message.tree_hash_root().0).await;
+        let signature =
+            consensus_signer.sign(Chain::Mainnet, message.tree_hash_root().0, None).await;
         let delegation = SignedProxyDelegationBls { signature, message };
         let proxy_signer = BlsProxySigner { signer: proxy_signer, delegation };
 
@@ -674,7 +676,7 @@ mod test {
                         .join(consensus_signer.pubkey().to_string())
                         .join("TEST_MODULE")
                         .join("bls")
-                        .join(format!("{}.sig", proxy_signer.pubkey().to_string()))
+                        .join(format!("{}.sig", proxy_signer.pubkey()))
                 )
                 .unwrap()
             )

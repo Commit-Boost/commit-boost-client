@@ -179,6 +179,7 @@ mod tests {
             &parsed.message.pubkey.into(),
             &parsed.message,
             &parsed.signature,
+            None,
             APPLICATION_BUILDER_DOMAIN
         )
         .is_ok())

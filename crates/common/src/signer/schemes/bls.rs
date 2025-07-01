@@ -38,14 +38,26 @@ impl BlsSigner {
         }
     }
 
-    pub async fn sign(&self, chain: Chain, object_root: [u8; 32]) -> BlsSignature {
+    pub async fn sign(
+        &self,
+        chain: Chain,
+        object_root: [u8; 32],
+        module_signing_id: Option<[u8; 32]>,
+    ) -> BlsSignature {
         match self {
-            BlsSigner::Local(sk) => sign_commit_boost_root(chain, sk, object_root),
+            BlsSigner::Local(sk) => {
+                sign_commit_boost_root(chain, sk, object_root, module_signing_id)
+            }
         }
     }
 
-    pub async fn sign_msg(&self, chain: Chain, msg: &impl TreeHash) -> BlsSignature {
-        self.sign(chain, msg.tree_hash_root().0).await
+    pub async fn sign_msg(
+        &self,
+        chain: Chain,
+        msg: &impl TreeHash,
+        module_signing_id: Option<[u8; 32]>,
+    ) -> BlsSignature {
+        self.sign(chain, msg.tree_hash_root().0, module_signing_id).await
     }
 }
 

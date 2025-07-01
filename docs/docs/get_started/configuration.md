@@ -356,7 +356,7 @@ docker_image = "test_builder_log"
 
 A few things to note:
 - We now added a `signer` section which will be used to create the Signer module.
-- There is now a `[[modules]]` section which at a minimum needs to specify the module `id`, `type` and `docker_image`. Additional parameters needed for the business logic of the module will also be here,
+- There is now a `[[modules]]` section which at a minimum needs to specify the module `id`, `type` and `docker_image`. For modules with type `commit`, which will be used to access the Signer service and request signatures for preconfs, you will also need to specify the module's unique `signing_id` (see ). Additional parameters needed for the business logic of the module will also be here.
 
 To learn more about developing modules, check out [here](/category/developing).
 

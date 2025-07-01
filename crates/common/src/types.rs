@@ -4,6 +4,7 @@ use alloy::primitives::{hex, Bytes};
 use derive_more::{Deref, Display, From, Into};
 use eyre::{bail, Context};
 use serde::{Deserialize, Serialize};
+use tree_hash_derive::TreeHash;
 
 use crate::{constants::APPLICATION_BUILDER_DOMAIN, signature::compute_domain};
 
@@ -281,6 +282,21 @@ impl<'de> Deserialize<'de> for Chain {
             }
         }
     }
+}
+
+/// Structure for signatures used in Beacon chain operations
+#[derive(Default, Debug, TreeHash)]
+pub struct BeaconSigningData {
+    pub object_root: [u8; 32],
+    pub signing_domain: [u8; 32],
+}
+
+/// Structure for signatures used for proposer commitments in Commit Boost
+#[derive(Default, Debug, TreeHash)]
+pub struct PropCommitSigningData {
+    pub object_root: [u8; 32],
+    pub module_signing_id: [u8; 32],
+    pub signing_domain: [u8; 32],
 }
 
 /// Returns seconds_per_slot and genesis_fork_version from a spec, such as

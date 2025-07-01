@@ -1,4 +1,7 @@
-use alloy::rpc::types::beacon::{constants::BLS_DST_SIG, BlsPublicKey, BlsSignature};
+use alloy::{
+    primitives::B256,
+    rpc::types::beacon::{constants::BLS_DST_SIG, BlsPublicKey, BlsSignature},
+};
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
@@ -6,7 +9,7 @@ use crate::{
     constants::{COMMIT_BOOST_DOMAIN, GENESIS_VALIDATORS_ROOT},
     error::BlstErrorWrapper,
     signer::{verify_bls_signature, BlsSecretKey},
-    types::Chain,
+    types::{self, Chain},
 };
 
 pub fn sign_message(secret_key: &BlsSecretKey, msg: &[u8]) -> BlsSignature {
@@ -14,14 +17,7 @@ pub fn sign_message(secret_key: &BlsSecretKey, msg: &[u8]) -> BlsSignature {
     BlsSignature::from_slice(&signature)
 }
 
-pub fn compute_signing_root(object_root: [u8; 32], signing_domain: [u8; 32]) -> [u8; 32] {
-    #[derive(Default, Debug, TreeHash)]
-    struct SigningData {
-        object_root: [u8; 32],
-        signing_domain: [u8; 32],
-    }
-
-    let signing_data = SigningData { object_root, signing_domain };
+pub fn compute_signing_root<T: TreeHash>(signing_data: &T) -> [u8; 32] {
     signing_data.tree_hash_root().0
 }
 
@@ -52,14 +48,25 @@ pub fn verify_signed_message<T: TreeHash>(
     pubkey: &BlsPublicKey,
     msg: &T,
     signature: &BlsSignature,
+    module_signing_id: Option<&B256>,
     domain_mask: [u8; 4],
 ) -> Result<(), BlstErrorWrapper> {
     let domain = compute_domain(chain, domain_mask);
-    let signing_root = compute_signing_root(msg.tree_hash_root().0, domain);
-
+    let signing_root = match module_signing_id {
+        Some(id) => compute_signing_root(&types::PropCommitSigningData {
+            object_root: msg.tree_hash_root().0,
+            module_signing_id: id.0,
+            signing_domain: domain,
+        }),
+        None => compute_signing_root(&types::BeaconSigningData {
+            object_root: msg.tree_hash_root().0,
+            signing_domain: domain,
+        }),
+    };
     verify_bls_signature(pubkey, &signing_root, signature)
 }
 
+/// Signs a message with the Beacon builder domain.
 pub fn sign_builder_message(
     chain: Chain,
     secret_key: &BlsSecretKey,
@@ -74,7 +81,11 @@ pub fn sign_builder_root(
     object_root: [u8; 32],
 ) -> BlsSignature {
     let domain = chain.builder_domain();
-    let signing_root = compute_signing_root(object_root, domain);
+    let signing_data = types::BeaconSigningData {
+        object_root: object_root.tree_hash_root().0,
+        signing_domain: domain,
+    };
+    let signing_root = compute_signing_root(&signing_data);
     sign_message(secret_key, &signing_root)
 }
 
@@ -82,9 +93,19 @@ pub fn sign_commit_boost_root(
     chain: Chain,
     secret_key: &BlsSecretKey,
     object_root: [u8; 32],
+    module_signing_id: Option<[u8; 32]>,
 ) -> BlsSignature {
     let domain = compute_domain(chain, COMMIT_BOOST_DOMAIN);
-    let signing_root = compute_signing_root(object_root, domain);
+    let signing_root = match module_signing_id {
+        Some(id) => compute_signing_root(&types::PropCommitSigningData {
+            object_root,
+            module_signing_id: id,
+            signing_domain: domain,
+        }),
+        None => {
+            compute_signing_root(&types::BeaconSigningData { object_root, signing_domain: domain })
+        }
+    };
     sign_message(secret_key, &signing_root)
 }
 
