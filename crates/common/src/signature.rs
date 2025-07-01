@@ -53,12 +53,14 @@ pub fn verify_signed_message<T: TreeHash>(
 ) -> Result<(), BlstErrorWrapper> {
     let domain = compute_domain(chain, domain_mask);
     let signing_root = match module_signing_id {
-        Some(id) => compute_signing_root(&types::PropCommitSigningData {
-            object_root: msg.tree_hash_root().0,
-            module_signing_id: id.0,
+        Some(id) => compute_signing_root(&types::SigningData {
+            object_root: compute_signing_root(&types::PropCommitSigningInfo {
+                data: msg.tree_hash_root().0,
+                module_signing_id: id.0,
+            }),
             signing_domain: domain,
         }),
-        None => compute_signing_root(&types::BeaconSigningData {
+        None => compute_signing_root(&types::SigningData {
             object_root: msg.tree_hash_root().0,
             signing_domain: domain,
         }),
@@ -81,10 +83,8 @@ pub fn sign_builder_root(
     object_root: [u8; 32],
 ) -> BlsSignature {
     let domain = chain.builder_domain();
-    let signing_data = types::BeaconSigningData {
-        object_root: object_root.tree_hash_root().0,
-        signing_domain: domain,
-    };
+    let signing_data =
+        types::SigningData { object_root: object_root.tree_hash_root().0, signing_domain: domain };
     let signing_root = compute_signing_root(&signing_data);
     sign_message(secret_key, &signing_root)
 }
@@ -97,14 +97,14 @@ pub fn sign_commit_boost_root(
 ) -> BlsSignature {
     let domain = compute_domain(chain, COMMIT_BOOST_DOMAIN);
     let signing_root = match module_signing_id {
-        Some(id) => compute_signing_root(&types::PropCommitSigningData {
-            object_root,
-            module_signing_id: id,
+        Some(id) => compute_signing_root(&types::SigningData {
+            object_root: compute_signing_root(&types::PropCommitSigningInfo {
+                data: object_root,
+                module_signing_id: id,
+            }),
             signing_domain: domain,
         }),
-        None => {
-            compute_signing_root(&types::BeaconSigningData { object_root, signing_domain: domain })
-        }
+        None => compute_signing_root(&types::SigningData { object_root, signing_domain: domain }),
     };
     sign_message(secret_key, &signing_root)
 }

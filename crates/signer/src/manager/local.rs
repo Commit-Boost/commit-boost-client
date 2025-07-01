@@ -328,10 +328,12 @@ mod tests {
 
             // Verify signature
             let domain = compute_domain(CHAIN, COMMIT_BOOST_DOMAIN);
-            let signing_root = compute_signing_root(&types::PropCommitSigningData {
-                object_root: data_root.tree_hash_root().0,
+            let signing_root = compute_signing_root(&types::SigningData {
+                object_root: compute_signing_root(&types::PropCommitSigningInfo {
+                    data: data_root.tree_hash_root().0,
+                    module_signing_id: module_signing_id.0,
+                }),
                 signing_domain: domain,
-                module_signing_id: module_signing_id.0,
             });
 
             let validation_result = verify_bls_signature(&consensus_pk, &signing_root, &sig);
@@ -408,10 +410,12 @@ mod tests {
 
             // Verify signature
             let domain = compute_domain(CHAIN, COMMIT_BOOST_DOMAIN);
-            let signing_root = compute_signing_root(&types::PropCommitSigningData {
-                object_root: data_root.tree_hash_root().0,
+            let signing_root = compute_signing_root(&types::SigningData {
+                object_root: compute_signing_root(&types::PropCommitSigningInfo {
+                    data: data_root.tree_hash_root().0,
+                    module_signing_id: module_signing_id.0,
+                }),
                 signing_domain: domain,
-                module_signing_id: module_signing_id.0,
             });
 
             let validation_result = verify_bls_signature(&proxy_pk, &signing_root, &sig);
@@ -495,10 +499,12 @@ mod tests {
 
             // Verify signature
             let domain = compute_domain(CHAIN, COMMIT_BOOST_DOMAIN);
-            let signing_root = compute_signing_root(&types::PropCommitSigningData {
-                object_root: data_root.tree_hash_root().0,
+            let signing_root = compute_signing_root(&types::SigningData {
+                object_root: compute_signing_root(&types::PropCommitSigningInfo {
+                    data: data_root.tree_hash_root().0,
+                    module_signing_id: module_signing_id.0,
+                }),
                 signing_domain: domain,
-                module_signing_id: module_signing_id.0,
             });
 
             let validation_result = verify_ecdsa_signature(&proxy_pk, &signing_root, &sig);

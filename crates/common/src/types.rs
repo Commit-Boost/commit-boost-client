@@ -286,17 +286,18 @@ impl<'de> Deserialize<'de> for Chain {
 
 /// Structure for signatures used in Beacon chain operations
 #[derive(Default, Debug, TreeHash)]
-pub struct BeaconSigningData {
+pub struct SigningData {
     pub object_root: [u8; 32],
     pub signing_domain: [u8; 32],
 }
 
-/// Structure for signatures used for proposer commitments in Commit Boost
+/// Structure for signatures used for proposer commitments in Commit Boost.
+/// The signing root of this struct must be used as the object_root of a
+/// SigningData for signatures.
 #[derive(Default, Debug, TreeHash)]
-pub struct PropCommitSigningData {
-    pub object_root: [u8; 32],
+pub struct PropCommitSigningInfo {
+    pub data: [u8; 32],
     pub module_signing_id: [u8; 32],
-    pub signing_domain: [u8; 32],
 }
 
 /// Returns seconds_per_slot and genesis_fork_version from a spec, such as

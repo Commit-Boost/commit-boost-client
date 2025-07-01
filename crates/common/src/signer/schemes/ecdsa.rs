@@ -94,16 +94,18 @@ impl EcdsaSigner {
                 let domain = compute_domain(chain, COMMIT_BOOST_DOMAIN);
                 let signing_root = match module_signing_id {
                     Some(id) => {
-                        let signing_data = types::PropCommitSigningData {
-                            object_root,
-                            module_signing_id: id,
+                        let signing_data = types::SigningData {
+                            object_root: compute_signing_root(&types::PropCommitSigningInfo {
+                                data: object_root,
+                                module_signing_id: id,
+                            }),
                             signing_domain: domain,
                         };
                         compute_signing_root(&signing_data).into()
                     }
                     None => {
                         let signing_data =
-                            types::BeaconSigningData { object_root, signing_domain: domain };
+                            types::SigningData { object_root, signing_domain: domain };
                         compute_signing_root(&signing_data).into()
                     }
                 };
@@ -147,7 +149,7 @@ mod test {
         let signature = signer.sign(Chain::Holesky, object_root, None).await.unwrap();
 
         let domain = compute_domain(Chain::Holesky, COMMIT_BOOST_DOMAIN);
-        let signing_data = types::BeaconSigningData { object_root, signing_domain: domain };
+        let signing_data = types::SigningData { object_root, signing_domain: domain };
         let msg = compute_signing_root(&signing_data);
 
         assert_eq!(msg, hex!("219ca7a673b2cbbf67bec6c9f60f78bd051336d57b68d1540190f30667e86725"));
@@ -165,14 +167,19 @@ mod test {
         let object_root = [1; 32];
         let module_signing_id = [2; 32];
         let signature =
-            signer.sign(Chain::Holesky, object_root, Some(module_signing_id)).await.unwrap();
+            signer.sign(Chain::Hoodi, object_root, Some(module_signing_id)).await.unwrap();
 
-        let domain = compute_domain(Chain::Holesky, COMMIT_BOOST_DOMAIN);
-        let signing_data =
-            types::PropCommitSigningData { object_root, module_signing_id, signing_domain: domain };
+        let domain = compute_domain(Chain::Hoodi, COMMIT_BOOST_DOMAIN);
+        let signing_data = types::SigningData {
+            object_root: compute_signing_root(&types::PropCommitSigningInfo {
+                data: object_root,
+                module_signing_id,
+            }),
+            signing_domain: domain,
+        };
         let msg = compute_signing_root(&signing_data);
 
-        assert_eq!(msg, hex!("219ca7a673b2cbbf67bec6c9f60f78bd051336d57b68d1540190f30667e86725"));
+        assert_eq!(msg, hex!("8cd49ccf2f9b0297796ff96ce5f7c5d26e20a59d0032ee2ad6249dcd9682b808"));
 
         let address = signer.address();
         let verified = verify_ecdsa_signature(&address, &msg, &signature);

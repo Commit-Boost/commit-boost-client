@@ -73,7 +73,7 @@ async fn test_signer_sign_request_good() -> Result<()> {
     let signature = response.text().await?;
     assert!(!signature.is_empty(), "Signature should not be empty");
 
-    let expected_signature = "\"0x992e6fc29ba219e6afeceb91df3f58ebaa6c82ea8d00b3f4564a4d47cfd886c076ade87c6df765ba3fdcc5ba71513d8f0f12b17c76e4859126ab902a3ae5e8789eb3c9c49e8e9c5cd70ef0a93c76ca16763a940b991192eaba97dcc8c060ff7a\"";
+    let expected_signature = "\"0xa43e623f009e615faa3987368f64d6286a4103de70e9a81d82562c50c91eae2d5d6fb9db9fe943aa8ee42fd92d8210c1149f25ed6aa72a557d74a0ed5646fdd0e8255ec58e3e2931695fe913863ba0cdf90d29f651bce0a34169a6f6ce5b3115\"";
     assert_eq!(signature, expected_signature, "Signature does not match expected value");
 
     Ok(())
@@ -105,7 +105,7 @@ async fn test_signer_sign_request_different_module() -> Result<()> {
     let signature = response.text().await?;
     assert!(!signature.is_empty(), "Signature should not be empty");
 
-    let incorrect_signature = "\"0x992e6fc29ba219e6afeceb91df3f58ebaa6c82ea8d00b3f4564a4d47cfd886c076ade87c6df765ba3fdcc5ba71513d8f0f12b17c76e4859126ab902a3ae5e8789eb3c9c49e8e9c5cd70ef0a93c76ca16763a940b991192eaba97dcc8c060ff7a\"";
+    let incorrect_signature = "\"0xa43e623f009e615faa3987368f64d6286a4103de70e9a81d82562c50c91eae2d5d6fb9db9fe943aa8ee42fd92d8210c1149f25ed6aa72a557d74a0ed5646fdd0e8255ec58e3e2931695fe913863ba0cdf90d29f651bce0a34169a6f6ce5b3115\"";
     assert_ne!(signature, incorrect_signature, "Signature does not match expected value");
 
     Ok(())
