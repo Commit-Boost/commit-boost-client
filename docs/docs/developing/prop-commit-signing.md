@@ -43,7 +43,7 @@ The form proposer commitment signatures take depends on the type of signature be
 
 <center>
 
-<img src="../res/img/prop_commit_tree.png" width="800">
+<img src="../res/img/prop_commit_tree.png" width="800"/>
 
 </center>
 
