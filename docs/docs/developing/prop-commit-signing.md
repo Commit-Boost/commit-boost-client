@@ -25,7 +25,7 @@ Commit Boost's signer service must be configured prior to launching to expect re
 
 1. An entry for your module into [Commit Boost's configuration file](../get_started/configuration.md#custom-module). This must include a unique ID for your module, the line `type = "commit"`, and include a unique [signing ID](#the-signing-id) for your module. Generally you should provide values for these in your documentation, so your users can reference it when configuring their own Commit Boost node.
 
-2. A JWT secret used by your module to authenticate with the signer in HTTP requests. *{Placeholder for more details on setting this here}*
+2. A JWT secret used by your module to authenticate with the signer in HTTP requests. This must be a string that both the Commit Boost signer can read and your module can read, but no other modules should be allowed to access it. The user should be responsible for determining an appropriate secret and providing it to the Commit Boost signer service securely; your module will need some way to accept this, typically via a command line argument that accepts a path to a file with the secret or as an environment variable.
 
 Once the user has configured both Commit Boost and your module with these settings, your module will be able to authenticate with the signer service and request signatures.
 
