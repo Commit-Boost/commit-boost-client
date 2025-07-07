@@ -1,5 +1,4 @@
 use std::{
-    ffi::OsStr,
     fs::{self, File},
     io::BufReader,
     path::PathBuf,
@@ -11,8 +10,9 @@ use aes::{
 };
 use alloy::{primitives::hex::FromHex, rpc::types::beacon::BlsPublicKey};
 use eth2_keystore::{json_keystore::JsonKeystore, Keystore};
-use eyre::{eyre, Context, OptionExt};
+use eyre::{eyre, Context};
 use pbkdf2::{hmac, pbkdf2};
+use rayon::prelude::*;
 use serde::{de, Deserialize, Deserializer, Serialize};
 use tracing::warn;
 use unicode_normalization::UnicodeNormalization;
@@ -113,31 +113,34 @@ fn load_from_lighthouse_format(
     keys_path: PathBuf,
     secrets_path: PathBuf,
 ) -> eyre::Result<Vec<ConsensusSigner>> {
-    let entries = fs::read_dir(keys_path.clone())?;
+    let paths: Vec<_> =
+        fs::read_dir(&keys_path)?.map(|res| res.map(|e| e.path())).collect::<Result<_, _>>()?;
 
-    let mut signers = Vec::new();
+    let signers = paths
+        .into_par_iter()
+        .filter_map(|path| {
+            if !path.is_dir() {
+                return None
+            }
 
-    for entry in entries {
-        let entry = entry?;
-        let path = entry.path();
+            let maybe_pubkey = path.file_name().and_then(|d| d.to_str())?;
+            let Ok(pubkey) = BlsPublicKey::from_hex(maybe_pubkey) else {
+                warn!("Invalid pubkey: {}", maybe_pubkey);
+                return None
+            };
 
-        // Check if file name is a pubkey
-        if path.is_dir() {
-            if let Some(maybe_pubkey) = path.file_name().and_then(|d| d.to_str()) {
-                if let Ok(pubkey) = BlsPublicKey::from_hex(maybe_pubkey) {
-                    let ks_path = keys_path.join(maybe_pubkey).join("voting-keystore.json");
-                    let pw_path = secrets_path.join(pubkey.to_string());
+            let ks_path = keys_path.join(maybe_pubkey).join("voting-keystore.json");
+            let pw_path = secrets_path.join(pubkey.to_string());
 
-                    match load_one(ks_path, pw_path) {
-                        Ok(signer) => signers.push(signer),
-                        Err(e) => warn!("Failed to load signer for pubkey: {}, err: {}", pubkey, e),
-                    }
-                } else {
-                    warn!("Invalid pubkey: {}", maybe_pubkey);
+            match load_one(ks_path, pw_path) {
+                Ok(signer) => Some(signer),
+                Err(e) => {
+                    warn!("Failed to load signer for pubkey: {}, err: {}", pubkey, e);
+                    None
                 }
             }
-        }
-    }
+        })
+        .collect();
 
     Ok(signers)
 }
@@ -146,34 +149,31 @@ fn load_from_teku_format(
     keys_path: PathBuf,
     secrets_path: PathBuf,
 ) -> eyre::Result<Vec<ConsensusSigner>> {
-    let entries = fs::read_dir(keys_path.clone())?;
-    let mut signers = Vec::new();
+    let paths: Vec<_> =
+        fs::read_dir(&keys_path)?.map(|res| res.map(|e| e.path())).collect::<Result<_, _>>()?;
 
-    for entry in entries {
-        let entry = entry?;
-        let path = entry.path();
+    let signers = paths
+        .into_par_iter()
+        .filter_map(|path| {
+            if path.is_dir() {
+                warn!("Path {path:?} is a dir");
+                return None;
+            }
 
-        if path.is_dir() {
-            warn!("Path {path:?} is a dir");
-            continue;
-        }
+            let file_name = path.file_name()?.to_str()?.rsplit_once(".")?.0;
 
-        let file_name = path
-            .file_name()
-            .and_then(OsStr::to_str)
-            .ok_or_eyre("File name not valid")?
-            .rsplit_once(".")
-            .ok_or_eyre("File doesn't have extension")?
-            .0;
-
-        match load_one(
-            keys_path.join(format!("{file_name}.json")),
-            secrets_path.join(format!("{file_name}.txt")),
-        ) {
-            Ok(signer) => signers.push(signer),
-            Err(e) => warn!("Sign load error: {e}"),
-        }
-    }
+            match load_one(
+                keys_path.join(format!("{file_name}.json")),
+                secrets_path.join(format!("{file_name}.txt")),
+            ) {
+                Ok(signer) => Some(signer),
+                Err(e) => {
+                    warn!("Sign load error: {e}");
+                    None
+                }
+            }
+        })
+        .collect();
 
     Ok(signers)
 }
@@ -182,23 +182,26 @@ fn load_from_lodestar_format(
     keys_path: PathBuf,
     password_path: PathBuf,
 ) -> eyre::Result<Vec<ConsensusSigner>> {
-    let entries = fs::read_dir(keys_path)?;
-    let mut signers = Vec::new();
+    let paths: Vec<_> =
+        fs::read_dir(&keys_path)?.map(|res| res.map(|e| e.path())).collect::<Result<_, _>>()?;
 
-    for entry in entries {
-        let entry = entry?;
-        let path = entry.path();
+    let signers = paths
+        .into_par_iter()
+        .filter_map(|path| {
+            if path.is_dir() {
+                warn!("Path {path:?} is a dir");
+                return None;
+            }
 
-        if path.is_dir() {
-            warn!("Path {path:?} is a dir");
-            continue;
-        }
-
-        match load_one(path, password_path.clone()) {
-            Ok(signer) => signers.push(signer),
-            Err(e) => warn!("Sign load error: {e}"),
-        }
-    }
+            match load_one(path, password_path.clone()) {
+                Ok(signer) => Some(signer),
+                Err(e) => {
+                    warn!("Sign load error: {e}");
+                    None
+                }
+            }
+        })
+        .collect();
 
     Ok(signers)
 }
@@ -252,19 +255,19 @@ fn load_from_prysm_format(
     let mut cipher = ctr::Ctr128BE::<Aes128>::new_from_slices(&decryption_key[..16], &keystore.iv)
         .map_err(|_| eyre!("Invalid key or nonce"))?;
 
-    let mut buf = vec![0u8; ciphertext.len()].into_boxed_slice();
+    let mut buf = vec![0u8; ciphertext.len()];
     cipher
         .apply_keystream_b2b(&ciphertext, &mut buf)
         .map_err(|_| eyre!("Failed decrypting accounts"))?;
 
     let decrypted_keystore: PrysmDecryptedKeystore =
         serde_json::from_slice(&buf).map_err(|e| eyre!("Failed reading json: {e}"))?;
-    let mut signers = Vec::with_capacity(decrypted_keystore.private_keys.len());
-
-    for key in decrypted_keystore.private_keys {
-        let signer = ConsensusSigner::new_from_bytes(&key)?;
-        signers.push(signer);
-    }
+    let signers = decrypted_keystore
+        .private_keys
+        .into_par_iter()
+        .map(|pk| ConsensusSigner::new_from_bytes(&pk))
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to load signers")?;
 
     Ok(signers)
 }
