@@ -120,29 +120,36 @@ pub struct MuxConfig {
 impl MuxConfig {
     /// Returns the env, actual path, and internal path to use for the file
     /// loader
-    pub fn loader_env(&self) -> Option<(String, String, String)> {
-        self.loader.as_ref().and_then(|loader| match loader {
+    pub fn loader_env(&self) -> eyre::Result<Option<(String, String, String)>> {
+        let Some(loader) = self.loader.as_ref() else {
+            return Ok(None);
+        };
+
+        match loader {
             MuxKeysLoader::File(path_buf) => {
-                if !path_buf.try_exists().is_ok_and(|exists| exists) {
-                    panic!("path doesn't exist: {:?}", path_buf);
-                }
+                ensure!(
+                    path_buf.try_exists().is_ok_and(|exists| exists),
+                    "path doesn't exist: {:?}",
+                    path_buf
+                );
 
-                if !path_buf
-                    .file_name()
-                    .is_some_and(|name| name.to_string_lossy().to_lowercase().ends_with(".json"))
-                {
-                    panic!("file doesn't have a .json extension");
-                }
+                ensure!(
+                    path_buf.extension().is_some_and(|ext| ext == "json"),
+                    "file doesn't have a .json extension: {:?}",
+                    path_buf
+                );
 
-                let path =
-                    path_buf.to_str().unwrap_or_else(|| panic!("invalid path: {:?}", path_buf));
+                let Some(path) = path_buf.to_str() else {
+                    bail!("invalid path: {:?}", path_buf);
+                };
+
                 let internal_path = get_mux_path(&self.id);
 
-                Some((get_mux_env(&self.id), path.to_owned(), internal_path))
+                Ok(Some((get_mux_env(&self.id), path.to_owned(), internal_path)))
             }
-            MuxKeysLoader::HTTP { .. } => None,
-            MuxKeysLoader::Registry { .. } => None,
-        })
+            MuxKeysLoader::HTTP { .. } => Ok(None),
+            MuxKeysLoader::Registry { .. } => Ok(None),
+        }
     }
 }
 

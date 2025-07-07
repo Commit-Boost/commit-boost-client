@@ -257,7 +257,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
 
     if let Some(mux_config) = cb_config.muxes {
         for mux in mux_config.muxes.iter() {
-            if let Some((env_name, actual_path, internal_path)) = mux.loader_env() {
+            if let Some((env_name, actual_path, internal_path)) = mux.loader_env()? {
                 let (key, val) = get_env_val(&env_name, &internal_path);
                 pbs_envs.insert(key, val);
                 pbs_volumes.push(Volumes::Simple(format!("{}:{}:ro", actual_path, internal_path)));
