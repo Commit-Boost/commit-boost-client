@@ -191,7 +191,7 @@ fn check_jwt_rate_limit(state: &SigningState, client_ip: &IpAddr) -> Result<(), 
         }
 
         // Rate limit the request
-        let remaining = state.jwt_auth_fail_timeout - elapsed;
+        let remaining = state.jwt_auth_fail_timeout.saturating_sub(elapsed);
         warn!("Client {client_ip} is rate limited for {remaining:?} more seconds due to JWT auth failures");
         return Err(SignerModuleError::RateLimited(remaining.as_secs_f64()));
     }
