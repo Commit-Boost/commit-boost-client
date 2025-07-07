@@ -4,20 +4,25 @@ use std::{
     path::PathBuf,
 };
 
-use eyre::{bail, OptionExt, Result};
+use docker_image::DockerImage;
+use eyre::{bail, ensure, OptionExt, Result};
 use serde::{Deserialize, Serialize};
 use tonic::transport::{Certificate, Identity};
 use url::Url;
 
 use super::{
     load_jwt_secrets, load_optional_env_var, utils::load_env_var, CommitBoostConfig,
-    SIGNER_ENDPOINT_ENV, SIGNER_IMAGE_DEFAULT,
+    SIGNER_ENDPOINT_ENV, SIGNER_IMAGE_DEFAULT, SIGNER_JWT_AUTH_FAIL_LIMIT_ENV,
+    SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_ENV,
 };
 use crate::{
     config::{DIRK_CA_CERT_ENV, DIRK_CERT_ENV, DIRK_DIR_SECRETS_ENV, DIRK_KEY_ENV},
-    signer::{ProxyStore, SignerLoader, DEFAULT_SIGNER_PORT},
+    signer::{
+        ProxyStore, SignerLoader, DEFAULT_JWT_AUTH_FAIL_LIMIT,
+        DEFAULT_JWT_AUTH_FAIL_TIMEOUT_SECONDS, DEFAULT_SIGNER_PORT,
+    },
     types::{Chain, ModuleId},
-    utils::{default_host, default_u16},
+    utils::{default_host, default_u16, default_u32},
 };
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -32,9 +37,37 @@ pub struct SignerConfig {
     /// Docker image of the module
     #[serde(default = "default_signer")]
     pub docker_image: String,
+
+    /// Number of JWT auth failures before rate limiting an endpoint
+    /// If set to 0, no rate limiting will be applied
+    #[serde(default = "default_u32::<DEFAULT_JWT_AUTH_FAIL_LIMIT>")]
+    pub jwt_auth_fail_limit: u32,
+
+    /// Duration in seconds to rate limit an endpoint after the JWT auth failure
+    /// limit has been reached
+    #[serde(default = "default_u32::<DEFAULT_JWT_AUTH_FAIL_TIMEOUT_SECONDS>")]
+    pub jwt_auth_fail_timeout_seconds: u32,
+
     /// Inner type-specific configuration
     #[serde(flatten)]
     pub inner: SignerType,
+}
+
+impl SignerConfig {
+    /// Validate the signer config
+    pub async fn validate(&self) -> Result<()> {
+        // Port must be positive
+        ensure!(self.port > 0, "Port must be positive");
+
+        // The Docker tag must parse
+        ensure!(!self.docker_image.is_empty(), "Docker image is empty");
+        ensure!(
+            DockerImage::parse(&self.docker_image).is_ok(),
+            format!("Invalid Docker image: {}", self.docker_image)
+        );
+
+        Ok(())
+    }
 }
 
 fn default_signer() -> String {
@@ -100,6 +133,8 @@ pub struct StartSignerConfig {
     pub store: Option<ProxyStore>,
     pub endpoint: SocketAddr,
     pub jwts: HashMap<ModuleId, String>,
+    pub jwt_auth_fail_limit: u32,
+    pub jwt_auth_fail_timeout_seconds: u32,
     pub dirk: Option<DirkConfig>,
 }
 
@@ -119,12 +154,31 @@ impl StartSignerConfig {
             SocketAddr::from((signer_config.host, signer_config.port))
         };
 
+        // Load the JWT auth fail limit the same way
+        let jwt_auth_fail_limit =
+            if let Some(limit) = load_optional_env_var(SIGNER_JWT_AUTH_FAIL_LIMIT_ENV) {
+                limit.parse()?
+            } else {
+                signer_config.jwt_auth_fail_limit
+            };
+
+        // Load the JWT auth fail timeout the same way
+        let jwt_auth_fail_timeout_seconds = if let Some(timeout) =
+            load_optional_env_var(SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_ENV)
+        {
+            timeout.parse()?
+        } else {
+            signer_config.jwt_auth_fail_timeout_seconds
+        };
+
         match signer_config.inner {
             SignerType::Local { loader, store, .. } => Ok(StartSignerConfig {
                 chain: config.chain,
                 loader: Some(loader),
                 endpoint,
                 jwts,
+                jwt_auth_fail_limit,
+                jwt_auth_fail_timeout_seconds,
                 store,
                 dirk: None,
             }),
@@ -153,6 +207,8 @@ impl StartSignerConfig {
                     chain: config.chain,
                     endpoint,
                     jwts,
+                    jwt_auth_fail_limit,
+                    jwt_auth_fail_timeout_seconds,
                     loader: None,
                     store,
                     dirk: Some(DirkConfig {
