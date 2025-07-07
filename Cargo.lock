@@ -1394,7 +1394,7 @@ dependencies = [
 
 [[package]]
 name = "builder_log"
-version = "0.8.0-rc.2"
+version = "0.8.0"
 dependencies = [
  "async-trait",
  "commit-boost",
@@ -1447,7 +1447,7 @@ dependencies = [
 
 [[package]]
 name = "cb-bench-pbs"
-version = "0.8.0-rc.2"
+version = "0.8.0"
 dependencies = [
  "alloy",
  "cb-common",
@@ -1464,7 +1464,7 @@ dependencies = [
 
 [[package]]
 name = "cb-cli"
-version = "0.8.0-rc.2"
+version = "0.8.0"
 dependencies = [
  "cb-common",
  "clap",
@@ -1476,7 +1476,7 @@ dependencies = [
 
 [[package]]
 name = "cb-common"
-version = "0.8.0-rc.2"
+version = "0.8.0"
 dependencies = [
  "aes 0.8.4",
  "alloy",
@@ -1518,7 +1518,7 @@ dependencies = [
 
 [[package]]
 name = "cb-metrics"
-version = "0.8.0-rc.2"
+version = "0.8.0"
 dependencies = [
  "axum 0.8.1",
  "cb-common",
@@ -1531,7 +1531,7 @@ dependencies = [
 
 [[package]]
 name = "cb-pbs"
-version = "0.8.0-rc.2"
+version = "0.8.0"
 dependencies = [
  "alloy",
  "async-trait",
@@ -1556,7 +1556,7 @@ dependencies = [
 
 [[package]]
 name = "cb-signer"
-version = "0.8.0-rc.2"
+version = "0.8.0"
 dependencies = [
  "alloy",
  "axum 0.8.1",
@@ -1584,7 +1584,7 @@ dependencies = [
 
 [[package]]
 name = "cb-tests"
-version = "0.8.0-rc.2"
+version = "0.8.0"
 dependencies = [
  "alloy",
  "axum 0.8.1",
@@ -1733,7 +1733,7 @@ dependencies = [
 
 [[package]]
 name = "commit-boost"
-version = "0.8.0-rc.2"
+version = "0.8.0"
 dependencies = [
  "cb-cli",
  "cb-common",
@@ -1951,7 +1951,7 @@ dependencies = [
 
 [[package]]
 name = "da_commit"
-version = "0.8.0-rc.2"
+version = "0.8.0"
 dependencies = [
  "alloy",
  "color-eyre",
@@ -4750,7 +4750,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "status_api"
-version = "0.8.0-rc.2"
+version = "0.8.0"
 dependencies = [
  "async-trait",
  "axum 0.8.1",
