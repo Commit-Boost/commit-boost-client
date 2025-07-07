@@ -1571,6 +1571,7 @@ dependencies = [
  "headers",
  "jsonwebtoken",
  "lazy_static",
+ "parking_lot",
  "prometheus",
  "prost",
  "rand 0.9.0",

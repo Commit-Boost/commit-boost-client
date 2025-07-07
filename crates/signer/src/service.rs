@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -33,6 +33,7 @@ use cb_common::{
 use cb_metrics::provider::MetricsProvider;
 use eyre::Context;
 use headers::{authorization::Bearer, Authorization};
+use parking_lot::RwLock as ParkingRwLock;
 use tokio::{net::TcpListener, sync::RwLock};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -65,7 +66,7 @@ struct SigningState {
     jwts: Arc<HashMap<ModuleId, String>>,
 
     /// Map of JWT failures per peer
-    jwt_auth_failures: Arc<RwLock<HashMap<String, JwtAuthFailureInfo>>>,
+    jwt_auth_failures: Arc<ParkingRwLock<HashMap<IpAddr, JwtAuthFailureInfo>>>,
 
     // JWT auth failure settings
     jwt_auth_fail_limit: u32,
@@ -84,7 +85,7 @@ impl SigningService {
         let state = SigningState {
             manager: Arc::new(RwLock::new(start_manager(config.clone()).await?)),
             jwts: config.jwts.into(),
-            jwt_auth_failures: Arc::new(RwLock::new(HashMap::new())),
+            jwt_auth_failures: Arc::new(ParkingRwLock::new(HashMap::new())),
             jwt_auth_fail_limit: config.jwt_auth_fail_limit,
             jwt_auth_fail_timeout: Duration::from_secs(config.jwt_auth_fail_timeout_seconds as u64),
         };
@@ -142,17 +143,17 @@ async fn jwt_auth(
     next: Next,
 ) -> Result<Response, SignerModuleError> {
     // Check if the request needs to be rate limited
-    let client_ip = addr.ip().to_string();
-    check_jwt_rate_limit(&state, &client_ip).await?;
+    let client_ip = addr.ip();
+    check_jwt_rate_limit(&state, &client_ip)?;
 
     // Process JWT authorization
-    match check_jwt_auth(&auth, &state).await {
+    match check_jwt_auth(&auth, &state) {
         Ok(module_id) => {
             req.extensions_mut().insert(module_id);
             Ok(next.run(req).await)
         }
         Err(SignerModuleError::Unauthorized) => {
-            let mut failures = state.jwt_auth_failures.write().await;
+            let mut failures = state.jwt_auth_failures.write();
             let failure_info = failures
                 .entry(client_ip)
                 .or_insert(JwtAuthFailureInfo { failure_count: 0, last_failure: Instant::now() });
@@ -166,11 +167,8 @@ async fn jwt_auth(
 
 /// Checks if the incoming request needs to be rate limited due to previous JWT
 /// authentication failures
-async fn check_jwt_rate_limit(
-    state: &SigningState,
-    client_ip: &String,
-) -> Result<(), SignerModuleError> {
-    let mut failures = state.jwt_auth_failures.write().await;
+fn check_jwt_rate_limit(state: &SigningState, client_ip: &IpAddr) -> Result<(), SignerModuleError> {
+    let mut failures = state.jwt_auth_failures.write();
 
     // Ignore clients that don't have any failures
     if let Some(failure_info) = failures.get(client_ip) {
@@ -203,7 +201,7 @@ async fn check_jwt_rate_limit(
 }
 
 /// Checks if a request can successfully authenticate with the JWT secret
-async fn check_jwt_auth(
+fn check_jwt_auth(
     auth: &Authorization<Bearer>,
     state: &SigningState,
 ) -> Result<ModuleId, SignerModuleError> {
