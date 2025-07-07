@@ -81,6 +81,7 @@ pub fn get_pbs_static_config(port: u16) -> PbsConfig {
         late_in_slot_time_ms: u64::MAX,
         extra_validation_enabled: false,
         rpc_url: None,
+        register_validator_retry_limit: u32::MAX,
     }
 }
 

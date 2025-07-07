@@ -1,5 +1,6 @@
 use std::{collections::HashMap, path::Path};
 
+use alloy::rpc::types::beacon::BlsPublicKey;
 use eyre::{bail, Context, Result};
 use serde::de::DeserializeOwned;
 
@@ -30,6 +31,20 @@ pub fn load_jwt_secrets() -> Result<HashMap<ModuleId, String>> {
     decode_string_to_map(&jwt_secrets)
 }
 
+/// Removes duplicate entries from a vector of BlsPublicKey
+pub fn remove_duplicate_keys(keys: Vec<BlsPublicKey>) -> Vec<BlsPublicKey> {
+    let mut unique_keys = Vec::new();
+    let mut key_set = std::collections::HashSet::new();
+
+    for key in keys {
+        if key_set.insert(key) {
+            unique_keys.push(key);
+        }
+    }
+
+    unique_keys
+}
+
 fn decode_string_to_map(raw: &str) -> Result<HashMap<ModuleId, String>> {
     // trim the string and split for comma
     raw.trim()
@@ -56,5 +71,17 @@ mod tests {
 
         assert_eq!(map.get(&ModuleId("KEY".into())), Some(&"VALUE".to_string()));
         assert_eq!(map.get(&ModuleId("KEY2".into())), Some(&"value2".to_string()));
+    }
+
+    #[test]
+    fn test_remove_duplicate_keys() {
+        let key1 = BlsPublicKey::from([1; 48]);
+        let key2 = BlsPublicKey::from([2; 48]);
+        let keys = vec![key1, key2, key1];
+
+        let unique_keys = remove_duplicate_keys(keys);
+        assert_eq!(unique_keys.len(), 2);
+        assert!(unique_keys.contains(&key1));
+        assert!(unique_keys.contains(&key2));
     }
 }
