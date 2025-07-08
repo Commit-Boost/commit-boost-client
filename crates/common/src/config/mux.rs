@@ -127,24 +127,16 @@ impl MuxConfig {
 
         match loader {
             MuxKeysLoader::File(path_buf) => {
-                ensure!(
-                    path_buf.try_exists().is_ok_and(|exists| exists),
-                    "path doesn't exist: {:?}",
-                    path_buf
-                );
-
-                ensure!(
-                    path_buf.extension().is_some_and(|ext| ext == "json"),
-                    "file doesn't have a .json extension: {:?}",
-                    path_buf
-                );
-
                 let Some(path) = path_buf.to_str() else {
                     bail!("invalid path: {:?}", path_buf);
                 };
 
-                let internal_path = get_mux_path(&self.id);
+                let file = load_file(path)?;
+                // make sure we can load the pubkeys correctly
+                let _: Vec<BlsPublicKey> =
+                    serde_json::from_str(&file).wrap_err("failed to parse mux keys file")?;
 
+                let internal_path = get_mux_path(&self.id);
                 Ok(Some((get_mux_env(&self.id), path.to_owned(), internal_path)))
             }
             MuxKeysLoader::HTTP { .. } => Ok(None),
