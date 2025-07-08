@@ -39,6 +39,13 @@ Commit-Boost supports both local and remote signers. The signer module is respon
 To start a local signer module, you need to include its parameters in the config file
 
 ```toml
+[pbs]
+...
+with_signer = true
+
+[signer]
+port = 20000
+
 [signer.local.loader]
 format = "lighthouse"
 keys_path = "/path/to/keys"
@@ -64,7 +71,13 @@ We currently support Lighthouse, Prysm, Teku and Lodestar's keystores so it's ea
 
   #### Config:
   ```toml
+  [pbs]
+  ...
+  with_signer = true
+
   [signer]
+  port = 20000
+
   [signer.local.loader]
   format = "lighthouse"
   keys_path = "keys"
@@ -87,7 +100,13 @@ We currently support Lighthouse, Prysm, Teku and Lodestar's keystores so it's ea
 
   #### Config:
   ```toml
+  [pbs]
+  ...
+  with_signer = true
+
   [signer]
+  port = 20000
+
   [signer.local.loader]
   format = "prysm"
   keys_path = "wallet/direct/accounts/all-accounts.keystore.json"
@@ -110,7 +129,13 @@ We currently support Lighthouse, Prysm, Teku and Lodestar's keystores so it's ea
 
   #### Config:
   ```toml
+  [pbs]
+  ...
+  with_signer = true
+
   [signer]
+  port = 20000
+  
   [signer.local.loader]
   format = "teku"
   keys_path = "keys"
@@ -132,7 +157,13 @@ We currently support Lighthouse, Prysm, Teku and Lodestar's keystores so it's ea
 
   #### Config:
   ```toml
+  [pbs]
+  ...
+  with_signer = true
+
   [signer]
+  port = 20000
+  
   [signer.local.loader]
   format = "lodestar"
   keys_path = "keys"
@@ -256,16 +287,16 @@ ca_cert_path = "/path/to/ca.crt"
 [[signer.dirk.hosts]]
 server_name = "localhost-1"
 url = "https://localhost-1:8081"
-accounts = ["SomeWallet/SomeAccount", "DistributedWallet/Account1"]
+wallets = ["SomeWallet", "DistributedWallet"]
 
 [[signer.dirk.hosts]]
 server_name = "localhost-2"
 url = "https://localhost-2:8082"
-accounts = ["AnotherWallet/AnotherAccount", "DistributedWallet/Account1"]
+wallets = ["AnotherWallet", "DistributedWallet"]
 ```
 
 - `cert_path` and `key_path` are the paths to the client certificate and key used to authenticate with Dirk.
-- `accounts` is a list of accounts that the Signer module will consider as the consensus keys. Each account has the format `<WALLET_NAME>/<ACCOUNT>`. Accounts can be from different wallets. Generated proxy keys will have format `<WALLET_NAME>/<ACCOUNT>/<MODULE_ID>/<UUID>`.
+- `wallets` is a list of wallets from which the Signer module will load all accounts as consensus keys. Generated proxy keys will have format `<WALLET_NAME>/<ACCOUNT>/<MODULE_ID>/<UUID>`, so accounts found with that pattern will be ignored.
 - `secrets_path` is the path to the folder containing the passwords of the generated proxy accounts, which will be stored in `<secrets_path>/<WALLET_NAME>/<ACCOUNT>/<MODULE_ID>/<UUID>.pass`.
 
 Additionally, you can set a proxy store so that the delegation signatures for generated proxy keys are stored locally. As these signatures are not sensitive, the only supported store type is `File`:
@@ -299,6 +330,8 @@ port = 18550
 url = ""
 
 [signer]
+port = 20000
+
 [signer.loader]
 format = "lighthouse"
 keys_path = "/path/to/keys"

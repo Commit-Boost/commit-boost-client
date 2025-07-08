@@ -30,6 +30,9 @@ pub enum SignerModuleError {
 
     #[error("internal error: {0}")]
     Internal(String),
+
+    #[error("rate limited for {0} more seconds")]
+    RateLimited(f64),
 }
 
 impl IntoResponse for SignerModuleError {
@@ -49,6 +52,9 @@ impl IntoResponse for SignerModuleError {
             }
             SignerModuleError::SignerError(err) => (StatusCode::BAD_REQUEST, err.to_string()),
             SignerModuleError::ModuleIdNotFound => (StatusCode::NOT_FOUND, self.to_string()),
+            SignerModuleError::RateLimited(duration) => {
+                (StatusCode::TOO_MANY_REQUESTS, format!("rate limited for {duration:?}"))
+            }
         }
         .into_response()
     }

@@ -37,11 +37,11 @@ async fn test_load_pbs_happy() -> Result<()> {
 
     // Docker and general settings
     assert_eq!(config.pbs.docker_image, "ghcr.io/commit-boost/pbs:latest");
-    assert_eq!(config.pbs.with_signer, false);
+    assert!(!config.pbs.with_signer);
     assert_eq!(config.pbs.pbs_config.host, "127.0.0.1".parse::<Ipv4Addr>().unwrap());
     assert_eq!(config.pbs.pbs_config.port, 18550);
-    assert_eq!(config.pbs.pbs_config.relay_check, true);
-    assert_eq!(config.pbs.pbs_config.wait_all_registrations, true);
+    assert!(config.pbs.pbs_config.relay_check);
+    assert!(config.pbs.pbs_config.wait_all_registrations);
 
     // Timeouts
     assert_eq!(config.pbs.pbs_config.timeout_get_header_ms, 950);
@@ -49,12 +49,12 @@ async fn test_load_pbs_happy() -> Result<()> {
     assert_eq!(config.pbs.pbs_config.timeout_register_validator_ms, 3000);
 
     // Bid settings and validation
-    assert_eq!(config.pbs.pbs_config.skip_sigverify, false);
+    assert!(!config.pbs.pbs_config.skip_sigverify);
     dbg!(&config.pbs.pbs_config.min_bid_wei);
     dbg!(&U256::from(0.5));
     assert_eq!(config.pbs.pbs_config.min_bid_wei, U256::from((0.5 * WEI_PER_ETH as f64) as u64));
     assert_eq!(config.pbs.pbs_config.late_in_slot_time_ms, 2000);
-    assert_eq!(config.pbs.pbs_config.extra_validation_enabled, false);
+    assert!(!config.pbs.pbs_config.extra_validation_enabled);
     assert_eq!(
         config.pbs.pbs_config.rpc_url,
         Some("https://ethereum-holesky-rpc.publicnode.com".parse::<Url>().unwrap())
@@ -64,7 +64,7 @@ async fn test_load_pbs_happy() -> Result<()> {
     let relay = &config.relays[0];
     assert_eq!(relay.id, Some("example-relay".to_string()));
     assert_eq!(relay.entry.url, "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz".parse::<Url>().unwrap());
-    assert_eq!(relay.enable_timing_games, false);
+    assert!(!relay.enable_timing_games);
     assert_eq!(relay.target_first_request_ms, Some(200));
     assert_eq!(relay.frequency_get_header_ms, Some(300));
 

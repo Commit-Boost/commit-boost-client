@@ -16,7 +16,7 @@ use tracing::{debug, info};
 use url::Url;
 
 use super::{load_optional_env_var, PbsConfig, RelayConfig, MUX_PATH_ENV};
-use crate::{pbs::RelayClient, types::Chain};
+use crate::{config::remove_duplicate_keys, pbs::RelayClient, types::Chain};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct PbsMuxes {
@@ -89,6 +89,7 @@ impl PbsMuxes {
                     .unwrap_or(default_pbs.late_in_slot_time_ms),
                 ..default_pbs.clone()
             };
+            config.validate(chain).await?;
             let config = Arc::new(config);
 
             let runtime_config = RuntimeMuxConfig { id: mux.id, config, relays: relay_clients };
@@ -164,7 +165,7 @@ impl MuxKeysLoader {
         chain: Chain,
         rpc_url: Option<Url>,
     ) -> eyre::Result<Vec<BlsPublicKey>> {
-        match self {
+        let keys = match self {
             Self::File(config_path) => {
                 // First try loading from env
                 let path: PathBuf = load_optional_env_var(&get_mux_env(mux_id))
@@ -192,7 +193,11 @@ impl MuxKeysLoader {
                 }
                 NORegistry::SSV => fetch_ssv_pubkeys(chain, U256::from(*node_operator_id)).await,
             },
-        }
+        }?;
+
+        // Remove duplicates
+        let deduped_keys = remove_duplicate_keys(keys);
+        Ok(deduped_keys)
     }
 }
 
@@ -217,10 +222,12 @@ sol! {
     "src/abi/LidoNORegistry.json"
 }
 
+// Fetching Lido Curated Module
 fn lido_registry_address(chain: Chain) -> eyre::Result<Address> {
     match chain {
         Chain::Mainnet => Ok(address!("55032650b14df07b85bF18A3a3eC8E0Af2e028d5")),
         Chain::Holesky => Ok(address!("595F64Ddc3856a3b5Ff4f4CC1d1fb4B46cFd2bAC")),
+        Chain::Hoodi => Ok(address!("5cDbE1590c083b5A2A64427fAA63A7cfDB91FbB5")),
         Chain::Sepolia => Ok(address!("33d6E15047E8644F8DDf5CD05d202dfE587DA6E3")),
         _ => bail!("Lido registry not supported for chain: {chain:?}"),
     }
@@ -239,6 +246,10 @@ async fn fetch_lido_registry_keys(
 
     let total_keys =
         registry.getTotalSigningKeyCount(node_operator_id).call().await?._0.try_into()?;
+
+    if total_keys == 0 {
+        return Ok(Vec::new());
+    }
 
     debug!("fetching {total_keys} total keys");
 
@@ -275,8 +286,6 @@ async fn fetch_lido_registry_keys(
     }
 
     ensure!(keys.len() == total_keys as usize, "expected {total_keys} keys, got {}", keys.len());
-    let unique = keys.iter().collect::<HashSet<_>>();
-    ensure!(unique.len() == keys.len(), "found duplicate keys in registry");
 
     Ok(keys)
 }
@@ -290,6 +299,7 @@ async fn fetch_ssv_pubkeys(
     let chain_name = match chain {
         Chain::Mainnet => "mainnet",
         Chain::Holesky => "holesky",
+        Chain::Hoodi => "hoodi",
         _ => bail!("SSV network is not supported for chain: {chain:?}"),
     };
 
@@ -322,9 +332,6 @@ async fn fetch_ssv_pubkeys(
             break;
         }
     }
-
-    let unique = pubkeys.iter().collect::<HashSet<_>>();
-    ensure!(unique.len() == pubkeys.len(), "found duplicate keys in registry");
 
     Ok(pubkeys)
 }

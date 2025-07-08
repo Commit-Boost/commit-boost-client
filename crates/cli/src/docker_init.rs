@@ -6,19 +6,19 @@ use std::{
 
 use cb_common::{
     config::{
-        load_optional_env_var, CommitBoostConfig, LogsSettings, ModuleKind, SignerConfig,
-        SignerType, ADMIN_JWT_ENV, BUILDER_PORT_ENV, BUILDER_URLS_ENV, CHAIN_SPEC_ENV,
-        CONFIG_DEFAULT, CONFIG_ENV, DIRK_CA_CERT_DEFAULT, DIRK_CA_CERT_ENV, DIRK_CERT_DEFAULT,
-        DIRK_CERT_ENV, DIRK_DIR_SECRETS_DEFAULT, DIRK_DIR_SECRETS_ENV, DIRK_KEY_DEFAULT,
-        DIRK_KEY_ENV, JWTS_ENV, LOGS_DIR_DEFAULT, LOGS_DIR_ENV, METRICS_PORT_ENV, MODULE_ID_ENV,
-        MODULE_JWT_ENV, PBS_ENDPOINT_ENV, PBS_MODULE_NAME, PROXY_DIR_DEFAULT, PROXY_DIR_ENV,
+        CommitBoostConfig, LogsSettings, ModuleKind, SignerConfig, SignerType, ADMIN_JWT_ENV,
+        BUILDER_PORT_ENV, BUILDER_URLS_ENV, CHAIN_SPEC_ENV, CONFIG_DEFAULT, CONFIG_ENV,
+        DIRK_CA_CERT_DEFAULT, DIRK_CA_CERT_ENV, DIRK_CERT_DEFAULT, DIRK_CERT_ENV,
+        DIRK_DIR_SECRETS_DEFAULT, DIRK_DIR_SECRETS_ENV, DIRK_KEY_DEFAULT, DIRK_KEY_ENV, JWTS_ENV,
+        LOGS_DIR_DEFAULT, LOGS_DIR_ENV, METRICS_PORT_ENV, MODULE_ID_ENV, MODULE_JWT_ENV,
+        PBS_ENDPOINT_ENV, PBS_MODULE_NAME, PROXY_DIR_DEFAULT, PROXY_DIR_ENV,
         PROXY_DIR_KEYS_DEFAULT, PROXY_DIR_KEYS_ENV, PROXY_DIR_SECRETS_DEFAULT,
         PROXY_DIR_SECRETS_ENV, SIGNER_DEFAULT, SIGNER_DIR_KEYS_DEFAULT, SIGNER_DIR_KEYS_ENV,
-        SIGNER_DIR_SECRETS_DEFAULT, SIGNER_DIR_SECRETS_ENV, SIGNER_JWT_SECRET_ENV, SIGNER_KEYS_ENV,
-        SIGNER_MODULE_NAME, SIGNER_PORT_ENV, SIGNER_URL_ENV,
+        SIGNER_DIR_SECRETS_DEFAULT, SIGNER_DIR_SECRETS_ENV, SIGNER_ENDPOINT_ENV, SIGNER_KEYS_ENV,
+        SIGNER_MODULE_NAME, SIGNER_URL_ENV,
     },
     pbs::{BUILDER_API_PATH, GET_STATUS_PATH},
-    signer::{ProxyStore, SignerLoader},
+    signer::{ProxyStore, SignerLoader, DEFAULT_SIGNER_PORT},
     types::ModuleId,
     utils::random_jwt_secret,
 };
@@ -73,7 +73,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
     let mut targets = Vec::new();
 
     // address for signer API communication
-    let signer_port = 20000;
+    let signer_port = cb_config.signer.as_ref().map(|s| s.port).unwrap_or(DEFAULT_SIGNER_PORT);
     let signer_server =
         if let Some(SignerConfig { inner: SignerType::Remote { url }, .. }) = &cb_config.signer {
             url.to_string()
@@ -101,8 +101,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                 ModuleKind::Commit => {
                     let mut ports = vec![];
 
-                    let jwt_secret = load_optional_env_var(SIGNER_JWT_SECRET_ENV)
-                        .unwrap_or_else(random_jwt_secret);
+                    let jwt_secret = random_jwt_secret();
                     let jwt_name = format!("CB_JWT_{}", module.id.to_uppercase());
 
                     // module ids are assumed unique, so envs dont override each other
@@ -335,10 +334,17 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                     get_env_val(CONFIG_ENV, CONFIG_DEFAULT),
                     get_env_same(JWTS_ENV),
                     get_env_same(ADMIN_JWT_ENV),
-                    get_env_uval(SIGNER_PORT_ENV, signer_port as u64),
                 ]);
 
-                let mut ports = vec![];
+                // Bind the signer API to 0.0.0.0
+                let container_endpoint =
+                    SocketAddr::from((Ipv4Addr::UNSPECIFIED, signer_config.port));
+                let (key, val) = get_env_val(SIGNER_ENDPOINT_ENV, &container_endpoint.to_string());
+                signer_envs.insert(key, val);
+
+                let host_endpoint = SocketAddr::from((signer_config.host, signer_config.port));
+                let mut ports = vec![format!("{}:{}", host_endpoint, signer_config.port)];
+                warnings.push(format!("cb_signer has an exported port on {}", signer_config.port));
 
                 if let Some((key, val)) = chain_spec_env.clone() {
                     signer_envs.insert(key, val);
@@ -461,13 +467,20 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                 let mut signer_envs = IndexMap::from([
                     get_env_val(CONFIG_ENV, CONFIG_DEFAULT),
                     get_env_same(JWTS_ENV),
-                    get_env_uval(SIGNER_PORT_ENV, signer_port as u64),
                     get_env_val(DIRK_CERT_ENV, DIRK_CERT_DEFAULT),
                     get_env_val(DIRK_KEY_ENV, DIRK_KEY_DEFAULT),
                     get_env_val(DIRK_DIR_SECRETS_ENV, DIRK_DIR_SECRETS_DEFAULT),
                 ]);
 
-                let mut ports = vec![];
+                // Bind the signer API to 0.0.0.0
+                let container_endpoint =
+                    SocketAddr::from((Ipv4Addr::UNSPECIFIED, signer_config.port));
+                let (key, val) = get_env_val(SIGNER_ENDPOINT_ENV, &container_endpoint.to_string());
+                signer_envs.insert(key, val);
+
+                let host_endpoint = SocketAddr::from((signer_config.host, signer_config.port));
+                let mut ports = vec![format!("{}:{}", host_endpoint, signer_config.port)];
+                warnings.push(format!("cb_signer has an exported port on {}", signer_config.port));
 
                 if let Some((key, val)) = chain_spec_env.clone() {
                     signer_envs.insert(key, val);
