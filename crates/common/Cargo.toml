@@ -28,7 +28,6 @@ pbkdf2.workspace = true
 rand.workspace = true
 rayon.workspace = true
 reqwest.workspace = true
-scopeguard.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde_yaml.workspace = true
@@ -46,3 +45,6 @@ tree_hash.workspace = true
 tree_hash_derive.workspace = true
 unicode-normalization.workspace = true
 url.workspace = true
+
+[dev-dependencies]
+scopeguard.workspace = true
