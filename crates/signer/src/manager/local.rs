@@ -79,9 +79,9 @@ impl LocalSigningManager {
             store.store_proxy_ecdsa(&module_id, &proxy)?;
         }
 
-        let proxy_pubkey = proxy.address();
+        let proxy_address = proxy.address();
         self.proxy_signers.ecdsa_signers.insert(proxy.address(), proxy);
-        self.proxy_addresses_ecdsa.entry(module_id).or_default().push(proxy_pubkey);
+        self.proxy_addresses_ecdsa.entry(module_id).or_default().push(proxy_address);
 
         Ok(())
     }
@@ -111,9 +111,9 @@ impl LocalSigningManager {
         delegator: BlsPublicKey,
     ) -> Result<SignedProxyDelegationEcdsa, SignerModuleError> {
         let signer = EcdsaSigner::new_random();
-        let proxy_pubkey = signer.address();
+        let proxy_address = signer.address();
 
-        let message = ProxyDelegationEcdsa { delegator, proxy: proxy_pubkey };
+        let message = ProxyDelegationEcdsa { delegator, proxy: proxy_address };
         let signature = self.sign_consensus(&delegator, &message.tree_hash_root().0).await?;
         let delegation = SignedProxyDelegationEcdsa { signature, message };
         let proxy_signer = EcdsaProxySigner { signer, delegation };

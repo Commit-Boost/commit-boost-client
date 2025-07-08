@@ -2,7 +2,7 @@ use std::{
     net::SocketAddr,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc,
+        Arc, RwLock,
     },
 };
 
@@ -25,7 +25,7 @@ use cb_common::{
     types::Chain,
     utils::{blst_pubkey_to_alloy, timestamp_of_slot_start_sec},
 };
-use cb_pbs::MAX_SIZE_SUBMIT_BLOCK;
+use cb_pbs::MAX_SIZE_SUBMIT_BLOCK_RESPONSE;
 use tokio::net::TcpListener;
 use tracing::debug;
 use tree_hash::TreeHash;
@@ -48,6 +48,7 @@ pub struct MockRelayState {
     received_get_status: Arc<AtomicU64>,
     received_register_validator: Arc<AtomicU64>,
     received_submit_block: Arc<AtomicU64>,
+    response_override: RwLock<Option<StatusCode>>,
 }
 
 impl MockRelayState {
@@ -66,6 +67,9 @@ impl MockRelayState {
     pub fn large_body(&self) -> bool {
         self.large_body
     }
+    pub fn set_response_override(&self, status: StatusCode) {
+        *self.response_override.write().unwrap() = Some(status);
+    }
 }
 
 impl MockRelayState {
@@ -78,6 +82,7 @@ impl MockRelayState {
             received_get_status: Default::default(),
             received_register_validator: Default::default(),
             received_submit_block: Default::default(),
+            response_override: RwLock::new(None),
         }
     }
 
@@ -130,13 +135,18 @@ async fn handle_register_validator(
 ) -> impl IntoResponse {
     state.received_register_validator.fetch_add(1, Ordering::Relaxed);
     debug!("Received {} registrations", validators.len());
-    StatusCode::OK
+
+    if let Some(status) = state.response_override.read().unwrap().as_ref() {
+        return (*status).into_response();
+    }
+
+    StatusCode::OK.into_response()
 }
 
 async fn handle_submit_block(State(state): State<Arc<MockRelayState>>) -> Response {
     state.received_submit_block.fetch_add(1, Ordering::Relaxed);
     if state.large_body() {
-        (StatusCode::OK, Json(vec![1u8; 1 + MAX_SIZE_SUBMIT_BLOCK])).into_response()
+        (StatusCode::OK, Json(vec![1u8; 1 + MAX_SIZE_SUBMIT_BLOCK_RESPONSE])).into_response()
     } else {
         let response = SubmitBlindedBlockResponse::default();
         (StatusCode::OK, Json(response)).into_response()

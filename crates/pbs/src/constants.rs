@@ -10,9 +10,12 @@ pub const TIMEOUT_ERROR_CODE_STR: &str = "555";
 
 /// 20 MiB to cover edge cases for heavy blocks and also add a bit of slack for
 /// any Ethereum upgrades in the near future
-pub const MAX_SIZE_SUBMIT_BLOCK: usize = 20 * 1024 * 1024;
+pub const MAX_SIZE_SUBMIT_BLOCK_RESPONSE: usize = 20 * 1024 * 1024;
 
-/// 10 KiB, headers are around 700 bytes + buffer for encoding
-pub const MAX_SIZE_GET_HEADER: usize = 10 * 1024;
+/// 20 MiB, enough to process ~45000 registrations in one request
+pub const MAX_SIZE_REGISTER_VALIDATOR_REQUEST: usize = 20 * 1024 * 1024;
+
+/// 5 MiB, to account for max execution requests / commitments
+pub const MAX_SIZE_GET_HEADER_RESPONSE: usize = 5 * 1024 * 1024;
 
 pub const MAX_SIZE_DEFAULT: usize = 1024;
