@@ -55,6 +55,9 @@ extra_validation_enabled = false
 # Execution Layer RPC url to use for extra validation
 # OPTIONAL
 rpc_url = "https://ethereum-holesky-rpc.publicnode.com"
+# Maximum number of retries for validator registrations per relay
+# OPTIONAL, DEFAULT: 3
+register_validator_retry_limit = 3
 
 # The PBS module needs one or more [[relays]] as defined below.
 [[relays]]
@@ -129,8 +132,8 @@ loader = "./tests/data/mux_keys.example.json"
 # loader = { url = "http://localhost:8000/keys" }
 # loader = { registry = "lido", node_operator_id = 8 }
 # loader = { registry = "ssv", node_operator_id = 8 }
-timeout_get_header_ms = 900
 late_in_slot_time_ms = 1500
+timeout_get_header_ms = 900
 # For each mux, one or more [[mux.relays]] can be defined, which will be used for the matching validator pubkeys
 # Only the relays defined here will be used, and the relays defined in the main [[relays]] config will be ignored
 # The fields specified here are the same as in [[relays]] (headers, get_params, enable_timing_games, target_first_request_ms, frequency_get_header_ms)
