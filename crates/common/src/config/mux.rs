@@ -119,7 +119,7 @@ pub struct MuxConfig {
 
 impl MuxConfig {
     /// Returns the env, actual path, and internal path to use for the file
-    /// loader
+    /// loader. In File mode, validates the mux file prior to returning.   
     pub fn loader_env(&self) -> eyre::Result<Option<(String, String, String)>> {
         let Some(loader) = self.loader.as_ref() else {
             return Ok(None);
