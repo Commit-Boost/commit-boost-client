@@ -394,12 +394,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_ssv_network_fetch() -> eyre::Result<()> {
-        let chain = Chain::Hoodi;
+        let chain = Chain::Holesky;
         let node_operator_id = U256::from(200);
 
         let pubkeys = fetch_ssv_pubkeys(chain, node_operator_id).await?;
 
-        assert_eq!(pubkeys.len(), 1);
+        assert_eq!(pubkeys.len(), 3);
 
         Ok(())
     }
