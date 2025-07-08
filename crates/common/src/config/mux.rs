@@ -18,7 +18,7 @@ use url::Url;
 
 use super::{load_optional_env_var, PbsConfig, RelayConfig, MUX_PATH_ENV};
 use crate::{
-    config::{remove_duplicate_keys, safe_read_http_response, HTTP_TIMEOUT_SECONDS_ENV},
+    config::{remove_duplicate_keys, safe_read_http_response},
     pbs::RelayClient,
     types::Chain,
 };
@@ -43,10 +43,7 @@ impl PbsMuxes {
         chain: Chain,
         default_pbs: &PbsConfig,
     ) -> eyre::Result<HashMap<BlsPublicKey, RuntimeMuxConfig>> {
-        let http_timeout = match load_optional_env_var(HTTP_TIMEOUT_SECONDS_ENV) {
-            Some(timeout_str) => Duration::from_secs(timeout_str.parse::<u64>()?),
-            None => Duration::from_secs(default_pbs.http_timeout_seconds),
-        };
+        let http_timeout = Duration::from_secs(default_pbs.http_timeout_seconds);
 
         let mut muxes = self.muxes;
 

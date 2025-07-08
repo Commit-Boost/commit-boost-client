@@ -19,10 +19,7 @@ use super::{
     GetHeaderParams, GetHeaderResponse, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
 };
 use crate::{
-    config::{
-        load_optional_env_var, BUILDER_URLS_ENV, HTTP_TIMEOUT_SECONDS_DEFAULT,
-        HTTP_TIMEOUT_SECONDS_ENV,
-    },
+    config::{load_optional_env_var, BUILDER_URLS_ENV, HTTP_TIMEOUT_SECONDS_DEFAULT},
     pbs::BUILDER_EVENTS_PATH,
 };
 
@@ -64,10 +61,7 @@ impl BuilderEventPublisher {
     }
 
     pub fn new_from_env() -> Result<Option<Self>> {
-        let http_timeout = match load_optional_env_var(HTTP_TIMEOUT_SECONDS_ENV) {
-            Some(timeout_str) => Duration::from_secs(timeout_str.parse::<u64>()?),
-            None => Duration::from_secs(HTTP_TIMEOUT_SECONDS_DEFAULT),
-        };
+        let http_timeout = Duration::from_secs(HTTP_TIMEOUT_SECONDS_DEFAULT);
 
         load_optional_env_var(BUILDER_URLS_ENV)
             .map(|joined| {
