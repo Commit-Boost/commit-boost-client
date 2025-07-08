@@ -6,10 +6,9 @@ use eyre::{bail, Context, Result};
 use serde::de::DeserializeOwned;
 
 use super::JWTS_ENV;
-use crate::{
-    config::{CB_TEST_HTTP_DISABLE_CONTENT_LENGTH_ENV, MUXER_HTTP_MAX_LENGTH},
-    types::ModuleId,
-};
+use crate::{config::MUXER_HTTP_MAX_LENGTH, types::ModuleId};
+
+pub const CB_TEST_HTTP_DISABLE_CONTENT_LENGTH_ENV: &str = "CB_TEST_HTTP_DISABLE_CONTENT_LENGTH";
 
 pub fn load_env_var(env: &str) -> Result<String> {
     std::env::var(env).wrap_err(format!("{env} is not set"))
