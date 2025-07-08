@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     net::{Ipv4Addr, SocketAddr},
+    path::PathBuf,
     sync::{Arc, Once},
 };
 
@@ -20,7 +21,6 @@ use cb_common::{
 };
 use eyre::Result;
 use rcgen::generate_simple_self_signed;
-use tempfile::env::temp_dir;
 
 pub fn get_local_address(port: u16) -> String {
     format!("http://0.0.0.0:{port}")
@@ -112,7 +112,7 @@ pub fn get_signer_config(loader: SignerLoader) -> SignerConfig {
         jwt_auth_fail_limit: DEFAULT_JWT_AUTH_FAIL_LIMIT,
         jwt_auth_fail_timeout_seconds: DEFAULT_JWT_AUTH_FAIL_TIMEOUT_SECONDS,
         inner: SignerType::Local { loader, store: None },
-        tls_certificates: temp_dir(),
+        tls_certificates: PathBuf::new(),
     }
 }
 
@@ -121,7 +121,7 @@ pub fn get_start_signer_config(
     chain: Chain,
     jwts: HashMap<ModuleId, String>,
 ) -> StartSignerConfig {
-    let tls_certificates = generate_simple_self_signed(vec!["cb_signer".to_string()])
+    let tls_certificates = generate_simple_self_signed(vec!["localhost".to_string()])
         .map(|x| (x.cert.pem().as_bytes().to_vec(), x.key_pair.serialize_pem().as_bytes().to_vec()))
         .expect("Failed to generate TLS certificate");
 

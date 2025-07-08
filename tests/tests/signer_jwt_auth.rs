@@ -11,7 +11,7 @@ use cb_common::{
 use cb_signer::service::SigningService;
 use cb_tests::utils::{get_signer_config, get_start_signer_config, setup_test_env};
 use eyre::Result;
-use reqwest::{Response, StatusCode};
+use reqwest::{Certificate, Response, StatusCode};
 use tracing::info;
 
 const JWT_MODULE: &str = "test-module";
@@ -25,8 +25,10 @@ async fn test_signer_jwt_auth_success() -> Result<()> {
 
     // Run a pubkeys request
     let jwt = create_jwt(&module_id, 0, JWT_SECRET)?;
-    let client = reqwest::Client::new();
-    let url = format!("http://{}{}", start_config.endpoint, GET_PUBKEYS_PATH);
+    let client = reqwest::Client::builder()
+        .add_root_certificate(Certificate::from_pem(&start_config.tls_certificates.0)?)
+        .build()?;
+    let url = format!("https://localhost:20100{}", GET_PUBKEYS_PATH);
     let response = client.get(&url).bearer_auth(&jwt).send().await?;
 
     // Verify the expected pubkeys are returned
@@ -43,8 +45,10 @@ async fn test_signer_jwt_auth_fail() -> Result<()> {
 
     // Run a pubkeys request - this should fail due to invalid JWT
     let jwt = create_jwt(&module_id, 0, "incorrect secret")?;
-    let client = reqwest::Client::new();
-    let url = format!("http://{}{}", start_config.endpoint, GET_PUBKEYS_PATH);
+    let client = reqwest::Client::builder()
+        .add_root_certificate(Certificate::from_pem(&start_config.tls_certificates.0)?)
+        .build()?;
+    let url = format!("https://localhost:20200{}", GET_PUBKEYS_PATH);
     let response = client.get(&url).bearer_auth(&jwt).send().await?;
     assert!(response.status() == StatusCode::UNAUTHORIZED);
     info!(
@@ -63,8 +67,10 @@ async fn test_signer_jwt_rate_limit() -> Result<()> {
 
     // Run as many pubkeys requests as the fail limit
     let jwt = create_jwt(&module_id, 0, "incorrect secret")?;
-    let client = reqwest::Client::new();
-    let url = format!("http://{}{}", start_config.endpoint, GET_PUBKEYS_PATH);
+    let client = reqwest::Client::builder()
+        .add_root_certificate(Certificate::from_pem(&start_config.tls_certificates.0)?)
+        .build()?;
+    let url = format!("https://localhost:20300{}", GET_PUBKEYS_PATH);
     for _ in 0..start_config.jwt_auth_fail_limit {
         let response = client.get(&url).bearer_auth(&jwt).send().await?;
         assert!(response.status() == StatusCode::UNAUTHORIZED);
