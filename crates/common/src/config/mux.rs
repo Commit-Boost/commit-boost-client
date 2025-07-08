@@ -16,7 +16,7 @@ use tracing::{debug, info};
 use url::Url;
 
 use super::{load_optional_env_var, PbsConfig, RelayConfig, MUX_PATH_ENV};
-use crate::{pbs::RelayClient, types::Chain};
+use crate::{config::remove_duplicate_keys, pbs::RelayClient, types::Chain};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct PbsMuxes {
@@ -164,7 +164,7 @@ impl MuxKeysLoader {
         chain: Chain,
         rpc_url: Option<Url>,
     ) -> eyre::Result<Vec<BlsPublicKey>> {
-        match self {
+        let keys = match self {
             Self::File(config_path) => {
                 // First try loading from env
                 let path: PathBuf = load_optional_env_var(&get_mux_env(mux_id))
@@ -192,7 +192,11 @@ impl MuxKeysLoader {
                 }
                 NORegistry::SSV => fetch_ssv_pubkeys(chain, U256::from(*node_operator_id)).await,
             },
-        }
+        }?;
+
+        // Remove duplicates
+        let deduped_keys = remove_duplicate_keys(keys);
+        Ok(deduped_keys)
     }
 }
 
@@ -281,8 +285,6 @@ async fn fetch_lido_registry_keys(
     }
 
     ensure!(keys.len() == total_keys as usize, "expected {total_keys} keys, got {}", keys.len());
-    let unique = keys.iter().collect::<HashSet<_>>();
-    ensure!(unique.len() == keys.len(), "found duplicate keys in registry");
 
     Ok(keys)
 }
@@ -329,9 +331,6 @@ async fn fetch_ssv_pubkeys(
             break;
         }
     }
-
-    let unique = pubkeys.iter().collect::<HashSet<_>>();
-    ensure!(unique.len() == pubkeys.len(), "found duplicate keys in registry");
 
     Ok(pubkeys)
 }
