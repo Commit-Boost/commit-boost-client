@@ -15,7 +15,7 @@ use cb_tests::{
     utils::{self, setup_test_env},
 };
 use eyre::Result;
-use reqwest::StatusCode;
+use reqwest::{Certificate, StatusCode};
 use tracing::info;
 
 const JWT_MODULE: &str = "test-module";
@@ -46,8 +46,10 @@ async fn test_signer_jwt_auth_success() -> Result<()> {
 
     // Run a pubkeys request
     let jwt = create_jwt(&module_id, &jwt_config.jwt_secret, None)?;
-    let client = reqwest::Client::new();
-    let url = format!("http://{}{}", start_config.endpoint, GET_PUBKEYS_PATH);
+    let client = reqwest::Client::builder()
+        .add_root_certificate(Certificate::from_pem(&start_config.tls_certificates.0)?)
+        .build()?;
+    let url = format!("https://{}{}", start_config.endpoint, GET_PUBKEYS_PATH);
     let response = client.get(&url).bearer_auth(&jwt).send().await?;
 
     // Verify the expected pubkeys are returned
@@ -65,8 +67,10 @@ async fn test_signer_jwt_auth_fail() -> Result<()> {
 
     // Run a pubkeys request - this should fail due to invalid JWT
     let jwt = create_jwt(&module_id, "incorrect secret", None)?;
-    let client = reqwest::Client::new();
-    let url = format!("http://{}{}", start_config.endpoint, GET_PUBKEYS_PATH);
+    let client = reqwest::Client::builder()
+        .add_root_certificate(Certificate::from_pem(&start_config.tls_certificates.0)?)
+        .build()?;
+    let url = format!("https://{}{}", start_config.endpoint, GET_PUBKEYS_PATH);
     let response = client.get(&url).bearer_auth(&jwt).send().await?;
     assert!(response.status() == StatusCode::UNAUTHORIZED);
     info!(
@@ -87,8 +91,10 @@ async fn test_signer_jwt_rate_limit() -> Result<()> {
 
     // Run as many pubkeys requests as the fail limit
     let jwt = create_jwt(&module_id, "incorrect secret", None)?;
-    let client = reqwest::Client::new();
-    let url = format!("http://{}{}", start_config.endpoint, GET_PUBKEYS_PATH);
+    let client = reqwest::Client::builder()
+        .add_root_certificate(Certificate::from_pem(&start_config.tls_certificates.0)?)
+        .build()?;
+    let url = format!("https://{}{}", start_config.endpoint, GET_PUBKEYS_PATH);
     for _ in 0..start_config.jwt_auth_fail_limit {
         let response = client.get(&url).bearer_auth(&jwt).send().await?;
         assert!(response.status() == StatusCode::UNAUTHORIZED);
@@ -123,7 +129,7 @@ async fn test_signer_revoked_jwt_fail() -> Result<()> {
     let client = reqwest::Client::new();
 
     // At first, test module should be allowed to request pubkeys
-    let url = format!("http://{}{}", start_config.endpoint, GET_PUBKEYS_PATH);
+    let url = format!("https://{}{}", start_config.endpoint, GET_PUBKEYS_PATH);
     let response = client.get(&url).bearer_auth(&jwt).send().await?;
     assert!(response.status() == StatusCode::OK);
 
@@ -131,7 +137,7 @@ async fn test_signer_revoked_jwt_fail() -> Result<()> {
     let body_bytes = serde_json::to_vec(&revoke_body)?;
     let admin_jwt = create_admin_jwt(admin_secret, Some(&body_bytes))?;
 
-    let revoke_url = format!("http://{}{}", start_config.endpoint, REVOKE_MODULE_PATH);
+    let revoke_url = format!("https://{}{}", start_config.endpoint, REVOKE_MODULE_PATH);
     let response =
         client.post(&revoke_url).json(&revoke_body).bearer_auth(&admin_jwt).send().await?;
     assert!(response.status() == StatusCode::OK);
@@ -157,7 +163,7 @@ async fn test_signer_only_admin_can_revoke() -> Result<()> {
     // Run as many pubkeys requests as the fail limit
     let jwt = create_jwt(&module_id, JWT_SECRET, Some(&body_bytes))?;
     let client = reqwest::Client::new();
-    let url = format!("http://{}{}", start_config.endpoint, REVOKE_MODULE_PATH);
+    let url = format!("https://{}{}", start_config.endpoint, REVOKE_MODULE_PATH);
 
     // Module JWT shouldn't be able to revoke modules
     let response = client.post(&url).json(&revoke_body).bearer_auth(&jwt).send().await?;

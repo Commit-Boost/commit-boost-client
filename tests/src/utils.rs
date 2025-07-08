@@ -143,23 +143,23 @@ pub fn get_start_signer_config(
     mod_signing_configs: &HashMap<ModuleId, ModuleSigningConfig>,
     admin_secret: String,
 ) -> StartSignerConfig {
+    let tls_certificates = generate_simple_self_signed(vec!["localhost".to_string()])
+        .map(|x| (x.cert.pem().as_bytes().to_vec(), x.key_pair.serialize_pem().as_bytes().to_vec()))
+        .expect("Failed to generate TLS certificate");
+
     match signer_config.inner {
-        SignerType::Local { loader, .. } => {
-            let rcgen::CertifiedKey { cert, key_pair } =
-                generate_simple_self_signed(vec![]).unwrap();
-            StartSignerConfig {
-                chain,
-                loader: Some(loader),
-                store: None,
-                endpoint: SocketAddr::new(signer_config.host.into(), signer_config.port),
-                mod_signing_configs: mod_signing_configs.clone(),
-                admin_secret,
-                jwt_auth_fail_limit: signer_config.jwt_auth_fail_limit,
-                jwt_auth_fail_timeout_seconds: signer_config.jwt_auth_fail_timeout_seconds,
-                dirk: None,
-                tls_certificates: (cert.pem().into_bytes(), key_pair.serialize_pem().into_bytes()),
-            }
-        }
+        SignerType::Local { loader, .. } => StartSignerConfig {
+            chain,
+            loader: Some(loader),
+            store: None,
+            endpoint: SocketAddr::new(signer_config.host.into(), signer_config.port),
+            mod_signing_configs: mod_signing_configs.clone(),
+            admin_secret,
+            jwt_auth_fail_limit: signer_config.jwt_auth_fail_limit,
+            jwt_auth_fail_timeout_seconds: signer_config.jwt_auth_fail_timeout_seconds,
+            dirk: None,
+            tls_certificates,
+        },
         _ => panic!("Only local signers are supported in tests"),
     }
 }
