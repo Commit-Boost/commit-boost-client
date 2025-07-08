@@ -14,8 +14,15 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    constants::COMMIT_BOOST_DOMAIN, error::BlstErrorWrapper, signature::verify_signed_message,
-    signer::BlsPublicKey, types::Chain,
+    commit::constants::{
+        REQUEST_SIGNATURE_BLS_PATH, REQUEST_SIGNATURE_PROXY_BLS_PATH,
+        REQUEST_SIGNATURE_PROXY_ECDSA_PATH,
+    },
+    constants::COMMIT_BOOST_DOMAIN,
+    error::BlstErrorWrapper,
+    signature::verify_signed_message,
+    signer::BlsPublicKey,
+    types::Chain,
 };
 
 pub trait ProxyId: AsRef<[u8]> + Debug + Clone + Copy + TreeHash + Display {}
@@ -69,13 +76,23 @@ impl<T: ProxyId> fmt::Display for SignedProxyDelegation<T> {
     }
 }
 
-// TODO(David): This struct shouldn't be visible to module authors
+/*
 #[derive(Debug, Clone, Serialize, Deserialize, From)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SignRequest {
     Consensus(SignConsensusRequest),
     ProxyBls(SignProxyRequest<BlsPublicKey>),
     ProxyEcdsa(SignProxyRequest<Address>),
+}
+
+impl SignRequest {
+    pub fn get_request_route(&self) -> String {
+        match self {
+            SignRequest::Consensus(_) => REQUEST_SIGNATURE_BLS_PATH.to_string(),
+            SignRequest::ProxyBls(_) => REQUEST_SIGNATURE_PROXY_BLS_PATH.to_string(),
+            SignRequest::ProxyEcdsa(_) => REQUEST_SIGNATURE_ECDSA_PATH.to_string(),
+        }
+    }
 }
 
 impl Display for SignRequest {
@@ -102,6 +119,7 @@ impl Display for SignRequest {
         }
     }
 }
+*/
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignConsensusRequest {
@@ -127,6 +145,17 @@ impl SignConsensusRequest {
     }
 }
 
+impl Display for SignConsensusRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Consensus(pubkey: {}, object_root: {})",
+            self.pubkey,
+            hex::encode_prefixed(self.object_root)
+        )
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignProxyRequest<T: ProxyId> {
     pub proxy: T,
@@ -148,6 +177,28 @@ impl<T: ProxyId> SignProxyRequest<T> {
 
     pub fn with_msg(self, msg: &impl TreeHash) -> Self {
         self.with_root(msg.tree_hash_root().0)
+    }
+}
+
+impl Display for SignProxyRequest<BlsPublicKey> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "BLS(proxy: {}, object_root: {})",
+            self.proxy,
+            hex::encode_prefixed(self.object_root)
+        )
+    }
+}
+
+impl Display for SignProxyRequest<Address> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "ECDSA(proxy: {}, object_root: {})",
+            self.proxy,
+            hex::encode_prefixed(self.object_root)
+        )
     }
 }
 
@@ -218,36 +269,6 @@ mod tests {
 
     use super::*;
     use crate::signer::EcdsaSignature;
-
-    #[test]
-    fn test_decode_request_signature() {
-        let data = r#"{
-            "type": "consensus",
-            "pubkey": "0xa3366b54f28e4bf1461926a3c70cdb0ec432b5c92554ecaae3742d33fb33873990cbed1761c68020e6d3c14d30a22050",
-            "object_root": "0x5c89913beafa0472168e0ec05e349b4ceb9985d25ab9fa8de53a60208c85b3a5"
-        }"#;
-
-        let request: SignRequest = serde_json::from_str(data).unwrap();
-        assert!(matches!(request, SignRequest::Consensus(..)));
-
-        let data = r#"{
-            "type": "proxy_bls",
-            "proxy": "0xa3366b54f28e4bf1461926a3c70cdb0ec432b5c92554ecaae3742d33fb33873990cbed1761c68020e6d3c14d30a22050",
-            "object_root": "0x5c89913beafa0472168e0ec05e349b4ceb9985d25ab9fa8de53a60208c85b3a5"
-        }"#;
-
-        let request: SignRequest = serde_json::from_str(data).unwrap();
-        assert!(matches!(request, SignRequest::ProxyBls(..)));
-
-        let data = r#"{
-            "type": "proxy_ecdsa",
-            "proxy": "0x4ca9939a8311a7cab3dde201b70157285fa81a9d",
-            "object_root": "0x5c89913beafa0472168e0ec05e349b4ceb9985d25ab9fa8de53a60208c85b3a5"
-        }"#;
-
-        let request: SignRequest = serde_json::from_str(data).unwrap();
-        assert!(matches!(request, SignRequest::ProxyEcdsa(..)));
-    }
 
     #[test]
     fn test_decode_response_signature() {

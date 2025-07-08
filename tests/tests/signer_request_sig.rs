@@ -5,10 +5,7 @@ use alloy::{
     primitives::{b256, FixedBytes},
 };
 use cb_common::{
-    commit::{
-        constants::REQUEST_SIGNATURE_PATH,
-        request::{SignConsensusRequest, SignRequest},
-    },
+    commit::{constants::REQUEST_SIGNATURE_BLS_PATH, request::SignConsensusRequest},
     config::{load_module_signing_configs, ModuleSigningConfig},
     types::ModuleId,
     utils::create_jwt,
@@ -59,11 +56,10 @@ async fn test_signer_sign_request_good() -> Result<()> {
 
     // Send a signing request
     let object_root = b256!("0x0123456789012345678901234567890123456789012345678901234567890123");
-    let request =
-        SignRequest::Consensus(SignConsensusRequest { pubkey: FixedBytes(PUBKEY_1), object_root });
+    let request = SignConsensusRequest { pubkey: FixedBytes(PUBKEY_1), object_root };
     let jwt = create_jwt(&module_id, &jwt_config.jwt_secret)?;
     let client = reqwest::Client::new();
-    let url = format!("http://{}{}", start_config.endpoint, REQUEST_SIGNATURE_PATH);
+    let url = format!("http://{}{}", start_config.endpoint, REQUEST_SIGNATURE_BLS_PATH);
     let response = client.post(&url).json(&request).bearer_auth(&jwt).send().await?;
 
     // Verify the response is successful
@@ -91,11 +87,10 @@ async fn test_signer_sign_request_different_module() -> Result<()> {
 
     // Send a signing request
     let object_root = b256!("0x0123456789012345678901234567890123456789012345678901234567890123");
-    let request =
-        SignRequest::Consensus(SignConsensusRequest { pubkey: FixedBytes(PUBKEY_1), object_root });
+    let request = SignConsensusRequest { pubkey: FixedBytes(PUBKEY_1), object_root };
     let jwt = create_jwt(&module_id, &jwt_config.jwt_secret)?;
     let client = reqwest::Client::new();
-    let url = format!("http://{}{}", start_config.endpoint, REQUEST_SIGNATURE_PATH);
+    let url = format!("http://{}{}", start_config.endpoint, REQUEST_SIGNATURE_BLS_PATH);
     let response = client.post(&url).json(&request).bearer_auth(&jwt).send().await?;
 
     // Verify the response is successful

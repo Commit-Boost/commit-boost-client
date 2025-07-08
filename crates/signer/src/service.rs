@@ -5,6 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use alloy::{primitives::Address, rpc::types::beacon::BlsPublicKey};
 use axum::{
     extract::{ConnectInfo, Request, State},
     http::StatusCode,
@@ -17,12 +18,12 @@ use axum_extra::TypedHeader;
 use cb_common::{
     commit::{
         constants::{
-            GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, RELOAD_PATH, REQUEST_SIGNATURE_PATH,
-            STATUS_PATH,
+            GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, RELOAD_PATH, REQUEST_SIGNATURE_BLS_PATH,
+            REQUEST_SIGNATURE_PROXY_BLS_PATH, REQUEST_SIGNATURE_PROXY_ECDSA_PATH, STATUS_PATH,
         },
         request::{
             EncryptionScheme, GenerateProxyRequest, GetPubkeysResponse, SignConsensusRequest,
-            SignProxyRequest, SignRequest,
+            SignProxyRequest,
         },
     },
     config::{ModuleSigningConfig, StartSignerConfig},
@@ -115,7 +116,9 @@ impl SigningService {
         SigningService::init_metrics(config.chain)?;
 
         let app = axum::Router::new()
-            .route(REQUEST_SIGNATURE_PATH, post(handle_request_signature))
+            .route(REQUEST_SIGNATURE_BLS_PATH, post(handle_request_signature_bls))
+            .route(REQUEST_SIGNATURE_PROXY_BLS_PATH, post(handle_request_signature_proxy_bls))
+            .route(REQUEST_SIGNATURE_PROXY_ECDSA_PATH, post(handle_request_signature_proxy_ecdsa))
             .route(GET_PUBKEYS_PATH, get(handle_get_pubkeys))
             .route(GENERATE_PROXY_KEY_PATH, post(handle_generate_proxy))
             .route_layer(middleware::from_fn_with_state(state.clone(), jwt_auth))
@@ -261,11 +264,11 @@ async fn handle_get_pubkeys(
     Ok((StatusCode::OK, Json(res)).into_response())
 }
 
-/// Implements request_signature from the Signer API
-async fn handle_request_signature(
+/// Validates a BLS key signature request and returns the signature
+async fn handle_request_signature_bls(
     Extension(module_id): Extension<ModuleId>,
     State(state): State<SigningState>,
-    Json(request): Json<SignRequest>,
+    Json(request): Json<SignConsensusRequest>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
     let req_id = Uuid::new_v4();
     let signing_id = &state.jwts[&module_id].signing_id;
@@ -273,49 +276,79 @@ async fn handle_request_signature(
 
     let manager = state.manager.read().await;
     let res = match &*manager {
-        SigningManager::Local(local_manager) => match request {
-            SignRequest::Consensus(SignConsensusRequest { ref object_root, ref pubkey }) => {
-                local_manager
-                    .sign_consensus(pubkey, object_root, Some(signing_id))
-                    .await
-                    .map(|sig| Json(sig).into_response())
-            }
-            SignRequest::ProxyBls(SignProxyRequest { ref object_root, proxy: ref bls_key }) => {
-                local_manager
-                    .sign_proxy_bls(bls_key, object_root, Some(signing_id))
-                    .await
-                    .map(|sig| Json(sig).into_response())
-            }
-            SignRequest::ProxyEcdsa(SignProxyRequest { ref object_root, proxy: ref ecdsa_key }) => {
-                local_manager
-                    .sign_proxy_ecdsa(ecdsa_key, object_root, Some(signing_id))
-                    .await
-                    .map(|sig| Json(sig).into_response())
-            }
-        },
-        SigningManager::Dirk(dirk_manager) => match request {
-            SignRequest::Consensus(SignConsensusRequest { ref object_root, ref pubkey }) => {
-                dirk_manager
-                    .request_consensus_signature(pubkey, object_root, Some(signing_id))
-                    .await
-                    .map(|sig| Json(sig).into_response())
-            }
-            SignRequest::ProxyBls(SignProxyRequest { ref object_root, proxy: ref bls_key }) => {
-                dirk_manager
-                    .request_proxy_signature(bls_key, object_root, Some(signing_id))
-                    .await
-                    .map(|sig| Json(sig).into_response())
-            }
-            SignRequest::ProxyEcdsa(_) => {
-                error!(
-                    event = "request_signature",
-                    ?module_id,
-                    ?req_id,
-                    "ECDSA proxy sign request not supported with Dirk"
-                );
-                Err(SignerModuleError::DirkNotSupported)
-            }
-        },
+        SigningManager::Local(local_manager) => local_manager
+            .sign_consensus(&request.pubkey, &request.object_root, Some(signing_id))
+            .await
+            .map(|sig| Json(sig).into_response()),
+        SigningManager::Dirk(dirk_manager) => dirk_manager
+            .request_consensus_signature(&request.pubkey, &request.object_root, Some(signing_id))
+            .await
+            .map(|sig| Json(sig).into_response()),
+    };
+
+    if let Err(err) = &res {
+        error!(event = "request_signature", ?module_id, ?req_id, "{err}");
+    }
+
+    res
+}
+
+/// Validates a BLS key signature request using a proxy key and returns the
+/// signature
+async fn handle_request_signature_proxy_bls(
+    Extension(module_id): Extension<ModuleId>,
+    State(state): State<SigningState>,
+    Json(request): Json<SignProxyRequest<BlsPublicKey>>,
+) -> Result<impl IntoResponse, SignerModuleError> {
+    let req_id = Uuid::new_v4();
+    let signing_id = &state.jwts[&module_id].signing_id;
+    debug!(event = "request_signature", ?module_id, %request, ?req_id, "New request");
+
+    let manager = state.manager.read().await;
+    let res = match &*manager {
+        SigningManager::Local(local_manager) => local_manager
+            .sign_proxy_bls(&request.proxy, &request.object_root, Some(signing_id))
+            .await
+            .map(|sig| Json(sig).into_response()),
+        SigningManager::Dirk(dirk_manager) => dirk_manager
+            .request_proxy_signature(&request.proxy, &request.object_root, Some(signing_id))
+            .await
+            .map(|sig| Json(sig).into_response()),
+    };
+
+    if let Err(err) = &res {
+        error!(event = "request_signature", ?module_id, ?req_id, "{err}");
+    }
+
+    res
+}
+
+/// Validates an ECDSA key signature request using a proxy key and returns the
+/// signature
+async fn handle_request_signature_proxy_ecdsa(
+    Extension(module_id): Extension<ModuleId>,
+    State(state): State<SigningState>,
+    Json(request): Json<SignProxyRequest<Address>>,
+) -> Result<impl IntoResponse, SignerModuleError> {
+    let req_id = Uuid::new_v4();
+    let signing_id = &state.jwts[&module_id].signing_id;
+    debug!(event = "request_signature", ?module_id, %request, ?req_id, "New request");
+
+    let manager = state.manager.read().await;
+    let res = match &*manager {
+        SigningManager::Local(local_manager) => local_manager
+            .sign_proxy_ecdsa(&request.proxy, &request.object_root, Some(signing_id))
+            .await
+            .map(|sig| Json(sig).into_response()),
+        SigningManager::Dirk(_) => {
+            error!(
+                event = "request_signature",
+                ?module_id,
+                ?req_id,
+                "ECDSA proxy sign request not supported with Dirk"
+            );
+            Err(SignerModuleError::DirkNotSupported)
+        }
     };
 
     if let Err(err) = &res {
