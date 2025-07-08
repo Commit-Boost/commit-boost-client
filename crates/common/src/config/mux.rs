@@ -13,7 +13,7 @@ use alloy::{
 };
 use eyre::{bail, ensure, Context};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use url::Url;
 
 use super::{load_optional_env_var, PbsConfig, RelayConfig, MUX_PATH_ENV};
@@ -186,7 +186,9 @@ impl MuxKeysLoader {
             Self::HTTP { url } => {
                 let url = Url::parse(url).wrap_err("failed to parse mux keys URL")?;
                 if url.scheme() != "https" {
-                    bail!("mux keys URL must use HTTPS");
+                    warn!(
+                        "Mux keys URL {url} is insecure; consider using HTTPS if possible instead"
+                    );
                 }
                 let client = reqwest::ClientBuilder::new().timeout(http_timeout).build()?;
                 let response = client.get(url).send().await?;
