@@ -63,9 +63,9 @@ struct SigningState {
 
     /// Map of modules ids to JWT secrets. This also acts as registry of all
     /// modules running
-    jwts: Arc<RwLock<HashMap<ModuleId, String>>>,
+    jwts: Arc<ParkingRwLock<HashMap<ModuleId, String>>>,
     /// Secret for the admin JWT
-    admin_secret: Arc<RwLock<String>>,
+    admin_secret: Arc<ParkingRwLock<String>>,
 
     /// Map of JWT failures per peer
     jwt_auth_failures: Arc<ParkingRwLock<HashMap<IpAddr, JwtAuthFailureInfo>>>,
@@ -86,8 +86,8 @@ impl SigningService {
 
         let state = SigningState {
             manager: Arc::new(RwLock::new(start_manager(config.clone()).await?)),
-            jwts: Arc::new(RwLock::new(config.jwts)),
-            admin_secret: Arc::new(RwLock::new(config.admin_secret)),
+            jwts: Arc::new(ParkingRwLock::new(config.jwts)),
+            admin_secret: Arc::new(ParkingRwLock::new(config.admin_secret)),
             jwt_auth_failures: Arc::new(ParkingRwLock::new(HashMap::new())),
             jwt_auth_fail_limit: config.jwt_auth_fail_limit,
             jwt_auth_fail_timeout: Duration::from_secs(config.jwt_auth_fail_timeout_seconds as u64),
@@ -227,7 +227,7 @@ async fn check_jwt_auth(
         SignerModuleError::Unauthorized
     })?;
 
-    let guard = state.jwts.read().await;
+    let guard = state.jwts.read();
     let jwt_secret = guard.get(&module_id).ok_or_else(|| {
         error!("Unauthorized request. Was the module started correctly?");
         SignerModuleError::Unauthorized
@@ -248,7 +248,7 @@ async fn admin_auth(
 ) -> Result<Response, SignerModuleError> {
     let jwt: Jwt = auth.token().to_string().into();
 
-    validate_admin_jwt(jwt, &state.admin_secret.read().await).map_err(|e| {
+    validate_admin_jwt(jwt, &state.admin_secret.read()).map_err(|e| {
         error!("Unauthorized request. Invalid JWT: {e}");
         SignerModuleError::Unauthorized
     })?;
@@ -405,11 +405,11 @@ async fn handle_reload(
     };
 
     if let Some(jwt_secrets) = request.jwt_secrets {
-        *state.jwts.write().await = jwt_secrets;
+        *state.jwts.write() = jwt_secrets;
     }
 
     if let Some(admin_secret) = request.admin_secret {
-        *state.admin_secret.write().await = admin_secret;
+        *state.admin_secret.write() = admin_secret;
     }
 
     let new_manager = match start_manager(config).await {
@@ -429,7 +429,7 @@ async fn handle_revoke_module(
     State(state): State<SigningState>,
     Json(request): Json<RevokeModuleRequest>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
-    let mut guard = state.jwts.write().await;
+    let mut guard = state.jwts.write();
     guard
         .remove(&request.module_id)
         .ok_or(SignerModuleError::ModuleIdNotFound)
