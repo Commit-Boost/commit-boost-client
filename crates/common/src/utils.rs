@@ -9,11 +9,13 @@ use alloy::{
 };
 use axum::http::HeaderValue;
 use blst::min_pk::{PublicKey, Signature};
+use futures::StreamExt;
 use rand::{distr::Alphanumeric, Rng};
-use reqwest::header::HeaderMap;
+use reqwest::{header::HeaderMap, Error as ReqwestError, Response};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use ssz::{Decode, Encode};
+use thiserror::Error;
 use tracing::Level;
 use tracing_appender::{non_blocking::WorkerGuard, rolling::Rotation};
 use tracing_subscriber::{
@@ -30,6 +32,46 @@ use crate::{
 };
 
 const MILLIS_PER_SECOND: u64 = 1_000;
+
+#[derive(Debug, Error)]
+pub enum ResponseReadError {
+    #[error("response size exceeds max size: max: {max} raw: {raw}")]
+    PayloadTooLarge { max: usize, raw: String },
+
+    #[error("error reading chunk from response: {inner:?}")]
+    ChunkError { inner: ReqwestError },
+}
+
+/// Reads the body of a response as a chunked stream, ensuring the size does not
+/// exceed `max_size`.
+pub async fn read_chunked_body_with_max(
+    res: Response,
+    max_size: usize,
+) -> Result<Vec<u8>, ResponseReadError> {
+    let mut stream = res.bytes_stream();
+    let mut response_bytes = Vec::new();
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = match chunk {
+            Ok(c) => c,
+            Err(e) => {
+                return Err(ResponseReadError::ChunkError { inner: e });
+            }
+        };
+        if response_bytes.len() + chunk.len() > max_size {
+            // avoid spamming logs if the message is too large
+            response_bytes.truncate(1024);
+            return Err(ResponseReadError::PayloadTooLarge {
+                max: max_size,
+                raw: String::from_utf8_lossy(&response_bytes).into_owned(),
+            });
+        }
+
+        response_bytes.extend_from_slice(&chunk);
+    }
+
+    Ok(response_bytes)
+}
 
 pub fn timestamp_of_slot_start_sec(slot: u64, chain: Chain) -> u64 {
     chain.genesis_time_sec() + slot * chain.slot_time_sec()

@@ -1,12 +1,15 @@
 use std::{collections::HashMap, env, path::Path};
 
 use alloy::rpc::types::beacon::BlsPublicKey;
-use bytes::{BufMut, BytesMut};
 use eyre::{bail, Context, Result};
 use serde::de::DeserializeOwned;
 
 use super::JWTS_ENV;
-use crate::{config::MUXER_HTTP_MAX_LENGTH, types::ModuleId};
+use crate::{
+    config::MUXER_HTTP_MAX_LENGTH,
+    types::ModuleId,
+    utils::{read_chunked_body_with_max, ResponseReadError},
+};
 
 pub const CB_TEST_HTTP_DISABLE_CONTENT_LENGTH_ENV: &str = "CB_TEST_HTTP_DISABLE_CONTENT_LENGTH";
 
@@ -36,7 +39,7 @@ pub fn load_jwt_secrets() -> Result<HashMap<ModuleId, String>> {
 
 /// Reads an HTTP response safely, erroring out if it failed or if the body is
 /// too large.
-pub async fn safe_read_http_response(mut response: reqwest::Response) -> Result<String> {
+pub async fn safe_read_http_response(response: reqwest::Response) -> Result<String> {
     // Get the content length from the response headers
     let mut content_length = response.content_length();
     if env::var(CB_TEST_HTTP_DISABLE_CONTENT_LENGTH_ENV).is_ok() {
@@ -56,18 +59,16 @@ pub async fn safe_read_http_response(mut response: reqwest::Response) -> Result<
     }
 
     // Read the response to a buffer in chunks
-    let mut buffer = BytesMut::with_capacity(1024);
-    while let Some(chunk) = response.chunk().await? {
-        if buffer.len() > MUXER_HTTP_MAX_LENGTH as usize {
-            bail!(
-                "Response body exceeds the maximum allowed length ({MUXER_HTTP_MAX_LENGTH} bytes)"
-            );
-        }
-        buffer.put(chunk);
-    }
+    let result = read_chunked_body_with_max(response, MUXER_HTTP_MAX_LENGTH as usize).await;
+    let bytes = match result {
+        Ok(bytes) => Ok(bytes),
+        Err(ResponseReadError::PayloadTooLarge { max: _, raw: _ }) => bail!(
+            "Response body exceeds the maximum allowed length ({MUXER_HTTP_MAX_LENGTH} bytes)"
+        ),
+        Err(ResponseReadError::ChunkError { inner }) => Err(inner),
+    }?;
 
     // Convert the buffer to a string
-    let bytes = buffer.freeze();
     match std::str::from_utf8(&bytes) {
         Ok(s) => Ok(s.to_string()),
         Err(e) => bail!("Failed to decode response body as UTF-8: {e}"),
