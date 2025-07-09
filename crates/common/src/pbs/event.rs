@@ -12,7 +12,7 @@ use eyre::{bail, Result};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
-use tracing::{error, info, trace};
+use tracing::{error, info, trace, warn};
 use url::Url;
 
 use super::{
@@ -51,7 +51,7 @@ impl BuilderEventPublisher {
     pub fn new(endpoints: Vec<Url>, http_timeout: Duration) -> Result<Self> {
         for endpoint in &endpoints {
             if endpoint.scheme() != "https" {
-                bail!("BuilderEventPublisher endpoints must use HTTPS (endpoint {endpoint} is invalid)");
+                warn!("BuilderEventPublisher endpoint {endpoint} is insecure, consider using HTTPS if possible instead");
             }
         }
         Ok(Self {
