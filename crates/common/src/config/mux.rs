@@ -97,6 +97,7 @@ impl PbsMuxes {
                     .unwrap_or(default_pbs.late_in_slot_time_ms),
                 ..default_pbs.clone()
             };
+            config.validate(chain).await?;
             let config = Arc::new(config);
 
             let runtime_config = RuntimeMuxConfig { id: mux.id, config, relays: relay_clients };
