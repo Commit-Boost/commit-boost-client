@@ -160,7 +160,7 @@ async fn jwt_auth(
     check_jwt_rate_limit(&state, &client_ip)?;
 
     // Process JWT authorization
-    match check_jwt_auth(&auth, &state).await {
+    match check_jwt_auth(&auth, &state) {
         Ok(module_id) => {
             req.extensions_mut().insert(module_id);
             Ok(next.run(req).await)
@@ -214,7 +214,7 @@ fn check_jwt_rate_limit(state: &SigningState, client_ip: &IpAddr) -> Result<(), 
 }
 
 /// Checks if a request can successfully authenticate with the JWT secret
-async fn check_jwt_auth(
+fn check_jwt_auth(
     auth: &Authorization<Bearer>,
     state: &SigningState,
 ) -> Result<ModuleId, SignerModuleError> {
