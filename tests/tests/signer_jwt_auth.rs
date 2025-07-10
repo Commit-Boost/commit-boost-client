@@ -2,10 +2,14 @@ use std::{collections::HashMap, time::Duration};
 
 use alloy::{hex, primitives::FixedBytes};
 use cb_common::{
-    commit::{constants::GET_PUBKEYS_PATH, request::GetPubkeysResponse},
+    commit::{
+        constants::{GET_PUBKEYS_PATH, REVOKE_MODULE_PATH},
+        request::GetPubkeysResponse,
+    },
     config::StartSignerConfig,
+    constants::SIGNER_JWT_EXPIRATION,
     signer::{SignerLoader, ValidatorKeysFormat},
-    types::{Chain, ModuleId},
+    types::{Chain, Jwt, JwtAdmin, ModuleId},
     utils::create_jwt,
 };
 use cb_signer::service::SigningService;
@@ -16,6 +20,7 @@ use tracing::info;
 
 const JWT_MODULE: &str = "test-module";
 const JWT_SECRET: &str = "test-jwt-secret";
+const ADMIN_SECRET: &str = "test-admin-secret";
 
 #[tokio::test]
 async fn test_signer_jwt_auth_success() -> Result<()> {
@@ -86,6 +91,74 @@ async fn test_signer_jwt_rate_limit() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn test_signer_revoked_jwt_fail() -> Result<()> {
+    setup_test_env();
+    let module_id = ModuleId(JWT_MODULE.to_string());
+    let start_config = start_server(20400).await?;
+
+    // Run as many pubkeys requests as the fail limit
+    let jwt = create_jwt(&module_id, JWT_SECRET)?;
+    let admin_jwt = create_admin_jwt()?;
+    let client = reqwest::Client::new();
+
+    // At first, test module should be allowed to request pubkeys
+    let url = format!("http://{}{}", start_config.endpoint, GET_PUBKEYS_PATH);
+    let response = client.get(&url).bearer_auth(&jwt).send().await?;
+    assert!(response.status() == StatusCode::OK);
+
+    let revoke_url = format!("http://{}{}", start_config.endpoint, REVOKE_MODULE_PATH);
+    let response = client
+        .post(&revoke_url)
+        .header("content-type", "application/json")
+        .body(reqwest::Body::wrap(format!("{{\"module_id\": \"{JWT_MODULE}\"}}")))
+        .bearer_auth(&admin_jwt)
+        .send()
+        .await?;
+    assert!(response.status() == StatusCode::OK);
+
+    // After revoke, test module shouldn't be allowed anymore
+    let response = client.get(&url).bearer_auth(&jwt).send().await?;
+    assert!(response.status() == StatusCode::UNAUTHORIZED);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_signer_only_admin_can_revoke() -> Result<()> {
+    setup_test_env();
+    let module_id = ModuleId(JWT_MODULE.to_string());
+    let start_config = start_server(20500).await?;
+
+    // Run as many pubkeys requests as the fail limit
+    let jwt = create_jwt(&module_id, JWT_SECRET)?;
+    let admin_jwt = create_admin_jwt()?;
+    let client = reqwest::Client::new();
+    let url = format!("http://{}{}", start_config.endpoint, REVOKE_MODULE_PATH);
+
+    // Module JWT shouldn't be able to revoke modules
+    let response = client
+        .post(&url)
+        .header("content-type", "application/json")
+        .body(reqwest::Body::wrap(format!("{{\"module_id\": \"{JWT_MODULE}\"}}")))
+        .bearer_auth(&jwt)
+        .send()
+        .await?;
+    assert!(response.status() == StatusCode::UNAUTHORIZED);
+
+    // Admin should be able to revoke modules
+    let response = client
+        .post(&url)
+        .header("content-type", "application/json")
+        .body(reqwest::Body::wrap(format!("{{\"module_id\": \"{JWT_MODULE}\"}}")))
+        .bearer_auth(&admin_jwt)
+        .send()
+        .await?;
+    assert!(response.status() == StatusCode::OK);
+
+    Ok(())
+}
+
 // Starts the signer moduler server on a separate task and returns its
 // configuration
 async fn start_server(port: u16) -> Result<StartSignerConfig> {
@@ -107,7 +180,7 @@ async fn start_server(port: u16) -> Result<StartSignerConfig> {
     config.port = port;
     config.jwt_auth_fail_limit = 3; // Set a low fail limit for testing
     config.jwt_auth_fail_timeout_seconds = 3; // Set a short timeout for testing
-    let start_config = get_start_signer_config(config, chain, jwts);
+    let start_config = get_start_signer_config(config, chain, jwts, ADMIN_SECRET.to_string());
 
     // Run the Signer
     let server_handle = tokio::spawn(SigningService::run(start_config.clone()));
@@ -143,4 +216,17 @@ async fn verify_pubkeys(response: Response) -> Result<()> {
         info!("Server returned expected pubkey: {:?}", expected);
     }
     Ok(())
+}
+
+fn create_admin_jwt() -> Result<Jwt> {
+    jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &JwtAdmin {
+            admin: true,
+            exp: jsonwebtoken::get_current_timestamp() + SIGNER_JWT_EXPIRATION,
+        },
+        &jsonwebtoken::EncodingKey::from_secret(ADMIN_SECRET.as_ref()),
+    )
+    .map_err(Into::into)
+    .map(Jwt::from)
 }
