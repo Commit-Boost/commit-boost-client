@@ -8,10 +8,12 @@ use std::{
 use alloy::{
     primitives::{address, Address, U256},
     providers::ProviderBuilder,
-    rpc::types::beacon::BlsPublicKey,
+    rpc::{client::RpcClient, types::beacon::BlsPublicKey},
     sol,
+    transports::http::Http,
 };
 use eyre::{bail, ensure, Context};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 use url::Url;
@@ -193,8 +195,8 @@ impl MuxKeysLoader {
                 }
                 let client = reqwest::ClientBuilder::new().timeout(http_timeout).build()?;
                 let response = client.get(url).send().await?;
-                let pubkeys = safe_read_http_response(response).await?;
-                serde_json::from_str(&pubkeys)
+                let pubkey_bytes = safe_read_http_response(response).await?;
+                serde_json::from_slice(&pubkey_bytes)
                     .wrap_err("failed to fetch mux keys from HTTP endpoint")
             }
 
@@ -204,7 +206,13 @@ impl MuxKeysLoader {
                         bail!("Lido registry requires RPC URL to be set in the PBS config");
                     };
 
-                    fetch_lido_registry_keys(rpc_url, chain, U256::from(*node_operator_id)).await
+                    fetch_lido_registry_keys(
+                        rpc_url,
+                        chain,
+                        U256::from(*node_operator_id),
+                        http_timeout,
+                    )
+                    .await
                 }
                 NORegistry::SSV => {
                     fetch_ssv_pubkeys(chain, U256::from(*node_operator_id), http_timeout).await
@@ -254,10 +262,17 @@ async fn fetch_lido_registry_keys(
     rpc_url: Url,
     chain: Chain,
     node_operator_id: U256,
+    http_timeout: Duration,
 ) -> eyre::Result<Vec<BlsPublicKey>> {
     debug!(?chain, %node_operator_id, "loading operator keys from Lido registry");
 
-    let provider = ProviderBuilder::new().on_http(rpc_url);
+    // Create an RPC provider with HTTP timeout support
+    let client = Client::builder().timeout(http_timeout).build()?;
+    let http = Http::with_client(client, rpc_url);
+    let is_local = http.guess_local();
+    let rpc_client = RpcClient::new(http, is_local);
+    let provider = ProviderBuilder::new().on_client(rpc_client);
+
     let registry_address = lido_registry_address(chain)?;
     let registry = LidoRegistry::new(registry_address, provider);
 
@@ -362,9 +377,8 @@ async fn fetch_ssv_pubkeys_from_url(
     })?;
 
     // Parse the response as JSON
-    let body_string = safe_read_http_response(response).await?;
-    serde_json::from_slice::<SSVResponse>(body_string.as_bytes())
-        .wrap_err("failed to parse SSV response")
+    let body_bytes = safe_read_http_response(response).await?;
+    serde_json::from_slice::<SSVResponse>(&body_bytes).wrap_err("failed to parse SSV response")
 }
 
 #[derive(Deserialize)]
@@ -386,19 +400,17 @@ struct SSVPagination {
 
 #[cfg(test)]
 mod tests {
-    use std::{env, net::SocketAddr};
+    use std::net::SocketAddr;
 
     use alloy::{hex::FromHex, primitives::U256, providers::ProviderBuilder};
     use axum::{response::Response, routing::get};
-    use scopeguard::defer;
-    use serial_test::serial;
     use tokio::{net::TcpListener, task::JoinHandle};
     use url::Url;
 
     use super::*;
-    use crate::config::{
-        CB_TEST_HTTP_DISABLE_CONTENT_LENGTH_ENV, HTTP_TIMEOUT_SECONDS_DEFAULT,
-        MUXER_HTTP_MAX_LENGTH,
+    use crate::{
+        config::{HTTP_TIMEOUT_SECONDS_DEFAULT, MUXER_HTTP_MAX_LENGTH},
+        utils::{set_ignore_content_length, ResponseReadError},
     };
 
     const TEST_HTTP_TIMEOUT: u64 = 2;
@@ -471,25 +483,28 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     /// Tests that the SSV network fetch is handled properly when the response's
     /// body is too large
     async fn test_ssv_network_fetch_big_data() -> eyre::Result<()> {
         // Start the mock server
         let port = 30101;
-        env::remove_var(CB_TEST_HTTP_DISABLE_CONTENT_LENGTH_ENV);
         let _server_handle = create_mock_server(port).await?;
         let url = format!("http://localhost:{port}/big_data");
         let response = fetch_ssv_pubkeys_from_url(&url, Duration::from_secs(120)).await;
 
         // The response should fail due to content length being too big
-        assert!(response.is_err(), "Expected error due to big content length, but got success");
-        if let Err(e) = response {
-            assert!(
-                e.to_string().contains("content length") &&
-                    e.to_string().contains("exceeds the maximum allowed length"),
-                "Expected content length error, got: {e}",
-            );
+        match response {
+            Ok(_) => {
+                panic!("Expected an error due to big content length, but got a successful response")
+            }
+            Err(e) => match e.downcast_ref::<ResponseReadError>() {
+                Some(ResponseReadError::PayloadTooLarge { max, content_length, raw }) => {
+                    assert_eq!(*max, MUXER_HTTP_MAX_LENGTH);
+                    assert!(*content_length > MUXER_HTTP_MAX_LENGTH);
+                    assert!(raw.is_empty());
+                }
+                _ => panic!("Expected PayloadTooLarge error, got: {}", e),
+            },
         }
 
         // Clean up the server handle
@@ -522,25 +537,29 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial]
     /// Tests that the SSV network fetch is handled properly when the response's
     /// content-length header is missing
     async fn test_ssv_network_fetch_big_data_without_content_length() -> eyre::Result<()> {
         // Start the mock server
         let port = 30103;
-        env::set_var(CB_TEST_HTTP_DISABLE_CONTENT_LENGTH_ENV, "1");
-        defer! { env::remove_var(CB_TEST_HTTP_DISABLE_CONTENT_LENGTH_ENV); }
+        set_ignore_content_length(true);
         let _server_handle = create_mock_server(port).await?;
         let url = format!("http://localhost:{port}/big_data");
         let response = fetch_ssv_pubkeys_from_url(&url, Duration::from_secs(120)).await;
 
-        // The response should fail due to timeout
-        assert!(response.is_err(), "Expected error due to body size, but got success");
-        if let Err(e) = response {
-            assert!(
-                e.to_string().contains("Response body exceeds the maximum allowed length "),
-                "Expected content length error, got: {e}",
-            );
+        // The response should fail due to the body being too big
+        match response {
+            Ok(_) => {
+                panic!("Expected an error due to excessive data, but got a successful response")
+            }
+            Err(e) => match e.downcast_ref::<ResponseReadError>() {
+                Some(ResponseReadError::PayloadTooLarge { max, content_length, raw }) => {
+                    assert_eq!(*max, MUXER_HTTP_MAX_LENGTH);
+                    assert_eq!(*content_length, 0);
+                    assert!(!raw.is_empty());
+                }
+                _ => panic!("Expected PayloadTooLarge error, got: {}", e),
+            },
         }
 
         // Clean up the server handle
@@ -585,10 +604,12 @@ mod tests {
             .unwrap()
     }
 
-    /// Sends a response with a large body but no content length
+    /// Sends a response with a large body - larger than the maximum allowed.
+    /// Note that hyper overwrites the content-length header automatically, so
+    /// setting it here wouldn't actually change the value that ultimately
+    /// gets sent to the server.
     async fn handle_big_data() -> Response {
-        // Create a response with a large body but no content length
-        let body = "f".repeat(2 * MUXER_HTTP_MAX_LENGTH as usize);
+        let body = "f".repeat(2 * MUXER_HTTP_MAX_LENGTH);
         Response::builder()
             .status(200)
             .header("Content-Type", "application/text")

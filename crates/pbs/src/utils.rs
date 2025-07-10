@@ -1,23 +1,3 @@
-use cb_common::{
-    pbs::error::PbsError,
-    utils::{read_chunked_body_with_max as read_chunked_body_with_max_impl, ResponseReadError},
-};
-use reqwest::Response;
-
-pub async fn read_chunked_body_with_max(
-    res: Response,
-    max_size: usize,
-) -> Result<Vec<u8>, PbsError> {
-    let result = read_chunked_body_with_max_impl(res, max_size).await;
-    match result {
-        Ok(bytes) => Ok(bytes),
-        Err(ResponseReadError::PayloadTooLarge { max, raw }) => {
-            Err(PbsError::PayloadTooLarge { max, raw })
-        }
-        Err(ResponseReadError::ChunkError { inner }) => Err(PbsError::Reqwest(inner)),
-    }
-}
-
 const GAS_LIMIT_ADJUSTMENT_FACTOR: u64 = 1024;
 const GAS_LIMIT_MINIMUM: u64 = 5_000;
 

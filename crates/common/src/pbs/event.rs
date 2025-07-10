@@ -54,10 +54,7 @@ impl BuilderEventPublisher {
                 warn!("BuilderEventPublisher endpoint {endpoint} is insecure, consider using HTTPS if possible instead");
             }
         }
-        Ok(Self {
-            client: reqwest::ClientBuilder::new().timeout(http_timeout).build().unwrap(),
-            endpoints,
-        })
+        Ok(Self { client: reqwest::ClientBuilder::new().timeout(http_timeout).build()?, endpoints })
     }
 
     pub fn new_from_env() -> Result<Option<Self>> {
