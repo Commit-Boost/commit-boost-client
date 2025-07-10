@@ -1,10 +1,11 @@
 use std::time::{Duration, Instant};
 
-use alloy::{hex, primitives::B256};
+use alloy::primitives::B256;
 use cb_common::{
     config::RelayConfig,
     pbs::{BlsPublicKey, BlsSecretKey, GetHeaderResponse, RelayClient, RelayEntry},
     types::Chain,
+    utils::TestRandomSeed,
 };
 use cb_tests::mock_relay::{start_mock_relay_service, MockRelayState};
 use comfy_table::Table;
@@ -15,9 +16,6 @@ mod config;
 
 fn get_random_hash() -> B256 {
     B256::from(rand::random::<[u8; 32]>())
-}
-fn get_random_pubkey() -> BlsPublicKey {
-    BlsPublicKey::deserialize(&hex!("0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000")).unwrap()
 }
 
 #[tokio::main]
@@ -44,7 +42,7 @@ async fn main() {
         // bench
         for slot in 0..config.benchmark.n_slots {
             let parent_hash = get_random_hash();
-            let validator_pubkey = get_random_pubkey();
+            let validator_pubkey = BlsPublicKey::test_random();
             let url = mock_validator.get_header_url(slot, &parent_hash, &validator_pubkey).unwrap();
 
             for _ in 0..config.benchmark.headers_per_slot {
@@ -150,7 +148,7 @@ async fn start_mock_relay(chain: Chain, relay_config: RelayConfig) {
 }
 
 fn get_mock_validator(bench: BenchConfig) -> RelayClient {
-    let entry = RelayEntry { id: bench.id, pubkey: get_random_pubkey(), url: bench.url };
+    let entry = RelayEntry { id: bench.id, pubkey: BlsPublicKey::test_random(), url: bench.url };
     let config = RelayConfig {
         entry,
         id: None,

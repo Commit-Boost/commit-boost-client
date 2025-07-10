@@ -91,7 +91,7 @@ impl EcdsaSigner {
         match self {
             EcdsaSigner::Local(sk) => {
                 let domain = compute_domain(chain, COMMIT_BOOST_DOMAIN);
-                let signing_root = compute_signing_root(object_root, domain).into();
+                let signing_root = compute_signing_root(object_root, domain);
                 sk.sign_hash_sync(&signing_root).map(EcdsaSignature::from)
             }
         }

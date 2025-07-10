@@ -61,6 +61,7 @@ fn decode_string_to_map(raw: &str) -> Result<HashMap<ModuleId, String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::TestRandomSeed;
 
     #[test]
     fn test_decode_string_to_map() {
@@ -74,8 +75,8 @@ mod tests {
 
     #[test]
     fn test_remove_duplicate_keys() {
-        let key1 = BlsPublicKey::deserialize(&[1; 48]).unwrap();
-        let key2 = BlsPublicKey::deserialize(&[2; 48]).unwrap();
+        let key1 = BlsPublicKey::test_random();
+        let key2 = BlsPublicKey::test_random();
         let keys = vec![key1.clone(), key2.clone(), key1.clone()];
 
         let unique_keys = remove_duplicate_keys(keys);

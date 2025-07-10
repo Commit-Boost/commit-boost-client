@@ -5,6 +5,7 @@ use std::{
 
 use alloy::primitives::U256;
 use axum::http::HeaderValue;
+use lh_types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
 use rand::{distr::Alphanumeric, Rng};
 use reqwest::header::HeaderMap;
 use serde::{de::DeserializeOwned, Serialize};
@@ -346,6 +347,18 @@ pub async fn wait_for_signal() -> eyre::Result<()> {
     tokio::signal::ctrl_c().await?;
     Ok(())
 }
+
+pub trait TestRandomSeed: TestRandom {
+    fn test_random() -> Self
+    where
+        Self: Sized,
+    {
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+        Self::random_for_test(&mut rng)
+    }
+}
+
+impl<T: TestRandom> TestRandomSeed for T {}
 
 #[cfg(test)]
 mod test {

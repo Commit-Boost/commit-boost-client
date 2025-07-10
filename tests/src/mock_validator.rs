@@ -46,7 +46,7 @@ impl MockValidator {
         let url = self.comm_boost.submit_block_url().unwrap();
 
         let signed_blinded_block =
-            signed_blinded_block.unwrap_or_else(|| load_test_signed_blinded_block());
+            signed_blinded_block.unwrap_or_else(load_test_signed_blinded_block);
 
         Ok(self.comm_boost.client.post(url).json(&signed_blinded_block).send().await?)
     }
@@ -54,5 +54,5 @@ impl MockValidator {
 
 pub fn load_test_signed_blinded_block() -> SignedBlindedBeaconBlock {
     let data_json = include_str!("signed-blinded-beacon-block-electra-2.json");
-    serde_json::from_str(&data_json).unwrap()
+    serde_json::from_str(data_json).unwrap()
 }

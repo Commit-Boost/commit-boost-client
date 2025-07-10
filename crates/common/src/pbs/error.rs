@@ -55,7 +55,7 @@ pub enum ValidationError {
     EmptyBlockhash,
 
     #[error("pubkey mismatch: expected {expected} got {got}")]
-    PubkeyMismatch { expected: BlsPublicKey, got: BlsPublicKey },
+    PubkeyMismatch { expected: Box<BlsPublicKey>, got: Box<BlsPublicKey> },
 
     #[error("parent hash mismatch: expected {expected} got {got}")]
     ParentHashMismatch { expected: B256, got: B256 },

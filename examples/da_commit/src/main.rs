@@ -69,7 +69,7 @@ impl DaCommitService {
         let mut data = 0;
 
         loop {
-            self.send_request(data, pubkey.clone(), proxy_bls.clone(), proxy_ecdsa.clone()).await?;
+            self.send_request(data, pubkey.clone(), proxy_bls.clone(), proxy_ecdsa).await?;
             sleep(Duration::from_secs(self.config.extra.sleep_secs)).await;
             data += 1;
         }

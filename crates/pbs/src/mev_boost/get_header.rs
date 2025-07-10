@@ -460,14 +460,14 @@ fn validate_signature<T: TreeHash>(
 ) -> Result<(), ValidationError> {
     if expected_relay_pubkey != received_relay_pubkey {
         return Err(ValidationError::PubkeyMismatch {
-            expected: expected_relay_pubkey.clone(),
-            got: received_relay_pubkey.clone(),
+            expected: Box::new(expected_relay_pubkey.clone()),
+            got: Box::new(received_relay_pubkey.clone()),
         });
     }
 
     if !verify_signed_message(
         chain,
-        &received_relay_pubkey,
+        received_relay_pubkey,
         &message,
         signature,
         APPLICATION_BUILDER_DOMAIN,
@@ -595,7 +595,10 @@ mod tests {
 
         assert_eq!(
             validate_signature(Chain::Holesky, &wrong_pubkey, &pubkey, &message, &wrong_signature),
-            Err(ValidationError::PubkeyMismatch { expected: wrong_pubkey, got: pubkey.clone() })
+            Err(ValidationError::PubkeyMismatch {
+                expected: Box::new(wrong_pubkey),
+                got: Box::new(pubkey.clone())
+            })
         );
 
         assert!(matches!(
