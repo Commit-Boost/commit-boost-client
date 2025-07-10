@@ -14,7 +14,7 @@ use tracing::{error, info};
 // the signature, preventing other modules from using the same signature for
 // different purposes.
 pub const DA_COMMIT_SIGNING_ID: B256 =
-    b256!("0xf30382906f594b88a33f4427c94062c2a66cf9bc4886475897ac0713f7f84ed7");
+    b256!("0x6a33a23ef26a4836979edff86c493a69b26ccf0b4a16491a815a13787657431b");
 
 // You can define custom metrics and a custom registry for the business logic of
 // your module. These will be automatically scaped by the Prometheus server
@@ -114,7 +114,7 @@ impl DaCommitService {
             self.config.chain,
             &proxy_bls,
             &datagram,
-            &signature,
+            &proxy_signature_bls,
             DA_COMMIT_SIGNING_ID,
         ) {
             Ok(_) => info!("Signature verified successfully"),
