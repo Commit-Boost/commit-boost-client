@@ -9,7 +9,6 @@ use std::{
 use alloy::{
     primitives::{utils::format_ether, U256},
     providers::{Provider, ProviderBuilder},
-    rpc::types::beacon::BlsPublicKey,
 };
 use eyre::{ensure, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -26,8 +25,8 @@ use crate::{
         SIGNER_URL_ENV,
     },
     pbs::{
-        BuilderEventPublisher, DefaultTimeout, RelayClient, RelayEntry, DEFAULT_PBS_PORT,
-        LATE_IN_SLOT_TIME_MS, REGISTER_VALIDATOR_RETRY_LIMIT,
+        BlsPublicKey, BuilderEventPublisher, DefaultTimeout, RelayClient, RelayEntry,
+        DEFAULT_PBS_PORT, LATE_IN_SLOT_TIME_MS, REGISTER_VALIDATOR_RETRY_LIMIT,
     },
     types::{Chain, Jwt, ModuleId},
     utils::{

@@ -3,12 +3,8 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use alloy::{
-    primitives::U256,
-    rpc::types::beacon::{BlsPublicKey, BlsSignature},
-};
+use alloy::primitives::U256;
 use axum::http::HeaderValue;
-use blst::min_pk::{PublicKey, Signature};
 use rand::{distr::Alphanumeric, Rng};
 use reqwest::header::HeaderMap;
 use serde::{de::DeserializeOwned, Serialize};
@@ -262,20 +258,6 @@ pub fn print_logo() {
 \____/\____/_/ /_/ /_/_/ /_/ /_/_/\__/  /_____/\____/\____/____/\__/
                                                                       "#
     )
-}
-
-// Crypto conversions
-
-pub fn alloy_pubkey_to_blst(pubkey: &BlsPublicKey) -> Result<PublicKey, blst::BLST_ERROR> {
-    PublicKey::key_validate(&pubkey.0)
-}
-
-pub fn alloy_sig_to_blst(signature: &BlsSignature) -> Result<Signature, blst::BLST_ERROR> {
-    Signature::from_bytes(&signature.0)
-}
-
-pub fn blst_pubkey_to_alloy(pubkey: &PublicKey) -> BlsPublicKey {
-    BlsPublicKey::from_slice(&pubkey.to_bytes())
 }
 
 /// Create a JWT for the given module id with expiration

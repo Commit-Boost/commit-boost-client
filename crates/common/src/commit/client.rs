@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use alloy::{primitives::Address, rpc::types::beacon::BlsSignature};
+use alloy::primitives::Address;
 use eyre::WrapErr;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use serde::Deserialize;
@@ -16,7 +16,8 @@ use super::{
 };
 use crate::{
     constants::SIGNER_JWT_EXPIRATION,
-    signer::{BlsPublicKey, EcdsaSignature},
+    pbs::{BlsPublicKey, BlsSignature},
+    signer::EcdsaSignature,
     types::{Jwt, ModuleId},
     utils::create_jwt,
     DEFAULT_REQUEST_TIMEOUT,

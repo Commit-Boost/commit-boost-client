@@ -6,7 +6,6 @@ use std::{
 use alloy::{
     hex,
     primitives::{Address, B256},
-    rpc::types::beacon::BlsSignature,
 };
 use derive_more::derive::From;
 use serde::{Deserialize, Serialize};
@@ -14,18 +13,30 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    constants::COMMIT_BOOST_DOMAIN, error::BlstErrorWrapper, signature::verify_signed_message,
-    signer::BlsPublicKey, types::Chain,
+    constants::COMMIT_BOOST_DOMAIN,
+    pbs::{BlsPublicKey, BlsSignature},
+    signature::verify_signed_message,
+    types::Chain,
 };
 
-pub trait ProxyId: AsRef<[u8]> + Debug + Clone + Copy + TreeHash + Display {}
+pub trait ProxyId: Debug + Clone + TreeHash + Display {
+    fn to_bytes(&self) -> Vec<u8>;
+}
 
-impl ProxyId for Address {}
+impl ProxyId for Address {
+    fn to_bytes(&self) -> Vec<u8> {
+        self.0.as_slice().to_vec()
+    }
+}
 
-impl ProxyId for BlsPublicKey {}
+impl ProxyId for BlsPublicKey {
+    fn to_bytes(&self) -> Vec<u8> {
+        self.serialize().to_vec()
+    }
+}
 
 // GENERIC PROXY DELEGATION
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, TreeHash)]
+#[derive(Debug, Clone, Serialize, Deserialize, TreeHash)]
 pub struct ProxyDelegation<T: ProxyId> {
     pub delegator: BlsPublicKey,
     pub proxy: T,
@@ -40,7 +51,7 @@ impl<T: ProxyId> fmt::Display for ProxyDelegation<T> {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedProxyDelegation<T: ProxyId> {
     pub message: ProxyDelegation<T>,
     /// Signature of message with the delegator keypair
@@ -51,7 +62,7 @@ pub type SignedProxyDelegationBls = SignedProxyDelegation<BlsPublicKey>;
 pub type SignedProxyDelegationEcdsa = SignedProxyDelegation<Address>;
 
 impl<T: ProxyId> SignedProxyDelegation<T> {
-    pub fn validate(&self, chain: Chain) -> Result<(), BlstErrorWrapper> {
+    pub fn validate(&self, chain: Chain) -> bool {
         verify_signed_message(
             chain,
             &self.message.delegator,

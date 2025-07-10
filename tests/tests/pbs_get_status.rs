@@ -1,10 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use cb_common::{
-    signer::{random_secret, BlsPublicKey},
-    types::Chain,
-    utils::blst_pubkey_to_alloy,
-};
+use cb_common::{signer::random_secret, types::Chain};
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
     mock_relay::{start_mock_relay_service, MockRelayState},
@@ -19,7 +15,7 @@ use tracing::info;
 async fn test_get_status() -> Result<()> {
     setup_test_env();
     let signer = random_secret();
-    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk()).into();
+    let pubkey = signer.public_key();
 
     let chain = Chain::Holesky;
     let pbs_port = 3500;
@@ -27,7 +23,7 @@ async fn test_get_status() -> Result<()> {
     let relay_1_port = pbs_port + 2;
 
     let relays = vec![
-        generate_mock_relay(relay_0_port, pubkey)?,
+        generate_mock_relay(relay_0_port, pubkey.clone())?,
         generate_mock_relay(relay_1_port, pubkey)?,
     ];
     let mock_state = Arc::new(MockRelayState::new(chain, signer));
@@ -55,7 +51,7 @@ async fn test_get_status() -> Result<()> {
 async fn test_get_status_returns_502_if_relay_down() -> Result<()> {
     setup_test_env();
     let signer = random_secret();
-    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk()).into();
+    let pubkey = signer.public_key();
 
     let chain = Chain::Holesky;
     let pbs_port = 3600;

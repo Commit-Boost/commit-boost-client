@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use alloy::primitives::{hex, Bytes};
+use alloy::primitives::{hex, Bytes, B256};
 use derive_more::{Deref, Display, From, Into};
 use eyre::{bail, Context};
 use serde::{Deserialize, Serialize};
@@ -78,13 +78,13 @@ impl Chain {
         }
     }
 
-    pub fn builder_domain(&self) -> [u8; 32] {
+    pub fn builder_domain(&self) -> B256 {
         match self {
-            Chain::Mainnet => KnownChain::Mainnet.builder_domain(),
-            Chain::Holesky => KnownChain::Holesky.builder_domain(),
-            Chain::Sepolia => KnownChain::Sepolia.builder_domain(),
-            Chain::Helder => KnownChain::Helder.builder_domain(),
-            Chain::Hoodi => KnownChain::Hoodi.builder_domain(),
+            Chain::Mainnet => KnownChain::Mainnet.builder_domain().into(),
+            Chain::Holesky => KnownChain::Holesky.builder_domain().into(),
+            Chain::Sepolia => KnownChain::Sepolia.builder_domain().into(),
+            Chain::Helder => KnownChain::Helder.builder_domain().into(),
+            Chain::Hoodi => KnownChain::Hoodi.builder_domain().into(),
             Chain::Custom { .. } => compute_domain(*self, APPLICATION_BUILDER_DOMAIN),
         }
     }

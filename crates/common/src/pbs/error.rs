@@ -1,10 +1,7 @@
-use alloy::{
-    primitives::{B256, U256},
-    rpc::types::beacon::BlsPublicKey,
-};
+use alloy::primitives::{B256, U256};
 use thiserror::Error;
 
-use crate::error::BlstErrorWrapper;
+use crate::pbs::BlsPublicKey;
 
 #[derive(Debug, Error)]
 pub enum PbsError {
@@ -83,8 +80,8 @@ pub enum ValidationError {
     #[error("empty tx root")]
     EmptyTxRoot,
 
-    #[error("failed signature verification: {0:?}")]
-    Sigverify(#[from] BlstErrorWrapper),
+    #[error("failed signature verification")]
+    Sigverify,
 
     #[error("wrong timestamp: expected {expected} got {got}")]
     TimestampMismatch { expected: u64, got: u64 },

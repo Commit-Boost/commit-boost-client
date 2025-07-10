@@ -4,13 +4,13 @@ use std::{
     sync::{Arc, Once},
 };
 
-use alloy::{primitives::U256, rpc::types::beacon::BlsPublicKey};
+use alloy::primitives::U256;
 use cb_common::{
     config::{
         PbsConfig, PbsModuleConfig, RelayConfig, SignerConfig, SignerType, StartSignerConfig,
         SIGNER_IMAGE_DEFAULT,
     },
-    pbs::{RelayClient, RelayEntry},
+    pbs::{BlsPublicKey, RelayClient, RelayEntry},
     signer::{
         SignerLoader, DEFAULT_JWT_AUTH_FAIL_LIMIT, DEFAULT_JWT_AUTH_FAIL_TIMEOUT_SECONDS,
         DEFAULT_SIGNER_PORT,

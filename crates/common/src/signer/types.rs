@@ -8,9 +8,10 @@ use serde::{
     Deserialize, Deserializer,
 };
 
-use super::{BlsPublicKey, EcdsaSigner};
+use super::EcdsaSigner;
 use crate::{
     commit::request::{SignedProxyDelegationBls, SignedProxyDelegationEcdsa},
+    pbs::BlsPublicKey,
     signer::BlsSigner,
 };
 

@@ -1,11 +1,6 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use cb_common::{
-    config::RuntimeMuxConfig,
-    signer::{random_secret, BlsPublicKey},
-    types::Chain,
-    utils::blst_pubkey_to_alloy,
-};
+use cb_common::{config::RuntimeMuxConfig, signer::random_secret, types::Chain};
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
     mock_relay::{start_mock_relay_service, MockRelayState},
@@ -20,14 +15,14 @@ use tracing::info;
 async fn test_mux() -> Result<()> {
     setup_test_env();
     let signer = random_secret();
-    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk()).into();
+    let pubkey = signer.public_key();
 
     let chain = Chain::Holesky;
     let pbs_port = 3700;
 
-    let mux_relay_1 = generate_mock_relay(pbs_port + 1, pubkey)?;
-    let mux_relay_2 = generate_mock_relay(pbs_port + 2, pubkey)?;
-    let default_relay = generate_mock_relay(pbs_port + 3, pubkey)?;
+    let mux_relay_1 = generate_mock_relay(pbs_port + 1, pubkey.clone())?;
+    let mux_relay_2 = generate_mock_relay(pbs_port + 2, pubkey.clone())?;
+    let default_relay = generate_mock_relay(pbs_port + 3, pubkey.clone())?;
 
     // Run 3 mock relays
     let mock_state = Arc::new(MockRelayState::new(chain, signer));
@@ -48,8 +43,8 @@ async fn test_mux() -> Result<()> {
     };
 
     // Bind mux to a specific validator key
-    let validator_pubkey = blst_pubkey_to_alloy(&random_secret().sk_to_pk());
-    config.muxes = Some(HashMap::from([(validator_pubkey, mux)]));
+    let validator_pubkey = random_secret().public_key();
+    config.muxes = Some(HashMap::from([(validator_pubkey.clone(), mux)]));
 
     // Run PBS service
     let state = PbsState::new(config);

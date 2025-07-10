@@ -1,7 +1,4 @@
-use alloy::{
-    primitives::{B256, U256},
-    rpc::types::beacon::{BlsPublicKey, BlsSignature},
-};
+use alloy::primitives::{B256, U256};
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
@@ -11,8 +8,9 @@ use super::{
     execution_payload::ExecutionPayloadHeader, execution_requests::ExecutionRequests,
     kzg::KzgCommitments, spec::ElectraSpec, utils::VersionedResponse,
 };
+use crate::pbs::{BlsPublicKey, BlsSignature};
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct GetHeaderParams {
     /// The slot to request the header for
     pub slot: u64,
@@ -45,9 +43,9 @@ impl GetHeaderResponse {
         }
     }
 
-    pub fn pubkey(&self) -> BlsPublicKey {
+    pub fn pubkey(&self) -> &BlsPublicKey {
         match self {
-            VersionedResponse::Electra(data) => data.message.pubkey,
+            VersionedResponse::Electra(data) => &data.message.pubkey,
         }
     }
 
@@ -69,20 +67,20 @@ impl GetHeaderResponse {
         }
     }
 
-    pub fn signautre(&self) -> BlsSignature {
+    pub fn signautre(&self) -> &BlsSignature {
         match self {
-            GetHeaderResponse::Electra(data) => data.signature,
+            GetHeaderResponse::Electra(data) => &data.signature,
         }
     }
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct SignedExecutionPayloadHeader<T: Encode + Decode> {
     pub message: T,
     pub signature: BlsSignature,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize, Encode, Decode, TreeHash)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash)]
 pub struct ExecutionPayloadHeaderMessageElectra {
     pub header: ExecutionPayloadHeader<ElectraSpec>,
     pub blob_kzg_commitments: KzgCommitments<ElectraSpec>,
@@ -177,8 +175,7 @@ mod tests {
             &parsed.message,
             &parsed.signature,
             APPLICATION_BUILDER_DOMAIN
-        )
-        .is_ok())
+        ))
     }
 
     #[test]

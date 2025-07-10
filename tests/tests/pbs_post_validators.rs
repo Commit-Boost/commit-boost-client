@@ -1,11 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use alloy::rpc::types::beacon::relay::ValidatorRegistration;
-use cb_common::{
-    signer::{random_secret, BlsPublicKey},
-    types::Chain,
-    utils::blst_pubkey_to_alloy,
-};
+use cb_common::{pbs::BlsPublicKey, signer::random_secret, types::Chain};
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
     mock_relay::{start_mock_relay_service, MockRelayState},
@@ -20,7 +16,7 @@ use tracing::info;
 async fn test_register_validators() -> Result<()> {
     setup_test_env();
     let signer = random_secret();
-    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk()).into();
+    let pubkey: BlsPublicKey = signer.public_key();
 
     let chain = Chain::Holesky;
     let pbs_port = 4000;
@@ -66,7 +62,7 @@ async fn test_register_validators() -> Result<()> {
 async fn test_register_validators_returns_422_if_request_is_malformed() -> Result<()> {
     setup_test_env();
     let signer = random_secret();
-    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk()).into();
+    let pubkey: BlsPublicKey = signer.public_key();
 
     let chain = Chain::Holesky;
     let pbs_port = 4100;
@@ -206,7 +202,7 @@ async fn test_register_validators_returns_422_if_request_is_malformed() -> Resul
 async fn test_register_validators_does_not_retry_on_429() -> Result<()> {
     setup_test_env();
     let signer = random_secret();
-    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk()).into();
+    let pubkey: BlsPublicKey = signer.public_key();
 
     let chain = Chain::Holesky;
     let pbs_port = 4200;
@@ -259,7 +255,7 @@ async fn test_register_validators_does_not_retry_on_429() -> Result<()> {
 async fn test_register_validators_retries_on_500() -> Result<()> {
     setup_test_env();
     let signer = random_secret();
-    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk()).into();
+    let pubkey: BlsPublicKey = signer.public_key();
 
     let chain = Chain::Holesky;
     let pbs_port = 4300;

@@ -1,15 +1,10 @@
 use std::{sync::Arc, time::Duration};
 
-use cb_common::{
-    pbs::{SignedBlindedBeaconBlock, SubmitBlindedBlockResponse},
-    signer::{random_secret, BlsPublicKey},
-    types::Chain,
-    utils::blst_pubkey_to_alloy,
-};
+use cb_common::{pbs::SubmitBlindedBlockResponse, signer::random_secret, types::Chain};
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
     mock_relay::{start_mock_relay_service, MockRelayState},
-    mock_validator::MockValidator,
+    mock_validator::{load_test_signed_blinded_block, MockValidator},
     utils::{generate_mock_relay, get_pbs_static_config, setup_test_env, to_pbs_config},
 };
 use eyre::Result;
@@ -20,7 +15,7 @@ use tracing::info;
 async fn test_submit_block() -> Result<()> {
     setup_test_env();
     let signer = random_secret();
-    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk()).into();
+    let pubkey = signer.public_key();
 
     let chain = Chain::Holesky;
     let pbs_port = 3800;
@@ -39,14 +34,16 @@ async fn test_submit_block() -> Result<()> {
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     let mock_validator = MockValidator::new(pbs_port)?;
+
+    let signed_blinded_block = load_test_signed_blinded_block();
     info!("Sending submit block");
-    let res = mock_validator.do_submit_block(Some(SignedBlindedBeaconBlock::default())).await?;
+    let res = mock_validator.do_submit_block(Some(signed_blinded_block.clone())).await?;
 
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(mock_state.received_submit_block(), 1);
 
     let response_body = serde_json::from_slice::<SubmitBlindedBlockResponse>(&res.bytes().await?)?;
-    assert_eq!(response_body.block_hash(), SubmitBlindedBlockResponse::default().block_hash());
+    assert_eq!(response_body.block_hash(), signed_blinded_block.block_hash());
     Ok(())
 }
 
@@ -54,7 +51,7 @@ async fn test_submit_block() -> Result<()> {
 async fn test_submit_block_too_large() -> Result<()> {
     setup_test_env();
     let signer = random_secret();
-    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk()).into();
+    let pubkey = signer.public_key();
 
     let chain = Chain::Holesky;
     let pbs_port = 3900;

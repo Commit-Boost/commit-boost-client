@@ -29,3 +29,7 @@ pub use kzg::{
 };
 pub use spec::{ElectraSpec, EthSpec};
 pub use utils::VersionedResponse;
+
+pub type BlsPublicKey = lh_types::PublicKey;
+pub type BlsSignature = lh_types::Signature;
+pub type BlsSecretKey = lh_types::SecretKey;

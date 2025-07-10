@@ -49,16 +49,17 @@ impl DaCommitService {
         let pubkeys = self.config.signer_client.get_pubkeys().await?.keys;
         info!(pubkeys = %serde_json::to_string_pretty(&pubkeys).unwrap(), "Received pubkeys");
 
-        let pubkey = pubkeys.first().ok_or_eyre("no key available")?.consensus;
+        let pubkey = pubkeys.first().ok_or_eyre("no key available")?.consensus.clone();
         info!("Registered validator {pubkey}");
 
-        let proxy_delegation_bls = self.config.signer_client.generate_proxy_key_bls(pubkey).await?;
+        let proxy_delegation_bls =
+            self.config.signer_client.generate_proxy_key_bls(pubkey.clone()).await?;
         info!("Obtained a BLS proxy delegation:\n{proxy_delegation_bls}");
         let proxy_bls = proxy_delegation_bls.message.proxy;
 
         let proxy_ecdsa = if self.config.extra.use_ecdsa_keys {
             let proxy_delegation_ecdsa =
-                self.config.signer_client.generate_proxy_key_ecdsa(pubkey).await?;
+                self.config.signer_client.generate_proxy_key_ecdsa(pubkey.clone()).await?;
             info!("Obtained an ECDSA proxy delegation:\n{proxy_delegation_ecdsa}");
             Some(proxy_delegation_ecdsa.message.proxy)
         } else {
@@ -68,7 +69,7 @@ impl DaCommitService {
         let mut data = 0;
 
         loop {
-            self.send_request(data, pubkey, proxy_bls, proxy_ecdsa).await?;
+            self.send_request(data, pubkey.clone(), proxy_bls.clone(), proxy_ecdsa.clone()).await?;
             sleep(Duration::from_secs(self.config.extra.sleep_secs)).await;
             data += 1;
         }

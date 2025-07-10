@@ -16,14 +16,14 @@ use axum::{
 };
 use cb_common::{
     pbs::{
-        ExecutionPayloadHeaderMessageElectra, GetHeaderParams, GetHeaderResponse,
-        SignedExecutionPayloadHeader, SubmitBlindedBlockResponse, BUILDER_API_PATH,
-        GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
+        BlsSecretKey, ExecutionPayloadHeaderMessageElectra, ExecutionRequests, GetHeaderParams,
+        GetHeaderResponse, SignedExecutionPayloadHeader, SubmitBlindedBlockResponse,
+        BUILDER_API_PATH, GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH,
+        SUBMIT_BLOCK_PATH,
     },
     signature::sign_builder_root,
-    signer::BlsSecretKey,
     types::Chain,
-    utils::{blst_pubkey_to_alloy, timestamp_of_slot_start_sec},
+    utils::timestamp_of_slot_start_sec,
 };
 use cb_pbs::MAX_SIZE_SUBMIT_BLOCK_RESPONSE;
 use tokio::net::TcpListener;
@@ -108,17 +108,23 @@ async fn handle_get_header(
 ) -> Response {
     state.received_get_header.fetch_add(1, Ordering::Relaxed);
 
-    let mut response: SignedExecutionPayloadHeader<ExecutionPayloadHeaderMessageElectra> =
-        SignedExecutionPayloadHeader::default();
+    let mut message = ExecutionPayloadHeaderMessageElectra {
+        header: Default::default(),
+        blob_kzg_commitments: Default::default(),
+        execution_requests: ExecutionRequests::default(),
+        value: Default::default(),
+        pubkey: state.signer.public_key(),
+    };
 
-    response.message.header.parent_hash = parent_hash;
-    response.message.header.block_hash.0[0] = 1;
-    response.message.value = U256::from(10);
-    response.message.pubkey = blst_pubkey_to_alloy(&state.signer.sk_to_pk());
-    response.message.header.timestamp = timestamp_of_slot_start_sec(0, state.chain);
+    message.header.parent_hash = parent_hash;
+    message.header.block_hash.0[0] = 1;
+    message.value = U256::from(10);
+    message.pubkey = state.signer.public_key();
+    message.header.timestamp = timestamp_of_slot_start_sec(0, state.chain);
 
-    let object_root = response.message.tree_hash_root().0;
-    response.signature = sign_builder_root(state.chain, &state.signer, object_root);
+    let object_root = message.tree_hash_root();
+    let signature = sign_builder_root(state.chain, &state.signer, object_root);
+    let response = SignedExecutionPayloadHeader { message, signature };
 
     let response = GetHeaderResponse::Electra(response);
     (StatusCode::OK, Json(response)).into_response()

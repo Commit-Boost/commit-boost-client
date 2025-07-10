@@ -1,11 +1,10 @@
 use std::{collections::HashMap, path::Path};
 
-use alloy::rpc::types::beacon::BlsPublicKey;
 use eyre::{bail, Context, Result};
 use serde::de::DeserializeOwned;
 
 use super::JWTS_ENV;
-use crate::types::ModuleId;
+use crate::{pbs::BlsPublicKey, types::ModuleId};
 
 pub fn load_env_var(env: &str) -> Result<String> {
     std::env::var(env).wrap_err(format!("{env} is not set"))
@@ -37,7 +36,7 @@ pub fn remove_duplicate_keys(keys: Vec<BlsPublicKey>) -> Vec<BlsPublicKey> {
     let mut key_set = std::collections::HashSet::new();
 
     for key in keys {
-        if key_set.insert(key) {
+        if key_set.insert(key.clone()) {
             unique_keys.push(key);
         }
     }
@@ -75,9 +74,9 @@ mod tests {
 
     #[test]
     fn test_remove_duplicate_keys() {
-        let key1 = BlsPublicKey::from([1; 48]);
-        let key2 = BlsPublicKey::from([2; 48]);
-        let keys = vec![key1, key2, key1];
+        let key1 = BlsPublicKey::deserialize(&[1; 48]).unwrap();
+        let key2 = BlsPublicKey::deserialize(&[2; 48]).unwrap();
+        let keys = vec![key1.clone(), key2.clone(), key1.clone()];
 
         let unique_keys = remove_duplicate_keys(keys);
         assert_eq!(unique_keys.len(), 2);

@@ -7,7 +7,6 @@ use std::{
 use alloy::{
     primitives::{address, Address, U256},
     providers::ProviderBuilder,
-    rpc::types::beacon::BlsPublicKey,
     sol,
 };
 use eyre::{bail, ensure, Context};
@@ -16,7 +15,11 @@ use tracing::{debug, info};
 use url::Url;
 
 use super::{load_optional_env_var, PbsConfig, RelayConfig, MUX_PATH_ENV};
-use crate::{config::remove_duplicate_keys, pbs::RelayClient, types::Chain};
+use crate::{
+    config::remove_duplicate_keys,
+    pbs::{BlsPublicKey, RelayClient},
+    types::Chain,
+};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct PbsMuxes {
@@ -93,8 +96,8 @@ impl PbsMuxes {
             let config = Arc::new(config);
 
             let runtime_config = RuntimeMuxConfig { id: mux.id, config, relays: relay_clients };
-            for pubkey in mux.validator_pubkeys.iter() {
-                configs.insert(*pubkey, runtime_config.clone());
+            for pubkey in mux.validator_pubkeys.into_iter() {
+                configs.insert(pubkey, runtime_config.clone());
             }
         }
 
@@ -254,7 +257,7 @@ async fn fetch_lido_registry_keys(
     debug!("fetching {total_keys} total keys");
 
     const CALL_BATCH_SIZE: u64 = 250u64;
-    const BLS_PK_LEN: usize = BlsPublicKey::len_bytes();
+    const BLS_PK_LEN: usize = 48;
 
     let mut keys = vec![];
     let mut offset = 0;
@@ -275,7 +278,10 @@ async fn fetch_lido_registry_keys(
         );
 
         for chunk in pubkeys.chunks(BLS_PK_LEN) {
-            keys.push(BlsPublicKey::try_from(chunk)?);
+            keys.push(
+                BlsPublicKey::deserialize(chunk)
+                    .map_err(|_| eyre::eyre!("invalid BLS public key"))?,
+            );
         }
 
         offset += limit;
@@ -319,10 +325,13 @@ async fn fetch_ssv_pubkeys(
             .json::<SSVResponse>()
             .await?;
 
-        pubkeys.extend(response.validators.iter().map(|v| v.pubkey).collect::<Vec<BlsPublicKey>>());
+        let fetched = response.validators.len();
+        pubkeys.extend(
+            response.validators.into_iter().map(|v| v.pubkey).collect::<Vec<BlsPublicKey>>(),
+        );
         page += 1;
 
-        if response.validators.len() < MAX_PER_PAGE {
+        if fetched < MAX_PER_PAGE {
             ensure!(
                 pubkeys.len() == response.pagination.total,
                 "expected {} keys, got {}",
@@ -383,8 +392,11 @@ mod tests {
             .pubkeys;
 
         let mut vec = vec![];
-        for chunk in pubkeys.chunks(BlsPublicKey::len_bytes()) {
-            vec.push(BlsPublicKey::try_from(chunk)?);
+        for chunk in pubkeys.chunks(48) {
+            vec.push(
+                BlsPublicKey::deserialize(chunk)
+                    .map_err(|_| eyre::eyre!("invalid BLS public key"))?,
+            );
         }
 
         assert_eq!(vec.len(), LIMIT);
