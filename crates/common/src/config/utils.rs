@@ -37,8 +37,7 @@ pub async fn safe_read_http_response(response: reqwest::Response) -> Result<Vec<
     // Read the response to a buffer in chunks
     let status_code = response.status();
     let response_bytes = read_chunked_body_with_max(response, MUXER_HTTP_MAX_LENGTH)
-        .await
-        .map_err(|e| eyre::Report::new(e));
+        .await?;
 
     // Make sure the response is a 200
     if status_code != reqwest::StatusCode::OK {
