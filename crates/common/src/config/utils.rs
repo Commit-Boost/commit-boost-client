@@ -36,29 +36,25 @@ pub fn load_jwt_secrets() -> Result<HashMap<ModuleId, String>> {
 pub async fn safe_read_http_response(response: reqwest::Response) -> Result<Vec<u8>> {
     // Read the response to a buffer in chunks
     let status_code = response.status();
-    let response_bytes = read_chunked_body_with_max(response, MUXER_HTTP_MAX_LENGTH)
-        .await?;
-
-    // Make sure the response is a 200
-    if status_code != reqwest::StatusCode::OK {
-        match response_bytes {
-            Ok(bytes) => {
-                bail!(
-                    "Request failed with status: {}, body: {}",
-                    status_code,
-                    String::from_utf8_lossy(&bytes)
-                );
+    match read_chunked_body_with_max(response, MUXER_HTTP_MAX_LENGTH).await {
+        Ok(response_bytes) => {
+            if status_code.is_success() {
+                return Ok(response_bytes);
             }
-            Err(e) => {
-                bail!(
-                    "Request failed with status: {} but decoding the response body failed: {}",
-                    status_code,
-                    e
-                );
+            bail!(
+                "Request failed with status: {status_code}, body: {}",
+                String::from_utf8_lossy(&response_bytes)
+            )
+        }
+        Err(e) => {
+            if status_code.is_success() {
+                return Err(e).wrap_err("Failed to read response body");
             }
+            Err(e).wrap_err(format!(
+                "Request failed with status {status_code}, but decoding the response body failed"
+            ))
         }
     }
-    response_bytes
 }
 
 /// Removes duplicate entries from a vector of BlsPublicKey

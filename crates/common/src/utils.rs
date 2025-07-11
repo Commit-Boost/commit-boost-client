@@ -1,5 +1,6 @@
+#[cfg(test)]
+use std::cell::Cell;
 use std::{
-    cell::Cell,
     net::Ipv4Addr,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -45,14 +46,17 @@ pub enum ResponseReadError {
     ReqwestError(#[from] reqwest::Error),
 }
 
+#[cfg(test)]
 thread_local! {
     static IGNORE_CONTENT_LENGTH: Cell<bool> = const { Cell::new(false) };
 }
 
+#[cfg(test)]
 pub fn set_ignore_content_length(val: bool) {
     IGNORE_CONTENT_LENGTH.with(|f| f.set(val));
 }
 
+#[cfg(test)]
 fn should_ignore_content_length() -> bool {
     IGNORE_CONTENT_LENGTH.with(|f| f.get())
 }
@@ -64,7 +68,13 @@ pub async fn read_chunked_body_with_max(
     max_size: usize,
 ) -> Result<Vec<u8>, ResponseReadError> {
     // Get the content length from the response headers
+    #[cfg(not(test))]
+    let content_length = res.content_length();
+
+    #[cfg(test)]
     let mut content_length = res.content_length();
+
+    #[cfg(test)]
     if should_ignore_content_length() {
         // Used for testing purposes to ignore content length
         content_length = None;
