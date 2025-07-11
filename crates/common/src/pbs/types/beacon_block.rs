@@ -165,8 +165,7 @@ mod tests {
         assert!(matches!(block_json.message, BlindedBeaconBlock::Electra(_)));
 
         let data_ssz = include_bytes!("testdata/signed-blinded-beacon-block-electra-2.ssz");
-        let data_ssz = alloy::primitives::hex::decode(data_ssz).unwrap();
-        let block_ssz = test_encode_decode_ssz::<SignedBlindedBeaconBlock>(&data_ssz);
+        let block_ssz = test_encode_decode_ssz::<SignedBlindedBeaconBlock>(data_ssz);
         assert!(matches!(block_ssz.message, BlindedBeaconBlock::Electra(_)));
 
         assert_eq!(block_json.as_ssz_bytes(), data_ssz);

@@ -290,7 +290,8 @@ mod tests {
 
     mod test_proxy_bls {
         use cb_common::{
-            constants::COMMIT_BOOST_DOMAIN, signature::compute_domain, signer::verify_bls_signature,
+            constants::COMMIT_BOOST_DOMAIN, signature::compute_domain,
+            signer::verify_bls_signature, utils::TestRandomSeed,
         };
 
         use super::*;
@@ -327,9 +328,7 @@ mod tests {
                 .await
                 .unwrap();
 
-            let mut m = signed_delegation.signature.serialize();
-            m[0] = m[0].overflowing_add(1).0;
-            signed_delegation.signature = BlsSignature::deserialize(&m).unwrap();
+            signed_delegation.signature = BlsSignature::test_random();
 
             let validation_result = signed_delegation.validate(CHAIN);
 
@@ -366,7 +365,7 @@ mod tests {
     mod test_proxy_ecdsa {
         use cb_common::{
             constants::COMMIT_BOOST_DOMAIN, signature::compute_domain,
-            signer::verify_ecdsa_signature,
+            signer::verify_ecdsa_signature, utils::TestRandomSeed,
         };
 
         use super::*;
@@ -403,9 +402,7 @@ mod tests {
                 .await
                 .unwrap();
 
-            let mut m = signed_delegation.signature.serialize();
-            m[0] = m[0].overflowing_add(1).0;
-            signed_delegation.signature = BlsSignature::deserialize(&m).unwrap();
+            signed_delegation.signature = BlsSignature::test_random();
 
             let validation_result = signed_delegation.validate(CHAIN);
 

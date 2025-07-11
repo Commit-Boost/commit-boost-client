@@ -63,7 +63,7 @@ pub enum ValidationError {
     #[error("block hash mismatch: expected {expected} got {got}")]
     BlockHashMismatch { expected: B256, got: B256 },
 
-    #[error("mismatch in KZG commitments: exepcted_blobs: {expected_blobs} got_blobs: {got_blobs} got_commitments: {got_commitments} got_proofs: {got_proofs}")]
+    #[error("mismatch in KZG commitments: expected_blobs: {expected_blobs} got_blobs: {got_blobs} got_commitments: {got_commitments} got_proofs: {got_proofs}")]
     KzgCommitments {
         expected_blobs: usize,
         got_blobs: usize,

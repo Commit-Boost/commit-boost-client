@@ -509,7 +509,7 @@ mod tests {
         pbs::{error::ValidationError, BlsSecretKey, EMPTY_TX_ROOT_HASH},
         signature::sign_builder_message,
         types::Chain,
-        utils::timestamp_of_slot_start_sec,
+        utils::{timestamp_of_slot_start_sec, TestRandomSeed},
     };
 
     use super::{validate_header_data, *};
@@ -573,24 +573,10 @@ mod tests {
 
     #[test]
     fn test_validate_signature() {
-        let secret_key = BlsSecretKey::deserialize(&[
-            0, 136, 227, 100, 165, 57, 106, 129, 181, 15, 235, 189, 200, 120, 70, 99, 251, 144,
-            137, 181, 230, 124, 189, 193, 115, 153, 26, 0, 197, 135, 103, 63,
-        ])
-        .unwrap();
+        let secret_key = BlsSecretKey::test_random();
         let pubkey = secret_key.public_key();
-
-        let wrong_pubkey = BlsPublicKey::deserialize(&[
-            0, 136, 227, 100, 165, 57, 106, 129, 181, 15, 235, 189, 200, 120, 70, 99, 251, 144,
-            137, 181, 230, 124, 189, 193, 115, 153, 26, 0, 197, 135, 103, 65,
-        ])
-        .unwrap();
-
-        let wrong_signature = BlsSignature::deserialize(&[
-            0, 136, 227, 100, 165, 57, 106, 129, 181, 15, 235, 189, 200, 120, 70, 99, 251, 144,
-            137, 181, 230, 124, 189, 193, 115, 153, 26, 0, 197, 135, 103, 65,
-        ])
-        .unwrap();
+        let wrong_pubkey = BlsPublicKey::test_random();
+        let wrong_signature = BlsSignature::test_random();
 
         let message = B256::random();
 

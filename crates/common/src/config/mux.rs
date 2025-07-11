@@ -14,7 +14,7 @@ use alloy::{
 };
 use eyre::{bail, ensure, Context};
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use tracing::{debug, info, warn};
 use url::Url;
 
@@ -393,10 +393,27 @@ struct SSVResponse {
     pagination: SSVPagination,
 }
 
-#[derive(Deserialize)]
 struct SSVValidator {
-    #[serde(rename = "public_key")]
     pubkey: BlsPublicKey,
+}
+
+impl<'de> Deserialize<'de> for SSVValidator {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct SSVValidator {
+            public_key: String,
+        }
+
+        let s = SSVValidator::deserialize(deserializer)?;
+        let bytes = alloy::hex::decode(&s.public_key).map_err(serde::de::Error::custom)?;
+        let pubkey = BlsPublicKey::deserialize(&bytes)
+            .map_err(|e| serde::de::Error::custom(format!("invalid BLS public key: {e:?}")))?;
+
+        Ok(Self { pubkey })
+    }
 }
 
 #[derive(Deserialize)]

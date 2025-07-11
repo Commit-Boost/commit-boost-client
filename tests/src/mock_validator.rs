@@ -53,6 +53,8 @@ impl MockValidator {
 }
 
 pub fn load_test_signed_blinded_block() -> SignedBlindedBeaconBlock {
-    let data_json = include_str!("signed-blinded-beacon-block-electra-2.json");
+    let data_json = include_str!(
+        "../../crates/common/src/pbs/types/testdata/signed-blinded-beacon-block-electra-2.json"
+    );
     serde_json::from_str(data_json).unwrap()
 }

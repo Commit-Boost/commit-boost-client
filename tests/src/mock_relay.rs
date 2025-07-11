@@ -16,8 +16,9 @@ use axum::{
 };
 use cb_common::{
     pbs::{
-        BlsSecretKey, ExecutionPayloadHeaderMessageElectra, ExecutionRequests, GetHeaderParams,
-        GetHeaderResponse, SignedExecutionPayloadHeader, SubmitBlindedBlockResponse,
+        BlindedBeaconBlock, BlsSecretKey, ExecutionPayloadHeaderMessageElectra, ExecutionRequests,
+        GetHeaderParams, GetHeaderResponse, KzgProof, SignedBlindedBeaconBlock,
+        SignedExecutionPayloadHeader, SubmitBlindedBlockResponse, VersionedResponse,
         BUILDER_API_PATH, GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH,
         SUBMIT_BLOCK_PATH,
     },
@@ -149,12 +150,25 @@ async fn handle_register_validator(
     StatusCode::OK.into_response()
 }
 
-async fn handle_submit_block(State(state): State<Arc<MockRelayState>>) -> Response {
+async fn handle_submit_block(
+    State(state): State<Arc<MockRelayState>>,
+    Json(submit_block): Json<SignedBlindedBeaconBlock>,
+) -> Response {
     state.received_submit_block.fetch_add(1, Ordering::Relaxed);
     if state.large_body() {
         (StatusCode::OK, Json(vec![1u8; 1 + MAX_SIZE_SUBMIT_BLOCK_RESPONSE])).into_response()
     } else {
-        let response = SubmitBlindedBlockResponse::default();
+        let VersionedResponse::Electra(mut response) = SubmitBlindedBlockResponse::default();
+        response.execution_payload.block_hash = submit_block.block_hash();
+
+        let BlindedBeaconBlock::Electra(body) = submit_block.message;
+
+        response.blobs_bundle.blobs.push(Default::default()).unwrap();
+        response.blobs_bundle.commitments = body.body.blob_kzg_commitments;
+        response.blobs_bundle.proofs.push(KzgProof([0; 48])).unwrap();
+
+        let response = VersionedResponse::Electra(response);
+
         (StatusCode::OK, Json(response)).into_response()
     }
 }
