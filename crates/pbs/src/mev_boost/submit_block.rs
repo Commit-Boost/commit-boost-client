@@ -8,7 +8,7 @@ use cb_common::{
         PayloadAndBlobsDeneb, PayloadAndBlobsElectra, RelayClient, SignedBlindedBeaconBlock,
         SubmitBlindedBlockResponse, VersionedResponse, HEADER_START_TIME_UNIX_MS,
     },
-    utils::{get_user_agent_with_version, utcnow_ms},
+    utils::{get_user_agent_with_version, read_chunked_body_with_max, utcnow_ms},
 };
 use futures::future::select_ok;
 use reqwest::header::USER_AGENT;
@@ -21,7 +21,6 @@ use crate::{
     },
     metrics::{RELAY_LATENCY, RELAY_STATUS_CODE},
     state::{BuilderApiState, PbsState},
-    utils::read_chunked_body_with_max,
 };
 
 /// Implements https://ethereum.github.io/builder-specs/#/Builder/submitBlindedBlock
