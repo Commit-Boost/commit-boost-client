@@ -73,6 +73,14 @@ pub const PROXY_DIR_KEYS_DEFAULT: &str = "/proxy_keys";
 pub const PROXY_DIR_SECRETS_ENV: &str = "CB_PROXY_SECRETS_DIR";
 pub const PROXY_DIR_SECRETS_DEFAULT: &str = "/proxy_secrets";
 
+////////////////////////// MUXER //////////////////////////
+
+/// Timeout for HTTP requests, in seconds
+pub const HTTP_TIMEOUT_SECONDS_DEFAULT: u64 = 10;
+
+/// Max content length for Muxer HTTP responses, in bytes
+pub const MUXER_HTTP_MAX_LENGTH: usize = 1024 * 1024 * 10; // 10 MiB
+
 ///////////////////////// MODULES /////////////////////////
 
 /// The unique ID of the module
