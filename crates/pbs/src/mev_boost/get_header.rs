@@ -18,7 +18,10 @@ use cb_common::{
     },
     signature::verify_signed_message,
     types::Chain,
-    utils::{get_user_agent_with_version, ms_into_slot, timestamp_of_slot_start_sec, utcnow_ms},
+    utils::{
+        get_user_agent_with_version, ms_into_slot, read_chunked_body_with_max,
+        timestamp_of_slot_start_sec, utcnow_ms,
+    },
 };
 use futures::future::join_all;
 use parking_lot::RwLock;
@@ -35,7 +38,7 @@ use crate::{
     },
     metrics::{RELAY_HEADER_VALUE, RELAY_LAST_SLOT, RELAY_LATENCY, RELAY_STATUS_CODE},
     state::{BuilderApiState, PbsState},
-    utils::{check_gas_limit, read_chunked_body_with_max},
+    utils::check_gas_limit,
 };
 
 /// Implements https://ethereum.github.io/builder-specs/#/Builder/getHeader

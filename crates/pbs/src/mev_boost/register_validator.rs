@@ -4,7 +4,7 @@ use alloy::rpc::types::beacon::relay::ValidatorRegistration;
 use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
     pbs::{error::PbsError, RelayClient, HEADER_START_TIME_UNIX_MS},
-    utils::{get_user_agent_with_version, utcnow_ms},
+    utils::{get_user_agent_with_version, read_chunked_body_with_max, utcnow_ms},
 };
 use eyre::bail;
 use futures::future::{join_all, select_ok};
@@ -16,7 +16,6 @@ use crate::{
     constants::{MAX_SIZE_DEFAULT, REGISTER_VALIDATOR_ENDPOINT_TAG, TIMEOUT_ERROR_CODE_STR},
     metrics::{RELAY_LATENCY, RELAY_STATUS_CODE},
     state::{BuilderApiState, PbsState},
-    utils::read_chunked_body_with_max,
 };
 
 /// Implements https://ethereum.github.io/builder-specs/#/Builder/registerValidator

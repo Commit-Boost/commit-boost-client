@@ -1,3 +1,5 @@
+#[cfg(test)]
+use std::cell::Cell;
 use std::{
     net::Ipv4Addr,
     time::{SystemTime, UNIX_EPOCH},
@@ -5,12 +7,14 @@ use std::{
 
 use alloy::primitives::U256;
 use axum::http::HeaderValue;
+use futures::StreamExt;
 use lh_types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
 use rand::{distr::Alphanumeric, Rng};
-use reqwest::header::HeaderMap;
+use reqwest::{header::HeaderMap, Response};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use ssz::{Decode, Encode};
+use thiserror::Error;
 use tracing::Level;
 use tracing_appender::{non_blocking::WorkerGuard, rolling::Rotation};
 use tracing_subscriber::{
@@ -27,6 +31,83 @@ use crate::{
 };
 
 const MILLIS_PER_SECOND: u64 = 1_000;
+
+#[derive(Debug, Error)]
+pub enum ResponseReadError {
+    #[error(
+        "response size exceeds max size; max: {max}, content_length: {content_length}, raw: {raw}"
+    )]
+    PayloadTooLarge { max: usize, content_length: usize, raw: String },
+
+    #[error("error reading response stream: {0}")]
+    ReqwestError(#[from] reqwest::Error),
+}
+
+#[cfg(test)]
+thread_local! {
+    static IGNORE_CONTENT_LENGTH: Cell<bool> = const { Cell::new(false) };
+}
+
+#[cfg(test)]
+pub fn set_ignore_content_length(val: bool) {
+    IGNORE_CONTENT_LENGTH.with(|f| f.set(val));
+}
+
+#[cfg(test)]
+fn should_ignore_content_length() -> bool {
+    IGNORE_CONTENT_LENGTH.with(|f| f.get())
+}
+
+/// Reads the body of a response as a chunked stream, ensuring the size does not
+/// exceed `max_size`.
+pub async fn read_chunked_body_with_max(
+    res: Response,
+    max_size: usize,
+) -> Result<Vec<u8>, ResponseReadError> {
+    // Get the content length from the response headers
+    #[cfg(not(test))]
+    let content_length = res.content_length();
+
+    #[cfg(test)]
+    let mut content_length = res.content_length();
+
+    #[cfg(test)]
+    if should_ignore_content_length() {
+        // Used for testing purposes to ignore content length
+        content_length = None;
+    }
+
+    // Break if content length is provided but it's too big
+    if let Some(length) = content_length {
+        if length as usize > max_size {
+            return Err(ResponseReadError::PayloadTooLarge {
+                max: max_size,
+                content_length: length as usize,
+                raw: String::new(), // raw content is not available here
+            });
+        }
+    }
+
+    let mut stream = res.bytes_stream();
+    let mut response_bytes = Vec::new();
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk?;
+        if response_bytes.len() + chunk.len() > max_size {
+            // avoid spamming logs if the message is too large
+            response_bytes.truncate(1024);
+            return Err(ResponseReadError::PayloadTooLarge {
+                max: max_size,
+                content_length: content_length.unwrap_or(0) as usize,
+                raw: String::from_utf8_lossy(&response_bytes).into_owned(),
+            });
+        }
+
+        response_bytes.extend_from_slice(&chunk);
+    }
+
+    Ok(response_bytes)
+}
 
 pub fn timestamp_of_slot_start_sec(slot: u64, chain: Chain) -> u64 {
     chain.genesis_time_sec() + slot * chain.slot_time_sec()
