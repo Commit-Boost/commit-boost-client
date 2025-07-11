@@ -4,7 +4,7 @@ use alloy::rpc::types::beacon::relay::ValidatorRegistration;
 use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
     pbs::{error::PbsError, RelayClient, HEADER_START_TIME_UNIX_MS},
-    utils::{get_user_agent_with_version, utcnow_ms},
+    utils::{get_user_agent_with_version, read_chunked_body_with_max, utcnow_ms},
 };
 use eyre::bail;
 use futures::future::{join_all, select_ok};
@@ -16,7 +16,6 @@ use crate::{
     constants::{MAX_SIZE_DEFAULT, REGISTER_VALIDATOR_ENDPOINT_TAG, TIMEOUT_ERROR_CODE_STR},
     metrics::{RELAY_LATENCY, RELAY_STATUS_CODE},
     state::{BuilderApiState, PbsState},
-    utils::read_chunked_body_with_max,
 };
 
 /// Implements https://ethereum.github.io/builder-specs/#/Builder/registerValidator
@@ -43,6 +42,7 @@ pub async fn register_validator<S: BuilderApiState>(
                         relay.clone(),
                         send_headers.clone(),
                         state.pbs_config().timeout_register_validator_ms,
+                        state.pbs_config().register_validator_retry_limit,
                     )
                     .in_current_span(),
                 ));
@@ -54,6 +54,7 @@ pub async fn register_validator<S: BuilderApiState>(
                     relay.clone(),
                     send_headers.clone(),
                     state.pbs_config().timeout_register_validator_ms,
+                    state.pbs_config().register_validator_retry_limit,
                 )
                 .in_current_span(),
             ));
@@ -85,6 +86,7 @@ async fn send_register_validator_with_timeout(
     relay: RelayClient,
     headers: HeaderMap,
     timeout_ms: u64,
+    retry_limit: u32,
 ) -> Result<(), PbsError> {
     let url = relay.register_validator_url()?;
     let mut remaining_timeout_ms = timeout_ms;
@@ -106,6 +108,14 @@ async fn send_register_validator_with_timeout(
             Ok(_) => return Ok(()),
 
             Err(err) if err.should_retry() => {
+                retry += 1;
+                if retry >= retry_limit {
+                    error!(
+                        relay_id = relay.id.as_str(),
+                        retry, "reached retry limit for validator registration"
+                    );
+                    return Err(err);
+                }
                 tokio::time::sleep(backoff).await;
                 backoff += Duration::from_millis(250);
 
@@ -119,8 +129,6 @@ async fn send_register_validator_with_timeout(
 
             Err(err) => return Err(err),
         };
-
-        retry += 1;
     }
 }
 

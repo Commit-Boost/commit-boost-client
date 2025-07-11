@@ -30,12 +30,12 @@ jobs:
           components: clippy, rustfmt
 
       - name: Install protoc
-        run: sudo apt-get install protobuf-compiler
+        run: sudo provisioning/protoc.sh
 
       - name: Setup just
-        uses: extractions/setup-just@v2
+        uses: extractions/setup-just@v3
         with:
-          just-version: 1.5.0
+          just-version: 1.40.0
 
       - name: Check compilation
         run: cargo check

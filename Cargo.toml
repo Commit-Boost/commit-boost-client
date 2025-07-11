@@ -5,7 +5,7 @@ resolver = "2"
 [workspace.package]
 edition = "2021"
 rust-version = "1.83"
-version = "0.7.0-rc.2"
+version = "0.8.0"
 
 [workspace.dependencies]
 aes = "0.8"
@@ -25,6 +25,7 @@ base64 = "0.22.1"
 bimap = { version = "0.6.3", features = ["serde"] }
 blsful = "2.5"
 blst = "0.3.11"
+bytes = "1.10.1"
 cb-cli = { path = "crates/cli" }
 cb-common = { path = "crates/common" }
 cb-metrics = { path = "crates/metrics" }
@@ -36,7 +37,8 @@ color-eyre = "0.6.3"
 ctr = "0.9.2"
 derive_more = { version = "2.0.1", features = ["deref", "display", "from", "into"] }
 docker-compose-types = "0.16.0"
-eth2_keystore = { git = "https://github.com/sigp/lighthouse", rev = "8d058e4040b765a96aa4968f4167af7571292be2" }
+docker-image = "0.2.1"
+eth2_keystore = { git = "https://github.com/sigp/lighthouse", tag = "v7.0.1" }
 ethereum_serde_utils = "0.7.0"
 ethereum_ssz = "0.8"
 ethereum_ssz_derive = "0.8"
@@ -44,18 +46,21 @@ eyre = "0.6.12"
 futures = "0.3.30"
 headers = "0.4.0"
 indexmap = "2.2.6"
+jsonwebtoken = { version = "9.3.1", default-features = false }
 lazy_static = "1.5.0"
 parking_lot = "0.12.3"
 pbkdf2 = "0.12.2"
 prometheus = "0.13.4"
 prost = "0.13.4"
 rand = { version = "0.9", features = ["os_rng"] }
+rayon = "1.10.0"
 reqwest = { version = "0.12.4", features = ["json", "stream"] }
 serde = { version = "1.0.202", features = ["derive"] }
 serde_json = "1.0.117"
 serde_yaml = "0.9.33"
 sha2 = "0.10.8"
 ssz_types = "0.10"
+tempfile = "3.20.0"
 thiserror = "2.0.12"
 tokio = { version = "1.37.0", features = ["full"] }
 toml = "0.8.13"
@@ -70,4 +75,3 @@ typenum = "1.17.0"
 unicode-normalization = "0.1.24"
 url = { version = "2.5.0", features = ["serde"] }
 uuid = { version = "1.8.0", features = ["fast-rng", "serde", "v4"] }
-jsonwebtoken = { version = "9.3.1", default-features = false }

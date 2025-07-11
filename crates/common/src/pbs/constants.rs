@@ -30,3 +30,6 @@ impl DefaultTimeout {
 }
 
 pub const LATE_IN_SLOT_TIME_MS: u64 = 2000;
+
+// Maximum number of retries for validator registration request per relay
+pub const REGISTER_VALIDATOR_RETRY_LIMIT: u32 = 3;

@@ -2,21 +2,28 @@ use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
 
 use alloy::{
     primitives::{address, Address, U256},
     providers::ProviderBuilder,
-    rpc::types::beacon::BlsPublicKey,
+    rpc::{client::RpcClient, types::beacon::BlsPublicKey},
     sol,
+    transports::http::Http,
 };
 use eyre::{bail, ensure, Context};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use url::Url;
 
 use super::{load_optional_env_var, PbsConfig, RelayConfig, MUX_PATH_ENV};
-use crate::{pbs::RelayClient, types::Chain};
+use crate::{
+    config::{remove_duplicate_keys, safe_read_http_response},
+    pbs::RelayClient,
+    types::Chain,
+};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct PbsMuxes {
@@ -38,13 +45,16 @@ impl PbsMuxes {
         chain: Chain,
         default_pbs: &PbsConfig,
     ) -> eyre::Result<HashMap<BlsPublicKey, RuntimeMuxConfig>> {
+        let http_timeout = Duration::from_secs(default_pbs.http_timeout_seconds);
+
         let mut muxes = self.muxes;
 
         for mux in muxes.iter_mut() {
             ensure!(!mux.relays.is_empty(), "mux config {} must have at least one relay", mux.id);
 
             if let Some(loader) = &mux.loader {
-                let extra_keys = loader.load(&mux.id, chain, default_pbs.rpc_url.clone()).await?;
+                let extra_keys =
+                    loader.load(&mux.id, chain, default_pbs.rpc_url.clone(), http_timeout).await?;
                 mux.validator_pubkeys.extend(extra_keys);
             }
 
@@ -89,6 +99,7 @@ impl PbsMuxes {
                     .unwrap_or(default_pbs.late_in_slot_time_ms),
                 ..default_pbs.clone()
             };
+            config.validate(chain).await?;
             let config = Arc::new(config);
 
             let runtime_config = RuntimeMuxConfig { id: mux.id, config, relays: relay_clients };
@@ -173,8 +184,9 @@ impl MuxKeysLoader {
         mux_id: &str,
         chain: Chain,
         rpc_url: Option<Url>,
+        http_timeout: Duration,
     ) -> eyre::Result<Vec<BlsPublicKey>> {
-        match self {
+        let keys = match self {
             Self::File(config_path) => {
                 // First try loading from env
                 let path: PathBuf = load_optional_env_var(&get_mux_env(mux_id))
@@ -185,11 +197,17 @@ impl MuxKeysLoader {
             }
 
             Self::HTTP { url } => {
-                let client = reqwest::Client::new();
+                let url = Url::parse(url).wrap_err("failed to parse mux keys URL")?;
+                if url.scheme() != "https" {
+                    warn!(
+                        "Mux keys URL {url} is insecure; consider using HTTPS if possible instead"
+                    );
+                }
+                let client = reqwest::ClientBuilder::new().timeout(http_timeout).build()?;
                 let response = client.get(url).send().await?;
-                let pubkeys = response.text().await?;
-                serde_json::from_str(&pubkeys)
-                    .wrap_err("failed to fetch mux keys from http endpoint")
+                let pubkey_bytes = safe_read_http_response(response).await?;
+                serde_json::from_slice(&pubkey_bytes)
+                    .wrap_err("failed to fetch mux keys from HTTP endpoint")
             }
 
             Self::Registry { registry, node_operator_id } => match registry {
@@ -198,11 +216,23 @@ impl MuxKeysLoader {
                         bail!("Lido registry requires RPC URL to be set in the PBS config");
                     };
 
-                    fetch_lido_registry_keys(rpc_url, chain, U256::from(*node_operator_id)).await
+                    fetch_lido_registry_keys(
+                        rpc_url,
+                        chain,
+                        U256::from(*node_operator_id),
+                        http_timeout,
+                    )
+                    .await
                 }
-                NORegistry::SSV => fetch_ssv_pubkeys(chain, U256::from(*node_operator_id)).await,
+                NORegistry::SSV => {
+                    fetch_ssv_pubkeys(chain, U256::from(*node_operator_id), http_timeout).await
+                }
             },
-        }
+        }?;
+
+        // Remove duplicates
+        let deduped_keys = remove_duplicate_keys(keys);
+        Ok(deduped_keys)
     }
 }
 
@@ -227,10 +257,12 @@ sol! {
     "src/abi/LidoNORegistry.json"
 }
 
+// Fetching Lido Curated Module
 fn lido_registry_address(chain: Chain) -> eyre::Result<Address> {
     match chain {
         Chain::Mainnet => Ok(address!("55032650b14df07b85bF18A3a3eC8E0Af2e028d5")),
         Chain::Holesky => Ok(address!("595F64Ddc3856a3b5Ff4f4CC1d1fb4B46cFd2bAC")),
+        Chain::Hoodi => Ok(address!("5cDbE1590c083b5A2A64427fAA63A7cfDB91FbB5")),
         Chain::Sepolia => Ok(address!("33d6E15047E8644F8DDf5CD05d202dfE587DA6E3")),
         _ => bail!("Lido registry not supported for chain: {chain:?}"),
     }
@@ -240,15 +272,26 @@ async fn fetch_lido_registry_keys(
     rpc_url: Url,
     chain: Chain,
     node_operator_id: U256,
+    http_timeout: Duration,
 ) -> eyre::Result<Vec<BlsPublicKey>> {
     debug!(?chain, %node_operator_id, "loading operator keys from Lido registry");
 
-    let provider = ProviderBuilder::new().on_http(rpc_url);
+    // Create an RPC provider with HTTP timeout support
+    let client = Client::builder().timeout(http_timeout).build()?;
+    let http = Http::with_client(client, rpc_url);
+    let is_local = http.guess_local();
+    let rpc_client = RpcClient::new(http, is_local);
+    let provider = ProviderBuilder::new().on_client(rpc_client);
+
     let registry_address = lido_registry_address(chain)?;
     let registry = LidoRegistry::new(registry_address, provider);
 
     let total_keys =
         registry.getTotalSigningKeyCount(node_operator_id).call().await?._0.try_into()?;
+
+    if total_keys == 0 {
+        return Ok(Vec::new());
+    }
 
     debug!("fetching {total_keys} total keys");
 
@@ -285,8 +328,6 @@ async fn fetch_lido_registry_keys(
     }
 
     ensure!(keys.len() == total_keys as usize, "expected {total_keys} keys, got {}", keys.len());
-    let unique = keys.iter().collect::<HashSet<_>>();
-    ensure!(unique.len() == keys.len(), "found duplicate keys in registry");
 
     Ok(keys)
 }
@@ -294,31 +335,27 @@ async fn fetch_lido_registry_keys(
 async fn fetch_ssv_pubkeys(
     chain: Chain,
     node_operator_id: U256,
+    http_timeout: Duration,
 ) -> eyre::Result<Vec<BlsPublicKey>> {
     const MAX_PER_PAGE: usize = 100;
 
     let chain_name = match chain {
         Chain::Mainnet => "mainnet",
         Chain::Holesky => "holesky",
+        Chain::Hoodi => "hoodi",
         _ => bail!("SSV network is not supported for chain: {chain:?}"),
     };
 
-    let client = reqwest::Client::new();
     let mut pubkeys: Vec<BlsPublicKey> = vec![];
     let mut page = 1;
 
     loop {
-        let response = client
-            .get(format!(
-                "https://api.ssv.network/api/v4/{}/validators/in_operator/{}?perPage={}&page={}",
-                chain_name, node_operator_id, MAX_PER_PAGE, page
-            ))
-            .send()
-            .await
-            .map_err(|e| eyre::eyre!("Error sending request to SSV network API: {e}"))?
-            .json::<SSVResponse>()
-            .await?;
+        let url = format!(
+            "https://api.ssv.network/api/v4/{}/validators/in_operator/{}?perPage={}&page={}",
+            chain_name, node_operator_id, MAX_PER_PAGE, page
+        );
 
+        let response = fetch_ssv_pubkeys_from_url(&url, http_timeout).await?;
         pubkeys.extend(response.validators.iter().map(|v| v.pubkey).collect::<Vec<BlsPublicKey>>());
         page += 1;
 
@@ -333,10 +370,25 @@ async fn fetch_ssv_pubkeys(
         }
     }
 
-    let unique = pubkeys.iter().collect::<HashSet<_>>();
-    ensure!(unique.len() == pubkeys.len(), "found duplicate keys in registry");
-
     Ok(pubkeys)
+}
+
+async fn fetch_ssv_pubkeys_from_url(
+    url: &str,
+    http_timeout: Duration,
+) -> eyre::Result<SSVResponse> {
+    let client = reqwest::ClientBuilder::new().timeout(http_timeout).build()?;
+    let response = client.get(url).send().await.map_err(|e| {
+        if e.is_timeout() {
+            eyre::eyre!("Request to SSV network API timed out: {e}")
+        } else {
+            eyre::eyre!("Error sending request to SSV network API: {e}")
+        }
+    })?;
+
+    // Parse the response as JSON
+    let body_bytes = safe_read_http_response(response).await?;
+    serde_json::from_slice::<SSVResponse>(&body_bytes).wrap_err("failed to parse SSV response")
 }
 
 #[derive(Deserialize)]
@@ -358,10 +410,20 @@ struct SSVPagination {
 
 #[cfg(test)]
 mod tests {
-    use alloy::{primitives::U256, providers::ProviderBuilder};
+    use std::net::SocketAddr;
+
+    use alloy::{hex::FromHex, primitives::U256, providers::ProviderBuilder};
+    use axum::{response::Response, routing::get};
+    use tokio::{net::TcpListener, task::JoinHandle};
     use url::Url;
 
     use super::*;
+    use crate::{
+        config::{HTTP_TIMEOUT_SECONDS_DEFAULT, MUXER_HTTP_MAX_LENGTH},
+        utils::{set_ignore_content_length, ResponseReadError},
+    };
+
+    const TEST_HTTP_TIMEOUT: u64 = 2;
 
     #[tokio::test]
     async fn test_lido_registry_address() -> eyre::Result<()> {
@@ -396,14 +458,183 @@ mod tests {
     }
 
     #[tokio::test]
+    /// Tests that a successful SSV network fetch is handled and parsed properly
     async fn test_ssv_network_fetch() -> eyre::Result<()> {
-        let chain = Chain::Holesky;
-        let node_operator_id = U256::from(200);
+        // Start the mock server
+        let port = 30100;
+        let _server_handle = create_mock_server(port).await?;
+        let url = format!("http://localhost:{port}/ssv");
+        let response =
+            fetch_ssv_pubkeys_from_url(&url, Duration::from_secs(HTTP_TIMEOUT_SECONDS_DEFAULT))
+                .await?;
 
-        let pubkeys = fetch_ssv_pubkeys(chain, node_operator_id).await?;
+        // Make sure the response is correct
+        // NOTE: requires that ssv_data.json dpesn't change
+        assert_eq!(response.validators.len(), 3);
+        let expected_pubkeys = [
+            BlsPublicKey::from_hex(
+                "0x967ba17a3e7f82a25aa5350ec34d6923e28ad8237b5a41efe2c5e325240d74d87a015bf04634f21900963539c8229b2a",
+            )?,
+            BlsPublicKey::from_hex(
+                "0xac769e8cec802e8ffee34de3253be8f438a0c17ee84bdff0b6730280d24b5ecb77ebc9c985281b41ee3bda8663b6658c",
+            )?,
+            BlsPublicKey::from_hex(
+                "0x8c866a5a05f3d45c49b457e29365259021a509c5daa82e124f9701a960ee87b8902e87175315ab638a3d8b1115b23639",
+            )?,
+        ];
+        for (i, validator) in response.validators.iter().enumerate() {
+            assert_eq!(validator.pubkey, expected_pubkeys[i]);
+        }
 
-        assert_eq!(pubkeys.len(), 3);
+        // Clean up the server handle
+        _server_handle.abort();
 
         Ok(())
+    }
+
+    #[tokio::test]
+    /// Tests that the SSV network fetch is handled properly when the response's
+    /// body is too large
+    async fn test_ssv_network_fetch_big_data() -> eyre::Result<()> {
+        // Start the mock server
+        let port = 30101;
+        let _server_handle = create_mock_server(port).await?;
+        let url = format!("http://localhost:{port}/big_data");
+        let response = fetch_ssv_pubkeys_from_url(&url, Duration::from_secs(120)).await;
+
+        // The response should fail due to content length being too big
+        match response {
+            Ok(_) => {
+                panic!("Expected an error due to big content length, but got a successful response")
+            }
+            Err(e) => match e.downcast_ref::<ResponseReadError>() {
+                Some(ResponseReadError::PayloadTooLarge { max, content_length, raw }) => {
+                    assert_eq!(*max, MUXER_HTTP_MAX_LENGTH);
+                    assert!(*content_length > MUXER_HTTP_MAX_LENGTH);
+                    assert!(raw.is_empty());
+                }
+                _ => panic!("Expected PayloadTooLarge error, got: {}", e),
+            },
+        }
+
+        // Clean up the server handle
+        _server_handle.abort();
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    /// Tests that the SSV network fetch is handled properly when the request
+    /// times out
+    async fn test_ssv_network_fetch_timeout() -> eyre::Result<()> {
+        // Start the mock server
+        let port = 30102;
+        let _server_handle = create_mock_server(port).await?;
+        let url = format!("http://localhost:{port}/timeout");
+        let response =
+            fetch_ssv_pubkeys_from_url(&url, Duration::from_secs(TEST_HTTP_TIMEOUT)).await;
+
+        // The response should fail due to timeout
+        assert!(response.is_err(), "Expected timeout error, but got success");
+        if let Err(e) = response {
+            assert!(e.to_string().contains("timed out"), "Expected timeout error, got: {}", e);
+        }
+
+        // Clean up the server handle
+        _server_handle.abort();
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    /// Tests that the SSV network fetch is handled properly when the response's
+    /// content-length header is missing
+    async fn test_ssv_network_fetch_big_data_without_content_length() -> eyre::Result<()> {
+        // Start the mock server
+        let port = 30103;
+        set_ignore_content_length(true);
+        let _server_handle = create_mock_server(port).await?;
+        let url = format!("http://localhost:{port}/big_data");
+        let response = fetch_ssv_pubkeys_from_url(&url, Duration::from_secs(120)).await;
+
+        // The response should fail due to the body being too big
+        match response {
+            Ok(_) => {
+                panic!("Expected an error due to excessive data, but got a successful response")
+            }
+            Err(e) => match e.downcast_ref::<ResponseReadError>() {
+                Some(ResponseReadError::PayloadTooLarge { max, content_length, raw }) => {
+                    assert_eq!(*max, MUXER_HTTP_MAX_LENGTH);
+                    assert_eq!(*content_length, 0);
+                    assert!(!raw.is_empty());
+                }
+                _ => panic!("Expected PayloadTooLarge error, got: {}", e),
+            },
+        }
+
+        // Clean up the server handle
+        _server_handle.abort();
+
+        Ok(())
+    }
+
+    /// Creates a simple mock server to simulate the SSV API endpoint under
+    /// various conditions for testing
+    async fn create_mock_server(port: u16) -> Result<JoinHandle<()>, axum::Error> {
+        let router = axum::Router::new()
+            .route("/ssv", get(handle_ssv))
+            .route("/big_data", get(handle_big_data))
+            .route("/timeout", get(handle_timeout))
+            .into_make_service();
+
+        let address = SocketAddr::from(([127, 0, 0, 1], port));
+        let listener = TcpListener::bind(address).await.map_err(axum::Error::new)?;
+        let server = axum::serve(listener, router).with_graceful_shutdown(async {
+            tokio::signal::ctrl_c().await.expect("Failed to listen for shutdown signal");
+        });
+        let result = Ok(tokio::spawn(async move {
+            if let Err(e) = server.await {
+                eprintln!("Server error: {}", e);
+            }
+        }));
+        info!("Mock server started on http://localhost:{port}/");
+        result
+    }
+
+    /// Sends the good SSV JSON data to the client
+    async fn handle_ssv() -> Response {
+        // Read the JSON data
+        let data = include_str!("../../../../tests/data/ssv_valid.json");
+
+        // Create a valid response
+        Response::builder()
+            .status(200)
+            .header("Content-Type", "application/json")
+            .body(data.into())
+            .unwrap()
+    }
+
+    /// Sends a response with a large body - larger than the maximum allowed.
+    /// Note that hyper overwrites the content-length header automatically, so
+    /// setting it here wouldn't actually change the value that ultimately
+    /// gets sent to the server.
+    async fn handle_big_data() -> Response {
+        let body = "f".repeat(2 * MUXER_HTTP_MAX_LENGTH);
+        Response::builder()
+            .status(200)
+            .header("Content-Type", "application/text")
+            .body(body.into())
+            .unwrap()
+    }
+
+    /// Simulates a timeout by sleeping for a long time
+    async fn handle_timeout() -> Response {
+        // Sleep for a long time to simulate a timeout
+        tokio::time::sleep(std::time::Duration::from_secs(2 * TEST_HTTP_TIMEOUT)).await;
+        Response::builder()
+            .status(200)
+            .header("Content-Type", "application/text")
+            .body("Timeout response".into())
+            .unwrap()
     }
 }

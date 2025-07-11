@@ -4,7 +4,7 @@ use alloy::{
 };
 use thiserror::Error;
 
-use crate::error::BlstErrorWrapper;
+use crate::{error::BlstErrorWrapper, utils::ResponseReadError};
 
 #[derive(Debug, Error)]
 pub enum PbsError {
@@ -17,11 +17,11 @@ pub enum PbsError {
     #[error("json decode error: {err:?}, raw: {raw}")]
     JsonDecode { err: serde_json::Error, raw: String },
 
+    #[error("{0}")]
+    ReadResponse(#[from] ResponseReadError),
+
     #[error("relay response error. Code: {code}, err: {error_msg:?}")]
     RelayResponse { error_msg: String, code: u16 },
-
-    #[error("response size exceeds max size: max: {max} raw: {raw}")]
-    PayloadTooLarge { max: usize, raw: String },
 
     #[error("failed validating relay response: {0}")]
     Validation(#[from] ValidationError),
@@ -37,7 +37,18 @@ impl PbsError {
 
     /// Whether the error is retryable in requests to relays
     pub fn should_retry(&self) -> bool {
-        matches!(self, PbsError::RelayResponse { .. } | PbsError::Reqwest { .. })
+        match self {
+            PbsError::Reqwest(err) => {
+                // Retry on timeout or connection error
+                err.is_timeout() || err.is_connect()
+            }
+            PbsError::RelayResponse { code, .. } => match *code {
+                500..509 => true,   // Retry on server errors
+                400 | 429 => false, // Do not retry if rate limited or bad request
+                _ => false,
+            },
+            _ => false,
+        }
     }
 }
 
