@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use cb_common::{
     config::{PbsConfig, PbsModuleConfig},
-    pbs::{BlsPublicKey, BuilderEvent, RelayClient},
+    pbs::{BlsPublicKey, RelayClient},
 };
 use parking_lot::RwLock;
 
@@ -36,12 +36,6 @@ impl<S> PbsState<S>
 where
     S: BuilderApiState,
 {
-    pub fn publish_event(&self, e: BuilderEvent) {
-        if let Some(publisher) = self.config.event_publisher.as_ref() {
-            publisher.publish(e);
-        }
-    }
-
     // Getters
     pub fn pbs_config(&self) -> &PbsConfig {
         &self.config.pbs_config

@@ -239,15 +239,14 @@ proxy_dir = "./proxies"
 # secrets_path = "./tests/data/proxy/secrets"
 
 # Commit-Boost can optionally run "modules" which extend the capabilities of the sidecar.
-# Currently, two types of modules are supported:
+# Currently, one type of module is currently supported:
 #   - "commit": modules which request commitment signatures from the validator keys
-#   - "events": modules which callback to BuilderAPI events as triggered from the PBS modules, used e.g. for monitoring
 # If any "commit" module is present, then the [signer] section should also be configured
 # OPTIONAL
 [[modules]]
 # Unique ID of the module
 id = "DA_COMMIT"
-# Type of the module. Supported values: commit, events
+# Type of the module. Supported values: commit
 type = "commit"
 # Docker image of the module
 docker_image = "test_da_commit"

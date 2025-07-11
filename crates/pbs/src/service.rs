@@ -25,9 +25,7 @@ pub struct PbsService;
 impl PbsService {
     pub async fn run<S: BuilderApiState, A: BuilderApi<S>>(state: PbsState<S>) -> Result<()> {
         let addr = state.config.endpoint;
-        let events_subs =
-            state.config.event_publisher.as_ref().map(|e| e.n_subscribers()).unwrap_or_default();
-        info!(version = COMMIT_BOOST_VERSION, commit_hash = COMMIT_BOOST_COMMIT, ?addr, events_subs, chain =? state.config.chain, "starting PBS service");
+        info!(version = COMMIT_BOOST_VERSION, commit_hash = COMMIT_BOOST_COMMIT, ?addr, chain =? state.config.chain, "starting PBS service");
 
         let app = create_app_router::<S, A>(RwLock::new(state).into());
         let listener = TcpListener::bind(addr).await?;
