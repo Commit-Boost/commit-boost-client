@@ -5,7 +5,7 @@ use eyre::{bail, Context, Result};
 use serde::de::DeserializeOwned;
 
 use super::JWTS_ENV;
-use crate::types::ModuleId;
+use crate::{config::MUXER_HTTP_MAX_LENGTH, types::ModuleId, utils::read_chunked_body_with_max};
 
 pub fn load_env_var(env: &str) -> Result<String> {
     std::env::var(env).wrap_err(format!("{env} is not set"))
@@ -29,6 +29,32 @@ pub fn load_file_from_env<T: DeserializeOwned>(env: &str) -> Result<T> {
 pub fn load_jwt_secrets() -> Result<HashMap<ModuleId, String>> {
     let jwt_secrets = std::env::var(JWTS_ENV).wrap_err(format!("{JWTS_ENV} is not set"))?;
     decode_string_to_map(&jwt_secrets)
+}
+
+/// Reads an HTTP response safely, erroring out if it failed or if the body is
+/// too large.
+pub async fn safe_read_http_response(response: reqwest::Response) -> Result<Vec<u8>> {
+    // Read the response to a buffer in chunks
+    let status_code = response.status();
+    match read_chunked_body_with_max(response, MUXER_HTTP_MAX_LENGTH).await {
+        Ok(response_bytes) => {
+            if status_code.is_success() {
+                return Ok(response_bytes);
+            }
+            bail!(
+                "Request failed with status: {status_code}, body: {}",
+                String::from_utf8_lossy(&response_bytes)
+            )
+        }
+        Err(e) => {
+            if status_code.is_success() {
+                return Err(e).wrap_err("Failed to read response body");
+            }
+            Err(e).wrap_err(format!(
+                "Request failed with status {status_code}, but decoding the response body failed"
+            ))
+        }
+    }
 }
 
 /// Removes duplicate entries from a vector of BlsPublicKey

@@ -4,7 +4,7 @@ use alloy::{
 };
 use thiserror::Error;
 
-use crate::error::BlstErrorWrapper;
+use crate::{error::BlstErrorWrapper, utils::ResponseReadError};
 
 #[derive(Debug, Error)]
 pub enum PbsError {
@@ -17,11 +17,11 @@ pub enum PbsError {
     #[error("json decode error: {err:?}, raw: {raw}")]
     JsonDecode { err: serde_json::Error, raw: String },
 
+    #[error("{0}")]
+    ReadResponse(#[from] ResponseReadError),
+
     #[error("relay response error. Code: {code}, err: {error_msg:?}")]
     RelayResponse { error_msg: String, code: u16 },
-
-    #[error("response size exceeds max size: max: {max} raw: {raw}")]
-    PayloadTooLarge { max: usize, raw: String },
 
     #[error("failed validating relay response: {0}")]
     Validation(#[from] ValidationError),
