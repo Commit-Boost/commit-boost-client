@@ -279,68 +279,68 @@ pub fn load_module_signing_configs(
     jwt_secrets: &HashMap<ModuleId, String>,
 ) -> Result<HashMap<ModuleId, ModuleSigningConfig>> {
     let mut mod_signing_configs = HashMap::new();
-    if let Some(modules) = &config.modules {
-        let mut seen_jwt_secrets = HashMap::new();
-        let mut seen_signing_ids = HashMap::new();
-        for module in modules {
-            // Validate the module ID
-            ensure!(!module.id.is_empty(), "Module ID cannot be empty");
+    let modules = config.modules.as_ref().ok_or_eyre("No modules defined in the config")?;
 
-            // Make sure it hasn't been used yet
-            ensure!(
-                !mod_signing_configs.contains_key(&module.id),
-                "Duplicate module config detected: ID {} is already used",
-                module.id
-            );
+    let mut seen_jwt_secrets = HashMap::new();
+    let mut seen_signing_ids = HashMap::new();
+    for module in modules {
+        // Validate the module ID
+        ensure!(!module.id.is_empty(), "Module ID cannot be empty");
 
-            // Make sure the JWT secret is present
-            let jwt_secret = match jwt_secrets.get(&module.id) {
-                Some(secret) => secret.clone(),
-                None => bail!("JWT secret for module {} is missing", module.id),
-            };
+        // Make sure it hasn't been used yet
+        ensure!(
+            !mod_signing_configs.contains_key(&module.id),
+            "Duplicate module config detected: ID {} is already used",
+            module.id
+        );
 
-            // Make sure the signing ID is present
-            let signing_id = match &module.signing_id {
-                Some(id) => *id,
-                None => bail!("Signing ID for module {} is missing", module.id),
-            };
+        // Make sure the JWT secret is present
+        let jwt_secret = match jwt_secrets.get(&module.id) {
+            Some(secret) => secret.clone(),
+            None => bail!("JWT secret for module {} is missing", module.id),
+        };
 
-            // Create the module signing config and validate it
-            let module_signing_config =
-                ModuleSigningConfig { module_name: module.id.clone(), jwt_secret, signing_id };
-            module_signing_config
-                .validate()
-                .wrap_err(format!("Invalid signing config for module {}", module.id))?;
+        // Make sure the signing ID is present
+        let signing_id = match &module.signing_id {
+            Some(id) => *id,
+            None => bail!("Signing ID for module {} is missing", module.id),
+        };
 
-            // Check for duplicates in JWT secrets and signing IDs
-            match seen_jwt_secrets.get(&module_signing_config.jwt_secret) {
-                Some(existing_module) => {
-                    bail!(
-                        "Duplicate JWT secret detected for modules {} and {}",
-                        existing_module,
-                        module.id
-                    )
-                }
-                None => {
-                    seen_jwt_secrets.insert(module_signing_config.jwt_secret.clone(), &module.id);
-                }
-            };
-            match seen_signing_ids.get(&module_signing_config.signing_id) {
-                Some(existing_module) => {
-                    bail!(
-                        "Duplicate signing ID detected for modules {} and {}",
-                        existing_module,
-                        module.id
-                    )
-                }
-                None => {
-                    seen_signing_ids.insert(module_signing_config.signing_id, &module.id);
-                    signing_id
-                }
-            };
+        // Create the module signing config and validate it
+        let module_signing_config =
+            ModuleSigningConfig { module_name: module.id.clone(), jwt_secret, signing_id };
+        module_signing_config
+            .validate()
+            .wrap_err(format!("Invalid signing config for module {}", module.id))?;
 
-            mod_signing_configs.insert(module.id.clone(), module_signing_config);
-        }
+        // Check for duplicates in JWT secrets and signing IDs
+        match seen_jwt_secrets.get(&module_signing_config.jwt_secret) {
+            Some(existing_module) => {
+                bail!(
+                    "Duplicate JWT secret detected for modules {} and {}",
+                    existing_module,
+                    module.id
+                )
+            }
+            None => {
+                seen_jwt_secrets.insert(module_signing_config.jwt_secret.clone(), &module.id);
+            }
+        };
+        match seen_signing_ids.get(&module_signing_config.signing_id) {
+            Some(existing_module) => {
+                bail!(
+                    "Duplicate signing ID detected for modules {} and {}",
+                    existing_module,
+                    module.id
+                )
+            }
+            None => {
+                seen_signing_ids.insert(module_signing_config.signing_id, &module.id);
+                signing_id
+            }
+        };
+
+        mod_signing_configs.insert(module.id.clone(), module_signing_config);
     }
 
     Ok(mod_signing_configs)
