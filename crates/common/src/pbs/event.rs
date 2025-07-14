@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::{net::SocketAddr, time::Duration};
 
 use alloy::{primitives::B256, rpc::types::beacon::relay::ValidatorRegistration};
 use async_trait::async_trait;
@@ -8,18 +8,18 @@ use axum::{
     routing::post,
     Json,
 };
-use eyre::bail;
+use eyre::{bail, Result};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
-use tracing::{error, info, trace};
+use tracing::{error, info, trace, warn};
 use url::Url;
 
 use super::{
     GetHeaderParams, GetHeaderResponse, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
 };
 use crate::{
-    config::{load_optional_env_var, BUILDER_URLS_ENV},
+    config::{load_optional_env_var, BUILDER_URLS_ENV, HTTP_TIMEOUT_SECONDS_DEFAULT},
     pbs::BUILDER_EVENTS_PATH,
 };
 
@@ -48,11 +48,18 @@ pub struct BuilderEventPublisher {
 }
 
 impl BuilderEventPublisher {
-    pub fn new(endpoints: Vec<Url>) -> Self {
-        Self { client: reqwest::Client::new(), endpoints }
+    pub fn new(endpoints: Vec<Url>, http_timeout: Duration) -> Result<Self> {
+        for endpoint in &endpoints {
+            if endpoint.scheme() != "https" {
+                warn!("BuilderEventPublisher endpoint {endpoint} is insecure, consider using HTTPS if possible instead");
+            }
+        }
+        Ok(Self { client: reqwest::ClientBuilder::new().timeout(http_timeout).build()?, endpoints })
     }
 
-    pub fn new_from_env() -> eyre::Result<Option<Self>> {
+    pub fn new_from_env() -> Result<Option<Self>> {
+        let http_timeout = Duration::from_secs(HTTP_TIMEOUT_SECONDS_DEFAULT);
+
         load_optional_env_var(BUILDER_URLS_ENV)
             .map(|joined| {
                 let endpoints = joined
@@ -62,9 +69,9 @@ impl BuilderEventPublisher {
                         let url = base.trim().parse::<Url>()?.join(BUILDER_EVENTS_PATH)?;
                         Ok(url)
                     })
-                    .collect::<eyre::Result<Vec<_>>>()?;
+                    .collect::<Result<Vec<_>>>()?;
 
-                Ok(Self::new(endpoints))
+                Self::new(endpoints, http_timeout)
             })
             .transpose()
     }

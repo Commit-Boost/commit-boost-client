@@ -372,6 +372,7 @@ mod tests {
                     late_in_slot_time_ms: 0,
                     extra_validation_enabled: false,
                     rpc_url: None,
+                    http_timeout_seconds: 30,
                     register_validator_retry_limit: 3,
                 },
                 with_signer: true,
