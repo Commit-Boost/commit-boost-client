@@ -21,6 +21,25 @@ pub fn compute_signing_root<T: TreeHash>(signing_data: &T) -> [u8; 32] {
     signing_data.tree_hash_root().0
 }
 
+pub fn compute_prop_commit_signing_root(
+    chain: Chain,
+    object_root: [u8; 32],
+    module_signing_id: Option<[u8; 32]>,
+    domain_mask: [u8; 4],
+) -> [u8; 32] {
+    let domain = compute_domain(chain, domain_mask);
+    match module_signing_id {
+        Some(id) => compute_signing_root(&types::SigningData {
+            object_root: compute_signing_root(&types::PropCommitSigningInfo {
+                data: object_root,
+                module_signing_id: id,
+            }),
+            signing_domain: domain,
+        }),
+        None => compute_signing_root(&types::SigningData { object_root, signing_domain: domain }),
+    }
+}
+
 // NOTE: this currently works only for builder domain signatures and
 // verifications
 // ref: https://github.com/ralexstokes/ethereum-consensus/blob/cf3c404043230559660810bc0c9d6d5a8498d819/ethereum-consensus/src/builder/mod.rs#L26-L29
@@ -51,20 +70,12 @@ pub fn verify_signed_message<T: TreeHash>(
     module_signing_id: Option<&B256>,
     domain_mask: [u8; 4],
 ) -> Result<(), BlstErrorWrapper> {
-    let domain = compute_domain(chain, domain_mask);
-    let signing_root = match module_signing_id {
-        Some(id) => compute_signing_root(&types::SigningData {
-            object_root: compute_signing_root(&types::PropCommitSigningInfo {
-                data: msg.tree_hash_root().0,
-                module_signing_id: id.0,
-            }),
-            signing_domain: domain,
-        }),
-        None => compute_signing_root(&types::SigningData {
-            object_root: msg.tree_hash_root().0,
-            signing_domain: domain,
-        }),
-    };
+    let signing_root = compute_prop_commit_signing_root(
+        chain,
+        compute_signing_root(msg),
+        module_signing_id.map(|id| id.0),
+        domain_mask,
+    );
     verify_bls_signature(pubkey, &signing_root, signature)
 }
 
@@ -83,8 +94,10 @@ pub fn sign_builder_root(
     object_root: [u8; 32],
 ) -> BlsSignature {
     let domain = chain.builder_domain();
-    let signing_data =
-        types::SigningData { object_root: object_root.tree_hash_root().0, signing_domain: domain };
+    let signing_data = types::SigningData {
+        object_root: compute_signing_root(&object_root),
+        signing_domain: domain,
+    };
     let signing_root = compute_signing_root(&signing_data);
     sign_message(secret_key, &signing_root)
 }
@@ -95,17 +108,12 @@ pub fn sign_commit_boost_root(
     object_root: [u8; 32],
     module_signing_id: Option<[u8; 32]>,
 ) -> BlsSignature {
-    let domain = compute_domain(chain, COMMIT_BOOST_DOMAIN);
-    let signing_root = match module_signing_id {
-        Some(id) => compute_signing_root(&types::SigningData {
-            object_root: compute_signing_root(&types::PropCommitSigningInfo {
-                data: object_root,
-                module_signing_id: id,
-            }),
-            signing_domain: domain,
-        }),
-        None => compute_signing_root(&types::SigningData { object_root, signing_domain: domain }),
-    };
+    let signing_root = compute_prop_commit_signing_root(
+        chain,
+        object_root,
+        module_signing_id,
+        COMMIT_BOOST_DOMAIN,
+    );
     sign_message(secret_key, &signing_root)
 }
 
