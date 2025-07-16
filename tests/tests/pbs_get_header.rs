@@ -48,13 +48,7 @@ async fn test_get_header() -> Result<()> {
     assert_eq!(res.status(), StatusCode::OK);
 
     let res = serde_json::from_slice::<GetHeaderResponse>(&res.bytes().await?)?;
-
-    let res = match res {
-        GetHeaderResponse::Deneb(data) => data,
-        GetHeaderResponse::Electra(_) => {
-            unreachable!()
-        }
-    };
+    let GetHeaderResponse::Electra(res) = res;
 
     assert_eq!(mock_state.received_get_header(), 1);
     assert_eq!(res.message.header.block_hash.0[0], 1);

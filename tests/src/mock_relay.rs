@@ -16,7 +16,7 @@ use axum::{
 };
 use cb_common::{
     pbs::{
-        ExecutionPayloadHeaderMessageDeneb, GetHeaderParams, GetHeaderResponse,
+        ExecutionPayloadHeaderMessageElectra, GetHeaderParams, GetHeaderResponse,
         SignedExecutionPayloadHeader, SubmitBlindedBlockResponse, BUILDER_API_PATH,
         GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
     },
@@ -108,7 +108,7 @@ async fn handle_get_header(
 ) -> Response {
     state.received_get_header.fetch_add(1, Ordering::Relaxed);
 
-    let mut response: SignedExecutionPayloadHeader<ExecutionPayloadHeaderMessageDeneb> =
+    let mut response: SignedExecutionPayloadHeader<ExecutionPayloadHeaderMessageElectra> =
         SignedExecutionPayloadHeader::default();
 
     response.message.header.parent_hash = parent_hash;
@@ -120,7 +120,7 @@ async fn handle_get_header(
     let object_root = response.message.tree_hash_root().0;
     response.signature = sign_builder_root(state.chain, &state.signer, object_root);
 
-    let response = GetHeaderResponse::Deneb(response);
+    let response = GetHeaderResponse::Electra(response);
     (StatusCode::OK, Json(response)).into_response()
 }
 
