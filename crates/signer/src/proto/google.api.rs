@@ -9,7 +9,7 @@ pub struct Http {
     /// **NOTE:** All service configuration rules follow "last one wins" order.
     #[prost(message, repeated, tag = "1")]
     pub rules: ::prost::alloc::vec::Vec<HttpRule>,
-    /// When set to true, URL path parmeters will be fully URI-decoded except in
+    /// When set to true, URL path parameters will be fully URI-decoded except in
     /// cases of single segment matches in reserved expansion, where "%2F" will be
     /// left encoded.
     ///
