@@ -212,19 +212,21 @@ jwt_auth_fail_timeout_seconds = 300
 [signer.local.loader]
 # File: path to the keys file
 key_path = "./tests/data/keys.example.json"
-# ValidatorsDir: format of the keystore (lighthouse, prysm, teku or lodestar)
+# ValidatorsDir: format of the keystore (lighthouse, prysm, teku, lodestar, or nimbus)
 # format = "lighthouse"
 # ValidatorsDir: full path to the keys directory
-# For lighthouse, it's de path to the directory where the `<pubkey>/voting-keystore.json` directories are located.
+# For lighthouse, it's the path to the directory where the `<pubkey>` directories are located, under each of which is a `voting-keystore.json` file.
 # For prysm, it's the path to the `all-accounts.keystore.json` file.
 # For teku, it's the path to the directory where all `<pubkey>.json` files are located.
 # For lodestar, it's the path to the directory where all `<pubkey>.json` files are located.
+# For nimbus, it's the path to the directory where the `<pubkey>` directories are located, under each of which is a `keystore.json` file.
 # keys_path = ""
 # ValidatorsDir: full path to the secrets file/directory
-# For lighthouse, it's de path to the directory where the `<pubkey>.json` files are located.
+# For lighthouse, it's the path to the directory where the `<pubkey>` files are located.
 # For prysm, it's the path to the file containing the wallet decryption password.
 # For teku, it's the path to the directory where all `<pubkey>.txt` files are located.
 # For lodestar, it's the path to the file containing the decryption password.
+# For nimbus, it's the path to the directory where the `<pubkey>` files are located.
 # secrets_path = ""
 # Configuration for how the Signer module should store proxy delegations. Supported types of store are:
 #   - File: store keys and delegations from a plain text file (unsafe, use only for testing purposes)
