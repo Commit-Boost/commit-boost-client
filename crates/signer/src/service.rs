@@ -65,7 +65,7 @@ struct SigningState {
 
     /// Map of modules ids to (nonce, JWT secret). This also acts as registry of
     /// all modules running
-    jwts: Arc<RwLock<HashMap<ModuleId, (usize, String)>>>,
+    jwts: Arc<ParkingRwLock<HashMap<ModuleId, (usize, String)>>>,
 
     /// Map of JWT failures per peer
     jwt_auth_failures: Arc<ParkingRwLock<HashMap<IpAddr, JwtAuthFailureInfo>>>,
@@ -86,7 +86,7 @@ impl SigningService {
 
         let state = SigningState {
             manager: Arc::new(RwLock::new(start_manager(config.clone()).await?)),
-            jwts: Arc::new(RwLock::new(
+            jwts: Arc::new(ParkingRwLock::new(
                 config
                     .jwts
                     .iter()
@@ -163,7 +163,7 @@ async fn jwt_auth(
     check_jwt_rate_limit(&state, &client_ip)?;
 
     // Process JWT authorization
-    match check_jwt_auth(&auth, &state).await {
+    match check_jwt_auth(&auth, &state) {
         Ok(module_id) => {
             req.extensions_mut().insert(module_id);
             Ok(next.run(req).await)
@@ -217,7 +217,7 @@ fn check_jwt_rate_limit(state: &SigningState, client_ip: &IpAddr) -> Result<(), 
 }
 
 /// Checks if a request can successfully authenticate with the JWT secret
-async fn check_jwt_auth(
+fn check_jwt_auth(
     auth: &Authorization<Bearer>,
     state: &SigningState,
 ) -> Result<ModuleId, SignerModuleError> {
@@ -230,7 +230,7 @@ async fn check_jwt_auth(
         SignerModuleError::Unauthorized
     })?;
 
-    let mut jwt_guard = state.jwts.write().await;
+    let mut jwt_guard = state.jwts.write();
     let (expected_nonce, jwt_secret) = jwt_guard.get_mut(&module_id).ok_or_else(|| {
         error!("Unauthorized request. Was the module started correctly?");
         SignerModuleError::Unauthorized
