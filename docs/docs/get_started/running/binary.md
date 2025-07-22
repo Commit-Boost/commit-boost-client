@@ -26,6 +26,7 @@ Modules need some environment variables to work correctly.
 - `CB_MUX_PATH_{ID}`: optional, override where to load mux validator keys for mux with `id=\{ID\}`.
 
 ### Signer Module
+- `CB_SIGNER_TLS_CERTIFICATES`: path to the TLS certificates for the server.
 - `CB_SIGNER_ENDPOINT`: optional, override to specify the `IP:port` endpoint to bind the signer server to.
 - For loading keys we currently support:
   - `CB_SIGNER_LOADER_FILE`: path to a `.json` with plaintext keys (for testing purposes only).

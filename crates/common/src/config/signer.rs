@@ -11,9 +11,10 @@ use tonic::transport::{Certificate, Identity};
 use url::Url;
 
 use super::{
-    load_jwt_secrets, load_optional_env_var, utils::load_env_var, CommitBoostConfig,
-    SIGNER_ENDPOINT_ENV, SIGNER_IMAGE_DEFAULT, SIGNER_JWT_AUTH_FAIL_LIMIT_ENV,
-    SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_ENV,
+    constants::SIGNER_IMAGE_DEFAULT, load_jwt_secrets, load_optional_env_var, utils::load_env_var,
+    CommitBoostConfig, SIGNER_ENDPOINT_ENV, SIGNER_JWT_AUTH_FAIL_LIMIT_ENV,
+    SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_ENV, SIGNER_TLS_CERTIFICATES_PATH_ENV,
+    SIGNER_TLS_CERTIFICATE_NAME, SIGNER_TLS_KEY_NAME,
 };
 use crate::{
     config::{DIRK_CA_CERT_ENV, DIRK_CERT_ENV, DIRK_DIR_SECRETS_ENV, DIRK_KEY_ENV},
@@ -48,6 +49,11 @@ pub struct SignerConfig {
     #[serde(default = "default_u32::<DEFAULT_JWT_AUTH_FAIL_TIMEOUT_SECONDS>")]
     pub jwt_auth_fail_timeout_seconds: u32,
 
+    /// Path to the TLS certificates directory.
+    /// It must contain a `cert.pem` and a `key.pem` file
+    #[serde(default = "default_certs_path")]
+    pub tls_certificates: PathBuf,
+
     /// Inner type-specific configuration
     #[serde(flatten)]
     pub inner: SignerType,
@@ -72,6 +78,10 @@ impl SignerConfig {
 
 fn default_signer() -> String {
     SIGNER_IMAGE_DEFAULT.to_string()
+}
+
+fn default_certs_path() -> PathBuf {
+    PathBuf::from("./certs")
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -136,6 +146,7 @@ pub struct StartSignerConfig {
     pub jwt_auth_fail_limit: u32,
     pub jwt_auth_fail_timeout_seconds: u32,
     pub dirk: Option<DirkConfig>,
+    pub tls_certificates: (Vec<u8>, Vec<u8>),
 }
 
 impl StartSignerConfig {
@@ -145,6 +156,12 @@ impl StartSignerConfig {
         let jwts = load_jwt_secrets()?;
 
         let signer_config = config.signer.ok_or_eyre("Signer config is missing")?;
+
+        let certs_path = load_env_var(SIGNER_TLS_CERTIFICATES_PATH_ENV)
+            .map(PathBuf::from)
+            .unwrap_or(signer_config.tls_certificates);
+        let cert = std::fs::read(certs_path.join(SIGNER_TLS_CERTIFICATE_NAME))?;
+        let key = std::fs::read(certs_path.join(SIGNER_TLS_KEY_NAME))?;
 
         // Load the server endpoint first from the env var if present, otherwise the
         // config
@@ -181,6 +198,7 @@ impl StartSignerConfig {
                 jwt_auth_fail_timeout_seconds,
                 store,
                 dirk: None,
+                tls_certificates: (cert, key),
             }),
 
             SignerType::Dirk {
@@ -225,6 +243,7 @@ impl StartSignerConfig {
                             None => None,
                         },
                     }),
+                    tls_certificates: (cert, key),
                 })
             }
 

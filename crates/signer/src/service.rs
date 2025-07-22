@@ -14,6 +14,7 @@ use axum::{
     Extension, Json,
 };
 use axum_extra::TypedHeader;
+use axum_server::tls_rustls::RustlsConfig;
 use cb_common::{
     commit::{
         constants::{
@@ -34,7 +35,8 @@ use cb_metrics::provider::MetricsProvider;
 use eyre::Context;
 use headers::{authorization::Bearer, Authorization};
 use parking_lot::RwLock as ParkingRwLock;
-use tokio::{net::TcpListener, sync::RwLock};
+use rustls::crypto::{aws_lc_rs, CryptoProvider};
+use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -61,9 +63,9 @@ struct SigningState {
     /// Manager handling different signing methods
     manager: Arc<RwLock<SigningManager>>,
 
-    /// Map of modules ids to JWT secrets. This also acts as registry of all
-    /// modules running
-    jwts: Arc<HashMap<ModuleId, String>>,
+    /// Map of modules ids to (nonce, JWT secret). This also acts as registry of
+    /// all modules running
+    jwts: Arc<ParkingRwLock<HashMap<ModuleId, (usize, String)>>>,
 
     /// Map of JWT failures per peer
     jwt_auth_failures: Arc<ParkingRwLock<HashMap<IpAddr, JwtAuthFailureInfo>>>,
@@ -84,7 +86,13 @@ impl SigningService {
 
         let state = SigningState {
             manager: Arc::new(RwLock::new(start_manager(config.clone()).await?)),
-            jwts: config.jwts.into(),
+            jwts: Arc::new(ParkingRwLock::new(
+                config
+                    .jwts
+                    .iter()
+                    .map(|(module_id, jwt_secret)| (module_id.clone(), (0, jwt_secret.clone())))
+                    .collect::<HashMap<ModuleId, (usize, String)>>(),
+            )),
             jwt_auth_failures: Arc::new(ParkingRwLock::new(HashMap::new())),
             jwt_auth_fail_limit: config.jwt_auth_fail_limit,
             jwt_auth_fail_timeout: Duration::from_secs(config.jwt_auth_fail_timeout_seconds as u64),
@@ -121,12 +129,20 @@ impl SigningService {
             .route(RELOAD_PATH, post(handle_reload))
             .with_state(state.clone())
             .route_layer(middleware::from_fn(log_request))
-            .route(STATUS_PATH, get(handle_status))
-            .into_make_service_with_connect_info::<SocketAddr>();
+            .route(STATUS_PATH, get(handle_status));
 
-        let listener = TcpListener::bind(config.endpoint).await?;
+        if CryptoProvider::get_default().is_none() {
+            aws_lc_rs::default_provider()
+                .install_default()
+                .map_err(|_| eyre::eyre!("Failed to install TLS provider"))?;
+        }
+        let tls_config =
+            RustlsConfig::from_pem(config.tls_certificates.0, config.tls_certificates.1).await?;
 
-        axum::serve(listener, app).await.wrap_err("signer server exited")
+        axum_server::bind_rustls(config.endpoint, tls_config)
+            .serve(app.into_make_service_with_connect_info::<SocketAddr>())
+            .await
+            .wrap_err("signer server exited")
     }
 
     fn init_metrics(network: Chain) -> eyre::Result<()> {
@@ -214,15 +230,19 @@ fn check_jwt_auth(
         SignerModuleError::Unauthorized
     })?;
 
-    let jwt_secret = state.jwts.get(&module_id).ok_or_else(|| {
+    let mut jwt_guard = state.jwts.write();
+    let (expected_nonce, jwt_secret) = jwt_guard.get_mut(&module_id).ok_or_else(|| {
         error!("Unauthorized request. Was the module started correctly?");
         SignerModuleError::Unauthorized
     })?;
 
-    validate_jwt(jwt, jwt_secret).map_err(|e| {
+    validate_jwt(jwt, *expected_nonce, jwt_secret.as_str()).map_err(|e| {
         error!("Unauthorized request. Invalid JWT: {e}");
         SignerModuleError::Unauthorized
     })?;
+
+    *expected_nonce += 1;
+
     Ok(module_id)
 }
 

@@ -1,8 +1,7 @@
-use std::time::{Duration, Instant};
+use std::path::PathBuf;
 
 use alloy::{primitives::Address, rpc::types::beacon::BlsSignature};
-use eyre::WrapErr;
-use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
+use reqwest::Certificate;
 use serde::Deserialize;
 use url::Url;
 
@@ -15,7 +14,6 @@ use super::{
     },
 };
 use crate::{
-    constants::SIGNER_JWT_EXPIRATION,
     signer::{BlsPublicKey, EcdsaSignature},
     types::{Jwt, ModuleId},
     utils::create_jwt,
@@ -28,65 +26,44 @@ pub struct SignerClient {
     /// Url endpoint of the Signer Module
     url: Url,
     client: reqwest::Client,
-    last_jwt_refresh: Instant,
     module_id: ModuleId,
     jwt_secret: Jwt,
+    nonce: usize,
 }
 
 impl SignerClient {
     /// Create a new SignerClient
-    pub fn new(signer_server_url: Url, jwt_secret: Jwt, module_id: ModuleId) -> eyre::Result<Self> {
-        let jwt = create_jwt(&module_id, &jwt_secret)?;
+    pub fn new(
+        signer_server_url: Url,
+        cert_path: PathBuf,
+        jwt_secret: Jwt,
+        module_id: ModuleId,
+    ) -> eyre::Result<Self> {
+        let mut builder =
+            reqwest::Client::builder().timeout(DEFAULT_REQUEST_TIMEOUT).use_rustls_tls();
 
-        let mut auth_value =
-            HeaderValue::from_str(&format!("Bearer {}", jwt)).wrap_err("invalid jwt")?;
-        auth_value.set_sensitive(true);
-
-        let mut headers = HeaderMap::new();
-        headers.insert(AUTHORIZATION, auth_value);
-
-        let client = reqwest::Client::builder()
-            .timeout(DEFAULT_REQUEST_TIMEOUT)
-            .default_headers(headers)
-            .build()?;
+        builder = builder.add_root_certificate(Certificate::from_pem(&std::fs::read(cert_path)?)?);
 
         Ok(Self {
             url: signer_server_url,
-            client,
-            last_jwt_refresh: Instant::now(),
+            client: builder.build()?,
             module_id,
             jwt_secret,
+            nonce: 0,
         })
     }
 
-    fn refresh_jwt(&mut self) -> Result<(), SignerClientError> {
-        if self.last_jwt_refresh.elapsed() > Duration::from_secs(SIGNER_JWT_EXPIRATION) {
-            let jwt = create_jwt(&self.module_id, &self.jwt_secret)?;
-
-            let mut auth_value =
-                HeaderValue::from_str(&format!("Bearer {}", jwt)).wrap_err("invalid jwt")?;
-            auth_value.set_sensitive(true);
-
-            let mut headers = HeaderMap::new();
-            headers.insert(AUTHORIZATION, auth_value);
-
-            self.client = reqwest::Client::builder()
-                .timeout(DEFAULT_REQUEST_TIMEOUT)
-                .default_headers(headers)
-                .build()?;
-        }
-
-        Ok(())
+    fn build_jwt(&self) -> Result<Jwt, SignerClientError> {
+        create_jwt(&self.module_id, self.nonce, &self.jwt_secret).map_err(SignerClientError::from)
     }
 
     /// Request a list of validator pubkeys for which signatures can be
     /// requested.
     // TODO: add more docs on how proxy keys work
     pub async fn get_pubkeys(&mut self) -> Result<GetPubkeysResponse, SignerClientError> {
-        self.refresh_jwt()?;
-
+        let jwt = self.build_jwt()?;
         let url = self.url.join(GET_PUBKEYS_PATH)?;
-        let res = self.client.get(url).send().await?;
+        let res = self.client.get(url).bearer_auth(jwt).send().await?;
 
         if !res.status().is_success() {
             return Err(SignerClientError::FailedRequest {
@@ -95,6 +72,7 @@ impl SignerClient {
             });
         }
 
+        self.nonce += 1;
         Ok(serde_json::from_slice(&res.bytes().await?)?)
     }
 
@@ -103,10 +81,9 @@ impl SignerClient {
     where
         T: for<'de> Deserialize<'de>,
     {
-        self.refresh_jwt()?;
-
+        let jwt = self.build_jwt()?;
         let url = self.url.join(REQUEST_SIGNATURE_PATH)?;
-        let res = self.client.post(url).json(&request).send().await?;
+        let res = self.client.post(url).bearer_auth(jwt).json(&request).send().await?;
 
         let status = res.status();
         let response_bytes = res.bytes().await?;
@@ -118,6 +95,7 @@ impl SignerClient {
             });
         }
 
+        self.nonce += 1;
         let signature = serde_json::from_slice(&response_bytes)?;
 
         Ok(signature)
@@ -151,10 +129,9 @@ impl SignerClient {
     where
         T: ProxyId + for<'de> Deserialize<'de>,
     {
-        self.refresh_jwt()?;
-
+        let jwt = self.build_jwt()?;
         let url = self.url.join(GENERATE_PROXY_KEY_PATH)?;
-        let res = self.client.post(url).json(&request).send().await?;
+        let res = self.client.post(url).bearer_auth(jwt).json(&request).send().await?;
 
         let status = res.status();
         let response_bytes = res.bytes().await?;
@@ -166,6 +143,7 @@ impl SignerClient {
             });
         }
 
+        self.nonce += 1;
         let signed_proxy_delegation = serde_json::from_slice(&response_bytes)?;
 
         Ok(signed_proxy_delegation)

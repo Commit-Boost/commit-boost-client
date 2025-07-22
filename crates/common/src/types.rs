@@ -21,6 +21,7 @@ pub struct Jwt(pub String);
 pub struct JwtClaims {
     pub exp: u64,
     pub module: String,
+    pub jti: usize,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

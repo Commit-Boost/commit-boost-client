@@ -15,7 +15,8 @@ use cb_common::{
         PROXY_DIR_KEYS_ENV, PROXY_DIR_SECRETS_DEFAULT, PROXY_DIR_SECRETS_ENV, SIGNER_DEFAULT,
         SIGNER_DIR_KEYS_DEFAULT, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS_DEFAULT,
         SIGNER_DIR_SECRETS_ENV, SIGNER_ENDPOINT_ENV, SIGNER_KEYS_ENV, SIGNER_MODULE_NAME,
-        SIGNER_URL_ENV,
+        SIGNER_TLS_CERTIFICATES_PATH_DEFAULT, SIGNER_TLS_CERTIFICATES_PATH_ENV,
+        SIGNER_TLS_CERTIFICATE_NAME, SIGNER_TLS_KEY_NAME, SIGNER_URL_ENV,
     },
     pbs::{BUILDER_API_PATH, GET_STATUS_PATH},
     signer::{ProxyStore, SignerLoader, DEFAULT_SIGNER_PORT},
@@ -29,6 +30,7 @@ use docker_compose_types::{
 };
 use eyre::Result;
 use indexmap::IndexMap;
+use rcgen::generate_simple_self_signed;
 
 /// Name of the docker compose file
 pub(super) const CB_COMPOSE_FILE: &str = "cb.docker-compose.yml";
@@ -78,7 +80,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
         if let Some(SignerConfig { inner: SignerType::Remote { url }, .. }) = &cb_config.signer {
             url.to_string()
         } else {
-            format!("http://cb_signer:{signer_port}")
+            format!("https://cb_signer:{signer_port}")
         };
 
     let builder_events_port = 30000;
@@ -90,6 +92,10 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
         cb_config.modules.as_ref().is_some_and(|modules| {
             modules.iter().any(|module| matches!(module.kind, ModuleKind::Commit))
         });
+
+    // If signer config is not set, certs_path doesn't really matter
+    let certs_path =
+        cb_config.signer.as_ref().map(|config| config.tls_certificates.clone()).unwrap_or_default();
 
     // setup modules
     if let Some(modules_config) = cb_config.modules {
@@ -110,6 +116,10 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                         get_env_val(CONFIG_ENV, CONFIG_DEFAULT),
                         get_env_interp(MODULE_JWT_ENV, &jwt_name),
                         get_env_val(SIGNER_URL_ENV, &signer_server),
+                        get_env_val(
+                            SIGNER_TLS_CERTIFICATES_PATH_ENV,
+                            SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
+                        ),
                     ]);
 
                     // Pass on the env variables
@@ -158,6 +168,12 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                     let mut module_volumes = vec![config_volume.clone()];
                     module_volumes.extend(chain_spec_volume.clone());
                     module_volumes.extend(get_log_volume(&cb_config.logs, &module.id));
+                    module_volumes.push(Volumes::Simple(format!(
+                        "{}:{}/{}:ro",
+                        certs_path.join(SIGNER_TLS_CERTIFICATE_NAME).display(),
+                        SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
+                        SIGNER_TLS_CERTIFICATE_NAME
+                    )));
 
                     // depends_on
                     let mut module_dependencies = IndexMap::new();
@@ -298,6 +314,17 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
     // volumes
     pbs_volumes.extend(chain_spec_volume.clone());
     pbs_volumes.extend(get_log_volume(&cb_config.logs, PBS_MODULE_NAME));
+    if needs_signer_module {
+        pbs_volumes.push(Volumes::Simple(format!(
+            "{}:{}/{}:ro",
+            certs_path.join(SIGNER_TLS_CERTIFICATE_NAME).display(),
+            SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
+            SIGNER_TLS_CERTIFICATE_NAME
+        )));
+        let (key, val) =
+            get_env_val(SIGNER_TLS_CERTIFICATES_PATH_ENV, SIGNER_TLS_CERTIFICATES_PATH_DEFAULT);
+        pbs_envs.insert(key, val);
+    }
 
     let pbs_service = Service {
         container_name: Some("cb_pbs".to_owned()),
@@ -333,6 +360,10 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                 let mut signer_envs = IndexMap::from([
                     get_env_val(CONFIG_ENV, CONFIG_DEFAULT),
                     get_env_same(JWTS_ENV),
+                    get_env_val(
+                        SIGNER_TLS_CERTIFICATES_PATH_ENV,
+                        SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
+                    ),
                 ]);
 
                 // Bind the signer API to 0.0.0.0
@@ -435,6 +466,35 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
 
                 volumes.extend(get_log_volume(&cb_config.logs, SIGNER_MODULE_NAME));
 
+                if !certs_path.try_exists()? {
+                    std::fs::create_dir(certs_path.clone())?;
+                }
+
+                if !certs_path.join(SIGNER_TLS_CERTIFICATE_NAME).try_exists()? ||
+                    !certs_path.join(SIGNER_TLS_KEY_NAME).try_exists()?
+                {
+                    let (cert, key): (String, String) =
+                        generate_simple_self_signed(vec!["cb_signer".to_string()])
+                            .map(|x| (x.cert.pem(), x.key_pair.serialize_pem()))
+                            .map_err(|e| eyre::eyre!("Failed to generate TLS certificate: {e}"))?;
+
+                    std::fs::write(certs_path.join(SIGNER_TLS_CERTIFICATE_NAME), &cert)?;
+                    std::fs::write(certs_path.join(SIGNER_TLS_KEY_NAME), &key)?;
+                }
+
+                volumes.push(Volumes::Simple(format!(
+                    "{}:{}/{}:ro",
+                    certs_path.join(SIGNER_TLS_CERTIFICATE_NAME).display(),
+                    SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
+                    SIGNER_TLS_CERTIFICATE_NAME
+                )));
+                volumes.push(Volumes::Simple(format!(
+                    "{}:{}/{}:ro",
+                    certs_path.join(SIGNER_TLS_KEY_NAME).display(),
+                    SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
+                    SIGNER_TLS_KEY_NAME
+                )));
+
                 // networks
                 let signer_networks = vec![SIGNER_NETWORK.to_owned()];
 
@@ -447,7 +507,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                     environment: Environment::KvPair(signer_envs),
                     healthcheck: Some(Healthcheck {
                         test: Some(HealthcheckTest::Single(format!(
-                            "curl -f http://localhost:{signer_port}/status"
+                            "curl -k -f https://localhost:{signer_port}/status"
                         ))),
                         interval: Some("30s".into()),
                         timeout: Some("5s".into()),
