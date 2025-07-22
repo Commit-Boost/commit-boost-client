@@ -49,11 +49,14 @@ pub struct SignerConfig {
     #[serde(default = "default_u32::<DEFAULT_JWT_AUTH_FAIL_TIMEOUT_SECONDS>")]
     pub jwt_auth_fail_timeout_seconds: u32,
 
+    /// Path to the TLS certificates directory.
+    /// It must contain a `cert.pem` and a `key.pem` file
+    #[serde(default = "default_certs_path")]
+    pub tls_certificates: PathBuf,
+
     /// Inner type-specific configuration
     #[serde(flatten)]
     pub inner: SignerType,
-    #[serde(default = "default_certs_path")]
-    pub tls_certificates: PathBuf,
 }
 
 impl SignerConfig {
