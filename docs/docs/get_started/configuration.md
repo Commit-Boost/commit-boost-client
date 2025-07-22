@@ -405,7 +405,7 @@ The signer module takes 2 optional parameters in the JSON body:
 - `jwt_secrets`: a string with a comma-separated list of `<MODULE_ID>=<JWT_SECRET>` for all modules.
 - `admin_secret`: a string with the secret for the signer admin JWT.
 
-In the case that someone of those isn't present, that parameter won't be updated.
+Parameters that are not provided will not be updated; they will be regenerated using their original on-disk data as though the signer service was being restarted. Note that any changes you made with calls to `/revoke_jwt` or `/reload` will be reverted, so make sure you provide any modifications again as part of this call.
 
 ### Notes
 
