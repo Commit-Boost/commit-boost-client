@@ -13,7 +13,7 @@ use url::Url;
 use super::{
     constants::SIGNER_IMAGE_DEFAULT, load_jwt_secrets, load_optional_env_var, utils::load_env_var,
     CommitBoostConfig, SIGNER_ENDPOINT_ENV, SIGNER_JWT_AUTH_FAIL_LIMIT_ENV,
-    SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_ENV, SIGNER_TLS_CERTIFICATES_ENV,
+    SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_ENV, SIGNER_TLS_CERTIFICATES_PATH_ENV,
     SIGNER_TLS_CERTIFICATE_NAME, SIGNER_TLS_KEY_NAME,
 };
 use crate::{
@@ -154,7 +154,7 @@ impl StartSignerConfig {
 
         let signer_config = config.signer.ok_or_eyre("Signer config is missing")?;
 
-        let certs_path = load_env_var(SIGNER_TLS_CERTIFICATES_ENV)
+        let certs_path = load_env_var(SIGNER_TLS_CERTIFICATES_PATH_ENV)
             .map(PathBuf::from)
             .unwrap_or(signer_config.tls_certificates);
         let cert = std::fs::read(certs_path.join(SIGNER_TLS_CERTIFICATE_NAME))?;

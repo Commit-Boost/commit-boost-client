@@ -10,7 +10,8 @@ use crate::{
         constants::{CONFIG_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, SIGNER_URL_ENV},
         load_env_var,
         utils::load_file_from_env,
-        SignerConfig, BUILDER_PORT_ENV, SIGNER_TLS_CERTIFICATES_ENV, SIGNER_TLS_CERTIFICATE_NAME,
+        SignerConfig, BUILDER_PORT_ENV, SIGNER_TLS_CERTIFICATES_PATH_ENV,
+        SIGNER_TLS_CERTIFICATE_NAME,
     },
     types::{Chain, Jwt, ModuleId},
 };
@@ -105,7 +106,7 @@ pub fn load_commit_module_config<T: DeserializeOwned>() -> Result<StartCommitMod
         .find(|m| m.static_config.id == module_id)
         .wrap_err(format!("failed to find module for {module_id}"))?;
 
-    let certs_path = load_env_var(SIGNER_TLS_CERTIFICATES_ENV)
+    let certs_path = load_env_var(SIGNER_TLS_CERTIFICATES_PATH_ENV)
         .map(PathBuf::from)
         .unwrap_or(cb_config.signer.tls_certificates)
         .join(SIGNER_TLS_CERTIFICATE_NAME);

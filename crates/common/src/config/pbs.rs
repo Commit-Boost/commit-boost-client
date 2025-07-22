@@ -24,7 +24,8 @@ use crate::{
     commit::client::SignerClient,
     config::{
         load_env_var, load_file_from_env, PbsMuxes, SignerConfig, CONFIG_ENV, MODULE_JWT_ENV,
-        PBS_MODULE_NAME, SIGNER_TLS_CERTIFICATES_ENV, SIGNER_TLS_CERTIFICATE_NAME, SIGNER_URL_ENV,
+        PBS_MODULE_NAME, SIGNER_TLS_CERTIFICATES_PATH_ENV, SIGNER_TLS_CERTIFICATE_NAME,
+        SIGNER_URL_ENV,
     },
     pbs::{
         BuilderEventPublisher, DefaultTimeout, RelayClient, RelayEntry, DEFAULT_PBS_PORT,
@@ -349,7 +350,7 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
         // if custom pbs requires a signer client, load jwt
         let module_jwt = Jwt(load_env_var(MODULE_JWT_ENV)?);
         let signer_server_url = load_env_var(SIGNER_URL_ENV)?.parse()?;
-        let certs_path = load_env_var(SIGNER_TLS_CERTIFICATES_ENV)
+        let certs_path = load_env_var(SIGNER_TLS_CERTIFICATES_PATH_ENV)
             .map(PathBuf::from)
             .unwrap_or(cb_config.signer.tls_certificates)
             .join(SIGNER_TLS_CERTIFICATE_NAME);
