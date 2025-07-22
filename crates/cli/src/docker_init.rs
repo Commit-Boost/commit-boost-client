@@ -15,8 +15,8 @@ use cb_common::{
         PROXY_DIR_KEYS_DEFAULT, PROXY_DIR_KEYS_ENV, PROXY_DIR_SECRETS_DEFAULT,
         PROXY_DIR_SECRETS_ENV, SIGNER_DEFAULT, SIGNER_DIR_KEYS_DEFAULT, SIGNER_DIR_KEYS_ENV,
         SIGNER_DIR_SECRETS_DEFAULT, SIGNER_DIR_SECRETS_ENV, SIGNER_ENDPOINT_ENV, SIGNER_KEYS_ENV,
-        SIGNER_MODULE_NAME, SIGNER_PORT_DEFAULT, SIGNER_TLS_CERTIFICATES_DEFAULT,
-        SIGNER_TLS_CERTIFICATES_ENV, SIGNER_TLS_CERTIFICATE_NAME, SIGNER_TLS_KEY_NAME,
+        SIGNER_MODULE_NAME, SIGNER_PORT_DEFAULT, SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
+        SIGNER_TLS_CERTIFICATES_PATH_ENV, SIGNER_TLS_CERTIFICATE_NAME, SIGNER_TLS_KEY_NAME,
         SIGNER_URL_ENV,
     },
     pbs::{BUILDER_V1_API_PATH, GET_STATUS_PATH},
@@ -117,7 +117,10 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                         get_env_val(CONFIG_ENV, CONFIG_DEFAULT),
                         get_env_interp(MODULE_JWT_ENV, &jwt_name),
                         get_env_val(SIGNER_URL_ENV, &signer_server),
-                        get_env_val(SIGNER_TLS_CERTIFICATES_ENV, SIGNER_TLS_CERTIFICATES_DEFAULT),
+                        get_env_val(
+                            SIGNER_TLS_CERTIFICATES_PATH_ENV,
+                            SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
+                        ),
                     ]);
 
                     // Pass on the env variables
@@ -169,7 +172,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                     module_volumes.push(Volumes::Simple(format!(
                         "{}:{}/{}:ro",
                         certs_path.join(SIGNER_TLS_CERTIFICATE_NAME).display(),
-                        SIGNER_TLS_CERTIFICATES_DEFAULT,
+                        SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
                         SIGNER_TLS_CERTIFICATE_NAME
                     )));
 
@@ -316,10 +319,11 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
         pbs_volumes.push(Volumes::Simple(format!(
             "{}:{}/{}:ro",
             certs_path.join(SIGNER_TLS_CERTIFICATE_NAME).display(),
-            SIGNER_TLS_CERTIFICATES_DEFAULT,
+            SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
             SIGNER_TLS_CERTIFICATE_NAME
         )));
-        let (key, val) = get_env_val(SIGNER_TLS_CERTIFICATES_ENV, SIGNER_TLS_CERTIFICATES_DEFAULT);
+        let (key, val) =
+            get_env_val(SIGNER_TLS_CERTIFICATES_PATH_ENV, SIGNER_TLS_CERTIFICATES_PATH_DEFAULT);
         pbs_envs.insert(key, val);
     }
 
@@ -358,7 +362,10 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                     get_env_val(CONFIG_ENV, CONFIG_DEFAULT),
                     get_env_same(JWTS_ENV),
                     get_env_same(ADMIN_JWT_ENV),
-                    get_env_val(SIGNER_TLS_CERTIFICATES_ENV, SIGNER_TLS_CERTIFICATES_DEFAULT),
+                    get_env_val(
+                        SIGNER_TLS_CERTIFICATES_PATH_ENV,
+                        SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
+                    ),
                 ]);
 
                 // Bind the signer API to 0.0.0.0
@@ -481,13 +488,13 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                 volumes.push(Volumes::Simple(format!(
                     "{}:{}/{}:ro",
                     certs_path.join(SIGNER_TLS_CERTIFICATE_NAME).display(),
-                    SIGNER_TLS_CERTIFICATES_DEFAULT,
+                    SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
                     SIGNER_TLS_CERTIFICATE_NAME
                 )));
                 volumes.push(Volumes::Simple(format!(
                     "{}:{}/{}:ro",
                     certs_path.join(SIGNER_TLS_KEY_NAME).display(),
-                    SIGNER_TLS_CERTIFICATES_DEFAULT,
+                    SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
                     SIGNER_TLS_KEY_NAME
                 )));
 

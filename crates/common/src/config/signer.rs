@@ -15,7 +15,8 @@ use super::{
     load_optional_env_var, utils::load_env_var, CommitBoostConfig, SIGNER_ENDPOINT_ENV,
     SIGNER_IMAGE_DEFAULT, SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT, SIGNER_JWT_AUTH_FAIL_LIMIT_ENV,
     SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT, SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_ENV,
-    SIGNER_PORT_DEFAULT, SIGNER_TLS_CERTIFICATE_NAME, SIGNER_TLS_KEY_NAME,
+    SIGNER_PORT_DEFAULT, SIGNER_TLS_CERTIFICATES_PATH_ENV, SIGNER_TLS_CERTIFICATE_NAME,
+    SIGNER_TLS_KEY_NAME,
 };
 use crate::{
     config::{
@@ -216,7 +217,9 @@ impl StartSignerConfig {
         };
 
         // Load the TLS certificates if present, otherwise generate self-signed ones
-        let certs_path = signer_config.tls_certificates;
+        let certs_path = load_env_var(SIGNER_TLS_CERTIFICATES_PATH_ENV)
+            .map(PathBuf::from)
+            .unwrap_or(signer_config.tls_certificates);
         let cert = std::fs::read(certs_path.join(SIGNER_TLS_CERTIFICATE_NAME))?;
         let key = std::fs::read(certs_path.join(SIGNER_TLS_KEY_NAME))?;
 
