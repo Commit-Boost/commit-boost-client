@@ -60,15 +60,17 @@ relay_check = true
 wait_all_registrations = true
 
 [[relays]]
-id = "flashbots"
-url = "https://0xafa4c6985aa049fb79dd37010438cfebeb0f2bd42b115b89dd678dab0670c1de38da0c4e9138c9290a398ecd9a0b3110@boost-relay-hoodi.flashbots.net"
+id = "abc"
+url = "abc.xyz"
 
 [[relays]]
-id = "titan"
-url = "https://0xaa58208899c6105603b74396734a6263cc7d947f444f396a90f7b7d3e65d102aec7e5e5291b27e08d02c50a050825c2f@hoodi.titanrelay.xyz"
+id = "def"
+url = "def.xyz"
 ```
 
 Note that there are many more parameters that Commit-Boost supports, but they are all omitted and thus will use their default options. For a full description of the default options within the config file, go to the [annotated configuration example](../../../../config.example.toml).
+
+The relays here are placeholder for the sake of the example; for a list of actual relays, visit [the EthStaker relay list](https://github.com/eth-educators/ethstaker-guides/blob/main/MEV-relay-list.md).
 
 
 ### Commit-Boost CLI Output
@@ -146,12 +148,12 @@ relay_check = true
 wait_all_registrations = true
 
 [[relays]]
-id = "flashbots"
-url = "https://0xafa4c6985aa049fb79dd37010438cfebeb0f2bd42b115b89dd678dab0670c1de38da0c4e9138c9290a398ecd9a0b3110@boost-relay-hoodi.flashbots.net"
+id = "abc"
+url = "abc.xyz"
 
 [[relays]]
-id = "titan"
-url = "https://0xaa58208899c6105603b74396734a6263cc7d947f444f396a90f7b7d3e65d102aec7e5e5291b27e08d02c50a050825c2f@hoodi.titanrelay.xyz"
+id = "def"
+url = "def.xyz"
 
 [signer]
 port = 20000
@@ -169,6 +171,8 @@ sleep_secs = 5
 ```
 
 Note that there are many more parameters that Commit-Boost supports, but they are all omitted and thus will use their default options. For a full description of the default options within the config file, go to the [annotated configuration example](../../../../config.example.toml).
+
+The relays here are placeholder for the sake of the example; for a list of actual relays, visit [the EthStaker relay list](https://github.com/eth-educators/ethstaker-guides/blob/main/MEV-relay-list.md).
 
 In this scenario there are two folders in the same directory as the configuration file (the working directory): `keys` and `secrets`. These correspond to the folders containing the [EIP-2335 keystores](../configuration.md#local-signer) and secrets in Lighthouse format. For your own keys, adjust the `format` parameter within the configuration and directory paths accordingly.
 
