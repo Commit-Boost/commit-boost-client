@@ -61,11 +61,11 @@ wait_all_registrations = true
 
 [[relays]]
 id = "abc"
-url = "abc.xyz"
+url = "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz"
 
 [[relays]]
 id = "def"
-url = "def.xyz"
+url = "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@def.xyz"
 ```
 
 Note that there are many more parameters that Commit-Boost supports, but they are all omitted and thus will use their default options. For a full description of the default options within the config file, go to the [annotated configuration example](../../../../config.example.toml).
@@ -149,11 +149,11 @@ wait_all_registrations = true
 
 [[relays]]
 id = "abc"
-url = "abc.xyz"
+url = "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz"
 
 [[relays]]
 id = "def"
-url = "def.xyz"
+url = "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@def.xyz"
 
 [signer]
 port = 20000
