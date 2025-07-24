@@ -239,7 +239,7 @@ proxy_dir = "./proxies"
 # secrets_path = "./tests/data/proxy/secrets"
 
 # Commit-Boost can optionally run "modules" which extend the capabilities of the sidecar.
-# Currently, one type of module is currently supported:
+# Currently, one type of module is supported:
 #   - "commit": modules which request commitment signatures from the validator keys
 # If any "commit" module is present, then the [signer] section should also be configured
 # OPTIONAL
