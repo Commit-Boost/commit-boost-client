@@ -170,3 +170,15 @@ async fn test_validate_missing_rpc_url() -> Result<()> {
         .contains("rpc_url is required if extra_validation_enabled is true"));
     Ok(())
 }
+
+#[tokio::test]
+async fn test_validate_config_with_no_relays() -> Result<()> {
+    // Create a config with no relays
+    let mut config = load_happy_config().await?;
+    config.relays.clear();
+
+    // Make sure it validates correctly
+    let result = config.validate().await;
+    assert!(result.is_ok());
+    Ok(())
+}
