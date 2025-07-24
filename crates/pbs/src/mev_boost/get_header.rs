@@ -470,7 +470,7 @@ fn validate_signature<T: TreeHash>(
 
     verify_signed_message(
         chain,
-        &received_relay_pubkey,
+        &expected_relay_pubkey,,
         &message,
         signature,
         APPLICATION_BUILDER_DOMAIN,
