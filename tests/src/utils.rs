@@ -118,6 +118,7 @@ pub fn get_start_signer_config(
     signer_config: SignerConfig,
     chain: Chain,
     jwts: HashMap<ModuleId, String>,
+    admin_secret: String,
 ) -> StartSignerConfig {
     match signer_config.inner {
         SignerType::Local { loader, .. } => StartSignerConfig {
@@ -126,6 +127,7 @@ pub fn get_start_signer_config(
             store: None,
             endpoint: SocketAddr::new(signer_config.host.into(), signer_config.port),
             jwts,
+            admin_secret,
             jwt_auth_fail_limit: signer_config.jwt_auth_fail_limit,
             jwt_auth_fail_timeout_seconds: signer_config.jwt_auth_fail_timeout_seconds,
             dirk: None,

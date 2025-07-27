@@ -25,6 +25,9 @@ pub enum SignerModuleError {
     #[error("Dirk signer does not support this operation")]
     DirkNotSupported,
 
+    #[error("module id not found")]
+    ModuleIdNotFound,
+
     #[error("internal error: {0}")]
     Internal(String),
 
@@ -48,6 +51,7 @@ impl IntoResponse for SignerModuleError {
                 (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string())
             }
             SignerModuleError::SignerError(err) => (StatusCode::BAD_REQUEST, err.to_string()),
+            SignerModuleError::ModuleIdNotFound => (StatusCode::NOT_FOUND, self.to_string()),
             SignerModuleError::RateLimited(duration) => {
                 (StatusCode::TOO_MANY_REQUESTS, format!("rate limited for {duration:?}"))
             }
