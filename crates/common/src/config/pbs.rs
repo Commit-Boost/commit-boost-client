@@ -228,6 +228,14 @@ pub async fn load_pbs_config() -> Result<PbsModuleConfig> {
     let config = CommitBoostConfig::from_env_path()?;
     config.validate().await?;
 
+    // Make sure relays isn't empty - since the config is still technically valid if
+    // there are no relays for things like Docker compose generation, this check
+    // isn't in validate().
+    ensure!(
+        !config.relays.is_empty(),
+        "At least one relay must be configured to run the PBS service"
+    );
+
     // use endpoint from env if set, otherwise use default host and port
     let endpoint = if let Some(endpoint) = load_optional_env_var(PBS_ENDPOINT_ENV) {
         endpoint.parse()?
