@@ -8,7 +8,7 @@ use std::{
 use alloy::{
     primitives::{address, Address, U256},
     providers::ProviderBuilder,
-    rpc::client::RpcClient,
+    rpc::{client::RpcClient, types::beacon::constants::BLS_PUBLIC_KEY_BYTES_LEN},
     sol,
     transports::http::Http,
 };
@@ -286,7 +286,6 @@ async fn fetch_lido_registry_keys(
     debug!("fetching {total_keys} total keys");
 
     const CALL_BATCH_SIZE: u64 = 250u64;
-    const BLS_PK_LEN: usize = 48;
 
     let mut keys = vec![];
     let mut offset = 0;
@@ -301,12 +300,12 @@ async fn fetch_lido_registry_keys(
             .pubkeys;
 
         ensure!(
-            pubkeys.len() % BLS_PK_LEN == 0,
-            "unexpected number of keys in batch, expected multiple of {BLS_PK_LEN}, got {}",
+            pubkeys.len() % BLS_PUBLIC_KEY_BYTES_LEN == 0,
+            "unexpected number of keys in batch, expected multiple of {BLS_PUBLIC_KEY_BYTES_LEN}, got {}",
             pubkeys.len()
         );
 
-        for chunk in pubkeys.chunks(BLS_PK_LEN) {
+        for chunk in pubkeys.chunks(BLS_PUBLIC_KEY_BYTES_LEN) {
             keys.push(
                 BlsPublicKey::deserialize(chunk)
                     .map_err(|_| eyre::eyre!("invalid BLS public key"))?,
