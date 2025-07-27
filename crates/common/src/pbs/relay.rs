@@ -128,14 +128,14 @@ impl RelayClient {
 mod tests {
     use std::collections::HashMap;
 
-    use alloy::{hex, primitives::B256};
+    use alloy::primitives::B256;
 
     use super::{RelayClient, RelayEntry};
-    use crate::{config::RelayConfig, types::BlsPublicKey};
+    use crate::{config::RelayConfig, utils::bls_pubkey_from_hex_unchecked};
 
     #[test]
     fn test_relay_entry() {
-        let pubkey = BlsPublicKey::deserialize(&hex!("0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae")).unwrap();
+        let pubkey = bls_pubkey_from_hex_unchecked("0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae");
         let s = format!("http://{pubkey}@abc.xyz/");
 
         let parsed = serde_json::from_str::<RelayEntry>(&format!("\"{s}\"")).unwrap();
@@ -149,7 +149,7 @@ mod tests {
     fn test_relay_url() {
         let slot = 0;
         let parent_hash = B256::ZERO;
-        let validator_pubkey = BlsPublicKey::deserialize(&hex!("0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae")).unwrap();
+        let validator_pubkey = bls_pubkey_from_hex_unchecked("0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae");
         let expected = format!("http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz/eth/v1/builder/header/{slot}/{parent_hash}/{validator_pubkey}");
 
         let relay_config = r#"
@@ -183,7 +183,7 @@ mod tests {
     fn test_relay_url_with_get_params() {
         let slot = 0;
         let parent_hash = B256::ZERO;
-        let validator_pubkey = BlsPublicKey::deserialize(&hex!("0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae")).unwrap();
+        let validator_pubkey = bls_pubkey_from_hex_unchecked("0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae");
         // Note: HashMap iteration order is not guaranteed, so we can't predict the
         // exact order of parameters Instead of hard-coding the order, we'll
         // check that both parameters are present in the URL
