@@ -11,7 +11,7 @@ use super::{
     error::PbsError,
     HEADER_VERSION_KEY, HEADER_VERSION_VALUE,
 };
-use crate::{config::RelayConfig, pbs::BlsPublicKey, DEFAULT_REQUEST_TIMEOUT};
+use crate::{config::RelayConfig, types::BlsPublicKey, DEFAULT_REQUEST_TIMEOUT};
 
 /// A parsed entry of the relay url in the format: scheme://pubkey@host
 #[derive(Debug, Clone)]
@@ -131,7 +131,7 @@ mod tests {
     use alloy::{hex, primitives::B256};
 
     use super::{RelayClient, RelayEntry};
-    use crate::{config::RelayConfig, pbs::BlsPublicKey};
+    use crate::{config::RelayConfig, types::BlsPublicKey};
 
     #[test]
     fn test_relay_entry() {

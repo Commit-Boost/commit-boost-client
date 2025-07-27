@@ -21,8 +21,8 @@ use url::Url;
 use super::{load_optional_env_var, PbsConfig, RelayConfig, MUX_PATH_ENV};
 use crate::{
     config::{remove_duplicate_keys, safe_read_http_response},
-    pbs::{BlsPublicKey, RelayClient},
-    types::Chain,
+    pbs::RelayClient,
+    types::{BlsPublicKey, Chain},
 };
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -460,7 +460,7 @@ mod tests {
             .pubkeys;
 
         let mut vec = vec![];
-        for chunk in pubkeys.chunks(48) {
+        for chunk in pubkeys.chunks(BLS_PUBLIC_KEY_BYTES_LEN) {
             vec.push(
                 BlsPublicKey::deserialize(chunk)
                     .map_err(|_| eyre::eyre!("invalid BLS public key"))?,

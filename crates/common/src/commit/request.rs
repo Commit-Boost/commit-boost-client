@@ -14,9 +14,8 @@ use tree_hash_derive::TreeHash;
 
 use crate::{
     constants::COMMIT_BOOST_DOMAIN,
-    pbs::{BlsPublicKey, BlsSignature},
     signature::verify_signed_message,
-    types::Chain,
+    types::{BlsPublicKey, BlsSignature, Chain},
 };
 
 pub trait ProxyId: Debug + Clone + TreeHash + Display {

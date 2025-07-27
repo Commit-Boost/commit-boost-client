@@ -1,7 +1,10 @@
 use std::{sync::Arc, time::Duration};
 
 use alloy::rpc::types::beacon::relay::ValidatorRegistration;
-use cb_common::{pbs::BlsPublicKey, signer::random_secret, types::Chain};
+use cb_common::{
+    signer::random_secret,
+    types::{BlsPublicKey, Chain},
+};
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
     mock_relay::{start_mock_relay_service, MockRelayState},

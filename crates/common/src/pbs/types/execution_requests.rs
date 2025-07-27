@@ -5,7 +5,7 @@ use ssz_types::VariableList;
 use tree_hash_derive::TreeHash;
 
 use super::spec::EthSpec;
-use crate::pbs::{BlsPublicKey, BlsSignature};
+use crate::types::{BlsPublicKey, BlsSignature};
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, Encode, Decode, TreeHash)]
 pub struct ExecutionRequests<T: EthSpec> {

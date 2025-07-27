@@ -6,7 +6,7 @@ use super::{
     blinded_block_body::BlindedBeaconBlockBodyElectra, blobs_bundle::BlobsBundle,
     execution_payload::ExecutionPayload, spec::ElectraSpec, utils::VersionedResponse,
 };
-use crate::pbs::BlsSignature;
+use crate::types::BlsSignature;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
 /// Sent to relays in submit_block

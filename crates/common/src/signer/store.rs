@@ -27,9 +27,8 @@ use super::{load_bls_signer, load_ecdsa_signer};
 use crate::{
     commit::request::{EncryptionScheme, ProxyDelegation, ProxyId, SignedProxyDelegation},
     config::{load_env_var, PROXY_DIR_ENV, PROXY_DIR_KEYS_ENV, PROXY_DIR_SECRETS_ENV},
-    pbs::{BlsPublicKey, BlsSignature},
     signer::{BlsProxySigner, BlsSigner, EcdsaProxySigner, EcdsaSigner, ProxySigners},
-    types::ModuleId,
+    types::{BlsPublicKey, BlsSignature, ModuleId},
 };
 
 #[derive(Debug, Serialize, Deserialize)]

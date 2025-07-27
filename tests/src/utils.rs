@@ -10,12 +10,12 @@ use cb_common::{
         PbsConfig, PbsModuleConfig, RelayConfig, SignerConfig, SignerType, StartSignerConfig,
         SIGNER_IMAGE_DEFAULT,
     },
-    pbs::{BlsPublicKey, RelayClient, RelayEntry},
+    pbs::{RelayClient, RelayEntry},
     signer::{
         SignerLoader, DEFAULT_JWT_AUTH_FAIL_LIMIT, DEFAULT_JWT_AUTH_FAIL_TIMEOUT_SECONDS,
         DEFAULT_SIGNER_PORT,
     },
-    types::{Chain, ModuleId},
+    types::{BlsPublicKey, Chain, ModuleId},
     utils::default_host,
 };
 use eyre::Result;

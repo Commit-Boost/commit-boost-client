@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use cb_common::{
     config::{PbsConfig, PbsModuleConfig},
-    pbs::{BlsPublicKey, BuilderEvent, RelayClient},
+    pbs::{BuilderEvent, RelayClient},
+    types::BlsPublicKey,
 };
 use parking_lot::RwLock;
 

@@ -4,9 +4,8 @@ use alloy::hex;
 use cb_common::{
     commit::{constants::GET_PUBKEYS_PATH, request::GetPubkeysResponse},
     config::StartSignerConfig,
-    pbs::BlsPublicKey,
     signer::{SignerLoader, ValidatorKeysFormat},
-    types::{Chain, ModuleId},
+    types::{BlsPublicKey, Chain, ModuleId},
     utils::create_jwt,
 };
 use cb_signer::service::SigningService;

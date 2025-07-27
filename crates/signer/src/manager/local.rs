@@ -6,12 +6,11 @@ use cb_common::{
         ConsensusProxyMap, ProxyDelegationBls, ProxyDelegationEcdsa, ProxyId,
         SignedProxyDelegationBls, SignedProxyDelegationEcdsa,
     },
-    pbs::{BlsPublicKey, BlsSignature},
     signer::{
         BlsProxySigner, BlsSigner, ConsensusSigner, EcdsaProxySigner, EcdsaSignature, EcdsaSigner,
         ProxySigners, ProxyStore,
     },
-    types::{Chain, ModuleId},
+    types::{BlsPublicKey, BlsSignature, Chain, ModuleId},
 };
 use tree_hash::TreeHash;
 

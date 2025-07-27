@@ -8,7 +8,7 @@ use super::{
     execution_payload::ExecutionPayloadHeader, execution_requests::ExecutionRequests,
     kzg::KzgCommitments, spec::ElectraSpec, utils::VersionedResponse,
 };
-use crate::pbs::{BlsPublicKey, BlsSignature};
+use crate::types::{BlsPublicKey, BlsSignature};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct GetHeaderParams {

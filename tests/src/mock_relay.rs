@@ -16,14 +16,14 @@ use axum::{
 };
 use cb_common::{
     pbs::{
-        BlindedBeaconBlock, BlsSecretKey, ExecutionPayloadHeaderMessageElectra, ExecutionRequests,
+        BlindedBeaconBlock, ExecutionPayloadHeaderMessageElectra, ExecutionRequests,
         GetHeaderParams, GetHeaderResponse, KzgProof, SignedBlindedBeaconBlock,
         SignedExecutionPayloadHeader, SubmitBlindedBlockResponse, VersionedResponse,
         BUILDER_API_PATH, GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH,
         SUBMIT_BLOCK_PATH,
     },
     signature::sign_builder_root,
-    types::Chain,
+    types::{BlsSecretKey, Chain},
     utils::timestamp_of_slot_start_sec,
 };
 use cb_pbs::MAX_SIZE_SUBMIT_BLOCK_RESPONSE;

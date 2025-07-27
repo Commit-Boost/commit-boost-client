@@ -19,8 +19,8 @@ use unicode_normalization::UnicodeNormalization;
 use super::{BlsSigner, EcdsaSigner, PrysmDecryptedKeystore, PrysmKeystore};
 use crate::{
     config::{load_env_var, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV},
-    pbs::BlsPublicKey,
     signer::ConsensusSigner,
+    types::BlsPublicKey,
 };
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -308,11 +308,11 @@ mod tests {
 
     use super::{load_from_lighthouse_format, load_from_lodestar_format, FileKey};
     use crate::{
-        pbs::BlsPublicKey,
         signer::{
             loader::{load_from_prysm_format, load_from_teku_format},
             BlsSigner,
         },
+        types::BlsPublicKey,
     };
 
     #[test]

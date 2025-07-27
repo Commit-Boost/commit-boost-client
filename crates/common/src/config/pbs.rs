@@ -25,10 +25,10 @@ use crate::{
         SIGNER_URL_ENV,
     },
     pbs::{
-        BlsPublicKey, BuilderEventPublisher, DefaultTimeout, RelayClient, RelayEntry,
-        DEFAULT_PBS_PORT, LATE_IN_SLOT_TIME_MS, REGISTER_VALIDATOR_RETRY_LIMIT,
+        BuilderEventPublisher, DefaultTimeout, RelayClient, RelayEntry, DEFAULT_PBS_PORT,
+        LATE_IN_SLOT_TIME_MS, REGISTER_VALIDATOR_RETRY_LIMIT,
     },
-    types::{Chain, Jwt, ModuleId},
+    types::{BlsPublicKey, Chain, Jwt, ModuleId},
     utils::{
         as_eth_str, default_bool, default_host, default_u16, default_u256, default_u32,
         default_u64, WEI_PER_ETH,

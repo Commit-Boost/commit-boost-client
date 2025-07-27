@@ -13,11 +13,11 @@ use cb_common::{
     constants::APPLICATION_BUILDER_DOMAIN,
     pbs::{
         error::{PbsError, ValidationError},
-        BlsPublicKey, BlsSignature, GetHeaderParams, GetHeaderResponse, RelayClient,
-        VersionedResponse, EMPTY_TX_ROOT_HASH, HEADER_START_TIME_UNIX_MS,
+        GetHeaderParams, GetHeaderResponse, RelayClient, VersionedResponse, EMPTY_TX_ROOT_HASH,
+        HEADER_START_TIME_UNIX_MS,
     },
     signature::verify_signed_message,
-    types::Chain,
+    types::{BlsPublicKey, BlsSignature, Chain},
     utils::{
         get_user_agent_with_version, ms_into_slot, read_chunked_body_with_max,
         timestamp_of_slot_start_sec, utcnow_ms,
@@ -506,9 +506,9 @@ fn extra_validation(
 mod tests {
     use alloy::primitives::{B256, U256};
     use cb_common::{
-        pbs::{error::ValidationError, BlsSecretKey, EMPTY_TX_ROOT_HASH},
+        pbs::{error::ValidationError, EMPTY_TX_ROOT_HASH},
         signature::sign_builder_message,
-        types::Chain,
+        types::{BlsSecretKey, Chain},
         utils::{timestamp_of_slot_start_sec, TestRandomSeed},
     };
 

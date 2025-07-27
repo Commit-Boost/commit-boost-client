@@ -7,7 +7,7 @@ use super::{
     execution_payload::ExecutionPayloadHeader, execution_requests::ExecutionRequests,
     kzg::KzgCommitments, spec::EthSpec, utils::*,
 };
-use crate::pbs::{BlsPublicKey, BlsSignature};
+use crate::types::{BlsPublicKey, BlsSignature};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
 #[serde(deny_unknown_fields)]

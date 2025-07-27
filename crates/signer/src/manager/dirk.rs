@@ -6,10 +6,9 @@ use cb_common::{
     commit::request::{ConsensusProxyMap, ProxyDelegation, SignedProxyDelegation},
     config::{DirkConfig, DirkHostConfig},
     constants::COMMIT_BOOST_DOMAIN,
-    pbs::{BlsPublicKey, BlsSignature},
     signature::compute_domain,
     signer::ProxyStore,
-    types::{Chain, ModuleId},
+    types::{BlsPublicKey, BlsSignature, Chain, ModuleId},
 };
 use eyre::{bail, OptionExt};
 use futures::{future::join_all, stream::FuturesUnordered, FutureExt, StreamExt};

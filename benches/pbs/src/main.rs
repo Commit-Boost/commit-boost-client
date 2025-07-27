@@ -3,8 +3,8 @@ use std::time::{Duration, Instant};
 use alloy::primitives::B256;
 use cb_common::{
     config::RelayConfig,
-    pbs::{BlsPublicKey, BlsSecretKey, GetHeaderResponse, RelayClient, RelayEntry},
-    types::Chain,
+    pbs::{GetHeaderResponse, RelayClient, RelayEntry},
+    types::{BlsPublicKey, BlsSecretKey, Chain},
     utils::TestRandomSeed,
 };
 use cb_tests::mock_relay::{start_mock_relay_service, MockRelayState};
