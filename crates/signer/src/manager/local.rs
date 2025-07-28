@@ -98,7 +98,7 @@ impl LocalSigningManager {
         let proxy_pubkey = signer.pubkey();
 
         let message = ProxyDelegationBls { delegator, proxy: proxy_pubkey };
-        let signature = self.sign_consensus(&delegator, &message.tree_hash_root().0, None).await?;
+        let signature = self.sign_consensus(&delegator, &message.tree_hash_root(), None).await?;
         let delegation = SignedProxyDelegationBls { signature, message };
         let proxy_signer = BlsProxySigner { signer, delegation };
 
@@ -117,7 +117,7 @@ impl LocalSigningManager {
         let proxy_address = signer.address();
 
         let message = ProxyDelegationEcdsa { delegator, proxy: proxy_address };
-        let signature = self.sign_consensus(&delegator, &message.tree_hash_root().0, None).await?;
+        let signature = self.sign_consensus(&delegator, &message.tree_hash_root(), None).await?;
         let delegation = SignedProxyDelegationEcdsa { signature, message };
         let proxy_signer = EcdsaProxySigner { signer, delegation };
 
@@ -132,7 +132,7 @@ impl LocalSigningManager {
     pub async fn sign_consensus(
         &self,
         pubkey: &BlsPublicKey,
-        object_root: &[u8; 32],
+        object_root: &B256,
         module_signing_id: Option<&B256>,
     ) -> Result<BlsSignature, SignerModuleError> {
         let signer = self
@@ -140,8 +140,8 @@ impl LocalSigningManager {
             .get(pubkey)
             .ok_or(SignerModuleError::UnknownConsensusSigner(pubkey.to_vec()))?;
         let signature = match module_signing_id {
-            Some(id) => signer.sign(self.chain, *object_root, Some(id.0)).await,
-            None => signer.sign(self.chain, *object_root, None).await,
+            Some(id) => signer.sign(self.chain, object_root, Some(id)).await,
+            None => signer.sign(self.chain, object_root, None).await,
         };
 
         Ok(signature)
@@ -150,7 +150,7 @@ impl LocalSigningManager {
     pub async fn sign_proxy_bls(
         &self,
         pubkey: &BlsPublicKey,
-        object_root: &[u8; 32],
+        object_root: &B256,
         module_signing_id: Option<&B256>,
     ) -> Result<BlsSignature, SignerModuleError> {
         let bls_proxy = self
@@ -159,8 +159,8 @@ impl LocalSigningManager {
             .get(pubkey)
             .ok_or(SignerModuleError::UnknownProxySigner(pubkey.to_vec()))?;
         let signature = match module_signing_id {
-            Some(id) => bls_proxy.sign(self.chain, *object_root, Some(id.0)).await,
-            None => bls_proxy.sign(self.chain, *object_root, None).await,
+            Some(id) => bls_proxy.sign(self.chain, object_root, Some(id)).await,
+            None => bls_proxy.sign(self.chain, object_root, None).await,
         };
         Ok(signature)
     }
@@ -168,7 +168,7 @@ impl LocalSigningManager {
     pub async fn sign_proxy_ecdsa(
         &self,
         address: &Address,
-        object_root: &[u8; 32],
+        object_root: &B256,
         module_signing_id: Option<&B256>,
     ) -> Result<EcdsaSignature, SignerModuleError> {
         let ecdsa_proxy = self
@@ -177,8 +177,8 @@ impl LocalSigningManager {
             .get(address)
             .ok_or(SignerModuleError::UnknownProxySigner(address.to_vec()))?;
         let signature = match module_signing_id {
-            Some(id) => ecdsa_proxy.sign(self.chain, *object_root, Some(id.0)).await?,
-            None => ecdsa_proxy.sign(self.chain, *object_root, None).await?,
+            Some(id) => ecdsa_proxy.sign(self.chain, object_root, Some(id)).await?,
+            None => ecdsa_proxy.sign(self.chain, object_root, None).await?,
         };
         Ok(signature)
     }
@@ -303,6 +303,7 @@ mod tests {
     }
 
     mod test_bls {
+        use alloy::primitives::aliases::B32;
         use cb_common::{
             constants::COMMIT_BOOST_DOMAIN, signature::compute_domain,
             signer::verify_bls_signature, types,
@@ -318,31 +319,29 @@ mod tests {
             let module_signing_id = B256::random();
 
             let sig = signing_manager
-                .sign_consensus(
-                    &consensus_pk.try_into().unwrap(),
-                    &data_root,
-                    Some(&module_signing_id),
-                )
+                .sign_consensus(&consensus_pk, &data_root, Some(&module_signing_id))
                 .await
                 .unwrap();
 
             // Verify signature
-            let domain = compute_domain(CHAIN, COMMIT_BOOST_DOMAIN);
+            let domain = compute_domain(CHAIN, &B32::from(COMMIT_BOOST_DOMAIN));
             let signing_root = compute_signing_root(&types::SigningData {
                 object_root: compute_signing_root(&types::PropCommitSigningInfo {
-                    data: data_root.tree_hash_root().0,
-                    module_signing_id: module_signing_id.0,
+                    data: data_root.tree_hash_root(),
+                    module_signing_id,
                 }),
                 signing_domain: domain,
             });
 
-            let validation_result = verify_bls_signature(&consensus_pk, &signing_root, &sig);
+            let validation_result =
+                verify_bls_signature(&consensus_pk, signing_root.as_slice(), &sig);
 
             assert!(validation_result.is_ok(), "Keypair must produce valid signatures of messages.")
         }
     }
 
     mod test_proxy_bls {
+        use alloy::primitives::aliases::B32;
         use cb_common::{
             constants::COMMIT_BOOST_DOMAIN, signature::compute_domain,
             signer::verify_bls_signature, types,
@@ -354,10 +353,8 @@ mod tests {
         async fn test_proxy_key_is_valid_proxy_for_consensus_key() {
             let (mut signing_manager, consensus_pk) = init_signing_manager();
 
-            let signed_delegation = signing_manager
-                .create_proxy_bls(MODULE_ID.clone(), consensus_pk.clone())
-                .await
-                .unwrap();
+            let signed_delegation =
+                signing_manager.create_proxy_bls(MODULE_ID.clone(), consensus_pk).await.unwrap();
 
             let validation_result = signed_delegation.validate(CHAIN);
 
@@ -377,10 +374,8 @@ mod tests {
         async fn test_tampered_proxy_key_is_invalid() {
             let (mut signing_manager, consensus_pk) = init_signing_manager();
 
-            let mut signed_delegation = signing_manager
-                .create_proxy_bls(MODULE_ID.clone(), consensus_pk.clone())
-                .await
-                .unwrap();
+            let mut signed_delegation =
+                signing_manager.create_proxy_bls(MODULE_ID.clone(), consensus_pk).await.unwrap();
 
             let m = &mut signed_delegation.signature.0[0];
             (*m, _) = m.overflowing_add(1);
@@ -394,31 +389,29 @@ mod tests {
         async fn test_proxy_key_signs_message() {
             let (mut signing_manager, consensus_pk) = init_signing_manager();
 
-            let signed_delegation = signing_manager
-                .create_proxy_bls(MODULE_ID.clone(), consensus_pk.clone())
-                .await
-                .unwrap();
+            let signed_delegation =
+                signing_manager.create_proxy_bls(MODULE_ID.clone(), consensus_pk).await.unwrap();
             let proxy_pk = signed_delegation.message.proxy;
 
             let data_root = B256::random();
             let module_signing_id = B256::random();
 
             let sig = signing_manager
-                .sign_proxy_bls(&proxy_pk.try_into().unwrap(), &data_root, Some(&module_signing_id))
+                .sign_proxy_bls(&proxy_pk, &data_root, Some(&module_signing_id))
                 .await
                 .unwrap();
 
             // Verify signature
-            let domain = compute_domain(CHAIN, COMMIT_BOOST_DOMAIN);
+            let domain = compute_domain(CHAIN, &B32::from(COMMIT_BOOST_DOMAIN));
             let signing_root = compute_signing_root(&types::SigningData {
                 object_root: compute_signing_root(&types::PropCommitSigningInfo {
-                    data: data_root.tree_hash_root().0,
-                    module_signing_id: module_signing_id.0,
+                    data: data_root.tree_hash_root(),
+                    module_signing_id,
                 }),
                 signing_domain: domain,
             });
 
-            let validation_result = verify_bls_signature(&proxy_pk, &signing_root, &sig);
+            let validation_result = verify_bls_signature(&proxy_pk, signing_root.as_slice(), &sig);
 
             assert!(
                 validation_result.is_ok(),
@@ -428,6 +421,7 @@ mod tests {
     }
 
     mod test_proxy_ecdsa {
+        use alloy::primitives::aliases::B32;
         use cb_common::{
             constants::COMMIT_BOOST_DOMAIN, signature::compute_domain,
             signer::verify_ecdsa_signature, types,
@@ -439,10 +433,8 @@ mod tests {
         async fn test_proxy_key_is_valid_proxy_for_consensus_key() {
             let (mut signing_manager, consensus_pk) = init_signing_manager();
 
-            let signed_delegation = signing_manager
-                .create_proxy_ecdsa(MODULE_ID.clone(), consensus_pk.clone())
-                .await
-                .unwrap();
+            let signed_delegation =
+                signing_manager.create_proxy_ecdsa(MODULE_ID.clone(), consensus_pk).await.unwrap();
 
             let validation_result = signed_delegation.validate(CHAIN);
 
@@ -462,10 +454,8 @@ mod tests {
         async fn test_tampered_proxy_key_is_invalid() {
             let (mut signing_manager, consensus_pk) = init_signing_manager();
 
-            let mut signed_delegation = signing_manager
-                .create_proxy_ecdsa(MODULE_ID.clone(), consensus_pk.clone())
-                .await
-                .unwrap();
+            let mut signed_delegation =
+                signing_manager.create_proxy_ecdsa(MODULE_ID.clone(), consensus_pk).await.unwrap();
 
             let m = &mut signed_delegation.signature.0[0];
             (*m, _) = m.overflowing_add(1);
@@ -479,30 +469,24 @@ mod tests {
         async fn test_proxy_key_signs_message() {
             let (mut signing_manager, consensus_pk) = init_signing_manager();
 
-            let signed_delegation = signing_manager
-                .create_proxy_ecdsa(MODULE_ID.clone(), consensus_pk.clone())
-                .await
-                .unwrap();
+            let signed_delegation =
+                signing_manager.create_proxy_ecdsa(MODULE_ID.clone(), consensus_pk).await.unwrap();
             let proxy_pk = signed_delegation.message.proxy;
 
             let data_root = B256::random();
             let module_signing_id = B256::random();
 
             let sig = signing_manager
-                .sign_proxy_ecdsa(
-                    &proxy_pk.try_into().unwrap(),
-                    &data_root,
-                    Some(&module_signing_id),
-                )
+                .sign_proxy_ecdsa(&proxy_pk, &data_root, Some(&module_signing_id))
                 .await
                 .unwrap();
 
             // Verify signature
-            let domain = compute_domain(CHAIN, COMMIT_BOOST_DOMAIN);
+            let domain = compute_domain(CHAIN, &B32::from(COMMIT_BOOST_DOMAIN));
             let signing_root = compute_signing_root(&types::SigningData {
                 object_root: compute_signing_root(&types::PropCommitSigningInfo {
-                    data: data_root.tree_hash_root().0,
-                    module_signing_id: module_signing_id.0,
+                    data: data_root.tree_hash_root(),
+                    module_signing_id,
                 }),
                 signing_domain: domain,
             });

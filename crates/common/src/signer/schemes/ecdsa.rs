@@ -1,7 +1,7 @@
 use std::{ops::Deref, str::FromStr};
 
 use alloy::{
-    primitives::{Address, PrimitiveSignature},
+    primitives::{aliases::B32, Address, PrimitiveSignature, B256},
     signers::{local::PrivateKeySigner, SignerSync},
 };
 use eyre::ensure;
@@ -86,27 +86,29 @@ impl EcdsaSigner {
     pub async fn sign(
         &self,
         chain: Chain,
-        object_root: [u8; 32],
-        module_signing_id: Option<[u8; 32]>,
+        object_root: &B256,
+        module_signing_id: Option<&B256>,
     ) -> Result<EcdsaSignature, alloy::signers::Error> {
         match self {
             EcdsaSigner::Local(sk) => {
-                let domain = compute_domain(chain, COMMIT_BOOST_DOMAIN);
+                let domain = compute_domain(chain, &B32::from(COMMIT_BOOST_DOMAIN));
                 let signing_root = match module_signing_id {
                     Some(id) => {
                         let signing_data = types::SigningData {
                             object_root: compute_signing_root(&types::PropCommitSigningInfo {
-                                data: object_root,
-                                module_signing_id: id,
+                                data: *object_root,
+                                module_signing_id: *id,
                             }),
                             signing_domain: domain,
                         };
-                        compute_signing_root(&signing_data).into()
+                        compute_signing_root(&signing_data)
                     }
                     None => {
-                        let signing_data =
-                            types::SigningData { object_root, signing_domain: domain };
-                        compute_signing_root(&signing_data).into()
+                        let signing_data = types::SigningData {
+                            object_root: *object_root,
+                            signing_domain: domain,
+                        };
+                        compute_signing_root(&signing_data)
                     }
                 };
                 sk.sign_hash_sync(&signing_root).map(EcdsaSignature::from)
@@ -117,18 +119,18 @@ impl EcdsaSigner {
         &self,
         chain: Chain,
         msg: &impl TreeHash,
-        module_signing_id: Option<[u8; 32]>,
+        module_signing_id: Option<&B256>,
     ) -> Result<EcdsaSignature, alloy::signers::Error> {
-        self.sign(chain, msg.tree_hash_root().0, module_signing_id).await
+        self.sign(chain, &msg.tree_hash_root(), module_signing_id).await
     }
 }
 
 pub fn verify_ecdsa_signature(
     address: &Address,
-    msg: &[u8; 32],
+    msg: &B256,
     signature: &EcdsaSignature,
 ) -> eyre::Result<()> {
-    let recovered = signature.recover_address_from_prehash(msg.into())?;
+    let recovered = signature.recover_address_from_prehash(msg)?;
     ensure!(recovered == *address, "invalid signature");
     Ok(())
 }
@@ -145,10 +147,10 @@ mod test {
         let pk = bytes!("88bcd6672d95bcba0d52a3146494ed4d37675af4ed2206905eb161aa99a6c0d1");
         let signer = EcdsaSigner::new_from_bytes(&pk).unwrap();
 
-        let object_root = [1; 32];
-        let signature = signer.sign(Chain::Holesky, object_root, None).await.unwrap();
+        let object_root = B256::from([1; 32]);
+        let signature = signer.sign(Chain::Holesky, &object_root, None).await.unwrap();
 
-        let domain = compute_domain(Chain::Holesky, COMMIT_BOOST_DOMAIN);
+        let domain = compute_domain(Chain::Holesky, &B32::from(COMMIT_BOOST_DOMAIN));
         let signing_data = types::SigningData { object_root, signing_domain: domain };
         let msg = compute_signing_root(&signing_data);
 
@@ -164,12 +166,12 @@ mod test {
         let pk = bytes!("88bcd6672d95bcba0d52a3146494ed4d37675af4ed2206905eb161aa99a6c0d1");
         let signer = EcdsaSigner::new_from_bytes(&pk).unwrap();
 
-        let object_root = [1; 32];
-        let module_signing_id = [2; 32];
+        let object_root = B256::from([1; 32]);
+        let module_signing_id = B256::from([2; 32]);
         let signature =
-            signer.sign(Chain::Hoodi, object_root, Some(module_signing_id)).await.unwrap();
+            signer.sign(Chain::Hoodi, &object_root, Some(&module_signing_id)).await.unwrap();
 
-        let domain = compute_domain(Chain::Hoodi, COMMIT_BOOST_DOMAIN);
+        let domain = compute_domain(Chain::Hoodi, &B32::from(COMMIT_BOOST_DOMAIN));
         let signing_data = types::SigningData {
             object_root: compute_signing_root(&types::PropCommitSigningInfo {
                 data: object_root,
