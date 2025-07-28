@@ -7,9 +7,9 @@ Commit Boost takes advantage of this by offering a standard known as **proposer 
 Commit Boost supports proposer commitment signatures for both BLS private keys (identified by their public key) and ECDSA private keys (identified by their Ethereum address).
 
 
-## Rules of Preconfirmation Signatures
+## Rules of Proposer Commitment Signatures
 
-Preconfirmation signatures produced by Commit Boost's signer service conform to the following rules:
+Proposer commitment signatures produced by Commit Boost's signer service conform to the following rules:
 
 - Signatures are **unique** to a given EVM chain (identified by its [chain ID](https://chainlist.org/)). Signatures generated for one chain will not work on a different chain.
 - Signatures are **unique** to Commit Boost proposer commitments. The signer service **cannot** be used to create signatures that could be used for other applications, such as for attestations on the Beacon chain. While the signer service has access to the same validator private keys used to attest on the Beacon chain, it cannot create signatures that would get you slashed on the Beacon chain.
@@ -32,7 +32,7 @@ Once the user has configured both Commit Boost and your module with these settin
 
 ## The Signing ID
 
-Your module's signing ID is a 32-byte value that is used as a unique identifier within the signing process. Preconfirmation signatures incorporate this value along with the data being signed as a way to create signatures that are exclusive to your module, so other modules can't maliciously construct signatures that appear to be from your module. Your module must have this ID incorporated into itself ahead of time, and the user must include this same ID within their Commit Boost configuration file section for your module. Commit Boost does not maintain a global registry of signing IDs, so this is a value you should provide to your users in your documentation.
+Your module's signing ID is a 32-byte value that is used as a unique identifier within the signing process. Proposer commitment signatures incorporate this value along with the data being signed as a way to create signatures that are exclusive to your module, so other modules can't maliciously construct signatures that appear to be from your module. Your module must have this ID incorporated into itself ahead of time, and the user must include this same ID within their Commit Boost configuration file section for your module. Commit Boost does not maintain a global registry of signing IDs, so this is a value you should provide to your users in your documentation.
 
 The Signing ID is decoupled from your module's human-readable name (the `module_id` field in the Commit Boost configuration file) so that any changes to your module name will not invalidate signatures from previous versions. Similarly, if you don't change the module ID but *want* to invalidate previous signatures, you can modify the signing ID and it will do so. Just ensure your users are made aware of the change, so they can update it in their Commit Boost configuration files accordingly.
 

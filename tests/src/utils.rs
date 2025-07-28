@@ -84,6 +84,7 @@ pub fn get_pbs_config(port: u16) -> PbsConfig {
         late_in_slot_time_ms: u64::MAX,
         extra_validation_enabled: false,
         rpc_url: None,
+        http_timeout_seconds: 10,
         register_validator_retry_limit: u32::MAX,
     }
 }
@@ -153,10 +154,10 @@ pub fn get_start_signer_config(
     }
 }
 
-pub fn create_module_config(id: &ModuleId, signing_id: &B256) -> StaticModuleConfig {
+pub fn create_module_config(id: ModuleId, signing_id: B256) -> StaticModuleConfig {
     StaticModuleConfig {
-        id: id.clone(),
-        signing_id: Some(*signing_id),
+        id,
+        signing_id,
         docker_image: String::from(""),
         env: None,
         env_file: None,

@@ -279,68 +279,64 @@ pub fn load_module_signing_configs(
     jwt_secrets: &HashMap<ModuleId, String>,
 ) -> Result<HashMap<ModuleId, ModuleSigningConfig>> {
     let mut mod_signing_configs = HashMap::new();
-    if let Some(modules) = &config.modules {
-        let mut seen_jwt_secrets = HashMap::new();
-        let mut seen_signing_ids = HashMap::new();
-        for module in modules {
-            // Validate the module ID
-            ensure!(!module.id.is_empty(), "Module ID cannot be empty");
+    let modules = config.modules.as_ref().ok_or_eyre("No modules defined in the config")?;
 
-            // Make sure it hasn't been used yet
-            ensure!(
-                !mod_signing_configs.contains_key(&module.id),
-                "Duplicate module config detected: ID {} is already used",
-                module.id
-            );
+    let mut seen_jwt_secrets = HashMap::new();
+    let mut seen_signing_ids = HashMap::new();
+    for module in modules {
+        // Validate the module ID
+        ensure!(!module.id.is_empty(), "Module ID cannot be empty");
 
-            // Make sure the JWT secret is present
-            let jwt_secret = match jwt_secrets.get(&module.id) {
-                Some(secret) => secret.clone(),
-                None => bail!("JWT secret for module {} is missing", module.id),
-            };
+        // Make sure it hasn't been used yet
+        ensure!(
+            !mod_signing_configs.contains_key(&module.id),
+            "Duplicate module config detected: ID {} is already used",
+            module.id
+        );
 
-            // Make sure the signing ID is present
-            let signing_id = match &module.signing_id {
-                Some(id) => *id,
-                None => bail!("Signing ID for module {} is missing", module.id),
-            };
+        // Make sure the JWT secret is present
+        let jwt_secret = match jwt_secrets.get(&module.id) {
+            Some(secret) => secret.clone(),
+            None => bail!("JWT secret for module {} is missing", module.id),
+        };
+        // Create the module signing config and validate it
+        let module_signing_config = ModuleSigningConfig {
+            module_name: module.id.clone(),
+            jwt_secret,
+            signing_id: module.signing_id,
+        };
+        module_signing_config
+            .validate()
+            .wrap_err(format!("Invalid signing config for module {}", module.id))?;
 
-            // Create the module signing config and validate it
-            let module_signing_config =
-                ModuleSigningConfig { module_name: module.id.clone(), jwt_secret, signing_id };
-            module_signing_config
-                .validate()
-                .wrap_err(format!("Invalid signing config for module {}", module.id))?;
+        // Check for duplicates in JWT secrets and signing IDs
+        match seen_jwt_secrets.get(&module_signing_config.jwt_secret) {
+            Some(existing_module) => {
+                bail!(
+                    "Duplicate JWT secret detected for modules {} and {}",
+                    existing_module,
+                    module.id
+                )
+            }
+            None => {
+                seen_jwt_secrets.insert(module_signing_config.jwt_secret.clone(), &module.id);
+            }
+        };
+        match seen_signing_ids.get(&module_signing_config.signing_id) {
+            Some(existing_module) => {
+                bail!(
+                    "Duplicate signing ID detected for modules {} and {}",
+                    existing_module,
+                    module.id
+                )
+            }
+            None => {
+                seen_signing_ids.insert(module_signing_config.signing_id, &module.id);
+                module.signing_id
+            }
+        };
 
-            // Check for duplicates in JWT secrets and signing IDs
-            match seen_jwt_secrets.get(&module_signing_config.jwt_secret) {
-                Some(existing_module) => {
-                    bail!(
-                        "Duplicate JWT secret detected for modules {} and {}",
-                        existing_module,
-                        module.id
-                    )
-                }
-                None => {
-                    seen_jwt_secrets.insert(module_signing_config.jwt_secret.clone(), &module.id);
-                }
-            };
-            match seen_signing_ids.get(&module_signing_config.signing_id) {
-                Some(existing_module) => {
-                    bail!(
-                        "Duplicate signing ID detected for modules {} and {}",
-                        existing_module,
-                        module.id
-                    )
-                }
-                None => {
-                    seen_signing_ids.insert(module_signing_config.signing_id, &module.id);
-                    signing_id
-                }
-            };
-
-            mod_signing_configs.insert(module.id.clone(), module_signing_config);
-        }
+        mod_signing_configs.insert(module.id.clone(), module_signing_config);
     }
 
     Ok(mod_signing_configs)
@@ -372,6 +368,7 @@ mod tests {
                     late_in_slot_time_ms: 0,
                     extra_validation_enabled: false,
                     rpc_url: None,
+                    http_timeout_seconds: 30,
                     register_validator_retry_limit: 3,
                 },
                 with_signer: true,
@@ -384,10 +381,10 @@ mod tests {
         }
     }
 
-    async fn create_module_config(id: &ModuleId, signing_id: &B256) -> StaticModuleConfig {
+    async fn create_module_config(id: ModuleId, signing_id: B256) -> StaticModuleConfig {
         StaticModuleConfig {
             id: id.clone(),
-            signing_id: Some(*signing_id),
+            signing_id,
             docker_image: String::from(""),
             env: None,
             env_file: None,
@@ -406,8 +403,8 @@ mod tests {
             b256!("0202020202020202020202020202020202020202020202020202020202020202");
 
         cfg.modules = Some(vec![
-            create_module_config(&first_module_id, &first_signing_id).await,
-            create_module_config(&second_module_id, &second_signing_id).await,
+            create_module_config(first_module_id.clone(), first_signing_id).await,
+            create_module_config(second_module_id.clone(), second_signing_id).await,
         ]);
 
         let jwts = HashMap::from([
@@ -465,8 +462,10 @@ mod tests {
             b256!("0202020202020202020202020202020202020202020202020202020202020202");
 
         cfg.modules = Some(vec![
-            create_module_config(&first_module_id, &first_signing_id).await,
-            create_module_config(&first_module_id, &second_signing_id).await, /* Duplicate module name */
+            create_module_config(first_module_id.clone(), first_signing_id).await,
+            create_module_config(first_module_id.clone(), second_signing_id).await, /* Duplicate
+                                                                                     * module
+                                                                                     * name */
         ]);
 
         let jwts = HashMap::from([
@@ -497,8 +496,8 @@ mod tests {
             b256!("0202020202020202020202020202020202020202020202020202020202020202");
 
         cfg.modules = Some(vec![
-            create_module_config(&first_module_id, &first_signing_id).await,
-            create_module_config(&second_module_id, &second_signing_id).await,
+            create_module_config(first_module_id.clone(), first_signing_id).await,
+            create_module_config(second_module_id.clone(), second_signing_id).await,
         ]);
 
         let jwts = HashMap::from([
@@ -529,8 +528,8 @@ mod tests {
         let second_module_id = ModuleId("2nd_test_module".to_string());
 
         cfg.modules = Some(vec![
-            create_module_config(&first_module_id, &first_signing_id).await,
-            create_module_config(&second_module_id, &first_signing_id).await, /* Duplicate signing ID */
+            create_module_config(first_module_id.clone(), first_signing_id).await,
+            create_module_config(second_module_id.clone(), first_signing_id).await, /* Duplicate signing ID */
         ]);
 
         let jwts = HashMap::from([
@@ -563,8 +562,8 @@ mod tests {
             b256!("0202020202020202020202020202020202020202020202020202020202020202");
 
         cfg.modules = Some(vec![
-            create_module_config(&first_module_id, &first_signing_id).await,
-            create_module_config(&second_module_id, &second_signing_id).await,
+            create_module_config(first_module_id.clone(), first_signing_id).await,
+            create_module_config(second_module_id.clone(), second_signing_id).await,
         ]);
 
         let jwts = HashMap::from([(second_module_id.clone(), "another-secret".to_string())]);
@@ -588,7 +587,8 @@ mod tests {
         let first_signing_id =
             b256!("0101010101010101010101010101010101010101010101010101010101010101");
 
-        cfg.modules = Some(vec![create_module_config(&first_module_id, &first_signing_id).await]);
+        cfg.modules =
+            Some(vec![create_module_config(first_module_id.clone(), first_signing_id).await]);
 
         let jwts = HashMap::from([(first_module_id.clone(), "".to_string())]);
 
@@ -609,7 +609,8 @@ mod tests {
         let first_signing_id =
             b256!("0000000000000000000000000000000000000000000000000000000000000000");
 
-        cfg.modules = Some(vec![create_module_config(&first_module_id, &first_signing_id).await]);
+        cfg.modules =
+            Some(vec![create_module_config(first_module_id.clone(), first_signing_id).await]);
 
         let jwts = HashMap::from([(first_module_id.clone(), "supersecret".to_string())]);
 

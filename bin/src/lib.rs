@@ -10,6 +10,9 @@ pub mod prelude {
             load_pbs_custom_config, LogsSettings, StartCommitModuleConfig, PBS_MODULE_NAME,
         },
         pbs::{BuilderEvent, BuilderEventClient, OnBuilderApiEvent},
+        signature::{
+            verify_proposer_commitment_signature_bls, verify_proposer_commitment_signature_ecdsa,
+        },
         signer::{BlsPublicKey, BlsSignature, EcdsaSignature},
         types::Chain,
         utils::{initialize_tracing_log, utcnow_ms, utcnow_ns, utcnow_sec, utcnow_us},

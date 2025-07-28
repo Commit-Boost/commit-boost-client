@@ -1,5 +1,5 @@
 {
-    "version": "deneb",
+    "version": "electra",
     "data": {
         "execution_payload": {
             "parent_hash": "0x7d1b19deda3378ae27947d8ad904886cde4600fe0f4d608c6ecd742d1ba8181b",

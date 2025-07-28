@@ -47,6 +47,8 @@ pub enum ValidatorKeysFormat {
     Lodestar,
     #[serde(alias = "prysm")]
     Prysm,
+    #[serde(alias = "nimbus")]
+    Nimbus,
 }
 
 impl SignerLoader {
@@ -85,6 +87,7 @@ impl SignerLoader {
                         load_from_lodestar_format(keys_path, secrets_path)
                     }
                     ValidatorKeysFormat::Prysm => load_from_prysm_format(keys_path, secrets_path),
+                    ValidatorKeysFormat::Nimbus => load_from_nimbus_format(keys_path, secrets_path),
                 };
             }
         })
@@ -272,6 +275,42 @@ fn load_from_prysm_format(
     Ok(signers)
 }
 
+fn load_from_nimbus_format(
+    keys_path: PathBuf,
+    secrets_path: PathBuf,
+) -> eyre::Result<Vec<ConsensusSigner>> {
+    let paths: Vec<_> =
+        fs::read_dir(&keys_path)?.map(|res| res.map(|e| e.path())).collect::<Result<_, _>>()?;
+
+    let signers = paths
+        .into_par_iter()
+        .filter_map(|path| {
+            if !path.is_dir() {
+                return None
+            }
+
+            let maybe_pubkey = path.file_name().and_then(|d| d.to_str())?;
+            let Ok(pubkey) = BlsPublicKey::from_hex(maybe_pubkey) else {
+                warn!("Invalid pubkey: {}", maybe_pubkey);
+                return None
+            };
+
+            let ks_path = keys_path.join(maybe_pubkey).join("keystore.json");
+            let pw_path = secrets_path.join(pubkey.to_string());
+
+            match load_one(ks_path, pw_path) {
+                Ok(signer) => Some(signer),
+                Err(e) => {
+                    warn!("Failed to load signer for pubkey: {}, err: {}", pubkey, e);
+                    None
+                }
+            }
+        })
+        .collect();
+
+    Ok(signers)
+}
+
 fn load_one(ks_path: PathBuf, pw_path: PathBuf) -> eyre::Result<ConsensusSigner> {
     let keystore = Keystore::from_json_file(ks_path).map_err(|_| eyre!("failed reading json"))?;
     let password = fs::read(pw_path.clone())
@@ -303,7 +342,7 @@ mod tests {
 
     use super::{load_from_lighthouse_format, load_from_lodestar_format, FileKey};
     use crate::signer::{
-        loader::{load_from_prysm_format, load_from_teku_format},
+        loader::{load_from_nimbus_format, load_from_prysm_format, load_from_teku_format},
         BlsPublicKey, BlsSigner,
     };
 
@@ -398,5 +437,17 @@ mod tests {
         assert!(signers[0].pubkey() == BlsPublicKey::from(FixedBytes::new(
             hex!("b3a22e4a673ac7a153ab5b3c17a4dbef55f7e47210b20c0cbb0e66df5b36bb49ef808577610b034172e955d2312a61b9")
         )));
+    }
+
+    #[test]
+    fn test_load_nimbus() {
+        let result = load_from_nimbus_format(
+            "../../tests/data/keystores/nimbus-keys".into(),
+            "../../tests/data/keystores/secrets".into(),
+        );
+
+        assert!(result.is_ok());
+
+        test_correct_load(result.unwrap());
     }
 }

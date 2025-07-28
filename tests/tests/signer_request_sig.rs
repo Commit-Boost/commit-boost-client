@@ -32,8 +32,8 @@ async fn create_mod_signing_configs() -> HashMap<ModuleId, ModuleSigningConfig> 
     let signing_id_2 = b256!("0x61fe00135d7b4912a8c63ada215ac2e62326e6e7b30f49a29fcf9779d7ad800d");
 
     cfg.modules = Some(vec![
-        utils::create_module_config(&module_id_1, &signing_id_1),
-        utils::create_module_config(&module_id_2, &signing_id_2),
+        utils::create_module_config(module_id_1.clone(), signing_id_1),
+        utils::create_module_config(module_id_2.clone(), signing_id_2),
     ]);
 
     let jwts = HashMap::from([

@@ -19,7 +19,10 @@ use cb_common::{
     signature::verify_signed_message,
     signer::BlsSignature,
     types::Chain,
-    utils::{get_user_agent_with_version, ms_into_slot, timestamp_of_slot_start_sec, utcnow_ms},
+    utils::{
+        get_user_agent_with_version, ms_into_slot, read_chunked_body_with_max,
+        timestamp_of_slot_start_sec, utcnow_ms,
+    },
 };
 use futures::future::join_all;
 use parking_lot::RwLock;
@@ -36,7 +39,7 @@ use crate::{
     },
     metrics::{RELAY_HEADER_VALUE, RELAY_LAST_SLOT, RELAY_LATENCY, RELAY_STATUS_CODE},
     state::{BuilderApiState, PbsState},
-    utils::{check_gas_limit, read_chunked_body_with_max},
+    utils::check_gas_limit,
 };
 
 /// Implements https://ethereum.github.io/builder-specs/#/Builder/getHeader
@@ -362,34 +365,6 @@ async fn send_one_get_header(
     );
 
     match &get_header_response {
-        VersionedResponse::Deneb(res) => {
-            let header_data = HeaderData {
-                block_hash: res.message.header.block_hash,
-                parent_hash: res.message.header.parent_hash,
-                tx_root: res.message.header.transactions_root,
-                value: res.message.value,
-                timestamp: res.message.header.timestamp,
-            };
-
-            validate_header_data(
-                &header_data,
-                chain,
-                params.parent_hash,
-                validation.min_bid_wei,
-                params.slot,
-            )?;
-
-            if !validation.skip_sigverify {
-                validate_signature(
-                    chain,
-                    relay.pubkey(),
-                    res.message.pubkey,
-                    &res.message,
-                    &res.signature,
-                )?;
-            }
-        }
-
         VersionedResponse::Electra(res) => {
             let header_data = HeaderData {
                 block_hash: res.message.header.block_hash,
@@ -535,7 +510,7 @@ mod tests {
     };
     use blst::min_pk;
     use cb_common::{
-        pbs::{error::ValidationError, ExecutionPayloadHeaderMessageDeneb, EMPTY_TX_ROOT_HASH},
+        pbs::{error::ValidationError, ExecutionPayloadHeaderMessageElectra, EMPTY_TX_ROOT_HASH},
         signature::sign_builder_message,
         types::Chain,
         utils::timestamp_of_slot_start_sec,
@@ -609,7 +584,7 @@ mod tests {
         .unwrap();
         let pubkey = BlsPublicKey::from_slice(&secret_key.sk_to_pk().to_bytes());
 
-        let message = ExecutionPayloadHeaderMessageDeneb::default();
+        let message = ExecutionPayloadHeaderMessageElectra::default();
 
         let signature = sign_builder_message(Chain::Holesky, &secret_key, &message);
 

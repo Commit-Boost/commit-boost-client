@@ -17,7 +17,7 @@ use url::Url;
 
 use super::{
     constants::PBS_IMAGE_DEFAULT, load_optional_env_var, CommitBoostConfig, RuntimeMuxConfig,
-    PBS_ENDPOINT_ENV,
+    HTTP_TIMEOUT_SECONDS_DEFAULT, PBS_ENDPOINT_ENV,
 };
 use crate::{
     commit::client::SignerClient,
@@ -123,6 +123,9 @@ pub struct PbsConfig {
     pub extra_validation_enabled: bool,
     /// Execution Layer RPC url to use for extra validation
     pub rpc_url: Option<Url>,
+    /// Timeout for HTTP requests in seconds
+    #[serde(default = "default_u64::<HTTP_TIMEOUT_SECONDS_DEFAULT>")]
+    pub http_timeout_seconds: u64,
     /// Maximum number of retries for validator registration request per relay
     #[serde(default = "default_u32::<REGISTER_VALIDATOR_RETRY_LIMIT>")]
     pub register_validator_retry_limit: u32,
@@ -225,6 +228,14 @@ fn default_pbs() -> String {
 pub async fn load_pbs_config() -> Result<PbsModuleConfig> {
     let config = CommitBoostConfig::from_env_path()?;
     config.validate().await?;
+
+    // Make sure relays isn't empty - since the config is still technically valid if
+    // there are no relays for things like Docker compose generation, this check
+    // isn't in validate().
+    ensure!(
+        !config.relays.is_empty(),
+        "At least one relay must be configured to run the PBS service"
+    );
 
     // use endpoint from env if set, otherwise use default host and port
     let endpoint = if let Some(endpoint) = load_optional_env_var(PBS_ENDPOINT_ENV) {

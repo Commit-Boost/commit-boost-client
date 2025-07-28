@@ -39,7 +39,7 @@ pub struct StaticModuleConfig {
     #[serde(rename = "type")]
     pub kind: ModuleKind,
     /// Signing ID for the module to use when requesting signatures
-    pub signing_id: Option<B256>,
+    pub signing_id: B256,
 }
 
 /// Runtime config to start a module

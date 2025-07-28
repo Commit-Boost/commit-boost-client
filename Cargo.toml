@@ -25,6 +25,7 @@ base64 = "0.22.1"
 bimap = { version = "0.6.3", features = ["serde"] }
 blsful = "2.5"
 blst = "0.3.11"
+bytes = "1.10.1"
 cb-cli = { path = "crates/cli" }
 cb-common = { path = "crates/common" }
 cb-metrics = { path = "crates/metrics" }
