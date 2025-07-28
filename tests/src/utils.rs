@@ -154,10 +154,10 @@ pub fn get_start_signer_config(
     }
 }
 
-pub fn create_module_config(id: &ModuleId, signing_id: &B256) -> StaticModuleConfig {
+pub fn create_module_config(id: ModuleId, signing_id: B256) -> StaticModuleConfig {
     StaticModuleConfig {
-        id: id.clone(),
-        signing_id: Some(*signing_id),
+        id,
+        signing_id,
         docker_image: String::from(""),
         env: None,
         env_file: None,

@@ -24,7 +24,7 @@ async fn create_mod_signing_configs() -> HashMap<ModuleId, ModuleSigningConfig> 
     let module_id = ModuleId(JWT_MODULE.to_string());
     let signing_id = b256!("0101010101010101010101010101010101010101010101010101010101010101");
 
-    cfg.modules = Some(vec![utils::create_module_config(&module_id, &signing_id)]);
+    cfg.modules = Some(vec![utils::create_module_config(module_id.clone(), signing_id)]);
 
     let jwts = HashMap::from([(module_id.clone(), "supersecret".to_string())]);
 

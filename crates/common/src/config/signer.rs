@@ -299,16 +299,12 @@ pub fn load_module_signing_configs(
             Some(secret) => secret.clone(),
             None => bail!("JWT secret for module {} is missing", module.id),
         };
-
-        // Make sure the signing ID is present
-        let signing_id = match &module.signing_id {
-            Some(id) => *id,
-            None => bail!("Signing ID for module {} is missing", module.id),
-        };
-
         // Create the module signing config and validate it
-        let module_signing_config =
-            ModuleSigningConfig { module_name: module.id.clone(), jwt_secret, signing_id };
+        let module_signing_config = ModuleSigningConfig {
+            module_name: module.id.clone(),
+            jwt_secret,
+            signing_id: module.signing_id,
+        };
         module_signing_config
             .validate()
             .wrap_err(format!("Invalid signing config for module {}", module.id))?;
@@ -336,7 +332,7 @@ pub fn load_module_signing_configs(
             }
             None => {
                 seen_signing_ids.insert(module_signing_config.signing_id, &module.id);
-                signing_id
+                module.signing_id
             }
         };
 
@@ -385,10 +381,10 @@ mod tests {
         }
     }
 
-    async fn create_module_config(id: &ModuleId, signing_id: &B256) -> StaticModuleConfig {
+    async fn create_module_config(id: ModuleId, signing_id: B256) -> StaticModuleConfig {
         StaticModuleConfig {
             id: id.clone(),
-            signing_id: Some(*signing_id),
+            signing_id,
             docker_image: String::from(""),
             env: None,
             env_file: None,
@@ -407,8 +403,8 @@ mod tests {
             b256!("0202020202020202020202020202020202020202020202020202020202020202");
 
         cfg.modules = Some(vec![
-            create_module_config(&first_module_id, &first_signing_id).await,
-            create_module_config(&second_module_id, &second_signing_id).await,
+            create_module_config(first_module_id.clone(), first_signing_id).await,
+            create_module_config(second_module_id.clone(), second_signing_id).await,
         ]);
 
         let jwts = HashMap::from([
@@ -466,8 +462,10 @@ mod tests {
             b256!("0202020202020202020202020202020202020202020202020202020202020202");
 
         cfg.modules = Some(vec![
-            create_module_config(&first_module_id, &first_signing_id).await,
-            create_module_config(&first_module_id, &second_signing_id).await, /* Duplicate module name */
+            create_module_config(first_module_id.clone(), first_signing_id).await,
+            create_module_config(first_module_id.clone(), second_signing_id).await, /* Duplicate
+                                                                                     * module
+                                                                                     * name */
         ]);
 
         let jwts = HashMap::from([
@@ -498,8 +496,8 @@ mod tests {
             b256!("0202020202020202020202020202020202020202020202020202020202020202");
 
         cfg.modules = Some(vec![
-            create_module_config(&first_module_id, &first_signing_id).await,
-            create_module_config(&second_module_id, &second_signing_id).await,
+            create_module_config(first_module_id.clone(), first_signing_id).await,
+            create_module_config(second_module_id.clone(), second_signing_id).await,
         ]);
 
         let jwts = HashMap::from([
@@ -530,8 +528,8 @@ mod tests {
         let second_module_id = ModuleId("2nd_test_module".to_string());
 
         cfg.modules = Some(vec![
-            create_module_config(&first_module_id, &first_signing_id).await,
-            create_module_config(&second_module_id, &first_signing_id).await, /* Duplicate signing ID */
+            create_module_config(first_module_id.clone(), first_signing_id).await,
+            create_module_config(second_module_id.clone(), first_signing_id).await, /* Duplicate signing ID */
         ]);
 
         let jwts = HashMap::from([
@@ -564,8 +562,8 @@ mod tests {
             b256!("0202020202020202020202020202020202020202020202020202020202020202");
 
         cfg.modules = Some(vec![
-            create_module_config(&first_module_id, &first_signing_id).await,
-            create_module_config(&second_module_id, &second_signing_id).await,
+            create_module_config(first_module_id.clone(), first_signing_id).await,
+            create_module_config(second_module_id.clone(), second_signing_id).await,
         ]);
 
         let jwts = HashMap::from([(second_module_id.clone(), "another-secret".to_string())]);
@@ -589,7 +587,8 @@ mod tests {
         let first_signing_id =
             b256!("0101010101010101010101010101010101010101010101010101010101010101");
 
-        cfg.modules = Some(vec![create_module_config(&first_module_id, &first_signing_id).await]);
+        cfg.modules =
+            Some(vec![create_module_config(first_module_id.clone(), first_signing_id).await]);
 
         let jwts = HashMap::from([(first_module_id.clone(), "".to_string())]);
 
@@ -610,7 +609,8 @@ mod tests {
         let first_signing_id =
             b256!("0000000000000000000000000000000000000000000000000000000000000000");
 
-        cfg.modules = Some(vec![create_module_config(&first_module_id, &first_signing_id).await]);
+        cfg.modules =
+            Some(vec![create_module_config(first_module_id.clone(), first_signing_id).await]);
 
         let jwts = HashMap::from([(first_module_id.clone(), "supersecret".to_string())]);
 
