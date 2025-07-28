@@ -17,7 +17,7 @@ pub fn sign_message(secret_key: &BlsSecretKey, msg: &[u8]) -> BlsSignature {
     BlsSignature::from_slice(&signature)
 }
 
-pub fn compute_signing_root<T: TreeHash>(signing_data: &T) -> B256 {
+pub fn compute_tree_hash_root<T: TreeHash>(signing_data: &T) -> B256 {
     signing_data.tree_hash_root()
 }
 
@@ -29,14 +29,14 @@ pub fn compute_prop_commit_signing_root(
 ) -> B256 {
     let domain = compute_domain(chain, domain_mask);
     match module_signing_id {
-        Some(id) => compute_signing_root(&types::SigningData {
-            object_root: compute_signing_root(&types::PropCommitSigningInfo {
+        Some(id) => compute_tree_hash_root(&types::SigningData {
+            object_root: compute_tree_hash_root(&types::PropCommitSigningInfo {
                 data: *object_root,
                 module_signing_id: *id,
             }),
             signing_domain: domain,
         }),
-        None => compute_signing_root(&types::SigningData {
+        None => compute_tree_hash_root(&types::SigningData {
             object_root: *object_root,
             signing_domain: domain,
         }),
@@ -75,7 +75,7 @@ pub fn verify_signed_message<T: TreeHash>(
 ) -> Result<(), BlstErrorWrapper> {
     let signing_root = compute_prop_commit_signing_root(
         chain,
-        &compute_signing_root(msg),
+        &compute_tree_hash_root(msg),
         module_signing_id,
         domain_mask,
     );
@@ -98,10 +98,10 @@ pub fn sign_builder_root(
 ) -> BlsSignature {
     let domain = chain.builder_domain();
     let signing_data = types::SigningData {
-        object_root: compute_signing_root(object_root),
+        object_root: compute_tree_hash_root(object_root),
         signing_domain: domain,
     };
-    let signing_root = compute_signing_root(&signing_data);
+    let signing_root = compute_tree_hash_root(&signing_data);
     sign_message(secret_key, signing_root.as_slice())
 }
 
@@ -135,8 +135,8 @@ pub fn verify_proposer_commitment_signature_bls(
 ) -> Result<(), BlstErrorWrapper> {
     let object_root = msg.tree_hash_root();
     let domain = compute_domain(chain, &B32::from(COMMIT_BOOST_DOMAIN));
-    let signing_root = compute_signing_root(&types::SigningData {
-        object_root: compute_signing_root(&types::PropCommitSigningInfo {
+    let signing_root = compute_tree_hash_root(&types::SigningData {
+        object_root: compute_tree_hash_root(&types::PropCommitSigningInfo {
             data: object_root,
             module_signing_id: *module_signing_id,
         }),
@@ -156,8 +156,8 @@ pub fn verify_proposer_commitment_signature_ecdsa(
 ) -> Result<(), eyre::Report> {
     let object_root = msg.tree_hash_root();
     let domain = compute_domain(chain, &B32::from(COMMIT_BOOST_DOMAIN));
-    let signing_root = compute_signing_root(&types::SigningData {
-        object_root: compute_signing_root(&types::PropCommitSigningInfo {
+    let signing_root = compute_tree_hash_root(&types::SigningData {
+        object_root: compute_tree_hash_root(&types::PropCommitSigningInfo {
             data: object_root,
             module_signing_id: *module_signing_id,
         }),

@@ -9,7 +9,7 @@ use tree_hash::TreeHash;
 
 use crate::{
     constants::COMMIT_BOOST_DOMAIN,
-    signature::{compute_domain, compute_signing_root},
+    signature::{compute_domain, compute_tree_hash_root},
     types::{self, Chain},
 };
 
@@ -95,20 +95,20 @@ impl EcdsaSigner {
                 let signing_root = match module_signing_id {
                     Some(id) => {
                         let signing_data = types::SigningData {
-                            object_root: compute_signing_root(&types::PropCommitSigningInfo {
+                            object_root: compute_tree_hash_root(&types::PropCommitSigningInfo {
                                 data: *object_root,
                                 module_signing_id: *id,
                             }),
                             signing_domain: domain,
                         };
-                        compute_signing_root(&signing_data)
+                        compute_tree_hash_root(&signing_data)
                     }
                     None => {
                         let signing_data = types::SigningData {
                             object_root: *object_root,
                             signing_domain: domain,
                         };
-                        compute_signing_root(&signing_data)
+                        compute_tree_hash_root(&signing_data)
                     }
                 };
                 sk.sign_hash_sync(&signing_root).map(EcdsaSignature::from)
@@ -152,7 +152,7 @@ mod test {
 
         let domain = compute_domain(Chain::Holesky, &B32::from(COMMIT_BOOST_DOMAIN));
         let signing_data = types::SigningData { object_root, signing_domain: domain };
-        let msg = compute_signing_root(&signing_data);
+        let msg = compute_tree_hash_root(&signing_data);
 
         assert_eq!(msg, hex!("219ca7a673b2cbbf67bec6c9f60f78bd051336d57b68d1540190f30667e86725"));
 
@@ -173,13 +173,13 @@ mod test {
 
         let domain = compute_domain(Chain::Hoodi, &B32::from(COMMIT_BOOST_DOMAIN));
         let signing_data = types::SigningData {
-            object_root: compute_signing_root(&types::PropCommitSigningInfo {
+            object_root: compute_tree_hash_root(&types::PropCommitSigningInfo {
                 data: object_root,
                 module_signing_id,
             }),
             signing_domain: domain,
         };
-        let msg = compute_signing_root(&signing_data);
+        let msg = compute_tree_hash_root(&signing_data);
 
         assert_eq!(msg, hex!("8cd49ccf2f9b0297796ff96ce5f7c5d26e20a59d0032ee2ad6249dcd9682b808"));
 

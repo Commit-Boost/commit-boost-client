@@ -280,7 +280,7 @@ impl LocalSigningManager {
 #[cfg(test)]
 mod tests {
     use alloy::primitives::B256;
-    use cb_common::signature::compute_signing_root;
+    use cb_common::signature::compute_tree_hash_root;
     use lazy_static::lazy_static;
 
     use super::*;
@@ -325,8 +325,8 @@ mod tests {
 
             // Verify signature
             let domain = compute_domain(CHAIN, &B32::from(COMMIT_BOOST_DOMAIN));
-            let signing_root = compute_signing_root(&types::SigningData {
-                object_root: compute_signing_root(&types::PropCommitSigningInfo {
+            let signing_root = compute_tree_hash_root(&types::SigningData {
+                object_root: compute_tree_hash_root(&types::PropCommitSigningInfo {
                     data: data_root.tree_hash_root(),
                     module_signing_id,
                 }),
@@ -403,8 +403,8 @@ mod tests {
 
             // Verify signature
             let domain = compute_domain(CHAIN, &B32::from(COMMIT_BOOST_DOMAIN));
-            let signing_root = compute_signing_root(&types::SigningData {
-                object_root: compute_signing_root(&types::PropCommitSigningInfo {
+            let signing_root = compute_tree_hash_root(&types::SigningData {
+                object_root: compute_tree_hash_root(&types::PropCommitSigningInfo {
                     data: data_root.tree_hash_root(),
                     module_signing_id,
                 }),
@@ -483,8 +483,8 @@ mod tests {
 
             // Verify signature
             let domain = compute_domain(CHAIN, &B32::from(COMMIT_BOOST_DOMAIN));
-            let signing_root = compute_signing_root(&types::SigningData {
-                object_root: compute_signing_root(&types::PropCommitSigningInfo {
+            let signing_root = compute_tree_hash_root(&types::SigningData {
+                object_root: compute_tree_hash_root(&types::PropCommitSigningInfo {
                     data: data_root.tree_hash_root(),
                     module_signing_id,
                 }),
