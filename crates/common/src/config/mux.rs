@@ -130,19 +130,29 @@ pub struct MuxConfig {
 
 impl MuxConfig {
     /// Returns the env, actual path, and internal path to use for the file
-    /// loader
-    pub fn loader_env(&self) -> Option<(String, String, String)> {
-        self.loader.as_ref().and_then(|loader| match loader {
-            MuxKeysLoader::File(path_buf) => {
-                let path =
-                    path_buf.to_str().unwrap_or_else(|| panic!("invalid path: {:?}", path_buf));
-                let internal_path = get_mux_path(&self.id);
+    /// loader. In File mode, validates the mux file prior to returning.   
+    pub fn loader_env(&self) -> eyre::Result<Option<(String, String, String)>> {
+        let Some(loader) = self.loader.as_ref() else {
+            return Ok(None);
+        };
 
-                Some((get_mux_env(&self.id), path.to_owned(), internal_path))
+        match loader {
+            MuxKeysLoader::File(path_buf) => {
+                let Some(path) = path_buf.to_str() else {
+                    bail!("invalid path: {:?}", path_buf);
+                };
+
+                let file = load_file(path)?;
+                // make sure we can load the pubkeys correctly
+                let _: Vec<BlsPublicKey> =
+                    serde_json::from_str(&file).wrap_err("failed to parse mux keys file")?;
+
+                let internal_path = get_mux_path(&self.id);
+                Ok(Some((get_mux_env(&self.id), path.to_owned(), internal_path)))
             }
-            MuxKeysLoader::HTTP { .. } => None,
-            MuxKeysLoader::Registry { .. } => None,
-        })
+            MuxKeysLoader::HTTP { .. } => Ok(None),
+            MuxKeysLoader::Registry { .. } => Ok(None),
+        }
     }
 }
 

@@ -26,6 +26,7 @@ pub use utils::*;
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CommitBoostConfig {
     pub chain: Chain,
+    #[serde(default)]
     pub relays: Vec<RelayConfig>,
     pub pbs: StaticPbsConfig,
     #[serde(flatten)]
