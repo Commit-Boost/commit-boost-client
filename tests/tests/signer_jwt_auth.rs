@@ -2,13 +2,13 @@ use std::{collections::HashMap, time::Duration};
 
 use alloy::primitives::b256;
 use cb_common::{
-    commit::constants::GET_PUBKEYS_PATH,
+    commit::constants::{GET_PUBKEYS_PATH, REVOKE_MODULE_PATH},
     config::{load_module_signing_configs, ModuleSigningConfig},
     types::ModuleId,
     utils::create_jwt,
 };
 use cb_tests::{
-    signer_service::{start_server, verify_pubkeys},
+    signer_service::{create_admin_jwt, start_server, verify_pubkeys},
     utils::{self, setup_test_env},
 };
 use eyre::Result;
@@ -16,6 +16,8 @@ use reqwest::StatusCode;
 use tracing::info;
 
 const JWT_MODULE: &str = "test-module";
+const JWT_SECRET: &str = "test-jwt-secret";
+const ADMIN_SECRET: &str = "test-admin-secret";
 
 async fn create_mod_signing_configs() -> HashMap<ModuleId, ModuleSigningConfig> {
     let mut cfg =
@@ -26,7 +28,7 @@ async fn create_mod_signing_configs() -> HashMap<ModuleId, ModuleSigningConfig> 
 
     cfg.modules = Some(vec![utils::create_module_config(module_id.clone(), signing_id)]);
 
-    let jwts = HashMap::from([(module_id.clone(), "supersecret".to_string())]);
+    let jwts = HashMap::from([(module_id.clone(), JWT_SECRET.to_string())]);
 
     load_module_signing_configs(&cfg, &jwts).unwrap()
 }
@@ -36,7 +38,7 @@ async fn test_signer_jwt_auth_success() -> Result<()> {
     setup_test_env();
     let module_id = ModuleId(JWT_MODULE.to_string());
     let mod_cfgs = create_mod_signing_configs().await;
-    let start_config = start_server(20100, &mod_cfgs).await?;
+    let start_config = start_server(20100, &mod_cfgs, ADMIN_SECRET.to_string()).await?;
     let jwt_config = mod_cfgs.get(&module_id).expect("JWT config for test module not found");
 
     // Run a pubkeys request
@@ -56,7 +58,7 @@ async fn test_signer_jwt_auth_fail() -> Result<()> {
     setup_test_env();
     let module_id = ModuleId(JWT_MODULE.to_string());
     let mod_cfgs = create_mod_signing_configs().await;
-    let start_config = start_server(20101, &mod_cfgs).await?;
+    let start_config = start_server(20101, &mod_cfgs, ADMIN_SECRET.to_string()).await?;
 
     // Run a pubkeys request - this should fail due to invalid JWT
     let jwt = create_jwt(&module_id, "incorrect secret")?;
@@ -77,7 +79,7 @@ async fn test_signer_jwt_rate_limit() -> Result<()> {
     setup_test_env();
     let module_id = ModuleId(JWT_MODULE.to_string());
     let mod_cfgs = create_mod_signing_configs().await;
-    let start_config = start_server(20102, &mod_cfgs).await?;
+    let start_config = start_server(20102, &mod_cfgs, ADMIN_SECRET.to_string()).await?;
     let mod_cfg = mod_cfgs.get(&module_id).expect("JWT config for test module not found");
 
     // Run as many pubkeys requests as the fail limit
@@ -104,3 +106,115 @@ async fn test_signer_jwt_rate_limit() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_signer_revoked_jwt_fail() -> Result<()> {
+    setup_test_env();
+    let admin_secret = ADMIN_SECRET.to_string();
+    let module_id = ModuleId(JWT_MODULE.to_string());
+    let mod_cfgs = create_mod_signing_configs().await;
+    let start_config = start_server(20400, &mod_cfgs, admin_secret.clone()).await?;
+
+    // Run as many pubkeys requests as the fail limit
+    let jwt = create_jwt(&module_id, JWT_SECRET)?;
+    let admin_jwt = create_admin_jwt(admin_secret)?;
+    let client = reqwest::Client::new();
+
+    // At first, test module should be allowed to request pubkeys
+    let url = format!("http://{}{}", start_config.endpoint, GET_PUBKEYS_PATH);
+    let response = client.get(&url).bearer_auth(&jwt).send().await?;
+    assert!(response.status() == StatusCode::OK);
+
+    let revoke_url = format!("http://{}{}", start_config.endpoint, REVOKE_MODULE_PATH);
+    let response = client
+        .post(&revoke_url)
+        .header("content-type", "application/json")
+        .body(reqwest::Body::wrap(format!("{{\"module_id\": \"{JWT_MODULE}\"}}")))
+        .bearer_auth(&admin_jwt)
+        .send()
+        .await?;
+    assert!(response.status() == StatusCode::OK);
+
+    // After revoke, test module shouldn't be allowed anymore
+    let response = client.get(&url).bearer_auth(&jwt).send().await?;
+    assert!(response.status() == StatusCode::UNAUTHORIZED);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_signer_only_admin_can_revoke() -> Result<()> {
+    setup_test_env();
+    let admin_secret = ADMIN_SECRET.to_string();
+    let module_id = ModuleId(JWT_MODULE.to_string());
+    let mod_cfgs = create_mod_signing_configs().await;
+    let start_config = start_server(20500, &mod_cfgs, admin_secret.clone()).await?;
+
+    // Run as many pubkeys requests as the fail limit
+    let jwt = create_jwt(&module_id, JWT_SECRET)?;
+    let admin_jwt = create_admin_jwt(admin_secret)?;
+    let client = reqwest::Client::new();
+    let url = format!("http://{}{}", start_config.endpoint, REVOKE_MODULE_PATH);
+
+    // Module JWT shouldn't be able to revoke modules
+    let response = client
+        .post(&url)
+        .header("content-type", "application/json")
+        .body(reqwest::Body::wrap(format!("{{\"module_id\": \"{JWT_MODULE}\"}}")))
+        .bearer_auth(&jwt)
+        .send()
+        .await?;
+    assert!(response.status() == StatusCode::UNAUTHORIZED);
+
+    // Admin should be able to revoke modules
+    let response = client
+        .post(&url)
+        .header("content-type", "application/json")
+        .body(reqwest::Body::wrap(format!("{{\"module_id\": \"{JWT_MODULE}\"}}")))
+        .bearer_auth(&admin_jwt)
+        .send()
+        .await?;
+    assert!(response.status() == StatusCode::OK);
+
+    Ok(())
+}
+
+// Starts the signer moduler server on a separate task and returns its
+// configuration
+/*
+async fn start_server(port: u16) -> Result<StartSignerConfig> {
+    setup_test_env();
+    let chain = Chain::Hoodi;
+
+    // Mock JWT secrets
+    let module_id = ModuleId(JWT_MODULE.to_string());
+    let mut jwts = HashMap::new();
+    jwts.insert(module_id.clone(), JWT_SECRET.to_string());
+
+    // Create a signer config
+    let loader = SignerLoader::ValidatorsDir {
+        keys_path: "data/keystores/keys".into(),
+        secrets_path: "data/keystores/secrets".into(),
+        format: ValidatorKeysFormat::Lighthouse,
+    };
+    let mut config = get_signer_config(loader);
+    config.port = port;
+    config.jwt_auth_fail_limit = 3; // Set a low fail limit for testing
+    config.jwt_auth_fail_timeout_seconds = 3; // Set a short timeout for testing
+    let start_config = get_start_signer_config(config, chain, jwts, ADMIN_SECRET.to_string());
+
+    // Run the Signer
+    let server_handle = tokio::spawn(SigningService::run(start_config.clone()));
+
+    // Make sure the server is running
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    if server_handle.is_finished() {
+        return Err(eyre::eyre!(
+            "Signer service failed to start: {}",
+            server_handle.await.unwrap_err()
+        ));
+    }
+    Ok(start_config)
+}
+
+*/

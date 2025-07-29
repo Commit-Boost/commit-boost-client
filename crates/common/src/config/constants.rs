@@ -47,6 +47,7 @@ pub const SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT: u32 = 5 * 60;
 
 /// Comma separated list module_id=jwt_secret
 pub const JWTS_ENV: &str = "CB_JWTS";
+pub const ADMIN_JWT_ENV: &str = "CB_SIGNER_ADMIN_JWT";
 
 /// Path to json file with plaintext keys (testing only)
 pub const SIGNER_KEYS_ENV: &str = "CB_SIGNER_LOADER_FILE";
