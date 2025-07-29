@@ -162,7 +162,7 @@ async fn jwt_auth(
     check_jwt_rate_limit(&state, &client_ip)?;
 
     // Process JWT authorization
-    match check_jwt_auth(&auth, &state).await {
+    match check_jwt_auth(&auth, &state) {
         Ok(module_id) => {
             req.extensions_mut().insert(module_id);
             Ok(next.run(req).await)
@@ -216,7 +216,7 @@ fn check_jwt_rate_limit(state: &SigningState, client_ip: &IpAddr) -> Result<(), 
 }
 
 /// Checks if a request can successfully authenticate with the JWT secret
-async fn check_jwt_auth(
+fn check_jwt_auth(
     auth: &Authorization<Bearer>,
     state: &SigningState,
 ) -> Result<ModuleId, SignerModuleError> {
@@ -302,7 +302,7 @@ async fn handle_request_signature(
 
     let Some(signing_id) = state.jwts.read().get(&module_id).map(|m| m.signing_id) else {
         error!(event = "request_signature", ?module_id, ?req_id, "Module signing ID not found");
-        return Err(SignerModuleError::Internal("Module signing ID not found".to_string()));
+        return Err(SignerModuleError::RequestError("Module signing ID not found".to_string()));
     };
 
     debug!(event = "request_signature", ?module_id, %request, ?req_id, "New request");
