@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use alloy::{primitives::Address, rpc::types::beacon::BlsSignature};
+use alloy::primitives::Address;
 use eyre::WrapErr;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use serde::{Deserialize, Serialize};
@@ -15,11 +15,15 @@ use super::{
     },
 };
 use crate::{
-    commit::constants::{
-        REQUEST_SIGNATURE_BLS_PATH, REQUEST_SIGNATURE_PROXY_ECDSA_PATH, REQUEST_SIGNATURE_PROXY_BLS_PATH,
+    commit::{
+        constants::{
+            REQUEST_SIGNATURE_BLS_PATH, REQUEST_SIGNATURE_PROXY_BLS_PATH,
+            REQUEST_SIGNATURE_PROXY_ECDSA_PATH,
+        },
+        response::{BlsSignResponse, EcdsaSignResponse},
     },
     constants::SIGNER_JWT_EXPIRATION,
-    signer::{BlsPublicKey, EcdsaSignature},
+    signer::BlsPublicKey,
     types::{Jwt, ModuleId},
     utils::create_jwt,
     DEFAULT_REQUEST_TIMEOUT,
@@ -134,21 +138,21 @@ impl SignerClient {
     pub async fn request_consensus_signature(
         &mut self,
         request: SignConsensusRequest,
-    ) -> Result<BlsSignature, SignerClientError> {
+    ) -> Result<BlsSignResponse, SignerClientError> {
         self.request_signature(REQUEST_SIGNATURE_BLS_PATH, &request).await
     }
 
     pub async fn request_proxy_signature_ecdsa(
         &mut self,
         request: SignProxyRequest<Address>,
-    ) -> Result<EcdsaSignature, SignerClientError> {
+    ) -> Result<EcdsaSignResponse, SignerClientError> {
         self.request_signature(REQUEST_SIGNATURE_PROXY_ECDSA_PATH, &request).await
     }
 
     pub async fn request_proxy_signature_bls(
         &mut self,
         request: SignProxyRequest<BlsPublicKey>,
-    ) -> Result<BlsSignature, SignerClientError> {
+    ) -> Result<BlsSignResponse, SignerClientError> {
         self.request_signature(REQUEST_SIGNATURE_PROXY_BLS_PATH, &request).await
     }
 

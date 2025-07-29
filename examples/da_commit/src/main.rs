@@ -92,13 +92,13 @@ impl DaCommitService {
 
         // Request a signature directly from a BLS key
         let request = SignConsensusRequest::builder(pubkey).with_msg(&datagram);
-        let signature = self.config.signer_client.request_consensus_signature(request).await?;
-        info!("Proposer commitment (consensus): {}", signature);
+        let response = self.config.signer_client.request_consensus_signature(request).await?;
+        info!("Proposer commitment (consensus): {}", response.signature);
         match verify_proposer_commitment_signature_bls(
             self.config.chain,
             &pubkey,
             &datagram,
-            &signature,
+            &response.signature,
             DA_COMMIT_SIGNING_ID,
         ) {
             Ok(_) => info!("Signature verified successfully"),
@@ -107,14 +107,14 @@ impl DaCommitService {
 
         // Request a signature from a proxy BLS key
         let proxy_request_bls = SignProxyRequest::builder(proxy_bls).with_msg(&datagram);
-        let proxy_signature_bls =
+        let proxy_response_bls =
             self.config.signer_client.request_proxy_signature_bls(proxy_request_bls).await?;
-        info!("Proposer commitment (proxy BLS): {}", proxy_signature_bls);
+        info!("Proposer commitment (proxy BLS): {}", proxy_response_bls.signature);
         match verify_proposer_commitment_signature_bls(
             self.config.chain,
             &proxy_bls,
             &datagram,
-            &proxy_signature_bls,
+            &proxy_response_bls.signature,
             DA_COMMIT_SIGNING_ID,
         ) {
             Ok(_) => info!("Signature verified successfully"),
@@ -124,17 +124,17 @@ impl DaCommitService {
         // If ECDSA keys are enabled, request a signature from a proxy ECDSA key
         if let Some(proxy_ecdsa) = proxy_ecdsa {
             let proxy_request_ecdsa = SignProxyRequest::builder(proxy_ecdsa).with_msg(&datagram);
-            let proxy_signature_ecdsa = self
+            let proxy_response_ecdsa = self
                 .config
                 .signer_client
                 .request_proxy_signature_ecdsa(proxy_request_ecdsa)
                 .await?;
-            info!("Proposer commitment (proxy ECDSA): {}", proxy_signature_ecdsa);
+            info!("Proposer commitment (proxy ECDSA): {}", proxy_response_ecdsa.signature);
             match verify_proposer_commitment_signature_ecdsa(
                 self.config.chain,
                 &proxy_ecdsa,
                 &datagram,
-                &proxy_signature_ecdsa,
+                &proxy_response_ecdsa.signature,
                 DA_COMMIT_SIGNING_ID,
             ) {
                 Ok(_) => info!("Signature verified successfully"),
