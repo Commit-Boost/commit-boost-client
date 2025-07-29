@@ -21,6 +21,7 @@ const MODULE_ID_1: &str = "test-module";
 const MODULE_ID_2: &str = "another-module";
 const PUBKEY_1: [u8; 48] =
     hex!("883827193f7627cd04e621e1e8d56498362a52b2a30c9a1c72036eb935c4278dee23d38a24d2f7dda62689886f0c39f4");
+const ADMIN_SECRET: &str = "test-admin-secret";
 
 async fn create_mod_signing_configs() -> HashMap<ModuleId, ModuleSigningConfig> {
     let mut cfg =
@@ -51,7 +52,7 @@ async fn test_signer_sign_request_good() -> Result<()> {
     setup_test_env();
     let module_id = ModuleId(MODULE_ID_1.to_string());
     let mod_cfgs = create_mod_signing_configs().await;
-    let start_config = start_server(20200, &mod_cfgs).await?;
+    let start_config = start_server(20200, &mod_cfgs, ADMIN_SECRET.to_string()).await?;
     let jwt_config = mod_cfgs.get(&module_id).expect("JWT config for test module not found");
 
     // Send a signing request
@@ -82,7 +83,7 @@ async fn test_signer_sign_request_different_module() -> Result<()> {
     setup_test_env();
     let module_id = ModuleId(MODULE_ID_2.to_string());
     let mod_cfgs = create_mod_signing_configs().await;
-    let start_config = start_server(20201, &mod_cfgs).await?;
+    let start_config = start_server(20201, &mod_cfgs, ADMIN_SECRET.to_string()).await?;
     let jwt_config = mod_cfgs.get(&module_id).expect("JWT config for 2nd test module not found");
 
     // Send a signing request

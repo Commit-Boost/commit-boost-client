@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fmt::{self, Debug, Display},
     str::FromStr,
 };
@@ -8,21 +9,17 @@ use alloy::{
     primitives::{Address, B256},
     rpc::types::beacon::BlsSignature,
 };
-use derive_more::derive::From;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    commit::constants::{
-        REQUEST_SIGNATURE_BLS_PATH, REQUEST_SIGNATURE_PROXY_BLS_PATH,
-        REQUEST_SIGNATURE_PROXY_ECDSA_PATH,
-    },
+    config::decode_string_to_map,
     constants::COMMIT_BOOST_DOMAIN,
     error::BlstErrorWrapper,
     signature::verify_signed_message,
     signer::BlsPublicKey,
-    types::Chain,
+    types::{Chain, ModuleId},
 };
 
 pub trait ProxyId: AsRef<[u8]> + Debug + Clone + Copy + TreeHash + Display {}
@@ -75,51 +72,6 @@ impl<T: ProxyId> fmt::Display for SignedProxyDelegation<T> {
         write!(f, "{}\nSignature: {}", self.message, self.signature)
     }
 }
-
-/*
-#[derive(Debug, Clone, Serialize, Deserialize, From)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum SignRequest {
-    Consensus(SignConsensusRequest),
-    ProxyBls(SignProxyRequest<BlsPublicKey>),
-    ProxyEcdsa(SignProxyRequest<Address>),
-}
-
-impl SignRequest {
-    pub fn get_request_route(&self) -> String {
-        match self {
-            SignRequest::Consensus(_) => REQUEST_SIGNATURE_BLS_PATH.to_string(),
-            SignRequest::ProxyBls(_) => REQUEST_SIGNATURE_PROXY_BLS_PATH.to_string(),
-            SignRequest::ProxyEcdsa(_) => REQUEST_SIGNATURE_ECDSA_PATH.to_string(),
-        }
-    }
-}
-
-impl Display for SignRequest {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            SignRequest::Consensus(req) => write!(
-                f,
-                "Consensus(pubkey: {}, object_root: {})",
-                req.pubkey,
-                hex::encode_prefixed(req.object_root)
-            ),
-            SignRequest::ProxyBls(req) => write!(
-                f,
-                "BLS(proxy: {}, object_root: {})",
-                req.proxy,
-                hex::encode_prefixed(req.object_root)
-            ),
-            SignRequest::ProxyEcdsa(req) => write!(
-                f,
-                "ECDSA(proxy: {}, object_root: {})",
-                req.proxy,
-                hex::encode_prefixed(req.object_root)
-            ),
-        }
-    }
-}
-*/
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignConsensusRequest {
@@ -250,6 +202,31 @@ pub struct GetPubkeysResponse {
     pub keys: Vec<ConsensusProxyMap>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReloadRequest {
+    #[serde(default, deserialize_with = "deserialize_jwt_secrets")]
+    pub jwt_secrets: Option<HashMap<ModuleId, String>>,
+    pub admin_secret: Option<String>,
+}
+
+pub fn deserialize_jwt_secrets<'de, D>(
+    deserializer: D,
+) -> Result<Option<HashMap<ModuleId, String>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw: String = Deserialize::deserialize(deserializer)?;
+
+    decode_string_to_map(&raw)
+        .map(Some)
+        .map_err(|_| serde::de::Error::custom("Invalid format".to_string()))
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RevokeModuleRequest {
+    pub module_id: ModuleId,
+}
+
 /// Map of consensus pubkeys to proxies
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ConsensusProxyMap {
@@ -310,7 +287,7 @@ mod tests {
 
         let _: SignedProxyDelegationBls = serde_json::from_str(data).unwrap();
 
-        let data = r#"{ 
+        let data = r#"{
             "message": {
                 "delegator": "0xa3366b54f28e4bf1461926a3c70cdb0ec432b5c92554ecaae3742d33fb33873990cbed1761c68020e6d3c14d30a22050",
                 "proxy": "0x4ca9939a8311a7cab3dde201b70157285fa81a9d"

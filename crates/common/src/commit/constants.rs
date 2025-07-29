@@ -10,3 +10,4 @@ pub const REQUEST_SIGNATURE_PROXY_ECDSA_PATH: &str =
 pub const GENERATE_PROXY_KEY_PATH: &str = "/signer/v1/generate_proxy_key";
 pub const STATUS_PATH: &str = "/status";
 pub const RELOAD_PATH: &str = "/reload";
+pub const REVOKE_MODULE_PATH: &str = "/revoke_jwt";

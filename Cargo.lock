@@ -1597,6 +1597,7 @@ dependencies = [
  "cb-pbs",
  "cb-signer",
  "eyre",
+ "jsonwebtoken",
  "reqwest",
  "serde_json",
  "tempfile",

@@ -4,8 +4,9 @@ use alloy::{hex, primitives::FixedBytes};
 use cb_common::{
     commit::request::GetPubkeysResponse,
     config::{ModuleSigningConfig, StartSignerConfig},
+    constants::SIGNER_JWT_EXPIRATION,
     signer::{SignerLoader, ValidatorKeysFormat},
-    types::{Chain, ModuleId},
+    types::{Chain, Jwt, JwtAdmin, ModuleId},
 };
 use cb_signer::service::SigningService;
 use eyre::Result;
@@ -19,6 +20,7 @@ use crate::utils::{get_signer_config, get_start_signer_config};
 pub async fn start_server(
     port: u16,
     mod_signing_configs: &HashMap<ModuleId, ModuleSigningConfig>,
+    admin_secret: String,
 ) -> Result<StartSignerConfig> {
     let chain = Chain::Hoodi;
 
@@ -32,7 +34,7 @@ pub async fn start_server(
     config.port = port;
     config.jwt_auth_fail_limit = 3; // Set a low fail limit for testing
     config.jwt_auth_fail_timeout_seconds = 3; // Set a short timeout for testing
-    let start_config = get_start_signer_config(config, chain, mod_signing_configs);
+    let start_config = get_start_signer_config(config, chain, mod_signing_configs, admin_secret);
 
     // Run the Signer
     let server_handle = tokio::spawn(SigningService::run(start_config.clone()));
@@ -68,4 +70,18 @@ pub async fn verify_pubkeys(response: Response) -> Result<()> {
         info!("Server returned expected pubkey: {:?}", expected);
     }
     Ok(())
+}
+
+// Creates a JWT for module administration
+pub fn create_admin_jwt(admin_secret: String) -> Result<Jwt> {
+    jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &JwtAdmin {
+            admin: true,
+            exp: jsonwebtoken::get_current_timestamp() + SIGNER_JWT_EXPIRATION,
+        },
+        &jsonwebtoken::EncodingKey::from_secret(admin_secret.as_ref()),
+    )
+    .map_err(Into::into)
+    .map(Jwt::from)
 }
