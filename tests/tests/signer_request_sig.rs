@@ -1,12 +1,17 @@
 use std::collections::HashMap;
 
 use alloy::{
-    hex,
-    primitives::{b256, FixedBytes},
+    hex::FromHex,
+    primitives::{b256, hex, FixedBytes},
+    rpc::types::beacon::BlsPublicKey,
 };
 use cb_common::{
-    commit::{constants::REQUEST_SIGNATURE_BLS_PATH, request::SignConsensusRequest},
+    commit::{
+        constants::REQUEST_SIGNATURE_BLS_PATH, request::SignConsensusRequest,
+        response::BlsSignResponse,
+    },
     config::{load_module_signing_configs, ModuleSigningConfig},
+    signer::BlsSignature,
     types::ModuleId,
     utils::create_jwt,
 };
@@ -67,11 +72,13 @@ async fn test_signer_sign_request_good() -> Result<()> {
     assert!(response.status() == StatusCode::OK);
 
     // Verify the signature is returned
-    let signature = response.text().await?;
-    assert!(!signature.is_empty(), "Signature should not be empty");
-
-    let expected_signature = "\"0xa43e623f009e615faa3987368f64d6286a4103de70e9a81d82562c50c91eae2d5d6fb9db9fe943aa8ee42fd92d8210c1149f25ed6aa72a557d74a0ed5646fdd0e8255ec58e3e2931695fe913863ba0cdf90d29f651bce0a34169a6f6ce5b3115\"";
-    assert_eq!(signature, expected_signature, "Signature does not match expected value");
+    let sig_response = response.json::<BlsSignResponse>().await?;
+    let expected = BlsSignResponse::new(
+        BlsPublicKey::from(PUBKEY_1),
+        object_root,
+        mod_cfgs.get(&module_id).unwrap().signing_id,
+        BlsSignature::from_hex("0xa43e623f009e615faa3987368f64d6286a4103de70e9a81d82562c50c91eae2d5d6fb9db9fe943aa8ee42fd92d8210c1149f25ed6aa72a557d74a0ed5646fdd0e8255ec58e3e2931695fe913863ba0cdf90d29f651bce0a34169a6f6ce5b3115").unwrap());
+    assert_eq!(sig_response, expected, "Signature response does not match expected value");
 
     Ok(())
 }
@@ -98,11 +105,22 @@ async fn test_signer_sign_request_different_module() -> Result<()> {
     assert!(response.status() == StatusCode::OK);
 
     // Verify the signature is returned
-    let signature = response.text().await?;
-    assert!(!signature.is_empty(), "Signature should not be empty");
-
-    let incorrect_signature = "\"0xa43e623f009e615faa3987368f64d6286a4103de70e9a81d82562c50c91eae2d5d6fb9db9fe943aa8ee42fd92d8210c1149f25ed6aa72a557d74a0ed5646fdd0e8255ec58e3e2931695fe913863ba0cdf90d29f651bce0a34169a6f6ce5b3115\"";
-    assert_ne!(signature, incorrect_signature, "Signature does not match expected value");
+    let sig_response = response.json::<BlsSignResponse>().await?;
+    assert_eq!(
+        sig_response.pubkey,
+        BlsPublicKey::from(PUBKEY_1),
+        "Public key does not match expected value"
+    );
+    assert_eq!(sig_response.object_root, object_root, "Object root does not match expected value");
+    assert_eq!(
+        sig_response.module_signing_id,
+        mod_cfgs.get(&module_id).unwrap().signing_id,
+        "Module signing ID does not match expected value"
+    );
+    assert_ne!(
+        sig_response.signature, BlsSignature::from_hex("0xa43e623f009e615faa3987368f64d6286a4103de70e9a81d82562c50c91eae2d5d6fb9db9fe943aa8ee42fd92d8210c1149f25ed6aa72a557d74a0ed5646fdd0e8255ec58e3e2931695fe913863ba0cdf90d29f651bce0a34169a6f6ce5b3115").unwrap(),
+        "Signature matches the reference signature, which should not happen"
+    );
 
     Ok(())
 }

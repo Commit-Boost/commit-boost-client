@@ -26,6 +26,7 @@ use cb_common::{
             EncryptionScheme, GenerateProxyRequest, GetPubkeysResponse, ReloadRequest,
             RevokeModuleRequest, SignConsensusRequest, SignProxyRequest,
         },
+        response::{BlsSignResponse, EcdsaSignResponse},
     },
     config::{ModuleSigningConfig, StartSignerConfig},
     constants::{COMMIT_BOOST_COMMIT, COMMIT_BOOST_VERSION},
@@ -314,11 +315,17 @@ async fn handle_request_signature_bls(
         SigningManager::Local(local_manager) => local_manager
             .sign_consensus(&request.pubkey, &request.object_root, Some(&signing_id))
             .await
-            .map(|sig| Json(sig).into_response()),
+            .map(|sig| {
+                Json(BlsSignResponse::new(request.pubkey, request.object_root, signing_id, sig))
+                    .into_response()
+            }),
         SigningManager::Dirk(dirk_manager) => dirk_manager
             .request_consensus_signature(&request.pubkey, &request.object_root, Some(&signing_id))
             .await
-            .map(|sig| Json(sig).into_response()),
+            .map(|sig| {
+                Json(BlsSignResponse::new(request.pubkey, request.object_root, signing_id, sig))
+                    .into_response()
+            }),
     };
 
     if let Err(err) = &res {
@@ -352,11 +359,17 @@ async fn handle_request_signature_proxy_bls(
         SigningManager::Local(local_manager) => local_manager
             .sign_proxy_bls(&request.proxy, &request.object_root, Some(&signing_id))
             .await
-            .map(|sig| Json(sig).into_response()),
+            .map(|sig| {
+                Json(BlsSignResponse::new(request.proxy, request.object_root, signing_id, sig))
+                    .into_response()
+            }),
         SigningManager::Dirk(dirk_manager) => dirk_manager
             .request_proxy_signature(&request.proxy, &request.object_root, Some(&signing_id))
             .await
-            .map(|sig| Json(sig).into_response()),
+            .map(|sig| {
+                Json(BlsSignResponse::new(request.proxy, request.object_root, signing_id, sig))
+                    .into_response()
+            }),
     };
 
     if let Err(err) = &res {
@@ -390,7 +403,10 @@ async fn handle_request_signature_proxy_ecdsa(
         SigningManager::Local(local_manager) => local_manager
             .sign_proxy_ecdsa(&request.proxy, &request.object_root, Some(&signing_id))
             .await
-            .map(|sig| Json(sig).into_response()),
+            .map(|sig| {
+                Json(EcdsaSignResponse::new(request.proxy, request.object_root, signing_id, sig))
+                    .into_response()
+            }),
         SigningManager::Dirk(_) => {
             error!(
                 event = "request_signature",
