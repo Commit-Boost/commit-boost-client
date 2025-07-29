@@ -63,7 +63,7 @@ struct SigningState {
 
     /// Map of modules ids to JWT configurations. This also acts as registry of
     /// all modules running
-    jwts: Arc<RwLock<HashMap<ModuleId, ModuleSigningConfig>>>,
+    jwts: Arc<ParkingRwLock<HashMap<ModuleId, ModuleSigningConfig>>>,
 
     /// Secret for the admin JWT
     admin_secret: Arc<ParkingRwLock<String>>,
@@ -88,7 +88,7 @@ impl SigningService {
 
         let state = SigningState {
             manager: Arc::new(RwLock::new(start_manager(config.clone()).await?)),
-            jwts: Arc::new(RwLock::new(config.mod_signing_configs)),
+            jwts: Arc::new(ParkingRwLock::new(config.mod_signing_configs)),
             admin_secret: Arc::new(ParkingRwLock::new(config.admin_secret)),
             jwt_auth_failures: Arc::new(ParkingRwLock::new(HashMap::new())),
             jwt_auth_fail_limit: config.jwt_auth_fail_limit,
@@ -229,7 +229,7 @@ async fn check_jwt_auth(
         SignerModuleError::Unauthorized
     })?;
 
-    let guard = state.jwts.read().await;
+    let guard = state.jwts.read();
     let jwt_config = guard.get(&module_id).ok_or_else(|| {
         error!("Unauthorized request. Was the module started correctly?");
         SignerModuleError::Unauthorized
@@ -299,8 +299,12 @@ async fn handle_request_signature(
     Json(request): Json<SignRequest>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
     let req_id = Uuid::new_v4();
-    let guard = state.jwts.read().await;
-    let signing_id = &guard[&module_id].signing_id;
+
+    let Some(signing_id) = state.jwts.read().get(&module_id).map(|m| m.signing_id) else {
+        error!(event = "request_signature", ?module_id, ?req_id, "Module signing ID not found");
+        return Err(SignerModuleError::Internal("Module signing ID not found".to_string()));
+    };
+
     debug!(event = "request_signature", ?module_id, %request, ?req_id, "New request");
 
     let manager = state.manager.read().await;
@@ -308,19 +312,19 @@ async fn handle_request_signature(
         SigningManager::Local(local_manager) => match request {
             SignRequest::Consensus(SignConsensusRequest { ref object_root, ref pubkey }) => {
                 local_manager
-                    .sign_consensus(pubkey, object_root, Some(signing_id))
+                    .sign_consensus(pubkey, object_root, Some(&signing_id))
                     .await
                     .map(|sig| Json(sig).into_response())
             }
             SignRequest::ProxyBls(SignProxyRequest { ref object_root, proxy: ref bls_key }) => {
                 local_manager
-                    .sign_proxy_bls(bls_key, object_root, Some(signing_id))
+                    .sign_proxy_bls(bls_key, object_root, Some(&signing_id))
                     .await
                     .map(|sig| Json(sig).into_response())
             }
             SignRequest::ProxyEcdsa(SignProxyRequest { ref object_root, proxy: ref ecdsa_key }) => {
                 local_manager
-                    .sign_proxy_ecdsa(ecdsa_key, object_root, Some(signing_id))
+                    .sign_proxy_ecdsa(ecdsa_key, object_root, Some(&signing_id))
                     .await
                     .map(|sig| Json(sig).into_response())
             }
@@ -328,13 +332,13 @@ async fn handle_request_signature(
         SigningManager::Dirk(dirk_manager) => match request {
             SignRequest::Consensus(SignConsensusRequest { ref object_root, ref pubkey }) => {
                 dirk_manager
-                    .request_consensus_signature(pubkey, object_root, Some(signing_id))
+                    .request_consensus_signature(pubkey, object_root, Some(&signing_id))
                     .await
                     .map(|sig| Json(sig).into_response())
             }
             SignRequest::ProxyBls(SignProxyRequest { ref object_root, proxy: ref bls_key }) => {
                 dirk_manager
-                    .request_proxy_signature(bls_key, object_root, Some(signing_id))
+                    .request_proxy_signature(bls_key, object_root, Some(&signing_id))
                     .await
                     .map(|sig| Json(sig).into_response())
             }
@@ -414,7 +418,7 @@ async fn handle_reload(
     };
 
     if let Some(jwt_secrets) = request.jwt_secrets {
-        let mut jwt_configs = state.jwts.write().await;
+        let mut jwt_configs = state.jwts.write();
         let mut new_configs = HashMap::new();
         for (module_id, jwt_secret) in jwt_secrets {
             let signing_id = jwt_configs.get(&module_id).map(|cfg| cfg.signing_id);
@@ -455,7 +459,7 @@ async fn handle_revoke_module(
     State(state): State<SigningState>,
     Json(request): Json<RevokeModuleRequest>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
-    let mut guard = state.jwts.write().await;
+    let mut guard = state.jwts.write();
     guard
         .remove(&request.module_id)
         .ok_or(SignerModuleError::ModuleIdNotFound)
