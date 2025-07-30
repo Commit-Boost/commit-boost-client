@@ -30,37 +30,6 @@ pub trait EthSpec {
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
-pub struct DenebSpec;
-
-impl EthSpec for DenebSpec {
-    type MaxValidatorsPerCommittee = typenum::U2048;
-    type MaxProposerSlashings = typenum::U16;
-    type MaxDeposits = typenum::U16;
-    type MaxVoluntaryExits = typenum::U16;
-    type SyncCommitteeSize = typenum::U512;
-    type MaxExtraDataBytes = typenum::U32;
-    type MaxBlobCommitmentsPerBlock = typenum::U4096;
-    type BytesPerLogsBloom = typenum::U256;
-    type MaxBlsToExecutionChanges = typenum::U16;
-    type MaxWithdrawalsPerPayload = typenum::U16;
-    type MaxBytesPerTransaction = typenum::U1073741824;
-    type MaxTransactionsPerPayload = typenum::U1048576;
-    type BytesPerBlob = typenum::U131072;
-    type MaxCommitteesPerSlot = typenum::U64;
-
-    // Updated in Electra
-    type MaxAttesterSlashings = typenum::U2;
-    type MaxAttestations = typenum::U128;
-
-    // Electra
-    type MaxValidatorsPerSlot = typenum::U131072;
-
-    type MaxConsolidationRequestsPerPayload = typenum::U0;
-    type MaxDepositRequestsPerPayload = typenum::U0;
-    type MaxWithdrawalRequestsPerPayload = typenum::U0;
-}
-
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ElectraSpec;
 
 impl EthSpec for ElectraSpec {

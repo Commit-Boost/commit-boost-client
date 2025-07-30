@@ -31,23 +31,20 @@ pub mod quoted_variable_list_u64 {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "version", content = "data")]
-pub enum VersionedResponse<D, E> {
-    #[serde(rename = "deneb")]
-    Deneb(D),
+pub enum VersionedResponse<E> {
     #[serde(rename = "electra")]
     Electra(E),
 }
 
-impl<D: Default, E> Default for VersionedResponse<D, E> {
+impl<E: Default> Default for VersionedResponse<E> {
     fn default() -> Self {
-        Self::Deneb(D::default())
+        Self::Electra(E::default())
     }
 }
 
-impl<D, E> VersionedResponse<D, E> {
+impl<E> VersionedResponse<E> {
     pub fn version(&self) -> &str {
         match self {
-            VersionedResponse::Deneb(_) => "deneb",
             VersionedResponse::Electra(_) => "electra",
         }
     }
