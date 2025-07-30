@@ -30,7 +30,7 @@ use crate::{
     config::LogsSettings,
     constants::SIGNER_JWT_EXPIRATION,
     pbs::HEADER_VERSION_VALUE,
-    types::{Chain, Jwt, JwtClaims, ModuleId},
+    types::{Chain, Jwt, JwtAdmin, JwtClaims, ModuleId},
 };
 
 const MILLIS_PER_SECOND: u64 = 1_000;
@@ -403,6 +403,24 @@ pub fn validate_jwt(jwt: Jwt, secret: &str) -> eyre::Result<()> {
     )
     .map(|_| ())
     .map_err(From::from)
+}
+
+/// Validate an admin JWT with the given secret
+pub fn validate_admin_jwt(jwt: Jwt, secret: &str) -> eyre::Result<()> {
+    let mut validation = jsonwebtoken::Validation::default();
+    validation.leeway = 10;
+
+    let token = jsonwebtoken::decode::<JwtAdmin>(
+        jwt.as_str(),
+        &jsonwebtoken::DecodingKey::from_secret(secret.as_ref()),
+        &validation,
+    )?;
+
+    if token.claims.admin {
+        Ok(())
+    } else {
+        eyre::bail!("Token is not admin")
+    }
 }
 
 /// Generates a random string
