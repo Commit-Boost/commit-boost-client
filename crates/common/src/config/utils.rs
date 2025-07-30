@@ -5,7 +5,7 @@ use eyre::{bail, Context, Result};
 use serde::de::DeserializeOwned;
 
 use crate::{
-    config::{JWTS_ENV, MUXER_HTTP_MAX_LENGTH},
+    config::{ADMIN_JWT_ENV, JWTS_ENV, MUXER_HTTP_MAX_LENGTH},
     types::ModuleId,
     utils::read_chunked_body_with_max,
 };
@@ -29,9 +29,10 @@ pub fn load_file_from_env<T: DeserializeOwned>(env: &str) -> Result<T> {
 }
 
 /// Loads a map of module id -> jwt secret from a json env
-pub fn load_jwt_secrets() -> Result<HashMap<ModuleId, String>> {
+pub fn load_jwt_secrets() -> Result<(String, HashMap<ModuleId, String>)> {
+    let admin_jwt = std::env::var(ADMIN_JWT_ENV).wrap_err(format!("{ADMIN_JWT_ENV} is not set"))?;
     let jwt_secrets = std::env::var(JWTS_ENV).wrap_err(format!("{JWTS_ENV} is not set"))?;
-    decode_string_to_map(&jwt_secrets)
+    decode_string_to_map(&jwt_secrets).map(|secrets| (admin_jwt, secrets))
 }
 
 /// Reads an HTTP response safely, erroring out if it failed or if the body is
@@ -74,7 +75,7 @@ pub fn remove_duplicate_keys(keys: Vec<BlsPublicKey>) -> Vec<BlsPublicKey> {
     unique_keys
 }
 
-fn decode_string_to_map(raw: &str) -> Result<HashMap<ModuleId, String>> {
+pub fn decode_string_to_map(raw: &str) -> Result<HashMap<ModuleId, String>> {
     // trim the string and split for comma
     raw.trim()
         .split(',')

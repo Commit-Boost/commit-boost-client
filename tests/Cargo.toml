@@ -11,6 +11,7 @@ cb-common.workspace = true
 cb-pbs.workspace = true
 cb-signer.workspace = true
 eyre.workspace = true
+jsonwebtoken.workspace = true
 reqwest.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true

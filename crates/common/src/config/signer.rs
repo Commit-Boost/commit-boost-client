@@ -165,6 +165,7 @@ pub struct StartSignerConfig {
     pub store: Option<ProxyStore>,
     pub endpoint: SocketAddr,
     pub mod_signing_configs: HashMap<ModuleId, ModuleSigningConfig>,
+    pub admin_secret: String,
     pub jwt_auth_fail_limit: u32,
     pub jwt_auth_fail_timeout_seconds: u32,
     pub dirk: Option<DirkConfig>,
@@ -174,7 +175,7 @@ impl StartSignerConfig {
     pub fn load_from_env() -> Result<Self> {
         let config = CommitBoostConfig::from_env_path()?;
 
-        let jwt_secrets = load_jwt_secrets()?;
+        let (admin_secret, jwt_secrets) = load_jwt_secrets()?;
 
         // Load the module signing configs
         let mod_signing_configs = load_module_signing_configs(&config, &jwt_secrets)
@@ -213,6 +214,7 @@ impl StartSignerConfig {
                 loader: Some(loader),
                 endpoint,
                 mod_signing_configs,
+                admin_secret,
                 jwt_auth_fail_limit,
                 jwt_auth_fail_timeout_seconds,
                 store,
@@ -243,6 +245,7 @@ impl StartSignerConfig {
                     chain: config.chain,
                     endpoint,
                     mod_signing_configs,
+                    admin_secret,
                     jwt_auth_fail_limit,
                     jwt_auth_fail_timeout_seconds,
                     loader: None,
