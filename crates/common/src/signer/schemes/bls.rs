@@ -1,5 +1,5 @@
-use alloy::rpc::types::beacon::constants::BLS_DST_SIG;
 pub use alloy::rpc::types::beacon::BlsSignature;
+use alloy::{primitives::B256, rpc::types::beacon::constants::BLS_DST_SIG};
 use blst::BLST_ERROR;
 use tree_hash::TreeHash;
 
@@ -32,17 +32,17 @@ impl BlsSigner {
         }
     }
 
-    pub fn secret(&self) -> [u8; 32] {
+    pub fn secret(&self) -> B256 {
         match self {
-            BlsSigner::Local(secret) => secret.clone().to_bytes(),
+            BlsSigner::Local(secret) => B256::from(secret.clone().to_bytes()),
         }
     }
 
     pub async fn sign(
         &self,
         chain: Chain,
-        object_root: [u8; 32],
-        module_signing_id: Option<[u8; 32]>,
+        object_root: &B256,
+        module_signing_id: Option<&B256>,
     ) -> BlsSignature {
         match self {
             BlsSigner::Local(sk) => {
@@ -55,9 +55,9 @@ impl BlsSigner {
         &self,
         chain: Chain,
         msg: &impl TreeHash,
-        module_signing_id: Option<[u8; 32]>,
+        module_signing_id: Option<&B256>,
     ) -> BlsSignature {
-        self.sign(chain, msg.tree_hash_root().0, module_signing_id).await
+        self.sign(chain, &msg.tree_hash_root(), module_signing_id).await
     }
 }
 

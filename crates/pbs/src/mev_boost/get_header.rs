@@ -4,7 +4,7 @@ use std::{
 };
 
 use alloy::{
-    primitives::{utils::format_ether, B256, U256},
+    primitives::{aliases::B32, utils::format_ether, B256, U256},
     providers::Provider,
     rpc::types::{beacon::BlsPublicKey, Block},
 };
@@ -474,7 +474,7 @@ fn validate_signature<T: TreeHash>(
         &message,
         signature,
         None,
-        APPLICATION_BUILDER_DOMAIN,
+        &B32::from(APPLICATION_BUILDER_DOMAIN),
     )
     .map_err(ValidationError::Sigverify)?;
 

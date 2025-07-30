@@ -19,7 +19,7 @@ use tracing::info;
 async fn test_get_status() -> Result<()> {
     setup_test_env();
     let signer = random_secret();
-    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk()).into();
+    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk());
 
     let chain = Chain::Holesky;
     let pbs_port = 3500;
@@ -55,7 +55,7 @@ async fn test_get_status() -> Result<()> {
 async fn test_get_status_returns_502_if_relay_down() -> Result<()> {
     setup_test_env();
     let signer = random_secret();
-    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk()).into();
+    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk());
 
     let chain = Chain::Holesky;
     let pbs_port = 3600;
