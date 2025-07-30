@@ -421,19 +421,19 @@ async fn handle_reload(
         let mut jwt_configs = state.jwts.write();
         let mut new_configs = HashMap::new();
         for (module_id, jwt_secret) in jwt_secrets {
-            let signing_id = jwt_configs.get(&module_id).map(|cfg| cfg.signing_id);
-            if signing_id.is_none() {
+            if let Some(signing_id) = jwt_configs.get(&module_id).map(|cfg| cfg.signing_id) {
+                new_configs.insert(module_id.clone(), ModuleSigningConfig {
+                    module_name: module_id,
+                    jwt_secret,
+                    signing_id,
+                });
+            } else {
                 let error_message = format!(
                     "Module {module_id} signing ID not found in commit-boost config, cannot reload"
                 );
                 error!(event = "reload", ?req_id, module_id = %module_id, error = %error_message);
                 return Err(SignerModuleError::RequestError(error_message));
             }
-            new_configs.insert(module_id.clone(), ModuleSigningConfig {
-                module_name: module_id,
-                jwt_secret,
-                signing_id: signing_id.unwrap(),
-            });
         }
         *jwt_configs = new_configs;
     }
