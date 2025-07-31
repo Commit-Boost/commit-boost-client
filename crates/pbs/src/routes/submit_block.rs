@@ -1,6 +1,6 @@
 use axum::{extract::State, http::HeaderMap, response::IntoResponse, Json};
 use cb_common::{
-    pbs::{BuilderEvent, SignedBlindedBeaconBlock},
+    pbs::{BuilderApiVersion, BuilderEvent, SignedBlindedBeaconBlock},
     utils::{get_user_agent, timestamp_of_slot_start_millis, utcnow_ms},
 };
 use reqwest::StatusCode;
@@ -14,11 +14,41 @@ use crate::{
     state::{BuilderApiState, PbsStateGuard},
 };
 
-pub async fn handle_submit_block<S: BuilderApiState, A: BuilderApi<S>>(
+pub async fn handle_submit_block_v1<S: BuilderApiState, A: BuilderApi<S>>(
+    state: State<PbsStateGuard<S>>,
+    req_headers: HeaderMap,
+    signed_blinded_block: Json<SignedBlindedBeaconBlock>,
+) -> Result<impl IntoResponse, PbsClientError> {
+    handle_submit_block_impl::<S, A>(
+        state,
+        req_headers,
+        signed_blinded_block,
+        BuilderApiVersion::V1,
+    )
+    .await
+}
+
+pub async fn handle_submit_block_v2<S: BuilderApiState, A: BuilderApi<S>>(
+    state: State<PbsStateGuard<S>>,
+    req_headers: HeaderMap,
+    signed_blinded_block: Json<SignedBlindedBeaconBlock>,
+) -> Result<impl IntoResponse, PbsClientError> {
+    handle_submit_block_impl::<S, A>(
+        state,
+        req_headers,
+        signed_blinded_block,
+        BuilderApiVersion::V2,
+    )
+    .await
+}
+
+async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
     State(state): State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
     Json(signed_blinded_block): Json<SignedBlindedBeaconBlock>,
+    api_version: BuilderApiVersion,
 ) -> Result<impl IntoResponse, PbsClientError> {
+    tracing::Span::current().record("block_api_version", api_version.to_string());
     tracing::Span::current().record("slot", signed_blinded_block.slot());
     tracing::Span::current()
         .record("block_hash", tracing::field::debug(signed_blinded_block.block_hash()));
@@ -28,7 +58,10 @@ pub async fn handle_submit_block<S: BuilderApiState, A: BuilderApi<S>>(
 
     let state = state.read().clone();
 
-    state.publish_event(BuilderEvent::SubmitBlockRequest(Box::new(signed_blinded_block.clone())));
+    state.publish_event(BuilderEvent::SubmitBlockRequest(
+        Box::new(signed_blinded_block.clone()),
+        api_version.clone(),
+    ));
 
     let now = utcnow_ms();
     let slot = signed_blinded_block.slot();
@@ -38,14 +71,29 @@ pub async fn handle_submit_block<S: BuilderApiState, A: BuilderApi<S>>(
 
     info!(ua, ms_into_slot = now.saturating_sub(slot_start_ms), "new request");
 
-    match A::submit_block(signed_blinded_block, req_headers, state.clone()).await {
+    match A::submit_block(signed_blinded_block, req_headers, state.clone(), &api_version).await {
         Ok(res) => {
             trace!(?res);
-            state.publish_event(BuilderEvent::SubmitBlockResponse(Box::new(res.clone())));
+            state.publish_event(BuilderEvent::SubmitBlockResponse(
+                Box::new(res.clone()),
+                api_version.clone(),
+            ));
             info!("received unblinded block");
 
-            BEACON_NODE_STATUS.with_label_values(&["200", SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG]).inc();
-            Ok((StatusCode::OK, Json(res).into_response()))
+            match api_version {
+                BuilderApiVersion::V1 => {
+                    BEACON_NODE_STATUS
+                        .with_label_values(&["200", SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG])
+                        .inc();
+                    Ok((StatusCode::OK, Json(res).into_response()))
+                }
+                BuilderApiVersion::V2 => {
+                    BEACON_NODE_STATUS
+                        .with_label_values(&["202", SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG])
+                        .inc();
+                    Ok((StatusCode::ACCEPTED, "".into_response()))
+                }
+            }
         }
 
         Err(err) => {

@@ -4,8 +4,8 @@ use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
     pbs::{
         error::{PbsError, ValidationError},
-        BlindedBeaconBlock, BlindedBeaconBlockElectra, PayloadAndBlobsElectra, RelayClient,
-        SignedBlindedBeaconBlock, SubmitBlindedBlockResponse, VersionedResponse,
+        BlindedBeaconBlock, BlindedBeaconBlockElectra, BuilderApiVersion, PayloadAndBlobsElectra,
+        RelayClient, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse, VersionedResponse,
         HEADER_START_TIME_UNIX_MS,
     },
     utils::{get_user_agent_with_version, read_chunked_body_with_max, utcnow_ms},
@@ -23,11 +23,14 @@ use crate::{
     state::{BuilderApiState, PbsState},
 };
 
-/// Implements https://ethereum.github.io/builder-specs/#/Builder/submitBlindedBlock
+/// Implements https://ethereum.github.io/builder-specs/#/Builder/submitBlindedBlock and
+/// https://ethereum.github.io/builder-specs/#/Builder/submitBlindedBlockV2. Use `api_version` to
+/// distinguish between the two.
 pub async fn submit_block<S: BuilderApiState>(
     signed_blinded_block: SignedBlindedBeaconBlock,
     req_headers: HeaderMap,
     state: PbsState<S>,
+    api_version: &BuilderApiVersion,
 ) -> eyre::Result<SubmitBlindedBlockResponse> {
     // prepare headers
     let mut send_headers = HeaderMap::new();
@@ -42,6 +45,7 @@ pub async fn submit_block<S: BuilderApiState>(
             relay,
             send_headers.clone(),
             state.pbs_config().timeout_get_payload_ms,
+            api_version,
         )));
     }
 
@@ -59,8 +63,9 @@ async fn submit_block_with_timeout(
     relay: &RelayClient,
     headers: HeaderMap,
     timeout_ms: u64,
+    api_version: &BuilderApiVersion,
 ) -> Result<SubmitBlindedBlockResponse, PbsError> {
-    let url = relay.submit_block_url()?;
+    let url = relay.submit_block_url(api_version.clone())?;
     let mut remaining_timeout_ms = timeout_ms;
     let mut retry = 0;
     let mut backoff = Duration::from_millis(250);
@@ -74,6 +79,7 @@ async fn submit_block_with_timeout(
             headers.clone(),
             remaining_timeout_ms,
             retry,
+            *api_version == BuilderApiVersion::V1, // only validate unblinded block for v1
         )
         .await
         {
@@ -107,6 +113,7 @@ async fn send_submit_block(
     headers: HeaderMap,
     timeout_ms: u64,
     retry: u32,
+    validate_unblinded_block: bool,
 ) -> Result<SubmitBlindedBlockResponse, PbsError> {
     let start_request = Instant::now();
     let res = match relay
@@ -180,12 +187,14 @@ async fn send_submit_block(
 
     // request has different type so cant be deserialized in the wrong version,
     // response has a "version" field
-    match (&signed_blinded_block.message, &block_response) {
-        (
-            BlindedBeaconBlock::Electra(signed_blinded_block),
-            VersionedResponse::Electra(block_response),
-        ) => validate_unblinded_block_electra(signed_blinded_block, block_response),
-    }?;
+    if validate_unblinded_block {
+        match (&signed_blinded_block.message, &block_response) {
+            (
+                BlindedBeaconBlock::Electra(signed_blinded_block),
+                VersionedResponse::Electra(block_response),
+            ) => validate_unblinded_block_electra(signed_blinded_block, block_response),
+        }?;
+    }
 
     Ok(block_response)
 }

@@ -10,11 +10,11 @@ use serde::{Deserialize, Serialize};
 use url::Url;
 
 use super::{
-    constants::{BUILDER_API_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH},
+    constants::{GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH},
     error::PbsError,
     HEADER_VERSION_KEY, HEADER_VERSION_VALUE,
 };
-use crate::{config::RelayConfig, DEFAULT_REQUEST_TIMEOUT};
+use crate::{config::RelayConfig, pbs::BuilderApiVersion, DEFAULT_REQUEST_TIMEOUT};
 
 /// A parsed entry of the relay url in the format: scheme://pubkey@host
 #[derive(Debug, Clone)]
@@ -101,8 +101,12 @@ impl RelayClient {
 
         Ok(url)
     }
-    pub fn builder_api_url(&self, path: &str) -> Result<Url, PbsError> {
-        self.get_url(&format!("{BUILDER_API_PATH}{path}"))
+    pub fn builder_api_url(
+        &self,
+        path: &str,
+        api_version: BuilderApiVersion,
+    ) -> Result<Url, PbsError> {
+        self.get_url(&format!("{}{path}", api_version.path()))
     }
 
     pub fn get_header_url(
@@ -111,19 +115,22 @@ impl RelayClient {
         parent_hash: B256,
         validator_pubkey: BlsPublicKey,
     ) -> Result<Url, PbsError> {
-        self.builder_api_url(&format!("/header/{slot}/{parent_hash}/{validator_pubkey}"))
+        self.builder_api_url(
+            &format!("/header/{slot}/{parent_hash}/{validator_pubkey}"),
+            BuilderApiVersion::V1,
+        )
     }
 
     pub fn get_status_url(&self) -> Result<Url, PbsError> {
-        self.builder_api_url(GET_STATUS_PATH)
+        self.builder_api_url(GET_STATUS_PATH, BuilderApiVersion::V1)
     }
 
     pub fn register_validator_url(&self) -> Result<Url, PbsError> {
-        self.builder_api_url(REGISTER_VALIDATOR_PATH)
+        self.builder_api_url(REGISTER_VALIDATOR_PATH, BuilderApiVersion::V1)
     }
 
-    pub fn submit_block_url(&self) -> Result<Url, PbsError> {
-        self.builder_api_url(SUBMIT_BLOCK_PATH)
+    pub fn submit_block_url(&self, api_version: BuilderApiVersion) -> Result<Url, PbsError> {
+        self.builder_api_url(SUBMIT_BLOCK_PATH, api_version)
     }
 }
 

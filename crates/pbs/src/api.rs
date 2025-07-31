@@ -2,7 +2,8 @@ use alloy::rpc::types::beacon::relay::ValidatorRegistration;
 use async_trait::async_trait;
 use axum::{http::HeaderMap, Router};
 use cb_common::pbs::{
-    GetHeaderParams, GetHeaderResponse, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
+    BuilderApiVersion, GetHeaderParams, GetHeaderResponse, SignedBlindedBeaconBlock,
+    SubmitBlindedBlockResponse,
 };
 
 use crate::{
@@ -31,13 +32,15 @@ pub trait BuilderApi<S: BuilderApiState>: 'static {
         mev_boost::get_status(req_headers, state).await
     }
 
-    /// https://ethereum.github.io/builder-specs/#/Builder/submitBlindedBlock
+    /// https://ethereum.github.io/builder-specs/#/Builder/submitBlindedBlock and
+    /// https://ethereum.github.io/builder-specs/#/Builder/submitBlindedBlockV2
     async fn submit_block(
         signed_blinded_block: SignedBlindedBeaconBlock,
         req_headers: HeaderMap,
         state: PbsState<S>,
+        api_version: &BuilderApiVersion,
     ) -> eyre::Result<SubmitBlindedBlockResponse> {
-        mev_boost::submit_block(signed_blinded_block, req_headers, state).await
+        mev_boost::submit_block(signed_blinded_block, req_headers, state, api_version).await
     }
 
     /// https://ethereum.github.io/builder-specs/#/Builder/registerValidator
