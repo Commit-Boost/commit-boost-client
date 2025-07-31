@@ -99,7 +99,7 @@ impl DaCommitService {
             &pubkey,
             &datagram,
             &response.signature,
-            DA_COMMIT_SIGNING_ID,
+            &DA_COMMIT_SIGNING_ID,
         ) {
             Ok(_) => info!("Signature verified successfully"),
             Err(err) => error!(%err, "Signature verification failed"),
@@ -115,7 +115,7 @@ impl DaCommitService {
             &proxy_bls,
             &datagram,
             &proxy_response_bls.signature,
-            DA_COMMIT_SIGNING_ID,
+            &DA_COMMIT_SIGNING_ID,
         ) {
             Ok(_) => info!("Signature verified successfully"),
             Err(err) => error!(%err, "Signature verification failed"),
@@ -135,7 +135,7 @@ impl DaCommitService {
                 &proxy_ecdsa,
                 &datagram,
                 &proxy_response_ecdsa.signature,
-                DA_COMMIT_SIGNING_ID,
+                &DA_COMMIT_SIGNING_ID,
             ) {
                 Ok(_) => info!("Signature verified successfully"),
                 Err(err) => error!(%err, "Signature verification failed"),

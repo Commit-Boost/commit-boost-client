@@ -1,12 +1,16 @@
 use std::{collections::HashMap, io::Write, path::PathBuf};
 
-use alloy::{hex, primitives::B256, rpc::types::beacon::constants::BLS_SIGNATURE_BYTES_LEN};
+use alloy::{
+    hex,
+    primitives::{aliases::B32, B256},
+    rpc::types::beacon::constants::BLS_SIGNATURE_BYTES_LEN,
+};
 use blsful::inner_types::{Field, G2Affine, G2Projective, Group, Scalar};
 use cb_common::{
     commit::request::{ConsensusProxyMap, ProxyDelegation, SignedProxyDelegation},
     config::{DirkConfig, DirkHostConfig},
     constants::COMMIT_BOOST_DOMAIN,
-    signature::{compute_domain, compute_signing_root},
+    signature::{compute_domain, compute_tree_hash_root},
     signer::{BlsPublicKey, BlsSignature, ProxyStore},
     types::{self, Chain, ModuleId},
 };
@@ -192,7 +196,7 @@ impl DirkManager {
     pub async fn request_consensus_signature(
         &self,
         pubkey: &BlsPublicKey,
-        object_root: &[u8; 32],
+        object_root: &B256,
         module_signing_id: Option<&B256>,
     ) -> Result<BlsSignature, SignerModuleError> {
         match self.consensus_accounts.get(pubkey) {
@@ -210,7 +214,7 @@ impl DirkManager {
     pub async fn request_proxy_signature(
         &self,
         pubkey: &BlsPublicKey,
-        object_root: &[u8; 32],
+        object_root: &B256,
         module_signing_id: Option<&B256>,
     ) -> Result<BlsSignature, SignerModuleError> {
         match self.proxy_accounts.get(pubkey) {
@@ -228,15 +232,15 @@ impl DirkManager {
     async fn request_simple_signature(
         &self,
         account: &SimpleAccount,
-        object_root: &[u8; 32],
+        object_root: &B256,
         module_signing_id: Option<&B256>,
     ) -> Result<BlsSignature, SignerModuleError> {
-        let domain = compute_domain(self.chain, COMMIT_BOOST_DOMAIN);
+        let domain = compute_domain(self.chain, &B32::from(COMMIT_BOOST_DOMAIN));
 
         let data = match module_signing_id {
-            Some(id) => compute_signing_root(&types::PropCommitSigningInfo {
+            Some(id) => compute_tree_hash_root(&types::PropCommitSigningInfo {
                 data: *object_root,
-                module_signing_id: id.0,
+                module_signing_id: *id,
             })
             .to_vec(),
             None => object_root.to_vec(),
@@ -268,16 +272,16 @@ impl DirkManager {
     async fn request_distributed_signature(
         &self,
         account: &DistributedAccount,
-        object_root: &[u8; 32],
+        object_root: &B256,
         module_signing_id: Option<&B256>,
     ) -> Result<BlsSignature, SignerModuleError> {
         let mut partials = Vec::with_capacity(account.participants.len());
         let mut requests = Vec::with_capacity(account.participants.len());
 
         let data = match module_signing_id {
-            Some(id) => compute_signing_root(&types::PropCommitSigningInfo {
+            Some(id) => compute_tree_hash_root(&types::PropCommitSigningInfo {
                 data: *object_root,
-                module_signing_id: id.0,
+                module_signing_id: *id,
             })
             .to_vec(),
             None => object_root.to_vec(),
@@ -289,7 +293,8 @@ impl DirkManager {
                 SignerClient::new(channel.clone())
                     .sign(SignRequest {
                         data: data_copy,
-                        domain: compute_domain(self.chain, COMMIT_BOOST_DOMAIN).to_vec(),
+                        domain: compute_domain(self.chain, &B32::from(COMMIT_BOOST_DOMAIN))
+                            .to_vec(),
                         id: Some(sign_request::Id::Account(account.name.clone())),
                     })
                     .map(|res| (res, *id))
@@ -359,7 +364,7 @@ impl DirkManager {
         let message =
             ProxyDelegation { delegator: consensus, proxy: proxy_account.inner.public_key() };
         let delegation_signature =
-            self.request_consensus_signature(&consensus, &message.tree_hash_root().0, None).await?;
+            self.request_consensus_signature(&consensus, &message.tree_hash_root(), None).await?;
 
         let delegation = SignedProxyDelegation { message, signature: delegation_signature };
 

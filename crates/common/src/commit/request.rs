@@ -6,7 +6,7 @@ use std::{
 
 use alloy::{
     hex,
-    primitives::{Address, B256},
+    primitives::{aliases::B32, Address, B256},
     rpc::types::beacon::BlsSignature,
 };
 use serde::{Deserialize, Deserializer, Serialize};
@@ -62,7 +62,7 @@ impl<T: ProxyId> SignedProxyDelegation<T> {
             &self.message,
             &self.signature,
             None,
-            COMMIT_BOOST_DOMAIN,
+            &B32::from(COMMIT_BOOST_DOMAIN),
         )
     }
 }

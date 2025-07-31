@@ -94,7 +94,7 @@ pub struct ExecutionPayloadHeaderMessageElectra {
 
 #[cfg(test)]
 mod tests {
-    use alloy::primitives::U256;
+    use alloy::primitives::{aliases::B32, U256};
 
     use super::*;
     use crate::{
@@ -177,7 +177,7 @@ mod tests {
             &parsed.message,
             &parsed.signature,
             None,
-            APPLICATION_BUILDER_DOMAIN
+            &B32::from(APPLICATION_BUILDER_DOMAIN)
         )
         .is_ok())
     }
