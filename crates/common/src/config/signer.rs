@@ -12,15 +12,13 @@ use url::Url;
 
 use super::{
     load_jwt_secrets, load_optional_env_var, utils::load_env_var, CommitBoostConfig,
-    SIGNER_ENDPOINT_ENV, SIGNER_IMAGE_DEFAULT, SIGNER_JWT_AUTH_FAIL_LIMIT_ENV,
-    SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_ENV,
+    SIGNER_ENDPOINT_ENV, SIGNER_IMAGE_DEFAULT, SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT,
+    SIGNER_JWT_AUTH_FAIL_LIMIT_ENV, SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT,
+    SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_ENV, SIGNER_PORT_DEFAULT,
 };
 use crate::{
     config::{DIRK_CA_CERT_ENV, DIRK_CERT_ENV, DIRK_DIR_SECRETS_ENV, DIRK_KEY_ENV},
-    signer::{
-        ProxyStore, SignerLoader, DEFAULT_JWT_AUTH_FAIL_LIMIT,
-        DEFAULT_JWT_AUTH_FAIL_TIMEOUT_SECONDS, DEFAULT_SIGNER_PORT,
-    },
+    signer::{ProxyStore, SignerLoader},
     types::{Chain, ModuleId},
     utils::{default_host, default_u16, default_u32},
 };
@@ -32,20 +30,20 @@ pub struct SignerConfig {
     #[serde(default = "default_host")]
     pub host: Ipv4Addr,
     /// Port to listen for signer API calls on
-    #[serde(default = "default_u16::<DEFAULT_SIGNER_PORT>")]
+    #[serde(default = "default_u16::<SIGNER_PORT_DEFAULT>")]
     pub port: u16,
     /// Docker image of the module
-    #[serde(default = "default_signer")]
+    #[serde(default = "default_signer_image")]
     pub docker_image: String,
 
     /// Number of JWT auth failures before rate limiting an endpoint
     /// If set to 0, no rate limiting will be applied
-    #[serde(default = "default_u32::<DEFAULT_JWT_AUTH_FAIL_LIMIT>")]
+    #[serde(default = "default_u32::<SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT>")]
     pub jwt_auth_fail_limit: u32,
 
     /// Duration in seconds to rate limit an endpoint after the JWT auth failure
     /// limit has been reached
-    #[serde(default = "default_u32::<DEFAULT_JWT_AUTH_FAIL_TIMEOUT_SECONDS>")]
+    #[serde(default = "default_u32::<SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT>")]
     pub jwt_auth_fail_timeout_seconds: u32,
 
     /// Inner type-specific configuration
@@ -70,7 +68,7 @@ impl SignerConfig {
     }
 }
 
-fn default_signer() -> String {
+fn default_signer_image() -> String {
     SIGNER_IMAGE_DEFAULT.to_string()
 }
 
