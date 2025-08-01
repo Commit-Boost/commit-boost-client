@@ -30,7 +30,8 @@ pub enum BuilderEvent {
     GetStatusEvent,
     GetStatusResponse,
     SubmitBlockRequest(Box<SignedBlindedBeaconBlock>, BuilderApiVersion),
-    SubmitBlockResponse(Box<SubmitBlindedBlockResponse>, BuilderApiVersion),
+    SubmitBlockResponseV1(Box<SubmitBlindedBlockResponse>),
+    SubmitBlockResponseV2,
     MissedPayload {
         /// Hash for the block for which no payload was received
         block_hash: B256,

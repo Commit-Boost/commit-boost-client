@@ -72,29 +72,29 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
     info!(ua, ms_into_slot = now.saturating_sub(slot_start_ms), "new request");
 
     match A::submit_block(signed_blinded_block, req_headers, state.clone(), &api_version).await {
-        Ok(res) => {
-            trace!(?res);
-            state.publish_event(BuilderEvent::SubmitBlockResponse(
-                Box::new(res.clone()),
-                api_version.clone(),
-            ));
-            info!("received unblinded block");
+        Ok(res) => match res {
+            Some(block_response) => {
+                trace!(?block_response);
+                state.publish_event(BuilderEvent::SubmitBlockResponseV1(Box::new(
+                    block_response.clone(),
+                )));
+                info!("received unblinded block (v1)");
 
-            match api_version {
-                BuilderApiVersion::V1 => {
-                    BEACON_NODE_STATUS
-                        .with_label_values(&["200", SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG])
-                        .inc();
-                    Ok((StatusCode::OK, Json(res).into_response()))
-                }
-                BuilderApiVersion::V2 => {
-                    BEACON_NODE_STATUS
-                        .with_label_values(&["202", SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG])
-                        .inc();
-                    Ok((StatusCode::ACCEPTED, "".into_response()))
-                }
+                BEACON_NODE_STATUS
+                    .with_label_values(&["200", SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG])
+                    .inc();
+                Ok((StatusCode::OK, Json(block_response).into_response()))
             }
-        }
+            None => {
+                state.publish_event(BuilderEvent::SubmitBlockResponseV2);
+                info!("received unblinded block (v2)");
+
+                BEACON_NODE_STATUS
+                    .with_label_values(&["202", SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG])
+                    .inc();
+                Ok((StatusCode::ACCEPTED, "".into_response()))
+            }
+        },
 
         Err(err) => {
             error!(%err, %block_hash, "CRITICAL: no payload received from relays. Check previous logs or use the Relay Data API");

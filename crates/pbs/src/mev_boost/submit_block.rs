@@ -31,7 +31,7 @@ pub async fn submit_block<S: BuilderApiState>(
     req_headers: HeaderMap,
     state: PbsState<S>,
     api_version: &BuilderApiVersion,
-) -> eyre::Result<SubmitBlindedBlockResponse> {
+) -> eyre::Result<Option<SubmitBlindedBlockResponse>> {
     // prepare headers
     let mut send_headers = HeaderMap::new();
     send_headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(utcnow_ms()));
@@ -64,7 +64,7 @@ async fn submit_block_with_timeout(
     headers: HeaderMap,
     timeout_ms: u64,
     api_version: &BuilderApiVersion,
-) -> Result<SubmitBlindedBlockResponse, PbsError> {
+) -> Result<Option<SubmitBlindedBlockResponse>, PbsError> {
     let url = relay.submit_block_url(api_version.clone())?;
     let mut remaining_timeout_ms = timeout_ms;
     let mut retry = 0;
@@ -79,7 +79,7 @@ async fn submit_block_with_timeout(
             headers.clone(),
             remaining_timeout_ms,
             retry,
-            *api_version == BuilderApiVersion::V1, // only validate unblinded block for v1
+            api_version,
         )
         .await
         {
@@ -113,8 +113,8 @@ async fn send_submit_block(
     headers: HeaderMap,
     timeout_ms: u64,
     retry: u32,
-    validate_unblinded_block: bool,
-) -> Result<SubmitBlindedBlockResponse, PbsError> {
+    api_version: &BuilderApiVersion,
+) -> Result<Option<SubmitBlindedBlockResponse>, PbsError> {
     let start_request = Instant::now();
     let res = match relay
         .client
@@ -158,6 +158,10 @@ async fn send_submit_block(
         warn!(relay_id = relay.id.as_ref(), retry, %err, "failed to get payload (this might be ok if other relays have it)");
         return Err(err);
     };
+    if api_version != &BuilderApiVersion::V1 {
+        // v2 response is going to be empty, so just break here
+        return Ok(None);
+    }
 
     let block_response = match serde_json::from_slice::<SubmitBlindedBlockResponse>(&response_bytes)
     {
@@ -187,16 +191,14 @@ async fn send_submit_block(
 
     // request has different type so cant be deserialized in the wrong version,
     // response has a "version" field
-    if validate_unblinded_block {
-        match (&signed_blinded_block.message, &block_response) {
-            (
-                BlindedBeaconBlock::Electra(signed_blinded_block),
-                VersionedResponse::Electra(block_response),
-            ) => validate_unblinded_block_electra(signed_blinded_block, block_response),
-        }?;
-    }
+    match (&signed_blinded_block.message, &block_response) {
+        (
+            BlindedBeaconBlock::Electra(signed_blinded_block),
+            VersionedResponse::Electra(block_response),
+        ) => validate_unblinded_block_electra(signed_blinded_block, block_response),
+    }?;
 
-    Ok(block_response)
+    Ok(Some(block_response))
 }
 
 fn validate_unblinded_block_electra(

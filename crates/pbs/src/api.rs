@@ -39,7 +39,7 @@ pub trait BuilderApi<S: BuilderApiState>: 'static {
         req_headers: HeaderMap,
         state: PbsState<S>,
         api_version: &BuilderApiVersion,
-    ) -> eyre::Result<SubmitBlindedBlockResponse> {
+    ) -> eyre::Result<Option<SubmitBlindedBlockResponse>> {
         mev_boost::submit_block(signed_blinded_block, req_headers, state, api_version).await
     }
 
