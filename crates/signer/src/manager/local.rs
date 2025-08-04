@@ -139,10 +139,7 @@ impl LocalSigningManager {
             .consensus_signers
             .get(pubkey)
             .ok_or(SignerModuleError::UnknownConsensusSigner(pubkey.to_vec()))?;
-        let signature = match module_signing_id {
-            Some(id) => signer.sign(self.chain, object_root, Some(id)).await,
-            None => signer.sign(self.chain, object_root, None).await,
-        };
+        let signature = signer.sign(self.chain, object_root, module_signing_id).await;
 
         Ok(signature)
     }
@@ -158,10 +155,7 @@ impl LocalSigningManager {
             .bls_signers
             .get(pubkey)
             .ok_or(SignerModuleError::UnknownProxySigner(pubkey.to_vec()))?;
-        let signature = match module_signing_id {
-            Some(id) => bls_proxy.sign(self.chain, object_root, Some(id)).await,
-            None => bls_proxy.sign(self.chain, object_root, None).await,
-        };
+        let signature = bls_proxy.sign(self.chain, object_root, module_signing_id).await;
         Ok(signature)
     }
 
@@ -176,10 +170,7 @@ impl LocalSigningManager {
             .ecdsa_signers
             .get(address)
             .ok_or(SignerModuleError::UnknownProxySigner(address.to_vec()))?;
-        let signature = match module_signing_id {
-            Some(id) => ecdsa_proxy.sign(self.chain, object_root, Some(id)).await?,
-            None => ecdsa_proxy.sign(self.chain, object_root, None).await?,
-        };
+        let signature = ecdsa_proxy.sign(self.chain, object_root, module_signing_id).await?;
         Ok(signature)
     }
 
