@@ -30,7 +30,7 @@ use cb_common::{
     },
     config::{ModuleSigningConfig, StartSignerConfig},
     constants::{COMMIT_BOOST_COMMIT, COMMIT_BOOST_VERSION},
-    types::{Chain, Jwt, ModuleId},
+    types::{Chain, Jwt, ModuleId, SignatureRequestInfo},
     utils::{decode_jwt, validate_admin_jwt, validate_jwt},
 };
 use cb_metrics::provider::MetricsProvider;
@@ -313,14 +313,22 @@ async fn handle_request_signature_bls(
     let manager = state.manager.read().await;
     let res = match &*manager {
         SigningManager::Local(local_manager) => local_manager
-            .sign_consensus(&request.pubkey, &request.object_root, Some(&signing_id))
+            .sign_consensus(
+                &request.pubkey,
+                &request.object_root,
+                Some(&SignatureRequestInfo { module_signing_id: signing_id, nonce: request.nonce }),
+            )
             .await
             .map(|sig| {
                 Json(BlsSignResponse::new(request.pubkey, request.object_root, signing_id, sig))
                     .into_response()
             }),
         SigningManager::Dirk(dirk_manager) => dirk_manager
-            .request_consensus_signature(&request.pubkey, &request.object_root, Some(&signing_id))
+            .request_consensus_signature(
+                &request.pubkey,
+                &request.object_root,
+                Some(&SignatureRequestInfo { module_signing_id: signing_id, nonce: request.nonce }),
+            )
             .await
             .map(|sig| {
                 Json(BlsSignResponse::new(request.pubkey, request.object_root, signing_id, sig))
@@ -357,14 +365,22 @@ async fn handle_request_signature_proxy_bls(
     let manager = state.manager.read().await;
     let res = match &*manager {
         SigningManager::Local(local_manager) => local_manager
-            .sign_proxy_bls(&request.proxy, &request.object_root, Some(&signing_id))
+            .sign_proxy_bls(
+                &request.proxy,
+                &request.object_root,
+                Some(&SignatureRequestInfo { module_signing_id: signing_id, nonce: request.nonce }),
+            )
             .await
             .map(|sig| {
                 Json(BlsSignResponse::new(request.proxy, request.object_root, signing_id, sig))
                     .into_response()
             }),
         SigningManager::Dirk(dirk_manager) => dirk_manager
-            .request_proxy_signature(&request.proxy, &request.object_root, Some(&signing_id))
+            .request_proxy_signature(
+                &request.proxy,
+                &request.object_root,
+                Some(&SignatureRequestInfo { module_signing_id: signing_id, nonce: request.nonce }),
+            )
             .await
             .map(|sig| {
                 Json(BlsSignResponse::new(request.proxy, request.object_root, signing_id, sig))
@@ -401,7 +417,11 @@ async fn handle_request_signature_proxy_ecdsa(
     let manager = state.manager.read().await;
     let res = match &*manager {
         SigningManager::Local(local_manager) => local_manager
-            .sign_proxy_ecdsa(&request.proxy, &request.object_root, Some(&signing_id))
+            .sign_proxy_ecdsa(
+                &request.proxy,
+                &request.object_root,
+                Some(&SignatureRequestInfo { module_signing_id: signing_id, nonce: request.nonce }),
+            )
             .await
             .map(|sig| {
                 Json(EcdsaSignResponse::new(request.proxy, request.object_root, signing_id, sig))

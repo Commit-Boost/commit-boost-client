@@ -2,7 +2,7 @@ use std::{collections::HashMap, io::Write, path::PathBuf};
 
 use alloy::{
     hex,
-    primitives::{aliases::B32, B256},
+    primitives::{aliases::B32, B256, B64},
     rpc::types::beacon::constants::BLS_SIGNATURE_BYTES_LEN,
 };
 use blsful::inner_types::{Field, G2Affine, G2Projective, Group, Scalar};
@@ -12,7 +12,8 @@ use cb_common::{
     constants::COMMIT_BOOST_DOMAIN,
     signature::{compute_domain, compute_tree_hash_root},
     signer::{BlsPublicKey, BlsSignature, ProxyStore},
-    types::{self, Chain, ModuleId},
+    types::{self, Chain, ModuleId, SignatureRequestInfo},
+    utils::FromU64,
 };
 use eyre::{bail, OptionExt};
 use futures::{future::join_all, stream::FuturesUnordered, FutureExt, StreamExt};
@@ -197,14 +198,15 @@ impl DirkManager {
         &self,
         pubkey: &BlsPublicKey,
         object_root: &B256,
-        module_signing_id: Option<&B256>,
+        signature_request_info: Option<&SignatureRequestInfo>,
     ) -> Result<BlsSignature, SignerModuleError> {
         match self.consensus_accounts.get(pubkey) {
             Some(Account::Simple(account)) => {
-                self.request_simple_signature(account, object_root, module_signing_id).await
+                self.request_simple_signature(account, object_root, signature_request_info).await
             }
             Some(Account::Distributed(account)) => {
-                self.request_distributed_signature(account, object_root, module_signing_id).await
+                self.request_distributed_signature(account, object_root, signature_request_info)
+                    .await
             }
             None => Err(SignerModuleError::UnknownConsensusSigner(pubkey.to_vec())),
         }
@@ -215,14 +217,15 @@ impl DirkManager {
         &self,
         pubkey: &BlsPublicKey,
         object_root: &B256,
-        module_signing_id: Option<&B256>,
+        signature_request_info: Option<&SignatureRequestInfo>,
     ) -> Result<BlsSignature, SignerModuleError> {
         match self.proxy_accounts.get(pubkey) {
             Some(ProxyAccount { inner: Account::Simple(account), .. }) => {
-                self.request_simple_signature(account, object_root, module_signing_id).await
+                self.request_simple_signature(account, object_root, signature_request_info).await
             }
             Some(ProxyAccount { inner: Account::Distributed(account), .. }) => {
-                self.request_distributed_signature(account, object_root, module_signing_id).await
+                self.request_distributed_signature(account, object_root, signature_request_info)
+                    .await
             }
             None => Err(SignerModuleError::UnknownProxySigner(pubkey.to_vec())),
         }
@@ -233,16 +236,20 @@ impl DirkManager {
         &self,
         account: &SimpleAccount,
         object_root: &B256,
-        module_signing_id: Option<&B256>,
+        signature_request_info: Option<&SignatureRequestInfo>,
     ) -> Result<BlsSignature, SignerModuleError> {
         let domain = compute_domain(self.chain, &B32::from(COMMIT_BOOST_DOMAIN));
 
-        let data = match module_signing_id {
-            Some(id) => compute_tree_hash_root(&types::PropCommitSigningInfo {
-                data: *object_root,
-                module_signing_id: *id,
-            })
-            .to_vec(),
+        let data = match signature_request_info {
+            Some(SignatureRequestInfo { module_signing_id, nonce }) => {
+                compute_tree_hash_root(&types::PropCommitSigningInfo {
+                    data: *object_root,
+                    module_signing_id: *module_signing_id,
+                    nonce: B64::from_u64(*nonce),
+                    chain_id: B256::from_u64(self.chain.id()),
+                })
+                .to_vec()
+            }
             None => object_root.to_vec(),
         };
 
@@ -273,17 +280,21 @@ impl DirkManager {
         &self,
         account: &DistributedAccount,
         object_root: &B256,
-        module_signing_id: Option<&B256>,
+        signature_request_info: Option<&SignatureRequestInfo>,
     ) -> Result<BlsSignature, SignerModuleError> {
         let mut partials = Vec::with_capacity(account.participants.len());
         let mut requests = Vec::with_capacity(account.participants.len());
 
-        let data = match module_signing_id {
-            Some(id) => compute_tree_hash_root(&types::PropCommitSigningInfo {
-                data: *object_root,
-                module_signing_id: *id,
-            })
-            .to_vec(),
+        let data = match signature_request_info {
+            Some(SignatureRequestInfo { module_signing_id, nonce }) => {
+                compute_tree_hash_root(&types::PropCommitSigningInfo {
+                    data: *object_root,
+                    module_signing_id: *module_signing_id,
+                    nonce: B64::from_u64(*nonce),
+                    chain_id: B256::from_u64(self.chain.id()),
+                })
+                .to_vec()
+            }
             None => object_root.to_vec(),
         };
 

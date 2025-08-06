@@ -62,7 +62,8 @@ async fn test_signer_sign_request_good() -> Result<()> {
 
     // Send a signing request
     let object_root = b256!("0x0123456789012345678901234567890123456789012345678901234567890123");
-    let request = SignConsensusRequest { pubkey: FixedBytes(PUBKEY_1), object_root };
+    let nonce: u64 = 101;
+    let request = SignConsensusRequest { pubkey: FixedBytes(PUBKEY_1), object_root, nonce };
     let jwt = create_jwt(&module_id, &jwt_config.jwt_secret)?;
     let client = reqwest::Client::new();
     let url = format!("http://{}{}", start_config.endpoint, REQUEST_SIGNATURE_BLS_PATH);
@@ -95,7 +96,8 @@ async fn test_signer_sign_request_different_module() -> Result<()> {
 
     // Send a signing request
     let object_root = b256!("0x0123456789012345678901234567890123456789012345678901234567890123");
-    let request = SignConsensusRequest { pubkey: FixedBytes(PUBKEY_1), object_root };
+    let nonce: u64 = 102;
+    let request = SignConsensusRequest { pubkey: FixedBytes(PUBKEY_1), object_root, nonce };
     let jwt = create_jwt(&module_id, &jwt_config.jwt_secret)?;
     let client = reqwest::Client::new();
     let url = format!("http://{}{}", start_config.endpoint, REQUEST_SIGNATURE_BLS_PATH);

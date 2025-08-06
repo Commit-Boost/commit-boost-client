@@ -1,7 +1,7 @@
 use std::{ops::Deref, str::FromStr};
 
 use alloy::{
-    primitives::{aliases::B32, Address, PrimitiveSignature, B256},
+    primitives::{aliases::B32, Address, PrimitiveSignature, B256, B64},
     signers::{local::PrivateKeySigner, SignerSync},
 };
 use eyre::ensure;
@@ -10,7 +10,8 @@ use tree_hash::TreeHash;
 use crate::{
     constants::COMMIT_BOOST_DOMAIN,
     signature::{compute_domain, compute_tree_hash_root},
-    types::{self, Chain},
+    types::{self, Chain, SignatureRequestInfo},
+    utils::FromU64,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -87,17 +88,19 @@ impl EcdsaSigner {
         &self,
         chain: Chain,
         object_root: &B256,
-        module_signing_id: Option<&B256>,
+        signature_request_info: Option<&SignatureRequestInfo>,
     ) -> Result<EcdsaSignature, alloy::signers::Error> {
         match self {
             EcdsaSigner::Local(sk) => {
                 let domain = compute_domain(chain, &B32::from(COMMIT_BOOST_DOMAIN));
-                let signing_root = match module_signing_id {
-                    Some(id) => {
+                let signing_root = match signature_request_info {
+                    Some(SignatureRequestInfo { module_signing_id, nonce }) => {
                         let signing_data = types::SigningData {
                             object_root: compute_tree_hash_root(&types::PropCommitSigningInfo {
                                 data: *object_root,
-                                module_signing_id: *id,
+                                module_signing_id: *module_signing_id,
+                                nonce: B64::from_u64(*nonce),
+                                chain_id: B256::from_u64(chain.id()),
                             }),
                             signing_domain: domain,
                         };
@@ -119,9 +122,9 @@ impl EcdsaSigner {
         &self,
         chain: Chain,
         msg: &impl TreeHash,
-        module_signing_id: Option<&B256>,
+        signature_request_info: Option<&SignatureRequestInfo>,
     ) -> Result<EcdsaSignature, alloy::signers::Error> {
-        self.sign(chain, &msg.tree_hash_root(), module_signing_id).await
+        self.sign(chain, &msg.tree_hash_root(), signature_request_info).await
     }
 }
 
@@ -138,7 +141,10 @@ pub fn verify_ecdsa_signature(
 #[cfg(test)]
 mod test {
 
-    use alloy::{hex, primitives::bytes};
+    use alloy::{
+        hex,
+        primitives::{b256, bytes},
+    };
 
     use super::*;
 
@@ -168,20 +174,40 @@ mod test {
 
         let object_root = B256::from([1; 32]);
         let module_signing_id = B256::from([2; 32]);
-        let signature =
-            signer.sign(Chain::Hoodi, &object_root, Some(&module_signing_id)).await.unwrap();
+        let nonce = 42;
+        let signature = signer
+            .sign(
+                Chain::Hoodi,
+                &object_root,
+                Some(&SignatureRequestInfo { module_signing_id, nonce }),
+            )
+            .await
+            .unwrap();
 
-        let domain = compute_domain(Chain::Hoodi, &B32::from(COMMIT_BOOST_DOMAIN));
-        let signing_data = types::SigningData {
-            object_root: compute_tree_hash_root(&types::PropCommitSigningInfo {
-                data: object_root,
-                module_signing_id,
-            }),
-            signing_domain: domain,
-        };
+        let data_string = object_root.to_string();
+        tracing::info!("Data: {data_string}");
+        let signing_domain = compute_domain(Chain::Hoodi, &B32::from(COMMIT_BOOST_DOMAIN));
+        let object_root = compute_tree_hash_root(&types::PropCommitSigningInfo {
+            data: object_root,
+            module_signing_id,
+            nonce: B64::from_u64(nonce),
+            chain_id: B256::from_u64(Chain::Hoodi.id()),
+        });
+        let module_signing_id_string = module_signing_id.to_string();
+        tracing::info!("Module signing ID: {module_signing_id_string}");
+        let nonce_string = B64::from_u64(nonce).to_string();
+        tracing::info!("Nonce: {nonce_string}");
+        let chain_id_string = B256::from_u64(Chain::Hoodi.id()).to_string();
+        tracing::info!("Chain ID: {chain_id_string}");
+        let or_string = object_root.to_string();
+        tracing::info!("Object root: {or_string}");
+        let signing_data = types::SigningData { object_root, signing_domain };
         let msg = compute_tree_hash_root(&signing_data);
 
-        assert_eq!(msg, hex!("8cd49ccf2f9b0297796ff96ce5f7c5d26e20a59d0032ee2ad6249dcd9682b808"));
+        assert_eq!(
+            msg,
+            b256!("0xe735905406a86fd02231afb77a95b5927b5d45aefc5856c8c1cb330ec9bb9b65")
+        );
 
         let address = signer.address();
         let verified = verify_ecdsa_signature(&address, &msg, &signature);

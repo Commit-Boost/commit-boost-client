@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use alloy::primitives::{aliases::B32, hex, Bytes, B256};
+use alloy::primitives::{aliases::B32, hex, Bytes, B256, B64};
 use derive_more::{Deref, Display, From, Into};
 use eyre::{bail, Context};
 use serde::{Deserialize, Serialize};
@@ -72,6 +72,7 @@ impl std::fmt::Debug for Chain {
 }
 
 impl Chain {
+    // Chain IDs are 256-bit integers because they need to support Keccak256 hashes
     pub fn id(&self) -> u64 {
         match self {
             Chain::Mainnet => KnownChain::Mainnet.id(),
@@ -304,6 +305,15 @@ pub struct SigningData {
 pub struct PropCommitSigningInfo {
     pub data: B256,
     pub module_signing_id: B256,
+    pub nonce: B64, // As per https://eips.ethereum.org/EIPS/eip-2681
+    pub chain_id: B256,
+}
+
+/// Information about a signature request, including the module signing ID and
+/// nonce.
+pub struct SignatureRequestInfo {
+    pub module_signing_id: B256,
+    pub nonce: u64,
 }
 
 /// Returns seconds_per_slot and genesis_fork_version from a spec, such as

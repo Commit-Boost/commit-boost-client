@@ -6,7 +6,7 @@ use std::{
 };
 
 use alloy::{
-    primitives::U256,
+    primitives::{B256, B64, U256},
     rpc::types::beacon::{BlsPublicKey, BlsSignature},
 };
 use axum::http::HeaderValue;
@@ -441,6 +441,35 @@ pub fn get_user_agent(req_headers: &HeaderMap) -> String {
 pub fn get_user_agent_with_version(req_headers: &HeaderMap) -> eyre::Result<HeaderValue> {
     let ua = get_user_agent(req_headers);
     Ok(HeaderValue::from_str(&format!("commit-boost/{HEADER_VERSION_VALUE} {}", ua))?)
+}
+
+// Trait for converting from u64 to B256
+pub trait FromU64 {
+    /// Converts a u64 to a fixed-size type by left-padding with zeros
+    fn from_u64(value: u64) -> Self;
+}
+
+// Implementation of from_u64
+fn u64_to_fixed_bytes<const N: usize>(value: u64) -> [u8; N] {
+    assert!(N >= 8, "type must be at least 8 bytes large");
+    let mut buffer = [0u8; N];
+    let bytes = value.to_be_bytes();
+    buffer[N - 8..].copy_from_slice(&bytes);
+    buffer
+}
+
+impl FromU64 for B256 {
+    /// Converts a u64 into a B256 by left-padding with zeros
+    fn from_u64(value: u64) -> B256 {
+        Self::from(u64_to_fixed_bytes::<32>(value))
+    }
+}
+
+impl FromU64 for B64 {
+    /// Converts a u64 into a B64 by left-padding with zeros
+    fn from_u64(value: u64) -> B64 {
+        Self::from(u64_to_fixed_bytes::<8>(value))
+    }
 }
 
 #[cfg(unix)]

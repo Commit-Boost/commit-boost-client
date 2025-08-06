@@ -4,7 +4,9 @@ use blst::BLST_ERROR;
 use tree_hash::TreeHash;
 
 use crate::{
-    error::BlstErrorWrapper, signature::sign_commit_boost_root, types::Chain,
+    error::BlstErrorWrapper,
+    signature::sign_commit_boost_root,
+    types::{Chain, SignatureRequestInfo},
     utils::blst_pubkey_to_alloy,
 };
 
@@ -42,11 +44,11 @@ impl BlsSigner {
         &self,
         chain: Chain,
         object_root: &B256,
-        module_signing_id: Option<&B256>,
+        signature_request_info: Option<&SignatureRequestInfo>,
     ) -> BlsSignature {
         match self {
             BlsSigner::Local(sk) => {
-                sign_commit_boost_root(chain, sk, object_root, module_signing_id)
+                sign_commit_boost_root(chain, sk, object_root, signature_request_info)
             }
         }
     }
@@ -55,9 +57,9 @@ impl BlsSigner {
         &self,
         chain: Chain,
         msg: &impl TreeHash,
-        module_signing_id: Option<&B256>,
+        signature_request_info: Option<&SignatureRequestInfo>,
     ) -> BlsSignature {
-        self.sign(chain, &msg.tree_hash_root(), module_signing_id).await
+        self.sign(chain, &msg.tree_hash_root(), signature_request_info).await
     }
 }
 
