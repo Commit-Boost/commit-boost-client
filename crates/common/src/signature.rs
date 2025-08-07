@@ -1,5 +1,5 @@
 use alloy::{
-    primitives::{aliases::B32, Address, B256, U256},
+    primitives::{aliases::B32, Address, B256},
     rpc::types::beacon::{constants::BLS_DST_SIG, BlsPublicKey, BlsSignature},
 };
 use tree_hash::TreeHash;
@@ -35,7 +35,7 @@ pub fn compute_prop_commit_signing_root(
                     data: *object_root,
                     module_signing_id: *module_signing_id,
                     nonce: *nonce,
-                    chain_id: U256::from(chain.id()),
+                    chain_id: chain.id(),
                 }),
                 signing_domain: domain,
             })
@@ -145,7 +145,7 @@ pub fn verify_proposer_commitment_signature_bls(
             data: object_root,
             module_signing_id: *module_signing_id,
             nonce,
-            chain_id: U256::from(chain.id()),
+            chain_id: chain.id(),
         }),
         signing_domain: domain,
     });
@@ -169,7 +169,7 @@ pub fn verify_proposer_commitment_signature_ecdsa(
             data: object_root,
             module_signing_id: *module_signing_id,
             nonce,
-            chain_id: U256::from(chain.id()),
+            chain_id: chain.id(),
         }),
         signing_domain: domain,
     });

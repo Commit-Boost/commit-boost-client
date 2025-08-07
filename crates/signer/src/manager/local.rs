@@ -294,7 +294,7 @@ mod tests {
     }
 
     mod test_bls {
-        use alloy::primitives::{aliases::B32, U256};
+        use alloy::primitives::aliases::B32;
         use cb_common::{
             constants::COMMIT_BOOST_DOMAIN, signature::compute_domain,
             signer::verify_bls_signature, types,
@@ -326,7 +326,7 @@ mod tests {
                     data: data_root.tree_hash_root(),
                     module_signing_id,
                     nonce,
-                    chain_id: U256::from(CHAIN.id()),
+                    chain_id: CHAIN.id(),
                 }),
                 signing_domain: domain,
             });
@@ -339,7 +339,7 @@ mod tests {
     }
 
     mod test_proxy_bls {
-        use alloy::primitives::{aliases::B32, U256};
+        use alloy::primitives::aliases::B32;
         use cb_common::{
             constants::COMMIT_BOOST_DOMAIN, signature::compute_domain,
             signer::verify_bls_signature, types,
@@ -411,7 +411,7 @@ mod tests {
                     data: data_root.tree_hash_root(),
                     module_signing_id,
                     nonce,
-                    chain_id: U256::from(CHAIN.id()),
+                    chain_id: CHAIN.id(),
                 }),
                 signing_domain: domain,
             });
@@ -426,7 +426,7 @@ mod tests {
     }
 
     mod test_proxy_ecdsa {
-        use alloy::primitives::{aliases::B32, U256};
+        use alloy::primitives::aliases::B32;
         use cb_common::{
             constants::COMMIT_BOOST_DOMAIN, signature::compute_domain,
             signer::verify_ecdsa_signature, types,
@@ -498,7 +498,7 @@ mod tests {
                     data: data_root.tree_hash_root(),
                     module_signing_id,
                     nonce,
-                    chain_id: U256::from(CHAIN.id()),
+                    chain_id: CHAIN.id(),
                 }),
                 signing_domain: domain,
             });

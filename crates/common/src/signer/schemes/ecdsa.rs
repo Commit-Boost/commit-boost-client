@@ -1,7 +1,7 @@
 use std::{ops::Deref, str::FromStr};
 
 use alloy::{
-    primitives::{aliases::B32, Address, PrimitiveSignature, B256, U256},
+    primitives::{aliases::B32, Address, PrimitiveSignature, B256},
     signers::{local::PrivateKeySigner, SignerSync},
 };
 use eyre::ensure;
@@ -99,7 +99,7 @@ impl EcdsaSigner {
                                 data: *object_root,
                                 module_signing_id: *module_signing_id,
                                 nonce: *nonce,
-                                chain_id: U256::from(chain.id()),
+                                chain_id: chain.id(),
                             }),
                             signing_domain: domain,
                         };
@@ -188,7 +188,7 @@ mod test {
             data: object_root,
             module_signing_id,
             nonce,
-            chain_id: U256::from(Chain::Hoodi.id()),
+            chain_id: Chain::Hoodi.id(),
         });
         let signing_data = types::SigningData { object_root, signing_domain };
         let msg = compute_tree_hash_root(&signing_data);

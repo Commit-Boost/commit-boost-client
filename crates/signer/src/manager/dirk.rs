@@ -2,7 +2,7 @@ use std::{collections::HashMap, io::Write, path::PathBuf};
 
 use alloy::{
     hex,
-    primitives::{aliases::B32, B256, U256},
+    primitives::{aliases::B32, B256},
     rpc::types::beacon::constants::BLS_SIGNATURE_BYTES_LEN,
 };
 use blsful::inner_types::{Field, G2Affine, G2Projective, Group, Scalar};
@@ -245,7 +245,7 @@ impl DirkManager {
                     data: *object_root,
                     module_signing_id: *module_signing_id,
                     nonce: *nonce,
-                    chain_id: U256::from(self.chain.id()),
+                    chain_id: self.chain.id(),
                 })
                 .to_vec()
             }
@@ -290,7 +290,7 @@ impl DirkManager {
                     data: *object_root,
                     module_signing_id: *module_signing_id,
                     nonce: *nonce,
-                    chain_id: U256::from(self.chain.id()),
+                    chain_id: self.chain.id(),
                 })
                 .to_vec()
             }

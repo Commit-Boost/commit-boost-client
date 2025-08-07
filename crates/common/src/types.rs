@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use alloy::primitives::{aliases::B32, hex, Bytes, B256, U256};
+use alloy::primitives::{aliases::B32, hex, Bytes, B256};
 use derive_more::{Deref, Display, From, Into};
 use eyre::{bail, Context};
 use serde::{Deserialize, Serialize};
@@ -306,7 +306,7 @@ pub struct PropCommitSigningInfo {
     pub data: B256,
     pub module_signing_id: B256,
     pub nonce: u64, // As per https://eips.ethereum.org/EIPS/eip-2681
-    pub chain_id: U256,
+    pub chain_id: u64,
 }
 
 /// Information about a signature request, including the module signing ID and
