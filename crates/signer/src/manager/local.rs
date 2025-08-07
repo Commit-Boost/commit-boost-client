@@ -139,10 +139,7 @@ impl LocalSigningManager {
             .consensus_signers
             .get(pubkey)
             .ok_or(SignerModuleError::UnknownConsensusSigner(pubkey.to_vec()))?;
-        let signature = match module_signing_id {
-            Some(id) => signer.sign(self.chain, object_root, Some(id)).await,
-            None => signer.sign(self.chain, object_root, None).await,
-        };
+        let signature = signer.sign(self.chain, object_root, module_signing_id).await;
 
         Ok(signature)
     }
@@ -158,10 +155,7 @@ impl LocalSigningManager {
             .bls_signers
             .get(pubkey)
             .ok_or(SignerModuleError::UnknownProxySigner(pubkey.to_vec()))?;
-        let signature = match module_signing_id {
-            Some(id) => bls_proxy.sign(self.chain, object_root, Some(id)).await,
-            None => bls_proxy.sign(self.chain, object_root, None).await,
-        };
+        let signature = bls_proxy.sign(self.chain, object_root, module_signing_id).await;
         Ok(signature)
     }
 
@@ -176,10 +170,7 @@ impl LocalSigningManager {
             .ecdsa_signers
             .get(address)
             .ok_or(SignerModuleError::UnknownProxySigner(address.to_vec()))?;
-        let signature = match module_signing_id {
-            Some(id) => ecdsa_proxy.sign(self.chain, object_root, Some(id)).await?,
-            None => ecdsa_proxy.sign(self.chain, object_root, None).await?,
-        };
+        let signature = ecdsa_proxy.sign(self.chain, object_root, module_signing_id).await?;
         Ok(signature)
     }
 
@@ -280,7 +271,6 @@ impl LocalSigningManager {
 #[cfg(test)]
 mod tests {
     use alloy::primitives::B256;
-    use cb_common::signature::compute_tree_hash_root;
     use lazy_static::lazy_static;
 
     use super::*;
@@ -324,14 +314,13 @@ mod tests {
                 .unwrap();
 
             // Verify signature
-            let domain = compute_domain(CHAIN, &B32::from(COMMIT_BOOST_DOMAIN));
-            let signing_root = compute_tree_hash_root(&types::SigningData {
-                object_root: compute_tree_hash_root(&types::PropCommitSigningInfo {
-                    data: data_root.tree_hash_root(),
-                    module_signing_id,
-                }),
-                signing_domain: domain,
-            });
+            let signing_domain = compute_domain(CHAIN, &B32::from(COMMIT_BOOST_DOMAIN));
+            let object_root = types::PropCommitSigningInfo {
+                data: data_root.tree_hash_root(),
+                module_signing_id,
+            }
+            .tree_hash_root();
+            let signing_root = types::SigningData { object_root, signing_domain }.tree_hash_root();
 
             let validation_result =
                 verify_bls_signature(&consensus_pk, signing_root.as_slice(), &sig);
@@ -402,14 +391,13 @@ mod tests {
                 .unwrap();
 
             // Verify signature
-            let domain = compute_domain(CHAIN, &B32::from(COMMIT_BOOST_DOMAIN));
-            let signing_root = compute_tree_hash_root(&types::SigningData {
-                object_root: compute_tree_hash_root(&types::PropCommitSigningInfo {
-                    data: data_root.tree_hash_root(),
-                    module_signing_id,
-                }),
-                signing_domain: domain,
-            });
+            let signing_domain = compute_domain(CHAIN, &B32::from(COMMIT_BOOST_DOMAIN));
+            let object_root = types::PropCommitSigningInfo {
+                data: data_root.tree_hash_root(),
+                module_signing_id,
+            }
+            .tree_hash_root();
+            let signing_root = types::SigningData { object_root, signing_domain }.tree_hash_root();
 
             let validation_result = verify_bls_signature(&proxy_pk, signing_root.as_slice(), &sig);
 
@@ -482,14 +470,13 @@ mod tests {
                 .unwrap();
 
             // Verify signature
-            let domain = compute_domain(CHAIN, &B32::from(COMMIT_BOOST_DOMAIN));
-            let signing_root = compute_tree_hash_root(&types::SigningData {
-                object_root: compute_tree_hash_root(&types::PropCommitSigningInfo {
-                    data: data_root.tree_hash_root(),
-                    module_signing_id,
-                }),
-                signing_domain: domain,
-            });
+            let signing_domain = compute_domain(CHAIN, &B32::from(COMMIT_BOOST_DOMAIN));
+            let object_root = types::PropCommitSigningInfo {
+                data: data_root.tree_hash_root(),
+                module_signing_id,
+            }
+            .tree_hash_root();
+            let signing_root = types::SigningData { object_root, signing_domain }.tree_hash_root();
 
             let validation_result = verify_ecdsa_signature(&proxy_pk, &signing_root, &sig);
 
