@@ -22,6 +22,7 @@ pub struct Jwt(pub String);
 pub struct JwtClaims {
     pub exp: u64,
     pub module: String,
+    pub payload_hash: B256,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -72,7 +73,6 @@ impl std::fmt::Debug for Chain {
 }
 
 impl Chain {
-    // Chain IDs are 256-bit integers because they need to support Keccak256 hashes
     pub fn id(&self) -> u64 {
         match self {
             Chain::Mainnet => KnownChain::Mainnet.id(),
