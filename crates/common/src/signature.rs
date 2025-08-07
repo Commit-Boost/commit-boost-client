@@ -1,5 +1,5 @@
 use alloy::{
-    primitives::{aliases::B32, Address, B256, B64},
+    primitives::{aliases::B32, Address, B256, U256},
     rpc::types::beacon::{constants::BLS_DST_SIG, BlsPublicKey, BlsSignature},
 };
 use tree_hash::TreeHash;
@@ -10,7 +10,6 @@ use crate::{
     error::BlstErrorWrapper,
     signer::{verify_bls_signature, verify_ecdsa_signature, BlsSecretKey, EcdsaSignature},
     types::{self, Chain, SignatureRequestInfo},
-    utils::FromU64,
 };
 
 pub fn sign_message(secret_key: &BlsSecretKey, msg: &[u8]) -> BlsSignature {
@@ -35,8 +34,8 @@ pub fn compute_prop_commit_signing_root(
                 object_root: compute_tree_hash_root(&types::PropCommitSigningInfo {
                     data: *object_root,
                     module_signing_id: *module_signing_id,
-                    nonce: B64::from_u64(*nonce),
-                    chain_id: B256::from_u64(chain.id()),
+                    nonce: *nonce,
+                    chain_id: U256::from(chain.id()),
                 }),
                 signing_domain: domain,
             })
@@ -145,8 +144,8 @@ pub fn verify_proposer_commitment_signature_bls(
         object_root: compute_tree_hash_root(&types::PropCommitSigningInfo {
             data: object_root,
             module_signing_id: *module_signing_id,
-            nonce: B64::from_u64(nonce),
-            chain_id: B256::from_u64(chain.id()),
+            nonce,
+            chain_id: U256::from(chain.id()),
         }),
         signing_domain: domain,
     });
@@ -169,8 +168,8 @@ pub fn verify_proposer_commitment_signature_ecdsa(
         object_root: compute_tree_hash_root(&types::PropCommitSigningInfo {
             data: object_root,
             module_signing_id: *module_signing_id,
-            nonce: B64::from_u64(nonce),
-            chain_id: B256::from_u64(chain.id()),
+            nonce,
+            chain_id: U256::from(chain.id()),
         }),
         signing_domain: domain,
     });

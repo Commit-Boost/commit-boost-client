@@ -2,7 +2,7 @@ use std::{collections::HashMap, io::Write, path::PathBuf};
 
 use alloy::{
     hex,
-    primitives::{aliases::B32, B256, B64},
+    primitives::{aliases::B32, B256, U256},
     rpc::types::beacon::constants::BLS_SIGNATURE_BYTES_LEN,
 };
 use blsful::inner_types::{Field, G2Affine, G2Projective, Group, Scalar};
@@ -13,7 +13,6 @@ use cb_common::{
     signature::{compute_domain, compute_tree_hash_root},
     signer::{BlsPublicKey, BlsSignature, ProxyStore},
     types::{self, Chain, ModuleId, SignatureRequestInfo},
-    utils::FromU64,
 };
 use eyre::{bail, OptionExt};
 use futures::{future::join_all, stream::FuturesUnordered, FutureExt, StreamExt};
@@ -245,8 +244,8 @@ impl DirkManager {
                 compute_tree_hash_root(&types::PropCommitSigningInfo {
                     data: *object_root,
                     module_signing_id: *module_signing_id,
-                    nonce: B64::from_u64(*nonce),
-                    chain_id: B256::from_u64(self.chain.id()),
+                    nonce: *nonce,
+                    chain_id: U256::from(self.chain.id()),
                 })
                 .to_vec()
             }
@@ -290,8 +289,8 @@ impl DirkManager {
                 compute_tree_hash_root(&types::PropCommitSigningInfo {
                     data: *object_root,
                     module_signing_id: *module_signing_id,
-                    nonce: B64::from_u64(*nonce),
-                    chain_id: B256::from_u64(self.chain.id()),
+                    nonce: *nonce,
+                    chain_id: U256::from(self.chain.id()),
                 })
                 .to_vec()
             }

@@ -294,10 +294,10 @@ mod tests {
     }
 
     mod test_bls {
-        use alloy::primitives::{aliases::B32, B64};
+        use alloy::primitives::{aliases::B32, U256};
         use cb_common::{
             constants::COMMIT_BOOST_DOMAIN, signature::compute_domain,
-            signer::verify_bls_signature, types, utils::FromU64,
+            signer::verify_bls_signature, types,
         };
 
         use super::*;
@@ -325,8 +325,8 @@ mod tests {
                 object_root: compute_tree_hash_root(&types::PropCommitSigningInfo {
                     data: data_root.tree_hash_root(),
                     module_signing_id,
-                    nonce: B64::from_u64(nonce),
-                    chain_id: B256::from_u64(CHAIN.id()),
+                    nonce,
+                    chain_id: U256::from(CHAIN.id()),
                 }),
                 signing_domain: domain,
             });
@@ -339,10 +339,10 @@ mod tests {
     }
 
     mod test_proxy_bls {
-        use alloy::primitives::{aliases::B32, B64};
+        use alloy::primitives::{aliases::B32, U256};
         use cb_common::{
             constants::COMMIT_BOOST_DOMAIN, signature::compute_domain,
-            signer::verify_bls_signature, types, utils::FromU64,
+            signer::verify_bls_signature, types,
         };
 
         use super::*;
@@ -410,8 +410,8 @@ mod tests {
                 object_root: compute_tree_hash_root(&types::PropCommitSigningInfo {
                     data: data_root.tree_hash_root(),
                     module_signing_id,
-                    nonce: B64::from_u64(nonce),
-                    chain_id: B256::from_u64(CHAIN.id()),
+                    nonce,
+                    chain_id: U256::from(CHAIN.id()),
                 }),
                 signing_domain: domain,
             });
@@ -426,10 +426,10 @@ mod tests {
     }
 
     mod test_proxy_ecdsa {
-        use alloy::primitives::{aliases::B32, B64};
+        use alloy::primitives::{aliases::B32, U256};
         use cb_common::{
             constants::COMMIT_BOOST_DOMAIN, signature::compute_domain,
-            signer::verify_ecdsa_signature, types, utils::FromU64,
+            signer::verify_ecdsa_signature, types,
         };
 
         use super::*;
@@ -497,8 +497,8 @@ mod tests {
                 object_root: compute_tree_hash_root(&types::PropCommitSigningInfo {
                     data: data_root.tree_hash_root(),
                     module_signing_id,
-                    nonce: B64::from_u64(nonce),
-                    chain_id: B256::from_u64(CHAIN.id()),
+                    nonce,
+                    chain_id: U256::from(CHAIN.id()),
                 }),
                 signing_domain: domain,
             });

@@ -1,7 +1,7 @@
 use std::{ops::Deref, str::FromStr};
 
 use alloy::{
-    primitives::{aliases::B32, Address, PrimitiveSignature, B256, B64},
+    primitives::{aliases::B32, Address, PrimitiveSignature, B256, U256},
     signers::{local::PrivateKeySigner, SignerSync},
 };
 use eyre::ensure;
@@ -11,7 +11,6 @@ use crate::{
     constants::COMMIT_BOOST_DOMAIN,
     signature::{compute_domain, compute_tree_hash_root},
     types::{self, Chain, SignatureRequestInfo},
-    utils::FromU64,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -99,8 +98,8 @@ impl EcdsaSigner {
                             object_root: compute_tree_hash_root(&types::PropCommitSigningInfo {
                                 data: *object_root,
                                 module_signing_id: *module_signing_id,
-                                nonce: B64::from_u64(*nonce),
-                                chain_id: B256::from_u64(chain.id()),
+                                nonce: *nonce,
+                                chain_id: U256::from(chain.id()),
                             }),
                             signing_domain: domain,
                         };
@@ -184,29 +183,19 @@ mod test {
             .await
             .unwrap();
 
-        let data_string = object_root.to_string();
-        tracing::info!("Data: {data_string}");
         let signing_domain = compute_domain(Chain::Hoodi, &B32::from(COMMIT_BOOST_DOMAIN));
         let object_root = compute_tree_hash_root(&types::PropCommitSigningInfo {
             data: object_root,
             module_signing_id,
-            nonce: B64::from_u64(nonce),
-            chain_id: B256::from_u64(Chain::Hoodi.id()),
+            nonce,
+            chain_id: U256::from(Chain::Hoodi.id()),
         });
-        let module_signing_id_string = module_signing_id.to_string();
-        tracing::info!("Module signing ID: {module_signing_id_string}");
-        let nonce_string = B64::from_u64(nonce).to_string();
-        tracing::info!("Nonce: {nonce_string}");
-        let chain_id_string = B256::from_u64(Chain::Hoodi.id()).to_string();
-        tracing::info!("Chain ID: {chain_id_string}");
-        let or_string = object_root.to_string();
-        tracing::info!("Object root: {or_string}");
         let signing_data = types::SigningData { object_root, signing_domain };
         let msg = compute_tree_hash_root(&signing_data);
 
         assert_eq!(
             msg,
-            b256!("0xe735905406a86fd02231afb77a95b5927b5d45aefc5856c8c1cb330ec9bb9b65")
+            b256!("0x0b95fcdb3f003fc6f0fd3238d906f359809e97fe7ec71f56771cb05bee4150bd")
         );
 
         let address = signer.address();
