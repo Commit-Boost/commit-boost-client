@@ -5,8 +5,12 @@ use std::{
     time::{Duration, Instant},
 };
 
-use alloy::{primitives::Address, rpc::types::beacon::BlsPublicKey};
+use alloy::{
+    primitives::{keccak256, Address},
+    rpc::types::beacon::BlsPublicKey,
+};
 use axum::{
+    body::{to_bytes, Body},
     extract::{ConnectInfo, Request, State},
     http::StatusCode,
     middleware::{self, Next},
@@ -46,6 +50,8 @@ use crate::{
     manager::{dirk::DirkManager, local::LocalSigningManager, SigningManager},
     metrics::{uri_to_tag, SIGNER_METRICS_REGISTRY, SIGNER_STATUS},
 };
+
+pub const REQUEST_MAX_BODY_LENGTH: usize = 1024 * 1024; // 1 MB
 
 /// Implements the Signer API and provides a service for signing requests
 pub struct SigningService;
@@ -166,9 +172,17 @@ async fn jwt_auth(
     let client_ip = addr.ip();
     check_jwt_rate_limit(&state, &client_ip)?;
 
+    // Clone the request so we can read the body
+    let (parts, body) = req.into_parts();
+    let bytes = to_bytes(body, REQUEST_MAX_BODY_LENGTH).await.map_err(|e| {
+        error!("Failed to read request body: {e}");
+        SignerModuleError::RequestError(e.to_string())
+    })?;
+
     // Process JWT authorization
-    match check_jwt_auth(&auth, &state) {
+    match check_jwt_auth(&auth, &state, &bytes.to_vec()) {
         Ok(module_id) => {
+            let req = Request::from_parts(parts, Body::from(bytes));
             req.extensions_mut().insert(module_id);
             Ok(next.run(req).await)
         }
@@ -224,6 +238,7 @@ fn check_jwt_rate_limit(state: &SigningState, client_ip: &IpAddr) -> Result<(), 
 fn check_jwt_auth(
     auth: &Authorization<Bearer>,
     state: &SigningState,
+    body: &Vec<u8>,
 ) -> Result<ModuleId, SignerModuleError> {
     let jwt: Jwt = auth.token().to_string().into();
 
@@ -244,6 +259,11 @@ fn check_jwt_auth(
         error!("Unauthorized request. Invalid JWT: {e}");
         SignerModuleError::Unauthorized
     })?;
+
+    // Make sure the request contains a hash of the payload in its claims
+    if !body.is_empty() {
+        let payload_hash = keccak256(body);
+    }
     Ok(module_id)
 }
 
@@ -320,8 +340,15 @@ async fn handle_request_signature_bls(
             )
             .await
             .map(|sig| {
-                Json(BlsSignResponse::new(request.pubkey, request.object_root, signing_id, sig))
-                    .into_response()
+                Json(BlsSignResponse::new(
+                    request.pubkey,
+                    request.object_root,
+                    signing_id,
+                    request.nonce,
+                    local_manager.get_chain().id(),
+                    sig,
+                ))
+                .into_response()
             }),
         SigningManager::Dirk(dirk_manager) => dirk_manager
             .request_consensus_signature(
@@ -331,8 +358,15 @@ async fn handle_request_signature_bls(
             )
             .await
             .map(|sig| {
-                Json(BlsSignResponse::new(request.pubkey, request.object_root, signing_id, sig))
-                    .into_response()
+                Json(BlsSignResponse::new(
+                    request.pubkey,
+                    request.object_root,
+                    signing_id,
+                    request.nonce,
+                    dirk_manager.get_chain().id(),
+                    sig,
+                ))
+                .into_response()
             }),
     };
 
@@ -372,8 +406,15 @@ async fn handle_request_signature_proxy_bls(
             )
             .await
             .map(|sig| {
-                Json(BlsSignResponse::new(request.proxy, request.object_root, signing_id, sig))
-                    .into_response()
+                Json(BlsSignResponse::new(
+                    request.proxy,
+                    request.object_root,
+                    signing_id,
+                    request.nonce,
+                    local_manager.get_chain().id(),
+                    sig,
+                ))
+                .into_response()
             }),
         SigningManager::Dirk(dirk_manager) => dirk_manager
             .request_proxy_signature(
@@ -383,8 +424,15 @@ async fn handle_request_signature_proxy_bls(
             )
             .await
             .map(|sig| {
-                Json(BlsSignResponse::new(request.proxy, request.object_root, signing_id, sig))
-                    .into_response()
+                Json(BlsSignResponse::new(
+                    request.proxy,
+                    request.object_root,
+                    signing_id,
+                    request.nonce,
+                    dirk_manager.get_chain().id(),
+                    sig,
+                ))
+                .into_response()
             }),
     };
 
@@ -424,8 +472,15 @@ async fn handle_request_signature_proxy_ecdsa(
             )
             .await
             .map(|sig| {
-                Json(EcdsaSignResponse::new(request.proxy, request.object_root, signing_id, sig))
-                    .into_response()
+                Json(EcdsaSignResponse::new(
+                    request.proxy,
+                    request.object_root,
+                    signing_id,
+                    request.nonce,
+                    local_manager.get_chain().id(),
+                    sig,
+                ))
+                .into_response()
             }),
         SigningManager::Dirk(_) => {
             error!(

@@ -22,6 +22,7 @@ pub struct Jwt(pub String);
 pub struct JwtClaims {
     pub exp: u64,
     pub module: String,
+    pub payload_hash: B256,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
