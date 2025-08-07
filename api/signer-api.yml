@@ -79,6 +79,8 @@ paths:
                 object_root:
                   description: The 32-byte data you want to sign, with optional `0x` prefix.
                   $ref: "#/components/schemas/B256"
+                nonce:
+                  $ref: "#/components/schemas/Nonce"
             example:
               pubkey: "0xa3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989"
               object_root: "0x3e9f4a78b5c21d64f0b8e3d9a7f5c02b4d1e67a3c8f29b5d6e4a3b1c8f72e6d9"
@@ -217,6 +219,8 @@ paths:
                 object_root:
                   description: The 32-byte data you want to sign, with optional `0x` prefix.
                   $ref: "#/components/schemas/B256"
+                nonce:
+                  $ref: "#/components/schemas/Nonce"
             example:
               pubkey: "0xa3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989"
               object_root: "0x3e9f4a78b5c21d64f0b8e3d9a7f5c02b4d1e67a3c8f29b5d6e4a3b1c8f72e6d9"
@@ -355,6 +359,8 @@ paths:
                 object_root:
                   description: The 32-byte data you want to sign, with optional `0x` prefix.
                   $ref: "#/components/schemas/B256"
+                nonce:
+                  $ref: "#/components/schemas/Nonce"
             example:
               proxy: "0x71f65e9f6336770e22d148bd5e89b391a1c3b0bb"
               object_root: "0x3e9f4a78b5c21d64f0b8e3d9a7f5c02b4d1e67a3c8f29b5d6e4a3b1c8f72e6d9"
@@ -650,3 +656,9 @@ components:
         signature:
           description: The ECDSA signature (in Ethereum RSV format) of the Merkle root hash of the provided `object_root` field and the requesting module's Signing ID. For details on this signature, see the [signature structure documentation](https://commit-boost.github.io/commit-boost-client/developing/prop-commit-signing.md#structure-of-a-signature).
           $ref: "#/components/schemas/EcdsaSignature"
+    Nonce:
+      type: integer
+      description: If your module tracks nonces per signature (e.g., to prevent replay attacks), this is the unique nonce to use for the signature. It should be an unsigned 64-bit integer in big-endian format. It must be between 0 and 2^64-2, inclusive. If your module doesn't use nonces, we suggest setting this to 2^64-1 instead of 0 because 0 is a legal nonce and will cause complications with your module if you ever want to use a nonce in the future.
+      minimum: 0
+      maximum: 18446744073709551614 // 2^64-2
+      example: 1

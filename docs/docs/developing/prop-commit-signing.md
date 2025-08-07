@@ -17,6 +17,7 @@ Proposer commitment signatures produced by Commit Boost's signer service conform
 - The data payload being signed must be a **32-byte array**, typically serializd as a 64-character hex string with an optional `0x` prefix. The value itself is arbitrary, as long as it has meaning to the requester - though it is typically the 256-bit hash of some kind of data.
 - If requesting a signature from a BLS key, the resulting signature will be a standard BLS signature (96 bytes in length).
 - If requesting a signature from an ECDSA key, the resulting signature will be a standard Ethereum RSV signature (65 bytes in length).
+- Signatures **may** be **unique** per request, using the optional `nonce` field in their requests to indicate a unique sequence that this signature belongs to.
 
 
 ## Configuring a Module for Proposer Commitments
@@ -37,9 +38,18 @@ Your module's signing ID is a 32-byte value that is used as a unique identifier 
 The Signing ID is decoupled from your module's human-readable name (the `module_id` field in the Commit Boost configuration file) so that any changes to your module name will not invalidate signatures from previous versions. Similarly, if you don't change the module ID but *want* to invalidate previous signatures, you can modify the signing ID and it will do so. Just ensure your users are made aware of the change, so they can update it in their Commit Boost configuration files accordingly.
 
 
+## Nonces
+
+Your module has the option of using **Nonces** for each of its signature requests. Nonces are intended to be unique values that establish a sequence of signature requests, distinguishing one signature from another - even if all of their other payload information is identical. When making a request for a signature, you may include a unique nonce as part of the request; the signature will include it in its data, ensuring that things like replay attacks cannot be used for that signature.
+
+If you want to use them within your module, your module (or whatever remote backend system it connects to) **will be responsible** for storing, comparing, validating, and otherwise using the nonces. Commit-Boost's signer service by itself **does not** store nonces or track which ones have already been used by a given module.
+
+In terms of implementation, the nonce format conforms to the specification in [EIP-2681](https://eips.ethereum.org/EIPS/eip-2681). It is an unsigned 64-bit big-endian integer, with a minimum value of 0 and a maximum value of `2^64-2`. We recommend using `2^64-1` as a signifier indicating that your module doesn't use nonces, rather than using 0 for such a purpose.
+
+
 ## Structure of a Signature
 
-The form proposer commitment signatures take depends on the type of signature being requested. BLS signatures take the [standard form](https://eth2book.info/latest/part2/building_blocks/signatures/) (96-byte values). ECDSA (Ethereum EL) signatures take the [standard Ethereum ECDSA `r,s,v` signature form](https://forum.openzeppelin.com/t/sign-it-like-you-mean-it-creating-and-verifying-ethereum-signatures/697). In both cases, the data being signed is a 32-byte hash - the root hash of an SSZ Merkle tree, described below:
+The form proposer commitment signatures take depends on the type of signature being requested. BLS signatures take the [standard form](https://eth2book.info/latest/part2/building_blocks/signatures/) (96-byte values). ECDSA (Ethereum EL) signatures take the [standard Ethereum ECDSA `r,s,v` signature form](https://forum.openzeppelin.com/t/sign-it-like-you-mean-it-creating-and-verifying-ethereum-signatures/697). In both cases, the data being signed is a 32-byte hash - the root hash of a composite two-stage [SSZ Merkle tree](https://thogiti.github.io/2024/05/02/Merkleization.html), described below:
 
 <center>
 
@@ -47,14 +57,20 @@ The form proposer commitment signatures take depends on the type of signature be
 
 </center>
 
-where:
+where, for the sub-tree in blue:
 
 - `Request Data` is a 32-byte array that serves as the data you want to sign. This is typically a hash of some more complex data on its own that your module constructs.
 
 - `Signing ID` is your module's 32-byte signing ID. The signer service will load this for your module from its configuration file.
 
+- `Nonce` is the nonce value for the signature request. While this value must be present, it can be effectively ignored by setting it to some arbitrary value if your module does not track nonces. Conforming with the tree specification, it must be added as a 256-bit unsigned little-endian integer. Most libraries will be able to do this conversion automatically if you specify the field as the language's primitive for 64-bit unsigned integers (e.g., `uint64`, `u64`, `ulong`, etc.).
+
+- `Chain ID` is the ID of the chain that the Signer service is currently configured to use, as indicated by the [Commit-Boost configuration file](../get_started/configuration.md). This must also be a 256-bit unsigned little-endian integer.
+
+A Merkle tree must be constructed from these four leaf nodes, and its root hash calculated according to the standard SSZ hash computation rules. This result will be called the "sub-tree root". With this, a second Merkle tree is created using this sub-tree root and a value called the Domain:
+
 - `Domain` is the 32-byte output of the [compute_domain()](https://eth2book.info/capella/part2/building_blocks/signatures/#domain-separation-and-forks) function in the Beacon specification. The 4-byte domain type in this case is not a standard Beacon domain type, but rather Commit Boost's own domain type: `0x6D6D6F43`.
 
-The data signed in a proposer commitment is the 32-byte root of this tree (the green `Root` box). Note that calculating this will involve calculating the Merkle Root of two separate trees: first the blue data subtree (with the original request data and the signing ID) to establish the blue `Root` value, and then again with a tree created from that value and the `Domain`. 
+The data signed in a proposer commitment is the 32-byte hash root of this new tree (the green `Root` box).
 
 Many languages provide libraries for computing the root of an SSZ Merkle tree, such as [fastssz for Go](https://github.com/ferranbt/fastssz) or [tree_hash for Rust](https://docs.rs/tree_hash/latest/tree_hash/). When verifying proposer commitment signatures, use a library that supports Merkle tree root hashing, the `compute_domain()` operation, and validation for signatures generated by your key of choice.
