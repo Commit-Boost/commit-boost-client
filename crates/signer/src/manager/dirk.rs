@@ -148,6 +148,11 @@ impl DirkManager {
         })
     }
 
+    /// Get the chain config for the manager
+    pub fn get_chain(&self) -> Chain {
+        self.chain
+    }
+
     /// Set the proxy store to use for storing proxy delegations
     pub fn with_proxy_store(self, store: ProxyStore) -> eyre::Result<Self> {
         if let ProxyStore::ERC2335 { .. } = store {

@@ -12,7 +12,7 @@ use cb_common::{
     },
     config::{load_module_signing_configs, ModuleSigningConfig},
     signer::BlsSignature,
-    types::ModuleId,
+    types::{Chain, ModuleId},
     utils::create_jwt,
 };
 use cb_tests::{
@@ -78,6 +78,8 @@ async fn test_signer_sign_request_good() -> Result<()> {
         BlsPublicKey::from(PUBKEY_1),
         object_root,
         mod_cfgs.get(&module_id).unwrap().signing_id,
+        nonce,
+        Chain::Hoodi.id(),
         BlsSignature::from_hex("0xb653034a6da0e516cb999d6bbcd5ddd8dde9695322a94aefcd3049e6235e0f4f63b13d81ddcd80d4e1e698c3f88c3b440ae696650ccef2f22329afb4ffecec85a34523e25920ceced54c5bc31168174a3b352977750c222c1c25f72672467e5c").unwrap());
     assert_eq!(sig_response, expected, "Signature response does not match expected value");
 

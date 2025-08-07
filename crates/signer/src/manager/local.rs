@@ -53,6 +53,11 @@ impl LocalSigningManager {
         Ok(manager)
     }
 
+    /// Get the chain config for the manager
+    pub fn get_chain(&self) -> Chain {
+        self.chain
+    }
+
     pub fn add_consensus_signer(&mut self, signer: ConsensusSigner) {
         self.consensus_signers.insert(signer.pubkey(), signer);
     }

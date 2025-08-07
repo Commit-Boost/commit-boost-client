@@ -635,9 +635,15 @@ components:
         object_root:
           description: The 32-byte data that was signed, with `0x` prefix
           $ref: "#/components/schemas/B256"
-        signing_id:
+        module_signing_id:
           description: The signing ID of the module that requested the signature, as specified in the Commit-Boost configuration
           $ref: "#/components/schemas/B256"
+        nonce:
+          $ref: "#/components/schemas/Nonce"
+        chain_id:
+          description: The chain ID that the signature is valid for, as specified in the Commit-Boost configuration
+          type: integer
+          example: 1
         signature:
           description: The BLS signature of the Merkle root hash of the provided `object_root` field and the requesting module's Signing ID. For details on this signature, see the [signature structure documentation](https://commit-boost.github.io/commit-boost-client/developing/prop-commit-signing.md#structure-of-a-signature).
           $ref: "#/components/schemas/BlsSignature"
@@ -653,6 +659,12 @@ components:
         module_signing_id:
           description: The signing ID of the module that requested the signature, as specified in the Commit-Boost configuration
           $ref: "#/components/schemas/B256"
+        nonce:
+          $ref: "#/components/schemas/Nonce"
+        chain_id:
+          description: The chain ID that the signature is valid for, as specified in the Commit-Boost configuration
+          type: integer
+          example: 1
         signature:
           description: The ECDSA signature (in Ethereum RSV format) of the Merkle root hash of the provided `object_root` field and the requesting module's Signing ID. For details on this signature, see the [signature structure documentation](https://commit-boost.github.io/commit-boost-client/developing/prop-commit-signing.md#structure-of-a-signature).
           $ref: "#/components/schemas/EcdsaSignature"

@@ -14,6 +14,8 @@ pub struct BlsSignResponse {
     pub pubkey: BlsPublicKey,
     pub object_root: B256,
     pub module_signing_id: B256,
+    pub nonce: u64,
+    pub chain_id: u64,
     pub signature: BlsSignature,
 }
 
@@ -22,9 +24,11 @@ impl BlsSignResponse {
         pubkey: BlsPublicKey,
         object_root: B256,
         module_signing_id: B256,
+        nonce: u64,
+        chain_id: u64,
         signature: BlsSignature,
     ) -> Self {
-        Self { pubkey, object_root, module_signing_id, signature }
+        Self { pubkey, object_root, module_signing_id, nonce, chain_id, signature }
     }
 }
 
@@ -32,10 +36,12 @@ impl Display for BlsSignResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "BLS Signature(pubkey: {}, object_root: {}, module_id: {}, signature: {})",
+            "BLS Signature(pubkey: {}, object_root: {}, module_id: {}, nonce: {}, chain_id: {} signature: {})",
             self.pubkey,
             hex::encode_prefixed(self.object_root),
             self.module_signing_id,
+            self.nonce,
+            self.chain_id,
             hex::encode_prefixed(self.signature)
         )
     }
@@ -46,6 +52,8 @@ pub struct EcdsaSignResponse {
     pub address: Address,
     pub object_root: B256,
     pub module_signing_id: B256,
+    pub nonce: u64,
+    pub chain_id: u64,
     pub signature: EcdsaSignature,
 }
 
@@ -54,9 +62,11 @@ impl EcdsaSignResponse {
         address: Address,
         object_root: B256,
         module_signing_id: B256,
+        nonce: u64,
+        chain_id: u64,
         signature: EcdsaSignature,
     ) -> Self {
-        Self { address, object_root, module_signing_id, signature }
+        Self { address, object_root, module_signing_id, nonce, chain_id, signature }
     }
 }
 
@@ -64,10 +74,12 @@ impl Display for EcdsaSignResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "ECDSA Signature(address: {}, object_root: {}, module_id: {}, signature: 0x{})",
+            "ECDSA Signature(address: {}, object_root: {}, module_id: {}, nonce: {}, chain_id: {} signature: 0x{})",
             self.address,
             hex::encode_prefixed(self.object_root),
             self.module_signing_id,
+            self.nonce,
+            self.chain_id,
             self.signature
         )
     }
