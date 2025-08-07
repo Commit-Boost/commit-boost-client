@@ -17,10 +17,6 @@ pub fn sign_message(secret_key: &BlsSecretKey, msg: &[u8]) -> BlsSignature {
     BlsSignature::from_slice(&signature)
 }
 
-pub fn compute_tree_hash_root<T: TreeHash>(signing_data: &T) -> B256 {
-    signing_data.tree_hash_root()
-}
-
 pub fn compute_prop_commit_signing_root(
     chain: Chain,
     object_root: &B256,
@@ -30,20 +26,17 @@ pub fn compute_prop_commit_signing_root(
     let domain = compute_domain(chain, domain_mask);
     match signature_request_info {
         Some(SignatureRequestInfo { module_signing_id, nonce }) => {
-            compute_tree_hash_root(&types::SigningData {
-                object_root: compute_tree_hash_root(&types::PropCommitSigningInfo {
-                    data: *object_root,
-                    module_signing_id: *module_signing_id,
-                    nonce: *nonce,
-                    chain_id: chain.id(),
-                }),
-                signing_domain: domain,
-            })
+            let object_root = types::PropCommitSigningInfo {
+                data: *object_root,
+                module_signing_id: *module_signing_id,
+                nonce: *nonce,
+                chain_id: chain.id(),
+            }
+            .tree_hash_root();
+            types::SigningData { object_root, signing_domain: domain }.tree_hash_root()
         }
-        None => compute_tree_hash_root(&types::SigningData {
-            object_root: *object_root,
-            signing_domain: domain,
-        }),
+        None => types::SigningData { object_root: *object_root, signing_domain: domain }
+            .tree_hash_root(),
     }
 }
 
@@ -79,7 +72,7 @@ pub fn verify_signed_message<T: TreeHash>(
 ) -> Result<(), BlstErrorWrapper> {
     let signing_root = compute_prop_commit_signing_root(
         chain,
-        &compute_tree_hash_root(msg),
+        &msg.tree_hash_root(),
         signature_request_info,
         domain_mask,
     );
@@ -100,12 +93,10 @@ pub fn sign_builder_root(
     secret_key: &BlsSecretKey,
     object_root: &B256,
 ) -> BlsSignature {
-    let domain = chain.builder_domain();
-    let signing_data = types::SigningData {
-        object_root: compute_tree_hash_root(object_root),
-        signing_domain: domain,
-    };
-    let signing_root = compute_tree_hash_root(&signing_data);
+    let signing_domain = chain.builder_domain();
+    let signing_data =
+        types::SigningData { object_root: object_root.tree_hash_root(), signing_domain };
+    let signing_root = signing_data.tree_hash_root();
     sign_message(secret_key, signing_root.as_slice())
 }
 
@@ -138,17 +129,15 @@ pub fn verify_proposer_commitment_signature_bls(
     module_signing_id: &B256,
     nonce: u64,
 ) -> Result<(), BlstErrorWrapper> {
-    let object_root = msg.tree_hash_root();
-    let domain = compute_domain(chain, &B32::from(COMMIT_BOOST_DOMAIN));
-    let signing_root = compute_tree_hash_root(&types::SigningData {
-        object_root: compute_tree_hash_root(&types::PropCommitSigningInfo {
-            data: object_root,
-            module_signing_id: *module_signing_id,
-            nonce,
-            chain_id: chain.id(),
-        }),
-        signing_domain: domain,
-    });
+    let signing_domain = compute_domain(chain, &B32::from(COMMIT_BOOST_DOMAIN));
+    let object_root = types::PropCommitSigningInfo {
+        data: msg.tree_hash_root(),
+        module_signing_id: *module_signing_id,
+        nonce,
+        chain_id: chain.id(),
+    }
+    .tree_hash_root();
+    let signing_root = types::SigningData { object_root, signing_domain }.tree_hash_root();
     verify_bls_signature(pubkey, signing_root.as_slice(), signature)
 }
 
@@ -162,17 +151,15 @@ pub fn verify_proposer_commitment_signature_ecdsa(
     module_signing_id: &B256,
     nonce: u64,
 ) -> Result<(), eyre::Report> {
-    let object_root = msg.tree_hash_root();
-    let domain = compute_domain(chain, &B32::from(COMMIT_BOOST_DOMAIN));
-    let signing_root = compute_tree_hash_root(&types::SigningData {
-        object_root: compute_tree_hash_root(&types::PropCommitSigningInfo {
-            data: object_root,
-            module_signing_id: *module_signing_id,
-            nonce,
-            chain_id: chain.id(),
-        }),
-        signing_domain: domain,
-    });
+    let signing_domain = compute_domain(chain, &B32::from(COMMIT_BOOST_DOMAIN));
+    let object_root = types::PropCommitSigningInfo {
+        data: msg.tree_hash_root(),
+        module_signing_id: *module_signing_id,
+        nonce,
+        chain_id: chain.id(),
+    }
+    .tree_hash_root();
+    let signing_root = types::SigningData { object_root, signing_domain }.tree_hash_root();
     verify_ecdsa_signature(address, &signing_root, signature)
 }
 

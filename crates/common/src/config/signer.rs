@@ -313,30 +313,15 @@ pub fn load_module_signing_configs(
             .wrap_err(format!("Invalid signing config for module {}", module.id))?;
 
         // Check for duplicates in JWT secrets and signing IDs
-        match seen_jwt_secrets.get(&module_signing_config.jwt_secret) {
-            Some(existing_module) => {
-                bail!(
-                    "Duplicate JWT secret detected for modules {} and {}",
-                    existing_module,
-                    module.id
-                )
-            }
-            None => {
-                seen_jwt_secrets.insert(module_signing_config.jwt_secret.clone(), &module.id);
-            }
+        if let Some(existing_module) =
+            seen_jwt_secrets.insert(module_signing_config.jwt_secret.clone(), &module.id)
+        {
+            bail!("Duplicate JWT secret detected for modules {} and {}", existing_module, module.id)
         };
-        match seen_signing_ids.get(&module_signing_config.signing_id) {
-            Some(existing_module) => {
-                bail!(
-                    "Duplicate signing ID detected for modules {} and {}",
-                    existing_module,
-                    module.id
-                )
-            }
-            None => {
-                seen_signing_ids.insert(module_signing_config.signing_id, &module.id);
-                module.signing_id
-            }
+        if let Some(existing_module) =
+            seen_signing_ids.insert(module_signing_config.signing_id, &module.id)
+        {
+            bail!("Duplicate signing ID detected for modules {} and {}", existing_module, module.id)
         };
 
         mod_signing_configs.insert(module.id.clone(), module_signing_config);

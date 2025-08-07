@@ -10,7 +10,7 @@ use cb_common::{
     commit::request::{ConsensusProxyMap, ProxyDelegation, SignedProxyDelegation},
     config::{DirkConfig, DirkHostConfig},
     constants::COMMIT_BOOST_DOMAIN,
-    signature::{compute_domain, compute_tree_hash_root},
+    signature::compute_domain,
     signer::{BlsPublicKey, BlsSignature, ProxyStore},
     types::{self, Chain, ModuleId, SignatureRequestInfo},
 };
@@ -241,12 +241,13 @@ impl DirkManager {
 
         let data = match signature_request_info {
             Some(SignatureRequestInfo { module_signing_id, nonce }) => {
-                compute_tree_hash_root(&types::PropCommitSigningInfo {
+                types::PropCommitSigningInfo {
                     data: *object_root,
                     module_signing_id: *module_signing_id,
                     nonce: *nonce,
                     chain_id: self.chain.id(),
-                })
+                }
+                .tree_hash_root()
                 .to_vec()
             }
             None => object_root.to_vec(),
@@ -286,12 +287,13 @@ impl DirkManager {
 
         let data = match signature_request_info {
             Some(SignatureRequestInfo { module_signing_id, nonce }) => {
-                compute_tree_hash_root(&types::PropCommitSigningInfo {
+                types::PropCommitSigningInfo {
                     data: *object_root,
                     module_signing_id: *module_signing_id,
                     nonce: *nonce,
                     chain_id: self.chain.id(),
-                })
+                }
+                .tree_hash_root()
                 .to_vec()
             }
             None => object_root.to_vec(),
