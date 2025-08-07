@@ -72,7 +72,6 @@ impl std::fmt::Debug for Chain {
 }
 
 impl Chain {
-    // Chain IDs are 256-bit integers because they need to support Keccak256 hashes
     pub fn id(&self) -> u64 {
         match self {
             Chain::Mainnet => KnownChain::Mainnet.id(),
