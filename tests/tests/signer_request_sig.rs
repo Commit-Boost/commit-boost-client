@@ -78,7 +78,7 @@ async fn test_signer_sign_request_good() -> Result<()> {
         BlsPublicKey::from(PUBKEY_1),
         object_root,
         mod_cfgs.get(&module_id).unwrap().signing_id,
-        BlsSignature::from_hex("0xa43e623f009e615faa3987368f64d6286a4103de70e9a81d82562c50c91eae2d5d6fb9db9fe943aa8ee42fd92d8210c1149f25ed6aa72a557d74a0ed5646fdd0e8255ec58e3e2931695fe913863ba0cdf90d29f651bce0a34169a6f6ce5b3115").unwrap());
+        BlsSignature::from_hex("0xb653034a6da0e516cb999d6bbcd5ddd8dde9695322a94aefcd3049e6235e0f4f63b13d81ddcd80d4e1e698c3f88c3b440ae696650ccef2f22329afb4ffecec85a34523e25920ceced54c5bc31168174a3b352977750c222c1c25f72672467e5c").unwrap());
     assert_eq!(sig_response, expected, "Signature response does not match expected value");
 
     Ok(())
@@ -96,7 +96,7 @@ async fn test_signer_sign_request_different_module() -> Result<()> {
 
     // Send a signing request
     let object_root = b256!("0x0123456789012345678901234567890123456789012345678901234567890123");
-    let nonce: u64 = 102;
+    let nonce: u64 = 101;
     let request = SignConsensusRequest { pubkey: FixedBytes(PUBKEY_1), object_root, nonce };
     let jwt = create_jwt(&module_id, &jwt_config.jwt_secret)?;
     let client = reqwest::Client::new();
@@ -120,7 +120,7 @@ async fn test_signer_sign_request_different_module() -> Result<()> {
         "Module signing ID does not match expected value"
     );
     assert_ne!(
-        sig_response.signature, BlsSignature::from_hex("0xa43e623f009e615faa3987368f64d6286a4103de70e9a81d82562c50c91eae2d5d6fb9db9fe943aa8ee42fd92d8210c1149f25ed6aa72a557d74a0ed5646fdd0e8255ec58e3e2931695fe913863ba0cdf90d29f651bce0a34169a6f6ce5b3115").unwrap(),
+        sig_response.signature, BlsSignature::from_hex("0xb653034a6da0e516cb999d6bbcd5ddd8dde9695322a94aefcd3049e6235e0f4f63b13d81ddcd80d4e1e698c3f88c3b440ae696650ccef2f22329afb4ffecec85a34523e25920ceced54c5bc31168174a3b352977750c222c1c25f72672467e5c").unwrap(),
         "Signature matches the reference signature, which should not happen"
     );
 
