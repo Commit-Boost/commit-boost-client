@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use alloy::primitives::{aliases::B32, hex, Bytes, B256};
+use alloy::primitives::{aliases::B32, hex, Bytes, B256, U256};
 use derive_more::{Deref, Display, From, Into};
 use eyre::{bail, Context};
 use serde::{Deserialize, Serialize};
@@ -72,7 +72,9 @@ impl std::fmt::Debug for Chain {
 }
 
 impl Chain {
-    pub fn id(&self) -> u64 {
+    // Chain IDs are 256-bit unsigned integers because they need to support
+    // Keccak256 hashes
+    pub fn id(&self) -> U256 {
         match self {
             Chain::Mainnet => KnownChain::Mainnet.id(),
             Chain::Holesky => KnownChain::Holesky.id(),
@@ -146,13 +148,13 @@ pub enum KnownChain {
 
 // Constants
 impl KnownChain {
-    pub fn id(&self) -> u64 {
+    pub fn id(&self) -> U256 {
         match self {
-            KnownChain::Mainnet => 1,
-            KnownChain::Holesky => 17000,
-            KnownChain::Sepolia => 11155111,
-            KnownChain::Helder => 167000,
-            KnownChain::Hoodi => 560048,
+            KnownChain::Mainnet => U256::from(1),
+            KnownChain::Holesky => U256::from(17000),
+            KnownChain::Sepolia => U256::from(11155111),
+            KnownChain::Helder => U256::from(167000),
+            KnownChain::Hoodi => U256::from(560048),
         }
     }
 
@@ -305,7 +307,7 @@ pub struct PropCommitSigningInfo {
     pub data: B256,
     pub module_signing_id: B256,
     pub nonce: u64, // As per https://eips.ethereum.org/EIPS/eip-2681
-    pub chain_id: u64,
+    pub chain_id: U256,
 }
 
 /// Information about a signature request, including the module signing ID and
