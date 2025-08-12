@@ -20,7 +20,7 @@ use super::{
 };
 use crate::{
     config::{load_optional_env_var, BUILDER_URLS_ENV, HTTP_TIMEOUT_SECONDS_DEFAULT},
-    pbs::BUILDER_EVENTS_PATH,
+    pbs::{BuilderApiVersion, BUILDER_EVENTS_PATH},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,8 +29,9 @@ pub enum BuilderEvent {
     GetHeaderResponse(Box<Option<GetHeaderResponse>>),
     GetStatusEvent,
     GetStatusResponse,
-    SubmitBlockRequest(Box<SignedBlindedBeaconBlock>),
-    SubmitBlockResponse(Box<SubmitBlindedBlockResponse>),
+    SubmitBlockRequest(Box<SignedBlindedBeaconBlock>, BuilderApiVersion),
+    SubmitBlockResponseV1(Box<SubmitBlindedBlockResponse>),
+    SubmitBlockResponseV2,
     MissedPayload {
         /// Hash for the block for which no payload was received
         block_hash: B256,
