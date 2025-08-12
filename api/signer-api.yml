@@ -633,6 +633,185 @@ paths:
               schema:
                 type: string
                 example: "OK"
+  /reload:
+    post:
+      summary: Reload the Signer API configuration from disk, discarding any modifications made after the service started. Only available by using the administrator JWT.
+      description: >
+        This endpoint requires the administrator JWT Bearer token.
+        
+        The token **must include** the following claims:
+        - `exp` (integer): Expiration timestamp
+        - `admin` (boolean): Must be true to use this endpoint
+        - `payload_hash` (string): The Keccak-256 hash of the JSON-encoded request body, with optional `0x` prefix. This is required to prevent JWT replay attacks.
+      tags:
+        - Management
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              optional: [jwt_secrets, admin_secret]
+              properties:
+                jwt_secrets:
+                  description: An optional map of module IDs to JWT secrets for them. Use this if you want to overwrite the JWT secrets in the configuration file. This should be an object with module IDs as keys and their JWT secrets as values.
+                  type: object
+                admin_secret:
+                  description: An optional new secret for the administrator JWT. If provided, this will overwrite the existing administrator secret in the configuration file.
+                  type: string
+            example:
+              jwt_secrets:
+                module1: "new-secret-for-module1"
+                module2: "new-secret-for-module2"
+              admin_secret: "new-admin-secret"
+      responses:
+        "200":
+          description: Success
+        "400": 
+          description: Bad request, e.g., if the provided JWT secrets are not valid or the admin secret is not a valid string.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                properties:
+                  code:
+                    type: number
+                    example: 400
+                  message:
+                    type: string
+                    example: "Bad request: Invalid JWT secrets format"
+        "401":
+          description: Unauthorized, e.g., if the provided JWT does not have the `admin` claim set to true or is not valid.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                properties:
+                  code:
+                    type: number
+                    example: 401
+                  message:
+                    type: string
+                    example: "Unauthorized: Admin access required"
+        "500":
+          description: Internal error, e.g., if there was an error reloading the configuration or if the configuration file is malformed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                properties:
+                  code:
+                    type: number
+                    example: 500
+                  message:
+                    type: string
+                    example: "Internal error: Failed to reload configuration"
+
+  /revoke_jwt:
+    post:
+      summary: Revoke a JWT for a specific module, preventing any clients with that JWT from making further requests.
+      description: >
+        This endpoint requires the administrator JWT Bearer token.
+        
+        The token **must include** the following claims:
+        - `exp` (integer): Expiration timestamp
+        - `admin` (boolean): Must be true to use this endpoint
+        - `payload_hash` (string): The Keccak-256 hash of the JSON-encoded request body, with optional `0x` prefix. This is required to prevent JWT replay attacks.
+      tags:
+        - Management
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [module_id]
+              properties:
+                module_id:
+                  description: The ID of the module whose JWT should be revoked.
+                  type: string
+            example:
+              module_id: "module1"
+      responses:
+        "200":
+          description: Success, the JWT for the specified module has been revoked.
+        "400":
+          description: Bad request, e.g., if the provided module ID is not valid or not found.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                properties:
+                  code:
+                    type: number
+                    example: 400
+                  message:
+                    type: string
+                    example: "Bad request: Invalid module ID"
+        "401":
+          description: Unauthorized, e.g., if the provided JWT does not have the `admin` claim set to true or is not valid.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                properties:
+                  code:
+                    type: number
+                    example: 401
+                  message:
+                    type: string
+                    example: "Unauthorized: Admin access required"
+        "404":
+          description: Not found, e.g., if the specified module ID does not exist in the configuration.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                properties:
+                  code:
+                    type: number
+                    example: 404
+                  message:
+                    type: string
+                    example: "Not found: Module ID does not exist"
+        "500":
+          description: Internal error, e.g., if there was an error revoking the JWT or if the configuration file is malformed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                properties:
+                  code:
+                    type: number
+                    example: 500
+                  message:
+                    type: string
+                    example: "Internal error: Failed to revoke JWT"
 
 components:
   securitySchemes:
