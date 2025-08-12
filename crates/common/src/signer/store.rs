@@ -542,12 +542,12 @@ mod test {
             .join(consensus_signer.pubkey().to_string())
             .join("TEST_MODULE")
             .join("bls")
-            .join(format!("{}.json", proxy_signer.pubkey().to_string()));
+            .join(format!("{}.json", proxy_signer.pubkey()));
         let sig_path = keys_path
             .join(consensus_signer.pubkey().to_string())
             .join("TEST_MODULE")
             .join("bls")
-            .join(format!("{}.sig", proxy_signer.pubkey().to_string()));
+            .join(format!("{}.sig", proxy_signer.pubkey()));
         let pass_path = secrets_path
             .join(consensus_signer.pubkey().to_string())
             .join("TEST_MODULE")
@@ -674,7 +674,7 @@ mod test {
                         .join(consensus_signer.pubkey().to_string())
                         .join("TEST_MODULE")
                         .join("bls")
-                        .join(format!("{}.sig", proxy_signer.pubkey().to_string()))
+                        .join(format!("{}.sig", proxy_signer.pubkey()))
                 )
                 .unwrap()
             )

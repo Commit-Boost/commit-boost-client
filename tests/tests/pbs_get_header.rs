@@ -67,7 +67,7 @@ async fn test_get_header() -> Result<()> {
 async fn test_get_header_returns_204_if_relay_down() -> Result<()> {
     setup_test_env();
     let signer = random_secret();
-    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk()).into();
+    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk());
 
     let chain = Chain::Holesky;
     let pbs_port = 3300;
@@ -101,7 +101,7 @@ async fn test_get_header_returns_204_if_relay_down() -> Result<()> {
 async fn test_get_header_returns_400_if_request_is_invalid() -> Result<()> {
     setup_test_env();
     let signer = random_secret();
-    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk()).into();
+    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk());
 
     let chain = Chain::Holesky;
     let pbs_port = 3400;

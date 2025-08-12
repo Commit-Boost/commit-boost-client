@@ -129,7 +129,7 @@ mod tests {
             "excess_blob_gas": "95158272"
         }"#;
 
-        let parsed = test_encode_decode::<ExecutionPayloadHeader<ElectraSpec>>(&data);
+        let parsed = test_encode_decode::<ExecutionPayloadHeader<ElectraSpec>>(data);
 
         assert_eq!(
             parsed.parent_hash,

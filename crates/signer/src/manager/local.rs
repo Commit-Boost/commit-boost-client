@@ -298,10 +298,8 @@ mod tests {
         async fn test_proxy_key_is_valid_proxy_for_consensus_key() {
             let (mut signing_manager, consensus_pk) = init_signing_manager();
 
-            let signed_delegation = signing_manager
-                .create_proxy_bls(MODULE_ID.clone(), consensus_pk.clone())
-                .await
-                .unwrap();
+            let signed_delegation =
+                signing_manager.create_proxy_bls(MODULE_ID.clone(), consensus_pk).await.unwrap();
 
             let validation_result = signed_delegation.validate(CHAIN);
 
@@ -321,10 +319,8 @@ mod tests {
         async fn test_tampered_proxy_key_is_invalid() {
             let (mut signing_manager, consensus_pk) = init_signing_manager();
 
-            let mut signed_delegation = signing_manager
-                .create_proxy_bls(MODULE_ID.clone(), consensus_pk.clone())
-                .await
-                .unwrap();
+            let mut signed_delegation =
+                signing_manager.create_proxy_bls(MODULE_ID.clone(), consensus_pk).await.unwrap();
 
             let m = &mut signed_delegation.signature.0[0];
             (*m, _) = m.overflowing_add(1);
@@ -338,18 +334,13 @@ mod tests {
         async fn test_proxy_key_signs_message() {
             let (mut signing_manager, consensus_pk) = init_signing_manager();
 
-            let signed_delegation = signing_manager
-                .create_proxy_bls(MODULE_ID.clone(), consensus_pk.clone())
-                .await
-                .unwrap();
+            let signed_delegation =
+                signing_manager.create_proxy_bls(MODULE_ID.clone(), consensus_pk).await.unwrap();
             let proxy_pk = signed_delegation.message.proxy;
 
             let data_root = B256::random();
 
-            let sig = signing_manager
-                .sign_proxy_bls(&proxy_pk.try_into().unwrap(), &data_root)
-                .await
-                .unwrap();
+            let sig = signing_manager.sign_proxy_bls(&proxy_pk, &data_root).await.unwrap();
 
             // Verify signature
             let domain = compute_domain(CHAIN, COMMIT_BOOST_DOMAIN);
@@ -376,10 +367,8 @@ mod tests {
         async fn test_proxy_key_is_valid_proxy_for_consensus_key() {
             let (mut signing_manager, consensus_pk) = init_signing_manager();
 
-            let signed_delegation = signing_manager
-                .create_proxy_ecdsa(MODULE_ID.clone(), consensus_pk.clone())
-                .await
-                .unwrap();
+            let signed_delegation =
+                signing_manager.create_proxy_ecdsa(MODULE_ID.clone(), consensus_pk).await.unwrap();
 
             let validation_result = signed_delegation.validate(CHAIN);
 
@@ -399,10 +388,8 @@ mod tests {
         async fn test_tampered_proxy_key_is_invalid() {
             let (mut signing_manager, consensus_pk) = init_signing_manager();
 
-            let mut signed_delegation = signing_manager
-                .create_proxy_ecdsa(MODULE_ID.clone(), consensus_pk.clone())
-                .await
-                .unwrap();
+            let mut signed_delegation =
+                signing_manager.create_proxy_ecdsa(MODULE_ID.clone(), consensus_pk).await.unwrap();
 
             let m = &mut signed_delegation.signature.0[0];
             (*m, _) = m.overflowing_add(1);
@@ -416,18 +403,13 @@ mod tests {
         async fn test_proxy_key_signs_message() {
             let (mut signing_manager, consensus_pk) = init_signing_manager();
 
-            let signed_delegation = signing_manager
-                .create_proxy_ecdsa(MODULE_ID.clone(), consensus_pk.clone())
-                .await
-                .unwrap();
+            let signed_delegation =
+                signing_manager.create_proxy_ecdsa(MODULE_ID.clone(), consensus_pk).await.unwrap();
             let proxy_pk = signed_delegation.message.proxy;
 
             let data_root = B256::random();
 
-            let sig = signing_manager
-                .sign_proxy_ecdsa(&proxy_pk.try_into().unwrap(), &data_root)
-                .await
-                .unwrap();
+            let sig = signing_manager.sign_proxy_ecdsa(&proxy_pk, &data_root).await.unwrap();
 
             // Verify signature
             let domain = compute_domain(CHAIN, COMMIT_BOOST_DOMAIN);
