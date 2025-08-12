@@ -48,7 +48,6 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
     Json(signed_blinded_block): Json<SignedBlindedBeaconBlock>,
     api_version: BuilderApiVersion,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    tracing::Span::current().record("block_api_version", api_version.to_string());
     tracing::Span::current().record("slot", signed_blinded_block.slot());
     tracing::Span::current()
         .record("block_hash", tracing::field::debug(signed_blinded_block.block_hash()));
@@ -60,7 +59,7 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
 
     state.publish_event(BuilderEvent::SubmitBlockRequest(
         Box::new(signed_blinded_block.clone()),
-        api_version.clone(),
+        api_version,
     ));
 
     let now = utcnow_ms();

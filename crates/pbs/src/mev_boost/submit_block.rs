@@ -65,7 +65,7 @@ async fn submit_block_with_timeout(
     timeout_ms: u64,
     api_version: &BuilderApiVersion,
 ) -> Result<Option<SubmitBlindedBlockResponse>, PbsError> {
-    let url = relay.submit_block_url(api_version.clone())?;
+    let url = relay.submit_block_url(*api_version)?;
     let mut remaining_timeout_ms = timeout_ms;
     let mut retry = 0;
     let mut backoff = Duration::from_millis(250);

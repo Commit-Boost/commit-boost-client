@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::pbs::{BUILDER_V1_API_PATH, BUILDER_V2_API_PATH};
 
 // Version of the builder API for various routes
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum BuilderApiVersion {
     V1 = 1,
