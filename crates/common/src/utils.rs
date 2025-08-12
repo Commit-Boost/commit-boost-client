@@ -30,7 +30,7 @@ use crate::{
     config::LogsSettings,
     constants::SIGNER_JWT_EXPIRATION,
     pbs::HEADER_VERSION_VALUE,
-    types::{Chain, Jwt, JwtAdmin, JwtClaims, ModuleId},
+    types::{Chain, Jwt, JwtAdminClaims, JwtClaims, ModuleId},
 };
 
 const MILLIS_PER_SECOND: u64 = 1_000;
@@ -374,6 +374,21 @@ pub fn create_jwt(module_id: &ModuleId, secret: &str, payload: Option<&[u8]>) ->
     .map(Jwt::from)
 }
 
+// Creates a JWT for module administration
+pub fn create_admin_jwt(admin_secret: String, payload: Option<&[u8]>) -> eyre::Result<Jwt> {
+    jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &JwtAdminClaims {
+            admin: true,
+            exp: jsonwebtoken::get_current_timestamp() + SIGNER_JWT_EXPIRATION,
+            payload_hash: payload.map(keccak256),
+        },
+        &jsonwebtoken::EncodingKey::from_secret(admin_secret.as_ref()),
+    )
+    .map_err(Into::into)
+    .map(Jwt::from)
+}
+
 /// Decode a JWT and return the JWT claims. IMPORTANT: This function does not
 /// validate the JWT, it only obtains the claims.
 pub fn decode_jwt(jwt: Jwt) -> eyre::Result<JwtClaims> {
@@ -381,6 +396,22 @@ pub fn decode_jwt(jwt: Jwt) -> eyre::Result<JwtClaims> {
     validation.insecure_disable_signature_validation();
 
     let claims = jsonwebtoken::decode::<JwtClaims>(
+        jwt.as_str(),
+        &jsonwebtoken::DecodingKey::from_secret(&[]),
+        &validation,
+    )?
+    .claims;
+
+    Ok(claims)
+}
+
+/// Decode an administrator JWT and return the JWT claims. IMPORTANT: This
+/// function does not validate the JWT, it only obtains the claims.
+pub fn decode_admin_jwt(jwt: Jwt) -> eyre::Result<JwtAdminClaims> {
+    let mut validation = jsonwebtoken::Validation::default();
+    validation.insecure_disable_signature_validation();
+
+    let claims = jsonwebtoken::decode::<JwtAdminClaims>(
         jwt.as_str(),
         &jsonwebtoken::DecodingKey::from_secret(&[]),
         &validation,
@@ -419,21 +450,35 @@ pub fn validate_jwt(jwt: Jwt, secret: &str, payload: Option<&[u8]>) -> eyre::Res
 }
 
 /// Validate an admin JWT with the given secret
-pub fn validate_admin_jwt(jwt: Jwt, secret: &str) -> eyre::Result<()> {
+pub fn validate_admin_jwt(jwt: Jwt, secret: &str, payload: Option<&[u8]>) -> eyre::Result<()> {
     let mut validation = jsonwebtoken::Validation::default();
     validation.leeway = 10;
 
-    let token = jsonwebtoken::decode::<JwtAdmin>(
+    let claims = jsonwebtoken::decode::<JwtAdminClaims>(
         jwt.as_str(),
         &jsonwebtoken::DecodingKey::from_secret(secret.as_ref()),
         &validation,
-    )?;
+    )?
+    .claims;
 
-    if token.claims.admin {
-        Ok(())
-    } else {
+    if !claims.admin {
         eyre::bail!("Token is not admin")
     }
+
+    // Validate the payload hash if provided
+    if let Some(payload_bytes) = payload {
+        if let Some(expected_hash) = claims.payload_hash {
+            let actual_hash = keccak256(payload_bytes);
+            if actual_hash != expected_hash {
+                eyre::bail!("Payload hash does not match");
+            }
+        } else {
+            eyre::bail!("JWT does not contain a payload hash");
+        }
+    } else if claims.payload_hash.is_some() {
+        eyre::bail!("JWT contains a payload hash but no payload was provided");
+    }
+    Ok(())
 }
 
 /// Generates a random string

@@ -26,9 +26,10 @@ pub struct JwtClaims {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct JwtAdmin {
+pub struct JwtAdminClaims {
     pub exp: u64,
     pub admin: bool,
+    pub payload_hash: Option<B256>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

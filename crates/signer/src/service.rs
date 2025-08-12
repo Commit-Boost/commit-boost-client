@@ -283,16 +283,38 @@ fn check_jwt_auth(
 async fn admin_auth(
     State(state): State<SigningState>,
     TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
+    addr: ConnectInfo<SocketAddr>,
     req: Request,
     next: Next,
 ) -> Result<Response, SignerModuleError> {
-    let jwt: Jwt = auth.token().to_string().into();
+    // Check if the request needs to be rate limited
+    let client_ip = addr.ip();
+    check_jwt_rate_limit(&state, &client_ip)?;
 
-    validate_admin_jwt(jwt, &state.admin_secret.read()).map_err(|e| {
-        error!("Unauthorized request. Invalid JWT: {e}");
-        SignerModuleError::Unauthorized
+    // Clone the request so we can read the body
+    let (parts, body) = req.into_parts();
+    let bytes = to_bytes(body, REQUEST_MAX_BODY_LENGTH).await.map_err(|e| {
+        error!("Failed to read request body: {e}");
+        SignerModuleError::RequestError(e.to_string())
     })?;
 
+    let jwt: Jwt = auth.token().to_string().into();
+
+    // Validate the admin JWT
+    if bytes.is_empty() {
+        // Skip payload hash comparison for requests without a body
+        validate_admin_jwt(jwt, &state.admin_secret.read(), None).map_err(|e| {
+            error!("Unauthorized request. Invalid JWT: {e}");
+            SignerModuleError::Unauthorized
+        })?;
+    } else {
+        validate_admin_jwt(jwt, &state.admin_secret.read(), Some(&bytes)).map_err(|e| {
+            error!("Unauthorized request. Invalid payload hash in JWT claims: {e}");
+            SignerModuleError::Unauthorized
+        })?;
+    }
+
+    let req = Request::from_parts(parts, Body::from(bytes));
     Ok(next.run(req).await)
 }
 
