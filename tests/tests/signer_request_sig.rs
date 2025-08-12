@@ -64,7 +64,8 @@ async fn test_signer_sign_request_good() -> Result<()> {
     let object_root = b256!("0x0123456789012345678901234567890123456789012345678901234567890123");
     let nonce: u64 = 101;
     let request = SignConsensusRequest { pubkey: FixedBytes(PUBKEY_1), object_root, nonce };
-    let jwt = create_jwt(&module_id, &jwt_config.jwt_secret)?;
+    let payload_bytes = serde_json::to_vec(&request)?;
+    let jwt = create_jwt(&module_id, &jwt_config.jwt_secret, Some(&payload_bytes))?;
     let client = reqwest::Client::new();
     let url = format!("http://{}{}", start_config.endpoint, REQUEST_SIGNATURE_BLS_PATH);
     let response = client.post(&url).json(&request).bearer_auth(&jwt).send().await?;
@@ -100,7 +101,8 @@ async fn test_signer_sign_request_different_module() -> Result<()> {
     let object_root = b256!("0x0123456789012345678901234567890123456789012345678901234567890123");
     let nonce: u64 = 101;
     let request = SignConsensusRequest { pubkey: FixedBytes(PUBKEY_1), object_root, nonce };
-    let jwt = create_jwt(&module_id, &jwt_config.jwt_secret)?;
+    let payload_bytes = serde_json::to_vec(&request)?;
+    let jwt = create_jwt(&module_id, &jwt_config.jwt_secret, Some(&payload_bytes))?;
     let client = reqwest::Client::new();
     let url = format!("http://{}{}", start_config.endpoint, REQUEST_SIGNATURE_BLS_PATH);
     let response = client.post(&url).json(&request).bearer_auth(&jwt).send().await?;
@@ -126,5 +128,60 @@ async fn test_signer_sign_request_different_module() -> Result<()> {
         "Signature matches the reference signature, which should not happen"
     );
 
+    Ok(())
+}
+
+/// Makes sure the signer service does not allow requests for JWTs that do
+/// not match the JWT hash
+#[tokio::test]
+async fn test_signer_sign_request_incorrect_hash() -> Result<()> {
+    setup_test_env();
+    let module_id = ModuleId(MODULE_ID_2.to_string());
+    let mod_cfgs = create_mod_signing_configs().await;
+    let start_config = start_server(20202, &mod_cfgs, ADMIN_SECRET.to_string()).await?;
+    let jwt_config = mod_cfgs.get(&module_id).expect("JWT config for 2nd test module not found");
+
+    // Send a signing request
+    let fake_object_root =
+        b256!("0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd");
+    let nonce: u64 = 101;
+    let fake_request =
+        SignConsensusRequest { pubkey: FixedBytes(PUBKEY_1), object_root: fake_object_root, nonce };
+    let fake_payload_bytes = serde_json::to_vec(&fake_request)?;
+    let true_object_root =
+        b256!("0x0123456789012345678901234567890123456789012345678901234567890123");
+    let true_request =
+        SignConsensusRequest { pubkey: FixedBytes(PUBKEY_1), object_root: true_object_root, nonce };
+    let jwt = create_jwt(&module_id, &jwt_config.jwt_secret, Some(&fake_payload_bytes))?;
+    let client = reqwest::Client::new();
+    let url = format!("http://{}{}", start_config.endpoint, REQUEST_SIGNATURE_BLS_PATH);
+    let response = client.post(&url).json(&true_request).bearer_auth(&jwt).send().await?;
+
+    // Verify that authorization failed
+    assert!(response.status() == StatusCode::UNAUTHORIZED);
+    Ok(())
+}
+
+/// Makes sure the signer service does not allow signer requests for JWTs that
+/// do not include a payload hash
+#[tokio::test]
+async fn test_signer_sign_request_missing_hash() -> Result<()> {
+    setup_test_env();
+    let module_id = ModuleId(MODULE_ID_2.to_string());
+    let mod_cfgs = create_mod_signing_configs().await;
+    let start_config = start_server(20203, &mod_cfgs, ADMIN_SECRET.to_string()).await?;
+    let jwt_config = mod_cfgs.get(&module_id).expect("JWT config for 2nd test module not found");
+
+    // Send a signing request
+    let nonce: u64 = 101;
+    let object_root = b256!("0x0123456789012345678901234567890123456789012345678901234567890123");
+    let request = SignConsensusRequest { pubkey: FixedBytes(PUBKEY_1), object_root, nonce };
+    let jwt = create_jwt(&module_id, &jwt_config.jwt_secret, None)?;
+    let client = reqwest::Client::new();
+    let url = format!("http://{}{}", start_config.endpoint, REQUEST_SIGNATURE_BLS_PATH);
+    let response = client.post(&url).json(&request).bearer_auth(&jwt).send().await?;
+
+    // Verify that authorization failed
+    assert!(response.status() == StatusCode::UNAUTHORIZED);
     Ok(())
 }

@@ -6,7 +6,7 @@ use std::{
 };
 
 use alloy::{
-    primitives::U256,
+    primitives::{keccak256, U256},
     rpc::types::beacon::{BlsPublicKey, BlsSignature},
 };
 use axum::http::HeaderValue;
@@ -360,12 +360,13 @@ pub fn blst_pubkey_to_alloy(pubkey: &PublicKey) -> BlsPublicKey {
 }
 
 /// Create a JWT for the given module id with expiration
-pub fn create_jwt(module_id: &ModuleId, secret: &str) -> eyre::Result<Jwt> {
+pub fn create_jwt(module_id: &ModuleId, secret: &str, payload: Option<&[u8]>) -> eyre::Result<Jwt> {
     jsonwebtoken::encode(
         &jsonwebtoken::Header::default(),
         &JwtClaims {
-            module: module_id.to_string(),
+            module: module_id.clone(),
             exp: jsonwebtoken::get_current_timestamp() + SIGNER_JWT_EXPIRATION,
+            payload_hash: payload.map(keccak256),
         },
         &jsonwebtoken::EncodingKey::from_secret(secret.as_ref()),
     )
@@ -373,36 +374,48 @@ pub fn create_jwt(module_id: &ModuleId, secret: &str) -> eyre::Result<Jwt> {
     .map(Jwt::from)
 }
 
-/// Decode a JWT and return the module id. IMPORTANT: This function does not
-/// validate the JWT, it only obtains the module id from the claims.
-pub fn decode_jwt(jwt: Jwt) -> eyre::Result<ModuleId> {
+/// Decode a JWT and return the JWT claims. IMPORTANT: This function does not
+/// validate the JWT, it only obtains the claims.
+pub fn decode_jwt(jwt: Jwt) -> eyre::Result<JwtClaims> {
     let mut validation = jsonwebtoken::Validation::default();
     validation.insecure_disable_signature_validation();
 
-    let module = jsonwebtoken::decode::<JwtClaims>(
+    let claims = jsonwebtoken::decode::<JwtClaims>(
         jwt.as_str(),
         &jsonwebtoken::DecodingKey::from_secret(&[]),
         &validation,
     )?
-    .claims
-    .module
-    .into();
+    .claims;
 
-    Ok(module)
+    Ok(claims)
 }
 
 /// Validate a JWT with the given secret
-pub fn validate_jwt(jwt: Jwt, secret: &str) -> eyre::Result<()> {
+pub fn validate_jwt(jwt: Jwt, secret: &str, payload: Option<&[u8]>) -> eyre::Result<()> {
     let mut validation = jsonwebtoken::Validation::default();
     validation.leeway = 10;
 
-    jsonwebtoken::decode::<JwtClaims>(
+    let claims = jsonwebtoken::decode::<JwtClaims>(
         jwt.as_str(),
         &jsonwebtoken::DecodingKey::from_secret(secret.as_ref()),
         &validation,
-    )
-    .map(|_| ())
-    .map_err(From::from)
+    )?
+    .claims;
+
+    // Validate the payload hash if provided
+    if let Some(payload_bytes) = payload {
+        if let Some(expected_hash) = claims.payload_hash {
+            let actual_hash = keccak256(payload_bytes);
+            if actual_hash != expected_hash {
+                eyre::bail!("Payload hash does not match");
+            }
+        } else {
+            eyre::bail!("JWT does not contain a payload hash");
+        }
+    } else if claims.payload_hash.is_some() {
+        eyre::bail!("JWT contains a payload hash but no payload was provided");
+    }
+    Ok(())
 }
 
 /// Validate an admin JWT with the given secret
@@ -466,27 +479,64 @@ pub async fn wait_for_signal() -> eyre::Result<()> {
 
 #[cfg(test)]
 mod test {
+    use alloy::primitives::keccak256;
+
     use super::{create_jwt, decode_jwt, validate_jwt};
     use crate::types::{Jwt, ModuleId};
 
     #[test]
-    fn test_jwt_validation() {
+    fn test_jwt_validation_no_payload_hash() {
         // Check valid JWT
-        let jwt = create_jwt(&ModuleId("DA_COMMIT".to_string()), "secret").unwrap();
-        let module_id = decode_jwt(jwt.clone()).unwrap();
+        let jwt = create_jwt(&ModuleId("DA_COMMIT".to_string()), "secret", None).unwrap();
+        let claims = decode_jwt(jwt.clone()).unwrap();
+        let module_id = claims.module;
+        let payload_hash = claims.payload_hash;
         assert_eq!(module_id, ModuleId("DA_COMMIT".to_string()));
-        let response = validate_jwt(jwt, "secret");
+        assert!(payload_hash.is_none());
+        let response = validate_jwt(jwt, "secret", None);
         assert!(response.is_ok());
 
         // Check expired JWT
         let expired_jwt = Jwt::from("eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3NDI5OTU5NDYsIm1vZHVsZSI6IkRBX0NPTU1JVCJ9.iiq4Z2ed2hk3c3c-cn2QOQJWE5XUOc5BoaIPT-I8q-s".to_string());
-        let response = validate_jwt(expired_jwt, "secret");
+        let response = validate_jwt(expired_jwt, "secret", None);
         assert!(response.is_err());
         assert_eq!(response.unwrap_err().to_string(), "ExpiredSignature");
 
         // Check invalid signature JWT
         let invalid_jwt = Jwt::from("eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3NDI5OTU5NDYsIm1vZHVsZSI6IkRBX0NPTU1JVCJ9.w9WYdDNzgDjYTvjBkk4GGzywGNBYPxnzU2uJWzPUT1s".to_string());
-        let response = validate_jwt(invalid_jwt, "secret");
+        let response = validate_jwt(invalid_jwt, "secret", None);
+        assert!(response.is_err());
+        assert_eq!(response.unwrap_err().to_string(), "InvalidSignature");
+    }
+
+    #[test]
+    fn test_jwt_validation_with_payload() {
+        // Pretend payload
+        let payload = serde_json::json!({
+            "data": "test"
+        });
+        let payload_bytes = serde_json::to_vec(&payload).unwrap();
+
+        // Check valid JWT
+        let jwt =
+            create_jwt(&ModuleId("DA_COMMIT".to_string()), "secret", Some(&payload_bytes)).unwrap();
+        let claims = decode_jwt(jwt.clone()).unwrap();
+        let module_id = claims.module;
+        let payload_hash = claims.payload_hash;
+        assert_eq!(module_id, ModuleId("DA_COMMIT".to_string()));
+        assert_eq!(payload_hash, Some(keccak256(&payload_bytes)));
+        let response = validate_jwt(jwt, "secret", Some(&payload_bytes));
+        assert!(response.is_ok());
+
+        // Check expired JWT
+        let expired_jwt = Jwt::from("eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3NDI5OTU5NDYsIm1vZHVsZSI6IkRBX0NPTU1JVCJ9.iiq4Z2ed2hk3c3c-cn2QOQJWE5XUOc5BoaIPT-I8q-s".to_string());
+        let response = validate_jwt(expired_jwt, "secret", Some(&payload_bytes));
+        assert!(response.is_err());
+        assert_eq!(response.unwrap_err().to_string(), "ExpiredSignature");
+
+        // Check invalid signature JWT
+        let invalid_jwt = Jwt::from("eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3NDI5OTU5NDYsIm1vZHVsZSI6IkRBX0NPTU1JVCJ9.w9WYdDNzgDjYTvjBkk4GGzywGNBYPxnzU2uJWzPUT1s".to_string());
+        let response = validate_jwt(invalid_jwt, "secret", Some(&payload_bytes));
         assert!(response.is_err());
         assert_eq!(response.unwrap_err().to_string(), "InvalidSignature");
     }

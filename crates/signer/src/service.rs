@@ -165,7 +165,7 @@ async fn jwt_auth(
     State(state): State<SigningState>,
     TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
     addr: ConnectInfo<SocketAddr>,
-    mut req: Request,
+    req: Request,
     next: Next,
 ) -> Result<Response, SignerModuleError> {
     // Check if the request needs to be rate limited
@@ -182,7 +182,7 @@ async fn jwt_auth(
     // Process JWT authorization
     match check_jwt_auth(&auth, &state, &bytes.to_vec()) {
         Ok(module_id) => {
-            let req = Request::from_parts(parts, Body::from(bytes));
+            let mut req = Request::from_parts(parts, Body::from(bytes));
             req.extensions_mut().insert(module_id);
             Ok(next.run(req).await)
         }
@@ -244,27 +244,40 @@ fn check_jwt_auth(
 
     // We first need to decode it to get the module id and then validate it
     // with the secret stored in the state
-    let module_id = decode_jwt(jwt.clone()).map_err(|e| {
+    let claims = decode_jwt(jwt.clone()).map_err(|e| {
         error!("Unauthorized request. Invalid JWT: {e}");
         SignerModuleError::Unauthorized
     })?;
 
     let guard = state.jwts.read();
-    let jwt_config = guard.get(&module_id).ok_or_else(|| {
+    let jwt_config = guard.get(&claims.module).ok_or_else(|| {
         error!("Unauthorized request. Was the module started correctly?");
         SignerModuleError::Unauthorized
     })?;
 
-    validate_jwt(jwt, &jwt_config.jwt_secret).map_err(|e| {
-        error!("Unauthorized request. Invalid JWT: {e}");
-        SignerModuleError::Unauthorized
-    })?;
+    if body.is_empty() {
+        // Skip payload hash comparison for requests without a body
+        validate_jwt(jwt, &jwt_config.jwt_secret, None).map_err(|e| {
+            error!("Unauthorized request. Invalid JWT: {e}");
+            SignerModuleError::Unauthorized
+        })?;
+    } else {
+        validate_jwt(jwt, &jwt_config.jwt_secret, Some(body)).map_err(|e| {
+            error!("Unauthorized request. Invalid JWT: {e}");
+            SignerModuleError::Unauthorized
+        })?;
 
-    // Make sure the request contains a hash of the payload in its claims
-    if !body.is_empty() {
-        let payload_hash = keccak256(body);
+        // Make sure the request contains a hash of the payload in its claims
+        if !body.is_empty() {
+            let payload_hash = keccak256(body);
+            if claims.payload_hash.is_none() || claims.payload_hash != Some(payload_hash) {
+                error!("Unauthorized request. Invalid payload hash in JWT claims");
+                return Err(SignerModuleError::Unauthorized);
+            }
+        }
     }
-    Ok(module_id)
+
+    Ok(claims.module)
 }
 
 async fn admin_auth(
