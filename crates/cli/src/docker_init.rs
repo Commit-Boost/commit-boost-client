@@ -17,7 +17,7 @@ use cb_common::{
         SIGNER_DIR_SECRETS_ENV, SIGNER_ENDPOINT_ENV, SIGNER_KEYS_ENV, SIGNER_MODULE_NAME,
         SIGNER_PORT_DEFAULT, SIGNER_URL_ENV,
     },
-    pbs::{BUILDER_API_PATH, GET_STATUS_PATH},
+    pbs::{BUILDER_V1_API_PATH, GET_STATUS_PATH},
     signer::{ProxyStore, SignerLoader},
     types::ModuleId,
     utils::random_jwt_secret,
@@ -308,7 +308,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
         healthcheck: Some(Healthcheck {
             test: Some(HealthcheckTest::Single(format!(
                 "curl -f http://localhost:{}{}{}",
-                cb_config.pbs.pbs_config.port, BUILDER_API_PATH, GET_STATUS_PATH
+                cb_config.pbs.pbs_config.port, BUILDER_V1_API_PATH, GET_STATUS_PATH
             ))),
             interval: Some("30s".into()),
             timeout: Some("5s".into()),
