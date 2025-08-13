@@ -20,6 +20,7 @@ pub async fn start_server(
     port: u16,
     mod_signing_configs: &HashMap<ModuleId, ModuleSigningConfig>,
     admin_secret: String,
+    use_tls: bool,
 ) -> Result<StartSignerConfig> {
     let chain = Chain::Hoodi;
 
@@ -29,7 +30,7 @@ pub async fn start_server(
         secrets_path: "data/keystores/secrets".into(),
         format: ValidatorKeysFormat::Lighthouse,
     };
-    let mut config = get_signer_config(loader);
+    let mut config = get_signer_config(loader, use_tls);
     config.port = port;
     config.jwt_auth_fail_limit = 3; // Set a low fail limit for testing
     config.jwt_auth_fail_timeout_seconds = 3; // Set a short timeout for testing
@@ -39,10 +40,20 @@ pub async fn start_server(
     let server_handle = tokio::spawn(SigningService::run(start_config.clone()));
 
     // Wait for the server to start
-    let url = format!("https://{}{}", start_config.endpoint, STATUS_PATH);
-    let client = reqwest::Client::builder()
-        .add_root_certificate(Certificate::from_pem(&start_config.tls_certificates.0)?)
-        .build()?;
+    let (url, client) = match start_config.tls_certificates {
+        Some(ref certificates) => {
+            let url = format!("https://{}{}", start_config.endpoint, STATUS_PATH);
+            let client = reqwest::Client::builder()
+                .add_root_certificate(Certificate::from_pem(&certificates.0)?)
+                .build()?;
+            (url, client)
+        }
+        None => {
+            let url = format!("http://{}{}", start_config.endpoint, STATUS_PATH);
+            (url, reqwest::Client::new())
+        }
+    };
+
     let sleep_duration = Duration::from_millis(100);
     for i in 0..100 {
         // 10 second max wait

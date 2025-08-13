@@ -6,9 +6,9 @@ use std::{
 
 use cb_common::{
     config::{
-        CommitBoostConfig, LogsSettings, ModuleKind, SignerConfig, SignerType, ADMIN_JWT_ENV,
-        BUILDER_PORT_ENV, BUILDER_URLS_ENV, CHAIN_SPEC_ENV, CONFIG_DEFAULT, CONFIG_ENV,
-        DIRK_CA_CERT_DEFAULT, DIRK_CA_CERT_ENV, DIRK_CERT_DEFAULT, DIRK_CERT_ENV,
+        CommitBoostConfig, LogsSettings, ModuleKind, SignerConfig, SignerType, TlsMode,
+        ADMIN_JWT_ENV, BUILDER_PORT_ENV, BUILDER_URLS_ENV, CHAIN_SPEC_ENV, CONFIG_DEFAULT,
+        CONFIG_ENV, DIRK_CA_CERT_DEFAULT, DIRK_CA_CERT_ENV, DIRK_CERT_DEFAULT, DIRK_CERT_ENV,
         DIRK_DIR_SECRETS_DEFAULT, DIRK_DIR_SECRETS_ENV, DIRK_KEY_DEFAULT, DIRK_KEY_ENV, JWTS_ENV,
         LOGS_DIR_DEFAULT, LOGS_DIR_ENV, METRICS_PORT_ENV, MODULE_ID_ENV, MODULE_JWT_ENV,
         PBS_ENDPOINT_ENV, PBS_MODULE_NAME, PROXY_DIR_DEFAULT, PROXY_DIR_ENV,
@@ -95,8 +95,14 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
         });
 
     // If signer config is not set, certs_path doesn't really matter
-    let certs_path =
-        cb_config.signer.as_ref().map(|config| config.tls_certificates.clone()).unwrap_or_default();
+    let certs_path = cb_config
+        .signer
+        .as_ref()
+        .map(|config| match &config.tls_mode {
+            TlsMode::Insecure => None,
+            TlsMode::Certificate(path) => Some(path),
+        })
+        .unwrap_or_default();
 
     // setup modules
     if let Some(modules_config) = cb_config.modules {
@@ -169,12 +175,14 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                     let mut module_volumes = vec![config_volume.clone()];
                     module_volumes.extend(chain_spec_volume.clone());
                     module_volumes.extend(get_log_volume(&cb_config.logs, &module.id));
-                    module_volumes.push(Volumes::Simple(format!(
-                        "{}:{}/{}:ro",
-                        certs_path.join(SIGNER_TLS_CERTIFICATE_NAME).display(),
-                        SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
-                        SIGNER_TLS_CERTIFICATE_NAME
-                    )));
+                    if let Some(certs_path) = &certs_path {
+                        module_volumes.push(Volumes::Simple(format!(
+                            "{}:{}/{}:ro",
+                            certs_path.join(SIGNER_TLS_CERTIFICATE_NAME).display(),
+                            SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
+                            SIGNER_TLS_CERTIFICATE_NAME
+                        )));
+                    }
 
                     // depends_on
                     let mut module_dependencies = IndexMap::new();
@@ -316,15 +324,17 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
     pbs_volumes.extend(chain_spec_volume.clone());
     pbs_volumes.extend(get_log_volume(&cb_config.logs, PBS_MODULE_NAME));
     if needs_signer_module {
-        pbs_volumes.push(Volumes::Simple(format!(
-            "{}:{}/{}:ro",
-            certs_path.join(SIGNER_TLS_CERTIFICATE_NAME).display(),
-            SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
-            SIGNER_TLS_CERTIFICATE_NAME
-        )));
-        let (key, val) =
-            get_env_val(SIGNER_TLS_CERTIFICATES_PATH_ENV, SIGNER_TLS_CERTIFICATES_PATH_DEFAULT);
-        pbs_envs.insert(key, val);
+        if let Some(certs_path) = &certs_path {
+            pbs_volumes.push(Volumes::Simple(format!(
+                "{}:{}/{}:ro",
+                certs_path.join(SIGNER_TLS_CERTIFICATE_NAME).display(),
+                SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
+                SIGNER_TLS_CERTIFICATE_NAME
+            )));
+            let (key, val) =
+                get_env_val(SIGNER_TLS_CERTIFICATES_PATH_ENV, SIGNER_TLS_CERTIFICATES_PATH_DEFAULT);
+            pbs_envs.insert(key, val);
+        }
     }
 
     let pbs_service = Service {
@@ -352,7 +362,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
 
     // setup signer service
     if needs_signer_module {
-        let Some(signer_config) = cb_config.signer else {
+        let Some(signer_config) = cb_config.signer.clone() else {
             panic!("Signer module required but no signer config provided");
         };
 
@@ -469,34 +479,39 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
 
                 volumes.extend(get_log_volume(&cb_config.logs, SIGNER_MODULE_NAME));
 
-                if !certs_path.try_exists()? {
-                    std::fs::create_dir(certs_path.clone())?;
+                // Add TLS support if needed
+                if let Some(certs_path) = certs_path {
+                    if !certs_path.try_exists()? {
+                        std::fs::create_dir(certs_path.clone())?;
+                    }
+
+                    if !certs_path.join(SIGNER_TLS_CERTIFICATE_NAME).try_exists()? ||
+                        !certs_path.join(SIGNER_TLS_KEY_NAME).try_exists()?
+                    {
+                        let (cert, key): (String, String) =
+                            generate_simple_self_signed(vec!["cb_signer".to_string()])
+                                .map(|x| (x.cert.pem(), x.key_pair.serialize_pem()))
+                                .map_err(|e| {
+                                    eyre::eyre!("Failed to generate TLS certificate: {e}")
+                                })?;
+
+                        std::fs::write(certs_path.join(SIGNER_TLS_CERTIFICATE_NAME), &cert)?;
+                        std::fs::write(certs_path.join(SIGNER_TLS_KEY_NAME), &key)?;
+                    }
+
+                    volumes.push(Volumes::Simple(format!(
+                        "{}:{}/{}:ro",
+                        certs_path.join(SIGNER_TLS_CERTIFICATE_NAME).display(),
+                        SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
+                        SIGNER_TLS_CERTIFICATE_NAME
+                    )));
+                    volumes.push(Volumes::Simple(format!(
+                        "{}:{}/{}:ro",
+                        certs_path.join(SIGNER_TLS_KEY_NAME).display(),
+                        SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
+                        SIGNER_TLS_KEY_NAME
+                    )));
                 }
-
-                if !certs_path.join(SIGNER_TLS_CERTIFICATE_NAME).try_exists()? ||
-                    !certs_path.join(SIGNER_TLS_KEY_NAME).try_exists()?
-                {
-                    let (cert, key): (String, String) =
-                        generate_simple_self_signed(vec!["cb_signer".to_string()])
-                            .map(|x| (x.cert.pem(), x.key_pair.serialize_pem()))
-                            .map_err(|e| eyre::eyre!("Failed to generate TLS certificate: {e}"))?;
-
-                    std::fs::write(certs_path.join(SIGNER_TLS_CERTIFICATE_NAME), &cert)?;
-                    std::fs::write(certs_path.join(SIGNER_TLS_KEY_NAME), &key)?;
-                }
-
-                volumes.push(Volumes::Simple(format!(
-                    "{}:{}/{}:ro",
-                    certs_path.join(SIGNER_TLS_CERTIFICATE_NAME).display(),
-                    SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
-                    SIGNER_TLS_CERTIFICATE_NAME
-                )));
-                volumes.push(Volumes::Simple(format!(
-                    "{}:{}/{}:ro",
-                    certs_path.join(SIGNER_TLS_KEY_NAME).display(),
-                    SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
-                    SIGNER_TLS_KEY_NAME
-                )));
 
                 // networks
                 let signer_networks = vec![SIGNER_NETWORK.to_owned()];

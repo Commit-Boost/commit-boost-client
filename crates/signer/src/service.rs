@@ -152,13 +152,23 @@ impl SigningService {
                 .install_default()
                 .map_err(|_| eyre::eyre!("Failed to install TLS provider"))?;
         }
-        let tls_config =
-            RustlsConfig::from_pem(config.tls_certificates.0, config.tls_certificates.1).await?;
 
-        axum_server::bind_rustls(config.endpoint, tls_config)
-            .serve(signer_app.merge(admin_app).into_make_service_with_connect_info::<SocketAddr>())
-            .await
-            .wrap_err("signer server exited")
+        let server_result = if let Some(tls_config) = config.tls_certificates {
+            let tls_config = RustlsConfig::from_pem(tls_config.0, tls_config.1).await?;
+            axum_server::bind_rustls(config.endpoint, tls_config)
+                .serve(
+                    signer_app.merge(admin_app).into_make_service_with_connect_info::<SocketAddr>(),
+                )
+                .await
+        } else {
+            info!("NOTE: Running in insecure HTTP mode, no TLS certificates provided");
+            axum_server::bind(config.endpoint)
+                .serve(
+                    signer_app.merge(admin_app).into_make_service_with_connect_info::<SocketAddr>(),
+                )
+                .await
+        };
+        server_result.wrap_err("signer service exited")
     }
 
     fn init_metrics(network: Chain) -> eyre::Result<()> {
