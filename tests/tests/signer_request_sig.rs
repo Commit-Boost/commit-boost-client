@@ -20,7 +20,7 @@ use cb_tests::{
     utils::{self, setup_test_env},
 };
 use eyre::Result;
-use reqwest::StatusCode;
+use reqwest::{Certificate, StatusCode};
 
 const MODULE_ID_1: &str = "test-module";
 const MODULE_ID_2: &str = "another-module";
@@ -66,8 +66,10 @@ async fn test_signer_sign_request_good() -> Result<()> {
     let request = SignConsensusRequest { pubkey: FixedBytes(PUBKEY_1), object_root, nonce };
     let payload_bytes = serde_json::to_vec(&request)?;
     let jwt = create_jwt(&module_id, &jwt_config.jwt_secret, Some(&payload_bytes))?;
-    let client = reqwest::Client::new();
-    let url = format!("http://{}{}", start_config.endpoint, REQUEST_SIGNATURE_BLS_PATH);
+    let client = reqwest::Client::builder()
+        .add_root_certificate(Certificate::from_pem(&start_config.tls_certificates.0)?)
+        .build()?;
+    let url = format!("https://{}{}", start_config.endpoint, REQUEST_SIGNATURE_BLS_PATH);
     let response = client.post(&url).json(&request).bearer_auth(&jwt).send().await?;
 
     // Verify the response is successful
@@ -103,8 +105,10 @@ async fn test_signer_sign_request_different_module() -> Result<()> {
     let request = SignConsensusRequest { pubkey: FixedBytes(PUBKEY_1), object_root, nonce };
     let payload_bytes = serde_json::to_vec(&request)?;
     let jwt = create_jwt(&module_id, &jwt_config.jwt_secret, Some(&payload_bytes))?;
-    let client = reqwest::Client::new();
-    let url = format!("http://{}{}", start_config.endpoint, REQUEST_SIGNATURE_BLS_PATH);
+    let client = reqwest::Client::builder()
+        .add_root_certificate(Certificate::from_pem(&start_config.tls_certificates.0)?)
+        .build()?;
+    let url = format!("https://{}{}", start_config.endpoint, REQUEST_SIGNATURE_BLS_PATH);
     let response = client.post(&url).json(&request).bearer_auth(&jwt).send().await?;
 
     // Verify the response is successful
@@ -153,8 +157,10 @@ async fn test_signer_sign_request_incorrect_hash() -> Result<()> {
     let true_request =
         SignConsensusRequest { pubkey: FixedBytes(PUBKEY_1), object_root: true_object_root, nonce };
     let jwt = create_jwt(&module_id, &jwt_config.jwt_secret, Some(&fake_payload_bytes))?;
-    let client = reqwest::Client::new();
-    let url = format!("http://{}{}", start_config.endpoint, REQUEST_SIGNATURE_BLS_PATH);
+    let client = reqwest::Client::builder()
+        .add_root_certificate(Certificate::from_pem(&start_config.tls_certificates.0)?)
+        .build()?;
+    let url = format!("https://{}{}", start_config.endpoint, REQUEST_SIGNATURE_BLS_PATH);
     let response = client.post(&url).json(&true_request).bearer_auth(&jwt).send().await?;
 
     // Verify that authorization failed
@@ -177,8 +183,10 @@ async fn test_signer_sign_request_missing_hash() -> Result<()> {
     let object_root = b256!("0x0123456789012345678901234567890123456789012345678901234567890123");
     let request = SignConsensusRequest { pubkey: FixedBytes(PUBKEY_1), object_root, nonce };
     let jwt = create_jwt(&module_id, &jwt_config.jwt_secret, None)?;
-    let client = reqwest::Client::new();
-    let url = format!("http://{}{}", start_config.endpoint, REQUEST_SIGNATURE_BLS_PATH);
+    let client = reqwest::Client::builder()
+        .add_root_certificate(Certificate::from_pem(&start_config.tls_certificates.0)?)
+        .build()?;
+    let url = format!("https://{}{}", start_config.endpoint, REQUEST_SIGNATURE_BLS_PATH);
     let response = client.post(&url).json(&request).bearer_auth(&jwt).send().await?;
 
     // Verify that authorization failed

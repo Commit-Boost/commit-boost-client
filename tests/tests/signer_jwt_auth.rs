@@ -126,7 +126,9 @@ async fn test_signer_revoked_jwt_fail() -> Result<()> {
 
     // Run as many pubkeys requests as the fail limit
     let jwt = create_jwt(&module_id, JWT_SECRET, None)?;
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .add_root_certificate(Certificate::from_pem(&start_config.tls_certificates.0)?)
+        .build()?;
 
     // At first, test module should be allowed to request pubkeys
     let url = format!("https://{}{}", start_config.endpoint, GET_PUBKEYS_PATH);
@@ -162,7 +164,9 @@ async fn test_signer_only_admin_can_revoke() -> Result<()> {
 
     // Run as many pubkeys requests as the fail limit
     let jwt = create_jwt(&module_id, JWT_SECRET, Some(&body_bytes))?;
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .add_root_certificate(Certificate::from_pem(&start_config.tls_certificates.0)?)
+        .build()?;
     let url = format!("https://{}{}", start_config.endpoint, REVOKE_MODULE_PATH);
 
     // Module JWT shouldn't be able to revoke modules

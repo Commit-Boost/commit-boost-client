@@ -143,7 +143,7 @@ pub fn get_start_signer_config(
     mod_signing_configs: &HashMap<ModuleId, ModuleSigningConfig>,
     admin_secret: String,
 ) -> StartSignerConfig {
-    let tls_certificates = generate_simple_self_signed(vec!["localhost".to_string()])
+    let tls_certificates = generate_simple_self_signed(vec![signer_config.host.to_string()])
         .map(|x| (x.cert.pem().as_bytes().to_vec(), x.key_pair.serialize_pem().as_bytes().to_vec()))
         .expect("Failed to generate TLS certificate");
 

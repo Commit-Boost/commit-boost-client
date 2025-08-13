@@ -2,14 +2,14 @@ use std::{collections::HashMap, time::Duration};
 
 use alloy::{hex, primitives::FixedBytes};
 use cb_common::{
-    commit::request::GetPubkeysResponse,
+    commit::{constants::STATUS_PATH, request::GetPubkeysResponse},
     config::{ModuleSigningConfig, StartSignerConfig},
     signer::{SignerLoader, ValidatorKeysFormat},
     types::{Chain, ModuleId},
 };
 use cb_signer::service::SigningService;
 use eyre::Result;
-use reqwest::{Response, StatusCode};
+use reqwest::{Certificate, Response, StatusCode};
 use tracing::info;
 
 use crate::utils::{get_signer_config, get_start_signer_config};
@@ -38,15 +38,27 @@ pub async fn start_server(
     // Run the Signer
     let server_handle = tokio::spawn(SigningService::run(start_config.clone()));
 
-    // Make sure the server is running
-    tokio::time::sleep(Duration::from_millis(100)).await;
-    if server_handle.is_finished() {
-        return Err(eyre::eyre!(
-            "Signer service failed to start: {}",
-            server_handle.await.unwrap_err()
-        ));
+    // Wait for the server to start
+    let url = format!("https://{}{}", start_config.endpoint, STATUS_PATH);
+    let client = reqwest::Client::builder()
+        .add_root_certificate(Certificate::from_pem(&start_config.tls_certificates.0)?)
+        .build()?;
+    let sleep_duration = Duration::from_millis(100);
+    for i in 0..100 {
+        // 10 second max wait
+        if i > 0 {
+            tokio::time::sleep(sleep_duration).await;
+        }
+        match client.get(&url).send().await {
+            Ok(_) => {
+                return Ok(start_config);
+            }
+            Err(e) => {
+                info!("Waiting for signer service to start: {}", e);
+            }
+        }
     }
-    Ok(start_config)
+    Err(eyre::eyre!("Signer service failed to start: {}", server_handle.await.unwrap_err()))
 }
 
 // Verifies that the pubkeys returned by the server match the pubkeys in the
