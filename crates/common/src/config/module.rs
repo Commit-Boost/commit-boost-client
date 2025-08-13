@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, path::PathBuf};
 
 use alloy::primitives::B256;
 use eyre::{ContextCompat, Result};
@@ -11,7 +11,8 @@ use crate::{
         constants::{CONFIG_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, SIGNER_URL_ENV},
         load_env_var,
         utils::load_file_from_env,
-        BUILDER_PORT_ENV,
+        SignerConfig, TlsMode, BUILDER_PORT_ENV, SIGNER_TLS_CERTIFICATES_PATH_ENV,
+        SIGNER_TLS_CERTIFICATE_NAME,
     },
     types::{Chain, Jwt, ModuleId},
 };
@@ -85,6 +86,7 @@ pub fn load_commit_module_config<T: DeserializeOwned>() -> Result<StartCommitMod
     struct StubConfig<U> {
         chain: Chain,
         modules: Vec<ThisModule<U>>,
+        signer: SignerConfig,
     }
 
     // load module config including the extra data (if any)
@@ -107,7 +109,16 @@ pub fn load_commit_module_config<T: DeserializeOwned>() -> Result<StartCommitMod
         .find(|m| m.static_config.id == module_id)
         .wrap_err(format!("failed to find module for {module_id}"))?;
 
-    let signer_client = SignerClient::new(signer_server_url, module_jwt, module_id)?;
+    let certs_path = match cb_config.signer.tls_mode {
+        TlsMode::Insecure => None,
+        TlsMode::Certificate(path) => Some(
+            load_env_var(SIGNER_TLS_CERTIFICATES_PATH_ENV)
+                .map(PathBuf::from)
+                .unwrap_or(path)
+                .join(SIGNER_TLS_CERTIFICATE_NAME),
+        ),
+    };
+    let signer_client = SignerClient::new(signer_server_url, certs_path, module_jwt, module_id)?;
 
     Ok(StartCommitModuleConfig {
         id: module_config.static_config.id,

@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     net::{Ipv4Addr, SocketAddr},
+    path::PathBuf,
     sync::{Arc, Once},
 };
 
@@ -12,7 +13,7 @@ use cb_common::{
     config::{
         CommitBoostConfig, LogsSettings, ModuleKind, ModuleSigningConfig, PbsConfig,
         PbsModuleConfig, RelayConfig, SignerConfig, SignerType, StartSignerConfig,
-        StaticModuleConfig, StaticPbsConfig, SIGNER_IMAGE_DEFAULT,
+        StaticModuleConfig, StaticPbsConfig, TlsMode, SIGNER_IMAGE_DEFAULT,
         SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT, SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT,
         SIGNER_PORT_DEFAULT,
     },
@@ -22,6 +23,7 @@ use cb_common::{
     utils::default_host,
 };
 use eyre::Result;
+use rcgen::generate_simple_self_signed;
 
 pub fn get_local_address(port: u16) -> String {
     format!("http://0.0.0.0:{port}")
@@ -123,7 +125,7 @@ pub fn to_pbs_config(
     }
 }
 
-pub fn get_signer_config(loader: SignerLoader) -> SignerConfig {
+pub fn get_signer_config(loader: SignerLoader, tls: bool) -> SignerConfig {
     SignerConfig {
         host: default_host(),
         port: SIGNER_PORT_DEFAULT,
@@ -131,6 +133,7 @@ pub fn get_signer_config(loader: SignerLoader) -> SignerConfig {
         jwt_auth_fail_limit: SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT,
         jwt_auth_fail_timeout_seconds: SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT,
         inner: SignerType::Local { loader, store: None },
+        tls_mode: if tls { TlsMode::Certificate(PathBuf::new()) } else { TlsMode::Insecure },
     }
 }
 
@@ -140,6 +143,20 @@ pub fn get_start_signer_config(
     mod_signing_configs: &HashMap<ModuleId, ModuleSigningConfig>,
     admin_secret: String,
 ) -> StartSignerConfig {
+    let tls_certificates = match signer_config.tls_mode {
+        TlsMode::Insecure => None,
+        TlsMode::Certificate(_) => Some(
+            generate_simple_self_signed(vec![signer_config.host.to_string()])
+                .map(|x| {
+                    (
+                        x.cert.pem().as_bytes().to_vec(),
+                        x.key_pair.serialize_pem().as_bytes().to_vec(),
+                    )
+                })
+                .expect("Failed to generate TLS certificate"),
+        ),
+    };
+
     match signer_config.inner {
         SignerType::Local { loader, .. } => StartSignerConfig {
             chain,
@@ -151,6 +168,7 @@ pub fn get_start_signer_config(
             jwt_auth_fail_limit: signer_config.jwt_auth_fail_limit,
             jwt_auth_fail_timeout_seconds: signer_config.jwt_auth_fail_timeout_seconds,
             dirk: None,
+            tls_certificates,
         },
         _ => panic!("Only local signers are supported in tests"),
     }

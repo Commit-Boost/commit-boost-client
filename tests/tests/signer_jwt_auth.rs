@@ -41,7 +41,7 @@ async fn test_signer_jwt_auth_success() -> Result<()> {
     setup_test_env();
     let module_id = ModuleId(JWT_MODULE.to_string());
     let mod_cfgs = create_mod_signing_configs().await;
-    let start_config = start_server(20100, &mod_cfgs, ADMIN_SECRET.to_string()).await?;
+    let start_config = start_server(20100, &mod_cfgs, ADMIN_SECRET.to_string(), false).await?;
     let jwt_config = mod_cfgs.get(&module_id).expect("JWT config for test module not found");
 
     // Run a pubkeys request
@@ -61,7 +61,7 @@ async fn test_signer_jwt_auth_fail() -> Result<()> {
     setup_test_env();
     let module_id = ModuleId(JWT_MODULE.to_string());
     let mod_cfgs = create_mod_signing_configs().await;
-    let start_config = start_server(20101, &mod_cfgs, ADMIN_SECRET.to_string()).await?;
+    let start_config = start_server(20101, &mod_cfgs, ADMIN_SECRET.to_string(), false).await?;
 
     // Run a pubkeys request - this should fail due to invalid JWT
     let jwt = create_jwt(&module_id, "incorrect secret", None)?;
@@ -82,7 +82,7 @@ async fn test_signer_jwt_rate_limit() -> Result<()> {
     setup_test_env();
     let module_id = ModuleId(JWT_MODULE.to_string());
     let mod_cfgs = create_mod_signing_configs().await;
-    let start_config = start_server(20102, &mod_cfgs, ADMIN_SECRET.to_string()).await?;
+    let start_config = start_server(20102, &mod_cfgs, ADMIN_SECRET.to_string(), false).await?;
     let mod_cfg = mod_cfgs.get(&module_id).expect("JWT config for test module not found");
 
     // Run as many pubkeys requests as the fail limit
@@ -116,7 +116,7 @@ async fn test_signer_revoked_jwt_fail() -> Result<()> {
     let admin_secret = ADMIN_SECRET.to_string();
     let module_id = ModuleId(JWT_MODULE.to_string());
     let mod_cfgs = create_mod_signing_configs().await;
-    let start_config = start_server(20400, &mod_cfgs, admin_secret.clone()).await?;
+    let start_config = start_server(20400, &mod_cfgs, admin_secret.clone(), false).await?;
 
     // Run as many pubkeys requests as the fail limit
     let jwt = create_jwt(&module_id, JWT_SECRET, None)?;
@@ -149,7 +149,7 @@ async fn test_signer_only_admin_can_revoke() -> Result<()> {
     let admin_secret = ADMIN_SECRET.to_string();
     let module_id = ModuleId(JWT_MODULE.to_string());
     let mod_cfgs = create_mod_signing_configs().await;
-    let start_config = start_server(20500, &mod_cfgs, admin_secret.clone()).await?;
+    let start_config = start_server(20500, &mod_cfgs, admin_secret.clone(), false).await?;
 
     let revoke_body = RevokeModuleRequest { module_id: ModuleId(JWT_MODULE.to_string()) };
     let body_bytes = serde_json::to_vec(&revoke_body)?;

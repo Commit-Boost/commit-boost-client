@@ -57,7 +57,7 @@ async fn test_signer_sign_request_good() -> Result<()> {
     setup_test_env();
     let module_id = ModuleId(MODULE_ID_1.to_string());
     let mod_cfgs = create_mod_signing_configs().await;
-    let start_config = start_server(20200, &mod_cfgs, ADMIN_SECRET.to_string()).await?;
+    let start_config = start_server(20200, &mod_cfgs, ADMIN_SECRET.to_string(), false).await?;
     let jwt_config = mod_cfgs.get(&module_id).expect("JWT config for test module not found");
 
     // Send a signing request
@@ -94,7 +94,7 @@ async fn test_signer_sign_request_different_module() -> Result<()> {
     setup_test_env();
     let module_id = ModuleId(MODULE_ID_2.to_string());
     let mod_cfgs = create_mod_signing_configs().await;
-    let start_config = start_server(20201, &mod_cfgs, ADMIN_SECRET.to_string()).await?;
+    let start_config = start_server(20201, &mod_cfgs, ADMIN_SECRET.to_string(), false).await?;
     let jwt_config = mod_cfgs.get(&module_id).expect("JWT config for 2nd test module not found");
 
     // Send a signing request
@@ -138,7 +138,7 @@ async fn test_signer_sign_request_incorrect_hash() -> Result<()> {
     setup_test_env();
     let module_id = ModuleId(MODULE_ID_2.to_string());
     let mod_cfgs = create_mod_signing_configs().await;
-    let start_config = start_server(20202, &mod_cfgs, ADMIN_SECRET.to_string()).await?;
+    let start_config = start_server(20202, &mod_cfgs, ADMIN_SECRET.to_string(), false).await?;
     let jwt_config = mod_cfgs.get(&module_id).expect("JWT config for 2nd test module not found");
 
     // Send a signing request
@@ -169,7 +169,7 @@ async fn test_signer_sign_request_missing_hash() -> Result<()> {
     setup_test_env();
     let module_id = ModuleId(MODULE_ID_2.to_string());
     let mod_cfgs = create_mod_signing_configs().await;
-    let start_config = start_server(20203, &mod_cfgs, ADMIN_SECRET.to_string()).await?;
+    let start_config = start_server(20203, &mod_cfgs, ADMIN_SECRET.to_string(), false).await?;
     let jwt_config = mod_cfgs.get(&module_id).expect("JWT config for 2nd test module not found");
 
     // Send a signing request
