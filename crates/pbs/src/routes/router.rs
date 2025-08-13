@@ -1,4 +1,5 @@
 use axum::{
+    body::HttpBody,
     extract::{DefaultBodyLimit, MatchedPath, Request},
     middleware::{self, Next},
     response::Response,
@@ -10,7 +11,7 @@ use cb_common::pbs::{
     BUILDER_V1_API_PATH, BUILDER_V2_API_PATH, GET_HEADER_PATH, GET_STATUS_PATH,
     REGISTER_VALIDATOR_PATH, RELOAD_PATH, SUBMIT_BLOCK_PATH,
 };
-use tracing::trace;
+use tracing::{trace, warn};
 use uuid::Uuid;
 
 use super::{
@@ -75,6 +76,8 @@ pub fn create_app_router<S: BuilderApiState, A: BuilderApi<S>>(state: PbsStateGu
     ),
 )]
 pub async fn tracing_middleware(req: Request, next: Next) -> Response {
+    let mut watcher = RequestWatcher::new();
+
     trace!(
         http.method = %req.method(),
         http.user_agent = req.headers().typed_get::<UserAgent>().map(|ua| ua.to_string()).unwrap_or_default(),
@@ -84,8 +87,32 @@ pub async fn tracing_middleware(req: Request, next: Next) -> Response {
     let response = next.run(req).await;
 
     let status = response.status();
+    let response_size = response.body().size_hint().upper().unwrap_or(0);
 
-    trace!(http.response.status_code = ?status, "end request");
+    trace!(http.response.status_code = ?status, response_size, "end request");
 
+    watcher.observe();
     response
+}
+
+struct RequestWatcher {
+    observed: bool,
+}
+
+impl RequestWatcher {
+    fn new() -> Self {
+        Self { observed: false }
+    }
+
+    fn observe(&mut self) {
+        self.observed = true;
+    }
+}
+
+impl Drop for RequestWatcher {
+    fn drop(&mut self) {
+        if !self.observed {
+            warn!("client timed out")
+        }
+    }
 }
