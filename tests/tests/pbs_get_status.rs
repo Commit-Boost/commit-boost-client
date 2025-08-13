@@ -9,7 +9,7 @@ use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
     mock_relay::{start_mock_relay_service, MockRelayState},
     mock_validator::MockValidator,
-    utils::{generate_mock_relay, get_pbs_static_config, setup_test_env, to_pbs_config},
+    utils::{generate_mock_relay, get_pbs_config, setup_test_env, to_pbs_config},
 };
 use eyre::Result;
 use reqwest::StatusCode;
@@ -34,7 +34,7 @@ async fn test_get_status() -> Result<()> {
     tokio::spawn(start_mock_relay_service(mock_state.clone(), relay_0_port));
     tokio::spawn(start_mock_relay_service(mock_state.clone(), relay_1_port));
 
-    let config = to_pbs_config(chain, get_pbs_static_config(pbs_port), relays.clone());
+    let config = to_pbs_config(chain, get_pbs_config(pbs_port), relays.clone());
     let state = PbsState::new(config);
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
@@ -67,7 +67,7 @@ async fn test_get_status_returns_502_if_relay_down() -> Result<()> {
     // Don't start the relay
     // tokio::spawn(start_mock_relay_service(mock_state.clone(), relay_port));
 
-    let config = to_pbs_config(chain, get_pbs_static_config(pbs_port), relays.clone());
+    let config = to_pbs_config(chain, get_pbs_config(pbs_port), relays.clone());
     let state = PbsState::new(config);
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 

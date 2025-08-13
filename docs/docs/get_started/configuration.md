@@ -341,6 +341,7 @@ Delegation signatures will be stored in files with the format `<proxy_dir>/deleg
 
 A full example of a config file with Dirk can be found [here](https://github.com/Commit-Boost/commit-boost-client/blob/main/examples/configs/dirk_signer.toml).
 
+
 ## Custom module
 We currently provide a test module that needs to be built locally. To build the module run:
 ```bash
@@ -375,6 +376,7 @@ enabled = true
 id = "DA_COMMIT"
 type = "commit"
 docker_image = "test_da_commit"
+signing_id = "0x6a33a23ef26a4836979edff86c493a69b26ccf0b4a16491a815a13787657431b"
 sleep_secs = 5
 
 [[modules]]
@@ -385,9 +387,10 @@ docker_image = "test_builder_log"
 
 A few things to note:
 - We now added a `signer` section which will be used to create the Signer module.
-- There is now a `[[modules]]` section which at a minimum needs to specify the module `id`, `type` and `docker_image`. Additional parameters needed for the business logic of the module will also be here,
+- There is now a `[[modules]]` section which at a minimum needs to specify the module `id`, `type` and `docker_image`. For modules with type `commit`, which will be used to access the Signer service and request signatures for preconfs, you will also need to specify the module's unique `signing_id` (see [the propser commitment documentation](../developing/prop-commit-signing.md)). Additional parameters needed for the business logic of the module will also be here.
 
 To learn more about developing modules, check out [here](/category/developing).
+
 
 ## Vouch
 [Vouch](https://github.com/attestantio/vouch) is a multi-node validator client built by [Attestant](https://www.attestant.io/). Vouch is particular in that it also integrates an MEV-Boost client to interact with relays. The Commit-Boost PBS module is compatible with the Vouch `blockrelay` since it implements the same Builder-API as relays. For example, depending on your setup and preference, you may want to fetch headers from a given relay using Commit-Boost vs using the built-in Vouch `blockrelay`.

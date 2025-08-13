@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use alloy::primitives::B256;
 use eyre::{ContextCompat, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use toml::Table;
@@ -37,6 +38,8 @@ pub struct StaticModuleConfig {
     /// Type of the module
     #[serde(rename = "type")]
     pub kind: ModuleKind,
+    /// Signing ID for the module to use when requesting signatures
+    pub signing_id: B256,
 }
 
 /// Runtime config to start a module

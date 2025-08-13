@@ -60,7 +60,7 @@ paths:
 
   /signer/v1/request_signature:
     post:
-      summary: Send a signature request
+      summary: Request a signature for a 32-byte blob of data (typically a hash), signed by the requested BLS or ECDSA key.
       tags:
         - Signer
       security:
@@ -81,15 +81,15 @@ paths:
                   type: string
                   enum: [consensus, proxy_bls, proxy_ecdsa]
                 pubkey:
-                  description: Public key of the validator for consensus signatures
+                  description: The 48-byte BLS public key, with optional `0x` prefix, of the proposer key that you want to request a signature from.
                   $ref: "#/components/schemas/BlsPubkey"
                 proxy:
-                  description: BLS proxy pubkey or ECDSA address for proxy signatures
+                  description: The 48-byte BLS public key (for `proxy_bls` mode) or the 20-byte Ethereum address (for `proxy_ecdsa` mode), with optional `0x` prefix, of the proxy key that you want to request a signature from.
                   oneOf:
                     - $ref: "#/components/schemas/BlsPubkey"
                     - $ref: "#/components/schemas/EcdsaAddress"
                 object_root:
-                  description: The root of the object to be signed
+                  description: The 32-byte data you want to sign, with optional `0x` prefix.
                   type: string
                   format: hex
                   pattern: "^0x[a-fA-F0-9]{64}$"
@@ -112,7 +112,7 @@ paths:
                   object_root: "0x3e9f4a78b5c21d64f0b8e3d9a7f5c02b4d1e67a3c8f29b5d6e4a3b1c8f72e6d9"
       responses:
         "200":
-          description: Success
+          description: A successful signature response. The returned signature is the Merkle root hash of the provided `object_root` field and the requesting module's Signing ID as specified in the Commit-Boost configuration. For details on this signature, see the [signature structure documentation](https://commit-boost.github.io/commit-boost-client/developing/prop-commit-signing.md#structure-of-a-signature).
           content:
             application/json:
               schema:
@@ -126,8 +126,45 @@ paths:
                   value: "0xa3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989a3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989"
                 ProxyEcdsa:
                   value: "0x985b495f49d1b96db3bba3f6c5dd1810950317c10d4c2042bd316f338cdbe74359072e209b85e56ac492092d7860063dd096ca31b4e164ef27e3f8d508e656801c"
+        "400":
+          description: |
+            This can occur in several scenarios:
+            
+            - You requested an operation while using the Dirk signer mode instead of locally-managed signer mode, but Dirk doesn't support that operation.
+            - Something went wrong while preparing your request; the error text will provide more information.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                properties:
+                  code:
+                    type: number
+                    example: 400
+                  message:
+                    type: string
+                    example: "Bad request: Invalid pubkey format"
+        "401":
+          description: The requesting module did not provide a JWT string in the request's authorization header, or the JWT string was not configured in the signer service's configuration file as belonging to the module.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                properties:
+                  code:
+                    type: number
+                    example: 401
+                  message:
+                    type: string
+                    example: "Unauthorized"
+        
         "404":
-          description: Unknown value (pubkey, etc.)
+          description: You either requested a route that doesn't exist, or you requested a signature from a key that does not exist.
           content:
             application/json:
               schema:
@@ -142,8 +179,24 @@ paths:
                   message:
                     type: string
                     example: "Unknown pubkey"
+        "429":
+          description: Your module attempted and failed JWT authentication too many times recently, and is currently timed out. It cannot make any more requests until the timeout ends.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                properties:
+                  code:
+                    type: number
+                    example: 429
+                  message:
+                    type: string
+                    example: "Too many requests"
         "500":
-          description: Internal error
+          description: Your request was valid, but something went wrong internally that prevented it from being fulfilled.
           content:
             application/json:
               schema:
@@ -158,6 +211,22 @@ paths:
                   message:
                     type: string
                     example: "Internal error"
+        "502":
+          description: The signer service is running in Dirk signer mode, but Dirk could not be reached.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                properties:
+                  code:
+                    type: number
+                    example: 502
+                  message:
+                    type: string
+                    example: "Bad gateway: Dirk signer service is unreachable"
 
   /signer/v1/generate_proxy_key:
     post:

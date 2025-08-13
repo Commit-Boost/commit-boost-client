@@ -10,7 +10,7 @@ use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
     mock_relay::{start_mock_relay_service, MockRelayState},
     mock_validator::MockValidator,
-    utils::{generate_mock_relay, get_pbs_static_config, setup_test_env, to_pbs_config},
+    utils::{generate_mock_relay, get_pbs_config, setup_test_env, to_pbs_config},
 };
 use eyre::Result;
 use reqwest::StatusCode;
@@ -37,7 +37,7 @@ async fn test_mux() -> Result<()> {
 
     // Register all relays in PBS config
     let relays = vec![default_relay.clone()];
-    let mut config = to_pbs_config(chain, get_pbs_static_config(pbs_port), relays);
+    let mut config = to_pbs_config(chain, get_pbs_config(pbs_port), relays);
     config.all_relays = vec![mux_relay_1.clone(), mux_relay_2.clone(), default_relay.clone()];
 
     // Configure mux for two relays

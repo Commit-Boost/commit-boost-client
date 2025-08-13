@@ -25,7 +25,7 @@ use cb_common::{
             RevokeModuleRequest, SignConsensusRequest, SignProxyRequest, SignRequest,
         },
     },
-    config::StartSignerConfig,
+    config::{ModuleSigningConfig, StartSignerConfig},
     constants::{COMMIT_BOOST_COMMIT, COMMIT_BOOST_VERSION},
     types::{Chain, Jwt, ModuleId},
     utils::{decode_jwt, validate_admin_jwt, validate_jwt},
@@ -61,9 +61,10 @@ struct SigningState {
     /// Manager handling different signing methods
     manager: Arc<RwLock<SigningManager>>,
 
-    /// Map of modules ids to JWT secrets. This also acts as registry of all
-    /// modules running
-    jwts: Arc<ParkingRwLock<HashMap<ModuleId, String>>>,
+    /// Map of modules ids to JWT configurations. This also acts as registry of
+    /// all modules running
+    jwts: Arc<ParkingRwLock<HashMap<ModuleId, ModuleSigningConfig>>>,
+
     /// Secret for the admin JWT
     admin_secret: Arc<ParkingRwLock<String>>,
 
@@ -77,16 +78,17 @@ struct SigningState {
 
 impl SigningService {
     pub async fn run(config: StartSignerConfig) -> eyre::Result<()> {
-        if config.jwts.is_empty() {
+        if config.mod_signing_configs.is_empty() {
             warn!("Signing service was started but no module is registered. Exiting");
             return Ok(());
         }
 
-        let module_ids: Vec<String> = config.jwts.keys().cloned().map(Into::into).collect();
+        let module_ids: Vec<String> =
+            config.mod_signing_configs.keys().cloned().map(Into::into).collect();
 
         let state = SigningState {
             manager: Arc::new(RwLock::new(start_manager(config.clone()).await?)),
-            jwts: Arc::new(ParkingRwLock::new(config.jwts)),
+            jwts: Arc::new(ParkingRwLock::new(config.mod_signing_configs)),
             admin_secret: Arc::new(ParkingRwLock::new(config.admin_secret)),
             jwt_auth_failures: Arc::new(ParkingRwLock::new(HashMap::new())),
             jwt_auth_fail_limit: config.jwt_auth_fail_limit,
@@ -228,12 +230,12 @@ fn check_jwt_auth(
     })?;
 
     let guard = state.jwts.read();
-    let jwt_secret = guard.get(&module_id).ok_or_else(|| {
+    let jwt_config = guard.get(&module_id).ok_or_else(|| {
         error!("Unauthorized request. Was the module started correctly?");
         SignerModuleError::Unauthorized
     })?;
 
-    validate_jwt(jwt, jwt_secret).map_err(|e| {
+    validate_jwt(jwt, &jwt_config.jwt_secret).map_err(|e| {
         error!("Unauthorized request. Invalid JWT: {e}");
         SignerModuleError::Unauthorized
     })?;
@@ -298,37 +300,48 @@ async fn handle_request_signature(
 ) -> Result<impl IntoResponse, SignerModuleError> {
     let req_id = Uuid::new_v4();
 
+    let Some(signing_id) = state.jwts.read().get(&module_id).map(|m| m.signing_id) else {
+        error!(event = "request_signature", ?module_id, ?req_id, "Module signing ID not found");
+        return Err(SignerModuleError::RequestError("Module signing ID not found".to_string()));
+    };
+
     debug!(event = "request_signature", ?module_id, %request, ?req_id, "New request");
 
     let manager = state.manager.read().await;
     let res = match &*manager {
         SigningManager::Local(local_manager) => match request {
-            SignRequest::Consensus(SignConsensusRequest { object_root, pubkey }) => local_manager
-                .sign_consensus(&pubkey, &object_root)
-                .await
-                .map(|sig| Json(sig).into_response()),
-            SignRequest::ProxyBls(SignProxyRequest { object_root, proxy: bls_key }) => {
+            SignRequest::Consensus(SignConsensusRequest { ref object_root, ref pubkey }) => {
                 local_manager
-                    .sign_proxy_bls(&bls_key, &object_root)
+                    .sign_consensus(pubkey, object_root, Some(&signing_id))
                     .await
                     .map(|sig| Json(sig).into_response())
             }
-            SignRequest::ProxyEcdsa(SignProxyRequest { object_root, proxy: ecdsa_key }) => {
+            SignRequest::ProxyBls(SignProxyRequest { ref object_root, proxy: ref bls_key }) => {
                 local_manager
-                    .sign_proxy_ecdsa(&ecdsa_key, &object_root)
+                    .sign_proxy_bls(bls_key, object_root, Some(&signing_id))
+                    .await
+                    .map(|sig| Json(sig).into_response())
+            }
+            SignRequest::ProxyEcdsa(SignProxyRequest { ref object_root, proxy: ref ecdsa_key }) => {
+                local_manager
+                    .sign_proxy_ecdsa(ecdsa_key, object_root, Some(&signing_id))
                     .await
                     .map(|sig| Json(sig).into_response())
             }
         },
         SigningManager::Dirk(dirk_manager) => match request {
-            SignRequest::Consensus(SignConsensusRequest { object_root, pubkey }) => dirk_manager
-                .request_consensus_signature(&pubkey, *object_root)
-                .await
-                .map(|sig| Json(sig).into_response()),
-            SignRequest::ProxyBls(SignProxyRequest { object_root, proxy: bls_key }) => dirk_manager
-                .request_proxy_signature(&bls_key, *object_root)
-                .await
-                .map(|sig| Json(sig).into_response()),
+            SignRequest::Consensus(SignConsensusRequest { ref object_root, ref pubkey }) => {
+                dirk_manager
+                    .request_consensus_signature(pubkey, object_root, Some(&signing_id))
+                    .await
+                    .map(|sig| Json(sig).into_response())
+            }
+            SignRequest::ProxyBls(SignProxyRequest { ref object_root, proxy: ref bls_key }) => {
+                dirk_manager
+                    .request_proxy_signature(bls_key, object_root, Some(&signing_id))
+                    .await
+                    .map(|sig| Json(sig).into_response())
+            }
             SignRequest::ProxyEcdsa(_) => {
                 error!(
                     event = "request_signature",
@@ -405,7 +418,24 @@ async fn handle_reload(
     };
 
     if let Some(jwt_secrets) = request.jwt_secrets {
-        *state.jwts.write() = jwt_secrets;
+        let mut jwt_configs = state.jwts.write();
+        let mut new_configs = HashMap::new();
+        for (module_id, jwt_secret) in jwt_secrets {
+            if let Some(signing_id) = jwt_configs.get(&module_id).map(|cfg| cfg.signing_id) {
+                new_configs.insert(module_id.clone(), ModuleSigningConfig {
+                    module_name: module_id,
+                    jwt_secret,
+                    signing_id,
+                });
+            } else {
+                let error_message = format!(
+                    "Module {module_id} signing ID not found in commit-boost config, cannot reload"
+                );
+                error!(event = "reload", ?req_id, module_id = %module_id, error = %error_message);
+                return Err(SignerModuleError::RequestError(error_message));
+            }
+        }
+        *jwt_configs = new_configs;
     }
 
     if let Some(admin_secret) = request.admin_secret {

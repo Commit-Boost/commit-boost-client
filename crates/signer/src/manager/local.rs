@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use alloy::{primitives::Address, rpc::types::beacon::BlsSignature};
+use alloy::{
+    primitives::{Address, B256},
+    rpc::types::beacon::BlsSignature,
+};
 use cb_common::{
     commit::request::{
         ConsensusProxyMap, ProxyDelegationBls, ProxyDelegationEcdsa, SignedProxyDelegationBls,
@@ -95,7 +98,7 @@ impl LocalSigningManager {
         let proxy_pubkey = signer.pubkey();
 
         let message = ProxyDelegationBls { delegator, proxy: proxy_pubkey };
-        let signature = self.sign_consensus(&delegator, &message.tree_hash_root().0).await?;
+        let signature = self.sign_consensus(&delegator, &message.tree_hash_root(), None).await?;
         let delegation = SignedProxyDelegationBls { signature, message };
         let proxy_signer = BlsProxySigner { signer, delegation };
 
@@ -114,7 +117,7 @@ impl LocalSigningManager {
         let proxy_address = signer.address();
 
         let message = ProxyDelegationEcdsa { delegator, proxy: proxy_address };
-        let signature = self.sign_consensus(&delegator, &message.tree_hash_root().0).await?;
+        let signature = self.sign_consensus(&delegator, &message.tree_hash_root(), None).await?;
         let delegation = SignedProxyDelegationEcdsa { signature, message };
         let proxy_signer = EcdsaProxySigner { signer, delegation };
 
@@ -129,13 +132,14 @@ impl LocalSigningManager {
     pub async fn sign_consensus(
         &self,
         pubkey: &BlsPublicKey,
-        object_root: &[u8; 32],
+        object_root: &B256,
+        module_signing_id: Option<&B256>,
     ) -> Result<BlsSignature, SignerModuleError> {
         let signer = self
             .consensus_signers
             .get(pubkey)
             .ok_or(SignerModuleError::UnknownConsensusSigner(pubkey.to_vec()))?;
-        let signature = signer.sign(self.chain, *object_root).await;
+        let signature = signer.sign(self.chain, object_root, module_signing_id).await;
 
         Ok(signature)
     }
@@ -143,28 +147,30 @@ impl LocalSigningManager {
     pub async fn sign_proxy_bls(
         &self,
         pubkey: &BlsPublicKey,
-        object_root: &[u8; 32],
+        object_root: &B256,
+        module_signing_id: Option<&B256>,
     ) -> Result<BlsSignature, SignerModuleError> {
         let bls_proxy = self
             .proxy_signers
             .bls_signers
             .get(pubkey)
             .ok_or(SignerModuleError::UnknownProxySigner(pubkey.to_vec()))?;
-        let signature = bls_proxy.sign(self.chain, *object_root).await;
+        let signature = bls_proxy.sign(self.chain, object_root, module_signing_id).await;
         Ok(signature)
     }
 
     pub async fn sign_proxy_ecdsa(
         &self,
         address: &Address,
-        object_root: &[u8; 32],
+        object_root: &B256,
+        module_signing_id: Option<&B256>,
     ) -> Result<EcdsaSignature, SignerModuleError> {
         let ecdsa_proxy = self
             .proxy_signers
             .ecdsa_signers
             .get(address)
             .ok_or(SignerModuleError::UnknownProxySigner(address.to_vec()))?;
-        let signature = ecdsa_proxy.sign(self.chain, *object_root).await?;
+        let signature = ecdsa_proxy.sign(self.chain, object_root, module_signing_id).await?;
         Ok(signature)
     }
 
@@ -265,7 +271,6 @@ impl LocalSigningManager {
 #[cfg(test)]
 mod tests {
     use alloy::primitives::B256;
-    use cb_common::signature::compute_signing_root;
     use lazy_static::lazy_static;
 
     use super::*;
@@ -287,9 +292,48 @@ mod tests {
         (signing_manager, consensus_pk)
     }
 
-    mod test_proxy_bls {
+    mod test_bls {
+        use alloy::primitives::aliases::B32;
         use cb_common::{
-            constants::COMMIT_BOOST_DOMAIN, signature::compute_domain, signer::verify_bls_signature,
+            constants::COMMIT_BOOST_DOMAIN, signature::compute_domain,
+            signer::verify_bls_signature, types,
+        };
+
+        use super::*;
+
+        #[tokio::test]
+        async fn test_key_signs_message() {
+            let (signing_manager, consensus_pk) = init_signing_manager();
+
+            let data_root = B256::random();
+            let module_signing_id = B256::random();
+
+            let sig = signing_manager
+                .sign_consensus(&consensus_pk, &data_root, Some(&module_signing_id))
+                .await
+                .unwrap();
+
+            // Verify signature
+            let signing_domain = compute_domain(CHAIN, &B32::from(COMMIT_BOOST_DOMAIN));
+            let object_root = types::PropCommitSigningInfo {
+                data: data_root.tree_hash_root(),
+                module_signing_id,
+            }
+            .tree_hash_root();
+            let signing_root = types::SigningData { object_root, signing_domain }.tree_hash_root();
+
+            let validation_result =
+                verify_bls_signature(&consensus_pk, signing_root.as_slice(), &sig);
+
+            assert!(validation_result.is_ok(), "Keypair must produce valid signatures of messages.")
+        }
+    }
+
+    mod test_proxy_bls {
+        use alloy::primitives::aliases::B32;
+        use cb_common::{
+            constants::COMMIT_BOOST_DOMAIN, signature::compute_domain,
+            signer::verify_bls_signature, types,
         };
 
         use super::*;
@@ -339,14 +383,23 @@ mod tests {
             let proxy_pk = signed_delegation.message.proxy;
 
             let data_root = B256::random();
+            let module_signing_id = B256::random();
 
-            let sig = signing_manager.sign_proxy_bls(&proxy_pk, &data_root).await.unwrap();
+            let sig = signing_manager
+                .sign_proxy_bls(&proxy_pk, &data_root, Some(&module_signing_id))
+                .await
+                .unwrap();
 
             // Verify signature
-            let domain = compute_domain(CHAIN, COMMIT_BOOST_DOMAIN);
-            let signing_root = compute_signing_root(data_root.tree_hash_root().0, domain);
+            let signing_domain = compute_domain(CHAIN, &B32::from(COMMIT_BOOST_DOMAIN));
+            let object_root = types::PropCommitSigningInfo {
+                data: data_root.tree_hash_root(),
+                module_signing_id,
+            }
+            .tree_hash_root();
+            let signing_root = types::SigningData { object_root, signing_domain }.tree_hash_root();
 
-            let validation_result = verify_bls_signature(&proxy_pk, &signing_root, &sig);
+            let validation_result = verify_bls_signature(&proxy_pk, signing_root.as_slice(), &sig);
 
             assert!(
                 validation_result.is_ok(),
@@ -356,9 +409,10 @@ mod tests {
     }
 
     mod test_proxy_ecdsa {
+        use alloy::primitives::aliases::B32;
         use cb_common::{
             constants::COMMIT_BOOST_DOMAIN, signature::compute_domain,
-            signer::verify_ecdsa_signature,
+            signer::verify_ecdsa_signature, types,
         };
 
         use super::*;
@@ -408,12 +462,21 @@ mod tests {
             let proxy_pk = signed_delegation.message.proxy;
 
             let data_root = B256::random();
+            let module_signing_id = B256::random();
 
-            let sig = signing_manager.sign_proxy_ecdsa(&proxy_pk, &data_root).await.unwrap();
+            let sig = signing_manager
+                .sign_proxy_ecdsa(&proxy_pk, &data_root, Some(&module_signing_id))
+                .await
+                .unwrap();
 
             // Verify signature
-            let domain = compute_domain(CHAIN, COMMIT_BOOST_DOMAIN);
-            let signing_root = compute_signing_root(data_root.tree_hash_root().0, domain);
+            let signing_domain = compute_domain(CHAIN, &B32::from(COMMIT_BOOST_DOMAIN));
+            let object_root = types::PropCommitSigningInfo {
+                data: data_root.tree_hash_root(),
+                module_signing_id,
+            }
+            .tree_hash_root();
+            let signing_root = types::SigningData { object_root, signing_domain }.tree_hash_root();
 
             let validation_result = verify_ecdsa_signature(&proxy_pk, &signing_root, &sig);
 

@@ -152,10 +152,10 @@ url = "http://0xa119589bb33ef52acbb8116832bec2b58fca590fe5c85eac5d3230b44d5bc09f
 #   - Dirk: a remote Dirk instance
 #   - Local: a local Signer module
 # More details on the docs (https://commit-boost.github.io/commit-boost-client/get_started/configuration/#signer-module)
-# [signer]
+[signer]
 # Docker image to use for the Signer module.
 # OPTIONAL, DEFAULT: ghcr.io/commit-boost/signer:latest
-# docker_image = "ghcr.io/commit-boost/signer:latest"
+docker_image = "ghcr.io/commit-boost/signer:latest"
 # Host to bind the Signer API server to
 # OPTIONAL, DEFAULT: 127.0.0.1
 host = "127.0.0.1"
@@ -249,6 +249,8 @@ proxy_dir = "./proxies"
 [[modules]]
 # Unique ID of the module
 id = "DA_COMMIT"
+# Unique hash that the Signer service will combine with the incoming data in signing requests to generate a signature specific to this module
+signing_id = "0x6a33a23ef26a4836979edff86c493a69b26ccf0b4a16491a815a13787657431b"
 # Type of the module. Supported values: commit, events
 type = "commit"
 # Docker image of the module

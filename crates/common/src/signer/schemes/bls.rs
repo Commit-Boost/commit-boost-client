@@ -1,5 +1,5 @@
-use alloy::rpc::types::beacon::constants::BLS_DST_SIG;
 pub use alloy::rpc::types::beacon::BlsSignature;
+use alloy::{primitives::B256, rpc::types::beacon::constants::BLS_DST_SIG};
 use blst::BLST_ERROR;
 use tree_hash::TreeHash;
 
@@ -32,20 +32,32 @@ impl BlsSigner {
         }
     }
 
-    pub fn secret(&self) -> [u8; 32] {
+    pub fn secret(&self) -> B256 {
         match self {
-            BlsSigner::Local(secret) => secret.clone().to_bytes(),
+            BlsSigner::Local(secret) => B256::from(secret.clone().to_bytes()),
         }
     }
 
-    pub async fn sign(&self, chain: Chain, object_root: [u8; 32]) -> BlsSignature {
+    pub async fn sign(
+        &self,
+        chain: Chain,
+        object_root: &B256,
+        module_signing_id: Option<&B256>,
+    ) -> BlsSignature {
         match self {
-            BlsSigner::Local(sk) => sign_commit_boost_root(chain, sk, object_root),
+            BlsSigner::Local(sk) => {
+                sign_commit_boost_root(chain, sk, object_root, module_signing_id)
+            }
         }
     }
 
-    pub async fn sign_msg(&self, chain: Chain, msg: &impl TreeHash) -> BlsSignature {
-        self.sign(chain, msg.tree_hash_root().0).await
+    pub async fn sign_msg(
+        &self,
+        chain: Chain,
+        msg: &impl TreeHash,
+        module_signing_id: Option<&B256>,
+    ) -> BlsSignature {
+        self.sign(chain, &msg.tree_hash_root(), module_signing_id).await
     }
 }
 
