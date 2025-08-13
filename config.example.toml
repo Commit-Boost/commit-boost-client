@@ -168,9 +168,14 @@ jwt_auth_fail_limit = 3
 # How long to block a client from Signer access, in seconds, if it failed JWT authentication too many times
 # OPTIONAL, DEFAULT: 300
 jwt_auth_fail_timeout_seconds = 300
-# Path to the TLS certificates for the signer server
-# OPTION, DEFAULT: ./certs
-# tls_certificates = "./certs"
+
+# [signer.tls_mode]
+# How to use TLS for the Signer's HTTP server; two modes are supported:
+# - type = "insecure": disable TLS, so the server runs in HTTP mode (not recommended for production).
+# - type = "certificate": Use TLS. Include a property named "path" below this with the provided path; `path` should be a directory containing `cert.pem` and `key.pem` files to use. If they don't exist, they'll be automatically generated in self-signed mode.
+# OPTIONAL, DEFAULT:
+# type = "certificate"
+# path = "./certs"
 
 # For Remote signer:
 # [signer.remote]

@@ -60,7 +60,7 @@ impl ModuleSigningConfig {
 
 /// Mode to use for TLS support when starting the signer service
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "snake_case")]
+#[serde(tag = "type", content = "path", rename_all = "snake_case")]
 pub enum TlsMode {
     /// Don't use TLS (regular HTTP)
     Insecure,
