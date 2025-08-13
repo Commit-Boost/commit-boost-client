@@ -177,7 +177,7 @@ mod tests {
             &parsed.message,
             &parsed.signature,
             None,
-            &B32::from(APPLICATION_BUILDER_DOMAIN)
+            &B32::from(APPLICATION_BUILDER_DOMAIN),
         )
         .is_ok())
     }

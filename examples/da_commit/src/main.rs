@@ -32,6 +32,7 @@ struct Datagram {
 
 struct DaCommitService {
     config: StartCommitModuleConfig<ExtraConfig>,
+    nonce: u64,
 }
 
 // Extra configurations parameters can be set here and will be automatically
@@ -100,10 +101,12 @@ impl DaCommitService {
             &datagram,
             &response.signature,
             &DA_COMMIT_SIGNING_ID,
+            self.nonce,
         ) {
             Ok(_) => info!("Signature verified successfully"),
             Err(err) => error!(%err, "Signature verification failed"),
         };
+        self.nonce += 1;
 
         // Request a signature from a proxy BLS key
         let proxy_request_bls = SignProxyRequest::builder(proxy_bls).with_msg(&datagram);
@@ -116,10 +119,12 @@ impl DaCommitService {
             &datagram,
             &proxy_response_bls.signature,
             &DA_COMMIT_SIGNING_ID,
+            self.nonce,
         ) {
             Ok(_) => info!("Signature verified successfully"),
             Err(err) => error!(%err, "Signature verification failed"),
         };
+        self.nonce += 1;
 
         // If ECDSA keys are enabled, request a signature from a proxy ECDSA key
         if let Some(proxy_ecdsa) = proxy_ecdsa {
@@ -136,11 +141,13 @@ impl DaCommitService {
                 &datagram,
                 &proxy_response_ecdsa.signature,
                 &DA_COMMIT_SIGNING_ID,
+                self.nonce,
             ) {
                 Ok(_) => info!("Signature verified successfully"),
                 Err(err) => error!(%err, "Signature verification failed"),
             };
         }
+        self.nonce += 1;
 
         SIG_RECEIVED_COUNTER.inc();
 
@@ -168,7 +175,7 @@ async fn main() -> Result<()> {
                 "Starting module with custom data"
             );
 
-            let mut service = DaCommitService { config };
+            let mut service = DaCommitService { config, nonce: 0 };
 
             if let Err(err) = service.run().await {
                 error!(%err, "Service failed");

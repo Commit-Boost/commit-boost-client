@@ -77,15 +77,16 @@ impl<T: ProxyId> fmt::Display for SignedProxyDelegation<T> {
 pub struct SignConsensusRequest {
     pub pubkey: BlsPublicKey,
     pub object_root: B256,
+    pub nonce: u64,
 }
 
 impl SignConsensusRequest {
-    pub fn new(pubkey: BlsPublicKey, object_root: B256) -> Self {
-        Self { pubkey, object_root }
+    pub fn new(pubkey: BlsPublicKey, object_root: B256, nonce: u64) -> Self {
+        Self { pubkey, object_root, nonce }
     }
 
     pub fn builder(pubkey: BlsPublicKey) -> Self {
-        Self::new(pubkey, B256::ZERO)
+        Self::new(pubkey, B256::ZERO, 0)
     }
 
     pub fn with_root<R: Into<B256>>(self, object_root: R) -> Self {
@@ -95,15 +96,20 @@ impl SignConsensusRequest {
     pub fn with_msg(self, msg: &impl TreeHash) -> Self {
         self.with_root(msg.tree_hash_root().0)
     }
+
+    pub fn with_nonce(self, nonce: u64) -> Self {
+        Self { nonce, ..self }
+    }
 }
 
 impl Display for SignConsensusRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Consensus(pubkey: {}, object_root: {})",
+            "Consensus(pubkey: {}, object_root: {}, nonce: {})",
             self.pubkey,
-            hex::encode_prefixed(self.object_root)
+            hex::encode_prefixed(self.object_root),
+            self.nonce
         )
     }
 }
@@ -112,15 +118,16 @@ impl Display for SignConsensusRequest {
 pub struct SignProxyRequest<T: ProxyId> {
     pub proxy: T,
     pub object_root: B256,
+    pub nonce: u64,
 }
 
 impl<T: ProxyId> SignProxyRequest<T> {
-    pub fn new(proxy: T, object_root: B256) -> Self {
-        Self { proxy, object_root }
+    pub fn new(proxy: T, object_root: B256, nonce: u64) -> Self {
+        Self { proxy, object_root, nonce }
     }
 
     pub fn builder(proxy: T) -> Self {
-        Self::new(proxy, B256::ZERO)
+        Self::new(proxy, B256::ZERO, 0)
     }
 
     pub fn with_root<R: Into<B256>>(self, object_root: R) -> Self {
@@ -130,15 +137,20 @@ impl<T: ProxyId> SignProxyRequest<T> {
     pub fn with_msg(self, msg: &impl TreeHash) -> Self {
         self.with_root(msg.tree_hash_root().0)
     }
+
+    pub fn with_nonce(self, nonce: u64) -> Self {
+        Self { nonce, ..self }
+    }
 }
 
 impl Display for SignProxyRequest<BlsPublicKey> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "BLS(proxy: {}, object_root: {})",
+            "BLS(proxy: {}, object_root: {}, nonce: {})",
             self.proxy,
-            hex::encode_prefixed(self.object_root)
+            hex::encode_prefixed(self.object_root),
+            self.nonce
         )
     }
 }
@@ -147,9 +159,10 @@ impl Display for SignProxyRequest<Address> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "ECDSA(proxy: {}, object_root: {})",
+            "ECDSA(proxy: {}, object_root: {}, nonce: {})",
             self.proxy,
-            hex::encode_prefixed(self.object_root)
+            hex::encode_prefixed(self.object_root),
+            self.nonce
         )
     }
 }
