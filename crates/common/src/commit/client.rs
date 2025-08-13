@@ -86,17 +86,14 @@ impl SignerClient {
         Ok(())
     }
 
-    fn create_jwt_header_for_payload<T: Serialize>(
+    fn create_jwt_for_payload<T: Serialize>(
         &mut self,
         payload: &T,
-    ) -> Result<HeaderValue, SignerClientError> {
+    ) -> Result<Jwt, SignerClientError> {
         let payload_vec = serde_json::to_vec(payload)?;
-        let jwt = create_jwt(&self.module_id, &self.jwt_secret, Some(&payload_vec))?;
-
-        let mut auth_value =
-            HeaderValue::from_str(&format!("Bearer {}", jwt)).wrap_err("invalid jwt")?;
-        auth_value.set_sensitive(true);
-        Ok(auth_value)
+        create_jwt(&self.module_id, &self.jwt_secret, Some(&payload_vec))
+            .wrap_err("failed to create JWT for payload")
+            .map_err(SignerClientError::JWTError)
     }
 
     /// Request a list of validator pubkeys for which signatures can be
@@ -128,11 +125,10 @@ impl SignerClient {
         Q: Serialize,
         T: for<'de> Deserialize<'de>,
     {
-        let auth_header = self.create_jwt_header_for_payload(request)?;
+        let jwt = self.create_jwt_for_payload(request)?;
 
         let url = self.url.join(route)?;
-        let res =
-            self.client.post(url).json(&request).header(AUTHORIZATION, auth_header).send().await?;
+        let res = self.client.post(url).json(&request).bearer_auth(jwt).send().await?;
 
         let status = res.status();
         let response_bytes = res.bytes().await?;
@@ -177,11 +173,10 @@ impl SignerClient {
     where
         T: ProxyId + for<'de> Deserialize<'de>,
     {
-        let auth_header = self.create_jwt_header_for_payload(request)?;
+        let jwt = self.create_jwt_for_payload(request)?;
 
         let url = self.url.join(GENERATE_PROXY_KEY_PATH)?;
-        let res =
-            self.client.post(url).json(&request).header(AUTHORIZATION, auth_header).send().await?;
+        let res = self.client.post(url).json(&request).bearer_auth(jwt).send().await?;
 
         let status = res.status();
         let response_bytes = res.bytes().await?;
