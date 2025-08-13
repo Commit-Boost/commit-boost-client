@@ -15,6 +15,7 @@ bimap.workspace = true
 blst.workspace = true
 bytes.workspace = true
 cipher.workspace = true
+const_format.workspace = true
 ctr.workspace = true
 derive_more.workspace = true
 docker-image.workspace = true

@@ -1,22 +1,29 @@
 use std::time::{Duration, Instant};
 
-use alloy::{primitives::Address, rpc::types::beacon::BlsSignature};
+use alloy::primitives::Address;
 use eyre::WrapErr;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use url::Url;
 
 use super::{
-    constants::{GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, REQUEST_SIGNATURE_PATH},
+    constants::{GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH},
     error::SignerClientError,
     request::{
         EncryptionScheme, GenerateProxyRequest, GetPubkeysResponse, ProxyId, SignConsensusRequest,
-        SignProxyRequest, SignRequest, SignedProxyDelegation,
+        SignProxyRequest, SignedProxyDelegation,
     },
 };
 use crate::{
+    commit::{
+        constants::{
+            REQUEST_SIGNATURE_BLS_PATH, REQUEST_SIGNATURE_PROXY_BLS_PATH,
+            REQUEST_SIGNATURE_PROXY_ECDSA_PATH,
+        },
+        response::{BlsSignResponse, EcdsaSignResponse},
+    },
     constants::SIGNER_JWT_EXPIRATION,
-    signer::{BlsPublicKey, EcdsaSignature},
+    signer::BlsPublicKey,
     types::{Jwt, ModuleId},
     utils::create_jwt,
     DEFAULT_REQUEST_TIMEOUT,
@@ -99,13 +106,18 @@ impl SignerClient {
     }
 
     /// Send a signature request
-    async fn request_signature<T>(&mut self, request: &SignRequest) -> Result<T, SignerClientError>
+    async fn request_signature<Q, T>(
+        &mut self,
+        route: &str,
+        request: &Q,
+    ) -> Result<T, SignerClientError>
     where
+        Q: Serialize,
         T: for<'de> Deserialize<'de>,
     {
         self.refresh_jwt()?;
 
-        let url = self.url.join(REQUEST_SIGNATURE_PATH)?;
+        let url = self.url.join(route)?;
         let res = self.client.post(url).json(&request).send().await?;
 
         let status = res.status();
@@ -126,22 +138,22 @@ impl SignerClient {
     pub async fn request_consensus_signature(
         &mut self,
         request: SignConsensusRequest,
-    ) -> Result<BlsSignature, SignerClientError> {
-        self.request_signature(&request.into()).await
+    ) -> Result<BlsSignResponse, SignerClientError> {
+        self.request_signature(REQUEST_SIGNATURE_BLS_PATH, &request).await
     }
 
     pub async fn request_proxy_signature_ecdsa(
         &mut self,
         request: SignProxyRequest<Address>,
-    ) -> Result<EcdsaSignature, SignerClientError> {
-        self.request_signature(&request.into()).await
+    ) -> Result<EcdsaSignResponse, SignerClientError> {
+        self.request_signature(REQUEST_SIGNATURE_PROXY_ECDSA_PATH, &request).await
     }
 
     pub async fn request_proxy_signature_bls(
         &mut self,
         request: SignProxyRequest<BlsPublicKey>,
-    ) -> Result<BlsSignature, SignerClientError> {
-        self.request_signature(&request.into()).await
+    ) -> Result<BlsSignResponse, SignerClientError> {
+        self.request_signature(REQUEST_SIGNATURE_PROXY_BLS_PATH, &request).await
     }
 
     async fn generate_proxy_key<T>(
