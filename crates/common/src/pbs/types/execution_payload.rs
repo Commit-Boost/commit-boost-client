@@ -95,13 +95,13 @@ mod tests {
 
     use super::*;
     use crate::{
-        pbs::types::{execution_payload::Transactions, spec::DenebSpec},
+        pbs::{types::execution_payload::Transactions, ElectraSpec},
         utils::test_encode_decode,
     };
 
     #[test]
     fn test_empty_tx_root_hash() {
-        let txs: Transactions<DenebSpec> = VariableList::empty();
+        let txs: Transactions<ElectraSpec> = VariableList::empty();
         let txs_root = txs.tree_hash_root();
 
         assert_eq!(txs_root, EMPTY_TX_ROOT_HASH);
@@ -129,7 +129,7 @@ mod tests {
             "excess_blob_gas": "95158272"
         }"#;
 
-        let parsed = test_encode_decode::<ExecutionPayloadHeader<DenebSpec>>(&data);
+        let parsed = test_encode_decode::<ExecutionPayloadHeader<ElectraSpec>>(data);
 
         assert_eq!(
             parsed.parent_hash,

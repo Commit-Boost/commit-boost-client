@@ -1,13 +1,20 @@
 use std::{
+    collections::HashMap,
     net::{Ipv4Addr, SocketAddr},
     sync::{Arc, Once},
 };
 
 use alloy::{primitives::U256, rpc::types::beacon::BlsPublicKey};
 use cb_common::{
-    config::{PbsConfig, PbsModuleConfig, RelayConfig},
+    config::{
+        PbsConfig, PbsModuleConfig, RelayConfig, SignerConfig, SignerType, StartSignerConfig,
+        SIGNER_IMAGE_DEFAULT, SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT,
+        SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT, SIGNER_PORT_DEFAULT,
+    },
     pbs::{RelayClient, RelayEntry},
-    types::Chain,
+    signer::SignerLoader,
+    types::{Chain, ModuleId},
+    utils::default_host,
 };
 use eyre::Result;
 
@@ -72,6 +79,8 @@ pub fn get_pbs_static_config(port: u16) -> PbsConfig {
         late_in_slot_time_ms: u64::MAX,
         extra_validation_enabled: false,
         rpc_url: None,
+        http_timeout_seconds: 10,
+        register_validator_retry_limit: u32::MAX,
     }
 }
 
@@ -89,5 +98,36 @@ pub fn to_pbs_config(
         all_relays: relays.clone(),
         relays,
         muxes: None,
+    }
+}
+
+pub fn get_signer_config(loader: SignerLoader) -> SignerConfig {
+    SignerConfig {
+        host: default_host(),
+        port: SIGNER_PORT_DEFAULT,
+        docker_image: SIGNER_IMAGE_DEFAULT.to_string(),
+        jwt_auth_fail_limit: SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT,
+        jwt_auth_fail_timeout_seconds: SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT,
+        inner: SignerType::Local { loader, store: None },
+    }
+}
+
+pub fn get_start_signer_config(
+    signer_config: SignerConfig,
+    chain: Chain,
+    jwts: HashMap<ModuleId, String>,
+) -> StartSignerConfig {
+    match signer_config.inner {
+        SignerType::Local { loader, .. } => StartSignerConfig {
+            chain,
+            loader: Some(loader),
+            store: None,
+            endpoint: SocketAddr::new(signer_config.host.into(), signer_config.port),
+            jwts,
+            jwt_auth_fail_limit: signer_config.jwt_auth_fail_limit,
+            jwt_auth_fail_timeout_seconds: signer_config.jwt_auth_fail_timeout_seconds,
+            dirk: None,
+        },
+        _ => panic!("Only local signers are supported in tests"),
     }
 }

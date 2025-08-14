@@ -23,7 +23,7 @@ use tree_hash::TreeHash;
 async fn test_get_header() -> Result<()> {
     setup_test_env();
     let signer = random_secret();
-    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk()).into();
+    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk());
 
     let chain = Chain::Holesky;
     let pbs_port = 3200;
@@ -48,13 +48,7 @@ async fn test_get_header() -> Result<()> {
     assert_eq!(res.status(), StatusCode::OK);
 
     let res = serde_json::from_slice::<GetHeaderResponse>(&res.bytes().await?)?;
-
-    let res = match res {
-        GetHeaderResponse::Deneb(data) => data,
-        GetHeaderResponse::Electra(_) => {
-            unreachable!()
-        }
-    };
+    let GetHeaderResponse::Electra(res) = res;
 
     assert_eq!(mock_state.received_get_header(), 1);
     assert_eq!(res.message.header.block_hash.0[0], 1);
@@ -73,7 +67,7 @@ async fn test_get_header() -> Result<()> {
 async fn test_get_header_returns_204_if_relay_down() -> Result<()> {
     setup_test_env();
     let signer = random_secret();
-    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk()).into();
+    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk());
 
     let chain = Chain::Holesky;
     let pbs_port = 3300;
@@ -107,7 +101,7 @@ async fn test_get_header_returns_204_if_relay_down() -> Result<()> {
 async fn test_get_header_returns_400_if_request_is_invalid() -> Result<()> {
     setup_test_env();
     let signer = random_secret();
-    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk()).into();
+    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk());
 
     let chain = Chain::Holesky;
     let pbs_port = 3400;

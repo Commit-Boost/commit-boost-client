@@ -2,7 +2,7 @@ use std::{
     net::SocketAddr,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc,
+        Arc, RwLock,
     },
 };
 
@@ -16,9 +16,10 @@ use axum::{
 };
 use cb_common::{
     pbs::{
-        ExecutionPayloadHeaderMessageDeneb, GetHeaderParams, GetHeaderResponse,
-        SignedExecutionPayloadHeader, SubmitBlindedBlockResponse, BUILDER_API_PATH,
-        GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
+        ExecutionPayloadHeaderMessageElectra, GetHeaderParams, GetHeaderResponse,
+        SignedExecutionPayloadHeader, SubmitBlindedBlockResponse, BUILDER_V1_API_PATH,
+        BUILDER_V2_API_PATH, GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH,
+        SUBMIT_BLOCK_PATH,
     },
     signature::sign_builder_root,
     signer::BlsSecretKey,
@@ -48,6 +49,7 @@ pub struct MockRelayState {
     received_get_status: Arc<AtomicU64>,
     received_register_validator: Arc<AtomicU64>,
     received_submit_block: Arc<AtomicU64>,
+    response_override: RwLock<Option<StatusCode>>,
 }
 
 impl MockRelayState {
@@ -66,6 +68,9 @@ impl MockRelayState {
     pub fn large_body(&self) -> bool {
         self.large_body
     }
+    pub fn set_response_override(&self, status: StatusCode) {
+        *self.response_override.write().unwrap() = Some(status);
+    }
 }
 
 impl MockRelayState {
@@ -78,6 +83,7 @@ impl MockRelayState {
             received_get_status: Default::default(),
             received_register_validator: Default::default(),
             received_submit_block: Default::default(),
+            response_override: RwLock::new(None),
         }
     }
 
@@ -87,14 +93,17 @@ impl MockRelayState {
 }
 
 pub fn mock_relay_app_router(state: Arc<MockRelayState>) -> Router {
-    let builder_routes = Router::new()
+    let v1_builder_routes = Router::new()
         .route(GET_HEADER_PATH, get(handle_get_header))
         .route(GET_STATUS_PATH, get(handle_get_status))
         .route(REGISTER_VALIDATOR_PATH, post(handle_register_validator))
-        .route(SUBMIT_BLOCK_PATH, post(handle_submit_block))
-        .with_state(state);
+        .route(SUBMIT_BLOCK_PATH, post(handle_submit_block_v1));
 
-    Router::new().nest(BUILDER_API_PATH, builder_routes)
+    let v2_builder_routes = Router::new().route(SUBMIT_BLOCK_PATH, post(handle_submit_block_v2));
+
+    let builder_router_v1 = Router::new().nest(BUILDER_V1_API_PATH, v1_builder_routes);
+    let builder_router_v2 = Router::new().nest(BUILDER_V2_API_PATH, v2_builder_routes);
+    Router::new().merge(builder_router_v1).merge(builder_router_v2).with_state(state)
 }
 
 async fn handle_get_header(
@@ -103,7 +112,7 @@ async fn handle_get_header(
 ) -> Response {
     state.received_get_header.fetch_add(1, Ordering::Relaxed);
 
-    let mut response: SignedExecutionPayloadHeader<ExecutionPayloadHeaderMessageDeneb> =
+    let mut response: SignedExecutionPayloadHeader<ExecutionPayloadHeaderMessageElectra> =
         SignedExecutionPayloadHeader::default();
 
     response.message.header.parent_hash = parent_hash;
@@ -115,7 +124,7 @@ async fn handle_get_header(
     let object_root = response.message.tree_hash_root().0;
     response.signature = sign_builder_root(state.chain, &state.signer, object_root);
 
-    let response = GetHeaderResponse::Deneb(response);
+    let response = GetHeaderResponse::Electra(response);
     (StatusCode::OK, Json(response)).into_response()
 }
 
@@ -130,10 +139,15 @@ async fn handle_register_validator(
 ) -> impl IntoResponse {
     state.received_register_validator.fetch_add(1, Ordering::Relaxed);
     debug!("Received {} registrations", validators.len());
-    StatusCode::OK
+
+    if let Some(status) = state.response_override.read().unwrap().as_ref() {
+        return (*status).into_response();
+    }
+
+    StatusCode::OK.into_response()
 }
 
-async fn handle_submit_block(State(state): State<Arc<MockRelayState>>) -> Response {
+async fn handle_submit_block_v1(State(state): State<Arc<MockRelayState>>) -> Response {
     state.received_submit_block.fetch_add(1, Ordering::Relaxed);
     if state.large_body() {
         (StatusCode::OK, Json(vec![1u8; 1 + MAX_SIZE_SUBMIT_BLOCK_RESPONSE])).into_response()
@@ -141,4 +155,8 @@ async fn handle_submit_block(State(state): State<Arc<MockRelayState>>) -> Respon
         let response = SubmitBlindedBlockResponse::default();
         (StatusCode::OK, Json(response)).into_response()
     }
+}
+async fn handle_submit_block_v2(State(state): State<Arc<MockRelayState>>) -> Response {
+    state.received_submit_block.fetch_add(1, Ordering::Relaxed);
+    (StatusCode::ACCEPTED, "").into_response()
 }

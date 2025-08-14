@@ -1,1 +1,0 @@
-pub const DEFAULT_SIGNER_PORT: u16 = 20000;

@@ -52,7 +52,7 @@ keys_path = "/path/to/keys"
 secrets_path = "/path/to.secrets"
 ```
 
-We currently support Lighthouse, Prysm, Teku and Lodestar's keystores so it's easier to load the keys. We're working on adding support for additional keystores. These are the expected file structures for each format:
+We currently support Lighthouse, Prysm, Teku, Lodestar, and Nimbus's keystores so it's easier to load the keys. We're working on adding support for additional keystores. These are the expected file structures for each format:
 
 <details>
   <summary>Lighthouse</summary>
@@ -173,6 +173,37 @@ We currently support Lighthouse, Prysm, Teku and Lodestar's keystores so it's ea
   :::note
   All keys have the same password stored in `secrets/password.txt`
   :::
+</details>
+
+<details>
+  <summary>Nimbus</summary>
+
+  #### File structure:
+  ```
+  ├── keys
+  │   ├── <PUBLIC_KEY_1>
+  │   │   └── keystore.json
+  │   └── <PUBLIC_KEY_2>
+  │       └── keystore.json
+  └── secrets
+      ├── <PUBLIC_KEY_1>
+      └── <PUBLIC_KEY_2>
+  ```
+
+  #### Config:
+  ```toml
+  [pbs]
+  ...
+  with_signer = true
+
+  [signer]
+  port = 20000
+
+  [signer.local.loader]
+  format = "nimbus"
+  keys_path = "keys"
+  secrets_path = "secrets"
+  ```
 </details>
 
 ### Proxy keys store

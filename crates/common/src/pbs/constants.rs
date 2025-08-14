@@ -1,6 +1,7 @@
 use crate::constants::COMMIT_BOOST_VERSION;
 
-pub const BUILDER_API_PATH: &str = "/eth/v1/builder";
+pub const BUILDER_V1_API_PATH: &str = "/eth/v1/builder";
+pub const BUILDER_V2_API_PATH: &str = "/eth/v2/builder";
 
 pub const GET_HEADER_PATH: &str = "/header/{slot}/{parent_hash}/{pubkey}";
 pub const GET_STATUS_PATH: &str = "/status";
@@ -30,3 +31,6 @@ impl DefaultTimeout {
 }
 
 pub const LATE_IN_SLOT_TIME_MS: u64 = 2000;
+
+// Maximum number of retries for validator registration request per relay
+pub const REGISTER_VALIDATOR_RETRY_LIMIT: u32 = 3;

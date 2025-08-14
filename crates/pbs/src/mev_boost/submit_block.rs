@@ -4,11 +4,11 @@ use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
     pbs::{
         error::{PbsError, ValidationError},
-        BlindedBeaconBlock, BlindedBeaconBlockDeneb, BlindedBeaconBlockElectra,
-        PayloadAndBlobsDeneb, PayloadAndBlobsElectra, RelayClient, SignedBlindedBeaconBlock,
-        SubmitBlindedBlockResponse, VersionedResponse, HEADER_START_TIME_UNIX_MS,
+        BlindedBeaconBlock, BlindedBeaconBlockElectra, BuilderApiVersion, PayloadAndBlobsElectra,
+        RelayClient, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse, VersionedResponse,
+        HEADER_START_TIME_UNIX_MS,
     },
-    utils::{get_user_agent_with_version, utcnow_ms},
+    utils::{get_user_agent_with_version, read_chunked_body_with_max, utcnow_ms},
 };
 use futures::future::select_ok;
 use reqwest::header::USER_AGENT;
@@ -21,15 +21,17 @@ use crate::{
     },
     metrics::{RELAY_LATENCY, RELAY_STATUS_CODE},
     state::{BuilderApiState, PbsState},
-    utils::read_chunked_body_with_max,
 };
 
-/// Implements https://ethereum.github.io/builder-specs/#/Builder/submitBlindedBlock
+/// Implements https://ethereum.github.io/builder-specs/#/Builder/submitBlindedBlock and
+/// https://ethereum.github.io/builder-specs/#/Builder/submitBlindedBlockV2. Use `api_version` to
+/// distinguish between the two.
 pub async fn submit_block<S: BuilderApiState>(
     signed_blinded_block: SignedBlindedBeaconBlock,
     req_headers: HeaderMap,
     state: PbsState<S>,
-) -> eyre::Result<SubmitBlindedBlockResponse> {
+    api_version: &BuilderApiVersion,
+) -> eyre::Result<Option<SubmitBlindedBlockResponse>> {
     // prepare headers
     let mut send_headers = HeaderMap::new();
     send_headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(utcnow_ms()));
@@ -43,6 +45,7 @@ pub async fn submit_block<S: BuilderApiState>(
             relay,
             send_headers.clone(),
             state.pbs_config().timeout_get_payload_ms,
+            api_version,
         )));
     }
 
@@ -60,8 +63,9 @@ async fn submit_block_with_timeout(
     relay: &RelayClient,
     headers: HeaderMap,
     timeout_ms: u64,
-) -> Result<SubmitBlindedBlockResponse, PbsError> {
-    let url = relay.submit_block_url()?;
+    api_version: &BuilderApiVersion,
+) -> Result<Option<SubmitBlindedBlockResponse>, PbsError> {
+    let url = relay.submit_block_url(*api_version)?;
     let mut remaining_timeout_ms = timeout_ms;
     let mut retry = 0;
     let mut backoff = Duration::from_millis(250);
@@ -75,6 +79,7 @@ async fn submit_block_with_timeout(
             headers.clone(),
             remaining_timeout_ms,
             retry,
+            api_version,
         )
         .await
         {
@@ -108,7 +113,8 @@ async fn send_submit_block(
     headers: HeaderMap,
     timeout_ms: u64,
     retry: u32,
-) -> Result<SubmitBlindedBlockResponse, PbsError> {
+    api_version: &BuilderApiVersion,
+) -> Result<Option<SubmitBlindedBlockResponse>, PbsError> {
     let start_request = Instant::now();
     let res = match relay
         .client
@@ -152,6 +158,10 @@ async fn send_submit_block(
         warn!(relay_id = relay.id.as_ref(), retry, %err, "failed to get payload (this might be ok if other relays have it)");
         return Err(err);
     };
+    if api_version != &BuilderApiVersion::V1 {
+        // v2 response is going to be empty, so just break here
+        return Ok(None);
+    }
 
     let block_response = match serde_json::from_slice::<SubmitBlindedBlockResponse>(&response_bytes)
     {
@@ -183,64 +193,12 @@ async fn send_submit_block(
     // response has a "version" field
     match (&signed_blinded_block.message, &block_response) {
         (
-            BlindedBeaconBlock::Deneb(signed_blinded_block),
-            VersionedResponse::Deneb(block_response),
-        ) => validate_unblinded_block_deneb(signed_blinded_block, block_response),
-
-        (
             BlindedBeaconBlock::Electra(signed_blinded_block),
             VersionedResponse::Electra(block_response),
         ) => validate_unblinded_block_electra(signed_blinded_block, block_response),
-
-        (BlindedBeaconBlock::Deneb(_), VersionedResponse::Electra(_)) => {
-            Err(PbsError::Validation(ValidationError::PayloadVersionMismatch {
-                request: "deneb",
-                response: "electra",
-            }))
-        }
-
-        (BlindedBeaconBlock::Electra(_), VersionedResponse::Deneb(_)) => {
-            Err(PbsError::Validation(ValidationError::PayloadVersionMismatch {
-                request: "electra",
-                response: "deneb",
-            }))
-        }
     }?;
 
-    Ok(block_response)
-}
-
-fn validate_unblinded_block_deneb(
-    signed_blinded_block: &BlindedBeaconBlockDeneb,
-    block_response: &PayloadAndBlobsDeneb,
-) -> Result<(), PbsError> {
-    let blobs = &block_response.blobs_bundle;
-
-    let expected_commitments = &signed_blinded_block.body.blob_kzg_commitments;
-    if expected_commitments.len() != blobs.blobs.len() ||
-        expected_commitments.len() != blobs.commitments.len() ||
-        expected_commitments.len() != blobs.proofs.len()
-    {
-        return Err(PbsError::Validation(ValidationError::KzgCommitments {
-            expected_blobs: expected_commitments.len(),
-            got_blobs: blobs.blobs.len(),
-            got_commitments: blobs.commitments.len(),
-            got_proofs: blobs.proofs.len(),
-        }));
-    }
-
-    for (i, comm) in expected_commitments.iter().enumerate() {
-        // this is safe since we already know they are the same length
-        if *comm != blobs.commitments[i] {
-            return Err(PbsError::Validation(ValidationError::KzgMismatch {
-                expected: format!("{comm}"),
-                got: format!("{}", blobs.commitments[i]),
-                index: i,
-            }));
-        }
-    }
-
-    Ok(())
+    Ok(Some(block_response))
 }
 
 fn validate_unblinded_block_electra(

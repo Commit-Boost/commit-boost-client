@@ -34,6 +34,16 @@ pub const SIGNER_MODULE_NAME: &str = "signer";
 
 /// Where the signer module should open the server
 pub const SIGNER_ENDPOINT_ENV: &str = "CB_SIGNER_ENDPOINT";
+pub const SIGNER_PORT_DEFAULT: u16 = 20000;
+
+/// Number of auth failures before rate limiting the client
+pub const SIGNER_JWT_AUTH_FAIL_LIMIT_ENV: &str = "CB_SIGNER_JWT_AUTH_FAIL_LIMIT";
+pub const SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT: u32 = 3;
+
+/// How long to rate limit the client after auth failures
+pub const SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_ENV: &str =
+    "CB_SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS";
+pub const SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT: u32 = 5 * 60;
 
 /// Comma separated list module_id=jwt_secret
 pub const JWTS_ENV: &str = "CB_JWTS";
@@ -66,6 +76,14 @@ pub const PROXY_DIR_KEYS_DEFAULT: &str = "/proxy_keys";
 /// Path to store proxy secrets
 pub const PROXY_DIR_SECRETS_ENV: &str = "CB_PROXY_SECRETS_DIR";
 pub const PROXY_DIR_SECRETS_DEFAULT: &str = "/proxy_secrets";
+
+////////////////////////// MUXER //////////////////////////
+
+/// Timeout for HTTP requests, in seconds
+pub const HTTP_TIMEOUT_SECONDS_DEFAULT: u64 = 10;
+
+/// Max content length for Muxer HTTP responses, in bytes
+pub const MUXER_HTTP_MAX_LENGTH: usize = 1024 * 1024 * 10; // 10 MiB
 
 ///////////////////////// MODULES /////////////////////////
 

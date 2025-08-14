@@ -26,6 +26,7 @@ pub use utils::*;
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CommitBoostConfig {
     pub chain: Chain,
+    #[serde(default)]
     pub relays: Vec<RelayConfig>,
     pub pbs: StaticPbsConfig,
     #[serde(flatten)]
@@ -41,6 +42,9 @@ impl CommitBoostConfig {
     /// Validate config
     pub async fn validate(&self) -> Result<()> {
         self.pbs.pbs_config.validate(self.chain).await?;
+        if let Some(signer) = &self.signer {
+            signer.validate().await?;
+        }
         Ok(())
     }
 
