@@ -70,7 +70,7 @@ async fn test_mux() -> Result<()> {
     // Status requests should go to all relays
     info!("Sending get status");
     assert_eq!(mock_validator.do_get_status().await?.status(), StatusCode::OK);
-    assert_eq!(mock_state.received_get_status(), 6); // default + 2 mux relays were used + 3 on startup of the service
+    assert_eq!(mock_state.received_get_status(), 3); // default + 2 mux relays were used
 
     // Register requests should go to all relays
     info!("Sending register validator");
