@@ -5,7 +5,8 @@ use serde::de::DeserializeOwned;
 
 use super::JWTS_ENV;
 use crate::{
-    config::MUXER_HTTP_MAX_LENGTH, pbs::BlsPublicKey, types::ModuleId,
+    config::MUXER_HTTP_MAX_LENGTH,
+    types::{BlsPublicKey, ModuleId},
     utils::read_chunked_body_with_max,
 };
 

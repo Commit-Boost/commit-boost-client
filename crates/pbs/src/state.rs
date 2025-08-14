@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use cb_common::{
     config::{PbsConfig, PbsModuleConfig},
-    pbs::{BlsPublicKey, RelayClient},
+    pbs::RelayClient,
+    types::BlsPublicKey,
 };
 use parking_lot::RwLock;
 
@@ -17,14 +18,14 @@ pub type PbsStateGuard<S> = Arc<RwLock<PbsState<S>>>;
 #[derive(Clone)]
 pub struct PbsState<S: BuilderApiState = ()> {
     /// Config data for the Pbs service
-    pub config: PbsModuleConfig,
+    pub config: Arc<PbsModuleConfig>,
     /// Opaque extra data for library use
     pub data: S,
 }
 
 impl PbsState<()> {
     pub fn new(config: PbsModuleConfig) -> Self {
-        Self { config, data: () }
+        Self { config: Arc::new(config), data: () }
     }
 
     pub fn with_data<S: BuilderApiState>(self, data: S) -> PbsState<S> {

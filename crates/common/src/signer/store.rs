@@ -27,9 +27,8 @@ use super::{load_bls_signer, load_ecdsa_signer};
 use crate::{
     commit::request::{EncryptionScheme, ProxyDelegation, ProxyId, SignedProxyDelegation},
     config::{load_env_var, PROXY_DIR_ENV, PROXY_DIR_KEYS_ENV, PROXY_DIR_SECRETS_ENV},
-    pbs::{BlsPublicKey, BlsSignature},
     signer::{BlsProxySigner, BlsSigner, EcdsaProxySigner, EcdsaSigner, ProxySigners},
-    types::ModuleId,
+    types::{BlsPublicKey, BlsSignature, ModuleId},
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -534,6 +533,7 @@ mod test {
         commit::request::{ProxyDelegationBls, SignedProxyDelegationBls},
         signer::ConsensusSigner,
         types::Chain,
+        utils::bls_pubkey_from_hex_unchecked,
     };
 
     #[tokio::test]
@@ -570,12 +570,12 @@ mod test {
             .join(consensus_signer.pubkey().to_string())
             .join("TEST_MODULE")
             .join("bls")
-            .join(format!("{}.json", proxy_signer.pubkey().to_string()));
+            .join(format!("{}.json", proxy_signer.pubkey()));
         let sig_path = keys_path
             .join(consensus_signer.pubkey().to_string())
             .join("TEST_MODULE")
             .join("bls")
-            .join(format!("{}.sig", proxy_signer.pubkey().to_string()));
+            .join(format!("{}.sig", proxy_signer.pubkey()));
         let pass_path = secrets_path
             .join(consensus_signer.pubkey().to_string())
             .join("TEST_MODULE")
@@ -612,17 +612,8 @@ mod test {
         assert_eq!(proxy_signers.bls_signers.len(), 1);
         assert_eq!(proxy_signers.ecdsa_signers.len(), 0);
 
-        let proxy_key = BlsPublicKey::deserialize(
-            &hex::decode(
-                "a77084280678d9f1efe4ef47a3d62af27872ce82db19a35ee012c4fd5478e6b1123b8869032ba18b2383e8873294f0ba"
-            ).unwrap()
-        ).unwrap();
-
-        let consensus_key = BlsPublicKey::deserialize(
-            &hex::decode(
-                "ac5e059177afc33263e95d0be0690138b9a1d79a6e19018086a0362e0c30a50bf9e05a08cb44785724d0b2718c5c7118"
-            ).unwrap()
-        ).unwrap();
+        let proxy_key = bls_pubkey_from_hex_unchecked("a77084280678d9f1efe4ef47a3d62af27872ce82db19a35ee012c4fd5478e6b1123b8869032ba18b2383e8873294f0ba");
+        let consensus_key = bls_pubkey_from_hex_unchecked("ac5e059177afc33263e95d0be0690138b9a1d79a6e19018086a0362e0c30a50bf9e05a08cb44785724d0b2718c5c7118");
 
         let proxy_signer = proxy_signers.bls_signers.get(&proxy_key);
 

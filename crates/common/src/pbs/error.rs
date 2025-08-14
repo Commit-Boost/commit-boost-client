@@ -1,7 +1,7 @@
 use alloy::primitives::{B256, U256};
 use thiserror::Error;
 
-use crate::{pbs::BlsPublicKey, utils::ResponseReadError};
+use crate::{types::BlsPublicKey, utils::ResponseReadError};
 
 #[derive(Debug, Error)]
 pub enum PbsError {

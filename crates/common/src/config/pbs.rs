@@ -25,10 +25,10 @@ use crate::{
         SIGNER_URL_ENV,
     },
     pbs::{
-        BlsPublicKey, DefaultTimeout, RelayClient, RelayEntry, DEFAULT_PBS_PORT,
-        LATE_IN_SLOT_TIME_MS, REGISTER_VALIDATOR_RETRY_LIMIT,
+        DefaultTimeout, RelayClient, RelayEntry, DEFAULT_PBS_PORT, LATE_IN_SLOT_TIME_MS,
+        REGISTER_VALIDATOR_RETRY_LIMIT,
     },
-    types::{Chain, Jwt, ModuleId},
+    types::{BlsPublicKey, Chain, Jwt, ModuleId},
     utils::{
         as_eth_str, default_bool, default_host, default_u16, default_u256, default_u32,
         default_u64, WEI_PER_ETH,
@@ -225,6 +225,14 @@ fn default_pbs() -> String {
 pub async fn load_pbs_config() -> Result<PbsModuleConfig> {
     let config = CommitBoostConfig::from_env_path()?;
     config.validate().await?;
+
+    // Make sure relays isn't empty - since the config is still technically valid if
+    // there are no relays for things like Docker compose generation, this check
+    // isn't in validate().
+    ensure!(
+        !config.relays.is_empty(),
+        "At least one relay must be configured to run the PBS service"
+    );
 
     // use endpoint from env if set, otherwise use default host and port
     let endpoint = if let Some(endpoint) = load_optional_env_var(PBS_ENDPOINT_ENV) {

@@ -4,9 +4,8 @@ use tree_hash_derive::TreeHash;
 
 use crate::{
     constants::{COMMIT_BOOST_DOMAIN, GENESIS_VALIDATORS_ROOT},
-    pbs::{BlsPublicKey, BlsSecretKey, BlsSignature},
     signer::verify_bls_signature,
-    types::Chain,
+    types::{BlsPublicKey, BlsSecretKey, BlsSignature, Chain},
 };
 
 pub fn sign_message(secret_key: &BlsSecretKey, msg: B256) -> BlsSignature {

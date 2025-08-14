@@ -7,11 +7,13 @@ use serde::{Deserialize, Serialize};
 use url::Url;
 
 use super::{
-    constants::{BUILDER_API_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH},
+    constants::{GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH},
     error::PbsError,
     HEADER_VERSION_KEY, HEADER_VERSION_VALUE,
 };
-use crate::{config::RelayConfig, pbs::BlsPublicKey, DEFAULT_REQUEST_TIMEOUT};
+use crate::{
+    config::RelayConfig, pbs::BuilderApiVersion, types::BlsPublicKey, DEFAULT_REQUEST_TIMEOUT,
+};
 
 /// A parsed entry of the relay url in the format: scheme://pubkey@host
 #[derive(Debug, Clone)]
@@ -98,8 +100,12 @@ impl RelayClient {
 
         Ok(url)
     }
-    pub fn builder_api_url(&self, path: &str) -> Result<Url, PbsError> {
-        self.get_url(&format!("{BUILDER_API_PATH}{path}"))
+    pub fn builder_api_url(
+        &self,
+        path: &str,
+        api_version: BuilderApiVersion,
+    ) -> Result<Url, PbsError> {
+        self.get_url(&format!("{}{path}", api_version.path()))
     }
 
     pub fn get_header_url(
@@ -108,19 +114,22 @@ impl RelayClient {
         parent_hash: &B256,
         validator_pubkey: &BlsPublicKey,
     ) -> Result<Url, PbsError> {
-        self.builder_api_url(&format!("/header/{slot}/{parent_hash}/{validator_pubkey}"))
+        self.builder_api_url(
+            &format!("/header/{slot}/{parent_hash}/{validator_pubkey}"),
+            BuilderApiVersion::V1,
+        )
     }
 
     pub fn get_status_url(&self) -> Result<Url, PbsError> {
-        self.builder_api_url(GET_STATUS_PATH)
+        self.builder_api_url(GET_STATUS_PATH, BuilderApiVersion::V1)
     }
 
     pub fn register_validator_url(&self) -> Result<Url, PbsError> {
-        self.builder_api_url(REGISTER_VALIDATOR_PATH)
+        self.builder_api_url(REGISTER_VALIDATOR_PATH, BuilderApiVersion::V1)
     }
 
-    pub fn submit_block_url(&self) -> Result<Url, PbsError> {
-        self.builder_api_url(SUBMIT_BLOCK_PATH)
+    pub fn submit_block_url(&self, api_version: BuilderApiVersion) -> Result<Url, PbsError> {
+        self.builder_api_url(SUBMIT_BLOCK_PATH, api_version)
     }
 }
 
@@ -128,14 +137,14 @@ impl RelayClient {
 mod tests {
     use std::collections::HashMap;
 
-    use alloy::{hex, primitives::B256};
+    use alloy::primitives::B256;
 
     use super::{RelayClient, RelayEntry};
-    use crate::{config::RelayConfig, pbs::BlsPublicKey};
+    use crate::{config::RelayConfig, utils::bls_pubkey_from_hex_unchecked};
 
     #[test]
     fn test_relay_entry() {
-        let pubkey = BlsPublicKey::deserialize(&hex!("0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae")).unwrap();
+        let pubkey = bls_pubkey_from_hex_unchecked("0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae");
         let s = format!("http://{pubkey}@abc.xyz/");
 
         let parsed = serde_json::from_str::<RelayEntry>(&format!("\"{s}\"")).unwrap();
@@ -149,7 +158,7 @@ mod tests {
     fn test_relay_url() {
         let slot = 0;
         let parent_hash = B256::ZERO;
-        let validator_pubkey = BlsPublicKey::deserialize(&hex!("0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae")).unwrap();
+        let validator_pubkey = bls_pubkey_from_hex_unchecked("0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae");
         let expected = format!("http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz/eth/v1/builder/header/{slot}/{parent_hash}/{validator_pubkey}");
 
         let relay_config = r#"
@@ -183,7 +192,7 @@ mod tests {
     fn test_relay_url_with_get_params() {
         let slot = 0;
         let parent_hash = B256::ZERO;
-        let validator_pubkey = BlsPublicKey::deserialize(&hex!("0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae")).unwrap();
+        let validator_pubkey = bls_pubkey_from_hex_unchecked("0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae");
         // Note: HashMap iteration order is not guaranteed, so we can't predict the
         // exact order of parameters Instead of hard-coding the order, we'll
         // check that both parameters are present in the URL

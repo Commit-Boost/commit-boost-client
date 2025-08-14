@@ -5,7 +5,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use alloy::primitives::U256;
+use alloy::{hex, primitives::U256};
 use axum::http::HeaderValue;
 use futures::StreamExt;
 use lh_types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
@@ -27,7 +27,7 @@ use crate::{
     config::LogsSettings,
     constants::SIGNER_JWT_EXPIRATION,
     pbs::HEADER_VERSION_VALUE,
-    types::{Chain, Jwt, JwtClaims, ModuleId},
+    types::{BlsPublicKey, Chain, Jwt, JwtClaims, ModuleId},
 };
 
 const MILLIS_PER_SECOND: u64 = 1_000;
@@ -434,12 +434,28 @@ pub trait TestRandomSeed: TestRandom {
     where
         Self: Sized,
     {
-        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let mut rng = XorShiftRng::from_entropy();
         Self::random_for_test(&mut rng)
     }
 }
 
 impl<T: TestRandom> TestRandomSeed for T {}
+
+pub fn bls_pubkey_from_hex(hex: &str) -> eyre::Result<BlsPublicKey> {
+    let Ok(bytes) = hex::decode(hex) else {
+        eyre::bail!("invalid hex pubkey: {hex}");
+    };
+
+    let pubkey = BlsPublicKey::deserialize(&bytes)
+        .map_err(|e| eyre::eyre!("invalid hex pubkey: {hex}: {e:?}"))?;
+
+    Ok(pubkey)
+}
+
+#[cfg(test)]
+pub fn bls_pubkey_from_hex_unchecked(hex: &str) -> BlsPublicKey {
+    bls_pubkey_from_hex(hex).unwrap()
+}
 
 #[cfg(test)]
 mod test {
@@ -452,7 +468,7 @@ mod test {
         let jwt = create_jwt(&ModuleId("DA_COMMIT".to_string()), "secret").unwrap();
         let module_id = decode_jwt(jwt.clone()).unwrap();
         assert_eq!(module_id, ModuleId("DA_COMMIT".to_string()));
-        let response = validate_jwt(jwt, "secret".as_ref());
+        let response = validate_jwt(jwt, "secret");
         assert!(response.is_ok());
 
         // Check expired JWT

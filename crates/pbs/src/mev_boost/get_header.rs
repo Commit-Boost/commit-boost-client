@@ -13,11 +13,11 @@ use cb_common::{
     constants::APPLICATION_BUILDER_DOMAIN,
     pbs::{
         error::{PbsError, ValidationError},
-        BlsPublicKey, BlsSignature, GetHeaderParams, GetHeaderResponse, RelayClient,
-        VersionedResponse, EMPTY_TX_ROOT_HASH, HEADER_START_TIME_UNIX_MS,
+        GetHeaderParams, GetHeaderResponse, RelayClient, VersionedResponse, EMPTY_TX_ROOT_HASH,
+        HEADER_START_TIME_UNIX_MS,
     },
     signature::verify_signed_message,
-    types::Chain,
+    types::{BlsPublicKey, BlsSignature, Chain},
     utils::{
         get_user_agent_with_version, ms_into_slot, read_chunked_body_with_max,
         timestamp_of_slot_start_sec, utcnow_ms,
@@ -328,6 +328,7 @@ async fn send_one_get_header(
     RELAY_STATUS_CODE.with_label_values(&[code.as_str(), GET_HEADER_ENDPOINT_TAG, &relay.id]).inc();
 
     let response_bytes = read_chunked_body_with_max(res, MAX_SIZE_GET_HEADER_RESPONSE).await?;
+    let header_size_bytes = response_bytes.len();
     if !code.is_success() {
         return Err(PbsError::RelayResponse {
             error_msg: String::from_utf8_lossy(&response_bytes).into_owned(),
@@ -357,6 +358,7 @@ async fn send_one_get_header(
 
     debug!(
         relay_id = relay.id.as_ref(),
+        header_size_bytes,
         latency = ?request_latency,
         version = get_header_response.version(),
         value_eth = format_ether(get_header_response.value()),
@@ -506,9 +508,9 @@ fn extra_validation(
 mod tests {
     use alloy::primitives::{B256, U256};
     use cb_common::{
-        pbs::{error::ValidationError, BlsSecretKey, EMPTY_TX_ROOT_HASH},
+        pbs::{error::ValidationError, EMPTY_TX_ROOT_HASH},
         signature::sign_builder_message,
-        types::Chain,
+        types::{BlsSecretKey, Chain},
         utils::{timestamp_of_slot_start_sec, TestRandomSeed},
     };
 

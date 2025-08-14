@@ -6,7 +6,7 @@ use super::{
     blinded_block_body::BlindedBeaconBlockBodyElectra, blobs_bundle::BlobsBundle,
     execution_payload::ExecutionPayload, spec::ElectraSpec, utils::VersionedResponse,
 };
-use crate::pbs::BlsSignature;
+use crate::types::BlsSignature;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
 /// Sent to relays in submit_block
@@ -94,7 +94,7 @@ mod tests {
     // this is from mev-boost test data
     fn test_signed_blinded_block_fb_electra() {
         let data = include_str!("testdata/signed-blinded-beacon-block-electra.json");
-        let block = test_encode_decode::<SignedBlindedBeaconBlock>(&data);
+        let block = test_encode_decode::<SignedBlindedBeaconBlock>(data);
         assert!(matches!(block.message, BlindedBeaconBlock::Electra(_)));
     }
 
@@ -161,7 +161,7 @@ mod tests {
     // this is dummy data generated with https://github.com/attestantio/go-eth2-client
     fn test_signed_blinded_block_ssz() {
         let data_json = include_str!("testdata/signed-blinded-beacon-block-electra-2.json");
-        let block_json = test_encode_decode::<SignedBlindedBeaconBlock>(&data_json);
+        let block_json = test_encode_decode::<SignedBlindedBeaconBlock>(data_json);
         assert!(matches!(block_json.message, BlindedBeaconBlock::Electra(_)));
 
         let data_ssz = include_bytes!("testdata/signed-blinded-beacon-block-electra-2.ssz");
@@ -175,7 +175,7 @@ mod tests {
     // this is dummy data generated with https://github.com/attestantio/go-builder-client
     fn test_execution_payload_block_ssz() {
         let data_json = include_str!("testdata/execution-payload-electra.json");
-        let block_json = test_encode_decode::<PayloadAndBlobsElectra>(&data_json);
+        let block_json = test_encode_decode::<PayloadAndBlobsElectra>(data_json);
 
         let data_ssz = include_bytes!("testdata/execution-payload-electra.ssz");
         let data_ssz = alloy::primitives::hex::decode(data_ssz).unwrap();

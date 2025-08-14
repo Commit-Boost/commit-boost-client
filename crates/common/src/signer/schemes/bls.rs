@@ -2,9 +2,8 @@ use alloy::primitives::B256;
 use tree_hash::TreeHash;
 
 use crate::{
-    pbs::{BlsPublicKey, BlsSecretKey, BlsSignature},
     signature::sign_commit_boost_root,
-    types::Chain,
+    types::{BlsPublicKey, BlsSecretKey, BlsSignature, Chain},
 };
 
 #[derive(Clone)]

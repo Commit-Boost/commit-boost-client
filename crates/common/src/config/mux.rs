@@ -8,7 +8,7 @@ use std::{
 use alloy::{
     primitives::{address, Address, U256},
     providers::ProviderBuilder,
-    rpc::client::RpcClient,
+    rpc::{client::RpcClient, types::beacon::constants::BLS_PUBLIC_KEY_BYTES_LEN},
     sol,
     transports::http::Http,
 };
@@ -21,8 +21,8 @@ use url::Url;
 use super::{load_optional_env_var, PbsConfig, RelayConfig, MUX_PATH_ENV};
 use crate::{
     config::{remove_duplicate_keys, safe_read_http_response},
-    pbs::{BlsPublicKey, RelayClient},
-    types::Chain,
+    pbs::RelayClient,
+    types::{BlsPublicKey, Chain},
 };
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -130,19 +130,29 @@ pub struct MuxConfig {
 
 impl MuxConfig {
     /// Returns the env, actual path, and internal path to use for the file
-    /// loader
-    pub fn loader_env(&self) -> Option<(String, String, String)> {
-        self.loader.as_ref().and_then(|loader| match loader {
-            MuxKeysLoader::File(path_buf) => {
-                let path =
-                    path_buf.to_str().unwrap_or_else(|| panic!("invalid path: {:?}", path_buf));
-                let internal_path = get_mux_path(&self.id);
+    /// loader. In File mode, validates the mux file prior to returning.   
+    pub fn loader_env(&self) -> eyre::Result<Option<(String, String, String)>> {
+        let Some(loader) = self.loader.as_ref() else {
+            return Ok(None);
+        };
 
-                Some((get_mux_env(&self.id), path.to_owned(), internal_path))
+        match loader {
+            MuxKeysLoader::File(path_buf) => {
+                let Some(path) = path_buf.to_str() else {
+                    bail!("invalid path: {:?}", path_buf);
+                };
+
+                let file = load_file(path)?;
+                // make sure we can load the pubkeys correctly
+                let _: Vec<BlsPublicKey> =
+                    serde_json::from_str(&file).wrap_err("failed to parse mux keys file")?;
+
+                let internal_path = get_mux_path(&self.id);
+                Ok(Some((get_mux_env(&self.id), path.to_owned(), internal_path)))
             }
-            MuxKeysLoader::HTTP { .. } => None,
-            MuxKeysLoader::Registry { .. } => None,
-        })
+            MuxKeysLoader::HTTP { .. } => Ok(None),
+            MuxKeysLoader::Registry { .. } => Ok(None),
+        }
     }
 }
 
@@ -286,7 +296,6 @@ async fn fetch_lido_registry_keys(
     debug!("fetching {total_keys} total keys");
 
     const CALL_BATCH_SIZE: u64 = 250u64;
-    const BLS_PK_LEN: usize = 48;
 
     let mut keys = vec![];
     let mut offset = 0;
@@ -301,12 +310,12 @@ async fn fetch_lido_registry_keys(
             .pubkeys;
 
         ensure!(
-            pubkeys.len() % BLS_PK_LEN == 0,
-            "unexpected number of keys in batch, expected multiple of {BLS_PK_LEN}, got {}",
+            pubkeys.len() % BLS_PUBLIC_KEY_BYTES_LEN == 0,
+            "unexpected number of keys in batch, expected multiple of {BLS_PUBLIC_KEY_BYTES_LEN}, got {}",
             pubkeys.len()
         );
 
-        for chunk in pubkeys.chunks(BLS_PK_LEN) {
+        for chunk in pubkeys.chunks(BLS_PUBLIC_KEY_BYTES_LEN) {
             keys.push(
                 BlsPublicKey::deserialize(chunk)
                     .map_err(|_| eyre::eyre!("invalid BLS public key"))?,
@@ -433,7 +442,7 @@ mod tests {
     use super::*;
     use crate::{
         config::{HTTP_TIMEOUT_SECONDS_DEFAULT, MUXER_HTTP_MAX_LENGTH},
-        utils::{set_ignore_content_length, ResponseReadError},
+        utils::{bls_pubkey_from_hex_unchecked, set_ignore_content_length, ResponseReadError},
     };
 
     const TEST_HTTP_TIMEOUT: u64 = 2;
@@ -461,7 +470,7 @@ mod tests {
             .pubkeys;
 
         let mut vec = vec![];
-        for chunk in pubkeys.chunks(48) {
+        for chunk in pubkeys.chunks(BLS_PUBLIC_KEY_BYTES_LEN) {
             vec.push(
                 BlsPublicKey::deserialize(chunk)
                     .map_err(|_| eyre::eyre!("invalid BLS public key"))?,
@@ -488,15 +497,9 @@ mod tests {
         // NOTE: requires that ssv_data.json dpesn't change
         assert_eq!(response.validators.len(), 3);
         let expected_pubkeys = [
-            BlsPublicKey::deserialize(
-                &alloy::hex!("967ba17a3e7f82a25aa5350ec34d6923e28ad8237b5a41efe2c5e325240d74d87a015bf04634f21900963539c8229b2a")
-            ).unwrap(),
-            BlsPublicKey::deserialize(
-                &alloy::hex!("ac769e8cec802e8ffee34de3253be8f438a0c17ee84bdff0b6730280d24b5ecb77ebc9c985281b41ee3bda8663b6658c"),
-            ).unwrap(),
-            BlsPublicKey::deserialize(
-                &alloy::hex!("8c866a5a05f3d45c49b457e29365259021a509c5daa82e124f9701a960ee87b8902e87175315ab638a3d8b1115b23639"),
-            ).unwrap(),
+            bls_pubkey_from_hex_unchecked("967ba17a3e7f82a25aa5350ec34d6923e28ad8237b5a41efe2c5e325240d74d87a015bf04634f21900963539c8229b2a"),
+            bls_pubkey_from_hex_unchecked("ac769e8cec802e8ffee34de3253be8f438a0c17ee84bdff0b6730280d24b5ecb77ebc9c985281b41ee3bda8663b6658c"),
+            bls_pubkey_from_hex_unchecked("8c866a5a05f3d45c49b457e29365259021a509c5daa82e124f9701a960ee87b8902e87175315ab638a3d8b1115b23639"),
         ];
         for (i, validator) in response.validators.iter().enumerate() {
             assert_eq!(validator.pubkey, expected_pubkeys[i]);

@@ -1,5 +1,9 @@
-use alloy::{hex, primitives::B256, rpc::types::beacon::relay::ValidatorRegistration};
-use cb_common::pbs::{BlsPublicKey, RelayClient, SignedBlindedBeaconBlock};
+use alloy::{primitives::B256, rpc::types::beacon::relay::ValidatorRegistration};
+use cb_common::{
+    pbs::{BuilderApiVersion, RelayClient, SignedBlindedBeaconBlock},
+    types::BlsPublicKey,
+    utils::bls_pubkey_from_hex,
+};
 use reqwest::Response;
 
 use crate::utils::generate_mock_relay;
@@ -10,12 +14,12 @@ pub struct MockValidator {
 
 impl MockValidator {
     pub fn new(port: u16) -> eyre::Result<Self> {
-        let pubkey = BlsPublicKey::deserialize(&hex!("0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae")).unwrap();
+        let pubkey = bls_pubkey_from_hex("0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae")?;
         Ok(Self { comm_boost: generate_mock_relay(port, pubkey)? })
     }
 
     pub async fn do_get_header(&self, pubkey: Option<BlsPublicKey>) -> eyre::Result<Response> {
-        let default_pubkey = BlsPublicKey::deserialize(&hex!("0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae")).unwrap();
+        let default_pubkey = bls_pubkey_from_hex("0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae")?;
         let url =
             self.comm_boost.get_header_url(0, &B256::ZERO, &pubkey.unwrap_or(default_pubkey))?;
         Ok(self.comm_boost.client.get(url).send().await?)
@@ -39,11 +43,26 @@ impl MockValidator {
         Ok(self.comm_boost.client.post(url).json(&registrations).send().await?)
     }
 
-    pub async fn do_submit_block(
+    pub async fn do_submit_block_v1(
         &self,
         signed_blinded_block: Option<SignedBlindedBeaconBlock>,
     ) -> eyre::Result<Response> {
-        let url = self.comm_boost.submit_block_url().unwrap();
+        self.do_submit_block_impl(signed_blinded_block, BuilderApiVersion::V1).await
+    }
+
+    pub async fn do_submit_block_v2(
+        &self,
+        signed_blinded_block: Option<SignedBlindedBeaconBlock>,
+    ) -> eyre::Result<Response> {
+        self.do_submit_block_impl(signed_blinded_block, BuilderApiVersion::V2).await
+    }
+
+    async fn do_submit_block_impl(
+        &self,
+        signed_blinded_block: Option<SignedBlindedBeaconBlock>,
+        api_version: BuilderApiVersion,
+    ) -> eyre::Result<Response> {
+        let url = self.comm_boost.submit_block_url(api_version).unwrap();
 
         let signed_blinded_block =
             signed_blinded_block.unwrap_or_else(load_test_signed_blinded_block);

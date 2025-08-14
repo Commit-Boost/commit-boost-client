@@ -9,19 +9,19 @@ use serde_json::Value;
 #[test]
 fn test_registrations() {
     let data = include_str!("../data/registration_holesky.json");
-    test_encode_decode::<Vec<ValidatorRegistration>>(&data);
+    test_encode_decode::<Vec<ValidatorRegistration>>(data);
 }
 
 #[test]
 fn test_signed_blinded_block() {
     let data = include_str!("../data/signed_blinded_block_holesky.json");
-    test_encode_decode::<SignedBlindedBeaconBlock>(&data);
+    test_encode_decode::<SignedBlindedBeaconBlock>(data);
 }
 
 #[test]
 fn test_submit_block_response() {
     let data = include_str!("../data/submit_block_response_holesky.json");
-    test_encode_decode::<SubmitBlindedBlockResponse>(&data);
+    test_encode_decode::<SubmitBlindedBlockResponse>(data);
 }
 
 // Unhappy path tests
@@ -32,10 +32,8 @@ fn test_missing_registration_field(field_name: &str) -> String {
     // Remove specified field from the first validator's message
     if let Value::Array(arr) = &mut values {
         if let Some(first_validator) = arr.get_mut(0) {
-            if let Some(message) = first_validator.get_mut("message") {
-                if let Value::Object(msg_obj) = message {
-                    msg_obj.remove(field_name);
-                }
+            if let Some(Value::Object(msg_obj)) = first_validator.get_mut("message") {
+                msg_obj.remove(field_name);
             }
         }
     }
@@ -66,10 +64,8 @@ fn test_missing_signed_blinded_block_field(field_name: &str) -> String {
     let mut values: Value = serde_json::from_str(data).unwrap();
 
     // Remove specified field from the message
-    if let Some(message) = values.get_mut("message") {
-        if let Value::Object(msg_obj) = message {
-            msg_obj.remove(field_name);
-        }
+    if let Some(Value::Object(msg_obj)) = values.get_mut("message") {
+        msg_obj.remove(field_name);
     }
 
     // This should fail since the field is required

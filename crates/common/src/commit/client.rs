@@ -16,9 +16,8 @@ use super::{
 };
 use crate::{
     constants::SIGNER_JWT_EXPIRATION,
-    pbs::{BlsPublicKey, BlsSignature},
     signer::EcdsaSignature,
-    types::{Jwt, ModuleId},
+    types::{BlsPublicKey, BlsSignature, Jwt, ModuleId},
     utils::create_jwt,
     DEFAULT_REQUEST_TIMEOUT,
 };

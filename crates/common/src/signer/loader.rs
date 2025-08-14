@@ -19,8 +19,8 @@ use unicode_normalization::UnicodeNormalization;
 use super::{BlsSigner, EcdsaSigner, PrysmDecryptedKeystore, PrysmKeystore};
 use crate::{
     config::{load_env_var, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV},
-    pbs::BlsPublicKey,
     signer::ConsensusSigner,
+    utils::bls_pubkey_from_hex,
 };
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -47,6 +47,8 @@ pub enum ValidatorKeysFormat {
     Lodestar,
     #[serde(alias = "prysm")]
     Prysm,
+    #[serde(alias = "nimbus")]
+    Nimbus,
 }
 
 impl SignerLoader {
@@ -85,6 +87,7 @@ impl SignerLoader {
                         load_from_lodestar_format(keys_path, secrets_path)
                     }
                     ValidatorKeysFormat::Prysm => load_from_prysm_format(keys_path, secrets_path),
+                    ValidatorKeysFormat::Nimbus => load_from_nimbus_format(keys_path, secrets_path),
                 };
             }
         })
@@ -124,14 +127,12 @@ fn load_from_lighthouse_format(
             }
 
             let maybe_pubkey = path.file_name().and_then(|d| d.to_str())?;
-            let Ok(decoded) = alloy::primitives::hex::decode(maybe_pubkey) else {
-                warn!("Invalid pubkey: {}", maybe_pubkey);
-                return None
-            };
-
-            let Ok(pubkey) = BlsPublicKey::deserialize(&decoded) else {
-                warn!("Invalid pubkey: {}", maybe_pubkey);
-                return None
+            let pubkey = match bls_pubkey_from_hex(maybe_pubkey) {
+                Ok(pubkey) => pubkey,
+                Err(e) => {
+                    warn!("Invalid pubkey: {}: {}", maybe_pubkey, e);
+                    return None
+                }
             };
 
             let ks_path = keys_path.join(maybe_pubkey).join("voting-keystore.json");
@@ -277,6 +278,42 @@ fn load_from_prysm_format(
     Ok(signers)
 }
 
+fn load_from_nimbus_format(
+    keys_path: PathBuf,
+    secrets_path: PathBuf,
+) -> eyre::Result<Vec<ConsensusSigner>> {
+    let paths: Vec<_> =
+        fs::read_dir(&keys_path)?.map(|res| res.map(|e| e.path())).collect::<Result<_, _>>()?;
+
+    let signers = paths
+        .into_par_iter()
+        .filter_map(|path| {
+            if !path.is_dir() {
+                return None
+            }
+
+            let maybe_pubkey = path.file_name().and_then(|d| d.to_str())?;
+            let Ok(pubkey) = bls_pubkey_from_hex(maybe_pubkey) else {
+                warn!("Invalid pubkey: {}", maybe_pubkey);
+                return None
+            };
+
+            let ks_path = keys_path.join(maybe_pubkey).join("keystore.json");
+            let pw_path = secrets_path.join(pubkey.to_string());
+
+            match load_one(ks_path, pw_path) {
+                Ok(signer) => Some(signer),
+                Err(e) => {
+                    warn!("Failed to load signer for pubkey: {}, err: {}", pubkey, e);
+                    None
+                }
+            }
+        })
+        .collect();
+
+    Ok(signers)
+}
+
 fn load_one(ks_path: PathBuf, pw_path: PathBuf) -> eyre::Result<ConsensusSigner> {
     let keystore = Keystore::from_json_file(ks_path).map_err(|_| eyre!("failed reading json"))?;
     let password = fs::read(pw_path.clone())
@@ -304,15 +341,13 @@ pub fn load_ecdsa_signer(keys_path: PathBuf, secrets_path: PathBuf) -> eyre::Res
 #[cfg(test)]
 mod tests {
 
-    use alloy::hex;
-
     use super::{load_from_lighthouse_format, load_from_lodestar_format, FileKey};
     use crate::{
-        pbs::BlsPublicKey,
         signer::{
-            loader::{load_from_prysm_format, load_from_teku_format},
+            loader::{load_from_nimbus_format, load_from_prysm_format, load_from_teku_format},
             BlsSigner,
         },
+        utils::bls_pubkey_from_hex_unchecked,
     };
 
     #[test]
@@ -333,12 +368,10 @@ mod tests {
 
     fn test_correct_load(signers: Vec<BlsSigner>) {
         assert_eq!(signers.len(), 2);
-        assert!(signers.iter().any(|s| s.pubkey() == BlsPublicKey::deserialize(&
-            hex!("883827193f7627cd04e621e1e8d56498362a52b2a30c9a1c72036eb935c4278dee23d38a24d2f7dda62689886f0c39f4")
-        ).unwrap()));
-        assert!(signers.iter().any(|s| s.pubkey() == BlsPublicKey::deserialize(&
-            hex!("b3a22e4a673ac7a153ab5b3c17a4dbef55f7e47210b20c0cbb0e66df5b36bb49ef808577610b034172e955d2312a61b9")
-        ).unwrap()));
+        assert!(signers.iter().any(|s| s.pubkey() == bls_pubkey_from_hex_unchecked("883827193f7627cd04e621e1e8d56498362a52b2a30c9a1c72036eb935c4278dee23d38a24d2f7dda62689886f0c39f4")
+        ));
+        assert!(signers.iter().any(|s| s.pubkey() == bls_pubkey_from_hex_unchecked("b3a22e4a673ac7a153ab5b3c17a4dbef55f7e47210b20c0cbb0e66df5b36bb49ef808577610b034172e955d2312a61b9")
+        ));
     }
 
     #[test]
@@ -389,9 +422,9 @@ mod tests {
         let signers = result.unwrap();
 
         assert_eq!(signers.len(), 1);
-        assert!(signers[0].pubkey() == BlsPublicKey::deserialize(&
-            hex!("883827193f7627cd04e621e1e8d56498362a52b2a30c9a1c72036eb935c4278dee23d38a24d2f7dda62689886f0c39f4")
-        ).unwrap());
+        assert!(signers[0].pubkey() == bls_pubkey_from_hex_unchecked(
+            "883827193f7627cd04e621e1e8d56498362a52b2a30c9a1c72036eb935c4278dee23d38a24d2f7dda62689886f0c39f4"
+        ));
 
         let result = load_from_lodestar_format(
             "../../tests/data/keystores/teku-keys/".into(),
@@ -403,8 +436,20 @@ mod tests {
         let signers = result.unwrap();
 
         assert_eq!(signers.len(), 1);
-        assert!(signers[0].pubkey() == BlsPublicKey::deserialize(&
-            hex!("b3a22e4a673ac7a153ab5b3c17a4dbef55f7e47210b20c0cbb0e66df5b36bb49ef808577610b034172e955d2312a61b9")
-        ).unwrap());
+        assert!(signers[0].pubkey() == bls_pubkey_from_hex_unchecked(
+            "b3a22e4a673ac7a153ab5b3c17a4dbef55f7e47210b20c0cbb0e66df5b36bb49ef808577610b034172e955d2312a61b9"
+        ));
+    }
+
+    #[test]
+    fn test_load_nimbus() {
+        let result = load_from_nimbus_format(
+            "../../tests/data/keystores/nimbus-keys".into(),
+            "../../tests/data/keystores/secrets".into(),
+        );
+
+        assert!(result.is_ok());
+
+        test_correct_load(result.unwrap());
     }
 }

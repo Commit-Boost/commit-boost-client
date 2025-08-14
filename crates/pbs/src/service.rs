@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use cb_common::{
     constants::{COMMIT_BOOST_COMMIT, COMMIT_BOOST_VERSION},
-    pbs::{BUILDER_API_PATH, GET_STATUS_PATH},
+    pbs::{BUILDER_V1_API_PATH, GET_STATUS_PATH},
     types::Chain,
 };
 use cb_metrics::provider::MetricsProvider;
@@ -38,7 +38,7 @@ impl PbsService {
         // wait for the server to start
         tokio::time::sleep(Duration::from_millis(250)).await;
         let local_url =
-            Url::parse(&format!("http://{}{}{}", addr, BUILDER_API_PATH, GET_STATUS_PATH))?;
+            Url::parse(&format!("http://{}{}{}", addr, BUILDER_V1_API_PATH, GET_STATUS_PATH))?;
 
         let status = reqwest::get(local_url).await?;
         if !status.status().is_success() {
