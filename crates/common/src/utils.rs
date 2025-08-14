@@ -468,7 +468,7 @@ mod test {
         let jwt = create_jwt(&ModuleId("DA_COMMIT".to_string()), "secret").unwrap();
         let module_id = decode_jwt(jwt.clone()).unwrap();
         assert_eq!(module_id, ModuleId("DA_COMMIT".to_string()));
-        let response = validate_jwt(jwt, "secret".as_ref());
+        let response = validate_jwt(jwt, "secret");
         assert!(response.is_ok());
 
         // Check expired JWT

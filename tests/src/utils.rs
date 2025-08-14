@@ -8,13 +8,11 @@ use alloy::primitives::U256;
 use cb_common::{
     config::{
         PbsConfig, PbsModuleConfig, RelayConfig, SignerConfig, SignerType, StartSignerConfig,
-        SIGNER_IMAGE_DEFAULT,
+        SIGNER_IMAGE_DEFAULT, SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT,
+        SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT, SIGNER_PORT_DEFAULT,
     },
     pbs::{RelayClient, RelayEntry},
-    signer::{
-        SignerLoader, DEFAULT_JWT_AUTH_FAIL_LIMIT, DEFAULT_JWT_AUTH_FAIL_TIMEOUT_SECONDS,
-        DEFAULT_SIGNER_PORT,
-    },
+    signer::SignerLoader,
     types::{BlsPublicKey, Chain, ModuleId},
     utils::default_host,
 };
@@ -106,10 +104,10 @@ pub fn to_pbs_config(
 pub fn get_signer_config(loader: SignerLoader) -> SignerConfig {
     SignerConfig {
         host: default_host(),
-        port: DEFAULT_SIGNER_PORT,
+        port: SIGNER_PORT_DEFAULT,
         docker_image: SIGNER_IMAGE_DEFAULT.to_string(),
-        jwt_auth_fail_limit: DEFAULT_JWT_AUTH_FAIL_LIMIT,
-        jwt_auth_fail_timeout_seconds: DEFAULT_JWT_AUTH_FAIL_TIMEOUT_SECONDS,
+        jwt_auth_fail_limit: SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT,
+        jwt_auth_fail_timeout_seconds: SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT,
         inner: SignerType::Local { loader, store: None },
     }
 }

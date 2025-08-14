@@ -164,7 +164,7 @@ mod tests {
             }
         }"#;
 
-        let parsed = test_encode_decode::<GetHeaderResponse>(&data);
+        let parsed = test_encode_decode::<GetHeaderResponse>(data);
         let VersionedResponse::Electra(parsed) = parsed;
 
         assert_eq!(parsed.message.value, U256::from(1));
@@ -184,7 +184,7 @@ mod tests {
         let data_json = include_str!("testdata/get-header-response.json");
         let block_json = test_encode_decode::<
             SignedExecutionPayloadHeader<ExecutionPayloadHeaderMessageElectra>,
-        >(&data_json);
+        >(data_json);
 
         let data_ssz = include_bytes!("testdata/get-header-response.ssz");
         test_encode_decode_ssz::<SignedExecutionPayloadHeader<ExecutionPayloadHeaderMessageElectra>>(

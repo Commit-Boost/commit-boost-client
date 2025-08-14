@@ -70,17 +70,22 @@ async fn test_mux() -> Result<()> {
     // Status requests should go to all relays
     info!("Sending get status");
     assert_eq!(mock_validator.do_get_status().await?.status(), StatusCode::OK);
-    assert_eq!(mock_state.received_get_status(), 3); // default + 2 mux relays were used
+    assert_eq!(mock_state.received_get_status(), 6); // default + 2 mux relays were used + 3 on startup of the service
 
     // Register requests should go to all relays
     info!("Sending register validator");
     assert_eq!(mock_validator.do_register_validator().await?.status(), StatusCode::OK);
     assert_eq!(mock_state.received_register_validator(), 3); // default + 2 mux relays were used
 
-    // Submit block requests should go to all relays
-    info!("Sending submit block");
-    assert_eq!(mock_validator.do_submit_block(None).await?.status(), StatusCode::OK);
+    // v1 Submit block requests should go to all relays
+    info!("Sending submit block v1");
+    assert_eq!(mock_validator.do_submit_block_v1(None).await?.status(), StatusCode::OK);
     assert_eq!(mock_state.received_submit_block(), 3); // default + 2 mux relays were used
+
+    // v2 Submit block requests should go to all relays
+    info!("Sending submit block v2");
+    assert_eq!(mock_validator.do_submit_block_v2(None).await?.status(), StatusCode::ACCEPTED);
+    assert_eq!(mock_state.received_submit_block(), 6); // default + 2 mux relays were used
 
     Ok(())
 }

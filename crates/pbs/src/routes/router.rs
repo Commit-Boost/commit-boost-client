@@ -1,4 +1,5 @@
 use axum::{
+    body::HttpBody,
     extract::{DefaultBodyLimit, MatchedPath, Request},
     middleware::{self, Next},
     response::Response,
@@ -7,18 +8,19 @@ use axum::{
 };
 use axum_extra::headers::{ContentType, HeaderMapExt, UserAgent};
 use cb_common::pbs::{
-    BUILDER_API_PATH, GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, RELOAD_PATH,
-    SUBMIT_BLOCK_PATH,
+    BUILDER_V1_API_PATH, BUILDER_V2_API_PATH, GET_HEADER_PATH, GET_STATUS_PATH,
+    REGISTER_VALIDATOR_PATH, RELOAD_PATH, SUBMIT_BLOCK_PATH,
 };
-use tracing::trace;
+use tracing::{trace, warn};
 use uuid::Uuid;
 
 use super::{
-    handle_get_header, handle_get_status, handle_register_validator, handle_submit_block,
+    handle_get_header, handle_get_status, handle_register_validator, handle_submit_block_v1,
     reload::handle_reload,
 };
 use crate::{
     api::BuilderApi,
+    routes::submit_block::handle_submit_block_v2,
     state::{BuilderApiState, PbsStateGuard},
     MAX_SIZE_REGISTER_VALIDATOR_REQUEST, MAX_SIZE_SUBMIT_BLOCK_RESPONSE,
 };
@@ -27,7 +29,7 @@ pub fn create_app_router<S: BuilderApiState, A: BuilderApi<S>>(state: PbsStateGu
     // DefaultBodyLimit is 2Mib by default, so we only increase it for a few routes
     // thay may need more
 
-    let builder_routes = Router::new()
+    let v1_builder_routes = Router::new()
         .route(GET_HEADER_PATH, get(handle_get_header::<S, A>))
         .route(GET_STATUS_PATH, get(handle_get_status::<S, A>))
         .route(
@@ -37,11 +39,19 @@ pub fn create_app_router<S: BuilderApiState, A: BuilderApi<S>>(state: PbsStateGu
         )
         .route(
             SUBMIT_BLOCK_PATH,
-            post(handle_submit_block::<S, A>)
+            post(handle_submit_block_v1::<S, A>)
                 .route_layer(DefaultBodyLimit::max(MAX_SIZE_SUBMIT_BLOCK_RESPONSE)),
         ); // header is smaller than the response but err on the safe side
+    let v2_builder_routes = Router::new().route(
+        SUBMIT_BLOCK_PATH,
+        post(handle_submit_block_v2::<S, A>)
+            .route_layer(DefaultBodyLimit::max(MAX_SIZE_SUBMIT_BLOCK_RESPONSE)),
+    );
+    let v1_builder_router = Router::new().nest(BUILDER_V1_API_PATH, v1_builder_routes);
+    let v2_builder_router = Router::new().nest(BUILDER_V2_API_PATH, v2_builder_routes);
     let reload_router = Router::new().route(RELOAD_PATH, post(handle_reload::<S, A>));
-    let builder_api = Router::new().nest(BUILDER_API_PATH, builder_routes).merge(reload_router);
+    let builder_api =
+        Router::new().merge(v1_builder_router).merge(v2_builder_router).merge(reload_router);
 
     let app = if let Some(extra_routes) = A::extra_routes() {
         builder_api.merge(extra_routes)
@@ -66,6 +76,8 @@ pub fn create_app_router<S: BuilderApiState, A: BuilderApi<S>>(state: PbsStateGu
     ),
 )]
 pub async fn tracing_middleware(req: Request, next: Next) -> Response {
+    let mut watcher = RequestWatcher::new();
+
     trace!(
         http.method = %req.method(),
         http.user_agent = req.headers().typed_get::<UserAgent>().map(|ua| ua.to_string()).unwrap_or_default(),
@@ -75,8 +87,32 @@ pub async fn tracing_middleware(req: Request, next: Next) -> Response {
     let response = next.run(req).await;
 
     let status = response.status();
+    let response_size = response.body().size_hint().upper().unwrap_or(0);
 
-    trace!(http.response.status_code = ?status, "end request");
+    trace!(http.response.status_code = ?status, response_size, "end request");
 
+    watcher.observe();
     response
+}
+
+struct RequestWatcher {
+    observed: bool,
+}
+
+impl RequestWatcher {
+    fn new() -> Self {
+        Self { observed: false }
+    }
+
+    fn observe(&mut self) {
+        self.observed = true;
+    }
+}
+
+impl Drop for RequestWatcher {
+    fn drop(&mut self) {
+        if !self.observed {
+            warn!("client timed out")
+        }
+    }
 }

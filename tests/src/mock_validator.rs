@@ -1,6 +1,6 @@
 use alloy::{primitives::B256, rpc::types::beacon::relay::ValidatorRegistration};
 use cb_common::{
-    pbs::{RelayClient, SignedBlindedBeaconBlock},
+    pbs::{BuilderApiVersion, RelayClient, SignedBlindedBeaconBlock},
     types::BlsPublicKey,
     utils::bls_pubkey_from_hex,
 };
@@ -43,11 +43,26 @@ impl MockValidator {
         Ok(self.comm_boost.client.post(url).json(&registrations).send().await?)
     }
 
-    pub async fn do_submit_block(
+    pub async fn do_submit_block_v1(
         &self,
         signed_blinded_block: Option<SignedBlindedBeaconBlock>,
     ) -> eyre::Result<Response> {
-        let url = self.comm_boost.submit_block_url().unwrap();
+        self.do_submit_block_impl(signed_blinded_block, BuilderApiVersion::V1).await
+    }
+
+    pub async fn do_submit_block_v2(
+        &self,
+        signed_blinded_block: Option<SignedBlindedBeaconBlock>,
+    ) -> eyre::Result<Response> {
+        self.do_submit_block_impl(signed_blinded_block, BuilderApiVersion::V2).await
+    }
+
+    async fn do_submit_block_impl(
+        &self,
+        signed_blinded_block: Option<SignedBlindedBeaconBlock>,
+        api_version: BuilderApiVersion,
+    ) -> eyre::Result<Response> {
+        let url = self.comm_boost.submit_block_url(api_version).unwrap();
 
         let signed_blinded_block =
             signed_blinded_block.unwrap_or_else(load_test_signed_blinded_block);
