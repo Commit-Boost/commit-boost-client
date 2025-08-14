@@ -1,10 +1,7 @@
-use alloy::{
-    primitives::{B256, U256},
-    rpc::types::beacon::BlsPublicKey,
-};
+use alloy::primitives::{B256, U256};
 use thiserror::Error;
 
-use crate::{error::BlstErrorWrapper, utils::ResponseReadError};
+use crate::{types::BlsPublicKey, utils::ResponseReadError};
 
 #[derive(Debug, Error)]
 pub enum PbsError {
@@ -58,7 +55,7 @@ pub enum ValidationError {
     EmptyBlockhash,
 
     #[error("pubkey mismatch: expected {expected} got {got}")]
-    PubkeyMismatch { expected: BlsPublicKey, got: BlsPublicKey },
+    PubkeyMismatch { expected: Box<BlsPublicKey>, got: Box<BlsPublicKey> },
 
     #[error("parent hash mismatch: expected {expected} got {got}")]
     ParentHashMismatch { expected: B256, got: B256 },
@@ -66,7 +63,7 @@ pub enum ValidationError {
     #[error("block hash mismatch: expected {expected} got {got}")]
     BlockHashMismatch { expected: B256, got: B256 },
 
-    #[error("mismatch in KZG commitments: exepcted_blobs: {expected_blobs} got_blobs: {got_blobs} got_commitments: {got_commitments} got_proofs: {got_proofs}")]
+    #[error("mismatch in KZG commitments: expected_blobs: {expected_blobs} got_blobs: {got_blobs} got_commitments: {got_commitments} got_proofs: {got_proofs}")]
     KzgCommitments {
         expected_blobs: usize,
         got_blobs: usize,
@@ -83,8 +80,8 @@ pub enum ValidationError {
     #[error("empty tx root")]
     EmptyTxRoot,
 
-    #[error("failed signature verification: {0:?}")]
-    Sigverify(#[from] BlstErrorWrapper),
+    #[error("failed signature verification")]
+    Sigverify,
 
     #[error("wrong timestamp: expected {expected} got {got}")]
     TimestampMismatch { expected: u64, got: u64 },

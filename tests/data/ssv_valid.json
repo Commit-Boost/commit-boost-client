@@ -2,7 +2,7 @@
     "validators": [
         {
             "id": 554991,
-            "public_key": "967ba17a3e7f82a25aa5350ec34d6923e28ad8237b5a41efe2c5e325240d74d87a015bf04634f21900963539c8229b2a",
+            "public_key": "0x967ba17a3e7f82a25aa5350ec34d6923e28ad8237b5a41efe2c5e325240d74d87a015bf04634f21900963539c8229b2a",
             "cluster": "0xf7c1283eb0c0f76b5fa84c7541d8d4d27751b4083a5e8dcb8ac9e72bb7f559b8",
             "owner_address": "0xB2EE025B1d129c61E77223bAb42fc65b29B16243",
             "status": "Inactive",
@@ -31,7 +31,7 @@
         },
         {
             "id": 554992,
-            "public_key": "ac769e8cec802e8ffee34de3253be8f438a0c17ee84bdff0b6730280d24b5ecb77ebc9c985281b41ee3bda8663b6658c",
+            "public_key": "0xac769e8cec802e8ffee34de3253be8f438a0c17ee84bdff0b6730280d24b5ecb77ebc9c985281b41ee3bda8663b6658c",
             "cluster": "0xf7c1283eb0c0f76b5fa84c7541d8d4d27751b4083a5e8dcb8ac9e72bb7f559b8",
             "owner_address": "0xB2EE025B1d129c61E77223bAb42fc65b29B16243",
             "status": "Inactive",
@@ -60,7 +60,7 @@
         },
         {
             "id": 554994,
-            "public_key": "8c866a5a05f3d45c49b457e29365259021a509c5daa82e124f9701a960ee87b8902e87175315ab638a3d8b1115b23639",
+            "public_key": "0x8c866a5a05f3d45c49b457e29365259021a509c5daa82e124f9701a960ee87b8902e87175315ab638a3d8b1115b23639",
             "cluster": "0xf7c1283eb0c0f76b5fa84c7541d8d4d27751b4083a5e8dcb8ac9e72bb7f559b8",
             "owner_address": "0xB2EE025B1d129c61E77223bAb42fc65b29B16243",
             "status": "Inactive",

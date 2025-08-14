@@ -274,29 +274,29 @@ async fn handle_request_signature(
     let res = match &*manager {
         SigningManager::Local(local_manager) => match request {
             SignRequest::Consensus(SignConsensusRequest { object_root, pubkey }) => local_manager
-                .sign_consensus(&pubkey, &object_root)
+                .sign_consensus(&pubkey, object_root)
                 .await
                 .map(|sig| Json(sig).into_response()),
             SignRequest::ProxyBls(SignProxyRequest { object_root, proxy: bls_key }) => {
                 local_manager
-                    .sign_proxy_bls(&bls_key, &object_root)
+                    .sign_proxy_bls(&bls_key, object_root)
                     .await
                     .map(|sig| Json(sig).into_response())
             }
             SignRequest::ProxyEcdsa(SignProxyRequest { object_root, proxy: ecdsa_key }) => {
                 local_manager
-                    .sign_proxy_ecdsa(&ecdsa_key, &object_root)
+                    .sign_proxy_ecdsa(&ecdsa_key, object_root)
                     .await
                     .map(|sig| Json(sig).into_response())
             }
         },
         SigningManager::Dirk(dirk_manager) => match request {
             SignRequest::Consensus(SignConsensusRequest { object_root, pubkey }) => dirk_manager
-                .request_consensus_signature(&pubkey, *object_root)
+                .request_consensus_signature(&pubkey, object_root)
                 .await
                 .map(|sig| Json(sig).into_response()),
             SignRequest::ProxyBls(SignProxyRequest { object_root, proxy: bls_key }) => dirk_manager
-                .request_proxy_signature(&bls_key, *object_root)
+                .request_proxy_signature(&bls_key, object_root)
                 .await
                 .map(|sig| Json(sig).into_response()),
             SignRequest::ProxyEcdsa(_) => {

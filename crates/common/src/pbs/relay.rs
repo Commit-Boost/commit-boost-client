@@ -1,9 +1,6 @@
 use std::{str::FromStr, sync::Arc};
 
-use alloy::{
-    primitives::{hex::FromHex, B256},
-    rpc::types::beacon::BlsPublicKey,
-};
+use alloy::primitives::B256;
 use eyre::WrapErr;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde::{Deserialize, Serialize};
@@ -14,7 +11,9 @@ use super::{
     error::PbsError,
     HEADER_VERSION_KEY, HEADER_VERSION_VALUE,
 };
-use crate::{config::RelayConfig, pbs::BuilderApiVersion, DEFAULT_REQUEST_TIMEOUT};
+use crate::{
+    config::RelayConfig, pbs::BuilderApiVersion, types::BlsPublicKey, DEFAULT_REQUEST_TIMEOUT,
+};
 
 /// A parsed entry of the relay url in the format: scheme://pubkey@host
 #[derive(Debug, Clone)]
@@ -43,7 +42,7 @@ impl<'de> Deserialize<'de> for RelayEntry {
     {
         let url = Url::deserialize(deserializer)?;
         let id = url.host().ok_or(serde::de::Error::custom("missing host"))?.to_string();
-        let pubkey = BlsPublicKey::from_hex(url.username())
+        let pubkey = BlsPublicKey::from_str(url.username())
             .map_err(|_| serde::de::Error::custom("invalid BLS pubkey"))?;
 
         Ok(RelayEntry { pubkey, url, id })
@@ -84,8 +83,8 @@ impl RelayClient {
         Ok(Self { id: Arc::new(config.id().to_owned()), client, config: Arc::new(config) })
     }
 
-    pub fn pubkey(&self) -> BlsPublicKey {
-        self.config.entry.pubkey
+    pub fn pubkey(&self) -> &BlsPublicKey {
+        &self.config.entry.pubkey
     }
 
     // URL builders
@@ -112,8 +111,8 @@ impl RelayClient {
     pub fn get_header_url(
         &self,
         slot: u64,
-        parent_hash: B256,
-        validator_pubkey: BlsPublicKey,
+        parent_hash: &B256,
+        validator_pubkey: &BlsPublicKey,
     ) -> Result<Url, PbsError> {
         self.builder_api_url(
             &format!("/header/{slot}/{parent_hash}/{validator_pubkey}"),
@@ -138,21 +137,19 @@ impl RelayClient {
 mod tests {
     use std::collections::HashMap;
 
-    use alloy::{
-        primitives::{hex::FromHex, B256},
-        rpc::types::beacon::BlsPublicKey,
-    };
+    use alloy::primitives::B256;
 
     use super::{RelayClient, RelayEntry};
-    use crate::config::RelayConfig;
+    use crate::{config::RelayConfig, utils::bls_pubkey_from_hex_unchecked};
 
     #[test]
     fn test_relay_entry() {
-        let s = "http://0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae@abc.xyz/";
+        let pubkey = bls_pubkey_from_hex_unchecked("0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae");
+        let s = format!("http://{pubkey}@abc.xyz/");
 
         let parsed = serde_json::from_str::<RelayEntry>(&format!("\"{s}\"")).unwrap();
 
-        assert_eq!(parsed.pubkey, BlsPublicKey::from_hex("0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae").unwrap());
+        assert_eq!(parsed.pubkey, pubkey);
         assert_eq!(parsed.url.as_str(), s);
         assert_eq!(parsed.id, "abc.xyz");
     }
@@ -161,7 +158,7 @@ mod tests {
     fn test_relay_url() {
         let slot = 0;
         let parent_hash = B256::ZERO;
-        let validator_pubkey = BlsPublicKey::ZERO;
+        let validator_pubkey = bls_pubkey_from_hex_unchecked("0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae");
         let expected = format!("http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz/eth/v1/builder/header/{slot}/{parent_hash}/{validator_pubkey}");
 
         let relay_config = r#"
@@ -173,7 +170,7 @@ mod tests {
         let relay = RelayClient::new(config).unwrap();
 
         assert_eq!(
-            relay.get_header_url(slot, parent_hash, validator_pubkey).unwrap().to_string(),
+            relay.get_header_url(slot, &parent_hash, &validator_pubkey).unwrap().to_string(),
             expected
         );
 
@@ -186,7 +183,7 @@ mod tests {
         let relay = RelayClient::new(config).unwrap();
 
         assert_eq!(
-            relay.get_header_url(slot, parent_hash, validator_pubkey).unwrap().to_string(),
+            relay.get_header_url(slot, &parent_hash, &validator_pubkey).unwrap().to_string(),
             expected
         );
     }
@@ -195,7 +192,7 @@ mod tests {
     fn test_relay_url_with_get_params() {
         let slot = 0;
         let parent_hash = B256::ZERO;
-        let validator_pubkey = BlsPublicKey::ZERO;
+        let validator_pubkey = bls_pubkey_from_hex_unchecked("0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae");
         // Note: HashMap iteration order is not guaranteed, so we can't predict the
         // exact order of parameters Instead of hard-coding the order, we'll
         // check that both parameters are present in the URL
@@ -214,7 +211,7 @@ mod tests {
         config.get_params = Some(get_params);
         let relay = RelayClient::new(config).unwrap();
 
-        let url = relay.get_header_url(slot, parent_hash, validator_pubkey).unwrap().to_string();
+        let url = relay.get_header_url(slot, &parent_hash, &validator_pubkey).unwrap().to_string();
         assert!(url.starts_with(&url_prefix));
         assert!(url.contains("param1=value1"));
         assert!(url.contains("param2=value2"));

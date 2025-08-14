@@ -10,7 +10,6 @@ alloy.workspace = true
 async-trait.workspace = true
 axum.workspace = true
 axum-extra.workspace = true
-blst.workspace = true
 cb-common.workspace = true
 cb-metrics.workspace = true
 eyre.workspace = true

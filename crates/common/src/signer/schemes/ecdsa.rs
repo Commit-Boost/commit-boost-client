@@ -1,7 +1,7 @@
 use std::{ops::Deref, str::FromStr};
 
 use alloy::{
-    primitives::{Address, PrimitiveSignature},
+    primitives::{Address, PrimitiveSignature, B256},
     signers::{local::PrivateKeySigner, SignerSync},
 };
 use eyre::ensure;
@@ -86,12 +86,12 @@ impl EcdsaSigner {
     pub async fn sign(
         &self,
         chain: Chain,
-        object_root: [u8; 32],
+        object_root: B256,
     ) -> Result<EcdsaSignature, alloy::signers::Error> {
         match self {
             EcdsaSigner::Local(sk) => {
                 let domain = compute_domain(chain, COMMIT_BOOST_DOMAIN);
-                let signing_root = compute_signing_root(object_root, domain).into();
+                let signing_root = compute_signing_root(object_root, domain);
                 sk.sign_hash_sync(&signing_root).map(EcdsaSignature::from)
             }
         }
@@ -102,7 +102,7 @@ impl EcdsaSigner {
         chain: Chain,
         msg: &impl TreeHash,
     ) -> Result<EcdsaSignature, alloy::signers::Error> {
-        self.sign(chain, msg.tree_hash_root().0).await
+        self.sign(chain, msg.tree_hash_root()).await
     }
 }
 
@@ -128,7 +128,7 @@ mod test {
         let pk = bytes!("88bcd6672d95bcba0d52a3146494ed4d37675af4ed2206905eb161aa99a6c0d1");
         let signer = EcdsaSigner::new_from_bytes(&pk).unwrap();
 
-        let object_root = [1; 32];
+        let object_root = B256::from([1; 32]);
         let signature = signer.sign(Chain::Holesky, object_root).await.unwrap();
 
         let domain = compute_domain(Chain::Holesky, COMMIT_BOOST_DOMAIN);

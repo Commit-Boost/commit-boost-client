@@ -8,13 +8,13 @@ use std::{
 use alloy::{
     primitives::{address, Address, U256},
     providers::ProviderBuilder,
-    rpc::{client::RpcClient, types::beacon::BlsPublicKey},
+    rpc::{client::RpcClient, types::beacon::constants::BLS_PUBLIC_KEY_BYTES_LEN},
     sol,
     transports::http::Http,
 };
 use eyre::{bail, ensure, Context};
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use tracing::{debug, info, warn};
 use url::Url;
 
@@ -22,7 +22,7 @@ use super::{load_optional_env_var, PbsConfig, RelayConfig, MUX_PATH_ENV};
 use crate::{
     config::{remove_duplicate_keys, safe_read_http_response},
     pbs::RelayClient,
-    types::Chain,
+    types::{BlsPublicKey, Chain},
 };
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -103,8 +103,8 @@ impl PbsMuxes {
             let config = Arc::new(config);
 
             let runtime_config = RuntimeMuxConfig { id: mux.id, config, relays: relay_clients };
-            for pubkey in mux.validator_pubkeys.iter() {
-                configs.insert(*pubkey, runtime_config.clone());
+            for pubkey in mux.validator_pubkeys.into_iter() {
+                configs.insert(pubkey, runtime_config.clone());
             }
         }
 
@@ -296,7 +296,6 @@ async fn fetch_lido_registry_keys(
     debug!("fetching {total_keys} total keys");
 
     const CALL_BATCH_SIZE: u64 = 250u64;
-    const BLS_PK_LEN: usize = BlsPublicKey::len_bytes();
 
     let mut keys = vec![];
     let mut offset = 0;
@@ -311,13 +310,16 @@ async fn fetch_lido_registry_keys(
             .pubkeys;
 
         ensure!(
-            pubkeys.len() % BLS_PK_LEN == 0,
-            "unexpected number of keys in batch, expected multiple of {BLS_PK_LEN}, got {}",
+            pubkeys.len() % BLS_PUBLIC_KEY_BYTES_LEN == 0,
+            "unexpected number of keys in batch, expected multiple of {BLS_PUBLIC_KEY_BYTES_LEN}, got {}",
             pubkeys.len()
         );
 
-        for chunk in pubkeys.chunks(BLS_PK_LEN) {
-            keys.push(BlsPublicKey::try_from(chunk)?);
+        for chunk in pubkeys.chunks(BLS_PUBLIC_KEY_BYTES_LEN) {
+            keys.push(
+                BlsPublicKey::deserialize(chunk)
+                    .map_err(|_| eyre::eyre!("invalid BLS public key"))?,
+            );
         }
 
         offset += limit;
@@ -356,10 +358,13 @@ async fn fetch_ssv_pubkeys(
         );
 
         let response = fetch_ssv_pubkeys_from_url(&url, http_timeout).await?;
-        pubkeys.extend(response.validators.iter().map(|v| v.pubkey).collect::<Vec<BlsPublicKey>>());
+        let fetched = response.validators.len();
+        pubkeys.extend(
+            response.validators.into_iter().map(|v| v.pubkey).collect::<Vec<BlsPublicKey>>(),
+        );
         page += 1;
 
-        if response.validators.len() < MAX_PER_PAGE {
+        if fetched < MAX_PER_PAGE {
             ensure!(
                 pubkeys.len() == response.pagination.total,
                 "expected {} keys, got {}",
@@ -397,10 +402,27 @@ struct SSVResponse {
     pagination: SSVPagination,
 }
 
-#[derive(Deserialize)]
 struct SSVValidator {
-    #[serde(rename = "public_key")]
     pubkey: BlsPublicKey,
+}
+
+impl<'de> Deserialize<'de> for SSVValidator {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct SSVValidator {
+            public_key: String,
+        }
+
+        let s = SSVValidator::deserialize(deserializer)?;
+        let bytes = alloy::hex::decode(&s.public_key).map_err(serde::de::Error::custom)?;
+        let pubkey = BlsPublicKey::deserialize(&bytes)
+            .map_err(|e| serde::de::Error::custom(format!("invalid BLS public key: {e:?}")))?;
+
+        Ok(Self { pubkey })
+    }
 }
 
 #[derive(Deserialize)]
@@ -412,7 +434,7 @@ struct SSVPagination {
 mod tests {
     use std::net::SocketAddr;
 
-    use alloy::{hex::FromHex, primitives::U256, providers::ProviderBuilder};
+    use alloy::{primitives::U256, providers::ProviderBuilder};
     use axum::{response::Response, routing::get};
     use tokio::{net::TcpListener, task::JoinHandle};
     use url::Url;
@@ -420,7 +442,7 @@ mod tests {
     use super::*;
     use crate::{
         config::{HTTP_TIMEOUT_SECONDS_DEFAULT, MUXER_HTTP_MAX_LENGTH},
-        utils::{set_ignore_content_length, ResponseReadError},
+        utils::{bls_pubkey_from_hex_unchecked, set_ignore_content_length, ResponseReadError},
     };
 
     const TEST_HTTP_TIMEOUT: u64 = 2;
@@ -448,8 +470,11 @@ mod tests {
             .pubkeys;
 
         let mut vec = vec![];
-        for chunk in pubkeys.chunks(BlsPublicKey::len_bytes()) {
-            vec.push(BlsPublicKey::try_from(chunk)?);
+        for chunk in pubkeys.chunks(BLS_PUBLIC_KEY_BYTES_LEN) {
+            vec.push(
+                BlsPublicKey::deserialize(chunk)
+                    .map_err(|_| eyre::eyre!("invalid BLS public key"))?,
+            );
         }
 
         assert_eq!(vec.len(), LIMIT);
@@ -472,15 +497,9 @@ mod tests {
         // NOTE: requires that ssv_data.json dpesn't change
         assert_eq!(response.validators.len(), 3);
         let expected_pubkeys = [
-            BlsPublicKey::from_hex(
-                "0x967ba17a3e7f82a25aa5350ec34d6923e28ad8237b5a41efe2c5e325240d74d87a015bf04634f21900963539c8229b2a",
-            )?,
-            BlsPublicKey::from_hex(
-                "0xac769e8cec802e8ffee34de3253be8f438a0c17ee84bdff0b6730280d24b5ecb77ebc9c985281b41ee3bda8663b6658c",
-            )?,
-            BlsPublicKey::from_hex(
-                "0x8c866a5a05f3d45c49b457e29365259021a509c5daa82e124f9701a960ee87b8902e87175315ab638a3d8b1115b23639",
-            )?,
+            bls_pubkey_from_hex_unchecked("967ba17a3e7f82a25aa5350ec34d6923e28ad8237b5a41efe2c5e325240d74d87a015bf04634f21900963539c8229b2a"),
+            bls_pubkey_from_hex_unchecked("ac769e8cec802e8ffee34de3253be8f438a0c17ee84bdff0b6730280d24b5ecb77ebc9c985281b41ee3bda8663b6658c"),
+            bls_pubkey_from_hex_unchecked("8c866a5a05f3d45c49b457e29365259021a509c5daa82e124f9701a960ee87b8902e87175315ab638a3d8b1115b23639"),
         ];
         for (i, validator) in response.validators.iter().enumerate() {
             assert_eq!(validator.pubkey, expected_pubkeys[i]);
