@@ -5,7 +5,7 @@ use axum::{
     response::IntoResponse,
 };
 use cb_common::{
-    pbs::{BuilderEvent, GetHeaderParams},
+    pbs::GetHeaderParams,
     utils::{get_user_agent, ms_into_slot},
 };
 use reqwest::StatusCode;
@@ -30,8 +30,6 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
 
     let state = state.read().clone();
 
-    state.publish_event(BuilderEvent::GetHeaderRequest(params.clone()));
-
     let ua = get_user_agent(&req_headers);
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
 
@@ -39,8 +37,6 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
 
     match A::get_header(params, req_headers, state.clone()).await {
         Ok(res) => {
-            state.publish_event(BuilderEvent::GetHeaderResponse(Box::new(res.clone())));
-
             if let Some(max_bid) = res {
                 info!(value_eth = format_ether(max_bid.value()), block_hash =% max_bid.block_hash(), "received header");
 

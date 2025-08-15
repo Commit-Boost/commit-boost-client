@@ -1,5 +1,5 @@
 [workspace]
-members = ["benches/*", "bin", "crates/*", "examples/builder_log", "examples/da_commit", "examples/status_api", "tests"]
+members = ["benches/*", "bin", "crates/*", "examples/da_commit", "examples/status_api", "tests"]
 resolver = "2"
 
 [workspace.package]
