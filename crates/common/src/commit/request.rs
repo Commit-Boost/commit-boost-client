@@ -127,7 +127,7 @@ impl<T: ProxyId> SignProxyRequest<T> {
     }
 
     pub fn builder(proxy: T) -> Self {
-        Self::new(proxy, B256::ZERO, 0)
+        Self::new(proxy, B256::ZERO, u64::MAX - 1)
     }
 
     pub fn with_root<R: Into<B256>>(self, object_root: R) -> Self {
