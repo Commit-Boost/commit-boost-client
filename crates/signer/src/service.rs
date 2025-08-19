@@ -367,9 +367,15 @@ async fn handle_request_signature_bls_impl(
             }
         }
         SigningManager::Dirk(dirk_manager) => {
-            dirk_manager
-                .request_proxy_signature(signing_pubkey, object_root, Some(&signing_id))
-                .await
+            if is_proxy {
+                dirk_manager
+                    .request_proxy_signature(signing_pubkey, object_root, Some(&signing_id))
+                    .await
+            } else {
+                dirk_manager
+                    .request_consensus_signature(signing_pubkey, object_root, Some(&signing_id))
+                    .await
+            }
         }
     }
     .map(|sig| {
