@@ -310,29 +310,30 @@ async fn handle_request_signature_bls(
     };
     debug!(event = "bls_request_signature", ?module_id, %request, ?req_id, "New request");
 
-    let manager = state.manager.read().await;
-    let res = match &*manager {
-        SigningManager::Local(local_manager) => local_manager
-            .sign_consensus(&request.pubkey, &request.object_root, Some(&signing_id))
-            .await
-            .map(|sig| {
-                Json(BlsSignResponse::new(request.pubkey, request.object_root, signing_id, sig))
-                    .into_response()
-            }),
-        SigningManager::Dirk(dirk_manager) => dirk_manager
-            .request_consensus_signature(&request.pubkey, &request.object_root, Some(&signing_id))
-            .await
-            .map(|sig| {
-                Json(BlsSignResponse::new(request.pubkey, request.object_root, signing_id, sig))
-                    .into_response()
-            }),
-    };
-
-    if let Err(err) = &res {
-        error!(event = "request_signature", ?module_id, ?req_id, "{err}");
+    match &*state.manager.read().await {
+        SigningManager::Local(local_manager) => {
+            local_manager
+                .sign_consensus(&request.pubkey, &request.object_root, Some(&signing_id))
+                .await
+        }
+        SigningManager::Dirk(dirk_manager) => {
+            dirk_manager
+                .request_consensus_signature(
+                    &request.pubkey,
+                    &request.object_root,
+                    Some(&signing_id),
+                )
+                .await
+        }
     }
-
-    res
+    .map(|sig| {
+        Json(BlsSignResponse::new(request.pubkey, request.object_root, signing_id, sig))
+            .into_response()
+    })
+    .map_err(|err| {
+        error!(event = "request_signature", ?module_id, ?req_id, "{err}");
+        err
+    })
 }
 
 /// Validates a BLS key signature request using a proxy key and returns the
@@ -354,29 +355,26 @@ async fn handle_request_signature_proxy_bls(
     };
     debug!(event = "proxy_bls_request_signature", ?module_id, %request, ?req_id, "New request");
 
-    let manager = state.manager.read().await;
-    let res = match &*manager {
-        SigningManager::Local(local_manager) => local_manager
-            .sign_proxy_bls(&request.proxy, &request.object_root, Some(&signing_id))
-            .await
-            .map(|sig| {
-                Json(BlsSignResponse::new(request.proxy, request.object_root, signing_id, sig))
-                    .into_response()
-            }),
-        SigningManager::Dirk(dirk_manager) => dirk_manager
-            .request_proxy_signature(&request.proxy, &request.object_root, Some(&signing_id))
-            .await
-            .map(|sig| {
-                Json(BlsSignResponse::new(request.proxy, request.object_root, signing_id, sig))
-                    .into_response()
-            }),
-    };
-
-    if let Err(err) = &res {
-        error!(event = "request_signature", ?module_id, ?req_id, "{err}");
+    match &*state.manager.read().await {
+        SigningManager::Local(local_manager) => {
+            local_manager
+                .sign_proxy_bls(&request.proxy, &request.object_root, Some(&signing_id))
+                .await
+        }
+        SigningManager::Dirk(dirk_manager) => {
+            dirk_manager
+                .request_proxy_signature(&request.proxy, &request.object_root, Some(&signing_id))
+                .await
+        }
     }
-
-    res
+    .map(|sig| {
+        Json(BlsSignResponse::new(request.proxy, request.object_root, signing_id, sig))
+            .into_response()
+    })
+    .map_err(|err| {
+        error!(event = "request_signature", ?module_id, ?req_id, "{err}");
+        err
+    })
 }
 
 /// Validates an ECDSA key signature request using a proxy key and returns the
@@ -398,15 +396,12 @@ async fn handle_request_signature_proxy_ecdsa(
     };
     debug!(event = "proxy_ecdsa_request_signature", ?module_id, %request, ?req_id, "New request");
 
-    let manager = state.manager.read().await;
-    let res = match &*manager {
-        SigningManager::Local(local_manager) => local_manager
-            .sign_proxy_ecdsa(&request.proxy, &request.object_root, Some(&signing_id))
-            .await
-            .map(|sig| {
-                Json(EcdsaSignResponse::new(request.proxy, request.object_root, signing_id, sig))
-                    .into_response()
-            }),
+    match &*state.manager.read().await {
+        SigningManager::Local(local_manager) => {
+            local_manager
+                .sign_proxy_ecdsa(&request.proxy, &request.object_root, Some(&signing_id))
+                .await
+        }
         SigningManager::Dirk(_) => {
             error!(
                 event = "request_signature",
@@ -416,13 +411,15 @@ async fn handle_request_signature_proxy_ecdsa(
             );
             Err(SignerModuleError::DirkNotSupported)
         }
-    };
-
-    if let Err(err) = &res {
-        error!(event = "request_signature", ?module_id, ?req_id, "{err}");
     }
-
-    res
+    .map(|sig| {
+        Json(EcdsaSignResponse::new(request.proxy, request.object_root, signing_id, sig))
+            .into_response()
+    })
+    .map_err(|err| {
+        error!(event = "request_signature", ?module_id, ?req_id, "{err}");
+        err
+    })
 }
 
 async fn handle_generate_proxy(
