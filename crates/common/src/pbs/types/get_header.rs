@@ -1,7 +1,4 @@
-use alloy::{
-    primitives::{B256, U256},
-    rpc::types::beacon::{BlsPublicKey, BlsSignature},
-};
+use alloy::primitives::{B256, U256};
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
@@ -11,8 +8,9 @@ use super::{
     execution_payload::ExecutionPayloadHeader, execution_requests::ExecutionRequests,
     kzg::KzgCommitments, spec::ElectraSpec, utils::VersionedResponse,
 };
+use crate::types::{BlsPublicKey, BlsSignature};
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct GetHeaderParams {
     /// The slot to request the header for
     pub slot: u64,
@@ -45,9 +43,9 @@ impl GetHeaderResponse {
         }
     }
 
-    pub fn pubkey(&self) -> BlsPublicKey {
+    pub fn pubkey(&self) -> &BlsPublicKey {
         match self {
-            VersionedResponse::Electra(data) => data.message.pubkey,
+            VersionedResponse::Electra(data) => &data.message.pubkey,
         }
     }
 
@@ -69,20 +67,20 @@ impl GetHeaderResponse {
         }
     }
 
-    pub fn signautre(&self) -> BlsSignature {
+    pub fn signautre(&self) -> &BlsSignature {
         match self {
-            GetHeaderResponse::Electra(data) => data.signature,
+            GetHeaderResponse::Electra(data) => &data.signature,
         }
     }
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct SignedExecutionPayloadHeader<T: Encode + Decode> {
     pub message: T,
     pub signature: BlsSignature,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize, Encode, Decode, TreeHash)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash)]
 pub struct ExecutionPayloadHeaderMessageElectra {
     pub header: ExecutionPayloadHeader<ElectraSpec>,
     pub blob_kzg_commitments: KzgCommitments<ElectraSpec>,
@@ -106,7 +104,7 @@ mod tests {
     };
 
     #[test]
-    // from the builder api spec, the signature is a dummy so it's not checked
+    // from the builder api spec, with signature fixed to the correct pubkey
     fn test_get_header_electra() {
         let data = r#"{
             "version": "electra",
@@ -137,32 +135,32 @@ mod tests {
                     "execution_requests": {
                         "deposits": [
                             {
-                                "pubkey": "0x93247f2209abcacf57b75a51dafae777f9dd38bc7053d1af526f220a7489a6d3a2753e5f3e8b1cfe39b56f43611df74a",
+                                "pubkey": "0x911f24ad11078aad2b28ff9dcb4651a0b686e3972b2b4190273f35d416bf057dbd95553d7a0edb107b1a5e1b211da8c4",
                                 "withdrawal_credentials": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
                                 "amount": "1",
-                                "signature": "0x1b66ac1fb663c9bc59509846d6ec05345bd908eda73e670af888da41af171505cc411d61252fb6cb3fa0017b679f8bb2305b26a285fa2737f175668d0dff91cc1b66ac1fb663c9bc59509846d6ec05345bd908eda73e670af888da41af171505",
+                                "signature": "0xb4f92cd90de8e4b67debeb0379f08d0e6d3046e67e824e6ed63cd841abc9999c8b123a780e34a480d4ef13466b6241e30000b047d27de43fcf475fc4e69da2d26929cec97742892346f53e78f973bbe8095285f05a8ea60b118cdd1e6a704c94",
                                 "index": "1"
                             }
                         ],
                         "withdrawals": [
                             {
                                 "source_address": "0xabcf8e0d4e9587369b2301d0790347320302cc09",
-                                "validator_pubkey": "0x93247f2209abcacf57b75a51dafae777f9dd38bc7053d1af526f220a7489a6d3a2753e5f3e8b1cfe39b56f43611df74a",
+                                "validator_pubkey": "0x911f24ad11078aad2b28ff9dcb4651a0b686e3972b2b4190273f35d416bf057dbd95553d7a0edb107b1a5e1b211da8c4",
                                 "amount": "1"
                             }
                         ],
                         "consolidations": [
                             {
                                 "source_address": "0xabcf8e0d4e9587369b2301d0790347320302cc09",
-                                "source_pubkey": "0x93247f2209abcacf57b75a51dafae777f9dd38bc7053d1af526f220a7489a6d3a2753e5f3e8b1cfe39b56f43611df74a",
-                                "target_pubkey": "0x93247f2209abcacf57b75a51dafae777f9dd38bc7053d1af526f220a7489a6d3a2753e5f3e8b1cfe39b56f43611df74a"
+                                "source_pubkey": "0x911f24ad11078aad2b28ff9dcb4651a0b686e3972b2b4190273f35d416bf057dbd95553d7a0edb107b1a5e1b211da8c4",
+                                "target_pubkey": "0x911f24ad11078aad2b28ff9dcb4651a0b686e3972b2b4190273f35d416bf057dbd95553d7a0edb107b1a5e1b211da8c4"
                             }
                         ]
                     },
                     "value": "1",
-                    "pubkey": "0x86b1cea87eed94cad99244356abcd83995947670f0553a1d3fe83c4a9e8116f4891fb1c51db232e736be1cb3327164bc"
+                    "pubkey": "0xac0a230bd98a766b8e4156f0626ee679dd280dee5b0eedc2b9455ca3dacc4c7618da5010b9db609450a712f095c9f7a5"
                 },
-                "signature": "0x8addecd35e0ffe27b74e41aff2836527e6fea0efdb46dbb0f7436f5087d0cd5665bd16d924f640fc928cdba0173971e400dc603dbd6310bfb6f249c1554b044fe06ae4cf5d5f452f3ff19d9d130809b34d3d3abdca3d192c839ba2ac91129c15"
+                "signature": "0x8aeb4642fb2982039a43fd6a6d9cc0ebf7598dbf02343c4617d9a68d799393c162492add63f31099a25eacc2782ba27a190e977a8c58760b6636dccb503d528b3be9e885c93d5b79699e68fcca870b0c790cdb00d67604d8b4a3025ae75efa2f"
             }
         }"#;
 
@@ -177,8 +175,7 @@ mod tests {
             &parsed.message,
             &parsed.signature,
             APPLICATION_BUILDER_DOMAIN
-        )
-        .is_ok())
+        ))
     }
 
     #[test]
@@ -190,9 +187,8 @@ mod tests {
         >(data_json);
 
         let data_ssz = include_bytes!("testdata/get-header-response.ssz");
-        let data_ssz = alloy::primitives::hex::decode(data_ssz).unwrap();
         test_encode_decode_ssz::<SignedExecutionPayloadHeader<ExecutionPayloadHeaderMessageElectra>>(
-            &data_ssz,
+            data_ssz,
         );
 
         assert_eq!(block_json.as_ssz_bytes(), data_ssz);

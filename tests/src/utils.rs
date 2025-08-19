@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, Once},
 };
 
-use alloy::{primitives::U256, rpc::types::beacon::BlsPublicKey};
+use alloy::primitives::U256;
 use cb_common::{
     config::{
         PbsConfig, PbsModuleConfig, RelayConfig, SignerConfig, SignerType, StartSignerConfig,
@@ -13,7 +13,7 @@ use cb_common::{
     },
     pbs::{RelayClient, RelayEntry},
     signer::SignerLoader,
-    types::{Chain, ModuleId},
+    types::{BlsPublicKey, Chain, ModuleId},
     utils::default_host,
 };
 use eyre::Result;

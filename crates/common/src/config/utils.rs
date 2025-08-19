@@ -1,11 +1,14 @@
 use std::{collections::HashMap, path::Path};
 
-use alloy::rpc::types::beacon::BlsPublicKey;
 use eyre::{bail, Context, Result};
 use serde::de::DeserializeOwned;
 
 use super::JWTS_ENV;
-use crate::{config::MUXER_HTTP_MAX_LENGTH, types::ModuleId, utils::read_chunked_body_with_max};
+use crate::{
+    config::MUXER_HTTP_MAX_LENGTH,
+    types::{BlsPublicKey, ModuleId},
+    utils::read_chunked_body_with_max,
+};
 
 pub fn load_env_var(env: &str) -> Result<String> {
     std::env::var(env).wrap_err(format!("{env} is not set"))
@@ -63,7 +66,7 @@ pub fn remove_duplicate_keys(keys: Vec<BlsPublicKey>) -> Vec<BlsPublicKey> {
     let mut key_set = std::collections::HashSet::new();
 
     for key in keys {
-        if key_set.insert(key) {
+        if key_set.insert(key.clone()) {
             unique_keys.push(key);
         }
     }
@@ -88,6 +91,7 @@ fn decode_string_to_map(raw: &str) -> Result<HashMap<ModuleId, String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::TestRandomSeed;
 
     #[test]
     fn test_decode_string_to_map() {
@@ -101,9 +105,9 @@ mod tests {
 
     #[test]
     fn test_remove_duplicate_keys() {
-        let key1 = BlsPublicKey::from([1; 48]);
-        let key2 = BlsPublicKey::from([2; 48]);
-        let keys = vec![key1, key2, key1];
+        let key1 = BlsPublicKey::test_random();
+        let key2 = BlsPublicKey::test_random();
+        let keys = vec![key1.clone(), key2.clone(), key1.clone()];
 
         let unique_keys = remove_duplicate_keys(keys);
         assert_eq!(unique_keys.len(), 2);

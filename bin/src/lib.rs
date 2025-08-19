@@ -10,8 +10,8 @@ pub mod prelude {
             load_pbs_custom_config, LogsSettings, StartCommitModuleConfig, PBS_MODULE_NAME,
         },
         pbs::{BuilderEvent, BuilderEventClient, OnBuilderApiEvent},
-        signer::{BlsPublicKey, BlsSignature, EcdsaSignature},
-        types::Chain,
+        signer::EcdsaSignature,
+        types::{BlsPublicKey, BlsSignature, Chain},
         utils::{initialize_tracing_log, utcnow_ms, utcnow_ns, utcnow_sec, utcnow_us},
     };
     pub use cb_metrics::provider::MetricsProvider;

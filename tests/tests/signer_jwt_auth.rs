@@ -1,12 +1,11 @@
 use std::{collections::HashMap, time::Duration};
 
-use alloy::{hex, primitives::FixedBytes};
 use cb_common::{
     commit::{constants::GET_PUBKEYS_PATH, request::GetPubkeysResponse},
     config::StartSignerConfig,
     signer::{SignerLoader, ValidatorKeysFormat},
     types::{Chain, ModuleId},
-    utils::create_jwt,
+    utils::{bls_pubkey_from_hex, create_jwt},
 };
 use cb_signer::service::SigningService;
 use cb_tests::utils::{get_signer_config, get_start_signer_config, setup_test_env};
@@ -131,8 +130,8 @@ async fn verify_pubkeys(response: Response) -> Result<()> {
     let pubkey_json = response.json::<GetPubkeysResponse>().await?;
     assert_eq!(pubkey_json.keys.len(), 2);
     let expected_pubkeys = vec![
-        FixedBytes::new(hex!("883827193f7627cd04e621e1e8d56498362a52b2a30c9a1c72036eb935c4278dee23d38a24d2f7dda62689886f0c39f4")),
-        FixedBytes::new(hex!("b3a22e4a673ac7a153ab5b3c17a4dbef55f7e47210b20c0cbb0e66df5b36bb49ef808577610b034172e955d2312a61b9")),
+        bls_pubkey_from_hex("883827193f7627cd04e621e1e8d56498362a52b2a30c9a1c72036eb935c4278dee23d38a24d2f7dda62689886f0c39f4")?,
+        bls_pubkey_from_hex("b3a22e4a673ac7a153ab5b3c17a4dbef55f7e47210b20c0cbb0e66df5b36bb49ef808577610b034172e955d2312a61b9")?,
     ];
     for expected in expected_pubkeys {
         assert!(
