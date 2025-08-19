@@ -121,8 +121,8 @@ async fn handle_get_header(
     response.message.pubkey = blst_pubkey_to_alloy(&state.signer.sk_to_pk());
     response.message.header.timestamp = timestamp_of_slot_start_sec(0, state.chain);
 
-    let object_root = response.message.tree_hash_root().0;
-    response.signature = sign_builder_root(state.chain, &state.signer, object_root);
+    let object_root = response.message.tree_hash_root();
+    response.signature = sign_builder_root(state.chain, &state.signer, &object_root);
 
     let response = GetHeaderResponse::Electra(response);
     (StatusCode::OK, Json(response)).into_response()

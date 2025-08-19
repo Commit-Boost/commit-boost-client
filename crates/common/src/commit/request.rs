@@ -6,7 +6,7 @@ use std::{
 
 use alloy::{
     hex,
-    primitives::{Address, B256},
+    primitives::{aliases::B32, Address, B256},
     rpc::types::beacon::BlsSignature,
 };
 use derive_more::derive::From;
@@ -62,7 +62,8 @@ impl<T: ProxyId> SignedProxyDelegation<T> {
             &self.message.delegator,
             &self.message,
             &self.signature,
-            COMMIT_BOOST_DOMAIN,
+            None,
+            &B32::from(COMMIT_BOOST_DOMAIN),
         )
     }
 }

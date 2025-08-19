@@ -1,9 +1,10 @@
 use std::path::PathBuf;
 
-use alloy::primitives::{hex, Bytes};
+use alloy::primitives::{aliases::B32, hex, Bytes, B256};
 use derive_more::{Deref, Display, From, Into};
 use eyre::{bail, Context};
 use serde::{Deserialize, Serialize};
+use tree_hash_derive::TreeHash;
 
 use crate::{constants::APPLICATION_BUILDER_DOMAIN, signature::compute_domain};
 
@@ -84,14 +85,14 @@ impl Chain {
         }
     }
 
-    pub fn builder_domain(&self) -> [u8; 32] {
+    pub fn builder_domain(&self) -> B256 {
         match self {
             Chain::Mainnet => KnownChain::Mainnet.builder_domain(),
             Chain::Holesky => KnownChain::Holesky.builder_domain(),
             Chain::Sepolia => KnownChain::Sepolia.builder_domain(),
             Chain::Helder => KnownChain::Helder.builder_domain(),
             Chain::Hoodi => KnownChain::Hoodi.builder_domain(),
-            Chain::Custom { .. } => compute_domain(*self, APPLICATION_BUILDER_DOMAIN),
+            Chain::Custom { .. } => compute_domain(*self, &B32::from(APPLICATION_BUILDER_DOMAIN)),
         }
     }
 
@@ -155,28 +156,28 @@ impl KnownChain {
         }
     }
 
-    pub fn builder_domain(&self) -> [u8; 32] {
+    pub fn builder_domain(&self) -> B256 {
         match self {
-            KnownChain::Mainnet => [
+            KnownChain::Mainnet => B256::from([
                 0, 0, 0, 1, 245, 165, 253, 66, 209, 106, 32, 48, 39, 152, 239, 110, 211, 9, 151,
                 155, 67, 0, 61, 35, 32, 217, 240, 232, 234, 152, 49, 169,
-            ],
-            KnownChain::Holesky => [
+            ]),
+            KnownChain::Holesky => B256::from([
                 0, 0, 0, 1, 91, 131, 162, 55, 89, 197, 96, 178, 208, 198, 69, 118, 225, 220, 252,
                 52, 234, 148, 196, 152, 143, 62, 13, 159, 119, 240, 83, 135,
-            ],
-            KnownChain::Sepolia => [
+            ]),
+            KnownChain::Sepolia => B256::from([
                 0, 0, 0, 1, 211, 1, 7, 120, 205, 8, 238, 81, 75, 8, 254, 103, 182, 197, 3, 181, 16,
                 152, 122, 76, 228, 63, 66, 48, 109, 151, 198, 124,
-            ],
-            KnownChain::Helder => [
+            ]),
+            KnownChain::Helder => B256::from([
                 0, 0, 0, 1, 148, 196, 26, 244, 132, 255, 247, 150, 73, 105, 224, 189, 217, 34, 248,
                 45, 255, 15, 75, 232, 122, 96, 208, 102, 76, 201, 209, 255,
-            ],
-            KnownChain::Hoodi => [
+            ]),
+            KnownChain::Hoodi => B256::from([
                 0, 0, 0, 1, 113, 145, 3, 81, 30, 250, 79, 19, 98, 255, 42, 80, 153, 108, 204, 243,
                 41, 204, 132, 203, 65, 12, 94, 92, 125, 53, 29, 3,
-            ],
+            ]),
         }
     }
 
@@ -287,6 +288,22 @@ impl<'de> Deserialize<'de> for Chain {
             }
         }
     }
+}
+
+/// Structure for signatures used in Beacon chain operations
+#[derive(Default, Debug, TreeHash)]
+pub struct SigningData {
+    pub object_root: B256,
+    pub signing_domain: B256,
+}
+
+/// Structure for signatures used for proposer commitments in Commit Boost.
+/// The signing root of this struct must be used as the object_root of a
+/// SigningData for signatures.
+#[derive(Default, Debug, TreeHash)]
+pub struct PropCommitSigningInfo {
+    pub data: B256,
+    pub module_signing_id: B256,
 }
 
 /// Returns seconds_per_slot and genesis_fork_version from a spec, such as

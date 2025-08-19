@@ -4,8 +4,11 @@ use alloy::rpc::types::beacon::BlsPublicKey;
 use eyre::{bail, Context, Result};
 use serde::de::DeserializeOwned;
 
-use super::{ADMIN_JWT_ENV, JWTS_ENV};
-use crate::{config::MUXER_HTTP_MAX_LENGTH, types::ModuleId, utils::read_chunked_body_with_max};
+use crate::{
+    config::{ADMIN_JWT_ENV, JWTS_ENV, MUXER_HTTP_MAX_LENGTH},
+    types::ModuleId,
+    utils::read_chunked_body_with_max,
+};
 
 pub fn load_env_var(env: &str) -> Result<String> {
     std::env::var(env).wrap_err(format!("{env} is not set"))
@@ -90,6 +93,7 @@ pub fn decode_string_to_map(raw: &str) -> Result<HashMap<ModuleId, String>> {
 mod tests {
     use super::*;
 
+    /// TODO: This was only used by the old JWT loader, can it be removed now?
     #[test]
     fn test_decode_string_to_map() {
         let raw = " KEY=VALUE , KEY2=value2 ";
