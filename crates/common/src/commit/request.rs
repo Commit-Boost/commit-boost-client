@@ -8,6 +8,7 @@ use alloy::{
     hex,
     primitives::{aliases::B32, Address, B256},
     rpc::types::beacon::BlsSignature,
+    signers::k256::U256,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use tree_hash::TreeHash;
@@ -86,7 +87,7 @@ impl SignConsensusRequest {
     }
 
     pub fn builder(pubkey: BlsPublicKey) -> Self {
-        Self::new(pubkey, B256::ZERO, 0)
+        Self::new(pubkey, B256::ZERO, u64::MAX - 1)
     }
 
     pub fn with_root<R: Into<B256>>(self, object_root: R) -> Self {
