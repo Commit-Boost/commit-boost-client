@@ -385,13 +385,23 @@ async fn handle_request_signature_bls_impl(
         }
         SigningManager::Dirk(dirk_manager) => {
             chain_id = dirk_manager.get_chain().id();
-            dirk_manager
-                .request_proxy_signature(
-                    signing_pubkey,
-                    object_root,
-                    Some(&SignatureRequestInfo { module_signing_id: signing_id, nonce }),
-                )
-                .await
+            if is_proxy {
+                dirk_manager
+                    .request_proxy_signature(
+                        signing_pubkey,
+                        object_root,
+                        Some(&SignatureRequestInfo { module_signing_id: signing_id, nonce }),
+                    )
+                    .await
+            } else {
+                dirk_manager
+                    .request_consensus_signature(
+                        signing_pubkey,
+                        object_root,
+                        Some(&SignatureRequestInfo { module_signing_id: signing_id, nonce }),
+                    )
+                    .await
+            }
         }
     }
     .map(|sig| {
