@@ -5,7 +5,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use alloy::{primitives::Address, rpc::types::beacon::BlsPublicKey};
+use alloy::{
+    primitives::{Address, B256},
+    rpc::types::beacon::BlsPublicKey,
+};
 use axum::{
     extract::{ConnectInfo, Request, State},
     http::StatusCode,
@@ -304,36 +307,16 @@ async fn handle_request_signature_bls(
     Json(request): Json<SignConsensusRequest>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
     let req_id = Uuid::new_v4();
-    let Some(signing_id) = state.jwts.read().get(&module_id).map(|m| m.signing_id) else {
-        error!(event = "bls_request_signature", ?module_id, ?req_id, "Module signing ID not found");
-        return Err(SignerModuleError::RequestError("Module signing ID not found".to_string()));
-    };
     debug!(event = "bls_request_signature", ?module_id, %request, ?req_id, "New request");
-
-    match &*state.manager.read().await {
-        SigningManager::Local(local_manager) => {
-            local_manager
-                .sign_consensus(&request.pubkey, &request.object_root, Some(&signing_id))
-                .await
-        }
-        SigningManager::Dirk(dirk_manager) => {
-            dirk_manager
-                .request_consensus_signature(
-                    &request.pubkey,
-                    &request.object_root,
-                    Some(&signing_id),
-                )
-                .await
-        }
-    }
-    .map(|sig| {
-        Json(BlsSignResponse::new(request.pubkey, request.object_root, signing_id, sig))
-            .into_response()
-    })
-    .map_err(|err| {
-        error!(event = "request_signature", ?module_id, ?req_id, "{err}");
-        err
-    })
+    handle_request_signature_bls_impl(
+        &module_id,
+        &state,
+        &req_id,
+        false,
+        &request.pubkey,
+        &request.object_root,
+    )
+    .await
 }
 
 /// Validates a BLS key signature request using a proxy key and returns the
@@ -344,7 +327,28 @@ async fn handle_request_signature_proxy_bls(
     Json(request): Json<SignProxyRequest<BlsPublicKey>>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
     let req_id = Uuid::new_v4();
-    let Some(signing_id) = state.jwts.read().get(&module_id).map(|m| m.signing_id) else {
+    debug!(event = "proxy_bls_request_signature", ?module_id, %request, ?req_id, "New request");
+    handle_request_signature_bls_impl(
+        &module_id,
+        &state,
+        &req_id,
+        true,
+        &request.proxy,
+        &request.object_root,
+    )
+    .await
+}
+
+/// Implementation for handling a BLS signature request
+async fn handle_request_signature_bls_impl(
+    module_id: &ModuleId,
+    state: &SigningState,
+    req_id: &Uuid,
+    is_proxy: bool,
+    signing_pubkey: &BlsPublicKey,
+    object_root: &B256,
+) -> Result<impl IntoResponse, SignerModuleError> {
+    let Some(signing_id) = state.jwts.read().get(module_id).map(|m| m.signing_id) else {
         error!(
             event = "proxy_bls_request_signature",
             ?module_id,
@@ -353,23 +357,23 @@ async fn handle_request_signature_proxy_bls(
         );
         return Err(SignerModuleError::RequestError("Module signing ID not found".to_string()));
     };
-    debug!(event = "proxy_bls_request_signature", ?module_id, %request, ?req_id, "New request");
 
     match &*state.manager.read().await {
         SigningManager::Local(local_manager) => {
-            local_manager
-                .sign_proxy_bls(&request.proxy, &request.object_root, Some(&signing_id))
-                .await
+            if is_proxy {
+                local_manager.sign_proxy_bls(signing_pubkey, object_root, Some(&signing_id)).await
+            } else {
+                local_manager.sign_consensus(signing_pubkey, object_root, Some(&signing_id)).await
+            }
         }
         SigningManager::Dirk(dirk_manager) => {
             dirk_manager
-                .request_proxy_signature(&request.proxy, &request.object_root, Some(&signing_id))
+                .request_proxy_signature(signing_pubkey, object_root, Some(&signing_id))
                 .await
         }
     }
     .map(|sig| {
-        Json(BlsSignResponse::new(request.proxy, request.object_root, signing_id, sig))
-            .into_response()
+        Json(BlsSignResponse::new(*signing_pubkey, *object_root, signing_id, sig)).into_response()
     })
     .map_err(|err| {
         error!(event = "request_signature", ?module_id, ?req_id, "{err}");
