@@ -7,7 +7,6 @@ use std::{
 use alloy::{
     hex,
     primitives::{aliases::B32, Address, B256},
-    rpc::types::beacon::BlsSignature,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use tree_hash::TreeHash;
@@ -16,20 +15,28 @@ use tree_hash_derive::TreeHash;
 use crate::{
     config::decode_string_to_map,
     constants::COMMIT_BOOST_DOMAIN,
-    error::BlstErrorWrapper,
     signature::verify_signed_message,
-    signer::BlsPublicKey,
-    types::{Chain, ModuleId},
+    types::{BlsPublicKey, BlsSignature, Chain, ModuleId},
 };
 
-pub trait ProxyId: AsRef<[u8]> + Debug + Clone + Copy + TreeHash + Display {}
+pub trait ProxyId: Debug + Clone + TreeHash + Display {
+    fn to_bytes(&self) -> Vec<u8>;
+}
 
-impl ProxyId for Address {}
+impl ProxyId for Address {
+    fn to_bytes(&self) -> Vec<u8> {
+        self.0.as_slice().to_vec()
+    }
+}
 
-impl ProxyId for BlsPublicKey {}
+impl ProxyId for BlsPublicKey {
+    fn to_bytes(&self) -> Vec<u8> {
+        self.serialize().to_vec()
+    }
+}
 
 // GENERIC PROXY DELEGATION
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, TreeHash)]
+#[derive(Debug, Clone, Serialize, Deserialize, TreeHash)]
 pub struct ProxyDelegation<T: ProxyId> {
     pub delegator: BlsPublicKey,
     pub proxy: T,
@@ -44,7 +51,7 @@ impl<T: ProxyId> fmt::Display for ProxyDelegation<T> {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedProxyDelegation<T: ProxyId> {
     pub message: ProxyDelegation<T>,
     /// Signature of message with the delegator keypair
@@ -55,7 +62,7 @@ pub type SignedProxyDelegationBls = SignedProxyDelegation<BlsPublicKey>;
 pub type SignedProxyDelegationEcdsa = SignedProxyDelegation<Address>;
 
 impl<T: ProxyId> SignedProxyDelegation<T> {
-    pub fn validate(&self, chain: Chain) -> Result<(), BlstErrorWrapper> {
+    pub fn validate(&self, chain: Chain) -> bool {
         verify_signed_message(
             chain,
             &self.message.delegator,
@@ -262,7 +269,7 @@ mod tests {
 
     #[test]
     fn test_decode_response_signature() {
-        let data = r#""0xa3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989a3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989""#;
+        let data = r#""0xc00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000""#;
         let _: BlsSignature = serde_json::from_str(data).unwrap();
 
         let data = r#""0x985b495f49d1b96db3bba3f6c5dd1810950317c10d4c2042bd316f338cdbe74359072e209b85e56ac492092d7860063dd096ca31b4e164ef27e3f8d508e656801c""#;
@@ -295,7 +302,7 @@ mod tests {
                 "delegator": "0xa3366b54f28e4bf1461926a3c70cdb0ec432b5c92554ecaae3742d33fb33873990cbed1761c68020e6d3c14d30a22050",
                 "proxy": "0xa3366b54f28e4bf1461926a3c70cdb0ec432b5c92554ecaae3742d33fb33873990cbed1761c68020e6d3c14d30a22050"
             },
-            "signature": "0xa3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989a3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989"
+            "signature": "0xc00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
         }"#;
 
         let _: SignedProxyDelegationBls = serde_json::from_str(data).unwrap();
@@ -305,7 +312,7 @@ mod tests {
                 "delegator": "0xa3366b54f28e4bf1461926a3c70cdb0ec432b5c92554ecaae3742d33fb33873990cbed1761c68020e6d3c14d30a22050",
                 "proxy": "0x4ca9939a8311a7cab3dde201b70157285fa81a9d"
             },
-            "signature": "0xa3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989a3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989"
+            "signature": "0xc00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
         }"#;
 
         let _: SignedProxyDelegationEcdsa = serde_json::from_str(data).unwrap();

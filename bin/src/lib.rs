@@ -13,8 +13,8 @@ pub mod prelude {
         signature::{
             verify_proposer_commitment_signature_bls, verify_proposer_commitment_signature_ecdsa,
         },
-        signer::{BlsPublicKey, BlsSignature, EcdsaSignature},
-        types::Chain,
+        signer::EcdsaSignature,
+        types::{BlsPublicKey, BlsSignature, Chain},
         utils::{initialize_tracing_log, utcnow_ms, utcnow_ns, utcnow_sec, utcnow_us},
     };
     pub use cb_metrics::provider::MetricsProvider;

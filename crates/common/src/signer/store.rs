@@ -8,10 +8,10 @@ use std::{
 
 use alloy::{
     hex,
-    primitives::{Address, Bytes, FixedBytes},
-    rpc::types::beacon::constants::BLS_SIGNATURE_BYTES_LEN,
+    primitives::{Address, Bytes},
 };
-use eth2_keystore::{
+use eyre::{Context, OptionExt};
+use lh_eth2_keystore::{
     default_kdf,
     json_keystore::{
         Aes128Ctr, ChecksumModule, Cipher, CipherModule, Crypto, JsonKeystore, KdfModule,
@@ -19,7 +19,6 @@ use eth2_keystore::{
     },
     Uuid, IV_SIZE, SALT_SIZE,
 };
-use eyre::{Context, OptionExt};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use tracing::{trace, warn};
@@ -28,10 +27,8 @@ use super::{load_bls_signer, load_ecdsa_signer};
 use crate::{
     commit::request::{EncryptionScheme, ProxyDelegation, ProxyId, SignedProxyDelegation},
     config::{load_env_var, PROXY_DIR_ENV, PROXY_DIR_KEYS_ENV, PROXY_DIR_SECRETS_ENV},
-    signer::{
-        BlsProxySigner, BlsPublicKey, BlsSigner, EcdsaProxySigner, EcdsaSigner, ProxySigners,
-    },
-    types::ModuleId,
+    signer::{BlsProxySigner, BlsSigner, EcdsaProxySigner, EcdsaSigner, ProxySigners},
+    types::{BlsPublicKey, BlsSignature, ModuleId},
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -90,7 +87,7 @@ impl ProxyStore {
                     .join("bls")
                     .join(proxy.signer.pubkey().to_string());
                 let secret = Bytes::from(proxy.signer.secret());
-                let to_store = KeyAndDelegation { secret, delegation: proxy.delegation };
+                let to_store = KeyAndDelegation { secret, delegation: proxy.delegation.clone() };
                 let content = serde_json::to_vec(&to_store)?;
 
                 if let Some(parent) = file_path.parent() {
@@ -103,7 +100,7 @@ impl ProxyStore {
             ProxyStore::ERC2335 { keys_path, secrets_path } => {
                 store_erc2335_key(
                     module_id,
-                    proxy.delegation,
+                    proxy.delegation.clone(),
                     proxy.secret().to_vec(),
                     keys_path,
                     secrets_path,
@@ -127,7 +124,7 @@ impl ProxyStore {
                     .join("ecdsa")
                     .join(proxy.signer.address().to_string());
                 let secret = Bytes::from(proxy.signer.secret());
-                let to_store = KeyAndDelegation { secret, delegation: proxy.delegation };
+                let to_store = KeyAndDelegation { secret, delegation: proxy.delegation.clone() };
                 let content = serde_json::to_vec(&to_store)?;
 
                 if let Some(parent) = file_path.parent() {
@@ -140,7 +137,7 @@ impl ProxyStore {
             ProxyStore::ERC2335 { keys_path, secrets_path } => {
                 store_erc2335_key(
                     module_id,
-                    proxy.delegation,
+                    proxy.delegation.clone(),
                     proxy.secret(),
                     keys_path,
                     secrets_path,
@@ -230,7 +227,9 @@ impl ProxyStore {
                                             delegation: key_and_delegation.delegation,
                                         };
 
-                                        proxy_signers.bls_signers.insert(pubkey, proxy_signer);
+                                        proxy_signers
+                                            .bls_signers
+                                            .insert(pubkey.clone(), proxy_signer);
                                         bls_map.entry(module_id.clone()).or_default().push(pubkey);
                                     }
                                 }
@@ -277,20 +276,24 @@ impl ProxyStore {
                 for entry in std::fs::read_dir(keys_path)? {
                     let entry = entry?;
                     let consensus_key_path = entry.path();
-                    let consensus_pubkey =
-                        match FixedBytes::from_str(&entry.file_name().to_string_lossy()) {
-                            Ok(bytes) => BlsPublicKey::from(bytes),
-                            Err(e) => {
-                                warn!("Failed to parse consensus pubkey: {e}");
-                                continue;
-                            }
-                        };
+                    let Ok(consensus_key_str) =
+                        hex::decode(entry.file_name().to_string_lossy().as_ref())
+                    else {
+                        warn!("Failed to parse consensus pubkey: {consensus_key_path:?}");
+                        continue;
+                    };
+
+                    let Ok(consensus_pubkey) = BlsPublicKey::deserialize(&consensus_key_str) else {
+                        warn!("Failed to parse consensus pubkey: {consensus_key_path:?}");
+                        continue;
+                    };
 
                     if !consensus_key_path.is_dir() {
                         warn!("{consensus_key_path:?} is not a directory");
                         continue;
                     }
 
+                    let consensus_pubkey_str = consensus_pubkey.to_string();
                     for entry in std::fs::read_dir(&consensus_key_path)? {
                         let entry = entry?;
                         let module_path = entry.path();
@@ -319,30 +322,42 @@ impl ProxyStore {
                                 let signer = load_bls_signer(
                                     path,
                                     secrets_path
-                                        .join(consensus_pubkey.to_string())
+                                        .join(consensus_pubkey_str.clone())
                                         .join(&module_id)
                                         .join("bls")
                                         .join(name),
                                 )
                                 .map_err(|e| eyre::eyre!("Error loading BLS signer: {e}"))?;
 
-                                let delegation_signature = match std::fs::read_to_string(
-                                    bls_path.join(format!("{name}.sig")),
-                                ) {
-                                    Ok(sig) => {
-                                        FixedBytes::<BLS_SIGNATURE_BYTES_LEN>::from_str(&sig)?
-                                    }
-                                    Err(e) => {
-                                        warn!("Failed to read delegation signature: {e}");
-                                        continue;
-                                    }
+                                let delegation_signature_path =
+                                    bls_path.join(format!("{name}.sig"));
+
+                                let Ok(delegation_signature) =
+                                    std::fs::read_to_string(&delegation_signature_path)
+                                else {
+                                    warn!("Failed to read delegation signature: {delegation_signature_path:?}");
+                                    continue;
+                                };
+
+                                let Ok(delegation_signature) =
+                                    alloy::primitives::hex::decode(delegation_signature)
+                                else {
+                                    warn!("Failed to parse delegation signature: {delegation_signature_path:?}");
+                                    continue;
+                                };
+
+                                let Ok(delegation_signature) =
+                                    BlsSignature::deserialize(&delegation_signature)
+                                else {
+                                    warn!("Failed to parse delegation signature: {delegation_signature_path:?}");
+                                    continue;
                                 };
 
                                 let proxy_signer = BlsProxySigner {
                                     signer: signer.clone(),
                                     delegation: SignedProxyDelegation {
                                         message: ProxyDelegation {
-                                            delegator: consensus_pubkey,
+                                            delegator: consensus_pubkey.clone(),
                                             proxy: signer.pubkey(),
                                         },
                                         signature: delegation_signature,
@@ -375,28 +390,41 @@ impl ProxyStore {
                                 let signer = load_ecdsa_signer(
                                     path,
                                     secrets_path
-                                        .join(consensus_pubkey.to_string())
+                                        .join(consensus_pubkey_str.clone())
                                         .join(&module_id)
                                         .join("ecdsa")
                                         .join(name),
                                 )?;
-                                let delegation_signature = match std::fs::read_to_string(
-                                    ecdsa_path.join(format!("{name}.sig")),
-                                ) {
-                                    Ok(sig) => {
-                                        FixedBytes::<BLS_SIGNATURE_BYTES_LEN>::from_str(&sig)?
-                                    }
-                                    Err(e) => {
-                                        warn!("Failed to read delegation signature: {e}",);
-                                        continue;
-                                    }
+
+                                let delegation_signature_path =
+                                    ecdsa_path.join(format!("{name}.sig"));
+
+                                let Ok(delegation_signature) =
+                                    std::fs::read_to_string(&delegation_signature_path)
+                                else {
+                                    warn!("Failed to read delegation signature: {delegation_signature_path:?}");
+                                    continue;
+                                };
+
+                                let Ok(delegation_signature) =
+                                    alloy::primitives::hex::decode(delegation_signature)
+                                else {
+                                    warn!("Failed to parse delegation signature: {delegation_signature_path:?}");
+                                    continue;
+                                };
+
+                                let Ok(delegation_signature) =
+                                    BlsSignature::deserialize(&delegation_signature)
+                                else {
+                                    warn!("Failed to parse delegation signature: {delegation_signature_path:?}");
+                                    continue;
                                 };
 
                                 let proxy_signer = EcdsaProxySigner {
                                     signer: signer.clone(),
                                     delegation: SignedProxyDelegation {
                                         message: ProxyDelegation {
-                                            delegator: consensus_pubkey,
+                                            delegator: consensus_pubkey.clone(),
                                             proxy: signer.address(),
                                         },
                                         signature: delegation_signature,
@@ -426,7 +454,7 @@ fn store_erc2335_key<T: ProxyId>(
     secrets_path: &Path,
     scheme: EncryptionScheme,
 ) -> eyre::Result<()> {
-    let proxy_delegation = delegation.message.proxy;
+    let proxy_delegation = delegation.message.proxy.clone();
 
     let password_bytes: [u8; 32] = rand::rng().random();
     let password = hex::encode(password_bytes);
@@ -455,7 +483,7 @@ fn store_erc2335_key<T: ProxyId>(
     let kdf = default_kdf(salt.to_vec());
     let cipher = Cipher::Aes128Ctr(Aes128Ctr { iv: iv.to_vec().into() });
     let (cipher_text, checksum) =
-        eth2_keystore::encrypt(&secret, password.as_bytes(), &kdf, &cipher)
+        lh_eth2_keystore::encrypt(&secret, password.as_bytes(), &kdf, &cipher)
             .map_err(|_| eyre::eyre!("Error encrypting key"))?;
 
     let keystore = JsonKeystore {
@@ -463,11 +491,11 @@ fn store_erc2335_key<T: ProxyId>(
             kdf: KdfModule {
                 function: kdf.function(),
                 params: kdf,
-                message: eth2_keystore::json_keystore::EmptyString,
+                message: lh_eth2_keystore::json_keystore::EmptyString,
             },
             checksum: ChecksumModule {
                 function: Sha256Checksum::function(),
-                params: eth2_keystore::json_keystore::EmptyMap,
+                params: lh_eth2_keystore::json_keystore::EmptyMap,
                 message: checksum.to_vec().into(),
             },
             cipher: CipherModule {
@@ -478,8 +506,8 @@ fn store_erc2335_key<T: ProxyId>(
         },
         uuid: Uuid::new_v4(),
         path: None,
-        pubkey: alloy::hex::encode(delegation.message.proxy),
-        version: eth2_keystore::json_keystore::Version::V4,
+        pubkey: alloy::hex::encode(delegation.message.proxy.to_bytes()),
+        version: lh_eth2_keystore::json_keystore::Version::V4,
         description: Some(delegation.message.proxy.to_string()),
         name: None,
     };
@@ -498,7 +526,6 @@ fn store_erc2335_key<T: ProxyId>(
 
 #[cfg(test)]
 mod test {
-    use hex::FromHex;
     use tree_hash::TreeHash;
 
     use super::*;
@@ -506,6 +533,7 @@ mod test {
         commit::request::{ProxyDelegationBls, SignedProxyDelegationBls},
         signer::ConsensusSigner,
         types::Chain,
+        utils::bls_pubkey_from_hex_unchecked,
     };
 
     #[tokio::test]
@@ -534,7 +562,7 @@ mod test {
         };
         let signature =
             consensus_signer.sign(Chain::Mainnet, &message.tree_hash_root(), None).await;
-        let delegation = SignedProxyDelegationBls { signature, message };
+        let delegation = SignedProxyDelegationBls { signature: signature.clone(), message };
         let proxy_signer = BlsProxySigner { signer: proxy_signer, delegation };
 
         store.store_proxy_bls(&module_id, &proxy_signer).unwrap();
@@ -564,9 +592,10 @@ mod test {
 
         assert_eq!(keystore.pubkey, proxy_signer.pubkey().to_string().trim_start_matches("0x"));
 
-        let sig = FixedBytes::from_hex(std::fs::read_to_string(sig_path).unwrap());
-        assert!(sig.is_ok());
-        assert_eq!(sig.unwrap(), signature);
+        let sig = hex::decode(std::fs::read_to_string(sig_path).unwrap()).unwrap();
+        let sig = BlsSignature::deserialize(&sig).unwrap();
+
+        assert_eq!(sig, signature);
     }
 
     #[test]
@@ -584,16 +613,8 @@ mod test {
         assert_eq!(proxy_signers.bls_signers.len(), 1);
         assert_eq!(proxy_signers.ecdsa_signers.len(), 0);
 
-        let proxy_key = BlsPublicKey::from(
-            FixedBytes::from_hex(
-                "a77084280678d9f1efe4ef47a3d62af27872ce82db19a35ee012c4fd5478e6b1123b8869032ba18b2383e8873294f0ba"
-            ).unwrap()
-        );
-        let consensus_key = BlsPublicKey::from(
-            FixedBytes::from_hex(
-                "ac5e059177afc33263e95d0be0690138b9a1d79a6e19018086a0362e0c30a50bf9e05a08cb44785724d0b2718c5c7118"
-            ).unwrap()
-        );
+        let proxy_key = bls_pubkey_from_hex_unchecked("a77084280678d9f1efe4ef47a3d62af27872ce82db19a35ee012c4fd5478e6b1123b8869032ba18b2383e8873294f0ba");
+        let consensus_key = bls_pubkey_from_hex_unchecked("ac5e059177afc33263e95d0be0690138b9a1d79a6e19018086a0362e0c30a50bf9e05a08cb44785724d0b2718c5c7118");
 
         let proxy_signer = proxy_signers.bls_signers.get(&proxy_key);
 
@@ -602,13 +623,16 @@ mod test {
 
         assert_eq!(
             proxy_signer.delegation.signature,
-            FixedBytes::from_hex(
-                std::fs::read_to_string(
-                    keys_path
-                        .join(consensus_key.to_string())
-                        .join("TEST_MODULE")
-                        .join("bls")
-                        .join(format!("{proxy_key}.sig"))
+            BlsSignature::deserialize(
+                &hex::decode(
+                    std::fs::read_to_string(
+                        keys_path
+                            .join(consensus_key.clone().to_string())
+                            .join("TEST_MODULE")
+                            .join("bls")
+                            .join(format!("{proxy_key}.sig"))
+                    )
+                    .unwrap()
                 )
                 .unwrap()
             )
@@ -670,13 +694,16 @@ mod test {
 
         assert_eq!(
             loaded_proxy_signer.delegation.signature,
-            FixedBytes::from_hex(
-                std::fs::read_to_string(
-                    keys_path
-                        .join(consensus_signer.pubkey().to_string())
-                        .join("TEST_MODULE")
-                        .join("bls")
-                        .join(format!("{}.sig", proxy_signer.pubkey()))
+            BlsSignature::deserialize(
+                &hex::decode(
+                    std::fs::read_to_string(
+                        keys_path
+                            .join(consensus_signer.pubkey().to_string())
+                            .join("TEST_MODULE")
+                            .join("bls")
+                            .join(format!("{}.sig", proxy_signer.pubkey()))
+                    )
+                    .unwrap()
                 )
                 .unwrap()
             )

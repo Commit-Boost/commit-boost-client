@@ -1,10 +1,10 @@
-use alloy::{
-    primitives::{Address, B256, U256},
-    rpc::types::beacon::BlsSignature,
-};
+use alloy::primitives::{Address, B256, U256};
 use serde::{Deserialize, Serialize};
 
-use crate::signer::{BlsPublicKey, EcdsaSignature};
+use crate::{
+    signer::EcdsaSignature,
+    types::{BlsPublicKey, BlsSignature},
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BlsSignResponse {

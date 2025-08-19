@@ -3,7 +3,6 @@ use std::time::Duration;
 pub mod commit;
 pub mod config;
 pub mod constants;
-pub mod error;
 pub mod pbs;
 pub mod signature;
 pub mod signer;

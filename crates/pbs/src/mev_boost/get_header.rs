@@ -6,7 +6,7 @@ use std::{
 use alloy::{
     primitives::{aliases::B32, utils::format_ether, B256, U256},
     providers::Provider,
-    rpc::types::{beacon::BlsPublicKey, Block},
+    rpc::types::Block,
 };
 use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
@@ -17,8 +17,7 @@ use cb_common::{
         HEADER_START_TIME_UNIX_MS,
     },
     signature::verify_signed_message,
-    signer::BlsSignature,
-    types::Chain,
+    types::{BlsPublicKey, BlsSignature, Chain},
     utils::{
         get_user_agent_with_version, ms_into_slot, read_chunked_body_with_max,
         timestamp_of_slot_start_sec, utcnow_ms,
@@ -90,7 +89,7 @@ pub async fn get_header<S: BuilderApiState>(
     for relay in relays.iter() {
         handles.push(
             send_timed_get_header(
-                params,
+                params.clone(),
                 relay.clone(),
                 state.config.chain,
                 send_headers.clone(),
@@ -166,7 +165,7 @@ async fn send_timed_get_header(
     mut timeout_left_ms: u64,
     validation: ValidationContext,
 ) -> Result<Option<GetHeaderResponse>, PbsError> {
-    let url = relay.get_header_url(params.slot, params.parent_hash, params.pubkey)?;
+    let url = relay.get_header_url(params.slot, &params.parent_hash, &params.pubkey)?;
 
     if relay.config.enable_timing_games {
         if let Some(target_ms) = relay.config.target_first_request_ms {
@@ -197,6 +196,7 @@ async fn send_timed_get_header(
             );
 
             loop {
+                let params = params.clone();
                 handles.push(tokio::spawn(
                     send_one_get_header(
                         params,
@@ -388,7 +388,7 @@ async fn send_one_get_header(
                 validate_signature(
                     chain,
                     relay.pubkey(),
-                    res.message.pubkey,
+                    &res.message.pubkey,
                     &res.message,
                     &res.signature,
                 )?;
@@ -458,27 +458,28 @@ fn validate_header_data(
 
 fn validate_signature<T: TreeHash>(
     chain: Chain,
-    expected_relay_pubkey: BlsPublicKey,
-    received_relay_pubkey: BlsPublicKey,
+    expected_relay_pubkey: &BlsPublicKey,
+    received_relay_pubkey: &BlsPublicKey,
     message: &T,
     signature: &BlsSignature,
 ) -> Result<(), ValidationError> {
     if expected_relay_pubkey != received_relay_pubkey {
         return Err(ValidationError::PubkeyMismatch {
-            expected: expected_relay_pubkey,
-            got: received_relay_pubkey,
+            expected: Box::new(expected_relay_pubkey.clone()),
+            got: Box::new(received_relay_pubkey.clone()),
         });
     }
 
-    verify_signed_message(
+    if !verify_signed_message(
         chain,
-        &received_relay_pubkey,
+        received_relay_pubkey,
         &message,
         signature,
         None,
         &B32::from(APPLICATION_BUILDER_DOMAIN),
-    )
-    .map_err(ValidationError::Sigverify)?;
+    ) {
+        return Err(ValidationError::Sigverify);
+    }
 
     Ok(())
 }
@@ -506,16 +507,12 @@ fn extra_validation(
 
 #[cfg(test)]
 mod tests {
-    use alloy::{
-        primitives::{B256, U256},
-        rpc::types::beacon::BlsPublicKey,
-    };
-    use blst::min_pk;
+    use alloy::primitives::{B256, U256};
     use cb_common::{
-        pbs::{error::ValidationError, ExecutionPayloadHeaderMessageElectra, EMPTY_TX_ROOT_HASH},
+        pbs::{error::ValidationError, EMPTY_TX_ROOT_HASH},
         signature::sign_builder_message,
-        types::Chain,
-        utils::timestamp_of_slot_start_sec,
+        types::{BlsSecretKey, Chain},
+        utils::{timestamp_of_slot_start_sec, TestRandomSeed},
     };
 
     use super::{validate_header_data, *};
@@ -579,33 +576,28 @@ mod tests {
 
     #[test]
     fn test_validate_signature() {
-        let secret_key = min_pk::SecretKey::from_bytes(&[
-            0, 136, 227, 100, 165, 57, 106, 129, 181, 15, 235, 189, 200, 120, 70, 99, 251, 144,
-            137, 181, 230, 124, 189, 193, 115, 153, 26, 0, 197, 135, 103, 63,
-        ])
-        .unwrap();
-        let pubkey = BlsPublicKey::from_slice(&secret_key.sk_to_pk().to_bytes());
+        let secret_key = BlsSecretKey::test_random();
+        let pubkey = secret_key.public_key();
+        let wrong_pubkey = BlsPublicKey::test_random();
+        let wrong_signature = BlsSignature::test_random();
 
-        let message = ExecutionPayloadHeaderMessageElectra::default();
+        let message = B256::random();
 
         let signature = sign_builder_message(Chain::Holesky, &secret_key, &message);
 
         assert_eq!(
-            validate_signature(
-                Chain::Holesky,
-                BlsPublicKey::default(),
-                pubkey,
-                &message,
-                &BlsSignature::default()
-            ),
-            Err(ValidationError::PubkeyMismatch { expected: BlsPublicKey::default(), got: pubkey })
+            validate_signature(Chain::Holesky, &wrong_pubkey, &pubkey, &message, &wrong_signature),
+            Err(ValidationError::PubkeyMismatch {
+                expected: Box::new(wrong_pubkey),
+                got: Box::new(pubkey.clone())
+            })
         );
 
         assert!(matches!(
-            validate_signature(Chain::Holesky, pubkey, pubkey, &message, &BlsSignature::default()),
-            Err(ValidationError::Sigverify(_))
+            validate_signature(Chain::Holesky, &pubkey, &pubkey, &message, &wrong_signature),
+            Err(ValidationError::Sigverify)
         ));
 
-        assert!(validate_signature(Chain::Holesky, pubkey, pubkey, &message, &signature).is_ok());
+        assert!(validate_signature(Chain::Holesky, &pubkey, &pubkey, &message, &signature).is_ok());
     }
 }

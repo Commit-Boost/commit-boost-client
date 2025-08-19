@@ -3,7 +3,6 @@ use std::{collections::HashMap, io::Write, path::PathBuf};
 use alloy::{
     hex,
     primitives::{aliases::B32, B256},
-    rpc::types::beacon::constants::BLS_SIGNATURE_BYTES_LEN,
 };
 use blsful::inner_types::{Field, G2Affine, G2Projective, Group, Scalar};
 use cb_common::{
@@ -11,8 +10,8 @@ use cb_common::{
     config::{DirkConfig, DirkHostConfig},
     constants::COMMIT_BOOST_DOMAIN,
     signature::compute_domain,
-    signer::{BlsPublicKey, BlsSignature, ProxyStore},
-    types::{self, Chain, ModuleId, SignatureRequestInfo},
+    signer::ProxyStore,
+    types::{self, BlsPublicKey, BlsSignature, Chain, ModuleId, SignatureRequestInfo},
 };
 use eyre::{bail, OptionExt};
 use futures::{future::join_all, stream::FuturesUnordered, FutureExt, StreamExt};
@@ -61,10 +60,10 @@ struct DistributedAccount {
 }
 
 impl Account {
-    pub fn public_key(&self) -> BlsPublicKey {
+    pub fn public_key(&self) -> &BlsPublicKey {
         match self {
-            Account::Simple(account) => account.public_key,
-            Account::Distributed(account) => account.composite_public_key,
+            Account::Simple(account) => &account.public_key,
+            Account::Distributed(account) => &account.composite_public_key,
         }
     }
 }
@@ -177,7 +176,7 @@ impl DirkManager {
         self.consensus_accounts
             .values()
             .map(|account| ConsensusProxyMap {
-                consensus: account.public_key(),
+                consensus: account.public_key().clone(),
                 proxy_bls: self
                     .proxy_accounts
                     .values()
@@ -185,7 +184,7 @@ impl DirkManager {
                         if proxy.module == *module &&
                             proxy.consensus.public_key() == account.public_key()
                         {
-                            Some(proxy.inner.public_key())
+                            Some(proxy.inner.public_key().clone())
                         } else {
                             None
                         }
@@ -212,7 +211,7 @@ impl DirkManager {
                 self.request_distributed_signature(account, object_root, signature_request_info)
                     .await
             }
-            None => Err(SignerModuleError::UnknownConsensusSigner(pubkey.to_vec())),
+            None => Err(SignerModuleError::UnknownConsensusSigner(pubkey.serialize().to_vec())),
         }
     }
 
@@ -231,7 +230,7 @@ impl DirkManager {
                 self.request_distributed_signature(account, object_root, signature_request_info)
                     .await
             }
-            None => Err(SignerModuleError::UnknownProxySigner(pubkey.to_vec())),
+            None => Err(SignerModuleError::UnknownProxySigner(pubkey.serialize().to_vec())),
         }
     }
 
@@ -262,7 +261,7 @@ impl DirkManager {
             .sign(SignRequest {
                 data,
                 domain: domain.to_vec(),
-                id: Some(sign_request::Id::PublicKey(account.public_key.to_vec())),
+                id: Some(sign_request::Id::PublicKey(account.public_key.serialize().to_vec())),
             })
             .await
             .map_err(|e| {
@@ -275,7 +274,7 @@ impl DirkManager {
             ));
         }
 
-        BlsSignature::try_from(response.into_inner().signature.as_slice()).map_err(|_| {
+        BlsSignature::deserialize(response.into_inner().signature.as_slice()).map_err(|_| {
             SignerModuleError::DirkCommunicationError("Failed to parse signature".to_string())
         })
     }
@@ -336,14 +335,14 @@ impl DirkManager {
                 continue;
             }
 
-            let signature = match BlsSignature::try_from(response.into_inner().signature.as_slice())
-            {
-                Ok(sig) => sig,
-                Err(e) => {
-                    warn!("Failed to parse signature from participant {participant_id}: {e}");
-                    continue;
-                }
-            };
+            let signature =
+                match BlsSignature::deserialize(response.into_inner().signature.as_slice()) {
+                    Ok(sig) => sig,
+                    Err(e) => {
+                        warn!("Failed to parse signature from participant {participant_id}: {e:?}");
+                        continue;
+                    }
+                };
 
             partials.push((signature, participant_id));
 
@@ -375,11 +374,17 @@ impl DirkManager {
             Some(Account::Distributed(account)) => {
                 self.generate_distributed_proxy_key(account, module).await?
             }
-            None => return Err(SignerModuleError::UnknownConsensusSigner(consensus.to_vec())),
+            None => {
+                return Err(SignerModuleError::UnknownConsensusSigner(
+                    consensus.serialize().to_vec(),
+                ))
+            }
         };
 
-        let message =
-            ProxyDelegation { delegator: consensus, proxy: proxy_account.inner.public_key() };
+        let message = ProxyDelegation {
+            delegator: consensus.clone(),
+            proxy: proxy_account.inner.public_key().clone(),
+        };
         let delegation_signature =
             self.request_consensus_signature(&consensus, &message.tree_hash_root(), None).await?;
 
@@ -392,7 +397,7 @@ impl DirkManager {
             })?;
         }
 
-        self.proxy_accounts.insert(proxy_account.inner.public_key(), proxy_account.clone());
+        self.proxy_accounts.insert(proxy_account.inner.public_key().clone(), proxy_account.clone());
 
         Ok(delegation)
     }
@@ -423,7 +428,7 @@ impl DirkManager {
             )));
         }
 
-        let proxy_key = BlsPublicKey::try_from(response.into_inner().public_key.as_slice())
+        let proxy_key = BlsPublicKey::deserialize(response.into_inner().public_key.as_slice())
             .map_err(|_| {
                 SignerModuleError::DirkCommunicationError("Failed to parse proxy key".to_string())
             })?;
@@ -481,7 +486,8 @@ impl DirkManager {
                 continue;
             }
 
-            let Ok(proxy_key) = BlsPublicKey::try_from(response.into_inner().public_key.as_slice())
+            let Ok(proxy_key) =
+                BlsPublicKey::deserialize(response.into_inner().public_key.as_slice())
             else {
                 warn!("Failed to parse proxy key with participant {id}");
                 continue;
@@ -610,10 +616,10 @@ fn load_simple_accounts(
             continue;
         }
 
-        match BlsPublicKey::try_from(account.public_key.as_slice()) {
+        match BlsPublicKey::deserialize(account.public_key.as_slice()) {
             Ok(public_key) => {
                 consensus_accounts.insert(
-                    public_key,
+                    public_key.clone(),
                     Account::Simple(SimpleAccount {
                         public_key,
                         connection: channel.clone(),
@@ -648,7 +654,8 @@ fn load_distributed_accounts(
             continue;
         }
 
-        let Ok(public_key) = BlsPublicKey::try_from(account.composite_public_key.as_slice()) else {
+        let Ok(public_key) = BlsPublicKey::deserialize(account.composite_public_key.as_slice())
+        else {
             warn!("Failed to parse composite public key for account {}", account.name);
             continue;
         };
@@ -682,7 +689,7 @@ fn load_distributed_accounts(
                 participants.insert(participant_id as u32, channel.clone());
 
                 consensus_accounts.insert(
-                    public_key,
+                    public_key.clone(),
                     Account::Distributed(DistributedAccount {
                         composite_public_key: public_key,
                         participants,
@@ -705,10 +712,7 @@ fn aggregate_partial_signatures(partials: &[(BlsSignature, u32)]) -> eyre::Resul
     // Deserialize partial signatures into G2 points
     let mut shares: HashMap<u32, G2Projective> = HashMap::new();
     for (signature, id) in partials {
-        if signature.len() != BLS_SIGNATURE_BYTES_LEN {
-            bail!("Invalid signature length")
-        }
-        let affine = G2Affine::from_compressed(signature)
+        let affine = G2Affine::from_compressed(&signature.serialize())
             .into_option()
             .ok_or_eyre("Failed to deserialize signature")?;
         shares.insert(*id, G2Projective::from(&affine));
@@ -738,7 +742,10 @@ fn aggregate_partial_signatures(partials: &[(BlsSignature, u32)]) -> eyre::Resul
 
     // Serialize the recovered point back into a BlsSignature
     let bytes = recovered.to_compressed();
-    Ok(bytes.into())
+    let sig = BlsSignature::deserialize(&bytes)
+        .map_err(|_| eyre::eyre!("Failed to deserialize aggregated signature"))?;
+
+    Ok(sig)
 }
 
 /// Generate a random password of 64 hex-characters
@@ -755,21 +762,22 @@ fn name_matches_proxy(name: &str) -> bool {
         name.rsplit_once("/").is_some_and(|(_, name)| uuid::Uuid::parse_str(name).is_ok())
 }
 
-mod test {
+#[cfg(test)]
+mod tests {
+    use super::*;
 
     #[test]
     fn test_signature_aggregation() {
         use alloy::hex;
-        use cb_common::signer::BlsSignature;
 
         use super::aggregate_partial_signatures;
 
         let partials = vec![
-            (BlsSignature::from_slice(&hex::decode("aa16233b9e65b596caf070122d564ad7a021dad4fc2ed8508fccecfab010da80892fad7336e9fbada607c50e2d0d78e00c9961f26618334ec9f0e7ea225212f3c0c7d66f73ff1c2e555712a3e31f517b8329bd0ad9e15a9aeaa91521ba83502c").unwrap()), 1),
-            (BlsSignature::from_slice(&hex::decode("b27dd4c088e386edc4d07b6b23c72ba87a34e04cffd4975e8cb679aa4640cec1d34ace3e2bf33ac0dffca023c82422840012bb6c92eab36ca7908a9f9519fa18b1ed2bdbc624a98e01ca217c318a021495cc6cc9c8b982d0afed2cd83dc8fe65").unwrap()), 2),
-            (BlsSignature::from_slice(&hex::decode("aca4a71373df2f76369e8b242b0e2b1f41fc384feee3abe605ee8d6723f5fb11de1c9bd2408f4a09be981342352c523801e3beea73893a329204dd67fe84cb520220af33f7fa027b6bcc3b7c8e78647f2aa372145e4d3aec7682d2605040a64a").unwrap()), 3)
+            (BlsSignature::deserialize(&hex::decode("aa16233b9e65b596caf070122d564ad7a021dad4fc2ed8508fccecfab010da80892fad7336e9fbada607c50e2d0d78e00c9961f26618334ec9f0e7ea225212f3c0c7d66f73ff1c2e555712a3e31f517b8329bd0ad9e15a9aeaa91521ba83502c").unwrap()).unwrap(), 1),
+            (BlsSignature::deserialize(&hex::decode("b27dd4c088e386edc4d07b6b23c72ba87a34e04cffd4975e8cb679aa4640cec1d34ace3e2bf33ac0dffca023c82422840012bb6c92eab36ca7908a9f9519fa18b1ed2bdbc624a98e01ca217c318a021495cc6cc9c8b982d0afed2cd83dc8fe65").unwrap()).unwrap(), 2),
+            (BlsSignature::deserialize(&hex::decode("aca4a71373df2f76369e8b242b0e2b1f41fc384feee3abe605ee8d6723f5fb11de1c9bd2408f4a09be981342352c523801e3beea73893a329204dd67fe84cb520220af33f7fa027b6bcc3b7c8e78647f2aa372145e4d3aec7682d2605040a64a").unwrap()).unwrap(), 3)
         ];
-        let expected = BlsSignature::from_slice(&hex::decode("0x8e343f074f91d19fd5118d9301768e30cecb21fb96a1ad9539cbdeae8907e2e12a88c91fe1d7e1f6995dcde18fb0272b1512cd68800e14ebd1c7f189e7221ba238a0f196226385737157f4b72d348c1886ce18d0a9609ba0cd5503e41546286f").unwrap());
+        let expected = BlsSignature::deserialize(&hex::decode("0x8e343f074f91d19fd5118d9301768e30cecb21fb96a1ad9539cbdeae8907e2e12a88c91fe1d7e1f6995dcde18fb0272b1512cd68800e14ebd1c7f189e7221ba238a0f196226385737157f4b72d348c1886ce18d0a9609ba0cd5503e41546286f").unwrap()).unwrap();
 
         // With all signers
         let signature = aggregate_partial_signatures(&partials).unwrap();
