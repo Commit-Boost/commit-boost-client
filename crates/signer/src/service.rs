@@ -180,7 +180,7 @@ async fn jwt_auth(
     })?;
 
     // Process JWT authorization
-    match check_jwt_auth(&auth, &state, &bytes.to_vec()) {
+    match check_jwt_auth(&auth, &state, &bytes) {
         Ok(module_id) => {
             let mut req = Request::from_parts(parts, Body::from(bytes));
             req.extensions_mut().insert(module_id);
