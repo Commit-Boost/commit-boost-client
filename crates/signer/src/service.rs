@@ -238,7 +238,7 @@ fn check_jwt_rate_limit(state: &SigningState, client_ip: &IpAddr) -> Result<(), 
 fn check_jwt_auth(
     auth: &Authorization<Bearer>,
     state: &SigningState,
-    body: &Vec<u8>,
+    body: &[u8],
 ) -> Result<ModuleId, SignerModuleError> {
     let jwt: Jwt = auth.token().to_string().into();
 
