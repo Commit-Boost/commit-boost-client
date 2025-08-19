@@ -13,7 +13,7 @@ use cb_common::{
         BlsProxySigner, BlsPublicKey, BlsSigner, ConsensusSigner, EcdsaProxySigner, EcdsaSignature,
         EcdsaSigner, ProxySigners, ProxyStore,
     },
-    types::{Chain, ModuleId},
+    types::{Chain, ModuleId, SignatureRequestInfo},
 };
 use tree_hash::TreeHash;
 
@@ -51,6 +51,11 @@ impl LocalSigningManager {
         }
 
         Ok(manager)
+    }
+
+    /// Get the chain config for the manager
+    pub fn get_chain(&self) -> Chain {
+        self.chain
     }
 
     pub fn add_consensus_signer(&mut self, signer: ConsensusSigner) {
@@ -133,13 +138,13 @@ impl LocalSigningManager {
         &self,
         pubkey: &BlsPublicKey,
         object_root: &B256,
-        module_signing_id: Option<&B256>,
+        signature_request_info: Option<&SignatureRequestInfo>,
     ) -> Result<BlsSignature, SignerModuleError> {
         let signer = self
             .consensus_signers
             .get(pubkey)
             .ok_or(SignerModuleError::UnknownConsensusSigner(pubkey.to_vec()))?;
-        let signature = signer.sign(self.chain, object_root, module_signing_id).await;
+        let signature = signer.sign(self.chain, object_root, signature_request_info).await;
 
         Ok(signature)
     }
@@ -148,14 +153,14 @@ impl LocalSigningManager {
         &self,
         pubkey: &BlsPublicKey,
         object_root: &B256,
-        module_signing_id: Option<&B256>,
+        signature_request_info: Option<&SignatureRequestInfo>,
     ) -> Result<BlsSignature, SignerModuleError> {
         let bls_proxy = self
             .proxy_signers
             .bls_signers
             .get(pubkey)
             .ok_or(SignerModuleError::UnknownProxySigner(pubkey.to_vec()))?;
-        let signature = bls_proxy.sign(self.chain, object_root, module_signing_id).await;
+        let signature = bls_proxy.sign(self.chain, object_root, signature_request_info).await;
         Ok(signature)
     }
 
@@ -163,14 +168,14 @@ impl LocalSigningManager {
         &self,
         address: &Address,
         object_root: &B256,
-        module_signing_id: Option<&B256>,
+        signature_request_info: Option<&SignatureRequestInfo>,
     ) -> Result<EcdsaSignature, SignerModuleError> {
         let ecdsa_proxy = self
             .proxy_signers
             .ecdsa_signers
             .get(address)
             .ok_or(SignerModuleError::UnknownProxySigner(address.to_vec()))?;
-        let signature = ecdsa_proxy.sign(self.chain, object_root, module_signing_id).await?;
+        let signature = ecdsa_proxy.sign(self.chain, object_root, signature_request_info).await?;
         Ok(signature)
     }
 
@@ -307,9 +312,14 @@ mod tests {
 
             let data_root = B256::random();
             let module_signing_id = B256::random();
+            let nonce = 43;
 
             let sig = signing_manager
-                .sign_consensus(&consensus_pk, &data_root, Some(&module_signing_id))
+                .sign_consensus(
+                    &consensus_pk,
+                    &data_root,
+                    Some(&SignatureRequestInfo { module_signing_id, nonce }),
+                )
                 .await
                 .unwrap();
 
@@ -318,6 +328,8 @@ mod tests {
             let object_root = types::PropCommitSigningInfo {
                 data: data_root.tree_hash_root(),
                 module_signing_id,
+                nonce,
+                chain_id: CHAIN.id(),
             }
             .tree_hash_root();
             let signing_root = types::SigningData { object_root, signing_domain }.tree_hash_root();
@@ -384,9 +396,14 @@ mod tests {
 
             let data_root = B256::random();
             let module_signing_id = B256::random();
+            let nonce = 44;
 
             let sig = signing_manager
-                .sign_proxy_bls(&proxy_pk, &data_root, Some(&module_signing_id))
+                .sign_proxy_bls(
+                    &proxy_pk,
+                    &data_root,
+                    Some(&SignatureRequestInfo { module_signing_id, nonce }),
+                )
                 .await
                 .unwrap();
 
@@ -395,6 +412,8 @@ mod tests {
             let object_root = types::PropCommitSigningInfo {
                 data: data_root.tree_hash_root(),
                 module_signing_id,
+                nonce,
+                chain_id: CHAIN.id(),
             }
             .tree_hash_root();
             let signing_root = types::SigningData { object_root, signing_domain }.tree_hash_root();
@@ -463,9 +482,14 @@ mod tests {
 
             let data_root = B256::random();
             let module_signing_id = B256::random();
+            let nonce = 45;
 
             let sig = signing_manager
-                .sign_proxy_ecdsa(&proxy_pk, &data_root, Some(&module_signing_id))
+                .sign_proxy_ecdsa(
+                    &proxy_pk,
+                    &data_root,
+                    Some(&SignatureRequestInfo { module_signing_id, nonce }),
+                )
                 .await
                 .unwrap();
 
@@ -474,6 +498,8 @@ mod tests {
             let object_root = types::PropCommitSigningInfo {
                 data: data_root.tree_hash_root(),
                 module_signing_id,
+                nonce,
+                chain_id: CHAIN.id(),
             }
             .tree_hash_root();
             let signing_root = types::SigningData { object_root, signing_domain }.tree_hash_root();

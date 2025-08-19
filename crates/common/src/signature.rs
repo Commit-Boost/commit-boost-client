@@ -9,7 +9,7 @@ use crate::{
     constants::{COMMIT_BOOST_DOMAIN, GENESIS_VALIDATORS_ROOT},
     error::BlstErrorWrapper,
     signer::{verify_bls_signature, verify_ecdsa_signature, BlsSecretKey, EcdsaSignature},
-    types::{self, Chain},
+    types::{self, Chain, SignatureRequestInfo},
 };
 
 pub fn sign_message(secret_key: &BlsSecretKey, msg: &[u8]) -> BlsSignature {
@@ -20,15 +20,19 @@ pub fn sign_message(secret_key: &BlsSecretKey, msg: &[u8]) -> BlsSignature {
 pub fn compute_prop_commit_signing_root(
     chain: Chain,
     object_root: &B256,
-    module_signing_id: Option<&B256>,
+    signature_request_info: Option<&SignatureRequestInfo>,
     domain_mask: &B32,
 ) -> B256 {
     let domain = compute_domain(chain, domain_mask);
-    match module_signing_id {
-        Some(id) => {
-            let object_root =
-                types::PropCommitSigningInfo { data: *object_root, module_signing_id: *id }
-                    .tree_hash_root();
+    match signature_request_info {
+        Some(SignatureRequestInfo { module_signing_id, nonce }) => {
+            let object_root = types::PropCommitSigningInfo {
+                data: *object_root,
+                module_signing_id: *module_signing_id,
+                nonce: *nonce,
+                chain_id: chain.id(),
+            }
+            .tree_hash_root();
             types::SigningData { object_root, signing_domain: domain }.tree_hash_root()
         }
         None => types::SigningData { object_root: *object_root, signing_domain: domain }
@@ -63,13 +67,13 @@ pub fn verify_signed_message<T: TreeHash>(
     pubkey: &BlsPublicKey,
     msg: &T,
     signature: &BlsSignature,
-    module_signing_id: Option<&B256>,
+    signature_request_info: Option<&SignatureRequestInfo>,
     domain_mask: &B32,
 ) -> Result<(), BlstErrorWrapper> {
     let signing_root = compute_prop_commit_signing_root(
         chain,
         &msg.tree_hash_root(),
-        module_signing_id,
+        signature_request_info,
         domain_mask,
     );
     verify_bls_signature(pubkey, signing_root.as_slice(), signature)
@@ -100,12 +104,12 @@ pub fn sign_commit_boost_root(
     chain: Chain,
     secret_key: &BlsSecretKey,
     object_root: &B256,
-    module_signing_id: Option<&B256>,
+    signature_request_info: Option<&SignatureRequestInfo>,
 ) -> BlsSignature {
     let signing_root = compute_prop_commit_signing_root(
         chain,
         object_root,
-        module_signing_id,
+        signature_request_info,
         &B32::from(COMMIT_BOOST_DOMAIN),
     );
     sign_message(secret_key, signing_root.as_slice())
@@ -123,11 +127,14 @@ pub fn verify_proposer_commitment_signature_bls(
     msg: &impl TreeHash,
     signature: &BlsSignature,
     module_signing_id: &B256,
+    nonce: u64,
 ) -> Result<(), BlstErrorWrapper> {
     let signing_domain = compute_domain(chain, &B32::from(COMMIT_BOOST_DOMAIN));
     let object_root = types::PropCommitSigningInfo {
         data: msg.tree_hash_root(),
         module_signing_id: *module_signing_id,
+        nonce,
+        chain_id: chain.id(),
     }
     .tree_hash_root();
     let signing_root = types::SigningData { object_root, signing_domain }.tree_hash_root();
@@ -142,12 +149,16 @@ pub fn verify_proposer_commitment_signature_ecdsa(
     msg: &impl TreeHash,
     signature: &EcdsaSignature,
     module_signing_id: &B256,
+    nonce: u64,
 ) -> Result<(), eyre::Report> {
-    let object_root = msg.tree_hash_root();
     let signing_domain = compute_domain(chain, &B32::from(COMMIT_BOOST_DOMAIN));
-    let object_root =
-        types::PropCommitSigningInfo { data: object_root, module_signing_id: *module_signing_id }
-            .tree_hash_root();
+    let object_root = types::PropCommitSigningInfo {
+        data: msg.tree_hash_root(),
+        module_signing_id: *module_signing_id,
+        nonce,
+        chain_id: chain.id(),
+    }
+    .tree_hash_root();
     let signing_root = types::SigningData { object_root, signing_domain }.tree_hash_root();
     verify_ecdsa_signature(address, &signing_root, signature)
 }

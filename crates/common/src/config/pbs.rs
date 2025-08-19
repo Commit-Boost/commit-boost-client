@@ -169,12 +169,13 @@ impl PbsConfig {
             if !matches!(chain, Chain::Custom { .. }) {
                 let provider = ProviderBuilder::new().on_http(rpc_url.clone());
                 let chain_id = provider.get_chain_id().await?;
+                let chain_id_big = U256::from(chain_id);
                 ensure!(
-                    chain_id == chain.id(),
+                    chain_id_big == chain.id(),
                     "Rpc url is for the wrong chain, expected: {} ({:?}) got {}",
                     chain.id(),
                     chain,
-                    chain_id
+                    chain_id_big
                 );
             }
         }

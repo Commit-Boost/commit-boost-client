@@ -6,7 +6,7 @@ use std::{
 };
 
 use alloy::{
-    primitives::{Address, B256},
+    primitives::{Address, B256, U256},
     rpc::types::beacon::BlsPublicKey,
 };
 use axum::{
@@ -33,7 +33,7 @@ use cb_common::{
     },
     config::{ModuleSigningConfig, StartSignerConfig},
     constants::{COMMIT_BOOST_COMMIT, COMMIT_BOOST_VERSION},
-    types::{Chain, Jwt, ModuleId},
+    types::{Chain, Jwt, ModuleId, SignatureRequestInfo},
     utils::{decode_jwt, validate_admin_jwt, validate_jwt},
 };
 use cb_metrics::provider::MetricsProvider;
@@ -315,6 +315,7 @@ async fn handle_request_signature_bls(
         false,
         &request.pubkey,
         &request.object_root,
+        request.nonce,
     )
     .await
 }
@@ -335,6 +336,7 @@ async fn handle_request_signature_proxy_bls(
         true,
         &request.proxy,
         &request.object_root,
+        request.nonce,
     )
     .await
 }
@@ -347,6 +349,7 @@ async fn handle_request_signature_bls_impl(
     is_proxy: bool,
     signing_pubkey: &BlsPublicKey,
     object_root: &B256,
+    nonce: u64,
 ) -> Result<impl IntoResponse, SignerModuleError> {
     let Some(signing_id) = state.jwts.read().get(module_id).map(|m| m.signing_id) else {
         error!(
@@ -358,28 +361,52 @@ async fn handle_request_signature_bls_impl(
         return Err(SignerModuleError::RequestError("Module signing ID not found".to_string()));
     };
 
+    let chain_id: U256;
     match &*state.manager.read().await {
         SigningManager::Local(local_manager) => {
+            chain_id = local_manager.get_chain().id();
             if is_proxy {
-                local_manager.sign_proxy_bls(signing_pubkey, object_root, Some(&signing_id)).await
+                local_manager
+                    .sign_proxy_bls(
+                        signing_pubkey,
+                        object_root,
+                        Some(&SignatureRequestInfo { module_signing_id: signing_id, nonce }),
+                    )
+                    .await
             } else {
-                local_manager.sign_consensus(signing_pubkey, object_root, Some(&signing_id)).await
+                local_manager
+                    .sign_consensus(
+                        signing_pubkey,
+                        object_root,
+                        Some(&SignatureRequestInfo { module_signing_id: signing_id, nonce }),
+                    )
+                    .await
             }
         }
         SigningManager::Dirk(dirk_manager) => {
+            chain_id = dirk_manager.get_chain().id();
             if is_proxy {
                 dirk_manager
-                    .request_proxy_signature(signing_pubkey, object_root, Some(&signing_id))
+                    .request_proxy_signature(
+                        signing_pubkey,
+                        object_root,
+                        Some(&SignatureRequestInfo { module_signing_id: signing_id, nonce }),
+                    )
                     .await
             } else {
                 dirk_manager
-                    .request_consensus_signature(signing_pubkey, object_root, Some(&signing_id))
+                    .request_consensus_signature(
+                        signing_pubkey,
+                        object_root,
+                        Some(&SignatureRequestInfo { module_signing_id: signing_id, nonce }),
+                    )
                     .await
             }
         }
     }
     .map(|sig| {
-        Json(BlsSignResponse::new(*signing_pubkey, *object_root, signing_id, sig)).into_response()
+        Json(BlsSignResponse::new(*signing_pubkey, *object_root, signing_id, nonce, chain_id, sig))
+            .into_response()
     })
     .map_err(|err| {
         error!(event = "request_signature", ?module_id, ?req_id, "{err}");
@@ -406,13 +433,23 @@ async fn handle_request_signature_proxy_ecdsa(
     };
     debug!(event = "proxy_ecdsa_request_signature", ?module_id, %request, ?req_id, "New request");
 
+    let chain_id: U256;
     match &*state.manager.read().await {
         SigningManager::Local(local_manager) => {
+            chain_id = local_manager.get_chain().id();
             local_manager
-                .sign_proxy_ecdsa(&request.proxy, &request.object_root, Some(&signing_id))
+                .sign_proxy_ecdsa(
+                    &request.proxy,
+                    &request.object_root,
+                    Some(&SignatureRequestInfo {
+                        module_signing_id: signing_id,
+                        nonce: request.nonce,
+                    }),
+                )
                 .await
         }
         SigningManager::Dirk(_) => {
+            chain_id = U256::ZERO; // Dirk does not support ECDSA proxy signing
             error!(
                 event = "request_signature",
                 ?module_id,
@@ -423,8 +460,15 @@ async fn handle_request_signature_proxy_ecdsa(
         }
     }
     .map(|sig| {
-        Json(EcdsaSignResponse::new(request.proxy, request.object_root, signing_id, sig))
-            .into_response()
+        Json(EcdsaSignResponse::new(
+            request.proxy,
+            request.object_root,
+            signing_id,
+            request.nonce,
+            chain_id,
+            sig,
+        ))
+        .into_response()
     })
     .map_err(|err| {
         error!(event = "request_signature", ?module_id, ?req_id, "{err}");

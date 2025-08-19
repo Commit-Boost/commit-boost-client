@@ -1,5 +1,5 @@
 use alloy::{
-    primitives::{Address, B256},
+    primitives::{Address, B256, U256},
     rpc::types::beacon::BlsSignature,
 };
 use serde::{Deserialize, Serialize};
@@ -11,6 +11,8 @@ pub struct BlsSignResponse {
     pub pubkey: BlsPublicKey,
     pub object_root: B256,
     pub module_signing_id: B256,
+    pub nonce: u64,
+    pub chain_id: U256,
     pub signature: BlsSignature,
 }
 
@@ -19,9 +21,11 @@ impl BlsSignResponse {
         pubkey: BlsPublicKey,
         object_root: B256,
         module_signing_id: B256,
+        nonce: u64,
+        chain_id: U256,
         signature: BlsSignature,
     ) -> Self {
-        Self { pubkey, object_root, module_signing_id, signature }
+        Self { pubkey, object_root, module_signing_id, nonce, chain_id, signature }
     }
 }
 
@@ -30,6 +34,8 @@ pub struct EcdsaSignResponse {
     pub address: Address,
     pub object_root: B256,
     pub module_signing_id: B256,
+    pub nonce: u64,
+    pub chain_id: U256,
     pub signature: EcdsaSignature,
 }
 
@@ -38,8 +44,10 @@ impl EcdsaSignResponse {
         address: Address,
         object_root: B256,
         module_signing_id: B256,
+        nonce: u64,
+        chain_id: U256,
         signature: EcdsaSignature,
     ) -> Self {
-        Self { address, object_root, module_signing_id, signature }
+        Self { address, object_root, module_signing_id, nonce, chain_id, signature }
     }
 }
