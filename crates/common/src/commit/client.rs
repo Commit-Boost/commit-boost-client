@@ -4,6 +4,7 @@ use alloy::primitives::Address;
 use eyre::WrapErr;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use serde::{Deserialize, Serialize};
+use tree_hash::TreeHash;
 use url::Url;
 
 use super::{
@@ -25,7 +26,7 @@ use crate::{
     constants::SIGNER_JWT_EXPIRATION,
     signer::BlsPublicKey,
     types::{Jwt, ModuleId},
-    utils::create_jwt,
+    utils::{create_jwt, create_jwt_with_payload},
     DEFAULT_REQUEST_TIMEOUT,
 };
 
@@ -43,7 +44,7 @@ pub struct SignerClient {
 impl SignerClient {
     /// Create a new SignerClient
     pub fn new(signer_server_url: Url, jwt_secret: Jwt, module_id: ModuleId) -> eyre::Result<Self> {
-        let jwt = create_jwt(&module_id, &jwt_secret, None)?;
+        let jwt = create_jwt(&module_id, &jwt_secret)?;
 
         let mut auth_value =
             HeaderValue::from_str(&format!("Bearer {}", jwt)).wrap_err("invalid jwt")?;
@@ -68,7 +69,7 @@ impl SignerClient {
 
     fn refresh_jwt(&mut self) -> Result<(), SignerClientError> {
         if self.last_jwt_refresh.elapsed() > Duration::from_secs(SIGNER_JWT_EXPIRATION) {
-            let jwt = create_jwt(&self.module_id, &self.jwt_secret, None)?;
+            let jwt = create_jwt(&self.module_id, &self.jwt_secret)?;
 
             let mut auth_value =
                 HeaderValue::from_str(&format!("Bearer {}", jwt)).wrap_err("invalid jwt")?;
@@ -86,12 +87,11 @@ impl SignerClient {
         Ok(())
     }
 
-    fn create_jwt_for_payload<T: Serialize>(
+    fn create_jwt_for_payload<T: TreeHash + Serialize>(
         &mut self,
         payload: &T,
     ) -> Result<Jwt, SignerClientError> {
-        let payload_vec = serde_json::to_vec(payload)?;
-        create_jwt(&self.module_id, &self.jwt_secret, Some(&payload_vec))
+        create_jwt_with_payload(&self.module_id, &self.jwt_secret, payload)
             .wrap_err("failed to create JWT for payload")
             .map_err(SignerClientError::JWTError)
     }
@@ -122,7 +122,7 @@ impl SignerClient {
         request: &Q,
     ) -> Result<T, SignerClientError>
     where
-        Q: Serialize,
+        Q: TreeHash + Serialize,
         T: for<'de> Deserialize<'de>,
     {
         let jwt = self.create_jwt_for_payload(request)?;

@@ -6,17 +6,17 @@ use std::{
 };
 
 use alloy::{
-    primitives::{keccak256, Address, B256, U256},
+    primitives::{Address, B256, U256},
     rpc::types::beacon::BlsPublicKey,
 };
 use axum::{
-    body::{to_bytes, Body},
-    extract::{ConnectInfo, Request, State},
+    body::to_bytes,
+    extract::{ConnectInfo, FromRequest, FromRequestParts, Request, State},
     http::StatusCode,
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
-    Extension, Json,
+    Json,
 };
 use axum_extra::TypedHeader;
 use cb_common::{
@@ -35,14 +35,19 @@ use cb_common::{
     config::{ModuleSigningConfig, StartSignerConfig},
     constants::{COMMIT_BOOST_COMMIT, COMMIT_BOOST_VERSION},
     types::{Chain, Jwt, ModuleId, SignatureRequestInfo},
-    utils::{decode_jwt, validate_admin_jwt, validate_jwt},
+    utils::{
+        decode_admin_jwt, decode_jwt, validate_admin_jwt, validate_admin_jwt_with_payload,
+        validate_jwt, validate_jwt_with_payload,
+    },
 };
 use cb_metrics::provider::MetricsProvider;
 use eyre::Context;
 use headers::{authorization::Bearer, Authorization};
 use parking_lot::RwLock as ParkingRwLock;
+use serde::de::DeserializeOwned;
 use tokio::{net::TcpListener, sync::RwLock};
 use tracing::{debug, error, info, warn};
+use tree_hash::TreeHash;
 use uuid::Uuid;
 
 use crate::{
@@ -63,6 +68,154 @@ struct JwtAuthFailureInfo {
 
     // Time of the last auth failure
     last_failure: Instant,
+}
+
+pub struct AuthenticatedResponse {
+    pub module_id: ModuleId,
+}
+
+/// Authentication middleware layer via custom extractor, for requests that
+/// don't have an expected body payload
+impl FromRequest<SigningState> for AuthenticatedResponse {
+    type Rejection = SignerModuleError;
+
+    async fn from_request(req: Request, state: &SigningState) -> Result<Self, Self::Rejection> {
+        // Bool is a dummy type since we don't expect a payload for routes that use this
+        let auth_response = from_request_impl::<bool>(false, req, state).await?;
+        Ok(AuthenticatedResponse {
+            module_id: auth_response.module_id.ok_or(SignerModuleError::RequestError(
+                "Expected a module ID in the request but it was missing".to_string(),
+            ))?,
+        })
+    }
+}
+
+pub struct AuthenticatedResponseWithPayload<T> {
+    pub module_id: ModuleId,
+    pub payload: T,
+}
+
+/// Authentication middleware layer via custom extractor, also extracting the
+/// expected payload from the request body
+impl<T> FromRequest<SigningState> for AuthenticatedResponseWithPayload<T>
+where
+    T: DeserializeOwned + TreeHash + Send,
+{
+    type Rejection = SignerModuleError;
+
+    async fn from_request(req: Request, state: &SigningState) -> Result<Self, Self::Rejection> {
+        let auth_response = from_request_impl(false, req, state).await?;
+        Ok(AuthenticatedResponseWithPayload {
+            module_id: auth_response.module_id.ok_or(SignerModuleError::RequestError(
+                "Expected a module ID in the request but it was missing".to_string(),
+            ))?,
+            payload: auth_response.payload.ok_or(SignerModuleError::RequestError(
+                "Expected a request body for this route but it was empty".to_string(),
+            ))?,
+        })
+    }
+}
+
+pub struct AuthenticatedAdminResponse {
+    // Empty
+}
+
+impl FromRequest<SigningState> for AuthenticatedAdminResponse {
+    type Rejection = SignerModuleError;
+
+    async fn from_request(req: Request, state: &SigningState) -> Result<Self, Self::Rejection> {
+        // Bool is a dummy type since we don't expect a payload for routes that use this
+        from_request_impl::<bool>(true, req, state).await?;
+        Ok(AuthenticatedAdminResponse {})
+    }
+}
+
+pub struct AuthenticatedAdminResponseWithPayload<T> {
+    pub payload: T,
+}
+
+impl<T> FromRequest<SigningState> for AuthenticatedAdminResponseWithPayload<T>
+where
+    T: DeserializeOwned + TreeHash + Send,
+{
+    type Rejection = SignerModuleError;
+
+    async fn from_request(req: Request, state: &SigningState) -> Result<Self, Self::Rejection> {
+        let auth_response = from_request_impl(true, req, state).await?;
+        Ok(AuthenticatedAdminResponseWithPayload {
+            payload: auth_response.payload.ok_or(SignerModuleError::RequestError(
+                "Expected a request body for this route but it was empty".to_string(),
+            ))?,
+        })
+    }
+}
+
+struct AuthenticatedResponseImpl<T> {
+    module_id: Option<ModuleId>,
+    payload: Option<T>,
+}
+
+/// Implementation for extracting JWT info from a request and doing payload
+/// validation
+async fn from_request_impl<T: DeserializeOwned + TreeHash + Send>(
+    admin: bool,
+    req: Request,
+    state: &SigningState,
+) -> Result<AuthenticatedResponseImpl<T>, SignerModuleError> {
+    let (mut parts, body) = req.into_parts();
+
+    // Check if the request needs to be rate limited
+    let ConnectInfo(addr) =
+        ConnectInfo::<SocketAddr>::from_request_parts(&mut parts, &state).await.map_err(|err| {
+            error!("Failed to get client address: {err}");
+            SignerModuleError::Internal(err.to_string())
+        })?;
+    let client_ip = addr.ip();
+    check_jwt_rate_limit(&state, &client_ip)?;
+
+    // Get the JWT from the request headers
+    let TypedHeader(auth) =
+        TypedHeader::<Authorization<Bearer>>::from_request_parts(&mut parts, state).await.map_err(
+            |_| {
+                error!("Unauthorized request. Missing or invalid JWT");
+                SignerModuleError::Unauthorized
+            },
+        )?;
+
+    // Deserialize the request body if it's not empty
+    let bytes = to_bytes(body, REQUEST_MAX_BODY_LENGTH).await.map_err(|e| {
+        error!("Failed to read request body: {e}");
+        SignerModuleError::RequestError(e.to_string())
+    })?;
+    let payload = if bytes.is_empty() {
+        None
+    } else {
+        Some(serde_json::from_slice::<T>(&bytes).map_err(|e| {
+            error!("Failed to deserialize request body: {e}");
+            SignerModuleError::RequestError(e.to_string())
+        })?)
+    };
+
+    // Process JWT authorization
+    let jwt: Jwt = auth.token().to_string().into();
+    let auth_result = if admin {
+        admin_auth(jwt, &state, payload.as_ref()).map(|_| None)
+    } else {
+        check_jwt_auth(jwt, &state, payload.as_ref()).map(|module_id| Some(module_id))
+    };
+    auth_result.map(|module_id| AuthenticatedResponseImpl { module_id, payload }).map_err(|err| {
+        if let SignerModuleError::Unauthorized = err {
+            // If the request was unauthorized, increment the failure count for the client
+            // IP - needed for rate limiting
+            let mut failures = state.jwt_auth_failures.write();
+            let failure_info = failures
+                .entry(client_ip)
+                .or_insert(JwtAuthFailureInfo { failure_count: 0, last_failure: Instant::now() });
+            failure_info.failure_count += 1;
+            failure_info.last_failure = Instant::now();
+        }
+        err
+    })
 }
 
 #[derive(Clone)]
@@ -133,14 +286,12 @@ impl SigningService {
             .route(REQUEST_SIGNATURE_PROXY_ECDSA_PATH, post(handle_request_signature_proxy_ecdsa))
             .route(GET_PUBKEYS_PATH, get(handle_get_pubkeys))
             .route(GENERATE_PROXY_KEY_PATH, post(handle_generate_proxy))
-            .route_layer(middleware::from_fn_with_state(state.clone(), jwt_auth))
             .with_state(state.clone())
             .route_layer(middleware::from_fn(log_request));
 
         let admin_app = axum::Router::new()
             .route(RELOAD_PATH, post(handle_reload))
             .route(REVOKE_MODULE_PATH, post(handle_revoke_module))
-            .route_layer(middleware::from_fn_with_state(state.clone(), admin_auth))
             .with_state(state.clone())
             .route_layer(middleware::from_fn(log_request))
             .route(STATUS_PATH, get(handle_status));
@@ -157,45 +308,6 @@ impl SigningService {
 
     fn init_metrics(network: Chain) -> eyre::Result<()> {
         MetricsProvider::load_and_run(network, SIGNER_METRICS_REGISTRY.clone())
-    }
-}
-
-/// Authentication middleware layer
-async fn jwt_auth(
-    State(state): State<SigningState>,
-    TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
-    addr: ConnectInfo<SocketAddr>,
-    req: Request,
-    next: Next,
-) -> Result<Response, SignerModuleError> {
-    // Check if the request needs to be rate limited
-    let client_ip = addr.ip();
-    check_jwt_rate_limit(&state, &client_ip)?;
-
-    // Clone the request so we can read the body
-    let (parts, body) = req.into_parts();
-    let bytes = to_bytes(body, REQUEST_MAX_BODY_LENGTH).await.map_err(|e| {
-        error!("Failed to read request body: {e}");
-        SignerModuleError::RequestError(e.to_string())
-    })?;
-
-    // Process JWT authorization
-    match check_jwt_auth(&auth, &state, &bytes) {
-        Ok(module_id) => {
-            let mut req = Request::from_parts(parts, Body::from(bytes));
-            req.extensions_mut().insert(module_id);
-            Ok(next.run(req).await)
-        }
-        Err(SignerModuleError::Unauthorized) => {
-            let mut failures = state.jwt_auth_failures.write();
-            let failure_info = failures
-                .entry(client_ip)
-                .or_insert(JwtAuthFailureInfo { failure_count: 0, last_failure: Instant::now() });
-            failure_info.failure_count += 1;
-            failure_info.last_failure = Instant::now();
-            Err(SignerModuleError::Unauthorized)
-        }
-        Err(err) => Err(err),
     }
 }
 
@@ -235,13 +347,11 @@ fn check_jwt_rate_limit(state: &SigningState, client_ip: &IpAddr) -> Result<(), 
 }
 
 /// Checks if a request can successfully authenticate with the JWT secret
-fn check_jwt_auth(
-    auth: &Authorization<Bearer>,
+fn check_jwt_auth<T: TreeHash>(
+    jwt: Jwt,
     state: &SigningState,
-    body: &[u8],
+    body: Option<&T>,
 ) -> Result<ModuleId, SignerModuleError> {
-    let jwt: Jwt = auth.token().to_string().into();
-
     // We first need to decode it to get the module id and then validate it
     // with the secret stored in the state
     let claims = decode_jwt(jwt.clone()).map_err(|e| {
@@ -255,67 +365,73 @@ fn check_jwt_auth(
         SignerModuleError::Unauthorized
     })?;
 
-    if body.is_empty() {
-        // Skip payload hash comparison for requests without a body
-        validate_jwt(jwt, &jwt_config.jwt_secret, None).map_err(|e| {
-            error!("Unauthorized request. Invalid JWT: {e}");
-            SignerModuleError::Unauthorized
-        })?;
-    } else {
-        validate_jwt(jwt, &jwt_config.jwt_secret, Some(body)).map_err(|e| {
-            error!("Unauthorized request. Invalid JWT: {e}");
-            SignerModuleError::Unauthorized
-        })?;
+    // Validate the JWT
+    match body {
+        Some(body_typed) => {
+            validate_jwt_with_payload(jwt, &jwt_config.jwt_secret, body_typed).map_err(|e| {
+                error!("Unauthorized request. Invalid JWT: {e}");
+                SignerModuleError::Unauthorized
+            })?;
 
-        // Make sure the request contains a hash of the payload in its claims
-        if !body.is_empty() {
-            let payload_hash = keccak256(body);
+            // Make sure the request contains a hash of the payload in its claims
+            let payload_hash = body_typed.tree_hash_root();
             if claims.payload_hash.is_none() || claims.payload_hash != Some(payload_hash) {
                 error!("Unauthorized request. Invalid payload hash in JWT claims");
                 return Err(SignerModuleError::Unauthorized);
             }
+        }
+        None => {
+            validate_jwt(jwt, &jwt_config.jwt_secret).map_err(|e| {
+                error!("Unauthorized request. Invalid JWT: {e}");
+                SignerModuleError::Unauthorized
+            })?;
         }
     }
 
     Ok(claims.module)
 }
 
-async fn admin_auth(
-    State(state): State<SigningState>,
-    TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
-    addr: ConnectInfo<SocketAddr>,
-    req: Request,
-    next: Next,
-) -> Result<Response, SignerModuleError> {
-    // Check if the request needs to be rate limited
-    let client_ip = addr.ip();
-    check_jwt_rate_limit(&state, &client_ip)?;
-
-    // Clone the request so we can read the body
-    let (parts, body) = req.into_parts();
-    let bytes = to_bytes(body, REQUEST_MAX_BODY_LENGTH).await.map_err(|e| {
-        error!("Failed to read request body: {e}");
-        SignerModuleError::RequestError(e.to_string())
+/// Validates the admin JWT and if the request has a body, checks if it matches
+/// the payload hash
+fn admin_auth<T: TreeHash>(
+    jwt: Jwt,
+    state: &SigningState,
+    body: Option<&T>,
+) -> Result<(), SignerModuleError> {
+    // We first need to decode it to get the module id and then validate it
+    // with the secret stored in the state
+    let claims = decode_admin_jwt(jwt.clone()).map_err(|e| {
+        error!("Unauthorized request. Invalid JWT: {e}");
+        SignerModuleError::Unauthorized
     })?;
 
-    let jwt: Jwt = auth.token().to_string().into();
-
     // Validate the admin JWT
-    if bytes.is_empty() {
-        // Skip payload hash comparison for requests without a body
-        validate_admin_jwt(jwt, &state.admin_secret.read(), None).map_err(|e| {
-            error!("Unauthorized request. Invalid JWT: {e}");
-            SignerModuleError::Unauthorized
-        })?;
-    } else {
-        validate_admin_jwt(jwt, &state.admin_secret.read(), Some(&bytes)).map_err(|e| {
-            error!("Unauthorized request. Invalid payload hash in JWT claims: {e}");
-            SignerModuleError::Unauthorized
-        })?;
+    match body {
+        Some(body_typed) => {
+            validate_admin_jwt_with_payload(jwt, &state.admin_secret.read(), body_typed).map_err(
+                |e| {
+                    error!("Unauthorized request. Invalid payload hash in JWT claims: {e}");
+                    SignerModuleError::Unauthorized
+                },
+            )?;
+
+            // Make sure the request contains a hash of the payload in its claims
+            let payload_hash = body_typed.tree_hash_root();
+            if claims.payload_hash.is_none() || claims.payload_hash != Some(payload_hash) {
+                error!("Unauthorized request. Invalid payload hash in JWT claims");
+                return Err(SignerModuleError::Unauthorized);
+            }
+        }
+        None => {
+            // Skip payload hash comparison for requests without a body
+            validate_admin_jwt(jwt, &state.admin_secret.read()).map_err(|e| {
+                error!("Unauthorized request. Invalid JWT: {e}");
+                SignerModuleError::Unauthorized
+            })?;
+        }
     }
 
-    let req = Request::from_parts(parts, Body::from(bytes));
-    Ok(next.run(req).await)
+    Ok(())
 }
 
 /// Requests logging middleware layer
@@ -333,8 +449,8 @@ async fn handle_status() -> Result<impl IntoResponse, SignerModuleError> {
 
 /// Implements get_pubkeys from the Signer API
 async fn handle_get_pubkeys(
-    Extension(module_id): Extension<ModuleId>,
     State(state): State<SigningState>,
+    AuthenticatedResponse { module_id }: AuthenticatedResponse,
 ) -> Result<impl IntoResponse, SignerModuleError> {
     let req_id = Uuid::new_v4();
 
@@ -354,9 +470,8 @@ async fn handle_get_pubkeys(
 
 /// Validates a BLS key signature request and returns the signature
 async fn handle_request_signature_bls(
-    Extension(module_id): Extension<ModuleId>,
     State(state): State<SigningState>,
-    Json(request): Json<SignConsensusRequest>,
+    AuthenticatedResponseWithPayload { module_id, payload: request }: AuthenticatedResponseWithPayload<SignConsensusRequest>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
     let req_id = Uuid::new_v4();
     debug!(event = "bls_request_signature", ?module_id, %request, ?req_id, "New request");
@@ -375,9 +490,8 @@ async fn handle_request_signature_bls(
 /// Validates a BLS key signature request using a proxy key and returns the
 /// signature
 async fn handle_request_signature_proxy_bls(
-    Extension(module_id): Extension<ModuleId>,
     State(state): State<SigningState>,
-    Json(request): Json<SignProxyRequest<BlsPublicKey>>,
+    AuthenticatedResponseWithPayload { module_id, payload: request }: AuthenticatedResponseWithPayload<SignProxyRequest<BlsPublicKey>>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
     let req_id = Uuid::new_v4();
     debug!(event = "proxy_bls_request_signature", ?module_id, %request, ?req_id, "New request");
@@ -469,9 +583,8 @@ async fn handle_request_signature_bls_impl(
 /// Validates an ECDSA key signature request using a proxy key and returns the
 /// signature
 async fn handle_request_signature_proxy_ecdsa(
-    Extension(module_id): Extension<ModuleId>,
     State(state): State<SigningState>,
-    Json(request): Json<SignProxyRequest<Address>>,
+    AuthenticatedResponseWithPayload { module_id, payload: request }: AuthenticatedResponseWithPayload<SignProxyRequest<Address>>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
     let req_id = Uuid::new_v4();
     let Some(signing_id) = state.jwts.read().get(&module_id).map(|m| m.signing_id) else {
@@ -529,9 +642,8 @@ async fn handle_request_signature_proxy_ecdsa(
 }
 
 async fn handle_generate_proxy(
-    Extension(module_id): Extension<ModuleId>,
     State(state): State<SigningState>,
-    Json(request): Json<GenerateProxyRequest>,
+    AuthenticatedResponseWithPayload { module_id, payload: request }: AuthenticatedResponseWithPayload<GenerateProxyRequest>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
     let req_id = Uuid::new_v4();
 
@@ -570,7 +682,7 @@ async fn handle_generate_proxy(
 
 async fn handle_reload(
     State(mut state): State<SigningState>,
-    Json(request): Json<ReloadRequest>,
+    AuthenticatedAdminResponseWithPayload { payload: request }: AuthenticatedAdminResponseWithPayload<ReloadRequest>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
     let req_id = Uuid::new_v4();
 
@@ -624,7 +736,7 @@ async fn handle_reload(
 
 async fn handle_revoke_module(
     State(state): State<SigningState>,
-    Json(request): Json<RevokeModuleRequest>,
+    AuthenticatedAdminResponseWithPayload { payload: request }: AuthenticatedAdminResponseWithPayload<RevokeModuleRequest>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
     let mut guard = state.jwts.write();
     guard

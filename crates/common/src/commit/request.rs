@@ -10,7 +10,7 @@ use alloy::{
     rpc::types::beacon::BlsSignature,
 };
 use serde::{Deserialize, Deserializer, Serialize};
-use tree_hash::TreeHash;
+use tree_hash::{Hash256, PackedEncoding, TreeHash};
 use tree_hash_derive::TreeHash;
 
 use crate::{
@@ -73,7 +73,7 @@ impl<T: ProxyId> fmt::Display for SignedProxyDelegation<T> {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TreeHash)]
 pub struct SignConsensusRequest {
     pub pubkey: BlsPublicKey,
     pub object_root: B256,
@@ -114,7 +114,7 @@ impl Display for SignConsensusRequest {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TreeHash)]
 pub struct SignProxyRequest<T: ProxyId> {
     pub proxy: T,
     pub object_root: B256,
@@ -175,6 +175,25 @@ pub enum EncryptionScheme {
     Ecdsa,
 }
 
+/// Treat EncryptionScheme as a `u8` for tree hashing
+impl tree_hash::TreeHash for EncryptionScheme {
+    fn tree_hash_type() -> tree_hash::TreeHashType {
+        <u8 as TreeHash>::tree_hash_type()
+    }
+
+    fn tree_hash_packed_encoding(&self) -> PackedEncoding {
+        (*self as u8).tree_hash_packed_encoding()
+    }
+
+    fn tree_hash_packing_factor() -> usize {
+        <u8 as TreeHash>::tree_hash_packing_factor()
+    }
+
+    fn tree_hash_root(&self) -> Hash256 {
+        (*self as u8).tree_hash_root()
+    }
+}
+
 impl Display for EncryptionScheme {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -197,7 +216,7 @@ impl FromStr for EncryptionScheme {
 }
 
 // TODO(David): This struct shouldn't be visible to module authors
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TreeHash)]
 pub struct GenerateProxyRequest {
     #[serde(rename = "pubkey")]
     pub consensus_pubkey: BlsPublicKey,
