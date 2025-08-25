@@ -82,29 +82,17 @@ pub async fn get_header<S: BuilderApiState>(
     }
 
     // Use the minimum of the time left and the user provided timeout header
-    let max_timeout_ms = match req_headers.get(HEADER_TIMEOUT_MS) {
-        Some(user_header_value) => match user_header_value.to_str() {
-            Ok(user_timeout_string) => match user_timeout_string.parse::<u64>() {
-                Ok(user_timeout) => {
-                    if user_timeout == 0 {
-                        warn!("user-supplied timeout header is 0, using {max_timeout_ms}ms");
-                        max_timeout_ms
-                    } else {
-                        user_timeout.min(max_timeout_ms)
-                    }
-                }
-                Err(e) => {
-                    warn!("cannot parse user-supplied timeout header '{user_timeout_string}', using {max_timeout_ms}ms ({e})");
-                    max_timeout_ms
-                }
-            },
-            Err(e) => {
-                warn!("invalid user-supplied timeout header, using {max_timeout_ms}ms ({e})");
+    let max_timeout_ms = req_headers
+        .get(HEADER_TIMEOUT_MS)
+        .map(|header| match header.to_str().ok().and_then(|v| v.parse::<u64>().ok()) {
+            None | Some(0) => {
+                // Header can't be stringified, or parsed, or it's set to 0
+                warn!(?header, "invalid user-supplied timeout header, using {max_timeout_ms}ms");
                 max_timeout_ms
             }
-        },
-        None => max_timeout_ms,
-    };
+            Some(user_timeout) => user_timeout.min(max_timeout_ms),
+        })
+        .unwrap_or(max_timeout_ms);
 
     // prepare headers, except for start time which is set in `send_one_get_header`
     let mut send_headers = HeaderMap::new();
