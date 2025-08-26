@@ -25,13 +25,15 @@ pub struct Jwt(pub String);
 #[derive(Debug, Serialize, Deserialize)]
 pub struct JwtClaims {
     pub exp: u64,
-    pub module: String,
+    pub module: ModuleId,
+    pub payload_hash: Option<B256>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct JwtAdmin {
+pub struct JwtAdminClaims {
     pub exp: u64,
     pub admin: bool,
+    pub payload_hash: Option<B256>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

@@ -3,9 +3,8 @@ use std::{collections::HashMap, time::Duration};
 use cb_common::{
     commit::request::GetPubkeysResponse,
     config::{ModuleSigningConfig, StartSignerConfig},
-    constants::SIGNER_JWT_EXPIRATION,
     signer::{SignerLoader, ValidatorKeysFormat},
-    types::{Chain, Jwt, JwtAdmin, ModuleId},
+    types::{Chain, ModuleId},
     utils::bls_pubkey_from_hex,
 };
 use cb_signer::service::SigningService;
@@ -70,18 +69,4 @@ pub async fn verify_pubkeys(response: Response) -> Result<()> {
         info!("Server returned expected pubkey: {:?}", expected);
     }
     Ok(())
-}
-
-// Creates a JWT for module administration
-pub fn create_admin_jwt(admin_secret: String) -> Result<Jwt> {
-    jsonwebtoken::encode(
-        &jsonwebtoken::Header::default(),
-        &JwtAdmin {
-            admin: true,
-            exp: jsonwebtoken::get_current_timestamp() + SIGNER_JWT_EXPIRATION,
-        },
-        &jsonwebtoken::EncodingKey::from_secret(admin_secret.as_ref()),
-    )
-    .map_err(Into::into)
-    .map(Jwt::from)
 }
