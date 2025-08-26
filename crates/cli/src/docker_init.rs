@@ -78,7 +78,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
     let using_tls = cb_config
         .signer
         .as_ref()
-        .map_or(false, |signer_config| matches!(signer_config.tls_mode, TlsMode::Certificate(_)));
+        .is_some_and(|signer_config| matches!(signer_config.tls_mode, TlsMode::Certificate(_)));
     let signer_http_prefix = if using_tls { "https" } else { "http" };
 
     // address for signer API communication
