@@ -1,12 +1,11 @@
 use std::{collections::HashMap, path::Path};
 
-use alloy::rpc::types::beacon::BlsPublicKey;
 use eyre::{bail, Context, Result};
 use serde::de::DeserializeOwned;
 
 use crate::{
     config::{ADMIN_JWT_ENV, JWTS_ENV, MUXER_HTTP_MAX_LENGTH},
-    types::ModuleId,
+    types::{BlsPublicKey, ModuleId},
     utils::read_chunked_body_with_max,
 };
 
@@ -67,7 +66,7 @@ pub fn remove_duplicate_keys(keys: Vec<BlsPublicKey>) -> Vec<BlsPublicKey> {
     let mut key_set = std::collections::HashSet::new();
 
     for key in keys {
-        if key_set.insert(key) {
+        if key_set.insert(key.clone()) {
             unique_keys.push(key);
         }
     }
@@ -92,6 +91,7 @@ pub fn decode_string_to_map(raw: &str) -> Result<HashMap<ModuleId, String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::TestRandomSeed;
 
     /// TODO: This was only used by the old JWT loader, can it be removed now?
     #[test]
@@ -106,9 +106,9 @@ mod tests {
 
     #[test]
     fn test_remove_duplicate_keys() {
-        let key1 = BlsPublicKey::from([1; 48]);
-        let key2 = BlsPublicKey::from([2; 48]);
-        let keys = vec![key1, key2, key1];
+        let key1 = BlsPublicKey::test_random();
+        let key2 = BlsPublicKey::test_random();
+        let keys = vec![key1.clone(), key2.clone(), key1.clone()];
 
         let unique_keys = remove_duplicate_keys(keys);
         assert_eq!(unique_keys.len(), 2);

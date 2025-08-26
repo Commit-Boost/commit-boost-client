@@ -25,8 +25,7 @@ use crate::{
         },
         response::{BlsSignResponse, EcdsaSignResponse},
     },
-    signer::BlsPublicKey,
-    types::{Jwt, ModuleId},
+    types::{BlsPublicKey, Jwt, ModuleId},
     utils::create_jwt,
     DEFAULT_REQUEST_TIMEOUT,
 };

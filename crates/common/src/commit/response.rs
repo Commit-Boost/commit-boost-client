@@ -1,13 +1,10 @@
-use std::{fmt, fmt::Display};
-
-use alloy::{
-    hex,
-    primitives::{Address, B256, U256},
-    rpc::types::beacon::BlsSignature,
-};
+use alloy::primitives::{Address, B256, U256};
 use serde::{Deserialize, Serialize};
 
-use crate::signer::{BlsPublicKey, EcdsaSignature};
+use crate::{
+    signer::EcdsaSignature,
+    types::{BlsPublicKey, BlsSignature},
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BlsSignResponse {
@@ -32,21 +29,6 @@ impl BlsSignResponse {
     }
 }
 
-impl Display for BlsSignResponse {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "BLS Signature(pubkey: {}, object_root: {}, module_id: {}, nonce: {}, chain_id: {} signature: {})",
-            self.pubkey,
-            hex::encode_prefixed(self.object_root),
-            self.module_signing_id,
-            self.nonce,
-            self.chain_id,
-            hex::encode_prefixed(self.signature)
-        )
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EcdsaSignResponse {
     pub address: Address,
@@ -67,20 +49,5 @@ impl EcdsaSignResponse {
         signature: EcdsaSignature,
     ) -> Self {
         Self { address, object_root, module_signing_id, nonce, chain_id, signature }
-    }
-}
-
-impl Display for EcdsaSignResponse {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "ECDSA Signature(address: {}, object_root: {}, module_id: {}, nonce: {}, chain_id: {} signature: 0x{})",
-            self.address,
-            hex::encode_prefixed(self.object_root),
-            self.module_signing_id,
-            self.nonce,
-            self.chain_id,
-            self.signature
-        )
     }
 }
