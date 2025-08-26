@@ -1,12 +1,11 @@
 use std::time::{Duration, Instant};
 
-use alloy::{primitives::B256, rpc::types::beacon::BlsPublicKey};
+use alloy::primitives::B256;
 use cb_common::{
     config::RelayConfig,
     pbs::{GetHeaderResponse, RelayClient, RelayEntry},
-    signer::BlsSecretKey,
-    types::Chain,
-    utils::blst_pubkey_to_alloy,
+    types::{BlsPublicKey, BlsSecretKey, Chain},
+    utils::TestRandomSeed,
 };
 use cb_tests::mock_relay::{start_mock_relay_service, MockRelayState};
 use comfy_table::Table;
@@ -17,9 +16,6 @@ mod config;
 
 fn get_random_hash() -> B256 {
     B256::from(rand::random::<[u8; 32]>())
-}
-fn get_random_pubkey() -> BlsPublicKey {
-    BlsPublicKey::ZERO
 }
 
 #[tokio::main]
@@ -46,8 +42,8 @@ async fn main() {
         // bench
         for slot in 0..config.benchmark.n_slots {
             let parent_hash = get_random_hash();
-            let validator_pubkey = get_random_pubkey();
-            let url = mock_validator.get_header_url(slot, parent_hash, validator_pubkey).unwrap();
+            let validator_pubkey = BlsPublicKey::test_random();
+            let url = mock_validator.get_header_url(slot, &parent_hash, &validator_pubkey).unwrap();
 
             for _ in 0..config.benchmark.headers_per_slot {
                 let url = url.clone();
@@ -138,8 +134,8 @@ const MOCK_RELAY_SECRET: [u8; 32] = [
     152, 98, 59, 240, 181, 131, 47, 1, 180, 255, 245,
 ];
 async fn start_mock_relay(chain: Chain, relay_config: RelayConfig) {
-    let signer = BlsSecretKey::key_gen(&MOCK_RELAY_SECRET, &[]).unwrap();
-    let pubkey: BlsPublicKey = blst_pubkey_to_alloy(&signer.sk_to_pk());
+    let signer = BlsSecretKey::deserialize(&MOCK_RELAY_SECRET).unwrap();
+    let pubkey: BlsPublicKey = signer.public_key();
 
     assert_eq!(relay_config.entry.pubkey, pubkey, "Expected relay pubkey to be 0xb060572f535ba5615b874ebfef757fbe6825352ad257e31d724e57fe25a067a13cfddd0f00cb17bf3a3d2e901a380c17");
 
@@ -152,7 +148,7 @@ async fn start_mock_relay(chain: Chain, relay_config: RelayConfig) {
 }
 
 fn get_mock_validator(bench: BenchConfig) -> RelayClient {
-    let entry = RelayEntry { id: bench.id, pubkey: BlsPublicKey::default(), url: bench.url };
+    let entry = RelayEntry { id: bench.id, pubkey: BlsPublicKey::test_random(), url: bench.url };
     let config = RelayConfig {
         entry,
         id: None,

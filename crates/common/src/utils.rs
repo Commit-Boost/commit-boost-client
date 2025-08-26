@@ -6,12 +6,12 @@ use std::{
 };
 
 use alloy::{
+    hex,
     primitives::{keccak256, U256},
-    rpc::types::beacon::{BlsPublicKey, BlsSignature},
 };
 use axum::http::HeaderValue;
-use blst::min_pk::{PublicKey, Signature};
 use futures::StreamExt;
+use lh_types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
 use rand::{distr::Alphanumeric, Rng};
 use reqwest::{header::HeaderMap, Response};
 use serde::{de::DeserializeOwned, Serialize};
@@ -30,7 +30,7 @@ use crate::{
     config::LogsSettings,
     constants::SIGNER_JWT_EXPIRATION,
     pbs::HEADER_VERSION_VALUE,
-    types::{Chain, Jwt, JwtAdminClaims, JwtClaims, ModuleId},
+    types::{BlsPublicKey, Chain, Jwt, JwtAdminClaims, JwtClaims, ModuleId},
 };
 
 const MILLIS_PER_SECOND: u64 = 1_000;
@@ -345,20 +345,6 @@ pub fn print_logo() {
     )
 }
 
-// Crypto conversions
-
-pub fn alloy_pubkey_to_blst(pubkey: &BlsPublicKey) -> Result<PublicKey, blst::BLST_ERROR> {
-    PublicKey::key_validate(&pubkey.0)
-}
-
-pub fn alloy_sig_to_blst(signature: &BlsSignature) -> Result<Signature, blst::BLST_ERROR> {
-    Signature::from_bytes(&signature.0)
-}
-
-pub fn blst_pubkey_to_alloy(pubkey: &PublicKey) -> BlsPublicKey {
-    BlsPublicKey::from_slice(&pubkey.to_bytes())
-}
-
 /// Create a JWT for the given module id with expiration
 pub fn create_jwt(module_id: &ModuleId, secret: &str, payload: Option<&[u8]>) -> eyre::Result<Jwt> {
     jsonwebtoken::encode(
@@ -520,6 +506,34 @@ pub async fn wait_for_signal() -> eyre::Result<()> {
 pub async fn wait_for_signal() -> eyre::Result<()> {
     tokio::signal::ctrl_c().await?;
     Ok(())
+}
+
+pub trait TestRandomSeed: TestRandom {
+    fn test_random() -> Self
+    where
+        Self: Sized,
+    {
+        let mut rng = XorShiftRng::from_entropy();
+        Self::random_for_test(&mut rng)
+    }
+}
+
+impl<T: TestRandom> TestRandomSeed for T {}
+
+pub fn bls_pubkey_from_hex(hex: &str) -> eyre::Result<BlsPublicKey> {
+    let Ok(bytes) = hex::decode(hex) else {
+        eyre::bail!("invalid hex pubkey: {hex}");
+    };
+
+    let pubkey = BlsPublicKey::deserialize(&bytes)
+        .map_err(|e| eyre::eyre!("invalid hex pubkey: {hex}: {e:?}"))?;
+
+    Ok(pubkey)
+}
+
+#[cfg(test)]
+pub fn bls_pubkey_from_hex_unchecked(hex: &str) -> BlsPublicKey {
+    bls_pubkey_from_hex(hex).unwrap()
 }
 
 #[cfg(test)]

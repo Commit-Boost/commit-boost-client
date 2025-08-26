@@ -5,10 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use alloy::{
-    primitives::{keccak256, Address, B256, U256},
-    rpc::types::beacon::BlsPublicKey,
-};
+use alloy::primitives::{keccak256, Address, B256, U256};
 use axum::{
     body::{to_bytes, Body},
     extract::{ConnectInfo, Request, State},
@@ -34,7 +31,7 @@ use cb_common::{
     },
     config::{ModuleSigningConfig, StartSignerConfig},
     constants::{COMMIT_BOOST_COMMIT, COMMIT_BOOST_VERSION},
-    types::{Chain, Jwt, ModuleId, SignatureRequestInfo},
+    types::{BlsPublicKey, Chain, Jwt, ModuleId, SignatureRequestInfo},
     utils::{decode_jwt, validate_admin_jwt, validate_jwt},
 };
 use cb_metrics::provider::MetricsProvider;
@@ -457,8 +454,15 @@ async fn handle_request_signature_bls_impl(
         }
     }
     .map(|sig| {
-        Json(BlsSignResponse::new(*signing_pubkey, *object_root, signing_id, nonce, chain_id, sig))
-            .into_response()
+        Json(BlsSignResponse::new(
+            signing_pubkey.clone(),
+            *object_root,
+            signing_id,
+            nonce,
+            chain_id,
+            sig,
+        ))
+        .into_response()
     })
     .map_err(|err| {
         error!(event = "request_signature", ?module_id, ?req_id, "{err}");

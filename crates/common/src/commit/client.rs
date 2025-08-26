@@ -23,8 +23,7 @@ use crate::{
         response::{BlsSignResponse, EcdsaSignResponse},
     },
     constants::SIGNER_JWT_EXPIRATION,
-    signer::BlsPublicKey,
-    types::{Jwt, ModuleId},
+    types::{BlsPublicKey, Jwt, ModuleId},
     utils::create_jwt,
     DEFAULT_REQUEST_TIMEOUT,
 };

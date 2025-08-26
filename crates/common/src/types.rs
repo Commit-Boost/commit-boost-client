@@ -1,12 +1,16 @@
 use std::path::PathBuf;
 
-use alloy::primitives::{aliases::B32, hex, Bytes, B256, U256};
+use alloy::primitives::{aliases::B32, b256, hex, Bytes, B256, U256};
 use derive_more::{Deref, Display, From, Into};
 use eyre::{bail, Context};
 use serde::{Deserialize, Serialize};
 use tree_hash_derive::TreeHash;
 
 use crate::{constants::APPLICATION_BUILDER_DOMAIN, signature::compute_domain};
+
+pub type BlsPublicKey = lh_types::PublicKey;
+pub type BlsSignature = lh_types::Signature;
+pub type BlsSecretKey = lh_types::SecretKey;
 
 #[derive(Clone, Debug, Display, PartialEq, Eq, Hash, Deref, From, Into, Serialize, Deserialize)]
 #[into(owned, ref, ref_mut)]
@@ -162,26 +166,21 @@ impl KnownChain {
 
     pub fn builder_domain(&self) -> B256 {
         match self {
-            KnownChain::Mainnet => B256::from([
-                0, 0, 0, 1, 245, 165, 253, 66, 209, 106, 32, 48, 39, 152, 239, 110, 211, 9, 151,
-                155, 67, 0, 61, 35, 32, 217, 240, 232, 234, 152, 49, 169,
-            ]),
-            KnownChain::Holesky => B256::from([
-                0, 0, 0, 1, 91, 131, 162, 55, 89, 197, 96, 178, 208, 198, 69, 118, 225, 220, 252,
-                52, 234, 148, 196, 152, 143, 62, 13, 159, 119, 240, 83, 135,
-            ]),
-            KnownChain::Sepolia => B256::from([
-                0, 0, 0, 1, 211, 1, 7, 120, 205, 8, 238, 81, 75, 8, 254, 103, 182, 197, 3, 181, 16,
-                152, 122, 76, 228, 63, 66, 48, 109, 151, 198, 124,
-            ]),
-            KnownChain::Helder => B256::from([
-                0, 0, 0, 1, 148, 196, 26, 244, 132, 255, 247, 150, 73, 105, 224, 189, 217, 34, 248,
-                45, 255, 15, 75, 232, 122, 96, 208, 102, 76, 201, 209, 255,
-            ]),
-            KnownChain::Hoodi => B256::from([
-                0, 0, 0, 1, 113, 145, 3, 81, 30, 250, 79, 19, 98, 255, 42, 80, 153, 108, 204, 243,
-                41, 204, 132, 203, 65, 12, 94, 92, 125, 53, 29, 3,
-            ]),
+            KnownChain::Mainnet => {
+                b256!("0x00000001f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a9")
+            }
+            KnownChain::Holesky => {
+                b256!("0x000000015b83a23759c560b2d0c64576e1dcfc34ea94c4988f3e0d9f77f05387")
+            }
+            KnownChain::Sepolia => {
+                b256!("0x00000001d3010778cd08ee514b08fe67b6c503b510987a4ce43f42306d97c67c")
+            }
+            KnownChain::Helder => {
+                b256!("0x0000000194c41af484fff7964969e0bdd922f82dff0f4be87a60d0664cc9d1ff")
+            }
+            KnownChain::Hoodi => {
+                b256!("0x00000001719103511efa4f1362ff2a50996cccf329cc84cb410c5e5c7d351d03")
+            }
         }
     }
 

@@ -57,16 +57,17 @@ impl DaCommitService {
         let pubkeys = self.config.signer_client.get_pubkeys().await?.keys;
         info!(pubkeys = %serde_json::to_string_pretty(&pubkeys).unwrap(), "Received pubkeys");
 
-        let pubkey = pubkeys.first().ok_or_eyre("no key available")?.consensus;
+        let pubkey = pubkeys.first().ok_or_eyre("no key available")?.consensus.clone();
         info!("Registered validator {pubkey}");
 
-        let proxy_delegation_bls = self.config.signer_client.generate_proxy_key_bls(pubkey).await?;
+        let proxy_delegation_bls =
+            self.config.signer_client.generate_proxy_key_bls(pubkey.clone()).await?;
         info!("Obtained a BLS proxy delegation:\n{proxy_delegation_bls}");
         let proxy_bls = proxy_delegation_bls.message.proxy;
 
         let proxy_ecdsa = if self.config.extra.use_ecdsa_keys {
             let proxy_delegation_ecdsa =
-                self.config.signer_client.generate_proxy_key_ecdsa(pubkey).await?;
+                self.config.signer_client.generate_proxy_key_ecdsa(pubkey.clone()).await?;
             info!("Obtained an ECDSA proxy delegation:\n{proxy_delegation_ecdsa}");
             Some(proxy_delegation_ecdsa.message.proxy)
         } else {
@@ -76,7 +77,7 @@ impl DaCommitService {
         let mut data = 0;
 
         loop {
-            self.send_request(data, pubkey, proxy_bls, proxy_ecdsa).await?;
+            self.send_request(data, pubkey.clone(), proxy_bls.clone(), proxy_ecdsa).await?;
             sleep(Duration::from_secs(self.config.extra.sleep_secs)).await;
             data += 1;
         }
@@ -92,10 +93,10 @@ impl DaCommitService {
         let datagram = Datagram { data };
 
         // Request a signature directly from a BLS key
-        let request = SignConsensusRequest::builder(pubkey).with_msg(&datagram);
+        let request = SignConsensusRequest::builder(pubkey.clone()).with_msg(&datagram);
         let response = self.config.signer_client.request_consensus_signature(request).await?;
         info!("Proposer commitment (consensus): {}", response.signature);
-        match verify_proposer_commitment_signature_bls(
+        if verify_proposer_commitment_signature_bls(
             self.config.chain,
             &pubkey,
             &datagram,
@@ -103,17 +104,18 @@ impl DaCommitService {
             &DA_COMMIT_SIGNING_ID,
             self.nonce,
         ) {
-            Ok(_) => info!("Signature verified successfully"),
-            Err(err) => error!(%err, "Signature verification failed"),
-        };
+            info!("Signature verified successfully");
+        } else {
+            error!("Signature verification failed");
+        }
         self.nonce += 1;
 
         // Request a signature from a proxy BLS key
-        let proxy_request_bls = SignProxyRequest::builder(proxy_bls).with_msg(&datagram);
+        let proxy_request_bls = SignProxyRequest::builder(proxy_bls.clone()).with_msg(&datagram);
         let proxy_response_bls =
             self.config.signer_client.request_proxy_signature_bls(proxy_request_bls).await?;
         info!("Proposer commitment (proxy BLS): {}", proxy_response_bls.signature);
-        match verify_proposer_commitment_signature_bls(
+        if verify_proposer_commitment_signature_bls(
             self.config.chain,
             &proxy_bls,
             &datagram,
@@ -121,9 +123,10 @@ impl DaCommitService {
             &DA_COMMIT_SIGNING_ID,
             self.nonce,
         ) {
-            Ok(_) => info!("Signature verified successfully"),
-            Err(err) => error!(%err, "Signature verification failed"),
-        };
+            info!("Signature verified successfully");
+        } else {
+            error!("Signature verification failed");
+        }
         self.nonce += 1;
 
         // If ECDSA keys are enabled, request a signature from a proxy ECDSA key
