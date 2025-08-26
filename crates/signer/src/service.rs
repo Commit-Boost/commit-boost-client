@@ -158,7 +158,7 @@ impl SigningService {
                 )
                 .await
         } else {
-            info!("NOTE: Running in insecure HTTP mode, no TLS certificates provided");
+            warn!("Running in insecure HTTP mode, no TLS certificates provided");
             axum_server::bind(config.endpoint)
                 .serve(
                     signer_app.merge(admin_app).into_make_service_with_connect_info::<SocketAddr>(),
