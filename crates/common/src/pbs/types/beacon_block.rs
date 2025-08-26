@@ -1,4 +1,4 @@
-use alloy::{primitives::B256, rpc::types::beacon::BlsSignature};
+use alloy::primitives::B256;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 
@@ -6,8 +6,9 @@ use super::{
     blinded_block_body::BlindedBeaconBlockBodyElectra, blobs_bundle::BlobsBundle,
     execution_payload::ExecutionPayload, spec::ElectraSpec, utils::VersionedResponse,
 };
+use crate::types::BlsSignature;
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
 /// Sent to relays in submit_block
 pub struct SignedBlindedBeaconBlock {
     pub message: BlindedBeaconBlock,
@@ -47,13 +48,7 @@ pub enum BlindedBeaconBlock {
     Electra(BlindedBeaconBlockElectra),
 }
 
-impl Default for BlindedBeaconBlock {
-    fn default() -> Self {
-        Self::Electra(BlindedBeaconBlockElectra::default())
-    }
-}
-
-#[derive(Debug, Default, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct BlindedBeaconBlockElectra {
     #[serde(with = "serde_utils::quoted_u64")]
     pub slot: u64,
@@ -170,8 +165,7 @@ mod tests {
         assert!(matches!(block_json.message, BlindedBeaconBlock::Electra(_)));
 
         let data_ssz = include_bytes!("testdata/signed-blinded-beacon-block-electra-2.ssz");
-        let data_ssz = alloy::primitives::hex::decode(data_ssz).unwrap();
-        let block_ssz = test_encode_decode_ssz::<SignedBlindedBeaconBlock>(&data_ssz);
+        let block_ssz = test_encode_decode_ssz::<SignedBlindedBeaconBlock>(data_ssz);
         assert!(matches!(block_ssz.message, BlindedBeaconBlock::Electra(_)));
 
         assert_eq!(block_json.as_ssz_bytes(), data_ssz);

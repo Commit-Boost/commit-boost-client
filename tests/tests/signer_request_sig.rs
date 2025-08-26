@@ -1,18 +1,13 @@
 use std::collections::HashMap;
 
-use alloy::{
-    hex::FromHex,
-    primitives::{b256, hex, FixedBytes},
-    rpc::types::beacon::BlsPublicKey,
-};
+use alloy::primitives::{b256, hex};
 use cb_common::{
     commit::{
         constants::REQUEST_SIGNATURE_BLS_PATH, request::SignConsensusRequest,
         response::BlsSignResponse,
     },
     config::{load_module_signing_configs, ModuleSigningConfig},
-    signer::BlsSignature,
-    types::{Chain, ModuleId},
+    types::{BlsPublicKey, BlsSignature, Chain, ModuleId},
     utils::create_jwt,
 };
 use cb_tests::{
@@ -63,7 +58,8 @@ async fn test_signer_sign_request_good() -> Result<()> {
     // Send a signing request
     let object_root = b256!("0x0123456789012345678901234567890123456789012345678901234567890123");
     let nonce: u64 = 101;
-    let request = SignConsensusRequest { pubkey: FixedBytes(PUBKEY_1), object_root, nonce };
+    let pubkey = BlsPublicKey::deserialize(&PUBKEY_1).unwrap();
+    let request = SignConsensusRequest { pubkey: pubkey.clone(), object_root, nonce };
     let jwt = create_jwt(&module_id, &jwt_config.jwt_secret)?;
     let client = reqwest::Client::new();
     let url = format!("http://{}{}", start_config.endpoint, REQUEST_SIGNATURE_BLS_PATH);
@@ -75,12 +71,12 @@ async fn test_signer_sign_request_good() -> Result<()> {
     // Verify the signature is returned
     let sig_response = response.json::<BlsSignResponse>().await?;
     let expected = BlsSignResponse::new(
-        BlsPublicKey::from(PUBKEY_1),
+        pubkey,
         object_root,
         mod_cfgs.get(&module_id).unwrap().signing_id,
         nonce,
         Chain::Hoodi.id(),
-        BlsSignature::from_hex("0xb653034a6da0e516cb999d6bbcd5ddd8dde9695322a94aefcd3049e6235e0f4f63b13d81ddcd80d4e1e698c3f88c3b440ae696650ccef2f22329afb4ffecec85a34523e25920ceced54c5bc31168174a3b352977750c222c1c25f72672467e5c").unwrap());
+        BlsSignature::deserialize(&hex!("0xb653034a6da0e516cb999d6bbcd5ddd8dde9695322a94aefcd3049e6235e0f4f63b13d81ddcd80d4e1e698c3f88c3b440ae696650ccef2f22329afb4ffecec85a34523e25920ceced54c5bc31168174a3b352977750c222c1c25f72672467e5c")).unwrap());
     assert_eq!(sig_response, expected, "Signature response does not match expected value");
 
     Ok(())
@@ -99,7 +95,8 @@ async fn test_signer_sign_request_different_module() -> Result<()> {
     // Send a signing request
     let object_root = b256!("0x0123456789012345678901234567890123456789012345678901234567890123");
     let nonce: u64 = 101;
-    let request = SignConsensusRequest { pubkey: FixedBytes(PUBKEY_1), object_root, nonce };
+    let pubkey = BlsPublicKey::deserialize(&PUBKEY_1).unwrap();
+    let request = SignConsensusRequest { pubkey: pubkey.clone(), object_root, nonce };
     let jwt = create_jwt(&module_id, &jwt_config.jwt_secret)?;
     let client = reqwest::Client::new();
     let url = format!("http://{}{}", start_config.endpoint, REQUEST_SIGNATURE_BLS_PATH);
@@ -110,11 +107,7 @@ async fn test_signer_sign_request_different_module() -> Result<()> {
 
     // Verify the signature is returned
     let sig_response = response.json::<BlsSignResponse>().await?;
-    assert_eq!(
-        sig_response.pubkey,
-        BlsPublicKey::from(PUBKEY_1),
-        "Public key does not match expected value"
-    );
+    assert_eq!(sig_response.pubkey, pubkey, "Public key does not match expected value");
     assert_eq!(sig_response.object_root, object_root, "Object root does not match expected value");
     assert_eq!(
         sig_response.module_signing_id,
@@ -122,7 +115,7 @@ async fn test_signer_sign_request_different_module() -> Result<()> {
         "Module signing ID does not match expected value"
     );
     assert_ne!(
-        sig_response.signature, BlsSignature::from_hex("0xb653034a6da0e516cb999d6bbcd5ddd8dde9695322a94aefcd3049e6235e0f4f63b13d81ddcd80d4e1e698c3f88c3b440ae696650ccef2f22329afb4ffecec85a34523e25920ceced54c5bc31168174a3b352977750c222c1c25f72672467e5c").unwrap(),
+        sig_response.signature, BlsSignature::deserialize(&hex!("0xb653034a6da0e516cb999d6bbcd5ddd8dde9695322a94aefcd3049e6235e0f4f63b13d81ddcd80d4e1e698c3f88c3b440ae696650ccef2f22329afb4ffecec85a34523e25920ceced54c5bc31168174a3b352977750c222c1c25f72672467e5c")).unwrap(),
         "Signature matches the reference signature, which should not happen"
     );
 

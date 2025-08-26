@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use alloy::rpc::types::beacon::BlsPublicKey;
 use cb_common::{
     config::{PbsConfig, PbsModuleConfig},
     pbs::{BuilderEvent, RelayClient},
+    types::BlsPublicKey,
 };
 use parking_lot::RwLock;
 
