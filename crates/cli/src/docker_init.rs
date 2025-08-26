@@ -75,13 +75,19 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
     // targets to pass to prometheus
     let mut targets = Vec::new();
 
+    let using_tls = cb_config
+        .signer
+        .as_ref()
+        .map_or(false, |signer_config| matches!(signer_config.tls_mode, TlsMode::Certificate(_)));
+    let signer_http_prefix = if using_tls { "https" } else { "http" };
+
     // address for signer API communication
     let signer_port = cb_config.signer.as_ref().map(|s| s.port).unwrap_or(SIGNER_PORT_DEFAULT);
     let signer_server =
         if let Some(SignerConfig { inner: SignerType::Remote { url }, .. }) = &cb_config.signer {
             url.to_string()
         } else {
-            format!("https://cb_signer:{signer_port}")
+            format!("{signer_http_prefix}://cb_signer:{signer_port}")
         };
 
     let builder_events_port = 30000;
@@ -99,7 +105,10 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
         .signer
         .as_ref()
         .map(|config| match &config.tls_mode {
-            TlsMode::Insecure => None,
+            TlsMode::Insecure => {
+                warnings.push("Signer TLS mode is set to Insecure, using HTTP instead of HTTPS for signer communication".to_string());
+                None
+            },
             TlsMode::Certificate(path) => Some(path),
         })
         .unwrap_or_default();
@@ -123,11 +132,14 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                         get_env_val(CONFIG_ENV, CONFIG_DEFAULT),
                         get_env_interp(MODULE_JWT_ENV, &jwt_name),
                         get_env_val(SIGNER_URL_ENV, &signer_server),
-                        get_env_val(
+                    ]);
+                    if using_tls {
+                        let env_val = get_env_val(
                             SIGNER_TLS_CERTIFICATES_PATH_ENV,
                             SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
-                        ),
-                    ]);
+                        );
+                        module_envs.insert(env_val.0, env_val.1);
+                    }
 
                     // Pass on the env variables
                     if let Some(envs) = module.env {
@@ -175,13 +187,8 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                     let mut module_volumes = vec![config_volume.clone()];
                     module_volumes.extend(chain_spec_volume.clone());
                     module_volumes.extend(get_log_volume(&cb_config.logs, &module.id));
-                    if let Some(certs_path) = &certs_path {
-                        module_volumes.push(Volumes::Simple(format!(
-                            "{}:{}/{}:ro",
-                            certs_path.join(SIGNER_TLS_CERTIFICATE_NAME).display(),
-                            SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
-                            SIGNER_TLS_CERTIFICATE_NAME
-                        )));
+                    if let Some(certs_path) = certs_path {
+                        module_volumes.push(create_cert_binding(certs_path));
                     }
 
                     // depends_on
@@ -324,13 +331,8 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
     pbs_volumes.extend(chain_spec_volume.clone());
     pbs_volumes.extend(get_log_volume(&cb_config.logs, PBS_MODULE_NAME));
     if needs_signer_module {
-        if let Some(certs_path) = &certs_path {
-            pbs_volumes.push(Volumes::Simple(format!(
-                "{}:{}/{}:ro",
-                certs_path.join(SIGNER_TLS_CERTIFICATE_NAME).display(),
-                SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
-                SIGNER_TLS_CERTIFICATE_NAME
-            )));
+        if let Some(certs_path) = certs_path {
+            pbs_volumes.push(create_cert_binding(certs_path));
             let (key, val) =
                 get_env_val(SIGNER_TLS_CERTIFICATES_PATH_ENV, SIGNER_TLS_CERTIFICATES_PATH_DEFAULT);
             pbs_envs.insert(key, val);
@@ -499,12 +501,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                         std::fs::write(certs_path.join(SIGNER_TLS_KEY_NAME), &key)?;
                     }
 
-                    volumes.push(Volumes::Simple(format!(
-                        "{}:{}/{}:ro",
-                        certs_path.join(SIGNER_TLS_CERTIFICATE_NAME).display(),
-                        SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
-                        SIGNER_TLS_CERTIFICATE_NAME
-                    )));
+                    volumes.push(create_cert_binding(certs_path));
                     volumes.push(Volumes::Simple(format!(
                         "{}:{}/{}:ro",
                         certs_path.join(SIGNER_TLS_KEY_NAME).display(),
@@ -632,7 +629,8 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                     environment: Environment::KvPair(signer_envs),
                     healthcheck: Some(Healthcheck {
                         test: Some(HealthcheckTest::Single(format!(
-                            "curl -f http://localhost:{signer_port}/status"
+                            // TODO: needs -k if using self-signed certs, how do we pass that in?
+                            "curl -f {signer_http_prefix}://localhost:{signer_port}/status"
                         ))),
                         interval: Some("30s".into()),
                         timeout: Some("5s".into()),
@@ -762,4 +760,13 @@ fn get_log_volume(config: &LogsSettings, module_id: &str) -> Option<Volumes> {
 /// Formats as a comma separated list of key=value
 fn format_comma_separated(map: &IndexMap<ModuleId, String>) -> String {
     map.iter().map(|(k, v)| format!("{}={}", k, v)).collect::<Vec<_>>().join(",")
+}
+
+fn create_cert_binding(certs_path: &Path) -> Volumes {
+    Volumes::Simple(format!(
+        "{}:{}/{}:ro",
+        certs_path.join(SIGNER_TLS_CERTIFICATE_NAME).display(),
+        SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
+        SIGNER_TLS_CERTIFICATE_NAME
+    ))
 }

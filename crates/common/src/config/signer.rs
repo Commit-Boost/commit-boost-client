@@ -125,7 +125,8 @@ fn default_signer_image() -> String {
 }
 
 fn default_tls_mode() -> TlsMode {
-    TlsMode::Certificate(PathBuf::from("./certs"))
+    TlsMode::Insecure // To make the default use TLS, do
+                      // TlsMode::Certificate(PathBuf::from("./certs"))
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
