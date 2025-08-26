@@ -342,6 +342,37 @@ Delegation signatures will be stored in files with the format `<proxy_dir>/deleg
 A full example of a config file with Dirk can be found [here](https://github.com/Commit-Boost/commit-boost-client/blob/main/examples/configs/dirk_signer.toml).
 
 
+### TLS
+
+By default, the Signer service runs in **insecure** mode, so its API service uses HTTP without any TLS encryption. This is sufficient for testing or if you're running locally within your machine's isolated Docker network and only intend to access it within the confines of your machine. However, for larger production setups, it's recommended to enable TLS - especially for traffic that spans across multiple machines.
+
+The Signer service in TLS mode supports **TLS 1.2** and **TLS 1.3**. Older protocol versions are not supported.
+
+To enable TLS, you must first create a **certificate / key pair**. We **strongly advise** using a well-known Certificate Authority to create and sign the certificate, such as [Let's Encrypt](https://letsencrypt.org/getting-started/) (a free service) or [Bluehost](https://www.bluehost.com/help/article/how-to-set-up-an-ssl-certificate-for-website-security) (free but requires an account). We do not recommend using a self-signed ceriticate / key pair for production environments.
+
+When configuring TLS support, the Signer service expects a single folder (which you can specify) that contains the following two files:
+- `cert.pem`: The SSL certificate file signed by a certificate authority, in PEM format
+- `key.pem`: The private key corresponding to `cert.pem` that will be used for signing TLS traffic, in PEM format
+
+Specifying it is done within Commit-Boost's configuration file using the `[signer.tls_mode]` table as follows:
+
+```toml
+[pbs]
+...
+with_signer = true
+
+[signer]
+port = 20000
+...
+
+[signer.tls_mode]
+type = "certificate"
+path = "path/to/your/cert/folder"
+```
+
+Where `path` is the aforementioned folder. It defaults to `./certs` but can be replaced with whichever directory your certificate and private key file reside in, as long as they're readable by the Signer service (or its Docker container, if using Docker).
+
+
 ## Custom module
 We currently provide a test module that needs to be built locally. To build the module run:
 ```bash
