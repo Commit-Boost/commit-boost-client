@@ -1,5 +1,5 @@
 use axum::{extract::State, http::HeaderMap, response::IntoResponse};
-use cb_common::{pbs::BuilderEvent, utils::get_user_agent};
+use cb_common::utils::get_user_agent;
 use reqwest::StatusCode;
 use tracing::{error, info};
 
@@ -16,15 +16,12 @@ pub async fn handle_reload<S: BuilderApiState, A: BuilderApi<S>>(
 ) -> Result<impl IntoResponse, PbsClientError> {
     let prev_state = state.read().clone();
 
-    prev_state.publish_event(BuilderEvent::ReloadEvent);
-
     let ua = get_user_agent(&req_headers);
 
     info!(ua, relay_check = prev_state.config.pbs_config.relay_check);
 
     match A::reload(prev_state.clone()).await {
         Ok(new_state) => {
-            prev_state.publish_event(BuilderEvent::ReloadResponse);
             info!("config reload successful");
 
             *state.write() = new_state;

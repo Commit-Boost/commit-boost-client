@@ -94,7 +94,6 @@ pub fn to_pbs_config(
         endpoint: SocketAddr::new(pbs_config.host.into(), pbs_config.port),
         pbs_config: Arc::new(pbs_config),
         signer_client: None,
-        event_publisher: None,
         all_relays: relays.clone(),
         relays,
         muxes: None,
