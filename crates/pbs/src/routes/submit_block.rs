@@ -1,6 +1,6 @@
 use axum::{extract::State, http::HeaderMap, response::IntoResponse, Json};
 use cb_common::{
-    pbs::{BuilderApiVersion, BuilderEvent, SignedBlindedBeaconBlock},
+    pbs::{BuilderApiVersion, SignedBlindedBeaconBlock},
     utils::{get_user_agent, timestamp_of_slot_start_millis, utcnow_ms},
 };
 use reqwest::StatusCode;
@@ -57,11 +57,6 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
 
     let state = state.read().clone();
 
-    state.publish_event(BuilderEvent::SubmitBlockRequest(
-        Box::new(signed_blinded_block.clone()),
-        api_version,
-    ));
-
     let now = utcnow_ms();
     let slot = signed_blinded_block.slot();
     let block_hash = signed_blinded_block.block_hash();
@@ -74,9 +69,6 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
         Ok(res) => match res {
             Some(block_response) => {
                 trace!(?block_response);
-                state.publish_event(BuilderEvent::SubmitBlockResponseV1(Box::new(
-                    block_response.clone(),
-                )));
                 info!("received unblinded block (v1)");
 
                 BEACON_NODE_STATUS
@@ -85,7 +77,6 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
                 Ok((StatusCode::OK, Json(block_response).into_response()))
             }
             None => {
-                state.publish_event(BuilderEvent::SubmitBlockResponseV2);
                 info!("received unblinded block (v2)");
 
                 BEACON_NODE_STATUS
@@ -97,7 +88,6 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
 
         Err(err) => {
             error!(%err, %block_hash, "CRITICAL: no payload received from relays. Check previous logs or use the Relay Data API");
-            state.publish_event(BuilderEvent::MissedPayload { block_hash });
 
             let err = PbsClientError::NoPayload;
             BEACON_NODE_STATUS

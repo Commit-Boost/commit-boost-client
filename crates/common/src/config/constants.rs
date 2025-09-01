@@ -19,9 +19,6 @@ pub const LOGS_DIR_DEFAULT: &str = "/var/logs/commit-boost";
 pub const PBS_IMAGE_DEFAULT: &str = "ghcr.io/commit-boost/pbs:latest";
 pub const PBS_MODULE_NAME: &str = "pbs";
 
-/// Urls the pbs modules should post events to (comma separated)
-pub const BUILDER_URLS_ENV: &str = "CB_BUILDER_URLS";
-
 /// Where to receive BuilderAPI calls from beacon node
 pub const PBS_ENDPOINT_ENV: &str = "CB_PBS_ENDPOINT";
 
@@ -95,7 +92,3 @@ pub const MODULE_ID_ENV: &str = "CB_MODULE_ID";
 pub const MODULE_JWT_ENV: &str = "CB_SIGNER_JWT";
 /// Where to send signature request
 pub const SIGNER_URL_ENV: &str = "CB_SIGNER_URL";
-
-/// Events modules
-/// Where to receive builder events
-pub const BUILDER_PORT_ENV: &str = "CB_BUILDER_PORT";
