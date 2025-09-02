@@ -7,15 +7,15 @@ use std::{
 use cb_common::{
     config::{
         CommitBoostConfig, LogsSettings, ModuleKind, SignerConfig, SignerType, TlsMode,
-        ADMIN_JWT_ENV, BUILDER_PORT_ENV, BUILDER_URLS_ENV, CHAIN_SPEC_ENV, CONFIG_DEFAULT,
-        CONFIG_ENV, DIRK_CA_CERT_DEFAULT, DIRK_CA_CERT_ENV, DIRK_CERT_DEFAULT, DIRK_CERT_ENV,
-        DIRK_DIR_SECRETS_DEFAULT, DIRK_DIR_SECRETS_ENV, DIRK_KEY_DEFAULT, DIRK_KEY_ENV, JWTS_ENV,
-        LOGS_DIR_DEFAULT, LOGS_DIR_ENV, METRICS_PORT_ENV, MODULE_ID_ENV, MODULE_JWT_ENV,
-        PBS_ENDPOINT_ENV, PBS_MODULE_NAME, PROXY_DIR_DEFAULT, PROXY_DIR_ENV,
-        PROXY_DIR_KEYS_DEFAULT, PROXY_DIR_KEYS_ENV, PROXY_DIR_SECRETS_DEFAULT,
-        PROXY_DIR_SECRETS_ENV, SIGNER_DEFAULT, SIGNER_DIR_KEYS_DEFAULT, SIGNER_DIR_KEYS_ENV,
-        SIGNER_DIR_SECRETS_DEFAULT, SIGNER_DIR_SECRETS_ENV, SIGNER_ENDPOINT_ENV, SIGNER_KEYS_ENV,
-        SIGNER_MODULE_NAME, SIGNER_PORT_DEFAULT, SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
+        ADMIN_JWT_ENV, CHAIN_SPEC_ENV, CONFIG_DEFAULT, CONFIG_ENV, DIRK_CA_CERT_DEFAULT,
+        DIRK_CA_CERT_ENV, DIRK_CERT_DEFAULT, DIRK_CERT_ENV, DIRK_DIR_SECRETS_DEFAULT,
+        DIRK_DIR_SECRETS_ENV, DIRK_KEY_DEFAULT, DIRK_KEY_ENV, JWTS_ENV, LOGS_DIR_DEFAULT,
+        LOGS_DIR_ENV, METRICS_PORT_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, PBS_ENDPOINT_ENV,
+        PBS_MODULE_NAME, PROXY_DIR_DEFAULT, PROXY_DIR_ENV, PROXY_DIR_KEYS_DEFAULT,
+        PROXY_DIR_KEYS_ENV, PROXY_DIR_SECRETS_DEFAULT, PROXY_DIR_SECRETS_ENV, SIGNER_DEFAULT,
+        SIGNER_DIR_KEYS_DEFAULT, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS_DEFAULT,
+        SIGNER_DIR_SECRETS_ENV, SIGNER_ENDPOINT_ENV, SIGNER_KEYS_ENV, SIGNER_MODULE_NAME,
+        SIGNER_PORT_DEFAULT, SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
         SIGNER_TLS_CERTIFICATES_PATH_ENV, SIGNER_TLS_CERTIFICATE_NAME, SIGNER_TLS_KEY_NAME,
         SIGNER_URL_ENV,
     },
@@ -89,9 +89,6 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
         } else {
             format!("{signer_http_prefix}://cb_signer:{signer_port}")
         };
-
-    let builder_events_port = 30000;
-    let mut builder_events_modules = Vec::new();
 
     let mut warnings = Vec::new();
 
@@ -217,58 +214,6 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                         ..Service::default()
                     }
                 }
-                // an event module just needs a port to listen on
-                ModuleKind::Events => {
-                    let mut ports = vec![];
-                    builder_events_modules
-                        .push(format!("http://{module_cid}:{builder_events_port}"));
-
-                    // module ids are assumed unique, so envs dont override each other
-                    let mut module_envs = IndexMap::from([
-                        get_env_val(MODULE_ID_ENV, &module.id),
-                        get_env_val(CONFIG_ENV, CONFIG_DEFAULT),
-                        get_env_uval(BUILDER_PORT_ENV, builder_events_port),
-                    ]);
-
-                    if let Some((key, val)) = chain_spec_env.clone() {
-                        module_envs.insert(key, val);
-                    }
-                    if let Some(metrics_config) = &cb_config.metrics {
-                        if metrics_config.enabled {
-                            let host_endpoint =
-                                SocketAddr::from((metrics_config.host, metrics_port));
-                            ports.push(format!("{}:{}", host_endpoint, metrics_port));
-                            warnings.push(format!(
-                                "{} has an exported port on {}",
-                                module_cid, metrics_port
-                            ));
-                            targets.push(format!("{host_endpoint}"));
-                            let (key, val) = get_env_uval(METRICS_PORT_ENV, metrics_port as u64);
-                            module_envs.insert(key, val);
-
-                            metrics_port += 1;
-                        }
-                    }
-                    if log_to_file {
-                        let (key, val) = get_env_val(LOGS_DIR_ENV, LOGS_DIR_DEFAULT);
-                        module_envs.insert(key, val);
-                    }
-
-                    // volumes
-                    let mut module_volumes = vec![config_volume.clone()];
-                    module_volumes.extend(chain_spec_volume.clone());
-                    module_volumes.extend(get_log_volume(&cb_config.logs, &module.id));
-
-                    Service {
-                        container_name: Some(module_cid.clone()),
-                        image: Some(module.docker_image),
-                        ports: Ports::Short(ports),
-                        volumes: module_volumes,
-                        environment: Environment::KvPair(module_envs),
-                        depends_on: DependsOnOptions::Simple(vec!["cb_pbs".to_owned()]),
-                        ..Service::default()
-                    }
-                }
             };
 
             services.insert(module_cid, Some(module_service));
@@ -314,11 +259,6 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
     if log_to_file {
         let (key, val) = get_env_val(LOGS_DIR_ENV, LOGS_DIR_DEFAULT);
         pbs_envs.insert(key, val);
-    }
-    if !builder_events_modules.is_empty() {
-        let env = builder_events_modules.join(",");
-        let (k, v) = get_env_val(BUILDER_URLS_ENV, &env);
-        pbs_envs.insert(k, v);
     }
 
     // inside the container expose on 0.0.0.0

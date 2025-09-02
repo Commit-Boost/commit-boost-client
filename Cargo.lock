@@ -1513,17 +1513,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "builder_log"
-version = "0.8.1-rc.1"
-dependencies = [
- "async-trait",
- "commit-boost",
- "eyre",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "bumpalo"
 version = "3.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -11,8 +11,7 @@ use crate::{
         constants::{CONFIG_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, SIGNER_URL_ENV},
         load_env_var,
         utils::load_file_from_env,
-        SignerConfig, TlsMode, BUILDER_PORT_ENV, SIGNER_TLS_CERTIFICATES_PATH_ENV,
-        SIGNER_TLS_CERTIFICATE_NAME,
+        SignerConfig, TlsMode, SIGNER_TLS_CERTIFICATES_PATH_ENV, SIGNER_TLS_CERTIFICATE_NAME,
     },
     types::{Chain, Jwt, ModuleId},
 };
@@ -21,8 +20,6 @@ use crate::{
 pub enum ModuleKind {
     #[serde(alias = "commit")]
     Commit,
-    #[serde(alias = "events")]
-    Events,
 }
 
 /// Static module config from config file
@@ -134,8 +131,6 @@ pub struct StartBuilderModuleConfig<T> {
     pub id: ModuleId,
     /// Chain spec
     pub chain: Chain,
-    /// Where to listen for Builder events
-    pub server_port: u16,
     /// Opaque module config
     pub extra: T,
 }
@@ -143,7 +138,6 @@ pub struct StartBuilderModuleConfig<T> {
 pub fn load_builder_module_config<T: DeserializeOwned>() -> eyre::Result<StartBuilderModuleConfig<T>>
 {
     let module_id = ModuleId(load_env_var(MODULE_ID_ENV)?);
-    let builder_events_port: u16 = load_env_var(BUILDER_PORT_ENV)?.parse()?;
 
     #[derive(Debug, Deserialize)]
     struct ThisModuleConfig<U> {
@@ -190,7 +184,6 @@ pub fn load_builder_module_config<T: DeserializeOwned>() -> eyre::Result<StartBu
     Ok(StartBuilderModuleConfig {
         id: module_config.static_config.id,
         chain: cb_config.chain,
-        server_port: builder_events_port,
         extra: module_config.extra,
     })
 }
