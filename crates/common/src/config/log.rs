@@ -8,7 +8,9 @@ use crate::utils::default_bool;
 
 #[derive(Clone, Default, Debug, Deserialize, Serialize)]
 pub struct LogsSettings {
+    #[serde(default)]
     pub stdout: StdoutLogSettings,
+    #[serde(default)]
     pub file: FileLogSettings,
 }
 

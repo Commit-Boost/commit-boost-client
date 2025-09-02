@@ -9,7 +9,6 @@ pub mod prelude {
             load_builder_module_config, load_commit_module_config, load_pbs_config,
             load_pbs_custom_config, LogsSettings, StartCommitModuleConfig, PBS_MODULE_NAME,
         },
-        pbs::{BuilderEvent, BuilderEventClient, OnBuilderApiEvent},
         signature::{
             verify_proposer_commitment_signature_bls, verify_proposer_commitment_signature_ecdsa,
         },

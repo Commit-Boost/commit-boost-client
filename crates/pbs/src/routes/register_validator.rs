@@ -1,6 +1,6 @@
 use alloy::rpc::types::beacon::relay::ValidatorRegistration;
 use axum::{extract::State, http::HeaderMap, response::IntoResponse, Json};
-use cb_common::{pbs::BuilderEvent, utils::get_user_agent};
+use cb_common::utils::get_user_agent;
 use reqwest::StatusCode;
 use tracing::{error, info, trace};
 
@@ -20,14 +20,12 @@ pub async fn handle_register_validator<S: BuilderApiState, A: BuilderApi<S>>(
     let state = state.read().clone();
 
     trace!(?registrations);
-    state.publish_event(BuilderEvent::RegisterValidatorRequest(registrations.clone()));
 
     let ua = get_user_agent(&req_headers);
 
     info!(ua, num_registrations = registrations.len(), "new request");
 
     if let Err(err) = A::register_validator(registrations, req_headers, state.clone()).await {
-        state.publish_event(BuilderEvent::RegisterValidatorResponse);
         error!(%err, "all relays failed registration");
 
         let err = PbsClientError::NoResponse;

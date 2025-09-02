@@ -25,8 +25,8 @@ use crate::{
         SIGNER_URL_ENV,
     },
     pbs::{
-        BuilderEventPublisher, DefaultTimeout, RelayClient, RelayEntry, DEFAULT_PBS_PORT,
-        LATE_IN_SLOT_TIME_MS, REGISTER_VALIDATOR_RETRY_LIMIT,
+        DefaultTimeout, RelayClient, RelayEntry, DEFAULT_PBS_PORT, LATE_IN_SLOT_TIME_MS,
+        REGISTER_VALIDATOR_RETRY_LIMIT,
     },
     types::{BlsPublicKey, Chain, Jwt, ModuleId},
     utils::{
@@ -214,8 +214,6 @@ pub struct PbsModuleConfig {
     pub all_relays: Vec<RelayClient>,
     /// Signer client to call Signer API
     pub signer_client: Option<SignerClient>,
-    /// Event publisher
-    pub event_publisher: Option<BuilderEventPublisher>,
     /// Muxes config
     pub muxes: Option<HashMap<BlsPublicKey, RuntimeMuxConfig>>,
 }
@@ -254,7 +252,6 @@ pub async fn load_pbs_config() -> Result<PbsModuleConfig> {
 
     let relay_clients =
         config.relays.into_iter().map(RelayClient::new).collect::<Result<Vec<_>>>()?;
-    let maybe_publiher = BuilderEventPublisher::new_from_env()?;
     let mut all_relays = HashMap::with_capacity(relay_clients.len());
 
     if let Some(muxes) = &muxes {
@@ -282,7 +279,6 @@ pub async fn load_pbs_config() -> Result<PbsModuleConfig> {
         relays: relay_clients,
         all_relays,
         signer_client: None,
-        event_publisher: maybe_publiher,
         muxes,
     })
 }
@@ -330,7 +326,6 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
 
     let relay_clients =
         cb_config.relays.into_iter().map(RelayClient::new).collect::<Result<Vec<_>>>()?;
-    let maybe_publiher = BuilderEventPublisher::new_from_env()?;
     let mut all_relays = HashMap::with_capacity(relay_clients.len());
 
     if let Some(muxes) = &muxes {
@@ -372,7 +367,6 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
             relays: relay_clients,
             all_relays,
             signer_client,
-            event_publisher: maybe_publiher,
             muxes,
         },
         cb_config.pbs.extra,
