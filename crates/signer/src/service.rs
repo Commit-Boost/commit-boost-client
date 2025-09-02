@@ -5,8 +5,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use alloy::primitives::{Address, B256, U256};
+use alloy::primitives::{keccak256, Address, B256, U256};
 use axum::{
+    body::{to_bytes, Body},
     extract::{ConnectInfo, Request, State},
     http::StatusCode,
     middleware::{self, Next},
@@ -46,6 +47,8 @@ use crate::{
     manager::{dirk::DirkManager, local::LocalSigningManager, SigningManager},
     metrics::{uri_to_tag, SIGNER_METRICS_REGISTRY, SIGNER_STATUS},
 };
+
+pub const REQUEST_MAX_BODY_LENGTH: usize = 1024 * 1024; // 1 MB
 
 /// Implements the Signer API and provides a service for signing requests
 pub struct SigningService;
@@ -159,16 +162,24 @@ async fn jwt_auth(
     State(state): State<SigningState>,
     TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
     addr: ConnectInfo<SocketAddr>,
-    mut req: Request,
+    req: Request,
     next: Next,
 ) -> Result<Response, SignerModuleError> {
     // Check if the request needs to be rate limited
     let client_ip = addr.ip();
     check_jwt_rate_limit(&state, &client_ip)?;
 
+    // Clone the request so we can read the body
+    let (parts, body) = req.into_parts();
+    let bytes = to_bytes(body, REQUEST_MAX_BODY_LENGTH).await.map_err(|e| {
+        error!("Failed to read request body: {e}");
+        SignerModuleError::RequestError(e.to_string())
+    })?;
+
     // Process JWT authorization
-    match check_jwt_auth(&auth, &state) {
+    match check_jwt_auth(&auth, &state, &bytes) {
         Ok(module_id) => {
+            let mut req = Request::from_parts(parts, Body::from(bytes));
             req.extensions_mut().insert(module_id);
             Ok(next.run(req).await)
         }
@@ -224,42 +235,83 @@ fn check_jwt_rate_limit(state: &SigningState, client_ip: &IpAddr) -> Result<(), 
 fn check_jwt_auth(
     auth: &Authorization<Bearer>,
     state: &SigningState,
+    body: &[u8],
 ) -> Result<ModuleId, SignerModuleError> {
     let jwt: Jwt = auth.token().to_string().into();
 
     // We first need to decode it to get the module id and then validate it
     // with the secret stored in the state
-    let module_id = decode_jwt(jwt.clone()).map_err(|e| {
+    let claims = decode_jwt(jwt.clone()).map_err(|e| {
         error!("Unauthorized request. Invalid JWT: {e}");
         SignerModuleError::Unauthorized
     })?;
 
     let guard = state.jwts.read();
-    let jwt_config = guard.get(&module_id).ok_or_else(|| {
+    let jwt_config = guard.get(&claims.module).ok_or_else(|| {
         error!("Unauthorized request. Was the module started correctly?");
         SignerModuleError::Unauthorized
     })?;
 
-    validate_jwt(jwt, &jwt_config.jwt_secret).map_err(|e| {
-        error!("Unauthorized request. Invalid JWT: {e}");
-        SignerModuleError::Unauthorized
-    })?;
-    Ok(module_id)
+    if body.is_empty() {
+        // Skip payload hash comparison for requests without a body
+        validate_jwt(jwt, &jwt_config.jwt_secret, None).map_err(|e| {
+            error!("Unauthorized request. Invalid JWT: {e}");
+            SignerModuleError::Unauthorized
+        })?;
+    } else {
+        validate_jwt(jwt, &jwt_config.jwt_secret, Some(body)).map_err(|e| {
+            error!("Unauthorized request. Invalid JWT: {e}");
+            SignerModuleError::Unauthorized
+        })?;
+
+        // Make sure the request contains a hash of the payload in its claims
+        if !body.is_empty() {
+            let payload_hash = keccak256(body);
+            if claims.payload_hash.is_none() || claims.payload_hash != Some(payload_hash) {
+                error!("Unauthorized request. Invalid payload hash in JWT claims");
+                return Err(SignerModuleError::Unauthorized);
+            }
+        }
+    }
+
+    Ok(claims.module)
 }
 
 async fn admin_auth(
     State(state): State<SigningState>,
     TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
+    addr: ConnectInfo<SocketAddr>,
     req: Request,
     next: Next,
 ) -> Result<Response, SignerModuleError> {
-    let jwt: Jwt = auth.token().to_string().into();
+    // Check if the request needs to be rate limited
+    let client_ip = addr.ip();
+    check_jwt_rate_limit(&state, &client_ip)?;
 
-    validate_admin_jwt(jwt, &state.admin_secret.read()).map_err(|e| {
-        error!("Unauthorized request. Invalid JWT: {e}");
-        SignerModuleError::Unauthorized
+    // Clone the request so we can read the body
+    let (parts, body) = req.into_parts();
+    let bytes = to_bytes(body, REQUEST_MAX_BODY_LENGTH).await.map_err(|e| {
+        error!("Failed to read request body: {e}");
+        SignerModuleError::RequestError(e.to_string())
     })?;
 
+    let jwt: Jwt = auth.token().to_string().into();
+
+    // Validate the admin JWT
+    if bytes.is_empty() {
+        // Skip payload hash comparison for requests without a body
+        validate_admin_jwt(jwt, &state.admin_secret.read(), None).map_err(|e| {
+            error!("Unauthorized request. Invalid JWT: {e}");
+            SignerModuleError::Unauthorized
+        })?;
+    } else {
+        validate_admin_jwt(jwt, &state.admin_secret.read(), Some(&bytes)).map_err(|e| {
+            error!("Unauthorized request. Invalid payload hash in JWT claims: {e}");
+            SignerModuleError::Unauthorized
+        })?;
+    }
+
+    let req = Request::from_parts(parts, Body::from(bytes));
     Ok(next.run(req).await)
 }
 

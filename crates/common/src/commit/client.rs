@@ -42,7 +42,7 @@ pub struct SignerClient {
 impl SignerClient {
     /// Create a new SignerClient
     pub fn new(signer_server_url: Url, jwt_secret: Jwt, module_id: ModuleId) -> eyre::Result<Self> {
-        let jwt = create_jwt(&module_id, &jwt_secret)?;
+        let jwt = create_jwt(&module_id, &jwt_secret, None)?;
 
         let mut auth_value =
             HeaderValue::from_str(&format!("Bearer {}", jwt)).wrap_err("invalid jwt")?;
@@ -67,7 +67,7 @@ impl SignerClient {
 
     fn refresh_jwt(&mut self) -> Result<(), SignerClientError> {
         if self.last_jwt_refresh.elapsed() > Duration::from_secs(SIGNER_JWT_EXPIRATION) {
-            let jwt = create_jwt(&self.module_id, &self.jwt_secret)?;
+            let jwt = create_jwt(&self.module_id, &self.jwt_secret, None)?;
 
             let mut auth_value =
                 HeaderValue::from_str(&format!("Bearer {}", jwt)).wrap_err("invalid jwt")?;
@@ -83,6 +83,16 @@ impl SignerClient {
         }
 
         Ok(())
+    }
+
+    fn create_jwt_for_payload<T: Serialize>(
+        &mut self,
+        payload: &T,
+    ) -> Result<Jwt, SignerClientError> {
+        let payload_vec = serde_json::to_vec(payload)?;
+        create_jwt(&self.module_id, &self.jwt_secret, Some(&payload_vec))
+            .wrap_err("failed to create JWT for payload")
+            .map_err(SignerClientError::JWTError)
     }
 
     /// Request a list of validator pubkeys for which signatures can be
@@ -114,10 +124,10 @@ impl SignerClient {
         Q: Serialize,
         T: for<'de> Deserialize<'de>,
     {
-        self.refresh_jwt()?;
+        let jwt = self.create_jwt_for_payload(request)?;
 
         let url = self.url.join(route)?;
-        let res = self.client.post(url).json(&request).send().await?;
+        let res = self.client.post(url).json(&request).bearer_auth(jwt).send().await?;
 
         let status = res.status();
         let response_bytes = res.bytes().await?;
@@ -162,10 +172,10 @@ impl SignerClient {
     where
         T: ProxyId + for<'de> Deserialize<'de>,
     {
-        self.refresh_jwt()?;
+        let jwt = self.create_jwt_for_payload(request)?;
 
         let url = self.url.join(GENERATE_PROXY_KEY_PATH)?;
-        let res = self.client.post(url).json(&request).send().await?;
+        let res = self.client.post(url).json(&request).bearer_auth(jwt).send().await?;
 
         let status = res.status();
         let response_bytes = res.bytes().await?;

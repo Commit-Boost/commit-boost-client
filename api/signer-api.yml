@@ -10,6 +10,12 @@ paths:
   /signer/v1/get_pubkeys:
     get:
       summary: Get a list of public keys for which signatures may be requested
+      description: >
+        This endpoint requires a valid JWT Bearer token.
+        
+        The token **must include** the following claims:
+        - `exp` (integer): Expiration timestamp
+        - `module` (string): The ID of the module making the request, which must match a module ID in the Commit-Boost configuration file.
       tags:
         - Signer
       security:
@@ -61,6 +67,13 @@ paths:
   /signer/v1/request_signature/bls:
     post:
       summary: Request a signature for a 32-byte blob of data (typically a hash), signed by the BLS private key for the requested public key.
+      description: >
+        This endpoint requires a valid JWT Bearer token.
+        
+        The token **must include** the following claims:
+        - `exp` (integer): Expiration timestamp
+        - `module` (string): The ID of the module making the request, which must match a module ID in the Commit-Boost configuration file.
+        - `payload_hash` (string): The Keccak-256 hash of the JSON-encoded request body, with optional `0x` prefix. This is required to prevent JWT replay attacks.
       tags:
         - Signer
       security:
@@ -201,6 +214,13 @@ paths:
   /signer/v1/request_signature/proxy-bls:
     post:
       summary: Request a signature for a 32-byte blob of data (typically a hash), signed by the BLS private key for the requested proxy public key.
+      description: >
+        This endpoint requires a valid JWT Bearer token.
+        
+        The token **must include** the following claims:
+        - `exp` (integer): Expiration timestamp
+        - `module` (string): The ID of the module making the request, which must match a module ID in the Commit-Boost configuration file.
+        - `payload_hash` (string): The Keccak-256 hash of the JSON-encoded request body, with optional `0x` prefix. This is required to prevent JWT replay attacks.
       tags:
         - Signer
       security:
@@ -341,6 +361,13 @@ paths:
   /signer/v1/request_signature/proxy-ecdsa:
     post:
       summary: Request a signature for a 32-byte blob of data (typically a hash), signed by the ECDSA private key for the requested proxy Ethereum address.
+      description: >
+        This endpoint requires a valid JWT Bearer token.
+        
+        The token **must include** the following claims:
+        - `exp` (integer): Expiration timestamp
+        - `module` (string): The ID of the module making the request, which must match a module ID in the Commit-Boost configuration file.
+        - `payload_hash` (string): The Keccak-256 hash of the JSON-encoded request body, with optional `0x` prefix. This is required to prevent JWT replay attacks.
       tags:
         - Signer
       security:
@@ -481,6 +508,13 @@ paths:
   /signer/v1/generate_proxy_key:
     post:
       summary: Request a proxy key be generated for a specific consensus pubkey
+      description: >
+        This endpoint requires a valid JWT Bearer token.
+        
+        The token **must include** the following claims:
+        - `exp` (integer): Expiration timestamp
+        - `module` (string): The ID of the module making the request, which must match a module ID in the Commit-Boost configuration file.
+        - `payload_hash` (string): The Keccak-256 hash of the JSON-encoded request body, with optional `0x` prefix. This is required to prevent JWT replay attacks.
       tags:
         - Signer
       security:
@@ -579,20 +613,6 @@ paths:
                   message:
                     type: string
                     example: "Internal error"
-
-  /status:
-    get:
-      summary: Get the status of the Signer API module
-      tags:
-        - Management
-      responses:
-        "200":
-          description: Success
-          content:
-            text/plain:
-              schema:
-                type: string
-                example: "OK"
 
 components:
   securitySchemes:
