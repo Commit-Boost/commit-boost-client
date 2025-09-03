@@ -20,6 +20,7 @@ prometheus.workspace = true
 reqwest.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
+tower-http.workspace = true
 tracing.workspace = true
 tree_hash.workspace = true
 url.workspace = true
