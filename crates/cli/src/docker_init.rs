@@ -422,24 +422,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
 
                 // Add TLS support if needed
                 if let Some(certs_path) = certs_path {
-                    if !certs_path.try_exists()? {
-                        std::fs::create_dir(certs_path.clone())?;
-                    }
-
-                    if !certs_path.join(SIGNER_TLS_CERTIFICATE_NAME).try_exists()? {
-                        return Err(eyre::eyre!("Signer TLS certificate not found at {}, please provide a valid certificate or create one", certs_path.join(SIGNER_TLS_CERTIFICATE_NAME).display()));
-                    }
-                    if !certs_path.join(SIGNER_TLS_KEY_NAME).try_exists()? {
-                        return Err(eyre::eyre!("Signer TLS key not found at {}, please provide a valid key or create one", certs_path.join(SIGNER_TLS_KEY_NAME).display()));
-                    }
-
-                    volumes.push(create_cert_binding(certs_path));
-                    volumes.push(Volumes::Simple(format!(
-                        "{}:{}/{}:ro",
-                        certs_path.join(SIGNER_TLS_KEY_NAME).display(),
-                        SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
-                        SIGNER_TLS_KEY_NAME
-                    )));
+                    add_tls_certs_volume(&mut volumes, certs_path)?
                 }
 
                 // networks
@@ -547,6 +530,11 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                         panic!("ERC2335 store not supported with Dirk signer");
                     }
                     None => {}
+                }
+
+                // Add TLS support if needed
+                if let Some(certs_path) = certs_path {
+                    add_tls_certs_volume(&mut volumes, certs_path)?
                 }
 
                 // networks
@@ -700,4 +688,30 @@ fn create_cert_binding(certs_path: &Path) -> Volumes {
         SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
         SIGNER_TLS_CERTIFICATE_NAME
     ))
+}
+
+/// Adds the TLS cert and key bindings to the provided volumes list
+fn add_tls_certs_volume(volumes: &mut Vec<Volumes>, certs_path: &Path) -> Result<()> {
+    if !certs_path.try_exists()? {
+        std::fs::create_dir(certs_path)?;
+    }
+
+    if !certs_path.join(SIGNER_TLS_CERTIFICATE_NAME).try_exists()? ||
+        !certs_path.join(SIGNER_TLS_KEY_NAME).try_exists()?
+    {
+        return Err(eyre::eyre!(
+            "Signer TLS certificate or key not found at {}, please provide a valid certificate and key or create them",
+            certs_path.display()
+        ));
+    }
+
+    volumes.push(create_cert_binding(certs_path));
+    volumes.push(Volumes::Simple(format!(
+        "{}:{}/{}:ro",
+        certs_path.join(SIGNER_TLS_KEY_NAME).display(),
+        SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
+        SIGNER_TLS_KEY_NAME
+    )));
+
+    Ok(())
 }
