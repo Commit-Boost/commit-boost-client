@@ -31,7 +31,6 @@ use docker_compose_types::{
 };
 use eyre::Result;
 use indexmap::IndexMap;
-use rcgen::generate_simple_self_signed;
 
 /// Name of the docker compose file
 pub(super) const CB_COMPOSE_FILE: &str = "cb.docker-compose.yml";
@@ -427,18 +426,11 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                         std::fs::create_dir(certs_path.clone())?;
                     }
 
-                    if !certs_path.join(SIGNER_TLS_CERTIFICATE_NAME).try_exists()? ||
-                        !certs_path.join(SIGNER_TLS_KEY_NAME).try_exists()?
-                    {
-                        let (cert, key): (String, String) =
-                            generate_simple_self_signed(vec!["cb_signer".to_string()])
-                                .map(|x| (x.cert.pem(), x.key_pair.serialize_pem()))
-                                .map_err(|e| {
-                                    eyre::eyre!("Failed to generate TLS certificate: {e}")
-                                })?;
-
-                        std::fs::write(certs_path.join(SIGNER_TLS_CERTIFICATE_NAME), &cert)?;
-                        std::fs::write(certs_path.join(SIGNER_TLS_KEY_NAME), &key)?;
+                    if !certs_path.join(SIGNER_TLS_CERTIFICATE_NAME).try_exists()? {
+                        return Err(eyre::eyre!("Signer TLS certificate not found at {}, please provide a valid certificate or create one", certs_path.join(SIGNER_TLS_CERTIFICATE_NAME).display()));
+                    }
+                    if !certs_path.join(SIGNER_TLS_KEY_NAME).try_exists()? {
+                        return Err(eyre::eyre!("Signer TLS key not found at {}, please provide a valid key or create one", certs_path.join(SIGNER_TLS_KEY_NAME).display()));
                     }
 
                     volumes.push(create_cert_binding(certs_path));
@@ -569,8 +561,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                     environment: Environment::KvPair(signer_envs),
                     healthcheck: Some(Healthcheck {
                         test: Some(HealthcheckTest::Single(format!(
-                            // TODO: needs -k if using self-signed certs, how do we pass that in?
-                            "curl -f {signer_http_prefix}://localhost:{signer_port}/status"
+                            "curl -k -f {signer_server}/status"
                         ))),
                         interval: Some("30s".into()),
                         timeout: Some("5s".into()),
