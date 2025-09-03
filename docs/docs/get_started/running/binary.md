@@ -30,6 +30,7 @@ Modules need some environment variables to work correctly.
 
 - `CB_SIGNER_ADMIN_JWT`: secret to use for admin JWT.
 - `CB_SIGNER_ENDPOINT`: optional, override to specify the `IP:port` endpoint to bind the signer server to.
+- `CB_SIGNER_TLS_CERTIFICATES`: path to the TLS certificates for the server.
 - For loading keys we currently support:
   - `CB_SIGNER_LOADER_FILE`: path to a `.json` with plaintext keys (for testing purposes only).
   - `CB_SIGNER_LOADER_FORMAT`, `CB_SIGNER_LOADER_KEYS_DIR` and `CB_SIGNER_LOADER_SECRETS_DIR`: paths to the `keys` and `secrets` directories or files (ERC-2335 style keystores, see [Signer config](../configuration/#signer-module) for more info).

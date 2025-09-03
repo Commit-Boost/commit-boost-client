@@ -3,6 +3,7 @@
 use std::{
     collections::HashMap,
     net::{Ipv4Addr, SocketAddr},
+    path::PathBuf,
     sync::Arc,
 };
 
@@ -21,8 +22,9 @@ use super::{
 use crate::{
     commit::client::SignerClient,
     config::{
-        load_env_var, load_file_from_env, PbsMuxes, CONFIG_ENV, MODULE_JWT_ENV, PBS_MODULE_NAME,
-        SIGNER_URL_ENV,
+        load_env_var, load_file_from_env, PbsMuxes, SignerConfig, TlsMode, CONFIG_ENV,
+        MODULE_JWT_ENV, PBS_MODULE_NAME, SIGNER_TLS_CERTIFICATES_PATH_ENV,
+        SIGNER_TLS_CERTIFICATE_NAME, SIGNER_URL_ENV,
     },
     pbs::{
         DefaultTimeout, RelayClient, RelayEntry, DEFAULT_PBS_PORT, LATE_IN_SLOT_TIME_MS,
@@ -298,6 +300,7 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
         chain: Chain,
         relays: Vec<RelayConfig>,
         pbs: CustomPbsConfig<U>,
+        signer: SignerConfig,
         muxes: Option<PbsMuxes>,
     }
 
@@ -350,8 +353,18 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
         // if custom pbs requires a signer client, load jwt
         let module_jwt = Jwt(load_env_var(MODULE_JWT_ENV)?);
         let signer_server_url = load_env_var(SIGNER_URL_ENV)?.parse()?;
+        let certs_path = match cb_config.signer.tls_mode {
+            TlsMode::Insecure => None,
+            TlsMode::Certificate(path) => Some(
+                load_env_var(SIGNER_TLS_CERTIFICATES_PATH_ENV)
+                    .map(PathBuf::from)
+                    .unwrap_or(path)
+                    .join(SIGNER_TLS_CERTIFICATE_NAME),
+            ),
+        };
         Some(SignerClient::new(
             signer_server_url,
+            certs_path,
             module_jwt,
             ModuleId(PBS_MODULE_NAME.to_string()),
         )?)

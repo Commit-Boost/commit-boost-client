@@ -169,6 +169,14 @@ jwt_auth_fail_limit = 3
 # OPTIONAL, DEFAULT: 300
 jwt_auth_fail_timeout_seconds = 300
 
+# [signer.tls_mode]
+# How to use TLS for the Signer's HTTP server; two modes are supported:
+# - type = "insecure": disable TLS, so the server runs in HTTP mode (not recommended for production).
+# - type = "certificate": Use TLS. Include a property named "path" below this with the provided path; `path` should be a directory containing `cert.pem` and `key.pem` files to use. If they don't exist, they'll be automatically generated in self-signed mode.
+# OPTIONAL, DEFAULT:
+# type = "certificate"
+# path = "./certs"
+
 # For Remote signer:
 # [signer.remote]
 # URL of the Web3Signer instance

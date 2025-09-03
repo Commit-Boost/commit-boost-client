@@ -46,6 +46,12 @@ pub const SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT: u32 = 5 * 60;
 pub const JWTS_ENV: &str = "CB_JWTS";
 pub const ADMIN_JWT_ENV: &str = "CB_SIGNER_ADMIN_JWT";
 
+/// Path to the certificates folder where the cert.pem and key.pem files are
+/// stored/generated
+pub const SIGNER_TLS_CERTIFICATES_PATH_ENV: &str = "CB_SIGNER_TLS_CERTIFICATES";
+pub const SIGNER_TLS_CERTIFICATES_PATH_DEFAULT: &str = "/certs";
+pub const SIGNER_TLS_CERTIFICATE_NAME: &str = "cert.pem";
+pub const SIGNER_TLS_KEY_NAME: &str = "key.pem";
 /// Path to json file with plaintext keys (testing only)
 pub const SIGNER_KEYS_ENV: &str = "CB_SIGNER_LOADER_FILE";
 pub const SIGNER_DEFAULT: &str = "/keys.json";

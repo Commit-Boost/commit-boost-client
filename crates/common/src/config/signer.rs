@@ -15,7 +15,8 @@ use super::{
     load_optional_env_var, utils::load_env_var, CommitBoostConfig, SIGNER_ENDPOINT_ENV,
     SIGNER_IMAGE_DEFAULT, SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT, SIGNER_JWT_AUTH_FAIL_LIMIT_ENV,
     SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT, SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_ENV,
-    SIGNER_PORT_DEFAULT,
+    SIGNER_PORT_DEFAULT, SIGNER_TLS_CERTIFICATES_PATH_ENV, SIGNER_TLS_CERTIFICATE_NAME,
+    SIGNER_TLS_KEY_NAME,
 };
 use crate::{
     config::{
@@ -57,6 +58,17 @@ impl ModuleSigningConfig {
     }
 }
 
+/// Mode to use for TLS support when starting the signer service
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(tag = "type", content = "path", rename_all = "snake_case")]
+pub enum TlsMode {
+    /// Don't use TLS (regular HTTP)
+    Insecure,
+
+    /// Use TLS with a certificate and key file in the provided directory
+    Certificate(PathBuf),
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct SignerConfig {
@@ -79,6 +91,12 @@ pub struct SignerConfig {
     /// limit has been reached
     #[serde(default = "default_u32::<SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT>")]
     pub jwt_auth_fail_timeout_seconds: u32,
+
+    /// Mode to use for TLS support.
+    /// If using Certificate mode, this must include a path to the TLS
+    /// certificates directory (with a `cert.pem` and a `key.pem` file).
+    #[serde(default = "default_tls_mode")]
+    pub tls_mode: TlsMode,
 
     /// Inner type-specific configuration
     #[serde(flatten)]
@@ -104,6 +122,11 @@ impl SignerConfig {
 
 fn default_signer_image() -> String {
     SIGNER_IMAGE_DEFAULT.to_string()
+}
+
+fn default_tls_mode() -> TlsMode {
+    TlsMode::Insecure // To make the default use TLS, do
+                      // TlsMode::Certificate(PathBuf::from("./certs"))
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -169,6 +192,7 @@ pub struct StartSignerConfig {
     pub jwt_auth_fail_limit: u32,
     pub jwt_auth_fail_timeout_seconds: u32,
     pub dirk: Option<DirkConfig>,
+    pub tls_certificates: Option<(Vec<u8>, Vec<u8>)>,
 }
 
 impl StartSignerConfig {
@@ -208,6 +232,20 @@ impl StartSignerConfig {
             signer_config.jwt_auth_fail_timeout_seconds
         };
 
+        // Load the TLS certificates if requested, generating self-signed ones if
+        // necessary
+        let tls_certificates = match signer_config.tls_mode {
+            TlsMode::Insecure => None,
+            TlsMode::Certificate(path) => {
+                let certs_path = load_env_var(SIGNER_TLS_CERTIFICATES_PATH_ENV)
+                    .map(PathBuf::from)
+                    .unwrap_or(path);
+                let cert_path = certs_path.join(SIGNER_TLS_CERTIFICATE_NAME);
+                let key_path = certs_path.join(SIGNER_TLS_KEY_NAME);
+                Some((std::fs::read(cert_path)?, std::fs::read(key_path)?))
+            }
+        };
+
         match signer_config.inner {
             SignerType::Local { loader, store, .. } => Ok(StartSignerConfig {
                 chain: config.chain,
@@ -219,6 +257,7 @@ impl StartSignerConfig {
                 jwt_auth_fail_timeout_seconds,
                 store,
                 dirk: None,
+                tls_certificates,
             }),
 
             SignerType::Dirk {
@@ -264,6 +303,7 @@ impl StartSignerConfig {
                             None => None,
                         },
                     }),
+                    tls_certificates,
                 })
             }
 
