@@ -462,7 +462,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                     environment: Environment::KvPair(signer_envs),
                     healthcheck: Some(Healthcheck {
                         test: Some(HealthcheckTest::Single(format!(
-                            "curl -k -f https://localhost:{signer_port}/status"
+                            "curl -k -f {signer_server}/status"
                         ))),
                         interval: Some("30s".into()),
                         timeout: Some("5s".into()),
