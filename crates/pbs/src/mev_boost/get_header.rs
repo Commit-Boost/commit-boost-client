@@ -49,13 +49,13 @@ pub async fn get_header<S: BuilderApiState>(
     state: PbsState<S>,
 ) -> eyre::Result<Option<GetHeaderResponse>> {
     let parent_block = Arc::new(RwLock::new(None));
-    if state.extra_validation_enabled()
-        && let Some(rpc_url) = state.pbs_config().rpc_url.clone() {
-            tokio::spawn(
-                fetch_parent_block(rpc_url, params.parent_hash, parent_block.clone())
-                    .in_current_span(),
-            );
-        }
+    if state.extra_validation_enabled() &&
+        let Some(rpc_url) = state.pbs_config().rpc_url.clone()
+    {
+        tokio::spawn(
+            fetch_parent_block(rpc_url, params.parent_hash, parent_block.clone()).in_current_span(),
+        );
+    }
 
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
     let (pbs_config, relays, maybe_mux_id) = state.mux_config_and_relays(&params.pubkey);
