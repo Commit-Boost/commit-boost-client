@@ -5,7 +5,7 @@ use cb_common::commit::constants::{
     GENERATE_PROXY_KEY_PATH, GET_PUBKEYS_PATH, REQUEST_SIGNATURE_PATH,
 };
 use lazy_static::lazy_static;
-use prometheus::{register_int_counter_vec_with_registry, IntCounterVec, Registry};
+use prometheus::{IntCounterVec, Registry, register_int_counter_vec_with_registry};
 
 use crate::constants::{
     GENERATE_PROXY_KEY_ENDPOINT_TAG, GET_PUBKEYS_ENDPOINT_TAG, REQUEST_SIGNATURE_ENDPOINT_TAG,

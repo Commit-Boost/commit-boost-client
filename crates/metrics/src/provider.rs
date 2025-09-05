@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use axum::{
     body::Body,
     extract::State,
-    http::{header::CONTENT_TYPE, StatusCode},
+    http::{StatusCode, header::CONTENT_TYPE},
     response::{IntoResponse, Response},
     routing::get,
 };

@@ -1,5 +1,5 @@
 # This will be the main build image
-FROM --platform=${BUILDPLATFORM} rust:1.83-slim-bookworm AS chef
+FROM --platform=${BUILDPLATFORM} rust:1.89-slim-bookworm AS chef
 ARG TARGETOS TARGETARCH BUILDPLATFORM TARGET_CRATE
 ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 WORKDIR /app

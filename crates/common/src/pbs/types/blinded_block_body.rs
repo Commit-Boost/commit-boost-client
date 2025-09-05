@@ -1,7 +1,7 @@
 use alloy::primitives::{Address, B256};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use ssz_types::{typenum, BitList, BitVector, FixedVector, VariableList};
+use ssz_types::{BitList, BitVector, FixedVector, VariableList, typenum};
 
 use super::{
     execution_payload::ExecutionPayloadHeader, execution_requests::ExecutionRequests,

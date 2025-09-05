@@ -1,5 +1,5 @@
 use alloy::rpc::types::beacon::relay::ValidatorRegistration;
-use axum::{extract::State, http::HeaderMap, response::IntoResponse, Json};
+use axum::{Json, extract::State, http::HeaderMap, response::IntoResponse};
 use cb_common::utils::get_user_agent;
 use reqwest::StatusCode;
 use tracing::{error, info, trace};

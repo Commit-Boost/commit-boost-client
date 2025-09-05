@@ -1,26 +1,26 @@
 use std::{
     net::SocketAddr,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc, RwLock,
+        atomic::{AtomicU64, Ordering},
     },
 };
 
 use alloy::{primitives::U256, rpc::types::beacon::relay::ValidatorRegistration};
 use axum::{
+    Json, Router,
     extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
-    Json, Router,
 };
 use cb_common::{
     pbs::{
-        BlindedBeaconBlock, ExecutionPayloadHeaderMessageElectra, ExecutionRequests,
-        GetHeaderParams, GetHeaderResponse, KzgProof, SignedBlindedBeaconBlock,
-        SignedExecutionPayloadHeader, SubmitBlindedBlockResponse, VersionedResponse,
-        BUILDER_V1_API_PATH, BUILDER_V2_API_PATH, GET_HEADER_PATH, GET_STATUS_PATH,
-        REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
+        BUILDER_V1_API_PATH, BUILDER_V2_API_PATH, BlindedBeaconBlock,
+        ExecutionPayloadHeaderMessageElectra, ExecutionRequests, GET_HEADER_PATH, GET_STATUS_PATH,
+        GetHeaderParams, GetHeaderResponse, KzgProof, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
+        SignedBlindedBeaconBlock, SignedExecutionPayloadHeader, SubmitBlindedBlockResponse,
+        VersionedResponse,
     },
     signature::sign_builder_root,
     types::{BlsSecretKey, Chain},

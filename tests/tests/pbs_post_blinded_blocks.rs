@@ -7,8 +7,8 @@ use cb_common::{
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
-    mock_relay::{start_mock_relay_service, MockRelayState},
-    mock_validator::{load_test_signed_blinded_block, MockValidator},
+    mock_relay::{MockRelayState, start_mock_relay_service},
+    mock_validator::{MockValidator, load_test_signed_blinded_block},
     utils::{generate_mock_relay, get_pbs_static_config, setup_test_env, to_pbs_config},
 };
 use eyre::Result;

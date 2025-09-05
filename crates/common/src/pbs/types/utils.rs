@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 pub mod quoted_variable_list_u64 {
-    use serde::{ser::SerializeSeq, Deserializer, Serializer};
+    use serde::{Deserializer, Serializer, ser::SerializeSeq};
     use serde_utils::quoted_u64_vec::{QuotedIntVecVisitor, QuotedIntWrapper};
-    use ssz_types::{typenum::Unsigned, VariableList};
+    use ssz_types::{VariableList, typenum::Unsigned};
 
     pub fn serialize<S, T>(value: &VariableList<u64, T>, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -24,7 +24,7 @@ pub mod quoted_variable_list_u64 {
     {
         deserializer.deserialize_any(QuotedIntVecVisitor).and_then(|vec| {
             VariableList::new(vec)
-                .map_err(|e| serde::de::Error::custom(format!("invalid length: {:?}", e)))
+                .map_err(|e| serde::de::Error::custom(format!("invalid length: {e:?}")))
         })
     }
 }

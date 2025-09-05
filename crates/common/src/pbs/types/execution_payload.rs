@@ -1,4 +1,4 @@
-use alloy::primitives::{b256, Address, B256, U256};
+use alloy::primitives::{Address, B256, U256, b256};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
@@ -95,7 +95,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        pbs::{types::execution_payload::Transactions, ElectraSpec},
+        pbs::{ElectraSpec, types::execution_payload::Transactions},
         utils::test_encode_decode,
     };
 

@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use axum::http::HeaderMap;
 use cb_common::{
-    pbs::{error::PbsError, RelayClient},
+    pbs::{RelayClient, error::PbsError},
     utils::{get_user_agent_with_version, read_chunked_body_with_max},
 };
 use futures::future::select_ok;

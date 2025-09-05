@@ -1,5 +1,5 @@
 use cb_common::{
-    config::{load_pbs_config, LogsSettings, PBS_MODULE_NAME},
+    config::{LogsSettings, PBS_MODULE_NAME, load_pbs_config},
     utils::{initialize_tracing_log, wait_for_signal},
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
@@ -11,10 +11,6 @@ use tracing::{error, info};
 async fn main() -> Result<()> {
     color_eyre::install()?;
 
-    // set default backtrace unless provided
-    if std::env::var_os("RUST_BACKTRACE").is_none() {
-        std::env::set_var("RUST_BACKTRACE", "1");
-    }
     let _guard = initialize_tracing_log(PBS_MODULE_NAME, LogsSettings::from_env_config()?);
 
     let _args = cb_cli::PbsArgs::parse();
@@ -29,7 +25,7 @@ async fn main() -> Result<()> {
         maybe_err = server => {
             if let Err(err) = maybe_err {
                 error!(%err, "PBS service unexpectedly stopped");
-                eprintln!("PBS service unexpectedly stopped: {}", err);
+                eprintln!("PBS service unexpectedly stopped: {err}");
             }
         },
         _ = wait_for_signal() => {

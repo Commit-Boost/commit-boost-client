@@ -10,8 +10,8 @@ use cb_common::{
     signer::ProxyStore,
     types::{BlsPublicKey, BlsSignature, Chain, ModuleId},
 };
-use eyre::{bail, OptionExt};
-use futures::{future::join_all, stream::FuturesUnordered, FutureExt, StreamExt};
+use eyre::{OptionExt, bail};
+use futures::{FutureExt, StreamExt, future::join_all, stream::FuturesUnordered};
 use rand::Rng;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 use tracing::{debug, error, warn};
@@ -20,9 +20,9 @@ use tree_hash::TreeHash;
 use crate::{
     error::SignerModuleError,
     proto::v1::{
-        account_manager_client::AccountManagerClient, lister_client::ListerClient, sign_request,
-        signer_client::SignerClient, Endpoint, GenerateRequest, ListAccountsRequest, ResponseState,
-        SignRequest, UnlockAccountRequest,
+        Endpoint, GenerateRequest, ListAccountsRequest, ResponseState, SignRequest,
+        UnlockAccountRequest, account_manager_client::AccountManagerClient,
+        lister_client::ListerClient, sign_request, signer_client::SignerClient,
     },
 };
 

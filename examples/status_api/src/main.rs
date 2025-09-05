@@ -1,20 +1,20 @@
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
     Arc,
+    atomic::{AtomicU64, Ordering},
 };
 
 use async_trait::async_trait;
 use axum::{
+    Router,
     extract::State,
     response::{IntoResponse, Response},
     routing::get,
-    Router,
 };
 use commit_boost::prelude::*;
 use eyre::Result;
 use lazy_static::lazy_static;
 use prometheus::IntCounter;
-use reqwest::{header::HeaderMap, StatusCode};
+use reqwest::{StatusCode, header::HeaderMap};
 use serde::Deserialize;
 use tracing::info;
 

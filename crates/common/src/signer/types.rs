@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
 use alloy::primitives::{Address, Bytes};
-use base64::{prelude::BASE64_STANDARD, Engine};
+use base64::{Engine, prelude::BASE64_STANDARD};
 use derive_more::derive::Deref;
 use serde::{
-    de::{Error as DeError, Unexpected},
     Deserialize, Deserializer,
+    de::{Error as DeError, Unexpected},
 };
 
 use super::EcdsaSigner;

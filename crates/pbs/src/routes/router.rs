@@ -1,10 +1,10 @@
 use axum::{
+    Router,
     body::HttpBody,
     extract::{DefaultBodyLimit, MatchedPath, Request},
     middleware::{self, Next},
     response::Response,
     routing::{get, post},
-    Router,
 };
 use axum_extra::headers::{ContentType, HeaderMapExt, UserAgent};
 use cb_common::pbs::{
@@ -20,10 +20,10 @@ use super::{
     reload::handle_reload,
 };
 use crate::{
+    MAX_SIZE_REGISTER_VALIDATOR_REQUEST, MAX_SIZE_SUBMIT_BLOCK_RESPONSE,
     api::BuilderApi,
     routes::submit_block::handle_submit_block_v2,
     state::{BuilderApiState, PbsStateGuard},
-    MAX_SIZE_REGISTER_VALIDATOR_REQUEST, MAX_SIZE_SUBMIT_BLOCK_RESPONSE,
 };
 
 pub fn create_app_router<S: BuilderApiState, A: BuilderApi<S>>(state: PbsStateGuard<S>) -> Router {

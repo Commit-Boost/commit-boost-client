@@ -4,7 +4,7 @@ use std::{
 };
 
 use alloy::{
-    primitives::{utils::format_ether, B256, U256},
+    primitives::{B256, U256, utils::format_ether},
     providers::Provider,
     rpc::types::Block,
 };
@@ -12,9 +12,9 @@ use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
     constants::APPLICATION_BUILDER_DOMAIN,
     pbs::{
+        EMPTY_TX_ROOT_HASH, GetHeaderParams, GetHeaderResponse, HEADER_START_TIME_UNIX_MS,
+        HEADER_TIMEOUT_MS, RelayClient, VersionedResponse,
         error::{PbsError, ValidationError},
-        GetHeaderParams, GetHeaderResponse, RelayClient, VersionedResponse, EMPTY_TX_ROOT_HASH,
-        HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS,
     },
     signature::verify_signed_message,
     types::{BlsPublicKey, BlsSignature, Chain},
@@ -25,9 +25,9 @@ use cb_common::{
 };
 use futures::future::join_all;
 use parking_lot::RwLock;
-use reqwest::{header::USER_AGENT, StatusCode};
+use reqwest::{StatusCode, header::USER_AGENT};
 use tokio::time::sleep;
-use tracing::{debug, error, warn, Instrument};
+use tracing::{Instrument, debug, error, warn};
 use tree_hash::TreeHash;
 use url::Url;
 
@@ -49,13 +49,12 @@ pub async fn get_header<S: BuilderApiState>(
     state: PbsState<S>,
 ) -> eyre::Result<Option<GetHeaderResponse>> {
     let parent_block = Arc::new(RwLock::new(None));
-    if state.extra_validation_enabled() {
-        if let Some(rpc_url) = state.pbs_config().rpc_url.clone() {
-            tokio::spawn(
-                fetch_parent_block(rpc_url, params.parent_hash, parent_block.clone())
-                    .in_current_span(),
-            );
-        }
+    if state.extra_validation_enabled() &&
+        let Some(rpc_url) = state.pbs_config().rpc_url.clone()
+    {
+        tokio::spawn(
+            fetch_parent_block(rpc_url, params.parent_hash, parent_block.clone()).in_current_span(),
+        );
     }
 
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
@@ -525,10 +524,10 @@ fn extra_validation(
 mod tests {
     use alloy::primitives::{B256, U256};
     use cb_common::{
-        pbs::{error::ValidationError, EMPTY_TX_ROOT_HASH},
+        pbs::{EMPTY_TX_ROOT_HASH, error::ValidationError},
         signature::sign_builder_message,
         types::{BlsSecretKey, Chain},
-        utils::{timestamp_of_slot_start_sec, TestRandomSeed},
+        utils::{TestRandomSeed, timestamp_of_slot_start_sec},
     };
 
     use super::{validate_header_data, *};

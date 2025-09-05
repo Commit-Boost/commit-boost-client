@@ -6,7 +6,7 @@ use cb_common::{
     types::Chain,
 };
 use cb_metrics::provider::MetricsProvider;
-use eyre::{bail, Context, Result};
+use eyre::{Context, Result, bail};
 use parking_lot::RwLock;
 use prometheus::core::Collector;
 use tokio::net::TcpListener;
@@ -38,7 +38,7 @@ impl PbsService {
         // wait for the server to start
         tokio::time::sleep(Duration::from_millis(250)).await;
         let local_url =
-            Url::parse(&format!("http://{}{}{}", addr, BUILDER_V1_API_PATH, GET_STATUS_PATH))?;
+            Url::parse(&format!("http://{addr}{BUILDER_V1_API_PATH}{GET_STATUS_PATH}"))?;
 
         let status = reqwest::get(local_url).await?;
         if !status.status().is_success() {

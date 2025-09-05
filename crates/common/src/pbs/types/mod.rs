@@ -14,8 +14,8 @@ pub use beacon_block::{
 };
 pub use blobs_bundle::{Blob, BlobsBundle};
 pub use execution_payload::{
-    ExecutionPayload, ExecutionPayloadHeader, Transaction, Transactions, Withdrawal,
-    EMPTY_TX_ROOT_HASH,
+    EMPTY_TX_ROOT_HASH, ExecutionPayload, ExecutionPayloadHeader, Transaction, Transactions,
+    Withdrawal,
 };
 pub use execution_requests::{
     ConsolidationRequest, DepositRequest, ExecutionRequests, WithdrawalRequest,
@@ -25,7 +25,7 @@ pub use get_header::{
     SignedExecutionPayloadHeader,
 };
 pub use kzg::{
-    KzgCommitment, KzgCommitments, KzgProof, KzgProofs, BYTES_PER_COMMITMENT, BYTES_PER_PROOF,
+    BYTES_PER_COMMITMENT, BYTES_PER_PROOF, KzgCommitment, KzgCommitments, KzgProof, KzgProofs,
 };
 pub use spec::{ElectraSpec, EthSpec};
 pub use utils::VersionedResponse;
