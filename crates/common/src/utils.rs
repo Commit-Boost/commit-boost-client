@@ -78,14 +78,14 @@ pub async fn read_chunked_body_with_max(
     }
 
     // Break if content length is provided but it's too big
-    if let Some(length) = content_length {
-        if length as usize > max_size {
-            return Err(ResponseReadError::PayloadTooLarge {
-                max: max_size,
-                content_length: length as usize,
-                raw: String::new(), // raw content is not available here
-            });
-        }
+    if let Some(length) = content_length &&
+        length as usize > max_size
+    {
+        return Err(ResponseReadError::PayloadTooLarge {
+            max: max_size,
+            content_length: length as usize,
+            raw: String::new(), // raw content is not available here
+        });
     }
 
     let mut stream = res.bytes_stream();
@@ -405,7 +405,7 @@ pub fn get_user_agent(req_headers: &HeaderMap) -> String {
 /// Adds the commit boost version to the existing user agent
 pub fn get_user_agent_with_version(req_headers: &HeaderMap) -> eyre::Result<HeaderValue> {
     let ua = get_user_agent(req_headers);
-    Ok(HeaderValue::from_str(&format!("commit-boost/{HEADER_VERSION_VALUE} {}", ua))?)
+    Ok(HeaderValue::from_str(&format!("commit-boost/{HEADER_VERSION_VALUE} {ua}"))?)
 }
 
 #[cfg(unix)]

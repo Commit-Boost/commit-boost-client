@@ -39,7 +39,7 @@ impl SignerClient {
         let jwt = create_jwt(&module_id, &jwt_secret)?;
 
         let mut auth_value =
-            HeaderValue::from_str(&format!("Bearer {}", jwt)).wrap_err("invalid jwt")?;
+            HeaderValue::from_str(&format!("Bearer {jwt}")).wrap_err("invalid jwt")?;
         auth_value.set_sensitive(true);
 
         let mut headers = HeaderMap::new();
@@ -64,7 +64,7 @@ impl SignerClient {
             let jwt = create_jwt(&self.module_id, &self.jwt_secret)?;
 
             let mut auth_value =
-                HeaderValue::from_str(&format!("Bearer {}", jwt)).wrap_err("invalid jwt")?;
+                HeaderValue::from_str(&format!("Bearer {jwt}")).wrap_err("invalid jwt")?;
             auth_value.set_sensitive(true);
 
             let mut headers = HeaderMap::new();

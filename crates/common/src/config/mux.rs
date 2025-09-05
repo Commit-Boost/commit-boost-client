@@ -353,8 +353,7 @@ async fn fetch_ssv_pubkeys(
 
     loop {
         let url = format!(
-            "https://api.ssv.network/api/v4/{}/validators/in_operator/{}?perPage={}&page={}",
-            chain_name, node_operator_id, MAX_PER_PAGE, page
+            "https://api.ssv.network/api/v4/{chain_name}/validators/in_operator/{node_operator_id}?perPage={MAX_PER_PAGE}&page={page}",
         );
 
         let response = fetch_ssv_pubkeys_from_url(&url, http_timeout).await?;

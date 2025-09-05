@@ -24,7 +24,7 @@ pub mod quoted_variable_list_u64 {
     {
         deserializer.deserialize_any(QuotedIntVecVisitor).and_then(|vec| {
             VariableList::new(vec)
-                .map_err(|e| serde::de::Error::custom(format!("invalid length: {:?}", e)))
+                .map_err(|e| serde::de::Error::custom(format!("invalid length: {e:?}")))
         })
     }
 }
