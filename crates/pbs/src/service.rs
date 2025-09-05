@@ -6,7 +6,7 @@ use cb_common::{
     types::Chain,
 };
 use cb_metrics::provider::MetricsProvider;
-use eyre::{bail, Context, Result};
+use eyre::{Context, Result, bail};
 use parking_lot::RwLock;
 use prometheus::core::Collector;
 use tokio::net::TcpListener;

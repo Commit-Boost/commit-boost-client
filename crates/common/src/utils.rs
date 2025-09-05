@@ -9,18 +9,18 @@ use alloy::{hex, primitives::U256};
 use axum::http::HeaderValue;
 use futures::StreamExt;
 use lh_types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-use rand::{distr::Alphanumeric, Rng};
-use reqwest::{header::HeaderMap, Response};
-use serde::{de::DeserializeOwned, Serialize};
+use rand::{Rng, distr::Alphanumeric};
+use reqwest::{Response, header::HeaderMap};
+use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use ssz::{Decode, Encode};
 use thiserror::Error;
 use tracing::Level;
 use tracing_appender::{non_blocking::WorkerGuard, rolling::Rotation};
 use tracing_subscriber::{
-    fmt::{format::Format, Layer},
-    prelude::*,
     EnvFilter,
+    fmt::{Layer, format::Format},
+    prelude::*,
 };
 
 use crate::{
@@ -173,8 +173,8 @@ pub fn test_encode_decode_ssz<T: Encode + Decode>(d: &[u8]) -> T {
 
 pub mod as_eth_str {
     use alloy::primitives::{
-        utils::{format_ether, parse_ether},
         U256,
+        utils::{format_ether, parse_ether},
     };
     use serde::Deserialize;
 
@@ -410,7 +410,7 @@ pub fn get_user_agent_with_version(req_headers: &HeaderMap) -> eyre::Result<Head
 
 #[cfg(unix)]
 pub async fn wait_for_signal() -> eyre::Result<()> {
-    use tokio::signal::unix::{signal, SignalKind};
+    use tokio::signal::unix::{SignalKind, signal};
 
     let mut sigint = signal(SignalKind::interrupt())?;
     let mut sigterm = signal(SignalKind::terminate())?;

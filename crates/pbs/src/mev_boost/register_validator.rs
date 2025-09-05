@@ -3,13 +3,13 @@ use std::time::{Duration, Instant};
 use alloy::rpc::types::beacon::relay::ValidatorRegistration;
 use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
-    pbs::{error::PbsError, RelayClient, HEADER_START_TIME_UNIX_MS},
+    pbs::{HEADER_START_TIME_UNIX_MS, RelayClient, error::PbsError},
     utils::{get_user_agent_with_version, read_chunked_body_with_max, utcnow_ms},
 };
 use eyre::bail;
 use futures::future::{join_all, select_ok};
 use reqwest::header::USER_AGENT;
-use tracing::{debug, error, Instrument};
+use tracing::{Instrument, debug, error};
 use url::Url;
 
 use crate::{

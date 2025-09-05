@@ -6,12 +6,12 @@ use std::{
 };
 
 use axum::{
+    Extension, Json,
     extract::{ConnectInfo, Request, State},
     http::StatusCode,
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
-    Extension, Json,
 };
 use axum_extra::TypedHeader;
 use cb_common::{
@@ -32,7 +32,7 @@ use cb_common::{
 };
 use cb_metrics::provider::MetricsProvider;
 use eyre::Context;
-use headers::{authorization::Bearer, Authorization};
+use headers::{Authorization, authorization::Bearer};
 use parking_lot::RwLock as ParkingRwLock;
 use tokio::{net::TcpListener, sync::RwLock};
 use tracing::{debug, error, info, warn};
@@ -40,8 +40,8 @@ use uuid::Uuid;
 
 use crate::{
     error::SignerModuleError,
-    manager::{dirk::DirkManager, local::LocalSigningManager, SigningManager},
-    metrics::{uri_to_tag, SIGNER_METRICS_REGISTRY, SIGNER_STATUS},
+    manager::{SigningManager, dirk::DirkManager, local::LocalSigningManager},
+    metrics::{SIGNER_METRICS_REGISTRY, SIGNER_STATUS, uri_to_tag},
 };
 
 /// Implements the Signer API and provides a service for signing requests
@@ -192,7 +192,9 @@ fn check_jwt_rate_limit(state: &SigningState, client_ip: &IpAddr) -> Result<(), 
 
         // Rate limit the request
         let remaining = state.jwt_auth_fail_timeout.saturating_sub(elapsed);
-        warn!("Client {client_ip} is rate limited for {remaining:?} more seconds due to JWT auth failures");
+        warn!(
+            "Client {client_ip} is rate limited for {remaining:?} more seconds due to JWT auth failures"
+        );
         return Err(SignerModuleError::RateLimited(remaining.as_secs_f64()));
     }
 

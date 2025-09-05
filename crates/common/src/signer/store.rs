@@ -12,12 +12,11 @@ use alloy::{
 };
 use eyre::{Context, OptionExt};
 use lh_eth2_keystore::{
-    default_kdf,
+    IV_SIZE, SALT_SIZE, Uuid, default_kdf,
     json_keystore::{
         Aes128Ctr, ChecksumModule, Cipher, CipherModule, Crypto, JsonKeystore, KdfModule,
         Sha256Checksum,
     },
-    Uuid, IV_SIZE, SALT_SIZE,
 };
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -26,7 +25,7 @@ use tracing::{trace, warn};
 use super::{load_bls_signer, load_ecdsa_signer};
 use crate::{
     commit::request::{EncryptionScheme, ProxyDelegation, ProxyId, SignedProxyDelegation},
-    config::{load_env_var, PROXY_DIR_ENV, PROXY_DIR_KEYS_ENV, PROXY_DIR_SECRETS_ENV},
+    config::{PROXY_DIR_ENV, PROXY_DIR_KEYS_ENV, PROXY_DIR_SECRETS_ENV, load_env_var},
     signer::{BlsProxySigner, BlsSigner, EcdsaProxySigner, EcdsaSigner, ProxySigners},
     types::{BlsPublicKey, BlsSignature, ModuleId},
 };
@@ -335,21 +334,27 @@ impl ProxyStore {
                                 let Ok(delegation_signature) =
                                     std::fs::read_to_string(&delegation_signature_path)
                                 else {
-                                    warn!("Failed to read delegation signature: {delegation_signature_path:?}");
+                                    warn!(
+                                        "Failed to read delegation signature: {delegation_signature_path:?}"
+                                    );
                                     continue;
                                 };
 
                                 let Ok(delegation_signature) =
                                     alloy::primitives::hex::decode(delegation_signature)
                                 else {
-                                    warn!("Failed to parse delegation signature: {delegation_signature_path:?}");
+                                    warn!(
+                                        "Failed to parse delegation signature: {delegation_signature_path:?}"
+                                    );
                                     continue;
                                 };
 
                                 let Ok(delegation_signature) =
                                     BlsSignature::deserialize(&delegation_signature)
                                 else {
-                                    warn!("Failed to parse delegation signature: {delegation_signature_path:?}");
+                                    warn!(
+                                        "Failed to parse delegation signature: {delegation_signature_path:?}"
+                                    );
                                     continue;
                                 };
 
@@ -402,21 +407,27 @@ impl ProxyStore {
                                 let Ok(delegation_signature) =
                                     std::fs::read_to_string(&delegation_signature_path)
                                 else {
-                                    warn!("Failed to read delegation signature: {delegation_signature_path:?}");
+                                    warn!(
+                                        "Failed to read delegation signature: {delegation_signature_path:?}"
+                                    );
                                     continue;
                                 };
 
                                 let Ok(delegation_signature) =
                                     alloy::primitives::hex::decode(delegation_signature)
                                 else {
-                                    warn!("Failed to parse delegation signature: {delegation_signature_path:?}");
+                                    warn!(
+                                        "Failed to parse delegation signature: {delegation_signature_path:?}"
+                                    );
                                     continue;
                                 };
 
                                 let Ok(delegation_signature) =
                                     BlsSignature::deserialize(&delegation_signature)
                                 else {
-                                    warn!("Failed to parse delegation signature: {delegation_signature_path:?}");
+                                    warn!(
+                                        "Failed to parse delegation signature: {delegation_signature_path:?}"
+                                    );
                                     continue;
                                 };
 
@@ -612,8 +623,12 @@ mod test {
         assert_eq!(proxy_signers.bls_signers.len(), 1);
         assert_eq!(proxy_signers.ecdsa_signers.len(), 0);
 
-        let proxy_key = bls_pubkey_from_hex_unchecked("a77084280678d9f1efe4ef47a3d62af27872ce82db19a35ee012c4fd5478e6b1123b8869032ba18b2383e8873294f0ba");
-        let consensus_key = bls_pubkey_from_hex_unchecked("ac5e059177afc33263e95d0be0690138b9a1d79a6e19018086a0362e0c30a50bf9e05a08cb44785724d0b2718c5c7118");
+        let proxy_key = bls_pubkey_from_hex_unchecked(
+            "a77084280678d9f1efe4ef47a3d62af27872ce82db19a35ee012c4fd5478e6b1123b8869032ba18b2383e8873294f0ba",
+        );
+        let consensus_key = bls_pubkey_from_hex_unchecked(
+            "ac5e059177afc33263e95d0be0690138b9a1d79a6e19018086a0362e0c30a50bf9e05a08cb44785724d0b2718c5c7118",
+        );
 
         let proxy_signer = proxy_signers.bls_signers.get(&proxy_key);
 
@@ -640,9 +655,11 @@ mod test {
         assert_eq!(proxy_signer.delegation.message.delegator, consensus_key);
         assert_eq!(proxy_signer.delegation.message.proxy, proxy_key);
 
-        assert!(bls_keys
-            .get(&ModuleId("TEST_MODULE".into()))
-            .is_some_and(|keys| keys.contains(&proxy_key)));
+        assert!(
+            bls_keys
+                .get(&ModuleId("TEST_MODULE".into()))
+                .is_some_and(|keys| keys.contains(&proxy_key))
+        );
     }
 
     #[tokio::test]
@@ -710,8 +727,10 @@ mod test {
         assert_eq!(loaded_proxy_signer.delegation.message.delegator, consensus_signer.pubkey());
         assert_eq!(loaded_proxy_signer.delegation.message.proxy, proxy_signer.pubkey());
 
-        assert!(bls_keys
-            .get(&ModuleId("TEST_MODULE".into()))
-            .is_some_and(|keys| keys.contains(&proxy_signer.pubkey())));
+        assert!(
+            bls_keys
+                .get(&ModuleId("TEST_MODULE".into()))
+                .is_some_and(|keys| keys.contains(&proxy_signer.pubkey()))
+        );
     }
 }

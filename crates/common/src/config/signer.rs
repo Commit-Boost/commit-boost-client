@@ -5,16 +5,16 @@ use std::{
 };
 
 use docker_image::DockerImage;
-use eyre::{bail, ensure, OptionExt, Result};
+use eyre::{OptionExt, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use tonic::transport::{Certificate, Identity};
 use url::Url;
 
 use super::{
-    load_jwt_secrets, load_optional_env_var, utils::load_env_var, CommitBoostConfig,
-    SIGNER_ENDPOINT_ENV, SIGNER_IMAGE_DEFAULT, SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT,
-    SIGNER_JWT_AUTH_FAIL_LIMIT_ENV, SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT,
-    SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_ENV, SIGNER_PORT_DEFAULT,
+    CommitBoostConfig, SIGNER_ENDPOINT_ENV, SIGNER_IMAGE_DEFAULT,
+    SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT, SIGNER_JWT_AUTH_FAIL_LIMIT_ENV,
+    SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT, SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_ENV,
+    SIGNER_PORT_DEFAULT, load_jwt_secrets, load_optional_env_var, utils::load_env_var,
 };
 use crate::{
     config::{DIRK_CA_CERT_ENV, DIRK_CERT_ENV, DIRK_DIR_SECRETS_ENV, DIRK_KEY_ENV},

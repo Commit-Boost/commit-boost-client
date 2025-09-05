@@ -4,10 +4,10 @@ use reqwest::StatusCode;
 use tracing::{error, info};
 
 use crate::{
+    BuilderApi, RELOAD_ENDPOINT_TAG,
     error::PbsClientError,
     metrics::BEACON_NODE_STATUS,
     state::{BuilderApiState, PbsStateGuard},
-    BuilderApi, RELOAD_ENDPOINT_TAG,
 };
 
 pub async fn handle_reload<S: BuilderApiState, A: BuilderApi<S>>(

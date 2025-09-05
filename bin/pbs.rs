@@ -1,5 +1,5 @@
 use cb_common::{
-    config::{load_pbs_config, LogsSettings, PBS_MODULE_NAME},
+    config::{LogsSettings, PBS_MODULE_NAME, load_pbs_config},
     utils::{initialize_tracing_log, wait_for_signal},
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};

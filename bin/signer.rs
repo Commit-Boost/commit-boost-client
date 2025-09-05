@@ -1,5 +1,5 @@
 use cb_common::{
-    config::{LogsSettings, StartSignerConfig, SIGNER_MODULE_NAME},
+    config::{LogsSettings, SIGNER_MODULE_NAME, StartSignerConfig},
     utils::{initialize_tracing_log, wait_for_signal},
 };
 use cb_signer::service::SigningService;

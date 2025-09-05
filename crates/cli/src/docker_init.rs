@@ -6,15 +6,15 @@ use std::{
 
 use cb_common::{
     config::{
-        CommitBoostConfig, LogsSettings, ModuleKind, SignerConfig, SignerType, CHAIN_SPEC_ENV,
-        CONFIG_DEFAULT, CONFIG_ENV, DIRK_CA_CERT_DEFAULT, DIRK_CA_CERT_ENV, DIRK_CERT_DEFAULT,
-        DIRK_CERT_ENV, DIRK_DIR_SECRETS_DEFAULT, DIRK_DIR_SECRETS_ENV, DIRK_KEY_DEFAULT,
-        DIRK_KEY_ENV, JWTS_ENV, LOGS_DIR_DEFAULT, LOGS_DIR_ENV, METRICS_PORT_ENV, MODULE_ID_ENV,
-        MODULE_JWT_ENV, PBS_ENDPOINT_ENV, PBS_MODULE_NAME, PROXY_DIR_DEFAULT, PROXY_DIR_ENV,
+        CHAIN_SPEC_ENV, CONFIG_DEFAULT, CONFIG_ENV, CommitBoostConfig, DIRK_CA_CERT_DEFAULT,
+        DIRK_CA_CERT_ENV, DIRK_CERT_DEFAULT, DIRK_CERT_ENV, DIRK_DIR_SECRETS_DEFAULT,
+        DIRK_DIR_SECRETS_ENV, DIRK_KEY_DEFAULT, DIRK_KEY_ENV, JWTS_ENV, LOGS_DIR_DEFAULT,
+        LOGS_DIR_ENV, LogsSettings, METRICS_PORT_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, ModuleKind,
+        PBS_ENDPOINT_ENV, PBS_MODULE_NAME, PROXY_DIR_DEFAULT, PROXY_DIR_ENV,
         PROXY_DIR_KEYS_DEFAULT, PROXY_DIR_KEYS_ENV, PROXY_DIR_SECRETS_DEFAULT,
         PROXY_DIR_SECRETS_ENV, SIGNER_DEFAULT, SIGNER_DIR_KEYS_DEFAULT, SIGNER_DIR_KEYS_ENV,
         SIGNER_DIR_SECRETS_DEFAULT, SIGNER_DIR_SECRETS_ENV, SIGNER_ENDPOINT_ENV, SIGNER_KEYS_ENV,
-        SIGNER_MODULE_NAME, SIGNER_PORT_DEFAULT, SIGNER_URL_ENV,
+        SIGNER_MODULE_NAME, SIGNER_PORT_DEFAULT, SIGNER_URL_ENV, SignerConfig, SignerType,
     },
     pbs::{BUILDER_V1_API_PATH, GET_STATUS_PATH},
     signer::{ProxyStore, SignerLoader},
@@ -554,7 +554,9 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
     if !targets.is_empty() {
         let targets = targets.join(", ");
         println!("Note: Make sure to add these targets for Prometheus to scrape: {targets}");
-        println!("Check out the docs on how to configure Prometheus/Grafana/cAdvisor: https://commit-boost.github.io/commit-boost-client/get_started/running/metrics");
+        println!(
+            "Check out the docs on how to configure Prometheus/Grafana/cAdvisor: https://commit-boost.github.io/commit-boost-client/get_started/running/metrics"
+        );
     }
 
     if envs.is_empty() {

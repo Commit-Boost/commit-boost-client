@@ -7,31 +7,31 @@ use std::{
 };
 
 use alloy::{
-    primitives::{utils::format_ether, U256},
+    primitives::{U256, utils::format_ether},
     providers::{Provider, ProviderBuilder},
 };
-use eyre::{ensure, Result};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use eyre::{Result, ensure};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use url::Url;
 
 use super::{
-    constants::PBS_IMAGE_DEFAULT, load_optional_env_var, CommitBoostConfig, RuntimeMuxConfig,
-    HTTP_TIMEOUT_SECONDS_DEFAULT, PBS_ENDPOINT_ENV,
+    CommitBoostConfig, HTTP_TIMEOUT_SECONDS_DEFAULT, PBS_ENDPOINT_ENV, RuntimeMuxConfig,
+    constants::PBS_IMAGE_DEFAULT, load_optional_env_var,
 };
 use crate::{
     commit::client::SignerClient,
     config::{
-        load_env_var, load_file_from_env, PbsMuxes, CONFIG_ENV, MODULE_JWT_ENV, PBS_MODULE_NAME,
-        SIGNER_URL_ENV,
+        CONFIG_ENV, MODULE_JWT_ENV, PBS_MODULE_NAME, PbsMuxes, SIGNER_URL_ENV, load_env_var,
+        load_file_from_env,
     },
     pbs::{
-        DefaultTimeout, RelayClient, RelayEntry, DEFAULT_PBS_PORT, LATE_IN_SLOT_TIME_MS,
-        REGISTER_VALIDATOR_RETRY_LIMIT,
+        DEFAULT_PBS_PORT, DefaultTimeout, LATE_IN_SLOT_TIME_MS, REGISTER_VALIDATOR_RETRY_LIMIT,
+        RelayClient, RelayEntry,
     },
     types::{BlsPublicKey, Chain, Jwt, ModuleId},
     utils::{
-        as_eth_str, default_bool, default_host, default_u16, default_u256, default_u32,
-        default_u64, WEI_PER_ETH,
+        WEI_PER_ETH, as_eth_str, default_bool, default_host, default_u16, default_u32, default_u64,
+        default_u256,
     },
 };
 
