@@ -25,7 +25,7 @@ async fn main() -> Result<()> {
         maybe_err = server => {
             if let Err(err) = maybe_err {
                 error!(%err, "PBS service unexpectedly stopped");
-                eprintln!("PBS service unexpectedly stopped: {}", err);
+                eprintln!("PBS service unexpectedly stopped: {err}");
             }
         },
         _ = wait_for_signal() => {

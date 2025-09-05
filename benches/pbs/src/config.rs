@@ -28,7 +28,7 @@ pub fn load_static_config() -> Config {
     let path =
         std::env::args().nth(1).expect("missing config path. Add config eg. `bench-config.toml'");
     let config_file = fs::read_to_string(&path)
-        .unwrap_or_else(|_| panic!("Unable to find config file: '{}'", path));
+        .unwrap_or_else(|_| panic!("Unable to find config file: '{path}'"));
     let config: Config = toml::from_str(&config_file).expect("failed to parse toml");
 
     config
