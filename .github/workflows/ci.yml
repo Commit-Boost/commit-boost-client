@@ -26,7 +26,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: nightly-2025-02-26
+          toolchain: nightly-2025-06-26
           components: clippy, rustfmt
 
       - name: Install protoc

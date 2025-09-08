@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use cb_common::{config::RuntimeMuxConfig, signer::random_secret, types::Chain};
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
-    mock_relay::{start_mock_relay_service, MockRelayState},
+    mock_relay::{MockRelayState, start_mock_relay_service},
     mock_validator::MockValidator,
     utils::{generate_mock_relay, get_pbs_static_config, setup_test_env, to_pbs_config},
 };

@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
-use alloy::primitives::{b256, hex, Bytes, B256};
+use alloy::primitives::{B256, Bytes, b256, hex};
 use derive_more::{Deref, Display, From, Into};
-use eyre::{bail, Context};
+use eyre::{Context, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::{constants::APPLICATION_BUILDER_DOMAIN, signature::compute_domain};

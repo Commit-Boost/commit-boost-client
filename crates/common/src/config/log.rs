@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use eyre::Result;
 use serde::{Deserialize, Serialize};
 
-use super::{load_optional_env_var, CommitBoostConfig, LOGS_DIR_DEFAULT, LOGS_DIR_ENV};
+use super::{CommitBoostConfig, LOGS_DIR_DEFAULT, LOGS_DIR_ENV, load_optional_env_var};
 use crate::utils::default_bool;
 
 #[derive(Clone, Default, Debug, Deserialize, Serialize)]

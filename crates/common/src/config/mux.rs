@@ -6,19 +6,19 @@ use std::{
 };
 
 use alloy::{
-    primitives::{address, Address, U256},
+    primitives::{Address, U256, address},
     providers::ProviderBuilder,
     rpc::{client::RpcClient, types::beacon::constants::BLS_PUBLIC_KEY_BYTES_LEN},
     sol,
     transports::http::Http,
 };
-use eyre::{bail, ensure, Context};
+use eyre::{Context, bail, ensure};
 use reqwest::Client;
 use serde::{Deserialize, Deserializer, Serialize};
 use tracing::{debug, info, warn};
 use url::Url;
 
-use super::{load_optional_env_var, PbsConfig, RelayConfig, MUX_PATH_ENV};
+use super::{MUX_PATH_ENV, PbsConfig, RelayConfig, load_optional_env_var};
 use crate::{
     config::{remove_duplicate_keys, safe_read_http_response},
     pbs::RelayClient,
@@ -353,8 +353,7 @@ async fn fetch_ssv_pubkeys(
 
     loop {
         let url = format!(
-            "https://api.ssv.network/api/v4/{}/validators/in_operator/{}?perPage={}&page={}",
-            chain_name, node_operator_id, MAX_PER_PAGE, page
+            "https://api.ssv.network/api/v4/{chain_name}/validators/in_operator/{node_operator_id}?perPage={MAX_PER_PAGE}&page={page}",
         );
 
         let response = fetch_ssv_pubkeys_from_url(&url, http_timeout).await?;
@@ -442,7 +441,7 @@ mod tests {
     use super::*;
     use crate::{
         config::{HTTP_TIMEOUT_SECONDS_DEFAULT, MUXER_HTTP_MAX_LENGTH},
-        utils::{bls_pubkey_from_hex_unchecked, set_ignore_content_length, ResponseReadError},
+        utils::{ResponseReadError, bls_pubkey_from_hex_unchecked, set_ignore_content_length},
     };
 
     const TEST_HTTP_TIMEOUT: u64 = 2;
@@ -497,9 +496,15 @@ mod tests {
         // NOTE: requires that ssv_data.json dpesn't change
         assert_eq!(response.validators.len(), 3);
         let expected_pubkeys = [
-            bls_pubkey_from_hex_unchecked("967ba17a3e7f82a25aa5350ec34d6923e28ad8237b5a41efe2c5e325240d74d87a015bf04634f21900963539c8229b2a"),
-            bls_pubkey_from_hex_unchecked("ac769e8cec802e8ffee34de3253be8f438a0c17ee84bdff0b6730280d24b5ecb77ebc9c985281b41ee3bda8663b6658c"),
-            bls_pubkey_from_hex_unchecked("8c866a5a05f3d45c49b457e29365259021a509c5daa82e124f9701a960ee87b8902e87175315ab638a3d8b1115b23639"),
+            bls_pubkey_from_hex_unchecked(
+                "967ba17a3e7f82a25aa5350ec34d6923e28ad8237b5a41efe2c5e325240d74d87a015bf04634f21900963539c8229b2a",
+            ),
+            bls_pubkey_from_hex_unchecked(
+                "ac769e8cec802e8ffee34de3253be8f438a0c17ee84bdff0b6730280d24b5ecb77ebc9c985281b41ee3bda8663b6658c",
+            ),
+            bls_pubkey_from_hex_unchecked(
+                "8c866a5a05f3d45c49b457e29365259021a509c5daa82e124f9701a960ee87b8902e87175315ab638a3d8b1115b23639",
+            ),
         ];
         for (i, validator) in response.validators.iter().enumerate() {
             assert_eq!(validator.pubkey, expected_pubkeys[i]);

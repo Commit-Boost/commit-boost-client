@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use alloy::primitives::Address;
 use eyre::WrapErr;
-use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
+use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use serde::Deserialize;
 use url::Url;
 
@@ -15,11 +15,11 @@ use super::{
     },
 };
 use crate::{
+    DEFAULT_REQUEST_TIMEOUT,
     constants::SIGNER_JWT_EXPIRATION,
     signer::EcdsaSignature,
     types::{BlsPublicKey, BlsSignature, Jwt, ModuleId},
     utils::create_jwt,
-    DEFAULT_REQUEST_TIMEOUT,
 };
 
 /// Client used by commit modules to request signatures via the Signer API
@@ -39,7 +39,7 @@ impl SignerClient {
         let jwt = create_jwt(&module_id, &jwt_secret)?;
 
         let mut auth_value =
-            HeaderValue::from_str(&format!("Bearer {}", jwt)).wrap_err("invalid jwt")?;
+            HeaderValue::from_str(&format!("Bearer {jwt}")).wrap_err("invalid jwt")?;
         auth_value.set_sensitive(true);
 
         let mut headers = HeaderMap::new();
@@ -64,7 +64,7 @@ impl SignerClient {
             let jwt = create_jwt(&self.module_id, &self.jwt_secret)?;
 
             let mut auth_value =
-                HeaderValue::from_str(&format!("Bearer {}", jwt)).wrap_err("invalid jwt")?;
+                HeaderValue::from_str(&format!("Bearer {jwt}")).wrap_err("invalid jwt")?;
             auth_value.set_sensitive(true);
 
             let mut headers = HeaderMap::new();

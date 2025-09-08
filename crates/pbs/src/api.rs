@@ -1,6 +1,6 @@
 use alloy::rpc::types::beacon::relay::ValidatorRegistration;
 use async_trait::async_trait;
-use axum::{http::HeaderMap, Router};
+use axum::{Router, http::HeaderMap};
 use cb_common::pbs::{
     BuilderApiVersion, GetHeaderParams, GetHeaderResponse, SignedBlindedBeaconBlock,
     SubmitBlindedBlockResponse,
