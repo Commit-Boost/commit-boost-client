@@ -1580,7 +1580,6 @@ dependencies = [
  "docker-compose-types",
  "eyre",
  "indexmap 2.8.0",
- "rcgen",
  "serde_yaml",
 ]
 
@@ -1610,7 +1609,6 @@ dependencies = [
  "pbkdf2 0.12.2",
  "rand 0.9.0",
  "rayon",
- "rcgen",
  "reqwest",
  "serde",
  "serde_json",
