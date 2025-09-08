@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use eyre::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::types::{load_chain_from_file, Chain, ChainLoader, ForkVersion};
+use crate::types::{Chain, ChainLoader, ForkVersion, load_chain_from_file};
 
 mod constants;
 mod log;

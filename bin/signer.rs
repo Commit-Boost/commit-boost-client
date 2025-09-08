@@ -1,5 +1,5 @@
 use cb_common::{
-    config::{LogsSettings, StartSignerConfig, SIGNER_MODULE_NAME},
+    config::{LogsSettings, SIGNER_MODULE_NAME, StartSignerConfig},
     utils::{initialize_tracing_log, wait_for_signal},
 };
 use cb_signer::service::SigningService;
@@ -11,10 +11,6 @@ use tracing::{error, info};
 async fn main() -> Result<()> {
     color_eyre::install()?;
 
-    // set default backtrace unless provided
-    if std::env::var_os("RUST_BACKTRACE").is_none() {
-        std::env::set_var("RUST_BACKTRACE", "1");
-    }
     let _guard = initialize_tracing_log(SIGNER_MODULE_NAME, LogsSettings::from_env_config()?);
 
     let _args = cb_cli::SignerArgs::parse();
@@ -26,7 +22,7 @@ async fn main() -> Result<()> {
         maybe_err = server => {
             if let Err(err) = maybe_err {
                 error!(%err, "signing server unexpectedly stopped");
-                eprintln!("signing server unexpectedly stopped: {}", err);
+                eprintln!("signing server unexpectedly stopped: {err}");
             }
         },
         _ = wait_for_signal() => {

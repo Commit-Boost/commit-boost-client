@@ -1,17 +1,18 @@
 use axum::{
+    Router,
     body::HttpBody,
     extract::{DefaultBodyLimit, MatchedPath, Request},
     middleware::{self, Next},
     response::Response,
     routing::{get, post},
-    Router,
 };
 use axum_extra::headers::{ContentType, HeaderMapExt, UserAgent};
 use cb_common::pbs::{
     BUILDER_V1_API_PATH, BUILDER_V2_API_PATH, GET_HEADER_PATH, GET_STATUS_PATH,
     REGISTER_VALIDATOR_PATH, RELOAD_PATH, SUBMIT_BLOCK_PATH,
 };
-use tracing::{trace, warn};
+use tower_http::trace::TraceLayer;
+use tracing::{info, trace, warn};
 use uuid::Uuid;
 
 use super::{
@@ -19,15 +20,15 @@ use super::{
     reload::handle_reload,
 };
 use crate::{
+    MAX_SIZE_REGISTER_VALIDATOR_REQUEST, MAX_SIZE_SUBMIT_BLOCK_RESPONSE,
     api::BuilderApi,
     routes::submit_block::handle_submit_block_v2,
     state::{BuilderApiState, PbsStateGuard},
-    MAX_SIZE_REGISTER_VALIDATOR_REQUEST, MAX_SIZE_SUBMIT_BLOCK_RESPONSE,
 };
 
 pub fn create_app_router<S: BuilderApiState, A: BuilderApi<S>>(state: PbsStateGuard<S>) -> Router {
     // DefaultBodyLimit is 2Mib by default, so we only increase it for a few routes
-    // thay may need more
+    // that may need more
 
     let v1_builder_routes = Router::new()
         .route(GET_HEADER_PATH, get(handle_get_header::<S, A>))
@@ -51,7 +52,13 @@ pub fn create_app_router<S: BuilderApiState, A: BuilderApi<S>>(state: PbsStateGu
     let v2_builder_router = Router::new().nest(BUILDER_V2_API_PATH, v2_builder_routes);
     let reload_router = Router::new().route(RELOAD_PATH, post(handle_reload::<S, A>));
     let builder_api =
-        Router::new().merge(v1_builder_router).merge(v2_builder_router).merge(reload_router);
+        Router::new().merge(v1_builder_router).merge(v2_builder_router).merge(reload_router).layer(
+            TraceLayer::new_for_http().on_response(
+                |response: &Response, latency: std::time::Duration, _: &tracing::Span| {
+                    info!("Responded with {} in {} ms", response.status(), latency.as_millis());
+                },
+            ),
+        );
 
     let app = if let Some(extra_routes) = A::extra_routes() {
         builder_api.merge(extra_routes)

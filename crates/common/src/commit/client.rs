@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use alloy::primitives::Address;
 use eyre::WrapErr;
 use reqwest::{
-    header::{HeaderMap, HeaderValue, AUTHORIZATION},
     Certificate,
+    header::{AUTHORIZATION, HeaderMap, HeaderValue},
 };
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -18,6 +18,7 @@ use super::{
     },
 };
 use crate::{
+    DEFAULT_REQUEST_TIMEOUT,
     commit::{
         constants::{
             REQUEST_SIGNATURE_BLS_PATH, REQUEST_SIGNATURE_PROXY_BLS_PATH,
@@ -27,7 +28,6 @@ use crate::{
     },
     types::{BlsPublicKey, Jwt, ModuleId},
     utils::create_jwt,
-    DEFAULT_REQUEST_TIMEOUT,
 };
 
 /// Client used by commit modules to request signatures via the Signer API
@@ -64,7 +64,7 @@ impl SignerClient {
         let jwt = create_jwt(&self.module_id, &self.jwt_secret, None)?;
 
         let mut auth_value =
-            HeaderValue::from_str(&format!("Bearer {}", jwt)).wrap_err("invalid jwt")?;
+            HeaderValue::from_str(&format!("Bearer {jwt}")).wrap_err("invalid jwt")?;
         auth_value.set_sensitive(true);
 
         let mut headers = HeaderMap::new();

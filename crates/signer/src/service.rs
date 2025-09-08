@@ -5,15 +5,15 @@ use std::{
     time::{Duration, Instant},
 };
 
-use alloy::primitives::{keccak256, Address, B256, U256};
+use alloy::primitives::{Address, B256, U256, keccak256};
 use axum::{
-    body::{to_bytes, Body},
+    Extension, Json,
+    body::{Body, to_bytes},
     extract::{ConnectInfo, Request, State},
     http::StatusCode,
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
-    Extension, Json,
 };
 use axum_extra::TypedHeader;
 use axum_server::tls_rustls::RustlsConfig;
@@ -37,17 +37,17 @@ use cb_common::{
 };
 use cb_metrics::provider::MetricsProvider;
 use eyre::Context;
-use headers::{authorization::Bearer, Authorization};
+use headers::{Authorization, authorization::Bearer};
 use parking_lot::RwLock as ParkingRwLock;
-use rustls::crypto::{aws_lc_rs, CryptoProvider};
+use rustls::crypto::{CryptoProvider, aws_lc_rs};
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::{
     error::SignerModuleError,
-    manager::{dirk::DirkManager, local::LocalSigningManager, SigningManager},
-    metrics::{uri_to_tag, SIGNER_METRICS_REGISTRY, SIGNER_STATUS},
+    manager::{SigningManager, dirk::DirkManager, local::LocalSigningManager},
+    metrics::{SIGNER_METRICS_REGISTRY, SIGNER_STATUS, uri_to_tag},
 };
 
 pub const REQUEST_MAX_BODY_LENGTH: usize = 1024 * 1024; // 1 MB
@@ -239,7 +239,9 @@ fn check_jwt_rate_limit(state: &SigningState, client_ip: &IpAddr) -> Result<(), 
 
         // Rate limit the request
         let remaining = state.jwt_auth_fail_timeout.saturating_sub(elapsed);
-        warn!("Client {client_ip} is rate limited for {remaining:?} more seconds due to JWT auth failures");
+        warn!(
+            "Client {client_ip} is rate limited for {remaining:?} more seconds due to JWT auth failures"
+        );
         return Err(SignerModuleError::RateLimited(remaining.as_secs_f64()));
     }
 

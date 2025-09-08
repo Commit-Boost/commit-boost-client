@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::PathBuf};
 
 use alloy::primitives::B256;
 use eyre::{ContextCompat, Result};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use toml::Table;
 
 use crate::{

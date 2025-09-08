@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
-use alloy::primitives::{aliases::B32, b256, hex, Bytes, B256, U256};
+use alloy::primitives::{B256, Bytes, U256, aliases::B32, b256, hex};
 use derive_more::{Deref, Display, From, Into};
-use eyre::{bail, Context};
+use eyre::{Context, bail};
 use serde::{Deserialize, Serialize};
 use tree_hash_derive::TreeHash;
 
