@@ -30,12 +30,11 @@ fn test_missing_registration_field(field_name: &str) -> String {
     let mut values: Value = serde_json::from_str(data).unwrap();
 
     // Remove specified field from the first validator's message
-    if let Value::Array(arr) = &mut values {
-        if let Some(first_validator) = arr.get_mut(0) {
-            if let Some(Value::Object(msg_obj)) = first_validator.get_mut("message") {
-                msg_obj.remove(field_name);
-            }
-        }
+    if let Value::Array(arr) = &mut values &&
+        let Some(first_validator) = arr.get_mut(0) &&
+        let Some(Value::Object(msg_obj)) = first_validator.get_mut("message")
+    {
+        msg_obj.remove(field_name);
     }
 
     // This should fail since the field is required
