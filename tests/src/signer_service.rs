@@ -90,8 +90,7 @@ pub async fn verify_pubkeys(response: Response) -> Result<()> {
     for expected in expected_pubkeys {
         assert!(
             pubkey_json.keys.iter().any(|k| k.consensus == expected),
-            "Expected pubkey not found: {:?}",
-            expected
+            "Expected pubkey not found: {expected}"
         );
         info!("Server returned expected pubkey: {:?}", expected);
     }
