@@ -468,7 +468,7 @@ impl FromStr for ForkName {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
             "electra" => Ok(ForkName::Electra),
-            _ => Err(format!("Invalid fork name {}", value)),
+            _ => Err(format!("Invalid fork name {value}")),
         }
     }
 }
