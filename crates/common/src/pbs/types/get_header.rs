@@ -92,7 +92,7 @@ pub struct ExecutionPayloadHeaderMessageElectra {
 
 #[cfg(test)]
 mod tests {
-    use alloy::primitives::{aliases::B32, U256};
+    use alloy::primitives::{U256, aliases::B32};
 
     use super::*;
     use crate::{

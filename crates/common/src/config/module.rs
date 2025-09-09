@@ -8,10 +8,10 @@ use toml::Table;
 use crate::{
     commit::client::SignerClient,
     config::{
+        SIGNER_TLS_CERTIFICATE_NAME, SIGNER_TLS_CERTIFICATES_PATH_ENV, SignerConfig, TlsMode,
         constants::{CONFIG_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, SIGNER_URL_ENV},
         load_env_var,
         utils::load_file_from_env,
-        SignerConfig, TlsMode, SIGNER_TLS_CERTIFICATES_PATH_ENV, SIGNER_TLS_CERTIFICATE_NAME,
     },
     types::{Chain, Jwt, ModuleId},
 };

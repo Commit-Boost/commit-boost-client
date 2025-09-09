@@ -6,7 +6,7 @@ use std::{
 
 use alloy::{
     hex,
-    primitives::{aliases::B32, Address, B256},
+    primitives::{Address, B256, aliases::B32},
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use tree_hash::TreeHash;

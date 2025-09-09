@@ -2,7 +2,7 @@ use std::{collections::HashMap, io::Write, path::PathBuf};
 
 use alloy::{
     hex,
-    primitives::{aliases::B32, B256},
+    primitives::{B256, aliases::B32},
 };
 use blsful::inner_types::{Field, G2Affine, G2Projective, Group, Scalar};
 use cb_common::{

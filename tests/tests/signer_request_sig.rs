@@ -6,7 +6,7 @@ use cb_common::{
         constants::REQUEST_SIGNATURE_BLS_PATH, request::SignConsensusRequest,
         response::BlsSignResponse,
     },
-    config::{load_module_signing_configs, ModuleSigningConfig},
+    config::{ModuleSigningConfig, load_module_signing_configs},
     types::{BlsPublicKey, BlsSignature, Chain, ModuleId},
     utils::create_jwt,
 };
@@ -19,8 +19,9 @@ use reqwest::StatusCode;
 
 const MODULE_ID_1: &str = "test-module";
 const MODULE_ID_2: &str = "another-module";
-const PUBKEY_1: [u8; 48] =
-    hex!("883827193f7627cd04e621e1e8d56498362a52b2a30c9a1c72036eb935c4278dee23d38a24d2f7dda62689886f0c39f4");
+const PUBKEY_1: [u8; 48] = hex!(
+    "883827193f7627cd04e621e1e8d56498362a52b2a30c9a1c72036eb935c4278dee23d38a24d2f7dda62689886f0c39f4"
+);
 const ADMIN_SECRET: &str = "test-admin-secret";
 
 async fn create_mod_signing_configs() -> HashMap<ModuleId, ModuleSigningConfig> {
