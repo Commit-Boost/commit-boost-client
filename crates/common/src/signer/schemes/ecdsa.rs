@@ -1,8 +1,8 @@
 use std::{ops::Deref, str::FromStr};
 
 use alloy::{
-    primitives::{aliases::B32, Address, PrimitiveSignature, B256},
-    signers::{local::PrivateKeySigner, SignerSync},
+    primitives::{Address, B256, PrimitiveSignature, aliases::B32},
+    signers::{SignerSync, local::PrivateKeySigner},
 };
 use eyre::ensure;
 use tree_hash::TreeHash;

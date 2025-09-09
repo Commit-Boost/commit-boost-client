@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use alloy::primitives::{b256, Address, B256};
+use alloy::primitives::{Address, B256, b256};
 use commit_boost::prelude::*;
 use eyre::{OptionExt, Result};
 use lazy_static::lazy_static;

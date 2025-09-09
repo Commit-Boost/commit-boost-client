@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::Path};
 
-use eyre::{bail, Context, Result};
+use eyre::{Context, Result, bail};
 use serde::de::DeserializeOwned;
 
 use crate::{

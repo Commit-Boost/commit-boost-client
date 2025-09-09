@@ -80,10 +80,9 @@ async fn test_validate_bad_timeout_get_header_ms() -> Result<()> {
 
     let result = config.validate().await;
     assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("timeout_get_header_ms must be greater than 0"));
+    assert!(
+        result.unwrap_err().to_string().contains("timeout_get_header_ms must be greater than 0")
+    );
 
     Ok(())
 }
@@ -95,10 +94,9 @@ async fn test_validate_bad_timeout_get_payload_ms() -> Result<()> {
 
     let result = config.validate().await;
     assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("timeout_get_payload_ms must be greater than 0"));
+    assert!(
+        result.unwrap_err().to_string().contains("timeout_get_payload_ms must be greater than 0")
+    );
     Ok(())
 }
 
@@ -109,10 +107,12 @@ async fn test_validate_bad_timeout_register_validator_ms() -> Result<()> {
 
     let result = config.validate().await;
     assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("timeout_register_validator_ms must be greater than 0"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("timeout_register_validator_ms must be greater than 0")
+    );
     Ok(())
 }
 
@@ -123,10 +123,9 @@ async fn test_validate_bad_late_in_slot_time_ms() -> Result<()> {
 
     let result = config.validate().await;
     assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("late_in_slot_time_ms must be greater than 0"));
+    assert!(
+        result.unwrap_err().to_string().contains("late_in_slot_time_ms must be greater than 0")
+    );
     Ok(())
 }
 
@@ -138,10 +137,12 @@ async fn test_validate_bad_timeout_header_vs_late() -> Result<()> {
 
     let result = config.validate().await;
     assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("timeout_get_header_ms must be less than late_in_slot_time_ms"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("timeout_get_header_ms must be less than late_in_slot_time_ms")
+    );
     Ok(())
 }
 
@@ -164,10 +165,12 @@ async fn test_validate_missing_rpc_url() -> Result<()> {
 
     let result = config.validate().await;
     assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("rpc_url is required if extra_validation_enabled is true"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("rpc_url is required if extra_validation_enabled is true")
+    );
     Ok(())
 }
 

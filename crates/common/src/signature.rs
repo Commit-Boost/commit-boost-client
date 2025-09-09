@@ -1,10 +1,10 @@
-use alloy::primitives::{aliases::B32, Address, B256};
+use alloy::primitives::{Address, B256, aliases::B32};
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
     constants::{COMMIT_BOOST_DOMAIN, GENESIS_VALIDATORS_ROOT},
-    signer::{verify_bls_signature, verify_ecdsa_signature, EcdsaSignature},
+    signer::{EcdsaSignature, verify_bls_signature, verify_ecdsa_signature},
     types::{self, BlsPublicKey, BlsSecretKey, BlsSignature, Chain, SignatureRequestInfo},
 };
 

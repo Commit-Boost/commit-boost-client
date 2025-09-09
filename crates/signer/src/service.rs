@@ -5,15 +5,15 @@ use std::{
     time::{Duration, Instant},
 };
 
-use alloy::primitives::{keccak256, Address, B256, U256};
+use alloy::primitives::{Address, B256, U256, keccak256};
 use axum::{
-    body::{to_bytes, Body},
+    Extension, Json,
+    body::{Body, to_bytes},
     extract::{ConnectInfo, Request, State},
     http::StatusCode,
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
-    Extension, Json,
 };
 use axum_extra::TypedHeader;
 use axum_server::tls_rustls::RustlsConfig;
@@ -37,17 +37,17 @@ use cb_common::{
 };
 use cb_metrics::provider::MetricsProvider;
 use eyre::Context;
-use headers::{authorization::Bearer, Authorization};
+use headers::{Authorization, authorization::Bearer};
 use parking_lot::RwLock as ParkingRwLock;
-use rustls::crypto::{aws_lc_rs, CryptoProvider};
+use rustls::crypto::{CryptoProvider, aws_lc_rs};
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::{
     error::SignerModuleError,
-    manager::{dirk::DirkManager, local::LocalSigningManager, SigningManager},
-    metrics::{uri_to_tag, SIGNER_METRICS_REGISTRY, SIGNER_STATUS},
+    manager::{SigningManager, dirk::DirkManager, local::LocalSigningManager},
+    metrics::{SIGNER_METRICS_REGISTRY, SIGNER_STATUS, uri_to_tag},
 };
 
 pub const REQUEST_MAX_BODY_LENGTH: usize = 1024 * 1024; // 1 MB
@@ -239,7 +239,9 @@ fn check_jwt_rate_limit(state: &SigningState, client_ip: &IpAddr) -> Result<(), 
 
         // Rate limit the request
         let remaining = state.jwt_auth_fail_timeout.saturating_sub(elapsed);
-        warn!("Client {client_ip} is rate limited for {remaining:?} more seconds due to JWT auth failures");
+        warn!(
+            "Client {client_ip} is rate limited for {remaining:?} more seconds due to JWT auth failures"
+        );
         return Err(SignerModuleError::RateLimited(remaining.as_secs_f64()));
     }
 
@@ -374,12 +376,12 @@ async fn handle_request_signature_bls(
     let req_id = Uuid::new_v4();
     debug!(event = "bls_request_signature", ?module_id, %request, ?req_id, "New request");
     handle_request_signature_bls_impl(
-        &module_id,
-        &state,
-        &req_id,
+        module_id,
+        state,
+        req_id,
         false,
-        &request.pubkey,
-        &request.object_root,
+        request.pubkey,
+        request.object_root,
         request.nonce,
     )
     .await
@@ -395,12 +397,12 @@ async fn handle_request_signature_proxy_bls(
     let req_id = Uuid::new_v4();
     debug!(event = "proxy_bls_request_signature", ?module_id, %request, ?req_id, "New request");
     handle_request_signature_bls_impl(
-        &module_id,
-        &state,
-        &req_id,
+        module_id,
+        state,
+        req_id,
         true,
-        &request.proxy,
-        &request.object_root,
+        request.proxy,
+        request.object_root,
         request.nonce,
     )
     .await
@@ -408,15 +410,15 @@ async fn handle_request_signature_proxy_bls(
 
 /// Implementation for handling a BLS signature request
 async fn handle_request_signature_bls_impl(
-    module_id: &ModuleId,
-    state: &SigningState,
-    req_id: &Uuid,
+    module_id: ModuleId,
+    state: SigningState,
+    req_id: Uuid,
     is_proxy: bool,
-    signing_pubkey: &BlsPublicKey,
-    object_root: &B256,
+    signing_pubkey: BlsPublicKey,
+    object_root: B256,
     nonce: u64,
 ) -> Result<impl IntoResponse, SignerModuleError> {
-    let Some(signing_id) = state.jwts.read().get(module_id).map(|m| m.signing_id) else {
+    let Some(signing_id) = state.jwts.read().get(&module_id).map(|m| m.signing_id) else {
         error!(
             event = "proxy_bls_request_signature",
             ?module_id,
@@ -433,16 +435,16 @@ async fn handle_request_signature_bls_impl(
             if is_proxy {
                 local_manager
                     .sign_proxy_bls(
-                        signing_pubkey,
-                        object_root,
+                        &signing_pubkey,
+                        &object_root,
                         Some(&SignatureRequestInfo { module_signing_id: signing_id, nonce }),
                     )
                     .await
             } else {
                 local_manager
                     .sign_consensus(
-                        signing_pubkey,
-                        object_root,
+                        &signing_pubkey,
+                        &object_root,
                         Some(&SignatureRequestInfo { module_signing_id: signing_id, nonce }),
                     )
                     .await
@@ -453,16 +455,16 @@ async fn handle_request_signature_bls_impl(
             if is_proxy {
                 dirk_manager
                     .request_proxy_signature(
-                        signing_pubkey,
-                        object_root,
+                        &signing_pubkey,
+                        &object_root,
                         Some(&SignatureRequestInfo { module_signing_id: signing_id, nonce }),
                     )
                     .await
             } else {
                 dirk_manager
                     .request_consensus_signature(
-                        signing_pubkey,
-                        object_root,
+                        &signing_pubkey,
+                        &object_root,
                         Some(&SignatureRequestInfo { module_signing_id: signing_id, nonce }),
                     )
                     .await
@@ -472,7 +474,7 @@ async fn handle_request_signature_bls_impl(
     .map(|sig| {
         Json(BlsSignResponse::new(
             signing_pubkey.clone(),
-            *object_root,
+            object_root,
             signing_id,
             nonce,
             chain_id,
@@ -589,7 +591,7 @@ async fn handle_generate_proxy(
 }
 
 async fn handle_reload(
-    State(mut state): State<SigningState>,
+    State(state): State<SigningState>,
     Json(request): Json<ReloadRequest>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
     let req_id = Uuid::new_v4();
@@ -637,7 +639,11 @@ async fn handle_reload(
         }
     };
 
-    state.manager = Arc::new(RwLock::new(new_manager));
+    // Replace the contents of the manager RwLock
+    {
+        let mut manager_guard = state.manager.write().await;
+        *manager_guard = new_manager;
+    }
 
     Ok(StatusCode::OK)
 }

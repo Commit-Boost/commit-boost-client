@@ -5,20 +5,20 @@ use std::{
 };
 
 use aes::{
-    cipher::{KeyIvInit, StreamCipher},
     Aes128,
+    cipher::{KeyIvInit, StreamCipher},
 };
-use eyre::{eyre, Context};
-use lh_eth2_keystore::{json_keystore::JsonKeystore, Keystore};
+use eyre::{Context, eyre};
+use lh_eth2_keystore::{Keystore, json_keystore::JsonKeystore};
 use pbkdf2::{hmac, pbkdf2};
 use rayon::prelude::*;
-use serde::{de, Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de};
 use tracing::warn;
 use unicode_normalization::UnicodeNormalization;
 
 use super::{BlsSigner, EcdsaSigner, PrysmDecryptedKeystore, PrysmKeystore};
 use crate::{
-    config::{load_env_var, SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV},
+    config::{SIGNER_DIR_KEYS_ENV, SIGNER_DIR_SECRETS_ENV, SIGNER_KEYS_ENV, load_env_var},
     signer::ConsensusSigner,
     utils::bls_pubkey_from_hex,
 };
@@ -341,11 +341,11 @@ pub fn load_ecdsa_signer(keys_path: PathBuf, secrets_path: PathBuf) -> eyre::Res
 #[cfg(test)]
 mod tests {
 
-    use super::{load_from_lighthouse_format, load_from_lodestar_format, FileKey};
+    use super::{FileKey, load_from_lighthouse_format, load_from_lodestar_format};
     use crate::{
         signer::{
-            loader::{load_from_nimbus_format, load_from_prysm_format, load_from_teku_format},
             BlsSigner,
+            loader::{load_from_nimbus_format, load_from_prysm_format, load_from_teku_format},
         },
         utils::bls_pubkey_from_hex_unchecked,
     };
@@ -422,9 +422,12 @@ mod tests {
         let signers = result.unwrap();
 
         assert_eq!(signers.len(), 1);
-        assert!(signers[0].pubkey() == bls_pubkey_from_hex_unchecked(
-            "883827193f7627cd04e621e1e8d56498362a52b2a30c9a1c72036eb935c4278dee23d38a24d2f7dda62689886f0c39f4"
-        ));
+        assert!(
+            signers[0].pubkey() ==
+                bls_pubkey_from_hex_unchecked(
+                    "883827193f7627cd04e621e1e8d56498362a52b2a30c9a1c72036eb935c4278dee23d38a24d2f7dda62689886f0c39f4"
+                )
+        );
 
         let result = load_from_lodestar_format(
             "../../tests/data/keystores/teku-keys/".into(),
@@ -436,9 +439,12 @@ mod tests {
         let signers = result.unwrap();
 
         assert_eq!(signers.len(), 1);
-        assert!(signers[0].pubkey() == bls_pubkey_from_hex_unchecked(
-            "b3a22e4a673ac7a153ab5b3c17a4dbef55f7e47210b20c0cbb0e66df5b36bb49ef808577610b034172e955d2312a61b9"
-        ));
+        assert!(
+            signers[0].pubkey() ==
+                bls_pubkey_from_hex_unchecked(
+                    "b3a22e4a673ac7a153ab5b3c17a4dbef55f7e47210b20c0cbb0e66df5b36bb49ef808577610b034172e955d2312a61b9"
+                )
+        );
     }
 
     #[test]

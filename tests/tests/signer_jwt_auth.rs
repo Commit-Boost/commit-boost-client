@@ -6,7 +6,7 @@ use cb_common::{
         constants::{GET_PUBKEYS_PATH, REVOKE_MODULE_PATH},
         request::RevokeModuleRequest,
     },
-    config::{load_module_signing_configs, ModuleSigningConfig},
+    config::{ModuleSigningConfig, load_module_signing_configs},
     types::ModuleId,
     utils::{create_admin_jwt, create_jwt},
 };

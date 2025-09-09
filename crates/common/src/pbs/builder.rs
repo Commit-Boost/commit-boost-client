@@ -25,6 +25,6 @@ impl Display for BuilderApiVersion {
             BuilderApiVersion::V1 => "v1",
             BuilderApiVersion::V2 => "v2",
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }

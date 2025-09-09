@@ -3,10 +3,10 @@ use std::time::{Duration, Instant};
 use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
     pbs::{
+        BlindedBeaconBlock, BlindedBeaconBlockElectra, BuilderApiVersion,
+        HEADER_START_TIME_UNIX_MS, PayloadAndBlobsElectra, RelayClient, SignedBlindedBeaconBlock,
+        SubmitBlindedBlockResponse, VersionedResponse,
         error::{PbsError, ValidationError},
-        BlindedBeaconBlock, BlindedBeaconBlockElectra, BuilderApiVersion, PayloadAndBlobsElectra,
-        RelayClient, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse, VersionedResponse,
-        HEADER_START_TIME_UNIX_MS,
     },
     utils::{get_user_agent_with_version, read_chunked_body_with_max, utcnow_ms},
 };

@@ -7,9 +7,9 @@ use cb_common::{
     types::{BlsPublicKey, BlsSecretKey, Chain},
     utils::TestRandomSeed,
 };
-use cb_tests::mock_relay::{start_mock_relay_service, MockRelayState};
+use cb_tests::mock_relay::{MockRelayState, start_mock_relay_service};
 use comfy_table::Table;
-use config::{load_static_config, BenchConfig};
+use config::{BenchConfig, load_static_config};
 use histogram::Histogram;
 
 mod config;
@@ -137,7 +137,10 @@ async fn start_mock_relay(chain: Chain, relay_config: RelayConfig) {
     let signer = BlsSecretKey::deserialize(&MOCK_RELAY_SECRET).unwrap();
     let pubkey: BlsPublicKey = signer.public_key();
 
-    assert_eq!(relay_config.entry.pubkey, pubkey, "Expected relay pubkey to be 0xb060572f535ba5615b874ebfef757fbe6825352ad257e31d724e57fe25a067a13cfddd0f00cb17bf3a3d2e901a380c17");
+    assert_eq!(
+        relay_config.entry.pubkey, pubkey,
+        "Expected relay pubkey to be 0xb060572f535ba5615b874ebfef757fbe6825352ad257e31d724e57fe25a067a13cfddd0f00cb17bf3a3d2e901a380c17"
+    );
 
     let relay_port = relay_config.entry.url.port().expect("missing port");
 

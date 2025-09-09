@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use alloy::primitives::b256;
 use cb_common::{
     commit::constants::GET_PUBKEYS_PATH,
-    config::{load_module_signing_configs, ModuleSigningConfig},
+    config::{ModuleSigningConfig, load_module_signing_configs},
     types::ModuleId,
     utils::create_jwt,
 };
@@ -11,7 +11,7 @@ use cb_tests::{
     signer_service::{start_server, verify_pubkeys},
     utils::{self, setup_test_env},
 };
-use eyre::{bail, Result};
+use eyre::{Result, bail};
 use reqwest::Certificate;
 
 const JWT_MODULE: &str = "test-module";

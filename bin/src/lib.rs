@@ -6,8 +6,8 @@ pub mod prelude {
             SignedProxyDelegationBls, SignedProxyDelegationEcdsa,
         },
         config::{
-            load_builder_module_config, load_commit_module_config, load_pbs_config,
-            load_pbs_custom_config, LogsSettings, StartCommitModuleConfig, PBS_MODULE_NAME,
+            LogsSettings, PBS_MODULE_NAME, StartCommitModuleConfig, load_builder_module_config,
+            load_commit_module_config, load_pbs_config, load_pbs_custom_config,
         },
         signature::{
             verify_proposer_commitment_signature_bls, verify_proposer_commitment_signature_ecdsa,
@@ -18,8 +18,8 @@ pub mod prelude {
     };
     pub use cb_metrics::provider::MetricsProvider;
     pub use cb_pbs::{
-        get_header, get_status, register_validator, submit_block, BuilderApi, BuilderApiState,
-        DefaultBuilderApi, PbsService, PbsState, PbsStateGuard,
+        BuilderApi, BuilderApiState, DefaultBuilderApi, PbsService, PbsState, PbsStateGuard,
+        get_header, get_status, register_validator, submit_block,
     };
     // The TreeHash derive macro requires tree_hash as import
     pub mod tree_hash {

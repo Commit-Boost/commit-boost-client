@@ -9,10 +9,9 @@ use alloy::primitives::{B256, U256};
 use cb_common::{
     config::{
         CommitBoostConfig, LogsSettings, ModuleKind, ModuleSigningConfig, PbsConfig,
-        PbsModuleConfig, RelayConfig, SignerConfig, SignerType, StartSignerConfig,
-        StaticModuleConfig, StaticPbsConfig, TlsMode, SIGNER_IMAGE_DEFAULT,
-        SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT, SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT,
-        SIGNER_PORT_DEFAULT,
+        PbsModuleConfig, RelayConfig, SIGNER_IMAGE_DEFAULT, SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT,
+        SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT, SIGNER_PORT_DEFAULT, SignerConfig,
+        SignerType, StartSignerConfig, StaticModuleConfig, StaticPbsConfig, TlsMode,
     },
     pbs::{RelayClient, RelayEntry},
     signer::SignerLoader,
