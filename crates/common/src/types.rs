@@ -358,14 +358,11 @@ mod tests {
     fn test_load_custom() {
         let s = r#"chain = { genesis_time_secs = 1, slot_time_secs = 2, genesis_fork_version = "0x01000000" }"#;
         let decoded: MockConfig = toml::from_str(s).unwrap();
-        assert_eq!(
-            decoded.chain,
-            Chain::Custom {
-                genesis_time_secs: 1,
-                slot_time_secs: 2,
-                genesis_fork_version: [1, 0, 0, 0]
-            }
-        )
+        assert_eq!(decoded.chain, Chain::Custom {
+            genesis_time_secs: 1,
+            slot_time_secs: 2,
+            genesis_fork_version: [1, 0, 0, 0]
+        })
     }
 
     #[test]
