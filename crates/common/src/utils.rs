@@ -7,7 +7,7 @@ use std::{
 
 use alloy::{
     hex,
-    primitives::{keccak256, U256},
+    primitives::{U256, keccak256},
 };
 use axum::http::HeaderValue;
 use futures::StreamExt;
