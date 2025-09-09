@@ -94,14 +94,14 @@ impl SigningService {
         let module_ids: Vec<String> =
             config.mod_signing_configs.keys().cloned().map(Into::into).collect();
 
-        let state = Arc::new(SigningState {
+        let state = SigningState {
             manager: Arc::new(RwLock::new(start_manager(config.clone()).await?)),
             jwts: Arc::new(ParkingRwLock::new(config.mod_signing_configs)),
             admin_secret: Arc::new(ParkingRwLock::new(config.admin_secret)),
             jwt_auth_failures: Arc::new(ParkingRwLock::new(HashMap::new())),
             jwt_auth_fail_limit: config.jwt_auth_fail_limit,
             jwt_auth_fail_timeout: Duration::from_secs(config.jwt_auth_fail_timeout_seconds as u64),
-        });
+        };
 
         // Get the signer counts
         let loaded_consensus: usize;
@@ -175,7 +175,7 @@ impl SigningService {
 
 /// Authentication middleware layer
 async fn jwt_auth(
-    State(state): State<Arc<SigningState>>,
+    State(state): State<SigningState>,
     TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
     addr: ConnectInfo<SocketAddr>,
     req: Request,
@@ -296,7 +296,7 @@ fn check_jwt_auth(
 }
 
 async fn admin_auth(
-    State(state): State<Arc<SigningState>>,
+    State(state): State<SigningState>,
     TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
     addr: ConnectInfo<SocketAddr>,
     req: Request,
@@ -349,7 +349,7 @@ async fn handle_status() -> Result<impl IntoResponse, SignerModuleError> {
 /// Implements get_pubkeys from the Signer API
 async fn handle_get_pubkeys(
     Extension(module_id): Extension<ModuleId>,
-    State(state): State<Arc<SigningState>>,
+    State(state): State<SigningState>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
     let req_id = Uuid::new_v4();
 
@@ -370,7 +370,7 @@ async fn handle_get_pubkeys(
 /// Validates a BLS key signature request and returns the signature
 async fn handle_request_signature_bls(
     Extension(module_id): Extension<ModuleId>,
-    State(state): State<Arc<SigningState>>,
+    State(state): State<SigningState>,
     Json(request): Json<SignConsensusRequest>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
     let req_id = Uuid::new_v4();
@@ -391,7 +391,7 @@ async fn handle_request_signature_bls(
 /// signature
 async fn handle_request_signature_proxy_bls(
     Extension(module_id): Extension<ModuleId>,
-    State(state): State<Arc<SigningState>>,
+    State(state): State<SigningState>,
     Json(request): Json<SignProxyRequest<BlsPublicKey>>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
     let req_id = Uuid::new_v4();
@@ -411,7 +411,7 @@ async fn handle_request_signature_proxy_bls(
 /// Implementation for handling a BLS signature request
 async fn handle_request_signature_bls_impl(
     module_id: ModuleId,
-    state: Arc<SigningState>,
+    state: SigningState,
     req_id: Uuid,
     is_proxy: bool,
     signing_pubkey: BlsPublicKey,
@@ -492,7 +492,7 @@ async fn handle_request_signature_bls_impl(
 /// signature
 async fn handle_request_signature_proxy_ecdsa(
     Extension(module_id): Extension<ModuleId>,
-    State(state): State<Arc<SigningState>>,
+    State(state): State<SigningState>,
     Json(request): Json<SignProxyRequest<Address>>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
     let req_id = Uuid::new_v4();
@@ -552,7 +552,7 @@ async fn handle_request_signature_proxy_ecdsa(
 
 async fn handle_generate_proxy(
     Extension(module_id): Extension<ModuleId>,
-    State(state): State<Arc<SigningState>>,
+    State(state): State<SigningState>,
     Json(request): Json<GenerateProxyRequest>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
     let req_id = Uuid::new_v4();
@@ -591,7 +591,7 @@ async fn handle_generate_proxy(
 }
 
 async fn handle_reload(
-    State(state): State<Arc<SigningState>>,
+    State(state): State<SigningState>,
     Json(request): Json<ReloadRequest>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
     let req_id = Uuid::new_v4();
@@ -649,7 +649,7 @@ async fn handle_reload(
 }
 
 async fn handle_revoke_module(
-    State(state): State<Arc<SigningState>>,
+    State(state): State<SigningState>,
     Json(request): Json<RevokeModuleRequest>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
     let mut guard = state.jwts.write();
