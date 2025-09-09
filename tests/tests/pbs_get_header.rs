@@ -6,7 +6,7 @@ use cb_common::{
     signature::sign_builder_root,
     signer::random_secret,
     types::Chain,
-    utils::timestamp_of_slot_start_sec,
+    utils::{Accept, ForkName, timestamp_of_slot_start_sec},
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
@@ -16,6 +16,7 @@ use cb_tests::{
 };
 use eyre::Result;
 use reqwest::StatusCode;
+use ssz::Decode;
 use tracing::info;
 use tree_hash::TreeHash;
 
@@ -44,11 +45,55 @@ async fn test_get_header() -> Result<()> {
 
     let mock_validator = MockValidator::new(pbs_port)?;
     info!("Sending get header");
-    let res = mock_validator.do_get_header(None).await?;
+    let res = mock_validator.do_get_header(None, None, ForkName::Electra).await?;
     assert_eq!(res.status(), StatusCode::OK);
 
     let res = serde_json::from_slice::<GetHeaderResponse>(&res.bytes().await?)?;
     let GetHeaderResponse::Electra(res) = res;
+
+    assert_eq!(mock_state.received_get_header(), 1);
+    assert_eq!(res.message.header.block_hash.0[0], 1);
+    assert_eq!(res.message.header.parent_hash, B256::ZERO);
+    assert_eq!(res.message.value, U256::from(10));
+    assert_eq!(res.message.pubkey, mock_state.signer.public_key());
+    assert_eq!(res.message.header.timestamp, timestamp_of_slot_start_sec(0, chain));
+    assert_eq!(
+        res.signature,
+        sign_builder_root(chain, &mock_state.signer, res.message.tree_hash_root())
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_get_header_ssz() -> Result<()> {
+    setup_test_env();
+    let signer = random_secret();
+    let pubkey = signer.public_key();
+
+    let chain = Chain::Holesky;
+    let pbs_port = 3210;
+    let relay_port = pbs_port + 1;
+
+    // Run a mock relay
+    let mock_state = Arc::new(MockRelayState::new(chain, signer));
+    let mock_relay = generate_mock_relay(relay_port, pubkey)?;
+    tokio::spawn(start_mock_relay_service(mock_state.clone(), relay_port));
+
+    // Run the PBS service
+    let config = to_pbs_config(chain, get_pbs_static_config(pbs_port), vec![mock_relay.clone()]);
+    let state = PbsState::new(config);
+    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+
+    // leave some time to start servers
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let mock_validator = MockValidator::new(pbs_port)?;
+    info!("Sending get header");
+    let res = mock_validator.do_get_header(None, Some(Accept::Ssz), ForkName::Electra).await?;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let res: SignedExecutionPayloadHeader<ExecutionPayloadHeaderMessageElectra> =
+        SignedExecutionPayloadHeader::from_ssz_bytes(&res.bytes().await?).unwrap();
 
     assert_eq!(mock_state.received_get_header(), 1);
     assert_eq!(res.message.header.block_hash.0[0], 1);
@@ -90,7 +135,7 @@ async fn test_get_header_returns_204_if_relay_down() -> Result<()> {
 
     let mock_validator = MockValidator::new(pbs_port)?;
     info!("Sending get header");
-    let res = mock_validator.do_get_header(None).await?;
+    let res = mock_validator.do_get_header(None, None, ForkName::Electra).await?;
 
     assert_eq!(res.status(), StatusCode::NO_CONTENT); // 204 error
     assert_eq!(mock_state.received_get_header(), 0); // no header received

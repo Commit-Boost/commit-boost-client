@@ -201,8 +201,13 @@ async fn handle_submit_block_v1(
         response.blobs_bundle.proofs.push(KzgProof([0; 48])).unwrap();
 
         match accept_header {
-            Accept::Json | Accept::Any => serde_json::to_vec(&response).unwrap(),
+            Accept::Json | Accept::Any => {
+                // Response is versioned for JSON
+                let response = VersionedResponse::Electra(response);
+                serde_json::to_vec(&response).unwrap()
+            }
             Accept::Ssz => match consensus_version_header {
+                // Response isn't versioned for SSZ
                 ForkName::Electra => response.as_ssz_bytes(),
             },
         }
