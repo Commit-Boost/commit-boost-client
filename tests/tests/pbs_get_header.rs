@@ -2,7 +2,10 @@ use std::{sync::Arc, time::Duration};
 
 use alloy::primitives::{B256, U256};
 use cb_common::{
-    pbs::GetHeaderResponse, signature::sign_builder_root, signer::random_secret, types::Chain,
+    pbs::{ExecutionPayloadHeaderMessageElectra, GetHeaderResponse, SignedExecutionPayloadHeader},
+    signature::sign_builder_root,
+    signer::random_secret,
+    types::Chain,
     utils::timestamp_of_slot_start_sec,
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};

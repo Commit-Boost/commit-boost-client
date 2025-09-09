@@ -10,7 +10,7 @@ use alloy::{primitives::U256, rpc::types::beacon::relay::ValidatorRegistration};
 use axum::{
     Json, Router,
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
@@ -24,9 +24,14 @@ use cb_common::{
     },
     signature::sign_builder_root,
     types::{BlsSecretKey, Chain},
-    utils::timestamp_of_slot_start_sec,
+    utils::{
+        Accept, CONSENSUS_VERSION_HEADER, ForkName, JsonOrSsz, get_accept_header,
+        get_consensus_version_header, timestamp_of_slot_start_sec,
+    },
 };
 use cb_pbs::MAX_SIZE_SUBMIT_BLOCK_RESPONSE;
+use reqwest::header::CONTENT_TYPE;
+use ssz::Encode;
 use tokio::net::TcpListener;
 use tracing::debug;
 use tree_hash::TreeHash;
@@ -109,29 +114,49 @@ pub fn mock_relay_app_router(state: Arc<MockRelayState>) -> Router {
 async fn handle_get_header(
     State(state): State<Arc<MockRelayState>>,
     Path(GetHeaderParams { parent_hash, .. }): Path<GetHeaderParams>,
+    headers: HeaderMap,
 ) -> Response {
     state.received_get_header.fetch_add(1, Ordering::Relaxed);
+    let accept_header = get_accept_header(&headers);
+    let consensus_version_header =
+        get_consensus_version_header(&headers).unwrap_or(ForkName::Electra);
 
-    let mut message = ExecutionPayloadHeaderMessageElectra {
-        header: Default::default(),
-        blob_kzg_commitments: Default::default(),
-        execution_requests: ExecutionRequests::default(),
-        value: Default::default(),
-        pubkey: state.signer.public_key(),
+    let data = match consensus_version_header {
+        // Add Fusaka and other forks here when necessary
+        ForkName::Electra => {
+            let mut message = ExecutionPayloadHeaderMessageElectra {
+                header: Default::default(),
+                blob_kzg_commitments: Default::default(),
+                execution_requests: ExecutionRequests::default(),
+                value: Default::default(),
+                pubkey: state.signer.public_key(),
+            };
+            message.header.parent_hash = parent_hash;
+            message.header.block_hash.0[0] = 1;
+            message.value = U256::from(10);
+            message.pubkey = state.signer.public_key();
+            message.header.timestamp = timestamp_of_slot_start_sec(0, state.chain);
+
+            let object_root = message.tree_hash_root();
+            let signature = sign_builder_root(state.chain, &state.signer, object_root);
+            let response = SignedExecutionPayloadHeader { message, signature };
+            match accept_header {
+                Accept::Json | Accept::Any => {
+                    let versioned_response = GetHeaderResponse::Electra(response);
+                    serde_json::to_vec(&versioned_response).unwrap()
+                }
+                Accept::Ssz => response.as_ssz_bytes(),
+            }
+        }
     };
 
-    message.header.parent_hash = parent_hash;
-    message.header.block_hash.0[0] = 1;
-    message.value = U256::from(10);
-    message.pubkey = state.signer.public_key();
-    message.header.timestamp = timestamp_of_slot_start_sec(0, state.chain);
-
-    let object_root = message.tree_hash_root();
-    let signature = sign_builder_root(state.chain, &state.signer, object_root);
-    let response = SignedExecutionPayloadHeader { message, signature };
-
-    let response = GetHeaderResponse::Electra(response);
-    (StatusCode::OK, Json(response)).into_response()
+    let mut response = (StatusCode::OK, data).into_response();
+    let consensus_version_header =
+        HeaderValue::from_str(&consensus_version_header.to_string()).unwrap();
+    let content_type_header = HeaderValue::from_str(&accept_header.to_string()).unwrap();
+    response.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
+    response.headers_mut().insert(CONTENT_TYPE, content_type_header);
+    response
 }
 
 async fn handle_get_status(State(state): State<Arc<MockRelayState>>) -> impl IntoResponse {
@@ -154,12 +179,17 @@ async fn handle_register_validator(
 }
 
 async fn handle_submit_block_v1(
+    headers: HeaderMap,
     State(state): State<Arc<MockRelayState>>,
-    Json(submit_block): Json<SignedBlindedBeaconBlock>,
+    JsonOrSsz(submit_block): JsonOrSsz<SignedBlindedBeaconBlock>,
 ) -> Response {
     state.received_submit_block.fetch_add(1, Ordering::Relaxed);
-    if state.large_body() {
-        (StatusCode::OK, Json(vec![1u8; 1 + MAX_SIZE_SUBMIT_BLOCK_RESPONSE])).into_response()
+    let accept_header = get_accept_header(&headers);
+    let consensus_version_header =
+        get_consensus_version_header(&headers).unwrap_or(ForkName::Electra);
+
+    let data = if state.large_body() {
+        vec![1u8; 1 + MAX_SIZE_SUBMIT_BLOCK_RESPONSE]
     } else {
         let VersionedResponse::Electra(mut response) = SubmitBlindedBlockResponse::default();
         response.execution_payload.block_hash = submit_block.block_hash();
@@ -170,11 +200,23 @@ async fn handle_submit_block_v1(
         response.blobs_bundle.commitments = body.body.blob_kzg_commitments;
         response.blobs_bundle.proofs.push(KzgProof([0; 48])).unwrap();
 
-        let response = VersionedResponse::Electra(response);
+        match accept_header {
+            Accept::Json | Accept::Any => serde_json::to_vec(&response).unwrap(),
+            Accept::Ssz => match consensus_version_header {
+                ForkName::Electra => response.as_ssz_bytes(),
+            },
+        }
+    };
 
-        (StatusCode::OK, Json(response)).into_response()
-    }
+    let mut response = (StatusCode::OK, data).into_response();
+    let consensus_version_header =
+        HeaderValue::from_str(&consensus_version_header.to_string()).unwrap();
+    let content_type_header = HeaderValue::from_str(&accept_header.to_string()).unwrap();
+    response.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
+    response.headers_mut().insert(CONTENT_TYPE, content_type_header);
+    response
 }
+
 async fn handle_submit_block_v2(State(state): State<Arc<MockRelayState>>) -> Response {
     state.received_submit_block.fetch_add(1, Ordering::Relaxed);
     (StatusCode::ACCEPTED, "").into_response()

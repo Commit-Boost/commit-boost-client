@@ -12,6 +12,7 @@ axum.workspace = true
 axum-extra.workspace = true
 cb-common.workspace = true
 cb-metrics.workspace = true
+ethereum_ssz.workspace = true
 eyre.workspace = true
 futures.workspace = true
 lazy_static.workspace = true

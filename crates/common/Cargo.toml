@@ -25,6 +25,7 @@ futures.workspace = true
 jsonwebtoken.workspace = true
 lh_eth2_keystore.workspace = true
 lh_types.workspace = true
+mediatype.workspace = true
 pbkdf2.workspace = true
 rand.workspace = true
 rayon.workspace = true
