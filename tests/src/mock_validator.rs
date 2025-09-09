@@ -115,6 +115,13 @@ impl MockValidator {
             ContentType::Ssz => signed_blinded_block.as_ssz_bytes(),
         };
 
+        let signed_blinded_block = signed_blinded_block_opt.unwrap_or_default();
+
+        let body = match content_type {
+            ContentType::Json => serde_json::to_vec(&signed_blinded_block).unwrap(),
+            ContentType::Ssz => signed_blinded_block.as_ssz_bytes(),
+        };
+
         Ok(self
             .comm_boost
             .client

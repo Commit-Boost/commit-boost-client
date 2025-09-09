@@ -154,9 +154,10 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
 
                     // depends_on
                     let mut module_dependencies = IndexMap::new();
-                    module_dependencies.insert("cb_signer".into(), DependsCondition {
-                        condition: "service_healthy".into(),
-                    });
+                    module_dependencies.insert(
+                        "cb_signer".into(),
+                        DependsCondition { condition: "service_healthy".into() },
+                    );
 
                     Service {
                         container_name: Some(module_cid.clone()),

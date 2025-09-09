@@ -41,7 +41,6 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
         Ok(res) => {
             if let Some(max_bid) = res {
                 info!(value_eth = format_ether(max_bid.value()), block_hash =% max_bid.block_hash(), "received header");
-
                 BEACON_NODE_STATUS.with_label_values(&["200", GET_HEADER_ENDPOINT_TAG]).inc();
                 let response = match accept_header {
                     Accept::Ssz => {
