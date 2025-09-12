@@ -50,7 +50,7 @@ lh_eth2_keystore = { package = "eth2_keystore", git = "https://github.com/sigp/l
 lh_types = { package = "types", git = "https://github.com/sigp/lighthouse", tag = "v7.1.0" }
 parking_lot = "0.12.3"
 pbkdf2 = "0.12.2"
-prometheus = "0.13.4"
+prometheus = "0.14.0"
 prost = "0.13.4"
 rand = { version = "0.9", features = ["os_rng"] }
 rayon = "1.10.0"
