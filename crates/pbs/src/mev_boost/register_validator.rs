@@ -33,18 +33,17 @@ pub async fn register_validator<S: BuilderApiState>(
 
     let relays = state.all_relays().to_vec();
 
-    let batch_size: Option<usize> = None;
-
     // prepare the body in advance, ugly dyn
-    let bodies: Box<dyn Iterator<Item = (usize, Bytes)>> = if let Some(batch_size) = batch_size {
-        Box::new(registrations.chunks(batch_size).map(|batch| {
-            let body = serde_json::to_vec(batch).unwrap();
-            (batch.len(), Bytes::from(body))
-        }))
-    } else {
-        let body = serde_json::to_vec(&registrations).unwrap();
-        Box::new(std::iter::once((registrations.len(), Bytes::from(body))))
-    };
+    let bodies: Box<dyn Iterator<Item = (usize, Bytes)>> =
+        if let Some(batch_size) = state.config.pbs_config.validator_registration_batch_size {
+            Box::new(registrations.chunks(batch_size).map(|batch| {
+                let body = serde_json::to_vec(batch).unwrap();
+                (batch.len(), Bytes::from(body))
+            }))
+        } else {
+            let body = serde_json::to_vec(&registrations).unwrap();
+            Box::new(std::iter::once((registrations.len(), Bytes::from(body))))
+        };
     send_headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
 
     let mut handles = Vec::with_capacity(relays.len());
