@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use eyre::Result;
+use eyre::{Result, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::types::{Chain, ChainLoader, ForkVersion, load_chain_from_file};
@@ -45,6 +45,13 @@ impl CommitBoostConfig {
         if let Some(signer) = &self.signer {
             signer.validate().await?;
         }
+
+        if self.relays.iter().any(|r| r.validator_registration_batch_size.is_some()) {
+            bail!(
+                "validator_registration_batch_size is now deprecated on a per-relay basis. Please use validator_registration_batch_size in the [pbs] section instead"
+            )
+        }
+
         Ok(())
     }
 

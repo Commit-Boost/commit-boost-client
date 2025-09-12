@@ -1583,6 +1583,7 @@ dependencies = [
  "parking_lot",
  "prometheus",
  "reqwest",
+ "serde",
  "serde_json",
  "tokio",
  "tower-http",

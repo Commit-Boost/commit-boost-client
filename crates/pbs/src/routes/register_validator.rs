@@ -1,4 +1,3 @@
-use alloy::rpc::types::beacon::relay::ValidatorRegistration;
 use axum::{Json, extract::State, http::HeaderMap, response::IntoResponse};
 use cb_common::utils::get_user_agent;
 use reqwest::StatusCode;
@@ -15,7 +14,7 @@ use crate::{
 pub async fn handle_register_validator<S: BuilderApiState, A: BuilderApi<S>>(
     State(state): State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
-    Json(registrations): Json<Vec<ValidatorRegistration>>,
+    Json(registrations): Json<Vec<serde_json::Value>>,
 ) -> Result<impl IntoResponse, PbsClientError> {
     let state = state.read().clone();
 
