@@ -37,6 +37,7 @@ pub async fn register_validator<S: BuilderApiState>(
     let bodies: Box<dyn Iterator<Item = (usize, Bytes)>> =
         if let Some(batch_size) = state.config.pbs_config.validator_registration_batch_size {
             Box::new(registrations.chunks(batch_size).map(|batch| {
+                // SAFETY: unwrap is ok because we're serializing a &[serde_json::Value]
                 let body = serde_json::to_vec(batch).unwrap();
                 (batch.len(), Bytes::from(body))
             }))
