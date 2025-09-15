@@ -48,7 +48,7 @@ impl CommitBoostConfig {
 
         if self.relays.iter().any(|r| r.validator_registration_batch_size.is_some()) {
             bail!(
-                "validator_registration_batch_size is now deprecated on a per-relay basis. Please use validator_registration_batch_size in the [pbs] section instead"
+                "validator_registration_batch_size is now obsolete on a per-relay basis. Please use validator_registration_batch_size in the [pbs] section instead"
             )
         }
 
