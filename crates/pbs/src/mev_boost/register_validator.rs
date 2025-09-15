@@ -31,8 +31,6 @@ pub async fn register_validator<S: BuilderApiState>(
         .insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from_str(&utcnow_ms().to_string())?);
     send_headers.insert(USER_AGENT, get_user_agent_with_version(&req_headers)?);
 
-    let relays = state.all_relays().to_vec();
-
     // prepare the body in advance, ugly dyn
     let bodies: Box<dyn Iterator<Item = (usize, Bytes)>> =
         if let Some(batch_size) = state.config.pbs_config.validator_registration_batch_size {
@@ -47,15 +45,15 @@ pub async fn register_validator<S: BuilderApiState>(
         };
     send_headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
 
-    let mut handles = Vec::with_capacity(relays.len());
+    let mut handles = Vec::with_capacity(state.all_relays().len());
 
     for (n_regs, body) in bodies {
-        for relay in relays.clone() {
+        for relay in state.all_relays().iter().cloned() {
             handles.push(tokio::spawn(
                 send_register_validator_with_timeout(
                     n_regs,
                     body.clone(),
-                    relay.clone(),
+                    relay,
                     send_headers.clone(),
                     state.pbs_config().timeout_register_validator_ms,
                     state.pbs_config().register_validator_retry_limit,
