@@ -148,6 +148,13 @@ async fn handle_get_header(
                 Accept::Ssz => response.as_ssz_bytes(),
             }
         }
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                format!("Unsupported fork {consensus_version_header}"),
+            )
+                .into_response();
+        }
     };
 
     let mut response = (StatusCode::OK, data).into_response();
@@ -209,6 +216,13 @@ async fn handle_submit_block_v1(
             Accept::Ssz => match consensus_version_header {
                 // Response isn't versioned for SSZ
                 ForkName::Electra => response.as_ssz_bytes(),
+                _ => {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        format!("Unsupported fork {consensus_version_header}"),
+                    )
+                        .into_response();
+                }
             },
         }
     };

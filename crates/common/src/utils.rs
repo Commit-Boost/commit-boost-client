@@ -15,6 +15,7 @@ use axum::{
 };
 use bytes::Bytes;
 use futures::StreamExt;
+pub use lh_types::ForkName;
 use lh_types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
 use mediatype::{MediaType, MediaTypeList, names};
 use rand::{Rng, distr::Alphanumeric};
@@ -448,29 +449,6 @@ pub fn get_consensus_version_header(req_headers: &HeaderMap) -> Option<ForkName>
             .unwrap_or(""),
     )
     .ok()
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ForkName {
-    Electra,
-}
-
-impl std::fmt::Display for ForkName {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ForkName::Electra => write!(f, "electra"),
-        }
-    }
-}
-
-impl FromStr for ForkName {
-    type Err = String;
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "electra" => Ok(ForkName::Electra),
-            _ => Err(format!("Invalid fork name {value}")),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
