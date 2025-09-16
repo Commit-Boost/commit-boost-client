@@ -526,7 +526,7 @@ impl Display for BodyDeserializeError {
         match self {
             BodyDeserializeError::SerdeJsonError(e) => write!(f, "JSON deserialization error: {e}"),
             BodyDeserializeError::SszDecodeError(e) => {
-                write!(f, "SSZ deserialization error: {:?}", e)
+                write!(f, "SSZ deserialization error: {e:?}")
             }
             BodyDeserializeError::UnsupportedMediaType => write!(f, "unsupported media type"),
         }
