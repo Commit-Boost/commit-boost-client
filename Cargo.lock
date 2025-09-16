@@ -1530,6 +1530,7 @@ dependencies = [
  "ethereum_ssz_derive",
  "eyre",
  "futures",
+ "headers-accept",
  "jsonwebtoken",
  "mediatype",
  "pbkdf2 0.12.2",
@@ -2955,6 +2956,17 @@ dependencies = [
  "httpdate",
  "mime",
  "sha1",
+]
+
+[[package]]
+name = "headers-accept"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "479bcb872e714e11f72fcc6a71afadbc86d0dbe887bc44252b04cfbc63272897"
+dependencies = [
+ "headers-core",
+ "http",
+ "mediatype",
 ]
 
 [[package]]

@@ -2,7 +2,7 @@ use alloy::{primitives::B256, rpc::types::beacon::relay::ValidatorRegistration};
 use cb_common::{
     pbs::{BuilderApiVersion, RelayClient, SignedBlindedBeaconBlock},
     types::BlsPublicKey,
-    utils::{Accept, CONSENSUS_VERSION_HEADER, ContentType, ForkName, bls_pubkey_from_hex},
+    utils::{CONSENSUS_VERSION_HEADER, EncodingType, ForkName, bls_pubkey_from_hex},
 };
 use reqwest::{
     Response,
@@ -27,7 +27,7 @@ impl MockValidator {
     pub async fn do_get_header(
         &self,
         pubkey: Option<BlsPublicKey>,
-        accept: Option<Accept>,
+        accept: Option<EncodingType>,
         fork_name: ForkName,
     ) -> eyre::Result<Response> {
         let default_pubkey = bls_pubkey_from_hex(
@@ -39,7 +39,7 @@ impl MockValidator {
             .comm_boost
             .client
             .get(url)
-            .header(ACCEPT, &accept.unwrap_or(Accept::Any).to_string())
+            .header(ACCEPT, &accept.unwrap_or(EncodingType::Json).to_string())
             .header(CONSENSUS_VERSION_HEADER, &fork_name.to_string())
             .send()
             .await?;
@@ -67,8 +67,8 @@ impl MockValidator {
     pub async fn do_submit_block_v1(
         &self,
         signed_blinded_block_opt: Option<SignedBlindedBeaconBlock>,
-        accept: Accept,
-        content_type: ContentType,
+        accept: EncodingType,
+        content_type: EncodingType,
         fork_name: ForkName,
     ) -> eyre::Result<Response> {
         self.do_submit_block_impl(
@@ -84,8 +84,8 @@ impl MockValidator {
     pub async fn do_submit_block_v2(
         &self,
         signed_blinded_block_opt: Option<SignedBlindedBeaconBlock>,
-        accept: Accept,
-        content_type: ContentType,
+        accept: EncodingType,
+        content_type: EncodingType,
         fork_name: ForkName,
     ) -> eyre::Result<Response> {
         self.do_submit_block_impl(
@@ -101,8 +101,8 @@ impl MockValidator {
     async fn do_submit_block_impl(
         &self,
         signed_blinded_block_opt: Option<SignedBlindedBeaconBlock>,
-        accept: Accept,
-        content_type: ContentType,
+        accept: EncodingType,
+        content_type: EncodingType,
         fork_name: ForkName,
         api_version: BuilderApiVersion,
     ) -> eyre::Result<Response> {
@@ -111,8 +111,8 @@ impl MockValidator {
         let signed_blinded_block =
             signed_blinded_block_opt.unwrap_or_else(load_test_signed_blinded_block);
         let body = match content_type {
-            ContentType::Json => serde_json::to_vec(&signed_blinded_block).unwrap(),
-            ContentType::Ssz => signed_blinded_block.as_ssz_bytes(),
+            EncodingType::Json => serde_json::to_vec(&signed_blinded_block).unwrap(),
+            EncodingType::Ssz => signed_blinded_block.as_ssz_bytes(),
         };
 
         Ok(self

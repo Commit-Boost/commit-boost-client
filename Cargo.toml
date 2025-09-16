@@ -43,6 +43,7 @@ ethereum_ssz_derive = "0.8"
 eyre = "0.6.12"
 futures = "0.3.30"
 headers = "0.4.0"
+headers-accept = "0.2.1"
 indexmap = "2.2.6"
 jsonwebtoken = { version = "9.3.1", default-features = false }
 lazy_static = "1.5.0"

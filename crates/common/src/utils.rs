@@ -1,7 +1,7 @@
 #[cfg(test)]
 use std::cell::Cell;
 use std::{
-    fmt,
+    fmt::Display,
     net::Ipv4Addr,
     str::FromStr,
     time::{SystemTime, UNIX_EPOCH},
@@ -15,12 +15,12 @@ use axum::{
 };
 use bytes::Bytes;
 use futures::StreamExt;
+use headers_accept::Accept;
 pub use lh_types::ForkName;
 use lh_types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-use mediatype::{MediaType, MediaTypeList, names};
 use rand::{Rng, distr::Alphanumeric};
 use reqwest::{
-    Response, StatusCode,
+    Response,
     header::{ACCEPT, CONTENT_TYPE, HeaderMap},
 };
 use serde::{Serialize, de::DeserializeOwned};
@@ -41,6 +41,10 @@ use crate::{
     pbs::HEADER_VERSION_VALUE,
     types::{BlsPublicKey, Chain, Jwt, JwtClaims, ModuleId},
 };
+
+const APPLICATION_JSON: &str = "application/json";
+const APPLICATION_OCTET_STREAM: &str = "application/octet-stream";
+const WILDCARD: &str = "*/*";
 
 const MILLIS_PER_SECOND: u64 = 1_000;
 pub const CONSENSUS_VERSION_HEADER: &str = "Eth-Consensus-Version";
@@ -421,23 +425,52 @@ pub fn get_user_agent_with_version(req_headers: &HeaderMap) -> eyre::Result<Head
     Ok(HeaderValue::from_str(&format!("commit-boost/{HEADER_VERSION_VALUE} {ua}"))?)
 }
 
-/// Parse ACCEPT header, default to JSON if missing or mal-formatted
-pub fn get_accept_header(req_headers: &HeaderMap) -> Accept {
-    Accept::from_str(
-        req_headers.get(ACCEPT).and_then(|value| value.to_str().ok()).unwrap_or("application/json"),
+/// Parse the ACCEPT header to get the type of response to encode the body with,
+/// defaulting to JSON if missing. Returns an error if malformed or unsupported
+/// types are requested. Supports requests with multiple ACCEPT headers or
+/// headers with multiple media types.
+pub fn get_accept_type(req_headers: &HeaderMap) -> eyre::Result<EncodingType> {
+    let accept = Accept::from_str(
+        req_headers.get(ACCEPT).and_then(|value| value.to_str().ok()).unwrap_or(APPLICATION_JSON),
     )
-    .unwrap_or(Accept::Json)
+    .map_err(|e| eyre::eyre!("invalid accept header: {e}"))?;
+
+    if accept.media_types().count() == 0 {
+        // No valid media types found, default to JSON
+        return Ok(EncodingType::Json);
+    }
+
+    // Get the SSZ and JSON media types if present
+    let mut ssz_type = false;
+    let mut json_type = false;
+    let mut unsupported_type = false;
+    accept.media_types().for_each(|mt| match mt.essence().to_string().as_str() {
+        APPLICATION_OCTET_STREAM => ssz_type = true,
+        APPLICATION_JSON | WILDCARD => json_type = true,
+        _ => unsupported_type = true,
+    });
+
+    // If SSZ is present, prioritize it
+    if ssz_type {
+        return Ok(EncodingType::Ssz);
+    }
+    // If there aren't any unsupported types, use JSON
+    if !unsupported_type {
+        return Ok(EncodingType::Json);
+    }
+    Err(eyre::eyre!("unsupported accept type"))
 }
 
-/// Parse CONTENT TYPE header, default to JSON if missing or mal-formatted
-pub fn get_content_type_header(req_headers: &HeaderMap) -> ContentType {
-    ContentType::from_str(
+/// Parse CONTENT TYPE header to get the encoding type of the body, defaulting
+/// to JSON if missing or malformed.
+pub fn get_content_type(req_headers: &HeaderMap) -> EncodingType {
+    EncodingType::from_str(
         req_headers
             .get(CONTENT_TYPE)
             .and_then(|value| value.to_str().ok())
-            .unwrap_or("application/json"),
+            .unwrap_or(APPLICATION_JSON),
     )
-    .unwrap_or(ContentType::Json)
+    .unwrap_or(EncodingType::Json)
 }
 
 /// Parse CONSENSUS_VERSION header
@@ -451,133 +484,91 @@ pub fn get_consensus_version_header(req_headers: &HeaderMap) -> Option<ForkName>
     .ok()
 }
 
+/// Enum for types that can be used to encode incoming request bodies or
+/// outgoing response bodies
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ContentType {
+pub enum EncodingType {
+    /// Body is UTF-8 encoded as JSON
     Json,
+
+    /// Body is raw bytes representing an SSZ object
     Ssz,
 }
 
-impl std::fmt::Display for ContentType {
+impl std::fmt::Display for EncodingType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ContentType::Json => write!(f, "application/json"),
-            ContentType::Ssz => write!(f, "application/octet-stream"),
+            EncodingType::Json => write!(f, "application/json"),
+            EncodingType::Ssz => write!(f, "application/octet-stream"),
         }
     }
 }
 
-impl FromStr for ContentType {
+impl FromStr for EncodingType {
     type Err = String;
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
-            "application/json" => Ok(ContentType::Json),
-            "application/octet-stream" => Ok(ContentType::Ssz),
-            _ => Ok(ContentType::Json),
+            "application/json" | "" => Ok(EncodingType::Json),
+            "application/octet-stream" => Ok(EncodingType::Ssz),
+            _ => Err(format!("unsupported encoding type: {value}")),
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Accept {
-    Json,
-    Ssz,
-    Any,
+pub enum BodyDeserializeError {
+    SerdeJsonError(serde_json::Error),
+    SszDecodeError(ssz::DecodeError),
+    UnsupportedMediaType,
 }
 
-impl fmt::Display for Accept {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for BodyDeserializeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Accept::Ssz => write!(f, "application/octet-stream"),
-            Accept::Json => write!(f, "application/json"),
-            Accept::Any => write!(f, "*/*"),
+            BodyDeserializeError::SerdeJsonError(e) => write!(f, "JSON deserialization error: {e}"),
+            BodyDeserializeError::SszDecodeError(e) => {
+                write!(f, "SSZ deserialization error: {:?}", e)
+            }
+            BodyDeserializeError::UnsupportedMediaType => write!(f, "unsupported media type"),
         }
     }
 }
 
-impl FromStr for Accept {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let media_type_list = MediaTypeList::new(s);
-
-        // [q-factor weighting]: https://datatracker.ietf.org/doc/html/rfc7231#section-5.3.2
-        // find the highest q-factor supported accept type
-        let mut highest_q = 0_u16;
-        let mut accept_type = None;
-
-        const APPLICATION: &str = names::APPLICATION.as_str();
-        const OCTET_STREAM: &str = names::OCTET_STREAM.as_str();
-        const JSON: &str = names::JSON.as_str();
-        const STAR: &str = names::_STAR.as_str();
-        const Q: &str = names::Q.as_str();
-
-        media_type_list.into_iter().for_each(|item| {
-            if let Ok(MediaType { ty, subty, suffix: _, params }) = item {
-                let q_accept = match (ty.as_str(), subty.as_str()) {
-                    (APPLICATION, OCTET_STREAM) => Some(Accept::Ssz),
-                    (APPLICATION, JSON) => Some(Accept::Json),
-                    (STAR, STAR) => Some(Accept::Any),
-                    _ => None,
-                }
-                .map(|item_accept_type| {
-                    let q_val = params
-                        .iter()
-                        .find_map(|(n, v)| match n.as_str() {
-                            Q => {
-                                Some((v.as_str().parse::<f32>().unwrap_or(0_f32) * 1000_f32) as u16)
-                            }
-                            _ => None,
-                        })
-                        .or(Some(1000_u16));
-
-                    (q_val.unwrap(), item_accept_type)
-                });
-
-                match q_accept {
-                    Some((q, accept)) if q > highest_q => {
-                        highest_q = q;
-                        accept_type = Some(accept);
-                    }
-                    _ => (),
-                }
+pub async fn deserialize_body<T>(
+    headers: &HeaderMap,
+    body: Bytes,
+) -> Result<T, BodyDeserializeError>
+where
+    T: serde::de::DeserializeOwned + ssz::Decode + 'static,
+{
+    if headers.contains_key(CONTENT_TYPE) {
+        return match get_content_type(headers) {
+            EncodingType::Json => {
+                serde_json::from_slice::<T>(&body).map_err(BodyDeserializeError::SerdeJsonError)
             }
-        });
-        accept_type.ok_or_else(|| "accept header is not supported".to_string())
+            EncodingType::Ssz => {
+                T::from_ssz_bytes(&body).map_err(BodyDeserializeError::SszDecodeError)
+            }
+        };
     }
+
+    Err(BodyDeserializeError::UnsupportedMediaType)
 }
 
 #[must_use]
-#[derive(Debug, Clone, Copy, Default)]
-pub struct JsonOrSsz<T>(pub T);
+#[derive(Debug, Clone, Default)]
+pub struct RawRequest {
+    pub body_bytes: Bytes,
+}
 
-impl<T, S> FromRequest<S> for JsonOrSsz<T>
+impl<S> FromRequest<S> for RawRequest
 where
-    T: serde::de::DeserializeOwned + ssz::Decode + 'static,
     S: Send + Sync,
 {
     type Rejection = AxumResponse;
 
     async fn from_request(req: Request, _state: &S) -> Result<Self, Self::Rejection> {
-        let headers = req.headers().clone();
-        let content_type = headers.get(CONTENT_TYPE).and_then(|value| value.to_str().ok());
-
         let bytes = Bytes::from_request(req, _state).await.map_err(IntoResponse::into_response)?;
-
-        if let Some(content_type) = content_type {
-            if content_type.starts_with(&ContentType::Json.to_string()) {
-                let payload: T = serde_json::from_slice(&bytes)
-                    .map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
-                return Ok(Self(payload));
-            }
-
-            if content_type.starts_with(&ContentType::Ssz.to_string()) {
-                let payload = T::from_ssz_bytes(&bytes)
-                    .map_err(|_| StatusCode::BAD_REQUEST.into_response())?;
-                return Ok(Self(payload));
-            }
-        }
-
-        Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response())
+        Ok(Self { body_bytes: bytes })
     }
 }
 

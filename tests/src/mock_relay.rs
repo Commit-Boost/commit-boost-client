@@ -25,15 +25,15 @@ use cb_common::{
     signature::sign_builder_root,
     types::{BlsSecretKey, Chain},
     utils::{
-        Accept, CONSENSUS_VERSION_HEADER, ForkName, JsonOrSsz, get_accept_header,
-        get_consensus_version_header, timestamp_of_slot_start_sec,
+        CONSENSUS_VERSION_HEADER, EncodingType, ForkName, RawRequest, deserialize_body,
+        get_accept_type, get_consensus_version_header, timestamp_of_slot_start_sec,
     },
 };
 use cb_pbs::MAX_SIZE_SUBMIT_BLOCK_RESPONSE;
 use reqwest::header::CONTENT_TYPE;
 use ssz::Encode;
 use tokio::net::TcpListener;
-use tracing::debug;
+use tracing::{debug, error};
 use tree_hash::TreeHash;
 
 pub async fn start_mock_relay_service(state: Arc<MockRelayState>, port: u16) -> eyre::Result<()> {
@@ -117,7 +117,12 @@ async fn handle_get_header(
     headers: HeaderMap,
 ) -> Response {
     state.received_get_header.fetch_add(1, Ordering::Relaxed);
-    let accept_header = get_accept_header(&headers);
+    let accept_type = get_accept_type(&headers)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("error parsing accept header: {e}")));
+    if let Err(e) = accept_type {
+        return e.into_response();
+    }
+    let accept_header = accept_type.unwrap();
     let consensus_version_header =
         get_consensus_version_header(&headers).unwrap_or(ForkName::Electra);
 
@@ -141,11 +146,11 @@ async fn handle_get_header(
             let signature = sign_builder_root(state.chain, &state.signer, object_root);
             let response = SignedExecutionPayloadHeader { message, signature };
             match accept_header {
-                Accept::Json | Accept::Any => {
+                EncodingType::Json => {
                     let versioned_response = GetHeaderResponse::Electra(response);
                     serde_json::to_vec(&versioned_response).unwrap()
                 }
-                Accept::Ssz => response.as_ssz_bytes(),
+                EncodingType::Ssz => response.as_ssz_bytes(),
             }
         }
         _ => {
@@ -188,10 +193,16 @@ async fn handle_register_validator(
 async fn handle_submit_block_v1(
     headers: HeaderMap,
     State(state): State<Arc<MockRelayState>>,
-    JsonOrSsz(submit_block): JsonOrSsz<SignedBlindedBeaconBlock>,
+    raw_request: RawRequest,
 ) -> Response {
     state.received_submit_block.fetch_add(1, Ordering::Relaxed);
-    let accept_header = get_accept_header(&headers);
+    let accept_header = get_accept_type(&headers);
+    if let Err(e) = accept_header {
+        error!(%e, "error parsing accept header");
+        return (StatusCode::BAD_REQUEST, format!("error parsing accept header: {e}"))
+            .into_response();
+    }
+    let accept_header = accept_header.unwrap();
     let consensus_version_header =
         get_consensus_version_header(&headers).unwrap_or(ForkName::Electra);
 
@@ -199,6 +210,17 @@ async fn handle_submit_block_v1(
         vec![1u8; 1 + MAX_SIZE_SUBMIT_BLOCK_RESPONSE]
     } else {
         let VersionedResponse::Electra(mut response) = SubmitBlindedBlockResponse::default();
+        let submit_block =
+            deserialize_body::<SignedBlindedBeaconBlock>(&headers, raw_request.body_bytes)
+                .await
+                .map_err(|e| {
+                    error!(%e, "failed to deserialize signed blinded block");
+                    (StatusCode::BAD_REQUEST, format!("failed to deserialize body: {e}"))
+                });
+        if let Err(e) = submit_block {
+            return e.into_response();
+        }
+        let submit_block = submit_block.unwrap();
         response.execution_payload.block_hash = submit_block.block_hash();
 
         let BlindedBeaconBlock::Electra(body) = submit_block.message;
@@ -208,12 +230,12 @@ async fn handle_submit_block_v1(
         response.blobs_bundle.proofs.push(KzgProof([0; 48])).unwrap();
 
         match accept_header {
-            Accept::Json | Accept::Any => {
+            EncodingType::Json => {
                 // Response is versioned for JSON
                 let response = VersionedResponse::Electra(response);
                 serde_json::to_vec(&response).unwrap()
             }
-            Accept::Ssz => match consensus_version_header {
+            EncodingType::Ssz => match consensus_version_header {
                 // Response isn't versioned for SSZ
                 ForkName::Electra => response.as_ssz_bytes(),
                 _ => {

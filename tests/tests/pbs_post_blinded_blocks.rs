@@ -4,7 +4,7 @@ use cb_common::{
     pbs::{BuilderApiVersion, PayloadAndBlobsElectra, SubmitBlindedBlockResponse},
     signer::random_secret,
     types::Chain,
-    utils::{Accept, ContentType, ForkName},
+    utils::{EncodingType, ForkName},
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
@@ -19,7 +19,7 @@ use tracing::info;
 
 #[tokio::test]
 async fn test_submit_block_v1() -> Result<()> {
-    let res = submit_block_impl(3800, BuilderApiVersion::V1, ContentType::Json).await?;
+    let res = submit_block_impl(3800, BuilderApiVersion::V1, EncodingType::Json).await?;
     assert_eq!(res.status(), StatusCode::OK);
 
     let signed_blinded_block = load_test_signed_blinded_block();
@@ -31,7 +31,7 @@ async fn test_submit_block_v1() -> Result<()> {
 
 #[tokio::test]
 async fn test_submit_block_v2() -> Result<()> {
-    let res = submit_block_impl(3850, BuilderApiVersion::V2, ContentType::Json).await?;
+    let res = submit_block_impl(3850, BuilderApiVersion::V2, EncodingType::Json).await?;
     assert_eq!(res.status(), StatusCode::ACCEPTED);
     assert_eq!(res.bytes().await?.len(), 0);
     Ok(())
@@ -39,7 +39,7 @@ async fn test_submit_block_v2() -> Result<()> {
 
 #[tokio::test]
 async fn test_submit_block_v1_ssz() -> Result<()> {
-    let res = submit_block_impl(3810, BuilderApiVersion::V1, ContentType::Ssz).await?;
+    let res = submit_block_impl(3810, BuilderApiVersion::V1, EncodingType::Ssz).await?;
     assert_eq!(res.status(), StatusCode::OK);
 
     let signed_blinded_block = load_test_signed_blinded_block();
@@ -51,7 +51,7 @@ async fn test_submit_block_v1_ssz() -> Result<()> {
 
 #[tokio::test]
 async fn test_submit_block_v2_ssz() -> Result<()> {
-    let res = submit_block_impl(3860, BuilderApiVersion::V2, ContentType::Ssz).await?;
+    let res = submit_block_impl(3860, BuilderApiVersion::V2, EncodingType::Ssz).await?;
     assert_eq!(res.status(), StatusCode::ACCEPTED);
     assert_eq!(res.bytes().await?.len(), 0);
     Ok(())
@@ -80,7 +80,7 @@ async fn test_submit_block_too_large() -> Result<()> {
     let mock_validator = MockValidator::new(pbs_port)?;
     info!("Sending submit block");
     let res = mock_validator
-        .do_submit_block_v1(None, Accept::Json, ContentType::Json, ForkName::Electra)
+        .do_submit_block_v1(None, EncodingType::Json, EncodingType::Json, ForkName::Electra)
         .await;
 
     // response size exceeds max size: max: 20971520
@@ -92,12 +92,9 @@ async fn test_submit_block_too_large() -> Result<()> {
 async fn submit_block_impl(
     pbs_port: u16,
     api_version: BuilderApiVersion,
-    serialization_mode: ContentType,
+    serialization_mode: EncodingType,
 ) -> Result<Response> {
-    let accept = match serialization_mode {
-        ContentType::Json => Accept::Json,
-        ContentType::Ssz => Accept::Ssz,
-    };
+    let accept = serialization_mode;
 
     setup_test_env();
     let signer = random_secret();

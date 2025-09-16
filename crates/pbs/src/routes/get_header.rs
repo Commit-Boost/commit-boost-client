@@ -6,7 +6,9 @@ use axum::{
 };
 use cb_common::{
     pbs::{GetHeaderParams, VersionedResponse},
-    utils::{Accept, CONSENSUS_VERSION_HEADER, get_accept_header, get_user_agent, ms_into_slot},
+    utils::{
+        CONSENSUS_VERSION_HEADER, EncodingType, get_accept_type, get_user_agent, ms_into_slot,
+    },
 };
 use reqwest::{StatusCode, header::CONTENT_TYPE};
 use ssz::Encode;
@@ -33,7 +35,14 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
 
     let ua = get_user_agent(&req_headers);
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
-    let accept_header = get_accept_header(&req_headers);
+    let accept_type = get_accept_type(&req_headers).map_err(|e| {
+        error!(%e, "error parsing accept header");
+        PbsClientError::DecodeError(format!("error parsing accept header: {e}"))
+    });
+    if let Err(e) = accept_type {
+        return Ok((StatusCode::BAD_REQUEST, e).into_response());
+    }
+    let accept_type = accept_type.unwrap();
 
     info!(ua, ms_into_slot, "new request");
 
@@ -42,8 +51,8 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
             if let Some(max_bid) = res {
                 info!(value_eth = format_ether(max_bid.value()), block_hash =% max_bid.block_hash(), "received header");
                 BEACON_NODE_STATUS.with_label_values(&["200", GET_HEADER_ENDPOINT_TAG]).inc();
-                let response = match accept_header {
-                    Accept::Ssz => {
+                let response = match accept_type {
+                    EncodingType::Ssz => {
                         let mut res = match &max_bid {
                             VersionedResponse::Electra(max_bid) => {
                                 (StatusCode::OK, max_bid.as_ssz_bytes()).into_response()
@@ -55,7 +64,7 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
                             return Ok((StatusCode::OK, axum::Json(max_bid)).into_response());
                         };
                         let Ok(content_type_header) =
-                            HeaderValue::from_str(&format!("{}", Accept::Ssz))
+                            HeaderValue::from_str(&format!("{}", EncodingType::Ssz))
                         else {
                             info!("sending response as JSON");
                             return Ok((StatusCode::OK, axum::Json(max_bid)).into_response());
@@ -66,9 +75,7 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
                         info!("sending response as SSZ");
                         res
                     }
-                    Accept::Json | Accept::Any => {
-                        (StatusCode::OK, axum::Json(max_bid)).into_response()
-                    }
+                    EncodingType::Json => (StatusCode::OK, axum::Json(max_bid)).into_response(),
                 };
                 Ok(response)
             } else {

@@ -6,7 +6,7 @@ use cb_common::{
     signature::sign_builder_root,
     signer::random_secret,
     types::Chain,
-    utils::{Accept, ForkName, timestamp_of_slot_start_sec},
+    utils::{EncodingType, ForkName, timestamp_of_slot_start_sec},
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
@@ -89,7 +89,8 @@ async fn test_get_header_ssz() -> Result<()> {
 
     let mock_validator = MockValidator::new(pbs_port)?;
     info!("Sending get header");
-    let res = mock_validator.do_get_header(None, Some(Accept::Ssz), ForkName::Electra).await?;
+    let res =
+        mock_validator.do_get_header(None, Some(EncodingType::Ssz), ForkName::Electra).await?;
     assert_eq!(res.status(), StatusCode::OK);
 
     let res: SignedExecutionPayloadHeader<ExecutionPayloadHeaderMessageElectra> =

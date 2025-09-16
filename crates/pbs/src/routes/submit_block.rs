@@ -7,8 +7,8 @@ use axum::{
 use cb_common::{
     pbs::{BuilderApiVersion, SignedBlindedBeaconBlock, VersionedResponse},
     utils::{
-        CONSENSUS_VERSION_HEADER, ContentType, JsonOrSsz, get_accept_header, get_user_agent,
-        timestamp_of_slot_start_millis, utcnow_ms,
+        CONSENSUS_VERSION_HEADER, EncodingType, RawRequest, deserialize_body, get_accept_type,
+        get_user_agent, timestamp_of_slot_start_millis, utcnow_ms,
     },
 };
 use reqwest::{StatusCode, header::CONTENT_TYPE};
@@ -26,37 +26,32 @@ use crate::{
 pub async fn handle_submit_block_v1<S: BuilderApiState, A: BuilderApi<S>>(
     state: State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
-    signed_blinded_block: JsonOrSsz<SignedBlindedBeaconBlock>,
+    raw_request: RawRequest,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    handle_submit_block_impl::<S, A>(
-        state,
-        req_headers,
-        signed_blinded_block,
-        BuilderApiVersion::V1,
-    )
-    .await
+    handle_submit_block_impl::<S, A>(state, req_headers, raw_request, BuilderApiVersion::V1).await
 }
 
 pub async fn handle_submit_block_v2<S: BuilderApiState, A: BuilderApi<S>>(
     state: State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
-    signed_blinded_block: JsonOrSsz<SignedBlindedBeaconBlock>,
+    raw_request: RawRequest,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    handle_submit_block_impl::<S, A>(
-        state,
-        req_headers,
-        signed_blinded_block,
-        BuilderApiVersion::V2,
-    )
-    .await
+    handle_submit_block_impl::<S, A>(state, req_headers, raw_request, BuilderApiVersion::V2).await
 }
 
 async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
     State(state): State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
-    JsonOrSsz(signed_blinded_block): JsonOrSsz<SignedBlindedBeaconBlock>,
+    raw_request: RawRequest,
     api_version: BuilderApiVersion,
 ) -> Result<impl IntoResponse, PbsClientError> {
+    let signed_blinded_block =
+        deserialize_body::<SignedBlindedBeaconBlock>(&req_headers, raw_request.body_bytes)
+            .await
+            .map_err(|e| {
+                error!(%e, "failed to deserialize signed blinded block");
+                PbsClientError::DecodeError(format!("failed to deserialize body: {e}"))
+            })?;
     tracing::Span::current().record("slot", signed_blinded_block.slot());
     tracing::Span::current()
         .record("block_hash", tracing::field::debug(signed_blinded_block.block_hash()));
@@ -71,7 +66,14 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
     let block_hash = signed_blinded_block.block_hash();
     let slot_start_ms = timestamp_of_slot_start_millis(slot, state.config.chain);
     let ua = get_user_agent(&req_headers);
-    let accept_header = get_accept_header(&req_headers);
+    let response_type = get_accept_type(&req_headers).map_err(|e| {
+        error!(%e, "error parsing accept header");
+        PbsClientError::DecodeError(format!("error parsing accept header: {e}"))
+    });
+    if let Err(e) = response_type {
+        return Ok((StatusCode::BAD_REQUEST, e.into_response()));
+    }
+    let response_type = response_type.unwrap();
 
     info!(ua, ms_into_slot = now.saturating_sub(slot_start_ms), "new request");
 
@@ -84,12 +86,12 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
                 BEACON_NODE_STATUS
                     .with_label_values(&["200", SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG])
                     .inc();
-                let response = match accept_header {
-                    cb_common::utils::Accept::Json | cb_common::utils::Accept::Any => {
+                let response = match response_type {
+                    EncodingType::Json => {
                         info!("sending response as JSON");
                         Json(payload_and_blobs).into_response()
                     }
-                    cb_common::utils::Accept::Ssz => {
+                    EncodingType::Ssz => {
                         let mut response = match &payload_and_blobs {
                             VersionedResponse::Electra(payload_and_blobs) => {
                                 payload_and_blobs.as_ssz_bytes().into_response()
@@ -105,7 +107,7 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
                             ));
                         };
                         let Ok(content_type_header) =
-                            HeaderValue::from_str(&ContentType::Ssz.to_string())
+                            HeaderValue::from_str(&EncodingType::Ssz.to_string())
                         else {
                             info!("sending response as JSON");
                             return Ok((

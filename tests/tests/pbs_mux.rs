@@ -4,7 +4,7 @@ use cb_common::{
     config::RuntimeMuxConfig,
     signer::random_secret,
     types::Chain,
-    utils::{Accept, ContentType, ForkName},
+    utils::{EncodingType, ForkName},
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
@@ -92,7 +92,7 @@ async fn test_mux() -> Result<()> {
     info!("Sending submit block v1");
     assert_eq!(
         mock_validator
-            .do_submit_block_v1(None, Accept::Json, ContentType::Json, ForkName::Electra)
+            .do_submit_block_v1(None, EncodingType::Json, EncodingType::Json, ForkName::Electra)
             .await?
             .status(),
         StatusCode::OK
@@ -103,7 +103,7 @@ async fn test_mux() -> Result<()> {
     info!("Sending submit block v2");
     assert_eq!(
         mock_validator
-            .do_submit_block_v2(None, Accept::Json, ContentType::Json, ForkName::Electra)
+            .do_submit_block_v2(None, EncodingType::Json, EncodingType::Json, ForkName::Electra)
             .await?
             .status(),
         StatusCode::ACCEPTED
