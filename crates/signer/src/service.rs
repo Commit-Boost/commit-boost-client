@@ -144,13 +144,33 @@ impl SigningService {
             .route_layer(middleware::from_fn(log_request))
             .route(STATUS_PATH, get(handle_status));
 
-        if CryptoProvider::get_default().is_none() {
-            aws_lc_rs::default_provider()
-                .install_default()
-                .map_err(|_| eyre::eyre!("Failed to install TLS provider"))?;
-        }
-
         let server_result = if let Some(tls_config) = config.tls_certificates {
+            if CryptoProvider::get_default().is_none() {
+                // Install the AWS-LC provider if no default is set, usually for CI
+                debug!("Installing AWS-LC as default TLS provider");
+                let mut attempts = 0;
+                loop {
+                    match aws_lc_rs::default_provider().install_default() {
+                        Ok(_) => {
+                            debug!("Successfully installed AWS-LC as default TLS provider");
+                            break;
+                        }
+                        Err(e) => {
+                            error!(
+                                "Failed to install AWS-LC as default TLS provider: {e:?}. Retrying..."
+                            );
+                            if attempts >= 3 {
+                                error!(
+                                    "Exceeded maximum attempts to install AWS-LC as default TLS provider"
+                                );
+                                break;
+                            }
+                            attempts += 1;
+                        }
+                    }
+                }
+            }
+
             let tls_config = RustlsConfig::from_pem(tls_config.0, tls_config.1).await?;
             axum_server::bind_rustls(config.endpoint, tls_config)
                 .serve(
