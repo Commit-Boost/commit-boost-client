@@ -173,6 +173,16 @@ impl SigningService {
     }
 }
 
+/// Marks a JWT authentication failure for a given client IP
+fn mark_jwt_failure(state: &SigningState, client_ip: IpAddr) {
+    let mut failures = state.jwt_auth_failures.write();
+    let failure_info = failures
+        .entry(client_ip)
+        .or_insert(JwtAuthFailureInfo { failure_count: 0, last_failure: Instant::now() });
+    failure_info.failure_count += 1;
+    failure_info.last_failure = Instant::now();
+}
+
 /// Authentication middleware layer
 async fn jwt_auth(
     State(state): State<SigningState>,
@@ -200,12 +210,7 @@ async fn jwt_auth(
             Ok(next.run(req).await)
         }
         Err(SignerModuleError::Unauthorized) => {
-            let mut failures = state.jwt_auth_failures.write();
-            let failure_info = failures
-                .entry(client_ip)
-                .or_insert(JwtAuthFailureInfo { failure_count: 0, last_failure: Instant::now() });
-            failure_info.failure_count += 1;
-            failure_info.last_failure = Instant::now();
+            mark_jwt_failure(&state, client_ip);
             Err(SignerModuleError::Unauthorized)
         }
         Err(err) => Err(err),
@@ -320,11 +325,13 @@ async fn admin_auth(
         // Skip payload hash comparison for requests without a body
         validate_admin_jwt(jwt, &state.admin_secret.read(), None).map_err(|e| {
             error!("Unauthorized request. Invalid JWT: {e}");
+            mark_jwt_failure(&state, client_ip);
             SignerModuleError::Unauthorized
         })?;
     } else {
         validate_admin_jwt(jwt, &state.admin_secret.read(), Some(&bytes)).map_err(|e| {
             error!("Unauthorized request. Invalid payload hash in JWT claims: {e}");
+            mark_jwt_failure(&state, client_ip);
             SignerModuleError::Unauthorized
         })?;
     }

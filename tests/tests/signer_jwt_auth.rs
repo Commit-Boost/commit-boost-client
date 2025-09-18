@@ -170,3 +170,41 @@ async fn test_signer_only_admin_can_revoke() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_signer_admin_jwt_rate_limit() -> Result<()> {
+    setup_test_env();
+    let admin_secret = ADMIN_SECRET.to_string();
+    let module_id = ModuleId(JWT_MODULE.to_string());
+    let mod_cfgs = create_mod_signing_configs().await;
+    let start_config = start_server(20500, &mod_cfgs, admin_secret.clone(), false).await?;
+
+    let revoke_body = RevokeModuleRequest { module_id: ModuleId(JWT_MODULE.to_string()) };
+    let body_bytes = serde_json::to_vec(&revoke_body)?;
+
+    // Run as many pubkeys requests as the fail limit
+    let jwt = create_jwt(&module_id, JWT_SECRET, Some(&body_bytes))?;
+    let client = reqwest::Client::new();
+    let url = format!("http://{}{}", start_config.endpoint, REVOKE_MODULE_PATH);
+
+    // Module JWT shouldn't be able to revoke modules
+    for _ in 0..start_config.jwt_auth_fail_limit {
+        let response = client.post(&url).json(&revoke_body).bearer_auth(&jwt).send().await?;
+        assert!(response.status() == StatusCode::UNAUTHORIZED);
+    }
+
+    // Run another request - this should fail due to rate limiting now
+    let admin_jwt = create_admin_jwt(admin_secret, Some(&body_bytes))?;
+    let response = client.post(&url).json(&revoke_body).bearer_auth(&admin_jwt).send().await?;
+    assert!(response.status() == StatusCode::TOO_MANY_REQUESTS);
+
+    // Wait for the rate limit timeout
+    tokio::time::sleep(Duration::from_secs(start_config.jwt_auth_fail_timeout_seconds as u64))
+        .await;
+
+    // Now the next request should succeed
+    let response = client.post(&url).json(&revoke_body).bearer_auth(&admin_jwt).send().await?;
+    assert!(response.status() == StatusCode::OK);
+
+    Ok(())
+}
