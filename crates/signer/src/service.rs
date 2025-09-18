@@ -10,7 +10,7 @@ use axum::{
     Extension, Json,
     body::{Body, to_bytes},
     extract::{ConnectInfo, Request, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -203,16 +203,38 @@ fn mark_jwt_failure(state: &SigningState, client_ip: IpAddr) {
     failure_info.last_failure = Instant::now();
 }
 
+fn get_true_ip(req_headers: &HeaderMap, addr: &SocketAddr) -> IpAddr {
+    // Try the X-Forwarded-For header first
+    if let Some(true_ip) = req_headers.get("x-forwarded-for") &&
+        let Ok(true_ip) = true_ip.to_str() &&
+        let Ok(true_ip) = true_ip.parse()
+    {
+        return true_ip;
+    }
+
+    // Then try the X-Real-IP header
+    if let Some(true_ip) = req_headers.get("x-real-ip") &&
+        let Ok(true_ip) = true_ip.to_str() &&
+        let Ok(true_ip) = true_ip.parse()
+    {
+        return true_ip;
+    }
+
+    // Fallback to the socket IP
+    addr.ip()
+}
+
 /// Authentication middleware layer
 async fn jwt_auth(
     State(state): State<SigningState>,
+    req_headers: HeaderMap,
     TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
     addr: ConnectInfo<SocketAddr>,
     req: Request,
     next: Next,
 ) -> Result<Response, SignerModuleError> {
     // Check if the request needs to be rate limited
-    let client_ip = addr.ip();
+    let client_ip = get_true_ip(&req_headers, &addr);
     check_jwt_rate_limit(&state, &client_ip)?;
 
     // Clone the request so we can read the body
@@ -322,13 +344,14 @@ fn check_jwt_auth(
 
 async fn admin_auth(
     State(state): State<SigningState>,
+    req_headers: HeaderMap,
     TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
     addr: ConnectInfo<SocketAddr>,
     req: Request,
     next: Next,
 ) -> Result<Response, SignerModuleError> {
     // Check if the request needs to be rate limited
-    let client_ip = addr.ip();
+    let client_ip = get_true_ip(&req_headers, &addr);
     check_jwt_rate_limit(&state, &client_ip)?;
 
     // Clone the request so we can read the body
