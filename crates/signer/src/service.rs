@@ -203,6 +203,8 @@ fn mark_jwt_failure(state: &SigningState, client_ip: IpAddr) {
     failure_info.last_failure = Instant::now();
 }
 
+/// Get the true client IP from the request headers or fallback to the socket
+/// address
 fn get_true_ip(req_headers: &HeaderMap, addr: &SocketAddr) -> IpAddr {
     // Try the X-Forwarded-For header first
     if let Some(true_ip) = req_headers.get("x-forwarded-for") &&
@@ -648,6 +650,7 @@ async fn handle_reload(
 
     debug!(event = "reload", ?req_id, "New request");
 
+    // Regenerate the config
     let config = match StartSignerConfig::load_from_env() {
         Ok(config) => config,
         Err(err) => {
@@ -656,6 +659,16 @@ async fn handle_reload(
         }
     };
 
+    // Start a new manager with the updated config
+    let new_manager = match start_manager(config).await {
+        Ok(manager) => manager,
+        Err(err) => {
+            error!(event = "reload", ?req_id, error = ?err, "Failed to reload manager");
+            return Err(SignerModuleError::Internal("failed to reload config".to_string()));
+        }
+    };
+
+    // Update the JWT configs if provided in the request
     if let Some(jwt_secrets) = request.jwt_secrets {
         let mut jwt_configs = state.jwts.write();
         let mut new_configs = HashMap::new();
@@ -677,23 +690,11 @@ async fn handle_reload(
         *jwt_configs = new_configs;
     }
 
+    // Update the rest of the state once everything has passed
     if let Some(admin_secret) = request.admin_secret {
         *state.admin_secret.write() = admin_secret;
     }
-
-    let new_manager = match start_manager(config).await {
-        Ok(manager) => manager,
-        Err(err) => {
-            error!(event = "reload", ?req_id, error = ?err, "Failed to reload manager");
-            return Err(SignerModuleError::Internal("failed to reload config".to_string()));
-        }
-    };
-
-    // Replace the contents of the manager RwLock
-    {
-        let mut manager_guard = state.manager.write().await;
-        *manager_guard = new_manager;
-    }
+    *state.manager.write().await = new_manager;
 
     Ok(StatusCode::OK)
 }
