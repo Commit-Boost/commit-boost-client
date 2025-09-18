@@ -177,7 +177,7 @@ async fn test_signer_admin_jwt_rate_limit() -> Result<()> {
     let admin_secret = ADMIN_SECRET.to_string();
     let module_id = ModuleId(JWT_MODULE.to_string());
     let mod_cfgs = create_mod_signing_configs().await;
-    let start_config = start_server(20500, &mod_cfgs, admin_secret.clone(), false).await?;
+    let start_config = start_server(20510, &mod_cfgs, admin_secret.clone(), false).await?;
 
     let revoke_body = RevokeModuleRequest { module_id: ModuleId(JWT_MODULE.to_string()) };
     let body_bytes = serde_json::to_vec(&revoke_body)?;
