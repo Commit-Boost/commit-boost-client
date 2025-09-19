@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use alloy::primitives::{Address, B256, U256, keccak256};
+use alloy::primitives::{Address, B256, U256};
 use axum::{
     Extension, Json,
     body::{Body, to_bytes},
@@ -326,25 +326,11 @@ async fn check_jwt_auth(
         SignerModuleError::Unauthorized
     })?;
 
-    if body.is_empty() {
-        // Skip payload hash comparison for requests without a body
-        validate_jwt(jwt, &jwt_config.jwt_secret, path, None).map_err(|e| {
-            error!("Unauthorized request. Invalid JWT: {e}");
-            SignerModuleError::Unauthorized
-        })?;
-    } else {
-        validate_jwt(jwt, &jwt_config.jwt_secret, path, Some(body)).map_err(|e| {
-            error!("Unauthorized request. Invalid JWT: {e}");
-            SignerModuleError::Unauthorized
-        })?;
-
-        // Make sure the request contains a hash of the payload in its claims
-        let payload_hash = keccak256(body);
-        if claims.payload_hash.is_none() || claims.payload_hash != Some(payload_hash) {
-            error!("Unauthorized request. Invalid payload hash in JWT claims");
-            return Err(SignerModuleError::Unauthorized);
-        }
-    }
+    let body_bytes = if body.is_empty() { None } else { Some(body) };
+    validate_jwt(jwt, &jwt_config.jwt_secret, path, body_bytes).map_err(|e| {
+        error!("Unauthorized request. Invalid JWT: {e}");
+        SignerModuleError::Unauthorized
+    })?;
 
     Ok(claims.module)
 }
@@ -374,22 +360,12 @@ async fn admin_auth(
     let jwt: Jwt = auth.token().to_string().into();
 
     // Validate the admin JWT
-    if bytes.is_empty() {
-        // Skip payload hash comparison for requests without a body
-        validate_admin_jwt(jwt, &state.admin_secret.read().await, path, None).map_err(|e| {
-            error!("Unauthorized request. Invalid JWT: {e}");
-            mark_jwt_failure(client_ip, &mut failures);
-            SignerModuleError::Unauthorized
-        })?;
-    } else {
-        validate_admin_jwt(jwt, &state.admin_secret.read().await, path, Some(&bytes)).map_err(
-            |e| {
-                error!("Unauthorized request. Invalid payload hash in JWT claims: {e}");
-                mark_jwt_failure(client_ip, &mut failures);
-                SignerModuleError::Unauthorized
-            },
-        )?;
-    }
+    let body_bytes: Option<&[u8]> = if bytes.is_empty() { None } else { Some(&bytes) };
+    validate_admin_jwt(jwt, &state.admin_secret.read().await, path, body_bytes).map_err(|e| {
+        error!("Unauthorized request. Invalid JWT: {e}");
+        mark_jwt_failure(client_ip, &mut failures);
+        SignerModuleError::Unauthorized
+    })?;
 
     let req = Request::from_parts(parts, Body::from(bytes));
     Ok(next.run(req).await)
