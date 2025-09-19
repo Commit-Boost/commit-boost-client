@@ -38,9 +38,8 @@ use cb_common::{
 use cb_metrics::provider::MetricsProvider;
 use eyre::Context;
 use headers::{Authorization, authorization::Bearer};
-use parking_lot::RwLock as ParkingRwLock;
 use rustls::crypto::{CryptoProvider, aws_lc_rs};
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, RwLockWriteGuard};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -71,13 +70,13 @@ struct SigningState {
 
     /// Map of modules ids to JWT configurations. This also acts as registry of
     /// all modules running
-    jwts: Arc<ParkingRwLock<HashMap<ModuleId, ModuleSigningConfig>>>,
+    jwts: Arc<RwLock<HashMap<ModuleId, ModuleSigningConfig>>>,
 
     /// Secret for the admin JWT
-    admin_secret: Arc<ParkingRwLock<String>>,
+    admin_secret: Arc<RwLock<String>>,
 
     /// Map of JWT failures per peer
-    jwt_auth_failures: Arc<ParkingRwLock<HashMap<IpAddr, JwtAuthFailureInfo>>>,
+    jwt_auth_failures: Arc<RwLock<HashMap<IpAddr, JwtAuthFailureInfo>>>,
 
     // JWT auth failure settings
     jwt_auth_fail_limit: u32,
@@ -96,9 +95,9 @@ impl SigningService {
 
         let state = SigningState {
             manager: Arc::new(RwLock::new(start_manager(config.clone()).await?)),
-            jwts: Arc::new(ParkingRwLock::new(config.mod_signing_configs)),
-            admin_secret: Arc::new(ParkingRwLock::new(config.admin_secret)),
-            jwt_auth_failures: Arc::new(ParkingRwLock::new(HashMap::new())),
+            jwts: Arc::new(RwLock::new(config.mod_signing_configs)),
+            admin_secret: Arc::new(RwLock::new(config.admin_secret)),
+            jwt_auth_failures: Arc::new(RwLock::new(HashMap::new())),
             jwt_auth_fail_limit: config.jwt_auth_fail_limit,
             jwt_auth_fail_timeout: Duration::from_secs(config.jwt_auth_fail_timeout_seconds as u64),
         };
@@ -194,8 +193,10 @@ impl SigningService {
 }
 
 /// Marks a JWT authentication failure for a given client IP
-fn mark_jwt_failure(state: &SigningState, client_ip: IpAddr) {
-    let mut failures = state.jwt_auth_failures.write();
+fn mark_jwt_failure(
+    client_ip: IpAddr,
+    failures: &mut RwLockWriteGuard<HashMap<IpAddr, JwtAuthFailureInfo>>,
+) {
     let failure_info = failures
         .entry(client_ip)
         .or_insert(JwtAuthFailureInfo { failure_count: 0, last_failure: Instant::now() });
@@ -235,9 +236,11 @@ async fn jwt_auth(
     req: Request,
     next: Next,
 ) -> Result<Response, SignerModuleError> {
+    let mut failures = state.jwt_auth_failures.write().await;
+
     // Check if the request needs to be rate limited
     let client_ip = get_true_ip(&req_headers, &addr);
-    check_jwt_rate_limit(&state, &client_ip)?;
+    check_jwt_rate_limit(&state, &client_ip, &mut failures)?;
 
     // Clone the request so we can read the body
     let (parts, body) = req.into_parts();
@@ -247,14 +250,14 @@ async fn jwt_auth(
     })?;
 
     // Process JWT authorization
-    match check_jwt_auth(&auth, &state, &bytes) {
+    match check_jwt_auth(&auth, &state, &bytes).await {
         Ok(module_id) => {
             let mut req = Request::from_parts(parts, Body::from(bytes));
             req.extensions_mut().insert(module_id);
             Ok(next.run(req).await)
         }
         Err(SignerModuleError::Unauthorized) => {
-            mark_jwt_failure(&state, client_ip);
+            mark_jwt_failure(client_ip, &mut failures);
             Err(SignerModuleError::Unauthorized)
         }
         Err(err) => Err(err),
@@ -263,9 +266,11 @@ async fn jwt_auth(
 
 /// Checks if the incoming request needs to be rate limited due to previous JWT
 /// authentication failures
-fn check_jwt_rate_limit(state: &SigningState, client_ip: &IpAddr) -> Result<(), SignerModuleError> {
-    let mut failures = state.jwt_auth_failures.write();
-
+fn check_jwt_rate_limit(
+    state: &SigningState,
+    client_ip: &IpAddr,
+    failures: &mut RwLockWriteGuard<HashMap<IpAddr, JwtAuthFailureInfo>>,
+) -> Result<(), SignerModuleError> {
     // Ignore clients that don't have any failures
     if let Some(failure_info) = failures.get(client_ip) {
         // If the last failure was more than the timeout ago, remove this entry so it's
@@ -299,7 +304,7 @@ fn check_jwt_rate_limit(state: &SigningState, client_ip: &IpAddr) -> Result<(), 
 }
 
 /// Checks if a request can successfully authenticate with the JWT secret
-fn check_jwt_auth(
+async fn check_jwt_auth(
     auth: &Authorization<Bearer>,
     state: &SigningState,
     body: &[u8],
@@ -313,7 +318,7 @@ fn check_jwt_auth(
         SignerModuleError::Unauthorized
     })?;
 
-    let guard = state.jwts.read();
+    let guard = state.jwts.read().await;
     let jwt_config = guard.get(&claims.module).ok_or_else(|| {
         error!("Unauthorized request. Was the module started correctly?");
         SignerModuleError::Unauthorized
@@ -352,9 +357,11 @@ async fn admin_auth(
     req: Request,
     next: Next,
 ) -> Result<Response, SignerModuleError> {
+    let mut failures = state.jwt_auth_failures.write().await;
+
     // Check if the request needs to be rate limited
     let client_ip = get_true_ip(&req_headers, &addr);
-    check_jwt_rate_limit(&state, &client_ip)?;
+    check_jwt_rate_limit(&state, &client_ip, &mut failures)?;
 
     // Clone the request so we can read the body
     let (parts, body) = req.into_parts();
@@ -368,15 +375,15 @@ async fn admin_auth(
     // Validate the admin JWT
     if bytes.is_empty() {
         // Skip payload hash comparison for requests without a body
-        validate_admin_jwt(jwt, &state.admin_secret.read(), None).map_err(|e| {
+        validate_admin_jwt(jwt, &state.admin_secret.read().await, None).map_err(|e| {
             error!("Unauthorized request. Invalid JWT: {e}");
-            mark_jwt_failure(&state, client_ip);
+            mark_jwt_failure(client_ip, &mut failures);
             SignerModuleError::Unauthorized
         })?;
     } else {
-        validate_admin_jwt(jwt, &state.admin_secret.read(), Some(&bytes)).map_err(|e| {
+        validate_admin_jwt(jwt, &state.admin_secret.read().await, Some(&bytes)).map_err(|e| {
             error!("Unauthorized request. Invalid payload hash in JWT claims: {e}");
-            mark_jwt_failure(&state, client_ip);
+            mark_jwt_failure(client_ip, &mut failures);
             SignerModuleError::Unauthorized
         })?;
     }
@@ -470,7 +477,7 @@ async fn handle_request_signature_bls_impl(
     object_root: B256,
     nonce: u64,
 ) -> Result<impl IntoResponse, SignerModuleError> {
-    let Some(signing_id) = state.jwts.read().get(&module_id).map(|m| m.signing_id) else {
+    let Some(signing_id) = state.jwts.read().await.get(&module_id).map(|m| m.signing_id) else {
         error!(
             event = "proxy_bls_request_signature",
             ?module_id,
@@ -548,7 +555,7 @@ async fn handle_request_signature_proxy_ecdsa(
     Json(request): Json<SignProxyRequest<Address>>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
     let req_id = Uuid::new_v4();
-    let Some(signing_id) = state.jwts.read().get(&module_id).map(|m| m.signing_id) else {
+    let Some(signing_id) = state.jwts.read().await.get(&module_id).map(|m| m.signing_id) else {
         error!(
             event = "proxy_ecdsa_request_signature",
             ?module_id,
@@ -670,7 +677,7 @@ async fn handle_reload(
 
     // Update the JWT configs if provided in the request
     if let Some(jwt_secrets) = request.jwt_secrets {
-        let mut jwt_configs = state.jwts.write();
+        let mut jwt_configs = state.jwts.write().await;
         let mut new_configs = HashMap::new();
         for (module_id, jwt_secret) in jwt_secrets {
             if let Some(signing_id) = jwt_configs.get(&module_id).map(|cfg| cfg.signing_id) {
@@ -692,7 +699,7 @@ async fn handle_reload(
 
     // Update the rest of the state once everything has passed
     if let Some(admin_secret) = request.admin_secret {
-        *state.admin_secret.write() = admin_secret;
+        *state.admin_secret.write().await = admin_secret;
     }
     *state.manager.write().await = new_manager;
 
@@ -703,7 +710,7 @@ async fn handle_revoke_module(
     State(state): State<SigningState>,
     Json(request): Json<RevokeModuleRequest>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
-    let mut guard = state.jwts.write();
+    let mut guard = state.jwts.write().await;
     guard
         .remove(&request.module_id)
         .ok_or(SignerModuleError::ModuleIdNotFound)
