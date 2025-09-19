@@ -244,13 +244,14 @@ async fn jwt_auth(
 
     // Clone the request so we can read the body
     let (parts, body) = req.into_parts();
+    let path = parts.uri.path();
     let bytes = to_bytes(body, REQUEST_MAX_BODY_LENGTH).await.map_err(|e| {
         error!("Failed to read request body: {e}");
         SignerModuleError::RequestError(e.to_string())
     })?;
 
     // Process JWT authorization
-    match check_jwt_auth(&auth, &state, &bytes).await {
+    match check_jwt_auth(&auth, &state, path, &bytes).await {
         Ok(module_id) => {
             let mut req = Request::from_parts(parts, Body::from(bytes));
             req.extensions_mut().insert(module_id);
@@ -307,6 +308,7 @@ fn check_jwt_rate_limit(
 async fn check_jwt_auth(
     auth: &Authorization<Bearer>,
     state: &SigningState,
+    path: &str,
     body: &[u8],
 ) -> Result<ModuleId, SignerModuleError> {
     let jwt: Jwt = auth.token().to_string().into();
@@ -326,23 +328,21 @@ async fn check_jwt_auth(
 
     if body.is_empty() {
         // Skip payload hash comparison for requests without a body
-        validate_jwt(jwt, &jwt_config.jwt_secret, None).map_err(|e| {
+        validate_jwt(jwt, &jwt_config.jwt_secret, path, None).map_err(|e| {
             error!("Unauthorized request. Invalid JWT: {e}");
             SignerModuleError::Unauthorized
         })?;
     } else {
-        validate_jwt(jwt, &jwt_config.jwt_secret, Some(body)).map_err(|e| {
+        validate_jwt(jwt, &jwt_config.jwt_secret, path, Some(body)).map_err(|e| {
             error!("Unauthorized request. Invalid JWT: {e}");
             SignerModuleError::Unauthorized
         })?;
 
         // Make sure the request contains a hash of the payload in its claims
-        if !body.is_empty() {
-            let payload_hash = keccak256(body);
-            if claims.payload_hash.is_none() || claims.payload_hash != Some(payload_hash) {
-                error!("Unauthorized request. Invalid payload hash in JWT claims");
-                return Err(SignerModuleError::Unauthorized);
-            }
+        let payload_hash = keccak256(body);
+        if claims.payload_hash.is_none() || claims.payload_hash != Some(payload_hash) {
+            error!("Unauthorized request. Invalid payload hash in JWT claims");
+            return Err(SignerModuleError::Unauthorized);
         }
     }
 
@@ -365,6 +365,7 @@ async fn admin_auth(
 
     // Clone the request so we can read the body
     let (parts, body) = req.into_parts();
+    let path = parts.uri.path();
     let bytes = to_bytes(body, REQUEST_MAX_BODY_LENGTH).await.map_err(|e| {
         error!("Failed to read request body: {e}");
         SignerModuleError::RequestError(e.to_string())
@@ -375,17 +376,19 @@ async fn admin_auth(
     // Validate the admin JWT
     if bytes.is_empty() {
         // Skip payload hash comparison for requests without a body
-        validate_admin_jwt(jwt, &state.admin_secret.read().await, None).map_err(|e| {
+        validate_admin_jwt(jwt, &state.admin_secret.read().await, path, None).map_err(|e| {
             error!("Unauthorized request. Invalid JWT: {e}");
             mark_jwt_failure(client_ip, &mut failures);
             SignerModuleError::Unauthorized
         })?;
     } else {
-        validate_admin_jwt(jwt, &state.admin_secret.read().await, Some(&bytes)).map_err(|e| {
-            error!("Unauthorized request. Invalid payload hash in JWT claims: {e}");
-            mark_jwt_failure(client_ip, &mut failures);
-            SignerModuleError::Unauthorized
-        })?;
+        validate_admin_jwt(jwt, &state.admin_secret.read().await, path, Some(&bytes)).map_err(
+            |e| {
+                error!("Unauthorized request. Invalid payload hash in JWT claims: {e}");
+                mark_jwt_failure(client_ip, &mut failures);
+                SignerModuleError::Unauthorized
+            },
+        )?;
     }
 
     let req = Request::from_parts(parts, Body::from(bytes));

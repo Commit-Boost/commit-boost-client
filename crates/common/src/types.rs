@@ -26,6 +26,7 @@ pub struct Jwt(pub String);
 pub struct JwtClaims {
     pub exp: u64,
     pub module: ModuleId,
+    pub route: String,
     pub payload_hash: Option<B256>,
 }
 
@@ -33,6 +34,7 @@ pub struct JwtClaims {
 pub struct JwtAdminClaims {
     pub exp: u64,
     pub admin: bool,
+    pub route: String,
     pub payload_hash: Option<B256>,
 }
 

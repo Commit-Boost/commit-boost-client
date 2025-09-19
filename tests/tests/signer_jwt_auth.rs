@@ -45,7 +45,7 @@ async fn test_signer_jwt_auth_success() -> Result<()> {
     let jwt_config = mod_cfgs.get(&module_id).expect("JWT config for test module not found");
 
     // Run a pubkeys request
-    let jwt = create_jwt(&module_id, &jwt_config.jwt_secret, None)?;
+    let jwt = create_jwt(&module_id, &jwt_config.jwt_secret, GET_PUBKEYS_PATH, None)?;
     let client = reqwest::Client::new();
     let url = format!("http://{}{}", start_config.endpoint, GET_PUBKEYS_PATH);
     let response = client.get(&url).bearer_auth(&jwt).send().await?;
@@ -64,7 +64,7 @@ async fn test_signer_jwt_auth_fail() -> Result<()> {
     let start_config = start_server(20101, &mod_cfgs, ADMIN_SECRET.to_string(), false).await?;
 
     // Run a pubkeys request - this should fail due to invalid JWT
-    let jwt = create_jwt(&module_id, "incorrect secret", None)?;
+    let jwt = create_jwt(&module_id, "incorrect secret", GET_PUBKEYS_PATH, None)?;
     let client = reqwest::Client::new();
     let url = format!("http://{}{}", start_config.endpoint, GET_PUBKEYS_PATH);
     let response = client.get(&url).bearer_auth(&jwt).send().await?;
@@ -86,7 +86,7 @@ async fn test_signer_jwt_rate_limit() -> Result<()> {
     let mod_cfg = mod_cfgs.get(&module_id).expect("JWT config for test module not found");
 
     // Run as many pubkeys requests as the fail limit
-    let jwt = create_jwt(&module_id, "incorrect secret", None)?;
+    let jwt = create_jwt(&module_id, "incorrect secret", GET_PUBKEYS_PATH, None)?;
     let client = reqwest::Client::new();
     let url = format!("http://{}{}", start_config.endpoint, GET_PUBKEYS_PATH);
     for _ in 0..start_config.jwt_auth_fail_limit {
@@ -95,7 +95,7 @@ async fn test_signer_jwt_rate_limit() -> Result<()> {
     }
 
     // Run another request - this should fail due to rate limiting now
-    let jwt = create_jwt(&module_id, &mod_cfg.jwt_secret, None)?;
+    let jwt = create_jwt(&module_id, &mod_cfg.jwt_secret, GET_PUBKEYS_PATH, None)?;
     let response = client.get(&url).bearer_auth(&jwt).send().await?;
     assert!(response.status() == StatusCode::TOO_MANY_REQUESTS);
 
@@ -119,7 +119,7 @@ async fn test_signer_revoked_jwt_fail() -> Result<()> {
     let start_config = start_server(20400, &mod_cfgs, admin_secret.clone(), false).await?;
 
     // Run as many pubkeys requests as the fail limit
-    let jwt = create_jwt(&module_id, JWT_SECRET, None)?;
+    let jwt = create_jwt(&module_id, JWT_SECRET, GET_PUBKEYS_PATH, None)?;
     let client = reqwest::Client::new();
 
     // At first, test module should be allowed to request pubkeys
@@ -129,7 +129,7 @@ async fn test_signer_revoked_jwt_fail() -> Result<()> {
 
     let revoke_body = RevokeModuleRequest { module_id: ModuleId(JWT_MODULE.to_string()) };
     let body_bytes = serde_json::to_vec(&revoke_body)?;
-    let admin_jwt = create_admin_jwt(admin_secret, Some(&body_bytes))?;
+    let admin_jwt = create_admin_jwt(admin_secret, REVOKE_MODULE_PATH, Some(&body_bytes))?;
 
     let revoke_url = format!("http://{}{}", start_config.endpoint, REVOKE_MODULE_PATH);
     let response =
@@ -155,7 +155,7 @@ async fn test_signer_only_admin_can_revoke() -> Result<()> {
     let body_bytes = serde_json::to_vec(&revoke_body)?;
 
     // Run as many pubkeys requests as the fail limit
-    let jwt = create_jwt(&module_id, JWT_SECRET, Some(&body_bytes))?;
+    let jwt = create_jwt(&module_id, JWT_SECRET, REVOKE_MODULE_PATH, Some(&body_bytes))?;
     let client = reqwest::Client::new();
     let url = format!("http://{}{}", start_config.endpoint, REVOKE_MODULE_PATH);
 
@@ -164,7 +164,7 @@ async fn test_signer_only_admin_can_revoke() -> Result<()> {
     assert!(response.status() == StatusCode::UNAUTHORIZED);
 
     // Admin should be able to revoke modules
-    let admin_jwt = create_admin_jwt(admin_secret, Some(&body_bytes))?;
+    let admin_jwt = create_admin_jwt(admin_secret, REVOKE_MODULE_PATH, Some(&body_bytes))?;
     let response = client.post(&url).json(&revoke_body).bearer_auth(&admin_jwt).send().await?;
     assert!(response.status() == StatusCode::OK);
 
@@ -183,7 +183,7 @@ async fn test_signer_admin_jwt_rate_limit() -> Result<()> {
     let body_bytes = serde_json::to_vec(&revoke_body)?;
 
     // Run as many pubkeys requests as the fail limit
-    let jwt = create_jwt(&module_id, JWT_SECRET, Some(&body_bytes))?;
+    let jwt = create_jwt(&module_id, JWT_SECRET, REVOKE_MODULE_PATH, Some(&body_bytes))?;
     let client = reqwest::Client::new();
     let url = format!("http://{}{}", start_config.endpoint, REVOKE_MODULE_PATH);
 
@@ -194,7 +194,7 @@ async fn test_signer_admin_jwt_rate_limit() -> Result<()> {
     }
 
     // Run another request - this should fail due to rate limiting now
-    let admin_jwt = create_admin_jwt(admin_secret, Some(&body_bytes))?;
+    let admin_jwt = create_admin_jwt(admin_secret, REVOKE_MODULE_PATH, Some(&body_bytes))?;
     let response = client.post(&url).json(&revoke_body).bearer_auth(&admin_jwt).send().await?;
     assert!(response.status() == StatusCode::TOO_MANY_REQUESTS);
 

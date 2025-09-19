@@ -62,7 +62,12 @@ async fn test_signer_sign_request_good() -> Result<()> {
     let pubkey = BlsPublicKey::deserialize(&PUBKEY_1).unwrap();
     let request = SignConsensusRequest { pubkey: pubkey.clone(), object_root, nonce };
     let payload_bytes = serde_json::to_vec(&request)?;
-    let jwt = create_jwt(&module_id, &jwt_config.jwt_secret, Some(&payload_bytes))?;
+    let jwt = create_jwt(
+        &module_id,
+        &jwt_config.jwt_secret,
+        REQUEST_SIGNATURE_BLS_PATH,
+        Some(&payload_bytes),
+    )?;
     let client = reqwest::Client::new();
     let url = format!("http://{}{}", start_config.endpoint, REQUEST_SIGNATURE_BLS_PATH);
     let response = client.post(&url).json(&request).bearer_auth(&jwt).send().await?;
@@ -100,7 +105,12 @@ async fn test_signer_sign_request_different_module() -> Result<()> {
     let pubkey = BlsPublicKey::deserialize(&PUBKEY_1).unwrap();
     let request = SignConsensusRequest { pubkey: pubkey.clone(), object_root, nonce };
     let payload_bytes = serde_json::to_vec(&request)?;
-    let jwt = create_jwt(&module_id, &jwt_config.jwt_secret, Some(&payload_bytes))?;
+    let jwt = create_jwt(
+        &module_id,
+        &jwt_config.jwt_secret,
+        REQUEST_SIGNATURE_BLS_PATH,
+        Some(&payload_bytes),
+    )?;
     let client = reqwest::Client::new();
     let url = format!("http://{}{}", start_config.endpoint, REQUEST_SIGNATURE_BLS_PATH);
     let response = client.post(&url).json(&request).bearer_auth(&jwt).send().await?;
@@ -146,7 +156,12 @@ async fn test_signer_sign_request_incorrect_hash() -> Result<()> {
     let true_object_root =
         b256!("0x0123456789012345678901234567890123456789012345678901234567890123");
     let true_request = SignConsensusRequest { pubkey, object_root: true_object_root, nonce };
-    let jwt = create_jwt(&module_id, &jwt_config.jwt_secret, Some(&fake_payload_bytes))?;
+    let jwt = create_jwt(
+        &module_id,
+        &jwt_config.jwt_secret,
+        REQUEST_SIGNATURE_BLS_PATH,
+        Some(&fake_payload_bytes),
+    )?;
     let client = reqwest::Client::new();
     let url = format!("http://{}{}", start_config.endpoint, REQUEST_SIGNATURE_BLS_PATH);
     let response = client.post(&url).json(&true_request).bearer_auth(&jwt).send().await?;
@@ -171,7 +186,7 @@ async fn test_signer_sign_request_missing_hash() -> Result<()> {
     let pubkey = BlsPublicKey::deserialize(&PUBKEY_1).unwrap();
     let object_root = b256!("0x0123456789012345678901234567890123456789012345678901234567890123");
     let request = SignConsensusRequest { pubkey, object_root, nonce };
-    let jwt = create_jwt(&module_id, &jwt_config.jwt_secret, None)?;
+    let jwt = create_jwt(&module_id, &jwt_config.jwt_secret, REQUEST_SIGNATURE_BLS_PATH, None)?;
     let client = reqwest::Client::new();
     let url = format!("http://{}{}", start_config.endpoint, REQUEST_SIGNATURE_BLS_PATH);
     let response = client.post(&url).json(&request).bearer_auth(&jwt).send().await?;

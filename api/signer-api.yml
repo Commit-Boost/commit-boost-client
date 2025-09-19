@@ -15,6 +15,7 @@ paths:
         
         The token **must include** the following claims:
         - `exp` (integer): Expiration timestamp
+        - `route` (string): The route being requested (must be `/signer/v1/get_pubkeys` for this endpoint).
         - `module` (string): The ID of the module making the request, which must match a module ID in the Commit-Boost configuration file.
       tags:
         - Signer
@@ -73,6 +74,7 @@ paths:
         The token **must include** the following claims:
         - `exp` (integer): Expiration timestamp
         - `module` (string): The ID of the module making the request, which must match a module ID in the Commit-Boost configuration file.
+        - `route` (string): The route being requested (must be `/signer/v1/request_signature/bls` for this endpoint).
         - `payload_hash` (string): The Keccak-256 hash of the JSON-encoded request body, with optional `0x` prefix. This is required to prevent JWT replay attacks.
       tags:
         - Signer
@@ -220,6 +222,7 @@ paths:
         The token **must include** the following claims:
         - `exp` (integer): Expiration timestamp
         - `module` (string): The ID of the module making the request, which must match a module ID in the Commit-Boost configuration file.
+        - `route` (string): The route being requested (must be `/signer/v1/request_signature/proxy-bls` for this endpoint).
         - `payload_hash` (string): The Keccak-256 hash of the JSON-encoded request body, with optional `0x` prefix. This is required to prevent JWT replay attacks.
       tags:
         - Signer
@@ -367,6 +370,7 @@ paths:
         The token **must include** the following claims:
         - `exp` (integer): Expiration timestamp
         - `module` (string): The ID of the module making the request, which must match a module ID in the Commit-Boost configuration file.
+        - `route` (string): The route being requested (must be `/signer/v1/request_signature/proxy-ecdsa` for this endpoint).
         - `payload_hash` (string): The Keccak-256 hash of the JSON-encoded request body, with optional `0x` prefix. This is required to prevent JWT replay attacks.
       tags:
         - Signer
@@ -514,6 +518,7 @@ paths:
         The token **must include** the following claims:
         - `exp` (integer): Expiration timestamp
         - `module` (string): The ID of the module making the request, which must match a module ID in the Commit-Boost configuration file.
+        - `route` (string): The route being requested (must be `/signer/v1/generate_proxy_key` for this endpoint).
         - `payload_hash` (string): The Keccak-256 hash of the JSON-encoded request body, with optional `0x` prefix. This is required to prevent JWT replay attacks.
       tags:
         - Signer

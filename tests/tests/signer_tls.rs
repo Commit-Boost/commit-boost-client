@@ -41,7 +41,7 @@ async fn test_signer_tls() -> Result<()> {
     let jwt_config = mod_cfgs.get(&module_id).expect("JWT config for test module not found");
 
     // Run a pubkeys request
-    let jwt = create_jwt(&module_id, &jwt_config.jwt_secret, None)?;
+    let jwt = create_jwt(&module_id, &jwt_config.jwt_secret, GET_PUBKEYS_PATH, None)?;
     let cert = match start_config.tls_certificates {
         Some(ref certificates) => &certificates.0,
         None => bail!("TLS certificates not found in start config"),
