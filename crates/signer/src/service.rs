@@ -144,7 +144,6 @@ impl SigningService {
             .route(STATUS_PATH, get(handle_status));
 
         // Run the JWT cleaning task
-        //let state = state.clone();
         let jwt_cleaning_task = tokio::spawn(async move {
             let mut interval = tokio::time::interval(state.jwt_auth_fail_timeout);
             loop {
