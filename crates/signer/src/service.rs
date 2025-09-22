@@ -143,6 +143,23 @@ impl SigningService {
             .route_layer(middleware::from_fn(log_request))
             .route(STATUS_PATH, get(handle_status));
 
+        // Run the JWT cleaning task
+        //let state = state.clone();
+        let jwt_cleaning_task = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(state.jwt_auth_fail_timeout);
+            loop {
+                interval.tick().await;
+                let mut failures = state.jwt_auth_failures.write().await;
+                let before = failures.len();
+                failures
+                    .retain(|_, info| info.last_failure.elapsed() < state.jwt_auth_fail_timeout);
+                let after = failures.len();
+                if before != after {
+                    debug!("Cleaned up {} old JWT auth failure entries", before - after);
+                }
+            }
+        });
+
         let server_result = if let Some(tls_config) = config.tls_certificates {
             if CryptoProvider::get_default().is_none() {
                 // Install the AWS-LC provider if no default is set, usually for CI
@@ -184,6 +201,10 @@ impl SigningService {
                 )
                 .await
         };
+
+        // Shutdown the JWT cleaning task
+        jwt_cleaning_task.abort();
+
         server_result.wrap_err("signer service exited")
     }
 

@@ -21,3 +21,6 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 tree_hash.workspace = true
 url.workspace = true
+
+[dev-dependencies]
+tracing-test.workspace = true
