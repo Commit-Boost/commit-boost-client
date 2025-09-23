@@ -4,7 +4,6 @@ use alloy::{
     hex,
     primitives::{B256, aliases::B32},
 };
-use blsful::inner_types::{Field, G2Affine, G2Projective, Group, Scalar};
 use cb_common::{
     commit::request::{ConsensusProxyMap, ProxyDelegation, SignedProxyDelegation},
     config::{DirkConfig, DirkHostConfig},

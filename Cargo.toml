@@ -9,7 +9,7 @@ version = "0.8.1-rc.1"
 
 [workspace.dependencies]
 aes = "0.8"
-alloy = { version = "0.12", features = [
+alloy = { version = "^1.0.35", features = [
     "full",
     "getrandom",
     "providers",
@@ -18,13 +18,14 @@ alloy = { version = "0.12", features = [
     "signer-local",
     "ssz",
 ] }
+alloy-primitives = "^1.3.1"
 async-trait = "0.1.80"
 axum = { version = "0.8.1", features = ["macros"] }
 axum-extra = { version = "0.10.0", features = ["typed-header"] }
 axum-server = { version = "0.7.2", features = ["tls-rustls"] }
 base64 = "0.22.1"
 bimap = { version = "0.6.3", features = ["serde"] }
-blsful = "2.5"
+# blsful = "2.5"
 bytes = "1.10.1"
 cb-cli = { path = "crates/cli" }
 cb-common = { path = "crates/common" }
@@ -40,16 +41,16 @@ derive_more = { version = "2.0.1", features = ["deref", "display", "from", "into
 docker-compose-types = "0.16.0"
 docker-image = "0.2.1"
 ethereum_serde_utils = "0.7.0"
-ethereum_ssz = "0.8"
-ethereum_ssz_derive = "0.8"
+ethereum_ssz = "0.9"
+ethereum_ssz_derive = "0.9"
 eyre = "0.6.12"
 futures = "0.3.30"
 headers = "0.4.0"
 indexmap = "2.2.6"
 jsonwebtoken = { version = "9.3.1", default-features = false }
 lazy_static = "1.5.0"
-lh_eth2_keystore = { package = "eth2_keystore", git = "https://github.com/sigp/lighthouse", tag = "v7.1.0" }
-lh_types = { package = "types", git = "https://github.com/sigp/lighthouse", tag = "v7.1.0" }
+lh_eth2_keystore = { package = "eth2_keystore", git = "https://github.com/sigp/lighthouse", branch = "unstable" }
+lh_types = { package = "types", git = "https://github.com/sigp/lighthouse", branch = "unstable" }
 parking_lot = "0.12.3"
 pbkdf2 = "0.12.2"
 prometheus = "0.14.0"
@@ -63,7 +64,7 @@ serde = { version = "1.0.202", features = ["derive"] }
 serde_json = "1.0.117"
 serde_yaml = "0.9.33"
 sha2 = "0.10.8"
-ssz_types = "0.10"
+ssz_types = "0.11"
 tempfile = "3.20.0"
 thiserror = "2.0.12"
 tokio = { version = "1.37.0", features = ["full"] }
@@ -75,7 +76,7 @@ tracing = "0.1.40"
 tracing-appender = "0.2.3"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 tracing-test = { version = "0.2.5", features = ["no-env-filter"] }
-tree_hash = "0.9"
+tree_hash = "^0.10"
 tree_hash_derive = "0.9"
 typenum = "1.17.0"
 unicode-normalization = "0.1.24"
