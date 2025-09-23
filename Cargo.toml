@@ -25,7 +25,8 @@ axum-extra = { version = "0.10.0", features = ["typed-header"] }
 axum-server = { version = "0.7.2", features = ["tls-rustls"] }
 base64 = "0.22.1"
 bimap = { version = "0.6.3", features = ["serde"] }
-# blsful = "2.5"
+blst = "^0.3.15"
+blsful = "^2.5"
 bytes = "1.10.1"
 cb-cli = { path = "crates/cli" }
 cb-common = { path = "crates/common" }
@@ -65,6 +66,7 @@ serde_json = "1.0.117"
 serde_yaml = "0.9.33"
 sha2 = "0.10.8"
 ssz_types = "0.11"
+subtle = "2.5"
 tempfile = "3.20.0"
 thiserror = "2.0.12"
 tokio = { version = "1.37.0", features = ["full"] }
@@ -82,3 +84,6 @@ typenum = "1.17.0"
 unicode-normalization = "0.1.24"
 url = { version = "2.5.0", features = ["serde"] }
 uuid = { version = "1.8.0", features = ["fast-rng", "serde", "v4"] }
+
+[patch.crates-io]
+blstrs_plus = { git = "https://github.com/Commit-Boost/blstrs" }
