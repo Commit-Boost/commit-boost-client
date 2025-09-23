@@ -10,6 +10,7 @@ alloy.workspace = true
 axum.workspace = true
 axum-extra.workspace = true
 bimap.workspace = true
+blsful.workspace = true
 cb-common.workspace = true
 cb-metrics.workspace = true
 eyre.workspace = true

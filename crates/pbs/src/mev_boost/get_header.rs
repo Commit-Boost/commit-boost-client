@@ -152,7 +152,7 @@ async fn fetch_parent_block(
     parent_hash: B256,
     parent_block: Arc<RwLock<Option<Block>>>,
 ) {
-    let provider = alloy::providers::ProviderBuilder::new().on_http(rpc_url).to_owned();
+    let provider = alloy::providers::ProviderBuilder::new().connect_http(rpc_url).to_owned();
 
     debug!(%parent_hash, "fetching parent block");
 
