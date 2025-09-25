@@ -10,7 +10,8 @@ pub mod prelude {
             load_commit_module_config, load_pbs_config, load_pbs_custom_config,
         },
         signature::{
-            verify_proposer_commitment_signature_bls, verify_proposer_commitment_signature_ecdsa,
+            verify_proposer_commitment_signature_bls_for_message,
+            verify_proposer_commitment_signature_ecdsa_for_message,
         },
         signer::EcdsaSignature,
         types::{BlsPublicKey, BlsSignature, Chain},

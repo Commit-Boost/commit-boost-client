@@ -96,7 +96,7 @@ impl DaCommitService {
         let request = SignConsensusRequest::builder(pubkey.clone()).with_msg(&datagram);
         let response = self.config.signer_client.request_consensus_signature(request).await?;
         info!("Proposer commitment (consensus): {}", response.signature);
-        if verify_proposer_commitment_signature_bls(
+        if verify_proposer_commitment_signature_bls_for_message(
             self.config.chain,
             &pubkey,
             &datagram,
@@ -115,7 +115,7 @@ impl DaCommitService {
         let proxy_response_bls =
             self.config.signer_client.request_proxy_signature_bls(proxy_request_bls).await?;
         info!("Proposer commitment (proxy BLS): {}", proxy_response_bls.signature);
-        if verify_proposer_commitment_signature_bls(
+        if verify_proposer_commitment_signature_bls_for_message(
             self.config.chain,
             &proxy_bls,
             &datagram,
@@ -138,7 +138,7 @@ impl DaCommitService {
                 .request_proxy_signature_ecdsa(proxy_request_ecdsa)
                 .await?;
             info!("Proposer commitment (proxy ECDSA): {}", proxy_response_ecdsa.signature);
-            match verify_proposer_commitment_signature_ecdsa(
+            match verify_proposer_commitment_signature_ecdsa_for_message(
                 self.config.chain,
                 &proxy_ecdsa,
                 &datagram,
