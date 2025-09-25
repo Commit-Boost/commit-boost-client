@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
 use alloy::primitives::{B256, Bytes, U256, aliases::B32, b256, hex};
 use derive_more::{Deref, Display, From, Into};
@@ -140,7 +140,17 @@ impl Chain {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+impl From<U256> for Chain {
+    /// Temporary implementation to convert from U256 to Chain.
+    fn from(value: U256) -> Self {
+        match ID_TO_CHAIN_MAP.get(&value) {
+            Some(chain) => Chain::from(*chain),
+            None => panic!("unsupported chain id: {value}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum KnownChain {
     #[serde(alias = "mainnet")]
     Mainnet,
@@ -155,15 +165,31 @@ pub enum KnownChain {
 }
 
 // Constants
+use std::sync::LazyLock;
+
+static CHAIN_TO_ID_MAP: LazyLock<HashMap<KnownChain, U256>> = LazyLock::new(|| {
+    let mut m = HashMap::new();
+    m.insert(KnownChain::Mainnet, U256::from(1));
+    m.insert(KnownChain::Holesky, U256::from(17000));
+    m.insert(KnownChain::Sepolia, U256::from(11155111));
+    m.insert(KnownChain::Helder, U256::from(167000));
+    m.insert(KnownChain::Hoodi, U256::from(560048));
+    m
+});
+
+static ID_TO_CHAIN_MAP: LazyLock<HashMap<U256, KnownChain>> = LazyLock::new(|| {
+    let mut m = HashMap::new();
+    m.insert(U256::from(1), KnownChain::Mainnet);
+    m.insert(U256::from(17000), KnownChain::Holesky);
+    m.insert(U256::from(11155111), KnownChain::Sepolia);
+    m.insert(U256::from(167000), KnownChain::Helder);
+    m.insert(U256::from(560048), KnownChain::Hoodi);
+    m
+});
+
 impl KnownChain {
     pub fn id(&self) -> U256 {
-        match self {
-            KnownChain::Mainnet => U256::from(1),
-            KnownChain::Holesky => U256::from(17000),
-            KnownChain::Sepolia => U256::from(11155111),
-            KnownChain::Helder => U256::from(167000),
-            KnownChain::Hoodi => U256::from(560048),
-        }
+        CHAIN_TO_ID_MAP.get(self).copied().expect("chain id must be defined")
     }
 
     pub fn builder_domain(&self) -> B256 {
