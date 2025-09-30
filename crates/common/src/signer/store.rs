@@ -709,7 +709,7 @@ mod test {
                             .join(consensus_signer.pubkey().to_string())
                             .join("TEST_MODULE")
                             .join("bls")
-                            .join(format!("{}.sig", proxy_signer.pubkey().to_string()))
+                            .join(format!("{}.sig", proxy_signer.pubkey()))
                     )
                     .unwrap()
                 )
