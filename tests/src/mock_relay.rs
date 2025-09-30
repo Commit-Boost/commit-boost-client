@@ -16,15 +16,18 @@ use axum::{
 };
 use cb_common::{
     pbs::{
-        BUILDER_V1_API_PATH, BUILDER_V2_API_PATH, BlindedBeaconBlock, GET_HEADER_PATH,
-        GET_STATUS_PATH, GetHeaderParams, GetHeaderResponse, REGISTER_VALIDATOR_PATH,
-        SUBMIT_BLOCK_PATH, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
+        BUILDER_V1_API_PATH, BUILDER_V2_API_PATH, BlobsBundle, BuilderBid, BuilderBidElectra,
+        ExecutionPayloadElectra, ExecutionPayloadHeaderElectra, ExecutionRequests, ForkName,
+        GET_HEADER_PATH, GET_STATUS_PATH, GetHeaderParams, GetHeaderResponse, GetPyloadInfo,
+        PayloadAndBlobs, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH, SignedBlindedBeaconBlock,
+        SignedBuilderBid, SubmitBlindedBlockResponse,
     },
     signature::sign_builder_root,
     types::{BlsSecretKey, Chain},
-    utils::timestamp_of_slot_start_sec,
+    utils::{TestRandomSeed, timestamp_of_slot_start_sec},
 };
 use cb_pbs::MAX_SIZE_SUBMIT_BLOCK_RESPONSE;
+use lh_types::KzgProof;
 use tokio::net::TcpListener;
 use tracing::debug;
 use tree_hash::TreeHash;
@@ -110,25 +113,32 @@ async fn handle_get_header(
 ) -> Response {
     state.received_get_header.fetch_add(1, Ordering::Relaxed);
 
-    let mut message = ExecutionPayloadHeaderMessageElectra {
-        header: Default::default(),
-        blob_kzg_commitments: Default::default(),
-        execution_requests: ExecutionRequests::default(),
-        value: Default::default(),
-        pubkey: state.signer.public_key(),
+    let mut header = ExecutionPayloadHeaderElectra {
+        parent_hash: parent_hash.into(),
+        block_hash: Default::default(),
+        timestamp: timestamp_of_slot_start_sec(0, state.chain),
+        ..ExecutionPayloadHeaderElectra::test_random()
     };
 
-    message.header.parent_hash = parent_hash;
-    message.header.block_hash.0[0] = 1;
-    message.value = U256::from(10);
-    message.pubkey = state.signer.public_key();
-    message.header.timestamp = timestamp_of_slot_start_sec(0, state.chain);
+    header.block_hash.0[0] = 1;
+
+    let message = BuilderBid::Electra(BuilderBidElectra {
+        header,
+        blob_kzg_commitments: Default::default(),
+        execution_requests: ExecutionRequests::default(),
+        value: U256::from(10),
+        pubkey: state.signer.public_key().into(),
+    });
 
     let object_root = message.tree_hash_root();
     let signature = sign_builder_root(state.chain, &state.signer, object_root);
-    let response = SignedExecutionPayloadHeader { message, signature };
+    let response = SignedBuilderBid { message, signature };
 
-    let response = GetHeaderResponse::Electra(response);
+    let response = GetHeaderResponse {
+        version: ForkName::Electra,
+        data: response,
+        metadata: Default::default(),
+    };
     (StatusCode::OK, Json(response)).into_response()
 }
 
@@ -159,16 +169,24 @@ async fn handle_submit_block_v1(
     if state.large_body() {
         (StatusCode::OK, Json(vec![1u8; 1 + MAX_SIZE_SUBMIT_BLOCK_RESPONSE])).into_response()
     } else {
-        let VersionedResponse::Electra(mut response) = SubmitBlindedBlockResponse::default();
-        response.execution_payload.block_hash = submit_block.block_hash();
+        let mut execution_payload = ExecutionPayloadElectra::test_random();
+        execution_payload.block_hash = submit_block.block_hash().into();
 
-        let BlindedBeaconBlock::Electra(body) = submit_block.message;
+        let mut blobs_bundle = BlobsBundle::default();
 
-        response.blobs_bundle.blobs.push(Default::default()).unwrap();
-        response.blobs_bundle.commitments = body.body.blob_kzg_commitments;
-        response.blobs_bundle.proofs.push(KzgProof([0; 48])).unwrap();
+        blobs_bundle.blobs.push(Default::default()).unwrap();
+        blobs_bundle.commitments =
+            submit_block.as_electra().unwrap().message.body.blob_kzg_commitments.clone();
+        blobs_bundle.proofs.push(KzgProof([0; 48])).unwrap();
 
-        let response = VersionedResponse::Electra(response);
+        let response =
+            PayloadAndBlobs { execution_payload: execution_payload.into(), blobs_bundle };
+
+        let response = SubmitBlindedBlockResponse {
+            version: ForkName::Electra,
+            metadata: Default::default(),
+            data: response,
+        };
 
         (StatusCode::OK, Json(response)).into_response()
     }

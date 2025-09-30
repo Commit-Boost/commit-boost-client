@@ -1733,6 +1733,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tree_hash",
+ "types",
  "url",
 ]
 

@@ -23,17 +23,23 @@ pub type PayloadAndBlobs = lh_eth2::types::ExecutionPayloadAndBlobs<MainnetEthSp
 pub type SubmitBlindedBlockResponse = lh_types::ForkVersionedResponse<PayloadAndBlobs>;
 
 pub type ExecutionPayloadHeader = lh_types::ExecutionPayloadHeader<MainnetEthSpec>;
+pub type ExecutionPayloadHeaderElectra = lh_types::ExecutionPayloadHeaderElectra<MainnetEthSpec>;
+pub type ExecutionPayloadHeaderFulu = lh_types::ExecutionPayloadHeaderFulu<MainnetEthSpec>;
 pub type ExecutionPayloadHeaderRef<'a> = lh_types::ExecutionPayloadHeaderRef<'a, MainnetEthSpec>;
 pub type ExecutionPayload = lh_types::ExecutionPayload<MainnetEthSpec>;
 pub type ExecutionPayloadElectra = lh_types::ExecutionPayloadElectra<MainnetEthSpec>;
 pub type ExecutionPayloadFulu = lh_types::ExecutionPayloadFulu<MainnetEthSpec>;
 pub type SignedBuilderBid = lh_types::builder_bid::SignedBuilderBid<MainnetEthSpec>;
+pub type BuilderBid = lh_types::builder_bid::BuilderBid<MainnetEthSpec>;
+pub type BuilderBidElectra = lh_types::builder_bid::BuilderBidElectra<MainnetEthSpec>;
 
 /// Response object of GET
 /// `/eth/v1/builder/header/{slot}/{parent_hash}/{pubkey}`
 pub type GetHeaderResponse = lh_types::ForkVersionedResponse<SignedBuilderBid>;
 
-pub use lh_types::ForkVersionedResponse;
+pub use lh_types::{ForkName, ForkVersionedResponse};
+
+pub type ExecutionRequests = lh_types::execution_requests::ExecutionRequests<MainnetEthSpec>;
 
 /// Response params of GET
 /// `/eth/v1/builder/header/{slot}/{parent_hash}/{pubkey}`
