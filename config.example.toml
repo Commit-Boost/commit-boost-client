@@ -165,7 +165,8 @@ port = 20000
 # Number of JWT authentication attempts a client can fail before blocking that client temporarily from Signer access
 # OPTIONAL, DEFAULT: 3
 jwt_auth_fail_limit = 3
-# How long to block a client from Signer access, in seconds, if it failed JWT authentication too many times
+# How long to block a client from Signer access, in seconds, if it failed JWT authentication too many times.
+# This also defines the interval at which failed attempts are regularly checked and expired ones are cleaned up.
 # OPTIONAL, DEFAULT: 300
 jwt_auth_fail_timeout_seconds = 300
 
