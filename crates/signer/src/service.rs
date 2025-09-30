@@ -213,10 +213,7 @@ impl SigningService {
 }
 
 /// Marks a JWT authentication failure for a given client IP
-fn mark_jwt_failure(
-    client_ip: IpAddr,
-    failures: &mut RwLockWriteGuard<HashMap<IpAddr, JwtAuthFailureInfo>>,
-) {
+fn mark_jwt_failure(client_ip: IpAddr, failures: &mut HashMap<IpAddr, JwtAuthFailureInfo>) {
     let failure_info = failures
         .entry(client_ip)
         .or_insert(JwtAuthFailureInfo { failure_count: 0, last_failure: Instant::now() });
