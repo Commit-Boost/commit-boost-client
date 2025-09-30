@@ -36,6 +36,7 @@ use cb_common::{
     utils::{decode_jwt, validate_admin_jwt, validate_jwt},
 };
 use cb_metrics::provider::MetricsProvider;
+use client_ip::*;
 use eyre::Context;
 use headers::{Authorization, authorization::Bearer};
 use parking_lot::RwLock as ParkingRwLock;
@@ -225,25 +226,34 @@ fn mark_jwt_failure(state: &SigningState, client_ip: IpAddr) {
 
 /// Get the true client IP from the request headers or fallback to the socket
 /// address
-fn get_true_ip(req_headers: &HeaderMap, addr: &SocketAddr) -> IpAddr {
-    // Try the X-Forwarded-For header first
-    if let Some(true_ip) = req_headers.get("x-forwarded-for") &&
-        let Ok(true_ip) = true_ip.to_str() &&
-        let Ok(true_ip) = true_ip.parse()
-    {
-        return true_ip;
-    }
+fn get_true_ip(req_headers: &HeaderMap, addr: &SocketAddr) -> eyre::Result<IpAddr> {
+    let ip_extractors = [
+        cf_connecting_ip,
+        cloudfront_viewer_address,
+        fly_client_ip,
+        rightmost_forwarded,
+        rightmost_x_forwarded_for,
+        true_client_ip,
+        x_real_ip,
+    ];
 
-    // Then try the X-Real-IP header
-    if let Some(true_ip) = req_headers.get("x-real-ip") &&
-        let Ok(true_ip) = true_ip.to_str() &&
-        let Ok(true_ip) = true_ip.parse()
-    {
-        return true_ip;
+    // Run each extractor in order and return the first valid IP found
+    for extractor in ip_extractors {
+        match extractor(req_headers) {
+            Ok(true_ip) => {
+                return Ok(true_ip);
+            }
+            Err(e) => {
+                match e {
+                    Error::AbsentHeader { .. } => continue, // Missing headers are fine
+                    _ => return Err(eyre::eyre!(e.to_string())), // Report anything else
+                }
+            }
+        }
     }
 
     // Fallback to the socket IP
-    addr.ip()
+    Ok(addr.ip())
 }
 
 /// Authentication middleware layer
@@ -256,7 +266,10 @@ async fn jwt_auth(
     next: Next,
 ) -> Result<Response, SignerModuleError> {
     // Check if the request needs to be rate limited
-    let client_ip = get_true_ip(&req_headers, &addr);
+    let client_ip = get_true_ip(&req_headers, &addr).map_err(|e| {
+        error!("Failed to get client IP: {e}");
+        SignerModuleError::RequestError("failed to get client IP".to_string())
+    })?;
     check_jwt_rate_limit(&state, &client_ip)?;
 
     // Clone the request so we can read the body
@@ -359,7 +372,10 @@ async fn admin_auth(
     next: Next,
 ) -> Result<Response, SignerModuleError> {
     // Check if the request needs to be rate limited
-    let client_ip = get_true_ip(&req_headers, &addr);
+    let client_ip = get_true_ip(&req_headers, &addr).map_err(|e| {
+        error!("Failed to get client IP: {e}");
+        SignerModuleError::RequestError("failed to get client IP".to_string())
+    })?;
     check_jwt_rate_limit(&state, &client_ip)?;
 
     // Clone the request so we can read the body
