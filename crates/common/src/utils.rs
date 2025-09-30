@@ -434,7 +434,7 @@ pub trait TestRandomSeed: TestRandom {
     where
         Self: Sized,
     {
-        let mut rng = XorShiftRng::from_entropy();
+        let mut rng = XorShiftRng::from_os_rng();
         Self::random_for_test(&mut rng)
     }
 }

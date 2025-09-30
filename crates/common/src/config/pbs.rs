@@ -176,7 +176,7 @@ impl PbsConfig {
         if let Some(rpc_url) = &self.rpc_url {
             // TODO: remove this once we support chain ids for custom chains
             if !matches!(chain, Chain::Custom { .. }) {
-                let provider = ProviderBuilder::new().on_http(rpc_url.clone());
+                let provider = ProviderBuilder::new().connect_http(rpc_url.clone());
                 let chain_id = provider.get_chain_id().await?;
                 ensure!(
                     chain_id == chain.id(),
