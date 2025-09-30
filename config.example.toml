@@ -130,7 +130,7 @@ validator_pubkeys = [
 #   - Registry: details of a registry to load keys from. Supported registries:
 #       - Lido: NodeOperatorsRegistry
 #       - SSV: SSV API
-        You can toggle the 'enable_refreshing' flag to let this registry periodically query Lido or SSV and refresh the list of validator pubkeys belonging to the corresponding operator.
+#       You can toggle the 'enable_refreshing' flag to let this registry periodically query Lido or SSV and refresh the list of validator pubkeys belonging to the corresponding operator.
 #
 # Example JSON list:
 # [

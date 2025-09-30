@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use cb_common::{
-    config::PbsModuleConfig,
+    config::{MuxKeysLoader, PbsModuleConfig},
     constants::{COMMIT_BOOST_COMMIT, COMMIT_BOOST_VERSION},
     pbs::{BUILDER_V1_API_PATH, GET_STATUS_PATH},
     types::Chain,
@@ -25,12 +25,21 @@ pub struct PbsService;
 impl PbsService {
     pub async fn run<S: BuilderApiState, A: BuilderApi<S>>(state: PbsState<S>) -> Result<()> {
         let addr = state.config.endpoint;
-        let registry_refresh_time =
-            Duration::from_secs(state.config.pbs_config.mux_registry_refresh_interval_seconds);
         info!(version = COMMIT_BOOST_VERSION, commit_hash = COMMIT_BOOST_COMMIT, ?addr, chain =? state.config.chain, "starting PBS service");
 
-        let state = RwLock::new(state).into();
-        let app = create_app_router::<S, A>(state);
+        // Check if refreshing registry muxes is required
+        let registry_refresh_time = state.config.pbs_config.mux_registry_refresh_interval_seconds;
+        let mut is_refreshing_required = false;
+        if state.config.pbs_config.mux_registry_refresh_interval_seconds == 0 {
+            info!("registry mux refreshing interval is 0; refreshing is disabled");
+        } else if let Some(muxes) = &state.config.registry_muxes {
+            is_refreshing_required = muxes.iter().any(|(loader, _)| {
+                matches!(loader, MuxKeysLoader::Registry { enable_refreshing: true, .. })
+            });
+        }
+
+        let state: Arc<RwLock<PbsState<S>>> = RwLock::new(state).into();
+        let app = create_app_router::<S, A>(state.clone());
         let listener = TcpListener::bind(addr).await?;
 
         let task =
@@ -49,16 +58,15 @@ impl PbsService {
         }
 
         // Run the registry refresher task
-        let registry_task = {
-            let state = state.clone();
-            let mut interval = tokio::time::interval(registry_refresh_time);
+        if is_refreshing_required {
+            let mut interval = tokio::time::interval(Duration::from_secs(registry_refresh_time));
             tokio::spawn(async move {
                 loop {
                     interval.tick().await;
                     Self::refresh_registry_muxes(state.clone()).await;
                 }
-            })
-        };
+            });
+        }
 
         task.await?
     }
