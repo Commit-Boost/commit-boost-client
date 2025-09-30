@@ -12,12 +12,12 @@ use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
     constants::APPLICATION_BUILDER_DOMAIN,
     pbs::{
-        EMPTY_TX_ROOT_HASH, GetHeaderParams, GetHeaderResponse, HEADER_START_TIME_UNIX_MS,
-        HEADER_TIMEOUT_MS, RelayClient, VersionedResponse,
+        EMPTY_TX_ROOT_HASH, ExecutionPayloadHeaderRef, GetHeaderInfo, GetHeaderParams,
+        GetHeaderResponse, HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS, RelayClient,
         error::{PbsError, ValidationError},
     },
     signature::verify_signed_message,
-    types::{BlsPublicKey, BlsSignature, Chain},
+    types::{BlsPublicKey, BlsPublicKeyBytes, BlsSignature, Chain},
     utils::{
         get_user_agent_with_version, ms_into_slot, read_chunked_body_with_max,
         timestamp_of_slot_start_sec, utcnow_ms,
@@ -126,8 +126,9 @@ pub async fn get_header<S: BuilderApiState>(
         match res {
             Ok(Some(res)) => {
                 RELAY_LAST_SLOT.with_label_values(&[relay_id]).set(params.slot as i64);
-                let value_gwei =
-                    (res.value() / U256::from(1_000_000_000)).try_into().unwrap_or_default();
+                let value_gwei = (res.data.message.value() / U256::from(1_000_000_000))
+                    .try_into()
+                    .unwrap_or_default();
                 RELAY_HEADER_VALUE.with_label_values(&[relay_id]).set(value_gwei);
 
                 relay_bids.push(res)
@@ -138,7 +139,7 @@ pub async fn get_header<S: BuilderApiState>(
         }
     }
 
-    let max_bid = relay_bids.into_iter().max_by_key(|bid| bid.value());
+    let max_bid = relay_bids.into_iter().max_by_key(|bid| *bid.value());
 
     Ok(max_bid)
 }
@@ -376,20 +377,26 @@ async fn send_one_get_header(
         relay_id = relay.id.as_ref(),
         header_size_bytes,
         latency = ?request_latency,
-        version = get_header_response.version(),
-        value_eth = format_ether(get_header_response.value()),
+        version =? get_header_response.version,
+        value_eth = format_ether(*get_header_response.value()),
         block_hash = %get_header_response.block_hash(),
         "received new header"
     );
 
-    match &get_header_response {
-        VersionedResponse::Electra(res) => {
+    match &get_header_response.data.message.header() {
+        ExecutionPayloadHeaderRef::Bellatrix(_) |
+        ExecutionPayloadHeaderRef::Capella(_) |
+        ExecutionPayloadHeaderRef::Deneb(_) |
+        ExecutionPayloadHeaderRef::Gloas(_) => {
+            return Err(PbsError::Validation(ValidationError::UnsupportedFork))
+        }
+        ExecutionPayloadHeaderRef::Electra(res) => {
             let header_data = HeaderData {
-                block_hash: res.message.header.block_hash,
-                parent_hash: res.message.header.parent_hash,
-                tx_root: res.message.header.transactions_root,
-                value: res.message.value,
-                timestamp: res.message.header.timestamp,
+                block_hash: res.block_hash.0,
+                parent_hash: res.parent_hash.0,
+                tx_root: res.transactions_root,
+                value: *get_header_response.value(),
+                timestamp: res.timestamp,
             };
 
             validate_header_data(
@@ -404,9 +411,36 @@ async fn send_one_get_header(
                 validate_signature(
                     chain,
                     relay.pubkey(),
-                    &res.message.pubkey,
-                    &res.message,
-                    &res.signature,
+                    get_header_response.data.message.pubkey(),
+                    &get_header_response.data.message,
+                    &get_header_response.data.signature,
+                )?;
+            }
+        }
+        ExecutionPayloadHeaderRef::Fulu(res) => {
+            let header_data = HeaderData {
+                block_hash: res.block_hash.0,
+                parent_hash: res.parent_hash.0,
+                tx_root: res.transactions_root,
+                value: *get_header_response.value(),
+                timestamp: res.timestamp,
+            };
+
+            validate_header_data(
+                &header_data,
+                chain,
+                params.parent_hash,
+                validation.min_bid_wei,
+                params.slot,
+            )?;
+
+            if !validation.skip_sigverify {
+                validate_signature(
+                    chain,
+                    relay.pubkey(),
+                    get_header_response.data.message.pubkey(),
+                    &get_header_response.data.message,
+                    &get_header_response.data.signature,
                 )?;
             }
         }
@@ -475,20 +509,20 @@ fn validate_header_data(
 fn validate_signature<T: TreeHash>(
     chain: Chain,
     expected_relay_pubkey: &BlsPublicKey,
-    received_relay_pubkey: &BlsPublicKey,
+    received_relay_pubkey: &BlsPublicKeyBytes,
     message: &T,
     signature: &BlsSignature,
 ) -> Result<(), ValidationError> {
-    if expected_relay_pubkey != received_relay_pubkey {
+    if expected_relay_pubkey.serialize() != received_relay_pubkey.as_serialized() {
         return Err(ValidationError::PubkeyMismatch {
-            expected: Box::new(expected_relay_pubkey.clone()),
-            got: Box::new(received_relay_pubkey.clone()),
+            expected: BlsPublicKeyBytes::from(expected_relay_pubkey),
+            got: received_relay_pubkey.clone(),
         });
     }
 
     if !verify_signed_message(
         chain,
-        received_relay_pubkey,
+        expected_relay_pubkey,
         &message,
         signature,
         APPLICATION_BUILDER_DOMAIN,
@@ -593,7 +627,7 @@ mod tests {
     fn test_validate_signature() {
         let secret_key = BlsSecretKey::test_random();
         let pubkey = secret_key.public_key();
-        let wrong_pubkey = BlsPublicKey::test_random();
+        let wrong_pubkey = BlsPublicKeyBytes::test_random();
         let wrong_signature = BlsSignature::test_random();
 
         let message = B256::random();
@@ -601,18 +635,33 @@ mod tests {
         let signature = sign_builder_message(Chain::Holesky, &secret_key, &message);
 
         assert_eq!(
-            validate_signature(Chain::Holesky, &wrong_pubkey, &pubkey, &message, &wrong_signature),
+            validate_signature(Chain::Holesky, &pubkey, &wrong_pubkey, &message, &wrong_signature),
             Err(ValidationError::PubkeyMismatch {
-                expected: Box::new(wrong_pubkey),
-                got: Box::new(pubkey.clone())
+                expected: BlsPublicKeyBytes::from(&pubkey),
+                got: wrong_pubkey
             })
         );
 
         assert!(matches!(
-            validate_signature(Chain::Holesky, &pubkey, &pubkey, &message, &wrong_signature),
+            validate_signature(
+                Chain::Holesky,
+                &pubkey,
+                &BlsPublicKeyBytes::from(&pubkey),
+                &message,
+                &wrong_signature
+            ),
             Err(ValidationError::Sigverify)
         ));
 
-        assert!(validate_signature(Chain::Holesky, &pubkey, &pubkey, &message, &signature).is_ok());
+        assert!(
+            validate_signature(
+                Chain::Holesky,
+                &pubkey,
+                &BlsPublicKeyBytes::from(&pubkey),
+                &message,
+                &signature
+            )
+            .is_ok()
+        );
     }
 }

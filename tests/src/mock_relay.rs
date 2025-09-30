@@ -16,11 +16,9 @@ use axum::{
 };
 use cb_common::{
     pbs::{
-        BUILDER_V1_API_PATH, BUILDER_V2_API_PATH, BlindedBeaconBlock,
-        ExecutionPayloadHeaderMessageElectra, ExecutionRequests, GET_HEADER_PATH, GET_STATUS_PATH,
-        GetHeaderParams, GetHeaderResponse, KzgProof, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
-        SignedBlindedBeaconBlock, SignedExecutionPayloadHeader, SubmitBlindedBlockResponse,
-        VersionedResponse,
+        BUILDER_V1_API_PATH, BUILDER_V2_API_PATH, BlindedBeaconBlock, GET_HEADER_PATH,
+        GET_STATUS_PATH, GetHeaderParams, GetHeaderResponse, REGISTER_VALIDATOR_PATH,
+        SUBMIT_BLOCK_PATH, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
     },
     signature::sign_builder_root,
     types::{BlsSecretKey, Chain},

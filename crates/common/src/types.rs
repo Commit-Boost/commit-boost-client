@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{constants::APPLICATION_BUILDER_DOMAIN, signature::compute_domain};
 
+pub type BlsPublicKeyBytes = lh_types::PublicKeyBytes;
 pub type BlsPublicKey = lh_types::PublicKey;
 pub type BlsSignature = lh_types::Signature;
 pub type BlsSecretKey = lh_types::SecretKey;

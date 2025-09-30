@@ -1,11 +1,13 @@
 use std::time::{Duration, Instant};
 
+use alloy::eips::eip7594::CELLS_PER_EXT_BLOB;
 use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
     pbs::{
-        BlindedBeaconBlock, BlindedBeaconBlockElectra, BuilderApiVersion,
-        HEADER_START_TIME_UNIX_MS, PayloadAndBlobsElectra, RelayClient, SignedBlindedBeaconBlock,
-        SubmitBlindedBlockResponse, VersionedResponse,
+        BlindedBeaconBlock, BlindedBeaconBlockElectra, BlindedBeaconBlockFulu, BlobsBundle,
+        BuilderApiVersion, ExecutionPayload, ExecutionPayloadElectra, ExecutionPayloadFulu,
+        HEADER_START_TIME_UNIX_MS, RelayClient, SignedBlindedBeaconBlock,
+        SubmitBlindedBlockResponse,
         error::{PbsError, ValidationError},
     },
     utils::{get_user_agent_with_version, read_chunked_body_with_max, utcnow_ms},
@@ -178,24 +180,31 @@ async fn send_submit_block(
         relay_id = relay.id.as_ref(),
         retry,
         latency = ?request_latency,
-        version = block_response.version(),
+        version =% block_response.version,
         "received unblinded block"
     );
 
-    if signed_blinded_block.block_hash() != block_response.block_hash() {
-        return Err(PbsError::Validation(ValidationError::BlockHashMismatch {
-            expected: signed_blinded_block.block_hash(),
-            got: block_response.block_hash(),
-        }));
-    }
-
     // request has different type so cant be deserialized in the wrong version,
     // response has a "version" field
-    match (&signed_blinded_block.message, &block_response) {
+    match (&signed_blinded_block.message(), &block_response.data.execution_payload) {
         (
-            BlindedBeaconBlock::Electra(signed_blinded_block),
-            VersionedResponse::Electra(block_response),
-        ) => validate_unblinded_block_electra(signed_blinded_block, block_response),
+            BlindedBeaconBlock::Electra(blinded_block),
+            ExecutionPayload::Electra(execution_payload),
+        ) => validate_unblinded_block_electra(
+            blinded_block,
+            execution_payload,
+            &block_response.data.blobs_bundle,
+        ),
+
+        (BlindedBeaconBlock::Fulu(blinded_block), ExecutionPayload::Fulu(execution_payload)) => {
+            validate_unblinded_block_fulu(
+                blinded_block,
+                execution_payload,
+                &block_response.data.blobs_bundle,
+            )
+        }
+
+        _ => return Err(PbsError::Validation(ValidationError::UnsupportedFork)),
     }?;
 
     Ok(Some(block_response))
@@ -203,29 +212,82 @@ async fn send_submit_block(
 
 fn validate_unblinded_block_electra(
     signed_blinded_block: &BlindedBeaconBlockElectra,
-    block_response: &PayloadAndBlobsElectra,
+    execution_payload: &ExecutionPayloadElectra,
+    blobs_bundle: &BlobsBundle,
 ) -> Result<(), PbsError> {
-    let blobs = &block_response.blobs_bundle;
+    let expected_block_hash =
+        signed_blinded_block.body.execution_payload.execution_payload_header.block_hash.0;
+    let got_block_hash = execution_payload.block_hash.0;
+
+    if expected_block_hash != got_block_hash {
+        return Err(PbsError::Validation(ValidationError::BlockHashMismatch {
+            expected: expected_block_hash,
+            got: got_block_hash,
+        }));
+    }
 
     let expected_commitments = &signed_blinded_block.body.blob_kzg_commitments;
-    if expected_commitments.len() != blobs.blobs.len() ||
-        expected_commitments.len() != blobs.commitments.len() ||
-        expected_commitments.len() != blobs.proofs.len()
+    if expected_commitments.len() != blobs_bundle.blobs.len() ||
+        expected_commitments.len() != blobs_bundle.commitments.len() ||
+        expected_commitments.len() != blobs_bundle.proofs.len()
     {
         return Err(PbsError::Validation(ValidationError::KzgCommitments {
             expected_blobs: expected_commitments.len(),
-            got_blobs: blobs.blobs.len(),
-            got_commitments: blobs.commitments.len(),
-            got_proofs: blobs.proofs.len(),
+            got_blobs: blobs_bundle.blobs.len(),
+            got_commitments: blobs_bundle.commitments.len(),
+            got_proofs: blobs_bundle.proofs.len(),
         }));
     }
 
     for (i, comm) in expected_commitments.iter().enumerate() {
         // this is safe since we already know they are the same length
-        if *comm != blobs.commitments[i] {
+        if *comm != blobs_bundle.commitments[i] {
             return Err(PbsError::Validation(ValidationError::KzgMismatch {
                 expected: format!("{comm}"),
-                got: format!("{}", blobs.commitments[i]),
+                got: format!("{}", blobs_bundle.commitments[i]),
+                index: i,
+            }));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_unblinded_block_fulu(
+    signed_blinded_block: &BlindedBeaconBlockFulu,
+    execution_payload: &ExecutionPayloadFulu,
+    blobs_bundle: &BlobsBundle,
+) -> Result<(), PbsError> {
+    let expected_block_hash =
+        signed_blinded_block.body.execution_payload.execution_payload_header.block_hash.0;
+    let got_block_hash = execution_payload.block_hash.0;
+
+    if expected_block_hash != got_block_hash {
+        return Err(PbsError::Validation(ValidationError::BlockHashMismatch {
+            expected: expected_block_hash,
+            got: got_block_hash,
+        }));
+    }
+
+    let expected_commitments = &signed_blinded_block.body.blob_kzg_commitments;
+    if expected_commitments.len() != blobs_bundle.blobs.len() ||
+        expected_commitments.len() != blobs_bundle.commitments.len() ||
+        expected_commitments.len() * CELLS_PER_EXT_BLOB != blobs_bundle.proofs.len()
+    {
+        return Err(PbsError::Validation(ValidationError::KzgCommitments {
+            expected_blobs: expected_commitments.len(),
+            got_blobs: blobs_bundle.blobs.len(),
+            got_commitments: blobs_bundle.commitments.len(),
+            got_proofs: blobs_bundle.proofs.len(),
+        }));
+    }
+
+    for (i, comm) in expected_commitments.iter().enumerate() {
+        // this is safe since we already know they are the same length
+        if *comm != blobs_bundle.commitments[i] {
+            return Err(PbsError::Validation(ValidationError::KzgMismatch {
+                expected: format!("{comm}"),
+                got: format!("{}", blobs_bundle.commitments[i]),
                 index: i,
             }));
         }
