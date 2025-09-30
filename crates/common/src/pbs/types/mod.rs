@@ -1,11 +1,14 @@
 use alloy::primitives::{B256, U256, b256};
 use lh_types::{BlindedPayload, ExecPayload, MainnetEthSpec};
+pub use lh_types::{ForkName, ForkVersionedResponse};
 use serde::{Deserialize, Serialize};
 
 use crate::types::BlsPublicKey;
 
 pub const EMPTY_TX_ROOT_HASH: B256 =
     b256!("7ffe241ea60187fdb0187bfa22de35d1f9bed7ab061d9401fd47e34a54fbede1");
+
+pub type ExecutionRequests = lh_types::execution_requests::ExecutionRequests<MainnetEthSpec>;
 
 /// Request object of POST `/eth/v1/builder/blinded_blocks`
 pub type SignedBlindedBeaconBlock =
@@ -36,10 +39,6 @@ pub type BuilderBidElectra = lh_types::builder_bid::BuilderBidElectra<MainnetEth
 /// Response object of GET
 /// `/eth/v1/builder/header/{slot}/{parent_hash}/{pubkey}`
 pub type GetHeaderResponse = lh_types::ForkVersionedResponse<SignedBuilderBid>;
-
-pub use lh_types::{ForkName, ForkVersionedResponse};
-
-pub type ExecutionRequests = lh_types::execution_requests::ExecutionRequests<MainnetEthSpec>;
 
 /// Response params of GET
 /// `/eth/v1/builder/header/{slot}/{parent_hash}/{pubkey}`
