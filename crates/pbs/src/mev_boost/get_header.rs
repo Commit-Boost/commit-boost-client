@@ -516,7 +516,7 @@ fn validate_signature<T: TreeHash>(
     if expected_relay_pubkey.serialize() != received_relay_pubkey.as_serialized() {
         return Err(ValidationError::PubkeyMismatch {
             expected: BlsPublicKeyBytes::from(expected_relay_pubkey),
-            got: received_relay_pubkey.clone(),
+            got: *received_relay_pubkey,
         });
     }
 
