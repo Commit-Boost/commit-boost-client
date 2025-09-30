@@ -1,7 +1,7 @@
 use std::{ops::Deref, str::FromStr};
 
 use alloy::{
-    primitives::{Address, B256, Signature, aliases::B32},
+    primitives::{Address, B256, Signature},
     signers::{SignerSync, local::PrivateKeySigner},
 };
 use eyre::ensure;
