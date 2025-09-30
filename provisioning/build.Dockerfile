@@ -59,7 +59,7 @@ RUN if [ -f ${BUILD_VAR_SCRIPT} ]; then \
       echo "No cross-compilation needed"; \
     fi && \
     apt update && \
-    apt install -y git libssl-dev:${TARGETARCH} zlib1g-dev:${TARGETARCH} pkg-config && \ 
+    apt install -y git make libssl-dev:${TARGETARCH} zlib1g-dev:${TARGETARCH} pkg-config && \
     cargo chef cook ${TARGET_FLAG} --release --recipe-path recipe.json
 
 # Get the latest Protoc since the one in the Debian repo is incredibly old
