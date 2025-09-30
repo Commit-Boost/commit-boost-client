@@ -88,7 +88,8 @@ pub struct SignerConfig {
     pub jwt_auth_fail_limit: u32,
 
     /// Duration in seconds to rate limit an endpoint after the JWT auth failure
-    /// limit has been reached
+    /// limit has been reached. This also defines the interval at which failed
+    /// attempts are regularly checked and expired ones are cleaned up.
     #[serde(default = "default_u32::<SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT>")]
     pub jwt_auth_fail_timeout_seconds: u32,
 

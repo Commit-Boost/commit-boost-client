@@ -33,6 +33,7 @@ cb-pbs = { path = "crates/pbs" }
 cb-signer = { path = "crates/signer" }
 cipher = "0.4"
 clap = { version = "4.5.4", features = ["derive", "env"] }
+client-ip = { version = "0.1.1", features = [ "forwarded-header" ] }
 color-eyre = "0.6.3"
 const_format = "0.2.34"
 ctr = "0.9.2"
@@ -74,6 +75,7 @@ tower-http = { version = "0.6", features = ["trace"] }
 tracing = "0.1.40"
 tracing-appender = "0.2.3"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
+tracing-test = { version = "0.2.5", features = ["no-env-filter"] }
 tree_hash = "0.9"
 tree_hash_derive = "0.9"
 typenum = "1.17.0"

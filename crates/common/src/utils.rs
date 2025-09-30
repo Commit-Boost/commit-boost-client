@@ -346,11 +346,17 @@ pub fn print_logo() {
 }
 
 /// Create a JWT for the given module id with expiration
-pub fn create_jwt(module_id: &ModuleId, secret: &str, payload: Option<&[u8]>) -> eyre::Result<Jwt> {
+pub fn create_jwt(
+    module_id: &ModuleId,
+    secret: &str,
+    route: &str,
+    payload: Option<&[u8]>,
+) -> eyre::Result<Jwt> {
     jsonwebtoken::encode(
         &jsonwebtoken::Header::default(),
         &JwtClaims {
             module: module_id.clone(),
+            route: route.to_string(),
             exp: jsonwebtoken::get_current_timestamp() + SIGNER_JWT_EXPIRATION,
             payload_hash: payload.map(keccak256),
         },
@@ -361,11 +367,16 @@ pub fn create_jwt(module_id: &ModuleId, secret: &str, payload: Option<&[u8]>) ->
 }
 
 // Creates a JWT for module administration
-pub fn create_admin_jwt(admin_secret: String, payload: Option<&[u8]>) -> eyre::Result<Jwt> {
+pub fn create_admin_jwt(
+    admin_secret: String,
+    route: &str,
+    payload: Option<&[u8]>,
+) -> eyre::Result<Jwt> {
     jsonwebtoken::encode(
         &jsonwebtoken::Header::default(),
         &JwtAdminClaims {
             admin: true,
+            route: route.to_string(),
             exp: jsonwebtoken::get_current_timestamp() + SIGNER_JWT_EXPIRATION,
             payload_hash: payload.map(keccak256),
         },
@@ -408,7 +419,12 @@ pub fn decode_admin_jwt(jwt: Jwt) -> eyre::Result<JwtAdminClaims> {
 }
 
 /// Validate a JWT with the given secret
-pub fn validate_jwt(jwt: Jwt, secret: &str, payload: Option<&[u8]>) -> eyre::Result<()> {
+pub fn validate_jwt(
+    jwt: Jwt,
+    secret: &str,
+    route: &str,
+    payload: Option<&[u8]>,
+) -> eyre::Result<()> {
     let mut validation = jsonwebtoken::Validation::default();
     validation.leeway = 10;
 
@@ -418,6 +434,11 @@ pub fn validate_jwt(jwt: Jwt, secret: &str, payload: Option<&[u8]>) -> eyre::Res
         &validation,
     )?
     .claims;
+
+    // Validate the route
+    if claims.route != route {
+        eyre::bail!("Token route does not match");
+    }
 
     // Validate the payload hash if provided
     if let Some(payload_bytes) = payload {
@@ -436,7 +457,12 @@ pub fn validate_jwt(jwt: Jwt, secret: &str, payload: Option<&[u8]>) -> eyre::Res
 }
 
 /// Validate an admin JWT with the given secret
-pub fn validate_admin_jwt(jwt: Jwt, secret: &str, payload: Option<&[u8]>) -> eyre::Result<()> {
+pub fn validate_admin_jwt(
+    jwt: Jwt,
+    secret: &str,
+    route: &str,
+    payload: Option<&[u8]>,
+) -> eyre::Result<()> {
     let mut validation = jsonwebtoken::Validation::default();
     validation.leeway = 10;
 
@@ -449,6 +475,11 @@ pub fn validate_admin_jwt(jwt: Jwt, secret: &str, payload: Option<&[u8]>) -> eyr
 
     if !claims.admin {
         eyre::bail!("Token is not admin")
+    }
+
+    // Validate the route
+    if claims.route != route {
+        eyre::bail!("Token route does not match");
     }
 
     // Validate the payload hash if provided
@@ -546,24 +577,25 @@ mod test {
     #[test]
     fn test_jwt_validation_no_payload_hash() {
         // Check valid JWT
-        let jwt = create_jwt(&ModuleId("DA_COMMIT".to_string()), "secret", None).unwrap();
+        let jwt =
+            create_jwt(&ModuleId("DA_COMMIT".to_string()), "secret", "/test/route", None).unwrap();
         let claims = decode_jwt(jwt.clone()).unwrap();
         let module_id = claims.module;
         let payload_hash = claims.payload_hash;
         assert_eq!(module_id, ModuleId("DA_COMMIT".to_string()));
         assert!(payload_hash.is_none());
-        let response = validate_jwt(jwt, "secret", None);
+        let response = validate_jwt(jwt, "secret", "/test/route", None);
         assert!(response.is_ok());
 
         // Check expired JWT
-        let expired_jwt = Jwt::from("eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3NDI5OTU5NDYsIm1vZHVsZSI6IkRBX0NPTU1JVCJ9.iiq4Z2ed2hk3c3c-cn2QOQJWE5XUOc5BoaIPT-I8q-s".to_string());
-        let response = validate_jwt(expired_jwt, "secret", None);
+        let expired_jwt = Jwt::from("eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3NTgyOTkxNzIsIm1vZHVsZSI6IkRBX0NPTU1JVCIsInJvdXRlIjoiL3Rlc3Qvcm91dGUiLCJwYXlsb2FkX2hhc2giOm51bGx9._OBsNC67KLkk6f6ZQ2_CDbhYUJ2OtZ9egKAmi1L-ymA".to_string());
+        let response = validate_jwt(expired_jwt, "secret", "/test/route", None);
         assert!(response.is_err());
         assert_eq!(response.unwrap_err().to_string(), "ExpiredSignature");
 
         // Check invalid signature JWT
-        let invalid_jwt = Jwt::from("eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3NDI5OTU5NDYsIm1vZHVsZSI6IkRBX0NPTU1JVCJ9.w9WYdDNzgDjYTvjBkk4GGzywGNBYPxnzU2uJWzPUT1s".to_string());
-        let response = validate_jwt(invalid_jwt, "secret", None);
+        let invalid_jwt = Jwt::from("eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3NTgyOTkxMzQsIm1vZHVsZSI6IkRBX0NPTU1JVCIsInJvdXRlIjoiL3Rlc3Qvcm91dGUiLCJwYXlsb2FkX2hhc2giOm51bGx9.58QXayg2XeX5lXhIPw-a8kl04DWBEj5wBsqsedTeClo".to_string());
+        let response = validate_jwt(invalid_jwt, "secret", "/test/route", None);
         assert!(response.is_err());
         assert_eq!(response.unwrap_err().to_string(), "InvalidSignature");
     }
@@ -577,25 +609,30 @@ mod test {
         let payload_bytes = serde_json::to_vec(&payload).unwrap();
 
         // Check valid JWT
-        let jwt =
-            create_jwt(&ModuleId("DA_COMMIT".to_string()), "secret", Some(&payload_bytes)).unwrap();
+        let jwt = create_jwt(
+            &ModuleId("DA_COMMIT".to_string()),
+            "secret",
+            "/test/route",
+            Some(&payload_bytes),
+        )
+        .unwrap();
         let claims = decode_jwt(jwt.clone()).unwrap();
         let module_id = claims.module;
         let payload_hash = claims.payload_hash;
         assert_eq!(module_id, ModuleId("DA_COMMIT".to_string()));
         assert_eq!(payload_hash, Some(keccak256(&payload_bytes)));
-        let response = validate_jwt(jwt, "secret", Some(&payload_bytes));
+        let response = validate_jwt(jwt, "secret", "/test/route", Some(&payload_bytes));
         assert!(response.is_ok());
 
         // Check expired JWT
-        let expired_jwt = Jwt::from("eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3NDI5OTU5NDYsIm1vZHVsZSI6IkRBX0NPTU1JVCJ9.iiq4Z2ed2hk3c3c-cn2QOQJWE5XUOc5BoaIPT-I8q-s".to_string());
-        let response = validate_jwt(expired_jwt, "secret", Some(&payload_bytes));
+        let expired_jwt = Jwt::from("eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3NTgyOTgzNDQsIm1vZHVsZSI6IkRBX0NPTU1JVCIsInJvdXRlIjoiL3Rlc3Qvcm91dGUiLCJwYXlsb2FkX2hhc2giOiIweGFmODk2MjY0MzUzNTFmYzIwMDBkYmEwM2JiNTlhYjcyZWE0ODJiOWEwMDBmZWQzNmNkMjBlMDU0YjE2NjZmZjEifQ.PYrSxLXadKBgYZlmLam8RBSL32I1T_zAxlZpG6xnnII".to_string());
+        let response = validate_jwt(expired_jwt, "secret", "/test/route", Some(&payload_bytes));
         assert!(response.is_err());
         assert_eq!(response.unwrap_err().to_string(), "ExpiredSignature");
 
         // Check invalid signature JWT
-        let invalid_jwt = Jwt::from("eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3NDI5OTU5NDYsIm1vZHVsZSI6IkRBX0NPTU1JVCJ9.w9WYdDNzgDjYTvjBkk4GGzywGNBYPxnzU2uJWzPUT1s".to_string());
-        let response = validate_jwt(invalid_jwt, "secret", Some(&payload_bytes));
+        let invalid_jwt = Jwt::from("eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3NTgyOTkwMDAsIm1vZHVsZSI6IkRBX0NPTU1JVCIsInJvdXRlIjoiL3Rlc3Qvcm91dGUiLCJwYXlsb2FkX2hhc2giOiIweGFmODk2MjY0MzUzNTFmYzIwMDBkYmEwM2JiNTlhYjcyZWE0ODJiOWEwMDBmZWQzNmNkMjBlMDU0YjE2NjZmZjEifQ.mnC-AexkLlR9l98SJbln3DmV6r9XyHYdbjcUVcWdi_8".to_string());
+        let response = validate_jwt(invalid_jwt, "secret", "/test/route", Some(&payload_bytes));
         assert!(response.is_err());
         assert_eq!(response.unwrap_err().to_string(), "InvalidSignature");
     }

@@ -14,6 +14,7 @@ bimap.workspace = true
 blsful.workspace = true
 cb-common.workspace = true
 cb-metrics.workspace = true
+client-ip.workspace = true
 eyre.workspace = true
 futures.workspace = true
 headers.workspace = true

@@ -5,12 +5,12 @@ use std::{
     time::{Duration, Instant},
 };
 
-use alloy::primitives::{Address, B256, U256, keccak256};
+use alloy::primitives::{Address, B256, U256};
 use axum::{
     Extension, Json,
     body::{Body, to_bytes},
     extract::{ConnectInfo, Request, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -36,6 +36,7 @@ use cb_common::{
     utils::{decode_jwt, validate_admin_jwt, validate_jwt},
 };
 use cb_metrics::provider::MetricsProvider;
+use client_ip::*;
 use eyre::Context;
 use headers::{Authorization, authorization::Bearer};
 use parking_lot::RwLock as ParkingRwLock;
@@ -144,13 +145,49 @@ impl SigningService {
             .route_layer(middleware::from_fn(log_request))
             .route(STATUS_PATH, get(handle_status));
 
-        if CryptoProvider::get_default().is_none() {
-            aws_lc_rs::default_provider()
-                .install_default()
-                .map_err(|_| eyre::eyre!("Failed to install TLS provider"))?;
-        }
+        // Run the JWT cleaning task
+        let jwt_cleaning_task = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(state.jwt_auth_fail_timeout);
+            loop {
+                interval.tick().await;
+                let mut failures = state.jwt_auth_failures.write();
+                let before = failures.len();
+                failures
+                    .retain(|_, info| info.last_failure.elapsed() < state.jwt_auth_fail_timeout);
+                let after = failures.len();
+                if before != after {
+                    debug!("Cleaned up {} old JWT auth failure entries", before - after);
+                }
+            }
+        });
 
         let server_result = if let Some(tls_config) = config.tls_certificates {
+            if CryptoProvider::get_default().is_none() {
+                // Install the AWS-LC provider if no default is set, usually for CI
+                debug!("Installing AWS-LC as default TLS provider");
+                let mut attempts = 0;
+                loop {
+                    match aws_lc_rs::default_provider().install_default() {
+                        Ok(_) => {
+                            debug!("Successfully installed AWS-LC as default TLS provider");
+                            break;
+                        }
+                        Err(e) => {
+                            error!(
+                                "Failed to install AWS-LC as default TLS provider: {e:?}. Retrying..."
+                            );
+                            if attempts >= 3 {
+                                error!(
+                                    "Exceeded maximum attempts to install AWS-LC as default TLS provider"
+                                );
+                                break;
+                            }
+                            attempts += 1;
+                        }
+                    }
+                }
+            }
+
             let tls_config = RustlsConfig::from_pem(tls_config.0, tls_config.1).await?;
             axum_server::bind_rustls(config.endpoint, tls_config)
                 .serve(
@@ -165,6 +202,10 @@ impl SigningService {
                 )
                 .await
         };
+
+        // Shutdown the JWT cleaning task
+        jwt_cleaning_task.abort();
+
         server_result.wrap_err("signer service exited")
     }
 
@@ -173,39 +214,81 @@ impl SigningService {
     }
 }
 
+/// Marks a JWT authentication failure for a given client IP
+fn mark_jwt_failure(state: &SigningState, client_ip: IpAddr) {
+    let mut failures = state.jwt_auth_failures.write();
+    let failure_info = failures
+        .entry(client_ip)
+        .or_insert(JwtAuthFailureInfo { failure_count: 0, last_failure: Instant::now() });
+    failure_info.failure_count += 1;
+    failure_info.last_failure = Instant::now();
+}
+
+/// Get the true client IP from the request headers or fallback to the socket
+/// address
+fn get_true_ip(req_headers: &HeaderMap, addr: &SocketAddr) -> eyre::Result<IpAddr> {
+    let ip_extractors = [
+        cf_connecting_ip,
+        cloudfront_viewer_address,
+        fly_client_ip,
+        rightmost_forwarded,
+        rightmost_x_forwarded_for,
+        true_client_ip,
+        x_real_ip,
+    ];
+
+    // Run each extractor in order and return the first valid IP found
+    for extractor in ip_extractors {
+        match extractor(req_headers) {
+            Ok(true_ip) => {
+                return Ok(true_ip);
+            }
+            Err(e) => {
+                match e {
+                    Error::AbsentHeader { .. } => continue, // Missing headers are fine
+                    _ => return Err(eyre::eyre!(e.to_string())), // Report anything else
+                }
+            }
+        }
+    }
+
+    // Fallback to the socket IP
+    Ok(addr.ip())
+}
+
 /// Authentication middleware layer
 async fn jwt_auth(
     State(state): State<SigningState>,
+    req_headers: HeaderMap,
     TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
     addr: ConnectInfo<SocketAddr>,
     req: Request,
     next: Next,
 ) -> Result<Response, SignerModuleError> {
     // Check if the request needs to be rate limited
-    let client_ip = addr.ip();
+    let client_ip = get_true_ip(&req_headers, &addr).map_err(|e| {
+        error!("Failed to get client IP: {e}");
+        SignerModuleError::RequestError("failed to get client IP".to_string())
+    })?;
     check_jwt_rate_limit(&state, &client_ip)?;
 
     // Clone the request so we can read the body
     let (parts, body) = req.into_parts();
+    let path = parts.uri.path();
     let bytes = to_bytes(body, REQUEST_MAX_BODY_LENGTH).await.map_err(|e| {
         error!("Failed to read request body: {e}");
         SignerModuleError::RequestError(e.to_string())
     })?;
 
     // Process JWT authorization
-    match check_jwt_auth(&auth, &state, &bytes) {
+    match check_jwt_auth(&auth, &state, path, &bytes) {
         Ok(module_id) => {
             let mut req = Request::from_parts(parts, Body::from(bytes));
             req.extensions_mut().insert(module_id);
             Ok(next.run(req).await)
         }
         Err(SignerModuleError::Unauthorized) => {
-            let mut failures = state.jwt_auth_failures.write();
-            let failure_info = failures
-                .entry(client_ip)
-                .or_insert(JwtAuthFailureInfo { failure_count: 0, last_failure: Instant::now() });
-            failure_info.failure_count += 1;
-            failure_info.last_failure = Instant::now();
+            mark_jwt_failure(&state, client_ip);
             Err(SignerModuleError::Unauthorized)
         }
         Err(err) => Err(err),
@@ -253,6 +336,7 @@ fn check_jwt_rate_limit(state: &SigningState, client_ip: &IpAddr) -> Result<(), 
 fn check_jwt_auth(
     auth: &Authorization<Bearer>,
     state: &SigningState,
+    path: &str,
     body: &[u8],
 ) -> Result<ModuleId, SignerModuleError> {
     let jwt: Jwt = auth.token().to_string().into();
@@ -270,44 +354,33 @@ fn check_jwt_auth(
         SignerModuleError::Unauthorized
     })?;
 
-    if body.is_empty() {
-        // Skip payload hash comparison for requests without a body
-        validate_jwt(jwt, &jwt_config.jwt_secret, None).map_err(|e| {
-            error!("Unauthorized request. Invalid JWT: {e}");
-            SignerModuleError::Unauthorized
-        })?;
-    } else {
-        validate_jwt(jwt, &jwt_config.jwt_secret, Some(body)).map_err(|e| {
-            error!("Unauthorized request. Invalid JWT: {e}");
-            SignerModuleError::Unauthorized
-        })?;
-
-        // Make sure the request contains a hash of the payload in its claims
-        if !body.is_empty() {
-            let payload_hash = keccak256(body);
-            if claims.payload_hash.is_none() || claims.payload_hash != Some(payload_hash) {
-                error!("Unauthorized request. Invalid payload hash in JWT claims");
-                return Err(SignerModuleError::Unauthorized);
-            }
-        }
-    }
+    let body_bytes = if body.is_empty() { None } else { Some(body) };
+    validate_jwt(jwt, &jwt_config.jwt_secret, path, body_bytes).map_err(|e| {
+        error!("Unauthorized request. Invalid JWT: {e}");
+        SignerModuleError::Unauthorized
+    })?;
 
     Ok(claims.module)
 }
 
 async fn admin_auth(
     State(state): State<SigningState>,
+    req_headers: HeaderMap,
     TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
     addr: ConnectInfo<SocketAddr>,
     req: Request,
     next: Next,
 ) -> Result<Response, SignerModuleError> {
     // Check if the request needs to be rate limited
-    let client_ip = addr.ip();
+    let client_ip = get_true_ip(&req_headers, &addr).map_err(|e| {
+        error!("Failed to get client IP: {e}");
+        SignerModuleError::RequestError("failed to get client IP".to_string())
+    })?;
     check_jwt_rate_limit(&state, &client_ip)?;
 
     // Clone the request so we can read the body
     let (parts, body) = req.into_parts();
+    let path = parts.uri.path();
     let bytes = to_bytes(body, REQUEST_MAX_BODY_LENGTH).await.map_err(|e| {
         error!("Failed to read request body: {e}");
         SignerModuleError::RequestError(e.to_string())
@@ -316,18 +389,12 @@ async fn admin_auth(
     let jwt: Jwt = auth.token().to_string().into();
 
     // Validate the admin JWT
-    if bytes.is_empty() {
-        // Skip payload hash comparison for requests without a body
-        validate_admin_jwt(jwt, &state.admin_secret.read(), None).map_err(|e| {
-            error!("Unauthorized request. Invalid JWT: {e}");
-            SignerModuleError::Unauthorized
-        })?;
-    } else {
-        validate_admin_jwt(jwt, &state.admin_secret.read(), Some(&bytes)).map_err(|e| {
-            error!("Unauthorized request. Invalid payload hash in JWT claims: {e}");
-            SignerModuleError::Unauthorized
-        })?;
-    }
+    let body_bytes: Option<&[u8]> = if bytes.is_empty() { None } else { Some(&bytes) };
+    validate_admin_jwt(jwt, &state.admin_secret.read(), path, body_bytes).map_err(|e| {
+        error!("Unauthorized request. Invalid JWT: {e}");
+        mark_jwt_failure(&state, client_ip);
+        SignerModuleError::Unauthorized
+    })?;
 
     let req = Request::from_parts(parts, Body::from(bytes));
     Ok(next.run(req).await)
@@ -598,6 +665,7 @@ async fn handle_reload(
 
     debug!(event = "reload", ?req_id, "New request");
 
+    // Regenerate the config
     let config = match StartSignerConfig::load_from_env() {
         Ok(config) => config,
         Err(err) => {
@@ -606,6 +674,16 @@ async fn handle_reload(
         }
     };
 
+    // Start a new manager with the updated config
+    let new_manager = match start_manager(config).await {
+        Ok(manager) => manager,
+        Err(err) => {
+            error!(event = "reload", ?req_id, error = ?err, "Failed to reload manager");
+            return Err(SignerModuleError::Internal("failed to reload config".to_string()));
+        }
+    };
+
+    // Update the JWT configs if provided in the request
     if let Some(jwt_secrets) = request.jwt_secrets {
         let mut jwt_configs = state.jwts.write();
         let mut new_configs = HashMap::new();
@@ -627,23 +705,11 @@ async fn handle_reload(
         *jwt_configs = new_configs;
     }
 
+    // Update the rest of the state once everything has passed
     if let Some(admin_secret) = request.admin_secret {
         *state.admin_secret.write() = admin_secret;
     }
-
-    let new_manager = match start_manager(config).await {
-        Ok(manager) => manager,
-        Err(err) => {
-            error!(event = "reload", ?req_id, error = ?err, "Failed to reload manager");
-            return Err(SignerModuleError::Internal("failed to reload config".to_string()));
-        }
-    };
-
-    // Replace the contents of the manager RwLock
-    {
-        let mut manager_guard = state.manager.write().await;
-        *manager_guard = new_manager;
-    }
+    *state.manager.write().await = new_manager;
 
     Ok(StatusCode::OK)
 }

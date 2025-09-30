@@ -2,10 +2,7 @@ use std::path::PathBuf;
 
 use alloy::primitives::Address;
 use eyre::WrapErr;
-use reqwest::{
-    Certificate,
-    header::{AUTHORIZATION, HeaderMap, HeaderValue},
-};
+use reqwest::Certificate;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -60,30 +57,13 @@ impl SignerClient {
         Ok(Self { url: signer_server_url, client: builder.build()?, module_id, jwt_secret })
     }
 
-    fn refresh_jwt(&mut self) -> Result<(), SignerClientError> {
-        let jwt = create_jwt(&self.module_id, &self.jwt_secret, None)?;
-
-        let mut auth_value =
-            HeaderValue::from_str(&format!("Bearer {jwt}")).wrap_err("invalid jwt")?;
-        auth_value.set_sensitive(true);
-
-        let mut headers = HeaderMap::new();
-        headers.insert(AUTHORIZATION, auth_value);
-
-        self.client = reqwest::Client::builder()
-            .timeout(DEFAULT_REQUEST_TIMEOUT)
-            .default_headers(headers)
-            .build()?;
-
-        Ok(())
-    }
-
     fn create_jwt_for_payload<T: Serialize>(
         &mut self,
+        route: &str,
         payload: &T,
     ) -> Result<Jwt, SignerClientError> {
         let payload_vec = serde_json::to_vec(payload)?;
-        create_jwt(&self.module_id, &self.jwt_secret, Some(&payload_vec))
+        create_jwt(&self.module_id, &self.jwt_secret, route, Some(&payload_vec))
             .wrap_err("failed to create JWT for payload")
             .map_err(SignerClientError::JWTError)
     }
@@ -92,10 +72,12 @@ impl SignerClient {
     /// requested.
     // TODO: add more docs on how proxy keys work
     pub async fn get_pubkeys(&mut self) -> Result<GetPubkeysResponse, SignerClientError> {
-        self.refresh_jwt()?;
+        let jwt = create_jwt(&self.module_id, &self.jwt_secret, GET_PUBKEYS_PATH, None)
+            .wrap_err("failed to create JWT for payload")
+            .map_err(SignerClientError::JWTError)?;
 
         let url = self.url.join(GET_PUBKEYS_PATH)?;
-        let res = self.client.get(url).send().await?;
+        let res = self.client.get(url).bearer_auth(jwt).send().await?;
 
         if !res.status().is_success() {
             return Err(SignerClientError::FailedRequest {
@@ -117,7 +99,7 @@ impl SignerClient {
         Q: Serialize,
         T: for<'de> Deserialize<'de>,
     {
-        let jwt = self.create_jwt_for_payload(request)?;
+        let jwt = self.create_jwt_for_payload(route, request)?;
 
         let url = self.url.join(route)?;
         let res = self.client.post(url).json(&request).bearer_auth(jwt).send().await?;
@@ -165,7 +147,7 @@ impl SignerClient {
     where
         T: ProxyId + for<'de> Deserialize<'de>,
     {
-        let jwt = self.create_jwt_for_payload(request)?;
+        let jwt = self.create_jwt_for_payload(GENERATE_PROXY_KEY_PATH, request)?;
 
         let url = self.url.join(GENERATE_PROXY_KEY_PATH)?;
         let res = self.client.post(url).json(&request).bearer_auth(jwt).send().await?;
