@@ -1,11 +1,11 @@
 use cb_common::{
-    config::{LogsSettings, PBS_MODULE_NAME, load_pbs_config},
+    config::{LogsSettings, PBS_MODULE_NAME, PbsMuxes, load_pbs_config},
     utils::{initialize_tracing_log, wait_for_signal},
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use clap::Parser;
 use eyre::Result;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 #[tokio::main]
 async fn main() -> Result<()> {

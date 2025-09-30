@@ -28,7 +28,7 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
     tracing::Span::current().record("parent_hash", tracing::field::debug(params.parent_hash));
     tracing::Span::current().record("validator", tracing::field::debug(&params.pubkey));
 
-    let state = state.read().clone();
+    let state = state.read().await.clone();
 
     let ua = get_user_agent(&req_headers);
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);

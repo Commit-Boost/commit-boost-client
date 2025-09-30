@@ -82,6 +82,7 @@ pub fn get_pbs_static_config(port: u16) -> PbsConfig {
         http_timeout_seconds: 10,
         register_validator_retry_limit: u32::MAX,
         validator_registration_batch_size: None,
+        mux_registry_refresh_interval_seconds: 5,
     }
 }
 
@@ -97,7 +98,8 @@ pub fn to_pbs_config(
         signer_client: None,
         all_relays: relays.clone(),
         relays,
-        muxes: None,
+        registry_muxes: None,
+        mux_lookup: None,
     }
 }
 

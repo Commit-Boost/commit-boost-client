@@ -64,6 +64,10 @@ register_validator_retry_limit = 3
 # Maximum number of validators to register in a single request.
 # OPTIONAL, DEFAULT: "" (unlimited)
 validator_registration_batch_size = ""
+# For any Registry-based Mux configurations that have dynamic pubkey
+# refreshing enabled, this is how often to refresh the list of pubkeys
+# from the registry, in seconds
+mux_registry_refresh_interval_seconds = 384
 
 # The PBS module needs one or more [[relays]] as defined below.
 [[relays]]
@@ -126,6 +130,7 @@ validator_pubkeys = [
 #   - Registry: details of a registry to load keys from. Supported registries:
 #       - Lido: NodeOperatorsRegistry
 #       - SSV: SSV API
+        You can toggle the 'enable_refreshing' flag to let this registry periodically query Lido or SSV and refresh the list of validator pubkeys belonging to the corresponding operator.
 #
 # Example JSON list:
 # [
@@ -135,8 +140,8 @@ validator_pubkeys = [
 # OPTIONAL
 loader = "./tests/data/mux_keys.example.json"
 # loader = { url = "http://localhost:8000/keys" }
-# loader = { registry = "lido", node_operator_id = 8 }
-# loader = { registry = "ssv", node_operator_id = 8 }
+# loader = { registry = "lido", node_operator_id = 8, enable_refreshing = false }
+# loader = { registry = "ssv", node_operator_id = 8, enable_refreshing = false }
 late_in_slot_time_ms = 1500
 timeout_get_header_ms = 900
 # For each mux, one or more [[mux.relays]] can be defined, which will be used for the matching validator pubkeys

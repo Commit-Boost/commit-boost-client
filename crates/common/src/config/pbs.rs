@@ -21,12 +21,12 @@ use super::{
 use crate::{
     commit::client::SignerClient,
     config::{
-        CONFIG_ENV, MODULE_JWT_ENV, PBS_MODULE_NAME, PbsMuxes, SIGNER_URL_ENV, load_env_var,
-        load_file_from_env,
+        CONFIG_ENV, MODULE_JWT_ENV, MuxKeysLoader, PBS_MODULE_NAME, PbsMuxes, SIGNER_URL_ENV,
+        load_env_var, load_file_from_env,
     },
     pbs::{
-        DEFAULT_PBS_PORT, DefaultTimeout, LATE_IN_SLOT_TIME_MS, REGISTER_VALIDATOR_RETRY_LIMIT,
-        RelayClient, RelayEntry,
+        DEFAULT_PBS_PORT, DEFAULT_REGISTRY_REFRESH_SECONDS, DefaultTimeout, LATE_IN_SLOT_TIME_MS,
+        REGISTER_VALIDATOR_RETRY_LIMIT, RelayClient, RelayEntry,
     },
     types::{BlsPublicKey, Chain, Jwt, ModuleId},
     utils::{
@@ -133,6 +133,11 @@ pub struct PbsConfig {
     /// request
     #[serde(deserialize_with = "empty_string_as_none", default)]
     pub validator_registration_batch_size: Option<usize>,
+    /// For any Registry-based Mux configurations that have dynamic pubkey
+    /// refreshing enabled, this is how often to refresh the list of pubkeys
+    /// from the registry, in seconds
+    #[serde(default = "default_u64::<{ DEFAULT_REGISTRY_REFRESH_SECONDS }>")]
+    pub mux_registry_refresh_interval_seconds: u64,
 }
 
 impl PbsConfig {
@@ -213,13 +218,15 @@ pub struct PbsModuleConfig {
     /// List of default relays
     pub relays: Vec<RelayClient>,
     /// List of all default relays plus additional relays from muxes (based on
-    /// URL) DO NOT use this for get_header calls, use `relays` or `muxes`
+    /// URL) DO NOT use this for get_header calls, use `relays` or `mux_lookup`
     /// instead
     pub all_relays: Vec<RelayClient>,
     /// Signer client to call Signer API
     pub signer_client: Option<SignerClient>,
-    /// Muxes config
-    pub muxes: Option<HashMap<BlsPublicKey, RuntimeMuxConfig>>,
+    /// List of raw mux details configured, if any
+    pub registry_muxes: Option<HashMap<MuxKeysLoader, RuntimeMuxConfig>>,
+    /// Lookup of pubkey to mux config
+    pub mux_lookup: Option<HashMap<BlsPublicKey, RuntimeMuxConfig>>,
 }
 
 fn default_pbs() -> String {
@@ -246,19 +253,23 @@ pub async fn load_pbs_config() -> Result<PbsModuleConfig> {
         SocketAddr::from((config.pbs.pbs_config.host, config.pbs.pbs_config.port))
     };
 
-    let muxes = match config.muxes {
-        Some(muxes) => {
-            let mux_configs = muxes.validate_and_fill(config.chain, &config.pbs.pbs_config).await?;
-            Some(mux_configs)
-        }
-        None => None,
-    };
-
+    // Get the list of relays from the default config
     let relay_clients =
         config.relays.into_iter().map(RelayClient::new).collect::<Result<Vec<_>>>()?;
     let mut all_relays = HashMap::with_capacity(relay_clients.len());
 
-    if let Some(muxes) = &muxes {
+    // Validate the muxes and build the lookup tables
+    let (mux_lookup, registry_muxes) = match config.muxes {
+        Some(muxes) => {
+            let (mux_lookup, registry_muxes) =
+                muxes.validate_and_fill(config.chain, &config.pbs.pbs_config).await?;
+            (Some(mux_lookup), Some(registry_muxes))
+        }
+        None => (None, None),
+    };
+
+    // Build the list of all relays, starting with muxes
+    if let Some(muxes) = &mux_lookup {
         for (_, mux) in muxes.iter() {
             for relay in mux.relays.iter() {
                 all_relays.insert(&relay.config.entry.url, relay.clone());
@@ -283,7 +294,8 @@ pub async fn load_pbs_config() -> Result<PbsModuleConfig> {
         relays: relay_clients,
         all_relays,
         signer_client: None,
-        muxes,
+        registry_muxes,
+        mux_lookup,
     })
 }
 
@@ -319,20 +331,24 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
         ))
     };
 
-    let muxes = match cb_config.muxes {
-        Some(muxes) => Some(
-            muxes
-                .validate_and_fill(cb_config.chain, &cb_config.pbs.static_config.pbs_config)
-                .await?,
-        ),
-        None => None,
-    };
-
+    // Get the list of relays from the default config
     let relay_clients =
         cb_config.relays.into_iter().map(RelayClient::new).collect::<Result<Vec<_>>>()?;
     let mut all_relays = HashMap::with_capacity(relay_clients.len());
 
-    if let Some(muxes) = &muxes {
+    // Validate the muxes and build the lookup tables
+    let (mux_lookup, registry_muxes) = match cb_config.muxes {
+        Some(muxes) => {
+            let (mux_lookup, registry_muxes) = muxes
+                .validate_and_fill(cb_config.chain, &cb_config.pbs.static_config.pbs_config)
+                .await?;
+            (Some(mux_lookup), Some(registry_muxes))
+        }
+        None => (None, None),
+    };
+
+    // Build the list of all relays, starting with muxes
+    if let Some(muxes) = &mux_lookup {
         for (_, mux) in muxes.iter() {
             for relay in mux.relays.iter() {
                 all_relays.insert(&relay.config.entry.url, relay.clone());
@@ -371,7 +387,8 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
             relays: relay_clients,
             all_relays,
             signer_client,
-            muxes,
+            registry_muxes,
+            mux_lookup,
         },
         cb_config.pbs.extra,
     ))

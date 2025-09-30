@@ -44,7 +44,7 @@ async fn test_mux() -> Result<()> {
 
     // Bind mux to a specific validator key
     let validator_pubkey = random_secret().public_key();
-    config.muxes = Some(HashMap::from([(validator_pubkey.clone(), mux)]));
+    config.mux_lookup = Some(HashMap::from([(validator_pubkey.clone(), mux)]));
 
     // Run PBS service
     let state = PbsState::new(config);

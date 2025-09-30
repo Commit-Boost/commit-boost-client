@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    hash::Hash,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -23,9 +24,10 @@ use crate::{
     config::{remove_duplicate_keys, safe_read_http_response},
     pbs::RelayClient,
     types::{BlsPublicKey, Chain},
+    utils::default_bool,
 };
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PbsMuxes {
     /// List of PBS multiplexers
     #[serde(rename = "mux")]
@@ -44,7 +46,10 @@ impl PbsMuxes {
         self,
         chain: Chain,
         default_pbs: &PbsConfig,
-    ) -> eyre::Result<HashMap<BlsPublicKey, RuntimeMuxConfig>> {
+    ) -> eyre::Result<(
+        HashMap<BlsPublicKey, RuntimeMuxConfig>,
+        HashMap<MuxKeysLoader, RuntimeMuxConfig>,
+    )> {
         let http_timeout = Duration::from_secs(default_pbs.http_timeout_seconds);
 
         let mut muxes = self.muxes;
@@ -76,6 +81,7 @@ impl PbsMuxes {
         }
 
         let mut configs = HashMap::new();
+        let mut registry_muxes = HashMap::new();
         // fill the configs using the default pbs config and relay entries
         for mux in muxes {
             info!(
@@ -102,18 +108,30 @@ impl PbsMuxes {
             config.validate(chain).await?;
             let config = Arc::new(config);
 
+            // Build the map of pubkeys to mux configs
             let runtime_config = RuntimeMuxConfig { id: mux.id, config, relays: relay_clients };
             for pubkey in mux.validator_pubkeys.into_iter() {
                 configs.insert(pubkey, runtime_config.clone());
             }
+
+            // Track registry muxes with refreshing enabled
+            if let Some(loader) = &mux.loader &&
+                let MuxKeysLoader::Registry { enable_refreshing: true, .. } = loader
+            {
+                info!(
+                    "mux {} uses registry loader with dynamic refreshing enabled",
+                    runtime_config.id
+                );
+                registry_muxes.insert(loader.clone(), runtime_config.clone());
+            }
         }
 
-        Ok(configs)
+        Ok((configs, registry_muxes))
     }
 }
 
 /// Configuration for the PBS Multiplexer
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct MuxConfig {
     /// Identifier for this mux config
     pub id: String,
@@ -156,7 +174,7 @@ impl MuxConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
 #[serde(untagged)]
 pub enum MuxKeysLoader {
     /// A file containing a list of validator pubkeys
@@ -167,10 +185,12 @@ pub enum MuxKeysLoader {
     Registry {
         registry: NORegistry,
         node_operator_id: u64,
+        #[serde(default = "default_bool::<false>")]
+        enable_refreshing: bool,
     },
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
 pub enum NORegistry {
     #[serde(alias = "lido")]
     Lido,
@@ -210,7 +230,7 @@ impl MuxKeysLoader {
                     .wrap_err("failed to fetch mux keys from HTTP endpoint")
             }
 
-            Self::Registry { registry, node_operator_id } => match registry {
+            Self::Registry { registry, node_operator_id, enable_refreshing: _ } => match registry {
                 NORegistry::Lido => {
                     let Some(rpc_url) = rpc_url else {
                         bail!("Lido registry requires RPC URL to be set in the PBS config");
