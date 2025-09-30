@@ -6,7 +6,7 @@ use cb_common::{
     pbs::{
         BlindedBeaconBlock, BlindedBeaconBlockElectra, BlindedBeaconBlockFulu, BlobsBundle,
         BuilderApiVersion, ExecutionPayload, ExecutionPayloadElectra, ExecutionPayloadFulu,
-        HEADER_START_TIME_UNIX_MS, RelayClient, SignedBlindedBeaconBlock,
+        HEADER_CONSENSUS_VERSION, HEADER_START_TIME_UNIX_MS, RelayClient, SignedBlindedBeaconBlock,
         SubmitBlindedBlockResponse,
         error::{PbsError, ValidationError},
     },
@@ -34,10 +34,20 @@ pub async fn submit_block<S: BuilderApiState>(
     state: PbsState<S>,
     api_version: &BuilderApiVersion,
 ) -> eyre::Result<Option<SubmitBlindedBlockResponse>> {
+    debug!(?req_headers, "received headers");
+    let consensus_version =
+        req_headers.get(HEADER_CONSENSUS_VERSION).cloned().unwrap_or_else(|| {
+            let slot = signed_blinded_block.slot().as_u64();
+            let fork = state.config.chain.fork_by_slot(slot);
+            // safe because ForkName is visible ASCII chars
+            HeaderValue::from_str(&fork.to_string()).unwrap()
+        });
+
     // prepare headers
     let mut send_headers = HeaderMap::new();
     send_headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(utcnow_ms()));
     send_headers.insert(USER_AGENT, get_user_agent_with_version(&req_headers)?);
+    send_headers.insert(HEADER_CONSENSUS_VERSION, consensus_version);
 
     let relays = state.all_relays();
     let mut handles = Vec::with_capacity(relays.len());

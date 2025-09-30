@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use alloy::primitives::{B256, Bytes, b256, hex};
 use derive_more::{Deref, Display, From, Into};
 use eyre::{Context, bail};
+use lh_types::ForkName;
 use serde::{Deserialize, Serialize};
 
 use crate::{constants::APPLICATION_BUILDER_DOMAIN, signature::compute_domain};
@@ -35,7 +36,12 @@ pub enum Chain {
     Sepolia,
     Helder,
     Hoodi,
-    Custom { genesis_time_secs: u64, slot_time_secs: u64, genesis_fork_version: ForkVersion },
+    Custom {
+        genesis_time_secs: u64,
+        slot_time_secs: u64,
+        genesis_fork_version: ForkVersion,
+        fulu_fork_slot: u64,
+    },
 }
 
 pub type ForkVersion = [u8; 4];
@@ -59,11 +65,17 @@ impl std::fmt::Debug for Chain {
             Self::Sepolia => write!(f, "Sepolia"),
             Self::Helder => write!(f, "Helder"),
             Self::Hoodi => write!(f, "Hoodi"),
-            Self::Custom { genesis_time_secs, slot_time_secs, genesis_fork_version } => f
+            Self::Custom {
+                genesis_time_secs,
+                slot_time_secs,
+                genesis_fork_version,
+                fulu_fork_slot,
+            } => f
                 .debug_struct("Custom")
                 .field("genesis_time_secs", genesis_time_secs)
                 .field("slot_time_secs", slot_time_secs)
                 .field("genesis_fork_version", &hex::encode_prefixed(genesis_fork_version))
+                .field("fulu_fork_slot", fulu_fork_slot)
                 .finish(),
         }
     }
@@ -125,6 +137,21 @@ impl Chain {
             Chain::Hoodi => KnownChain::Hoodi.slot_time_sec(),
             Chain::Custom { slot_time_secs, .. } => *slot_time_secs,
         }
+    }
+
+    pub fn fulu_fork_slot(&self) -> u64 {
+        match self {
+            Chain::Mainnet => KnownChain::Mainnet.fulu_fork_slot(),
+            Chain::Holesky => KnownChain::Holesky.fulu_fork_slot(),
+            Chain::Sepolia => KnownChain::Sepolia.fulu_fork_slot(),
+            Chain::Helder => KnownChain::Helder.fulu_fork_slot(),
+            Chain::Hoodi => KnownChain::Hoodi.fulu_fork_slot(),
+            Chain::Custom { slot_time_secs, .. } => *slot_time_secs,
+        }
+    }
+
+    pub fn fork_by_slot(&self, slot: u64) -> ForkName {
+        if slot >= self.fulu_fork_slot() { ForkName::Fulu } else { ForkName::Electra }
     }
 }
 
@@ -203,6 +230,15 @@ impl KnownChain {
             KnownChain::Hoodi => 12,
         }
     }
+
+    pub fn fulu_fork_slot(&self) -> u64 {
+        match self {
+            KnownChain::Mainnet | KnownChain::Helder => u64::MAX,
+            KnownChain::Holesky => 5283840,
+            KnownChain::Sepolia => 8724480,
+            KnownChain::Hoodi => 1622016,
+        }
+    }
 }
 
 impl From<KnownChain> for Chain {
@@ -233,6 +269,7 @@ pub enum ChainLoader {
         genesis_time_secs: u64,
         slot_time_secs: u64,
         genesis_fork_version: Bytes,
+        fulu_fork_slot: u64,
     },
 }
 
@@ -247,13 +284,17 @@ impl Serialize for Chain {
             Chain::Sepolia => ChainLoader::Known(KnownChain::Sepolia),
             Chain::Helder => ChainLoader::Known(KnownChain::Helder),
             Chain::Hoodi => ChainLoader::Known(KnownChain::Hoodi),
-            Chain::Custom { genesis_time_secs, slot_time_secs, genesis_fork_version } => {
-                ChainLoader::Custom {
-                    genesis_time_secs: *genesis_time_secs,
-                    slot_time_secs: *slot_time_secs,
-                    genesis_fork_version: Bytes::from(*genesis_fork_version),
-                }
-            }
+            Chain::Custom {
+                genesis_time_secs,
+                slot_time_secs,
+                genesis_fork_version,
+                fulu_fork_slot,
+            } => ChainLoader::Custom {
+                genesis_time_secs: *genesis_time_secs,
+                slot_time_secs: *slot_time_secs,
+                genesis_fork_version: Bytes::from(*genesis_fork_version),
+                fulu_fork_slot: *fulu_fork_slot,
+            },
         };
 
         loader.serialize(serializer)
@@ -270,14 +311,29 @@ impl<'de> Deserialize<'de> for Chain {
         match loader {
             ChainLoader::Known(known) => Ok(Chain::from(known)),
             ChainLoader::Path { genesis_time_secs, path } => {
-                let (slot_time_secs, genesis_fork_version) =
+                let (slot_time_secs, genesis_fork_version, fulu_fork_slot) =
                     load_chain_from_file(path).map_err(serde::de::Error::custom)?;
-                Ok(Chain::Custom { genesis_time_secs, slot_time_secs, genesis_fork_version })
+                Ok(Chain::Custom {
+                    genesis_time_secs,
+                    slot_time_secs,
+                    genesis_fork_version,
+                    fulu_fork_slot,
+                })
             }
-            ChainLoader::Custom { genesis_time_secs, slot_time_secs, genesis_fork_version } => {
+            ChainLoader::Custom {
+                genesis_time_secs,
+                slot_time_secs,
+                genesis_fork_version,
+                fulu_fork_slot,
+            } => {
                 let genesis_fork_version: ForkVersion =
                     genesis_fork_version.as_ref().try_into().map_err(serde::de::Error::custom)?;
-                Ok(Chain::Custom { genesis_time_secs, slot_time_secs, genesis_fork_version })
+                Ok(Chain::Custom {
+                    genesis_time_secs,
+                    slot_time_secs,
+                    genesis_fork_version,
+                    fulu_fork_slot,
+                })
             }
         }
     }
@@ -289,20 +345,25 @@ impl<'de> Deserialize<'de> for Chain {
 /// - JSON as return the getSpec endpoint, either with or without the `data`
 ///   field
 /// - YAML as used e.g. in Kurtosis/Ethereum Package
-pub fn load_chain_from_file(path: PathBuf) -> eyre::Result<(u64, ForkVersion)> {
+pub fn load_chain_from_file(path: PathBuf) -> eyre::Result<(u64, ForkVersion, u64)> {
     #[derive(Deserialize)]
     #[serde(rename_all = "UPPERCASE")]
     struct QuotedSpecFile {
         #[serde(with = "serde_utils::quoted_u64")]
         seconds_per_slot: u64,
         genesis_fork_version: Bytes,
+        #[serde(with = "serde_utils::quoted_u64")]
+        slots_per_epoch: u64,
+        #[serde(with = "serde_utils::quoted_u64")]
+        fulu_fork_epoch: u64,
     }
 
     impl QuotedSpecFile {
-        fn to_chain(&self) -> eyre::Result<(u64, ForkVersion)> {
+        fn to_chain(&self) -> eyre::Result<(u64, ForkVersion, u64)> {
             let genesis_fork_version: ForkVersion =
                 self.genesis_fork_version.as_ref().try_into()?;
-            Ok((self.seconds_per_slot, genesis_fork_version))
+            let fulu_fork_slot = self.fulu_fork_epoch.saturating_mul(self.slots_per_epoch);
+            Ok((self.seconds_per_slot, genesis_fork_version, fulu_fork_slot))
         }
     }
 
@@ -316,12 +377,16 @@ pub fn load_chain_from_file(path: PathBuf) -> eyre::Result<(u64, ForkVersion)> {
     struct SpecFile {
         seconds_per_slot: u64,
         genesis_fork_version: u32,
+        slots_per_epoch: Option<u64>,
+        fulu_fork_epoch: u64,
     }
 
     impl SpecFile {
-        fn to_chain(&self) -> (u64, ForkVersion) {
+        fn to_chain(&self) -> (u64, ForkVersion, u64) {
             let genesis_fork_version: ForkVersion = self.genesis_fork_version.to_be_bytes();
-            (self.seconds_per_slot, genesis_fork_version)
+            let fulu_fork_slot =
+                self.fulu_fork_epoch.saturating_mul(self.slots_per_epoch.unwrap_or(32));
+            (self.seconds_per_slot, genesis_fork_version, fulu_fork_slot)
         }
     }
 
@@ -357,12 +422,13 @@ mod tests {
 
     #[test]
     fn test_load_custom() {
-        let s = r#"chain = { genesis_time_secs = 1, slot_time_secs = 2, genesis_fork_version = "0x01000000" }"#;
+        let s = r#"chain = { genesis_time_secs = 1, slot_time_secs = 2, genesis_fork_version = "0x01000000", fulu_fork_slot = 1 }"#;
         let decoded: MockConfig = toml::from_str(s).unwrap();
         assert_eq!(decoded.chain, Chain::Custom {
             genesis_time_secs: 1,
             slot_time_secs: 2,
-            genesis_fork_version: [1, 0, 0, 0]
+            genesis_fork_version: [1, 0, 0, 0],
+            fulu_fork_slot: 1
         })
     }
 
@@ -403,7 +469,8 @@ mod tests {
         assert_eq!(decoded.chain, Chain::Custom {
             genesis_time_secs: 1,
             slot_time_secs: KnownChain::Holesky.slot_time_sec(),
-            genesis_fork_version: KnownChain::Holesky.genesis_fork_version()
+            genesis_fork_version: KnownChain::Holesky.genesis_fork_version(),
+            fulu_fork_slot: KnownChain::Holesky.fulu_fork_slot(),
         })
     }
 
@@ -423,7 +490,8 @@ mod tests {
         assert_eq!(decoded.chain, Chain::Custom {
             genesis_time_secs: 1,
             slot_time_secs: KnownChain::Sepolia.slot_time_sec(),
-            genesis_fork_version: KnownChain::Sepolia.genesis_fork_version()
+            genesis_fork_version: KnownChain::Sepolia.genesis_fork_version(),
+            fulu_fork_slot: KnownChain::Sepolia.fulu_fork_slot(),
         })
     }
 
@@ -443,7 +511,8 @@ mod tests {
         assert_eq!(decoded.chain, Chain::Custom {
             genesis_time_secs: 1,
             slot_time_secs: KnownChain::Hoodi.slot_time_sec(),
-            genesis_fork_version: KnownChain::Hoodi.genesis_fork_version()
+            genesis_fork_version: KnownChain::Hoodi.genesis_fork_version(),
+            fulu_fork_slot: KnownChain::Hoodi.fulu_fork_slot(),
         })
     }
 
@@ -463,7 +532,8 @@ mod tests {
         assert_eq!(decoded.chain, Chain::Custom {
             genesis_time_secs: 1,
             slot_time_secs: KnownChain::Helder.slot_time_sec(),
-            genesis_fork_version: KnownChain::Helder.genesis_fork_version()
+            genesis_fork_version: KnownChain::Helder.genesis_fork_version(),
+            fulu_fork_slot: KnownChain::Helder.fulu_fork_slot(),
         })
     }
 }
