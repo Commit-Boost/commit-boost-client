@@ -1,6 +1,6 @@
 use axum::{Json, extract::State, http::HeaderMap, response::IntoResponse};
 use cb_common::{
-    pbs::{BuilderApiVersion, GetPyloadInfo, SignedBlindedBeaconBlock},
+    pbs::{BuilderApiVersion, GetPayloadInfo, SignedBlindedBeaconBlock},
     utils::{get_user_agent, timestamp_of_slot_start_millis, utcnow_ms},
 };
 use reqwest::StatusCode;

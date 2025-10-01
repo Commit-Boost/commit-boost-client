@@ -79,13 +79,13 @@ impl GetHeaderInfo for GetHeaderResponse {
     }
 }
 
-pub trait GetPyloadInfo {
+pub trait GetPayloadInfo {
     fn block_hash(&self) -> B256;
     fn block_number(&self) -> u64;
     fn parent_hash(&self) -> B256;
 }
 
-impl GetPyloadInfo for SignedBlindedBeaconBlock {
+impl GetPayloadInfo for SignedBlindedBeaconBlock {
     fn block_hash(&self) -> B256 {
         // Block hash is only missing for Base and Altair forks
         self.message().body().execution_payload().map(|r| r.block_hash().0).unwrap_or_default()

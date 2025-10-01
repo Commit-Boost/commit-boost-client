@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use cb_common::{
-    pbs::{BuilderApiVersion, GetPyloadInfo, SubmitBlindedBlockResponse},
+    pbs::{BuilderApiVersion, GetPayloadInfo, SubmitBlindedBlockResponse},
     signer::random_secret,
     types::Chain,
 };
