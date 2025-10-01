@@ -129,6 +129,7 @@ pub fn get_signer_config(loader: SignerLoader, tls: bool) -> SignerConfig {
         jwt_auth_fail_timeout_seconds: SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT,
         inner: SignerType::Local { loader, store: None },
         tls_mode: if tls { TlsMode::Certificate(PathBuf::new()) } else { TlsMode::Insecure },
+        trusted_ip_header: None,
     }
 }
 
@@ -164,6 +165,7 @@ pub fn get_start_signer_config(
             jwt_auth_fail_timeout_seconds: signer_config.jwt_auth_fail_timeout_seconds,
             dirk: None,
             tls_certificates,
+            trusted_ip_header: None,
         },
         _ => panic!("Only local signers are supported in tests"),
     }

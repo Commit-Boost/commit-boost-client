@@ -99,6 +99,9 @@ pub struct SignerConfig {
     #[serde(default = "default_tls_mode")]
     pub tls_mode: TlsMode,
 
+    /// Optional name of the HTTP header to use to extract the real client IP
+    pub trusted_ip_header: Option<String>,
+
     /// Inner type-specific configuration
     #[serde(flatten)]
     pub inner: SignerType,
@@ -194,6 +197,7 @@ pub struct StartSignerConfig {
     pub jwt_auth_fail_timeout_seconds: u32,
     pub dirk: Option<DirkConfig>,
     pub tls_certificates: Option<(Vec<u8>, Vec<u8>)>,
+    pub trusted_ip_header: Option<String>,
 }
 
 impl StartSignerConfig {
@@ -247,6 +251,8 @@ impl StartSignerConfig {
             }
         };
 
+        let trusted_ip_header = signer_config.trusted_ip_header;
+
         match signer_config.inner {
             SignerType::Local { loader, store, .. } => Ok(StartSignerConfig {
                 chain: config.chain,
@@ -259,6 +265,7 @@ impl StartSignerConfig {
                 store,
                 dirk: None,
                 tls_certificates,
+                trusted_ip_header,
             }),
 
             SignerType::Dirk {
@@ -305,6 +312,7 @@ impl StartSignerConfig {
                         },
                     }),
                     tls_certificates,
+                    trusted_ip_header,
                 })
             }
 
