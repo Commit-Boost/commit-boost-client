@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use cb_common::{
-    pbs::{BuilderApiVersion, SubmitBlindedBlockResponse},
+    pbs::{BuilderApiVersion, GetPayloadInfo, SubmitBlindedBlockResponse},
     signer::random_secret,
     types::Chain,
 };
@@ -23,7 +23,10 @@ async fn test_submit_block_v1() -> Result<()> {
     let signed_blinded_block = load_test_signed_blinded_block();
 
     let response_body = serde_json::from_slice::<SubmitBlindedBlockResponse>(&res.bytes().await?)?;
-    assert_eq!(response_body.block_hash(), signed_blinded_block.block_hash());
+    assert_eq!(
+        response_body.data.execution_payload.block_hash(),
+        signed_blinded_block.block_hash().into()
+    );
     Ok(())
 }
 

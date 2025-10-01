@@ -1,7 +1,7 @@
 use alloy::primitives::{B256, U256};
 use thiserror::Error;
 
-use crate::{types::BlsPublicKey, utils::ResponseReadError};
+use crate::{types::BlsPublicKeyBytes, utils::ResponseReadError};
 
 #[derive(Debug, Error)]
 pub enum PbsError {
@@ -55,7 +55,7 @@ pub enum ValidationError {
     EmptyBlockhash,
 
     #[error("pubkey mismatch: expected {expected} got {got}")]
-    PubkeyMismatch { expected: Box<BlsPublicKey>, got: Box<BlsPublicKey> },
+    PubkeyMismatch { expected: BlsPublicKeyBytes, got: BlsPublicKeyBytes },
 
     #[error("parent hash mismatch: expected {expected} got {got}")]
     ParentHashMismatch { expected: B256, got: B256 },
@@ -96,4 +96,7 @@ pub enum ValidationError {
 
     #[error("payload mismatch: request: {request} response: {response}")]
     PayloadVersionMismatch { request: &'static str, response: &'static str },
+
+    #[error("unsupported fork")]
+    UnsupportedFork,
 }

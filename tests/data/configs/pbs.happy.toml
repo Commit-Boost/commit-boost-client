@@ -2,24 +2,24 @@ chain = "Holesky"
 
 [pbs]
 docker_image = "ghcr.io/commit-boost/pbs:latest"
-with_signer = false
+extra_validation_enabled = false
 host = "127.0.0.1"
+late_in_slot_time_ms = 2000
+min_bid_eth = 0.5
 port = 18550
 relay_check = true
-wait_all_registrations = true
+skip_sigverify = false
 timeout_get_header_ms = 950
 timeout_get_payload_ms = 4000
 timeout_register_validator_ms = 3000
-skip_sigverify = false
-min_bid_eth = 0.5
-late_in_slot_time_ms = 2000
-extra_validation_enabled = false
-rpc_url = "https://ethereum-holesky-rpc.publicnode.com"
+wait_all_registrations = true
+with_signer = false
+
 
 [[relays]]
-id = "example-relay"
-url = "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz"
-headers = { X-MyCustomHeader = "MyCustomHeader" }
 enable_timing_games = false
-target_first_request_ms = 200
 frequency_get_header_ms = 300
+headers = { X-MyCustomHeader = "MyCustomHeader" }
+id = "example-relay"
+target_first_request_ms = 200
+url = "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz"

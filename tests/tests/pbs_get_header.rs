@@ -2,7 +2,10 @@ use std::{sync::Arc, time::Duration};
 
 use alloy::primitives::{B256, U256};
 use cb_common::{
-    pbs::GetHeaderResponse, signature::sign_builder_root, signer::random_secret, types::Chain,
+    pbs::GetHeaderResponse,
+    signature::sign_builder_root,
+    signer::random_secret,
+    types::{BlsPublicKeyBytes, Chain},
     utils::timestamp_of_slot_start_sec,
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
@@ -12,6 +15,7 @@ use cb_tests::{
     utils::{generate_mock_relay, get_pbs_static_config, setup_test_env, to_pbs_config},
 };
 use eyre::Result;
+use lh_types::ForkName;
 use reqwest::StatusCode;
 use tracing::info;
 use tree_hash::TreeHash;
@@ -45,17 +49,17 @@ async fn test_get_header() -> Result<()> {
     assert_eq!(res.status(), StatusCode::OK);
 
     let res = serde_json::from_slice::<GetHeaderResponse>(&res.bytes().await?)?;
-    let GetHeaderResponse::Electra(res) = res;
 
     assert_eq!(mock_state.received_get_header(), 1);
-    assert_eq!(res.message.header.block_hash.0[0], 1);
-    assert_eq!(res.message.header.parent_hash, B256::ZERO);
-    assert_eq!(res.message.value, U256::from(10));
-    assert_eq!(res.message.pubkey, mock_state.signer.public_key());
-    assert_eq!(res.message.header.timestamp, timestamp_of_slot_start_sec(0, chain));
+    assert_eq!(res.version, ForkName::Electra);
+    assert_eq!(res.data.message.header().block_hash().0[0], 1);
+    assert_eq!(res.data.message.header().parent_hash().0, B256::ZERO);
+    assert_eq!(*res.data.message.value(), U256::from(10));
+    assert_eq!(*res.data.message.pubkey(), BlsPublicKeyBytes::from(mock_state.signer.public_key()));
+    assert_eq!(res.data.message.header().timestamp(), timestamp_of_slot_start_sec(0, chain));
     assert_eq!(
-        res.signature,
-        sign_builder_root(chain, &mock_state.signer, res.message.tree_hash_root())
+        res.data.signature,
+        sign_builder_root(chain, &mock_state.signer, res.data.message.tree_hash_root())
     );
     Ok(())
 }
