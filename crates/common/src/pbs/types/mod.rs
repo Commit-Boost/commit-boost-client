@@ -40,6 +40,8 @@ pub type BuilderBidElectra = lh_types::builder_bid::BuilderBidElectra<MainnetEth
 /// `/eth/v1/builder/header/{slot}/{parent_hash}/{pubkey}`
 pub type GetHeaderResponse = lh_types::ForkVersionedResponse<SignedBuilderBid>;
 
+pub type KzgCommitments = lh_types::beacon_block_body::KzgCommitments<MainnetEthSpec>;
+
 /// Response params of GET
 /// `/eth/v1/builder/header/{slot}/{parent_hash}/{pubkey}`
 #[derive(Debug, Serialize, Deserialize, Clone)]

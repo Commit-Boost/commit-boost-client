@@ -1,12 +1,14 @@
-use std::time::{Duration, Instant};
+use std::{
+    str::FromStr,
+    time::{Duration, Instant},
+};
 
-use alloy::eips::eip7594::CELLS_PER_EXT_BLOB;
+use alloy::{eips::eip7594::CELLS_PER_EXT_BLOB, primitives::B256};
 use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
     pbs::{
-        BlindedBeaconBlock, BlindedBeaconBlockElectra, BlindedBeaconBlockFulu, BlobsBundle,
-        BuilderApiVersion, ExecutionPayload, ExecutionPayloadElectra, ExecutionPayloadFulu,
-        HEADER_CONSENSUS_VERSION, HEADER_START_TIME_UNIX_MS, RelayClient, SignedBlindedBeaconBlock,
+        BlindedBeaconBlock, BlobsBundle, BuilderApiVersion, ForkName, HEADER_CONSENSUS_VERSION,
+        HEADER_START_TIME_UNIX_MS, KzgCommitments, RelayClient, SignedBlindedBeaconBlock,
         SubmitBlindedBlockResponse,
         error::{PbsError, ValidationError},
     },
@@ -35,13 +37,20 @@ pub async fn submit_block<S: BuilderApiState>(
     api_version: &BuilderApiVersion,
 ) -> eyre::Result<Option<SubmitBlindedBlockResponse>> {
     debug!(?req_headers, "received headers");
-    let consensus_version =
-        req_headers.get(HEADER_CONSENSUS_VERSION).cloned().unwrap_or_else(|| {
+
+    let fork_name = req_headers
+        .get(HEADER_CONSENSUS_VERSION)
+        .and_then(|h| {
+            let str = h.to_str().ok()?;
+            ForkName::from_str(str).ok()
+        })
+        .unwrap_or_else(|| {
             let slot = signed_blinded_block.slot().as_u64();
-            let fork = state.config.chain.fork_by_slot(slot);
-            // safe because ForkName is visible ASCII chars
-            HeaderValue::from_str(&fork.to_string()).unwrap()
+            state.config.chain.fork_by_slot(slot)
         });
+
+    // safe because ForkName is visible ASCII chars
+    let consensus_version = HeaderValue::from_str(&fork_name.to_string()).unwrap();
 
     // prepare headers
     let mut send_headers = HeaderMap::new();
@@ -58,6 +67,7 @@ pub async fn submit_block<S: BuilderApiState>(
             send_headers.clone(),
             state.pbs_config().timeout_get_payload_ms,
             api_version,
+            fork_name,
         )));
     }
 
@@ -76,6 +86,7 @@ async fn submit_block_with_timeout(
     headers: HeaderMap,
     timeout_ms: u64,
     api_version: &BuilderApiVersion,
+    fork_name: ForkName,
 ) -> Result<Option<SubmitBlindedBlockResponse>, PbsError> {
     let url = relay.submit_block_url(*api_version)?;
     let mut remaining_timeout_ms = timeout_ms;
@@ -92,6 +103,7 @@ async fn submit_block_with_timeout(
             remaining_timeout_ms,
             retry,
             api_version,
+            fork_name,
         )
         .await
         {
@@ -118,6 +130,7 @@ async fn submit_block_with_timeout(
 
 // submits blinded signed block and expects the execution payload + blobs bundle
 // back
+#[allow(clippy::too_many_arguments)]
 async fn send_submit_block(
     url: Url,
     signed_blinded_block: &SignedBlindedBeaconBlock,
@@ -126,6 +139,7 @@ async fn send_submit_block(
     timeout_ms: u64,
     retry: u32,
     api_version: &BuilderApiVersion,
+    fork_name: ForkName,
 ) -> Result<Option<SubmitBlindedBlockResponse>, PbsError> {
     let start_request = Instant::now();
     let res = match relay
@@ -194,23 +208,36 @@ async fn send_submit_block(
         "received unblinded block"
     );
 
+    let got_block_hash = block_response.data.execution_payload.block_hash().0;
+
     // request has different type so cant be deserialized in the wrong version,
     // response has a "version" field
-    match (&signed_blinded_block.message(), &block_response.data.execution_payload) {
-        (
-            BlindedBeaconBlock::Electra(blinded_block),
-            ExecutionPayload::Electra(execution_payload),
-        ) => validate_unblinded_block_electra(
-            blinded_block,
-            execution_payload,
-            &block_response.data.blobs_bundle,
-        ),
+    match &signed_blinded_block.message() {
+        BlindedBeaconBlock::Electra(blinded_block) => {
+            let expected_block_hash =
+                blinded_block.body.execution_payload.execution_payload_header.block_hash.0;
+            let expected_commitments = &blinded_block.body.blob_kzg_commitments;
 
-        (BlindedBeaconBlock::Fulu(blinded_block), ExecutionPayload::Fulu(execution_payload)) => {
-            validate_unblinded_block_fulu(
-                blinded_block,
-                execution_payload,
+            validate_unblinded_block(
+                expected_block_hash,
+                got_block_hash,
+                expected_commitments,
                 &block_response.data.blobs_bundle,
+                fork_name,
+            )
+        }
+
+        BlindedBeaconBlock::Fulu(blinded_block) => {
+            let expected_block_hash =
+                blinded_block.body.execution_payload.execution_payload_header.block_hash.0;
+            let expected_commitments = &blinded_block.body.blob_kzg_commitments;
+
+            validate_unblinded_block(
+                expected_block_hash,
+                got_block_hash,
+                expected_commitments,
+                &block_response.data.blobs_bundle,
+                fork_name,
             )
         }
 
@@ -220,15 +247,41 @@ async fn send_submit_block(
     Ok(Some(block_response))
 }
 
+fn validate_unblinded_block(
+    expected_block_hash: B256,
+    got_block_hash: B256,
+    expected_commitments: &KzgCommitments,
+    blobs_bundle: &BlobsBundle,
+    fork_name: ForkName,
+) -> Result<(), PbsError> {
+    match fork_name {
+        ForkName::Base |
+        ForkName::Altair |
+        ForkName::Bellatrix |
+        ForkName::Capella |
+        ForkName::Deneb |
+        ForkName::Gloas => Err(PbsError::Validation(ValidationError::UnsupportedFork)),
+        ForkName::Electra => validate_unblinded_block_electra(
+            expected_block_hash,
+            got_block_hash,
+            expected_commitments,
+            blobs_bundle,
+        ),
+        ForkName::Fulu => validate_unblinded_block_fulu(
+            expected_block_hash,
+            got_block_hash,
+            expected_commitments,
+            blobs_bundle,
+        ),
+    }
+}
+
 fn validate_unblinded_block_electra(
-    signed_blinded_block: &BlindedBeaconBlockElectra,
-    execution_payload: &ExecutionPayloadElectra,
+    expected_block_hash: B256,
+    got_block_hash: B256,
+    expected_commitments: &KzgCommitments,
     blobs_bundle: &BlobsBundle,
 ) -> Result<(), PbsError> {
-    let expected_block_hash =
-        signed_blinded_block.body.execution_payload.execution_payload_header.block_hash.0;
-    let got_block_hash = execution_payload.block_hash.0;
-
     if expected_block_hash != got_block_hash {
         return Err(PbsError::Validation(ValidationError::BlockHashMismatch {
             expected: expected_block_hash,
@@ -236,7 +289,6 @@ fn validate_unblinded_block_electra(
         }));
     }
 
-    let expected_commitments = &signed_blinded_block.body.blob_kzg_commitments;
     if expected_commitments.len() != blobs_bundle.blobs.len() ||
         expected_commitments.len() != blobs_bundle.commitments.len() ||
         expected_commitments.len() != blobs_bundle.proofs.len()
@@ -264,14 +316,11 @@ fn validate_unblinded_block_electra(
 }
 
 fn validate_unblinded_block_fulu(
-    signed_blinded_block: &BlindedBeaconBlockFulu,
-    execution_payload: &ExecutionPayloadFulu,
+    expected_block_hash: B256,
+    got_block_hash: B256,
+    expected_commitments: &KzgCommitments,
     blobs_bundle: &BlobsBundle,
 ) -> Result<(), PbsError> {
-    let expected_block_hash =
-        signed_blinded_block.body.execution_payload.execution_payload_header.block_hash.0;
-    let got_block_hash = execution_payload.block_hash.0;
-
     if expected_block_hash != got_block_hash {
         return Err(PbsError::Validation(ValidationError::BlockHashMismatch {
             expected: expected_block_hash,
@@ -279,7 +328,6 @@ fn validate_unblinded_block_fulu(
         }));
     }
 
-    let expected_commitments = &signed_blinded_block.body.blob_kzg_commitments;
     if expected_commitments.len() != blobs_bundle.blobs.len() ||
         expected_commitments.len() != blobs_bundle.commitments.len() ||
         expected_commitments.len() * CELLS_PER_EXT_BLOB != blobs_bundle.proofs.len()
