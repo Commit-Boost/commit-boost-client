@@ -169,6 +169,9 @@ jwt_auth_fail_limit = 3
 # This also defines the interval at which failed attempts are regularly checked and expired ones are cleaned up.
 # OPTIONAL, DEFAULT: 300
 jwt_auth_fail_timeout_seconds = 300
+# HTTP header to use to determine the real client IP, if the Signer is behind a proxy (e.g. nginx)
+# OPTIONAL. If missing, the client IP will be taken directly from the TCP connection.
+# trusted_ip_header = "X-Real-IP"
 
 # [signer.tls_mode]
 # How to use TLS for the Signer's HTTP server; two modes are supported:
