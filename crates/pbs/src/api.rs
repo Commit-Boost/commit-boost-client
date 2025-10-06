@@ -1,4 +1,3 @@
-use alloy::rpc::types::beacon::relay::ValidatorRegistration;
 use async_trait::async_trait;
 use axum::{Router, http::HeaderMap};
 use cb_common::pbs::{
@@ -45,7 +44,7 @@ pub trait BuilderApi<S: BuilderApiState>: 'static {
 
     /// https://ethereum.github.io/builder-specs/#/Builder/registerValidator
     async fn register_validator(
-        registrations: Vec<ValidatorRegistration>,
+        registrations: Vec<serde_json::Value>,
         req_headers: HeaderMap,
         state: PbsState<S>,
     ) -> eyre::Result<()> {

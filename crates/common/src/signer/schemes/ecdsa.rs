@@ -1,7 +1,7 @@
 use std::{ops::Deref, str::FromStr};
 
 use alloy::{
-    primitives::{Address, B256, PrimitiveSignature, aliases::B32},
+    primitives::{Address, B256, Signature, aliases::B32},
     signers::{SignerSync, local::PrivateKeySigner},
 };
 use eyre::ensure;
@@ -14,7 +14,7 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct EcdsaSignature(PrimitiveSignature);
+pub struct EcdsaSignature(Signature);
 
 impl std::fmt::Display for EcdsaSignature {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -37,18 +37,18 @@ impl<'de> serde::Deserialize<'de> for EcdsaSignature {
         D: serde::Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        Ok(Self(PrimitiveSignature::from_str(&s).map_err(serde::de::Error::custom)?))
+        Ok(Self(Signature::from_str(&s).map_err(serde::de::Error::custom)?))
     }
 }
 
-impl From<PrimitiveSignature> for EcdsaSignature {
-    fn from(signature: PrimitiveSignature) -> Self {
+impl From<Signature> for EcdsaSignature {
+    fn from(signature: Signature) -> Self {
         Self(signature)
     }
 }
 
 impl Deref for EcdsaSignature {
-    type Target = PrimitiveSignature;
+    type Target = Signature;
 
     fn deref(&self) -> &Self::Target {
         &self.0

@@ -2,7 +2,10 @@ use std::path::PathBuf;
 
 use alloy::primitives::Address;
 use eyre::WrapErr;
-use reqwest::Certificate;
+use reqwest::{
+    Certificate,
+    header::{AUTHORIZATION, HeaderMap, HeaderValue},
+};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -23,7 +26,9 @@ use crate::{
         },
         response::{BlsSignResponse, EcdsaSignResponse},
     },
-    types::{BlsPublicKey, Jwt, ModuleId},
+    constants::SIGNER_JWT_EXPIRATION,
+    signer::EcdsaSignature,
+    types::{BlsPublicKey, BlsSignature, Jwt, ModuleId},
     utils::create_jwt,
 };
 
