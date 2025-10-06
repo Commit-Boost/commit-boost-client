@@ -88,7 +88,7 @@ async fn submit_block_with_timeout(
     api_version: &BuilderApiVersion,
     fork_name: ForkName,
 ) -> Result<Option<SubmitBlindedBlockResponse>, PbsError> {
-    let url = relay.submit_block_url(*api_version)?;
+    let mut url = relay.submit_block_url(*api_version)?;
     let mut remaining_timeout_ms = timeout_ms;
     let mut retry = 0;
     let mut backoff = Duration::from_millis(250);
@@ -119,6 +119,11 @@ async fn submit_block_with_timeout(
                 if remaining_timeout_ms == 0 {
                     return Err(err);
                 }
+            }
+
+            Err(err) if err.is_not_found() && matches!(api_version, BuilderApiVersion::V2) => {
+                warn!("relay does not support v2 endpoint, retrying with v1");
+                url = relay.submit_block_url(BuilderApiVersion::V1)?;
             }
 
             Err(err) => return Err(err),
@@ -184,6 +189,7 @@ async fn send_submit_block(
         warn!(relay_id = relay.id.as_ref(), retry, %err, "failed to get payload (this might be ok if other relays have it)");
         return Err(err);
     };
+
     if api_version != &BuilderApiVersion::V1 {
         // v2 response is going to be empty, so just break here
         return Ok(None);
