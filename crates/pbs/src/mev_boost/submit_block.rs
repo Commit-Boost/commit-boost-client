@@ -122,7 +122,10 @@ async fn submit_block_with_timeout(
             }
 
             Err(err) if err.is_not_found() && matches!(api_version, BuilderApiVersion::V2) => {
-                warn!("relay does not support v2 endpoint, retrying with v1");
+                warn!(
+                    relay_id = relay.id.as_ref(),
+                    "relay does not support v2 endpoint, retrying with v1"
+                );
                 url = relay.submit_block_url(BuilderApiVersion::V1)?;
             }
 
@@ -192,6 +195,13 @@ async fn send_submit_block(
 
     if api_version != &BuilderApiVersion::V1 {
         // v2 response is going to be empty, so just break here
+        debug!(
+            relay_id = relay.id.as_ref(),
+            retry,
+            latency = ?request_latency,
+            "successful request"
+        );
+
         return Ok(None);
     }
 
