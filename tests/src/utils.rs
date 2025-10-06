@@ -14,7 +14,7 @@ use cb_common::{
     pbs::{RelayClient, RelayEntry},
     signer::SignerLoader,
     types::{BlsPublicKey, Chain, ModuleId},
-    utils::default_host,
+    utils::{bls_pubkey_from_hex, default_host},
 };
 use eyre::Result;
 
@@ -133,4 +133,8 @@ pub fn get_start_signer_config(
         },
         _ => panic!("Only local signers are supported in tests"),
     }
+}
+
+pub fn bls_pubkey_from_hex_unchecked(hex: &str) -> BlsPublicKey {
+    bls_pubkey_from_hex(hex).unwrap()
 }
