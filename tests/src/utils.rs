@@ -78,6 +78,7 @@ pub fn get_pbs_static_config(port: u16) -> PbsConfig {
         min_bid_wei: U256::ZERO,
         late_in_slot_time_ms: u64::MAX,
         extra_validation_enabled: false,
+        ssv_api_url: None,
         rpc_url: None,
         http_timeout_seconds: 10,
         register_validator_retry_limit: u32::MAX,

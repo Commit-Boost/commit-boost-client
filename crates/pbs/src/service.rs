@@ -107,6 +107,7 @@ impl PbsService {
                     .load(
                         &runtime_config.id,
                         config.chain,
+                        default_pbs.ssv_api_url.clone(),
                         default_pbs.rpc_url.clone(),
                         http_timeout,
                     )
