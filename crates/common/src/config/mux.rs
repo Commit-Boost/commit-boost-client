@@ -486,7 +486,11 @@ mod tests {
     use std::net::SocketAddr;
 
     use alloy::{primitives::U256, providers::ProviderBuilder};
-    use axum::{extract::State, response::Response, routing::get};
+    use axum::{
+        extract::{Path, State},
+        response::Response,
+        routing::get,
+    };
     use tokio::{net::TcpListener, sync::RwLock, task::JoinHandle};
     use url::Url;
 
@@ -539,7 +543,9 @@ mod tests {
         // Start the mock server
         let port = 30100;
         let _server_handle = create_mock_server(port, None).await?;
-        let url = Url::parse(&format!("http://localhost:{port}/ssv")).unwrap();
+        let url =
+            Url::parse(&format!("http://localhost:{port}/test_chain/validators/in_operator/1"))
+                .unwrap();
         let response =
             fetch_ssv_pubkeys_from_url(url, Duration::from_secs(HTTP_TIMEOUT_SECONDS_DEFAULT))
                 .await?;
@@ -574,7 +580,7 @@ mod tests {
     async fn test_ssv_network_fetch_big_data() -> eyre::Result<()> {
         // Start the mock server
         let port = 30101;
-        let _server_handle = create_mock_server(port, None).await?;
+        let server_handle = create_mock_server(port, None).await?;
         let url = Url::parse(&format!("http://localhost:{port}/big_data")).unwrap();
         let response = fetch_ssv_pubkeys_from_url(url, Duration::from_secs(120)).await;
 
@@ -594,7 +600,7 @@ mod tests {
         }
 
         // Clean up the server handle
-        _server_handle.abort();
+        server_handle.abort();
 
         Ok(())
     }
@@ -605,8 +611,14 @@ mod tests {
     async fn test_ssv_network_fetch_timeout() -> eyre::Result<()> {
         // Start the mock server
         let port = 30102;
-        let _server_handle = create_mock_server(port, None).await?;
-        let url = Url::parse(&format!("http://localhost:{port}/timeout")).unwrap();
+        let state = SsvMockState {
+            validators: Arc::new(RwLock::new(vec![])),
+            force_timeout: Arc::new(RwLock::new(true)),
+        };
+        let server_handle = create_mock_server(port, Some(state)).await?;
+        let url =
+            Url::parse(&format!("http://localhost:{port}/test_chain/validators/in_operator/1"))
+                .unwrap();
         let response =
             fetch_ssv_pubkeys_from_url(url, Duration::from_secs(TEST_HTTP_TIMEOUT)).await;
 
@@ -617,7 +629,7 @@ mod tests {
         }
 
         // Clean up the server handle
-        _server_handle.abort();
+        server_handle.abort();
 
         Ok(())
     }
@@ -629,7 +641,7 @@ mod tests {
         // Start the mock server
         let port = 30103;
         set_ignore_content_length(true);
-        let _server_handle = create_mock_server(port, None).await?;
+        let server_handle = create_mock_server(port, None).await?;
         let url = Url::parse(&format!("http://localhost:{port}/big_data")).unwrap();
         let response = fetch_ssv_pubkeys_from_url(url, Duration::from_secs(120)).await;
 
@@ -649,7 +661,7 @@ mod tests {
         }
 
         // Clean up the server handle
-        _server_handle.abort();
+        server_handle.abort();
 
         Ok(())
     }
@@ -657,12 +669,6 @@ mod tests {
     /// State for the mock server
     #[derive(Clone)]
     pub struct SsvMockState {
-        /// Chain to use for the mock server
-        pub chain: Chain,
-
-        /// Node operator ID to use for the mock server
-        pub node_operator_id: U256,
-
         /// List of pubkeys for the mock server to return
         pub validators: Arc<RwLock<Vec<SSVValidator>>>,
 
@@ -672,7 +678,7 @@ mod tests {
 
     /// Creates a simple mock server to simulate the SSV API endpoint under
     /// various conditions for testing. Note this ignores
-    async fn create_mock_server(
+    pub async fn create_mock_server(
         port: u16,
         state: Option<SsvMockState>,
     ) -> Result<JoinHandle<()>, axum::Error> {
@@ -680,15 +686,15 @@ mod tests {
         let response =
             serde_json::from_str::<SSVResponse>(data).expect("failed to parse test data");
         let state = state.unwrap_or(SsvMockState {
-            chain: Chain::Hoodi,
-            node_operator_id: U256::from(16),
             validators: Arc::new(RwLock::new(response.validators)),
             force_timeout: Arc::new(RwLock::new(false)),
         });
         let router = axum::Router::new()
-            .route("/ssv", get(handle_ssv))
+            .route(
+                "/{chain_name}/validators/in_operator/{node_operator_id}",
+                get(handle_validators),
+            )
             .route("/big_data", get(handle_big_data))
-            .route("/timeout", get(handle_timeout))
             .with_state(state)
             .into_make_service();
 
@@ -706,8 +712,18 @@ mod tests {
         result
     }
 
-    /// Sends the good SSV JSON data to the client
-    async fn handle_ssv(State(state): State<SsvMockState>) -> Response {
+    /// Returns a valid SSV validators response, or a timeout if requested in
+    /// the server state
+    async fn handle_validators(
+        State(state): State<SsvMockState>,
+        Path((_, _)): Path<(String, u64)>,
+    ) -> Response {
+        // Time out if requested
+        if *state.force_timeout.read().await {
+            return handle_timeout().await;
+        }
+
+        // Generate the response based on the current validators
         let response: SSVResponse;
         {
             let validators = state.validators.read().await;
