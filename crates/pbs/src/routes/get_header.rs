@@ -5,7 +5,7 @@ use axum::{
     response::IntoResponse,
 };
 use cb_common::{
-    pbs::GetHeaderParams,
+    pbs::{GetHeaderInfo, GetHeaderParams},
     utils::{get_user_agent, ms_into_slot},
 };
 use reqwest::StatusCode;
@@ -38,7 +38,7 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
     match A::get_header(params, req_headers, state.clone()).await {
         Ok(res) => {
             if let Some(max_bid) = res {
-                info!(value_eth = format_ether(max_bid.value()), block_hash =% max_bid.block_hash(), "received header");
+                info!(value_eth = format_ether(*max_bid.data.message.value()), block_hash =% max_bid.block_hash(), "received header");
 
                 BEACON_NODE_STATUS.with_label_values(&["200", GET_HEADER_ENDPOINT_TAG]).inc();
                 Ok((StatusCode::OK, axum::Json(max_bid)).into_response())

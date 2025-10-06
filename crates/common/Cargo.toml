@@ -23,6 +23,7 @@ ethereum_ssz_derive.workspace = true
 eyre.workspace = true
 futures.workspace = true
 jsonwebtoken.workspace = true
+lh_eth2.workspace = true
 lh_eth2_keystore.workspace = true
 lh_types.workspace = true
 pbkdf2.workspace = true
