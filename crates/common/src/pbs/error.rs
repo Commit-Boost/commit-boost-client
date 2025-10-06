@@ -47,6 +47,10 @@ impl PbsError {
             _ => false,
         }
     }
+
+    pub fn is_not_found(&self) -> bool {
+        matches!(&self, PbsError::RelayResponse { code: 404, .. })
+    }
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
