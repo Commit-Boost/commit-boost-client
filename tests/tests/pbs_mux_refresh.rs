@@ -10,9 +10,11 @@ use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
     mock_relay::{MockRelayState, start_mock_relay_service},
     mock_ssv::{SsvMockState, create_mock_ssv_server},
+    mock_validator::MockValidator,
     utils::{generate_mock_relay, get_pbs_static_config, to_pbs_config},
 };
 use eyre::Result;
+use reqwest::StatusCode;
 use tokio::sync::RwLock;
 use tracing::info;
 use url::Url;
@@ -24,30 +26,46 @@ async fn test_auto_refresh() -> Result<()> {
     // This test reads the log files to verify behavior, so we can't attach a global
     // trace listener setup_test_env();
 
-    let signer = random_secret();
-    let pubkey = signer.public_key();
+    // Generate 3 keys: one not in the mux relay, one in the relay, and one that
+    // hasn't been added yet but will be later. The existing key isn't used but is
+    // needed in the initial config since CB won't start a mux without at least one
+    // key.
+    let default_signer = random_secret();
+    let default_pubkey = default_signer.public_key();
+    let existing_mux_signer = random_secret();
+    let existing_mux_pubkey = existing_mux_signer.public_key();
+    let new_mux_signer = random_secret();
+    let new_mux_pubkey = new_mux_signer.public_key();
 
     let chain = Chain::Hoodi;
     let pbs_port = 3710;
 
     // Start the mock SSV API server
-    let mut next_port = pbs_port + 1;
-    let ssv_api_port = next_port;
-    next_port += 1;
+    let ssv_api_port = pbs_port + 1;
     let ssv_api_url = Url::parse(&format!("http://localhost:{ssv_api_port}"))?;
     let mock_ssv_state = SsvMockState {
-        validators: Arc::new(RwLock::new(vec![SSVValidator { pubkey: pubkey.clone() }])),
+        validators: Arc::new(RwLock::new(vec![SSVValidator {
+            pubkey: existing_mux_pubkey.clone(),
+        }])),
         force_timeout: Arc::new(RwLock::new(false)),
     };
     let ssv_server_handle =
         create_mock_ssv_server(ssv_api_port, Some(mock_ssv_state.clone())).await?;
 
+    // Start a default relay for non-mux keys
+    let default_relay_port = ssv_api_port + 1;
+    let default_relay = generate_mock_relay(default_relay_port, default_pubkey.clone())?;
+    let default_relay_state = Arc::new(MockRelayState::new(chain, default_signer.clone()));
+    let default_relay_task =
+        tokio::spawn(start_mock_relay_service(default_relay_state.clone(), default_relay_port));
+
     // Start a mock relay to be used by the mux
-    let default_relay = generate_mock_relay(next_port, pubkey.clone())?;
-    let relay_id = default_relay.id.clone().to_string();
-    let mock_state = Arc::new(MockRelayState::new(chain, signer));
-    tokio::spawn(start_mock_relay_service(mock_state.clone(), next_port));
-    next_port += 1;
+    let mux_relay_port = default_relay_port + 1;
+    let mux_relay = generate_mock_relay(mux_relay_port, default_pubkey.clone())?;
+    let mux_relay_id = mux_relay.id.clone().to_string();
+    let mux_relay_state = Arc::new(MockRelayState::new(chain, default_signer));
+    let mux_relay_task =
+        tokio::spawn(start_mock_relay_service(mux_relay_state.clone(), mux_relay_port));
 
     // Create the registry mux
     let loader = MuxKeysLoader::Registry {
@@ -57,11 +75,11 @@ async fn test_auto_refresh() -> Result<()> {
     };
     let muxes = PbsMuxes {
         muxes: vec![MuxConfig {
-            id: relay_id.clone(),
+            id: mux_relay_id.clone(),
             loader: Some(loader),
-            late_in_slot_time_ms: Some(2000),
-            relays: vec![(*default_relay.config).clone()],
-            timeout_get_header_ms: Some(750),
+            late_in_slot_time_ms: Some(u64::MAX),
+            relays: vec![(*mux_relay.config).clone()],
+            timeout_get_header_ms: Some(u64::MAX - 1),
             validator_pubkeys: vec![],
         }],
     };
@@ -71,45 +89,70 @@ async fn test_auto_refresh() -> Result<()> {
     pbs_config.ssv_api_url = Some(ssv_api_url.clone());
     pbs_config.mux_registry_refresh_interval_seconds = 1; // Refresh the mux every second
     let (mux_lookup, registry_muxes) = muxes.validate_and_fill(chain, &pbs_config).await?;
-    let relays = vec![default_relay.clone()];
+    let relays = vec![default_relay.clone()]; // Default relay only
     let mut config = to_pbs_config(chain, pbs_config, relays);
-    config.all_relays = vec![default_relay.clone()];
+    config.all_relays.push(mux_relay.clone()); // Add the mux relay to just this field
     config.mux_lookup = Some(mux_lookup);
     config.registry_muxes = Some(registry_muxes);
 
     // Run PBS service
     let state = PbsState::new(config);
     let pbs_server = tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
-    info!("Started PBS server with pubkey {pubkey}");
+    info!("Started PBS server with pubkey {default_pubkey}");
+
+    // Wait for the server to start
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Try to run a get_header on the new pubkey, which should use the default
+    // relay only since it hasn't been seen in the mux yet
+    let mock_validator = MockValidator::new(pbs_port)?;
+    info!("Sending get header");
+    let res = mock_validator.do_get_header(Some(new_mux_pubkey.clone())).await?;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(default_relay_state.received_get_header(), 1); // default relay was used
+    assert_eq!(mux_relay_state.received_get_header(), 0); // mux relay was not used
 
     // Wait for the first refresh to complete
     let wait_for_refresh_time = Duration::from_secs(2);
     tokio::time::sleep(wait_for_refresh_time).await;
 
     // Check the logs to ensure a refresh happened
-    assert!(logs_contain(&format!("fetched 1 pubkeys for registry mux {relay_id}")));
-    assert!(!logs_contain(&format!("fetched 2 pubkeys for registry mux {relay_id}")));
+    assert!(logs_contain(&format!("fetched 1 pubkeys for registry mux {mux_relay_id}")));
+    assert!(!logs_contain(&format!("fetched 2 pubkeys for registry mux {mux_relay_id}")));
     assert!(!logs_contain("adding new pubkey"));
 
     // Add another validator
-    let new_secret = random_secret();
-    let new_pubkey = new_secret.public_key();
     {
         let mut validators = mock_ssv_state.validators.write().await;
-        validators.push(SSVValidator { pubkey: new_pubkey.clone() });
-        info!("Added new validator {new_pubkey} to the SSV mock server");
+        validators.push(SSVValidator { pubkey: new_mux_pubkey.clone() });
+        info!("Added new validator {new_mux_pubkey} to the SSV mock server");
     }
 
     // Wait for the next refresh to complete
     tokio::time::sleep(wait_for_refresh_time).await;
 
     // Check the logs to ensure the new pubkey was added
-    assert!(logs_contain(&format!("adding new pubkey {new_pubkey} to mux {relay_id}")));
-    assert!(logs_contain(&format!("fetched 2 pubkeys for registry mux {relay_id}")));
+    assert!(logs_contain(&format!("adding new pubkey {new_mux_pubkey} to mux {mux_relay_id}")));
+    assert!(logs_contain(&format!("fetched 2 pubkeys for registry mux {mux_relay_id}")));
+
+    // Try to run a get_header on the new pubkey - now it should use the mux relay
+    let res = mock_validator.do_get_header(Some(new_mux_pubkey.clone())).await?;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(default_relay_state.received_get_header(), 1); // default relay was not used here
+    assert_eq!(mux_relay_state.received_get_header(), 1); // mux relay was used
+
+    // Finally try to do a get_header with the old pubkey - it should only use the
+    // default relay
+    let res = mock_validator.do_get_header(Some(default_pubkey.clone())).await?;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(default_relay_state.received_get_header(), 2); // default relay was used
+    assert_eq!(mux_relay_state.received_get_header(), 1); // mux relay was not used
 
     // Shut down the server handles
     pbs_server.abort();
     ssv_server_handle.abort();
+    default_relay_task.abort();
+    mux_relay_task.abort();
 
     Ok(())
 }
