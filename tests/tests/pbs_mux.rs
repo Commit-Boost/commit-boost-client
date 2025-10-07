@@ -10,7 +10,7 @@ use cb_common::{
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
     mock_relay::{MockRelayState, start_mock_relay_service},
-    mock_ssv::{SsvMockState, TEST_HTTP_TIMEOUT, create_mock_server},
+    mock_ssv::{SsvMockState, TEST_HTTP_TIMEOUT, create_mock_ssv_server},
     mock_validator::MockValidator,
     utils::{
         bls_pubkey_from_hex_unchecked, generate_mock_relay, get_pbs_static_config, setup_test_env,
@@ -25,10 +25,10 @@ use url::Url;
 
 #[tokio::test]
 /// Tests that a successful SSV network fetch is handled and parsed properly
-async fn test_ssv_network_fetch() -> eyre::Result<()> {
+async fn test_ssv_network_fetch() -> Result<()> {
     // Start the mock server
     let port = 30100;
-    let _server_handle = create_mock_server(port, None).await?;
+    let _server_handle = create_mock_ssv_server(port, None).await?;
     let url = Url::parse(&format!("http://localhost:{port}/test_chain/validators/in_operator/1"))
         .unwrap();
     let response =
@@ -61,10 +61,10 @@ async fn test_ssv_network_fetch() -> eyre::Result<()> {
 #[tokio::test]
 /// Tests that the SSV network fetch is handled properly when the response's
 /// body is too large
-async fn test_ssv_network_fetch_big_data() -> eyre::Result<()> {
+async fn test_ssv_network_fetch_big_data() -> Result<()> {
     // Start the mock server
     let port = 30101;
-    let server_handle = cb_tests::mock_ssv::create_mock_server(port, None).await?;
+    let server_handle = cb_tests::mock_ssv::create_mock_ssv_server(port, None).await?;
     let url = Url::parse(&format!("http://localhost:{port}/big_data")).unwrap();
     let response = fetch_ssv_pubkeys_from_url(url, Duration::from_secs(120)).await;
 
@@ -92,14 +92,14 @@ async fn test_ssv_network_fetch_big_data() -> eyre::Result<()> {
 #[tokio::test]
 /// Tests that the SSV network fetch is handled properly when the request
 /// times out
-async fn test_ssv_network_fetch_timeout() -> eyre::Result<()> {
+async fn test_ssv_network_fetch_timeout() -> Result<()> {
     // Start the mock server
     let port = 30102;
     let state = SsvMockState {
         validators: Arc::new(RwLock::new(vec![])),
         force_timeout: Arc::new(RwLock::new(true)),
     };
-    let server_handle = create_mock_server(port, Some(state)).await?;
+    let server_handle = create_mock_ssv_server(port, Some(state)).await?;
     let url = Url::parse(&format!("http://localhost:{port}/test_chain/validators/in_operator/1"))
         .unwrap();
     let response = fetch_ssv_pubkeys_from_url(url, Duration::from_secs(TEST_HTTP_TIMEOUT)).await;
@@ -119,11 +119,11 @@ async fn test_ssv_network_fetch_timeout() -> eyre::Result<()> {
 #[tokio::test]
 /// Tests that the SSV network fetch is handled properly when the response's
 /// content-length header is missing
-async fn test_ssv_network_fetch_big_data_without_content_length() -> eyre::Result<()> {
+async fn test_ssv_network_fetch_big_data_without_content_length() -> Result<()> {
     // Start the mock server
     let port = 30103;
     set_ignore_content_length(true);
-    let server_handle = create_mock_server(port, None).await?;
+    let server_handle = create_mock_ssv_server(port, None).await?;
     let url = Url::parse(&format!("http://localhost:{port}/big_data")).unwrap();
     let response = fetch_ssv_pubkeys_from_url(url, Duration::from_secs(120)).await;
 
@@ -226,32 +226,3 @@ async fn test_mux() -> Result<()> {
 
     Ok(())
 }
-
-/*
-#[tokio::test]
-#[tracing_test::traced_test]
-async fn test_auto_refresh() -> Result<()> {
-    // This test reads the log files to verify behavior, so we can't attach a global
-    // trace listener setup_test_env();
-
-    let signer = random_secret();
-    let pubkey = signer.public_key();
-
-    let chain = Chain::Hoodi;
-    let pbs_port = 3710;
-
-    // Start the mock SSV API server
-    let ssv_api_port = 3711;
-    let ssv_api_url = format!("http://localhost:{ssv_api_port}");
-    let mock_ssv_state = SsvMockState {
-        validators: Arc::new(RwLock::new(vec![pubkey])),
-        force_timeout: Arc::new(RwLock::new(false)),
-    };
-
-    // Run PBS service
-    let state = PbsState::new(config);
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
-
-    Ok(())
-}
-*/

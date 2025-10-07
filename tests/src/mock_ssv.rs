@@ -26,7 +26,7 @@ pub struct SsvMockState {
 
 /// Creates a simple mock server to simulate the SSV API endpoint under
 /// various conditions for testing. Note this ignores
-pub async fn create_mock_server(
+pub async fn create_mock_ssv_server(
     port: u16,
     state: Option<SsvMockState>,
 ) -> Result<JoinHandle<()>, axum::Error> {

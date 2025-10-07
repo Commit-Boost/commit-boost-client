@@ -138,6 +138,10 @@ impl PbsService {
         if new_pubkeys.is_empty() {
             return;
         }
+        // Log the new pubkeys
+        for (pubkey, runtime_config) in new_pubkeys.iter() {
+            info!("adding new pubkey {pubkey} to mux {}", runtime_config.id);
+        }
         {
             // Since config isn't an RwLock, the option with the least amount of code churn
             // is to just clone the whole config and replace the mux_lookup
