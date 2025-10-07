@@ -49,7 +49,7 @@ pub async fn create_mock_ssv_server(
     });
     let result = Ok(tokio::spawn(async move {
         if let Err(e) = server.await {
-            eprintln!("Server error: {}", e);
+            eprintln!("Server error: {e}");
         }
     }));
     info!("Mock server started on http://localhost:{port}/");
