@@ -22,7 +22,7 @@ use super::{MUX_PATH_ENV, PbsConfig, RelayConfig, load_optional_env_var};
 use crate::{
     config::{remove_duplicate_keys, safe_read_http_response},
     pbs::RelayClient,
-    types::{BlsPublicKey, Chain},
+    types::{BlsPublicKey, Chain, HoleskyModules, HoodiModules, MainnetModules},
 };
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -167,6 +167,8 @@ pub enum MuxKeysLoader {
     Registry {
         registry: NORegistry,
         node_operator_id: u64,
+        #[serde(default)]
+        lido_module_id: Option<u8>
     },
 }
 
@@ -210,7 +212,7 @@ impl MuxKeysLoader {
                     .wrap_err("failed to fetch mux keys from HTTP endpoint")
             }
 
-            Self::Registry { registry, node_operator_id } => match registry {
+            Self::Registry { registry, node_operator_id, lido_module_id } => match registry {
                 NORegistry::Lido => {
                     let Some(rpc_url) = rpc_url else {
                         bail!("Lido registry requires RPC URL to be set in the PBS config");
@@ -220,6 +222,7 @@ impl MuxKeysLoader {
                         rpc_url,
                         chain,
                         U256::from(*node_operator_id),
+                        *lido_module_id,
                         http_timeout,
                     )
                     .await
@@ -257,21 +260,58 @@ sol! {
     "src/abi/LidoNORegistry.json"
 }
 
-// Fetching Lido Curated Module
-fn lido_registry_address(chain: Chain) -> eyre::Result<Address> {
-    match chain {
-        Chain::Mainnet => Ok(address!("55032650b14df07b85bF18A3a3eC8E0Af2e028d5")),
-        Chain::Holesky => Ok(address!("595F64Ddc3856a3b5Ff4f4CC1d1fb4B46cFd2bAC")),
-        Chain::Hoodi => Ok(address!("5cDbE1590c083b5A2A64427fAA63A7cfDB91FbB5")),
-        Chain::Sepolia => Ok(address!("33d6E15047E8644F8DDf5CD05d202dfE587DA6E3")),
-        _ => bail!("Lido registry not supported for chain: {chain:?}"),
-    }
+fn lido_registry_addresses_by_module() -> HashMap<Chain, HashMap<u8, Address>> {
+    let mut map: HashMap<Chain, HashMap<u8, Address>> = HashMap::new();
+
+    // --- Mainnet ---
+    let mut mainnet = HashMap::new();
+    mainnet.insert(MainnetModules::Curated as u8, address!("55032650b14df07b85bF18A3a3eC8E0Af2e028d5"));
+    mainnet.insert(MainnetModules::SimpleDVT as u8, address!("aE7B191A31f627b4eB1d4DaC64eaB9976995b433"));
+    mainnet.insert(MainnetModules::CommunityStaking as u8, address!("dA7dE2ECdDfccC6c3AF10108Db212ACBBf9EA83F"));
+    map.insert(Chain::Mainnet, mainnet);
+
+    // --- Holesky ---
+    let mut holesky = HashMap::new();
+    holesky.insert(HoleskyModules::Curated as u8, address!("595F64Ddc3856a3b5Ff4f4CC1d1fb4B46cFd2bAC"));
+    holesky.insert(HoleskyModules::SimpleDVT as u8, address!("11a93807078f8BB880c1BD0ee4C387537de4b4b6"));
+    holesky.insert(HoleskyModules::Sandbox as u8, address!("D6C2ce3BB8bea2832496Ac8b5144819719f343AC"));
+    holesky.insert(HoleskyModules::CommunityStaking as u8, address!("4562c3e63c2e586cD1651B958C22F88135aCAd4f"));
+    map.insert(Chain::Holesky, holesky);
+
+    // --- Hoodi ---
+    let mut hoodi = HashMap::new();
+    hoodi.insert(HoodiModules::Curated as u8, address!("5cDbE1590c083b5A2A64427fAA63A7cfDB91FbB5"));
+    hoodi.insert(HoodiModules::SimpleDVT as u8, address!("0B5236BECA68004DB89434462DfC3BB074d2c830"));
+    hoodi.insert(HoodiModules::Sandbox as u8, address!("682E94d2630846a503BDeE8b6810DF71C9806891"));
+    hoodi.insert(HoodiModules::CommunityStaking as u8, address!("79CEf36D84743222f37765204Bec41E92a93E59d"));
+    map.insert(Chain::Hoodi, hoodi);
+
+    // --- Sepolia --
+    let mut sepolia = HashMap::new();
+    sepolia.insert(1, address!("33d6E15047E8644F8DDf5CD05d202dfE587DA6E3"));
+    map.insert(Chain::Sepolia, sepolia);
+
+    map
+}
+
+// Fetching appropiate registry address
+fn lido_registry_address(chain: Chain, maybe_module: Option<u8>) -> eyre::Result<Address> {
+     lido_registry_addresses_by_module()
+       .get(&chain)
+        .ok_or_else(|| eyre::eyre!("Lido registry not supported for chain: {chain:?}"))?
+        .get(&maybe_module.unwrap_or(1))
+        .copied()
+        .ok_or_else(|| eyre::eyre!(
+            "Lido module id {:?} not found for chain: {chain:?}", 
+            maybe_module.unwrap_or(1)
+        ))
 }
 
 async fn fetch_lido_registry_keys(
     rpc_url: Url,
     chain: Chain,
     node_operator_id: U256,
+    lido_module_id: Option<u8>,
     http_timeout: Duration,
 ) -> eyre::Result<Vec<BlsPublicKey>> {
     debug!(?chain, %node_operator_id, "loading operator keys from Lido registry");
@@ -283,7 +323,7 @@ async fn fetch_lido_registry_keys(
     let rpc_client = RpcClient::new(http, is_local);
     let provider = ProviderBuilder::new().connect_client(rpc_client);
 
-    let registry_address = lido_registry_address(chain)?;
+    let registry_address = lido_registry_address(chain, lido_module_id)?;
     let registry = LidoRegistry::new(registry_address, provider);
 
     let total_keys = registry.getTotalSigningKeyCount(node_operator_id).call().await?.try_into()?;
