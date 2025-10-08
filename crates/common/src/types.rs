@@ -44,20 +44,20 @@ pub enum Chain {
     },
 }
 
-pub enum MainnetModules {
+pub enum MainnetLidoModule {
     Curated = 1,
     SimpleDVT = 2,
     CommunityStaking = 3
 }
 
-pub enum HoleskyModules {
+pub enum HoleskyLidoModule {
     Curated = 1,
     SimpleDVT = 2,
     Sandbox = 3,
     CommunityStaking = 4
 }
 
-pub enum HoodiModules {
+pub enum HoodiLidoModule {
     Curated = 1,
     SimpleDVT = 2,
     Sandbox = 3,
