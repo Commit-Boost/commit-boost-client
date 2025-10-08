@@ -6,17 +6,18 @@ use std::{
 };
 
 use alloy::{
-    primitives::{Address, U256, address},
+    primitives::{address, Address, Bytes, U256},
     providers::ProviderBuilder,
     rpc::{client::RpcClient, types::beacon::constants::BLS_PUBLIC_KEY_BYTES_LEN},
     sol,
     transports::http::Http,
 };
-use eyre::{Context, bail, ensure};
+use eyre::{bail, ensure, Context};
 use reqwest::Client;
 use serde::{Deserialize, Deserializer, Serialize};
 use tracing::{debug, info, warn};
 use url::Url;
+use LidoCSMRegistry::getNodeOperatorSummaryReturn;
 
 use super::{MUX_PATH_ENV, PbsConfig, RelayConfig, load_optional_env_var};
 use crate::{
@@ -260,6 +261,13 @@ sol! {
     "src/abi/LidoNORegistry.json"
 }
 
+sol! {
+    #[allow(missing_docs)]
+    #[sol(rpc)]
+    LidoCSMRegistry,
+    "src/abi/LidoCSModuleNORegistry.json"
+}
+
 fn lido_registry_addresses_by_module() -> HashMap<Chain, HashMap<u8, Address>> {
     let mut map: HashMap<Chain, HashMap<u8, Address>> = HashMap::new();
 
@@ -307,46 +315,128 @@ fn lido_registry_address(chain: Chain, lido_module_id: u8) -> eyre::Result<Addre
         ))
 }
 
-async fn fetch_lido_registry_keys(
-    rpc_url: Url,
-    chain: Chain,
+fn is_csm_module(chain: Chain, module_id: u8) -> bool {
+    match chain {
+        Chain::Mainnet => module_id == MainnetLidoModule::CommunityStaking as u8,
+        Chain::Holesky => module_id == HoleskyLidoModule::CommunityStaking as u8,
+        Chain::Hoodi   => module_id == HoodiLidoModule::CommunityStaking as u8,
+        _ => false,
+    }
+}
+
+fn get_lido_csm_registry<P>(
+    registry_address: Address,
+    provider: P,
+) -> LidoCSMRegistry::LidoCSMRegistryInstance<P>
+where
+    P: Clone + Send + Sync + 'static + alloy::providers::Provider,
+{
+    LidoCSMRegistry::new(registry_address, provider)
+}
+
+fn get_lido_module_registry<P>(
+    registry_address: Address,
+    provider: P,
+) -> LidoRegistry::LidoRegistryInstance<P>
+where
+    P: Clone + Send + Sync + 'static + alloy::providers::Provider,
+{
+    LidoRegistry::new(registry_address, provider)
+}
+
+async fn fetch_lido_csm_keys_total<P>(
+    registry: &LidoCSMRegistry::LidoCSMRegistryInstance<P>,
     node_operator_id: U256,
-    lido_module_id: u8,
-    http_timeout: Duration,
-) -> eyre::Result<Vec<BlsPublicKey>> {
-    debug!(?chain, %node_operator_id, ?lido_module_id, "loading operator keys from Lido registry");
+) -> eyre::Result<u64>
+where
+    P: Clone + Send + Sync + 'static + alloy::providers::Provider,
+{
+    let summary: getNodeOperatorSummaryReturn = registry
+        .getNodeOperatorSummary(node_operator_id)
+        .call()
+        .await?;
 
-    // Create an RPC provider with HTTP timeout support
-    let client = Client::builder().timeout(http_timeout).build()?;
-    let http = Http::with_client(client, rpc_url);
-    let is_local = http.guess_local();
-    let rpc_client = RpcClient::new(http, is_local);
-    let provider = ProviderBuilder::new().connect_client(rpc_client);
+    let total_u256 = summary.totalDepositedValidators + summary.depositableValidatorsCount;
 
-    let registry_address = lido_registry_address(chain, lido_module_id)?;
-    let registry = LidoRegistry::new(registry_address, provider);
+    let total_u64 = u64::try_from(total_u256)
+        .wrap_err_with(|| format!("total keys ({total_u256}) does not fit into u64"))?;
 
-    let total_keys = registry.getTotalSigningKeyCount(node_operator_id).call().await?.try_into()?;
+    Ok(total_u64)
+}
 
+async fn fetch_lido_module_keys_total<P>(
+    registry: &LidoRegistry::LidoRegistryInstance<P>,
+    node_operator_id: U256,
+) -> eyre::Result<u64>
+where
+    P: Clone + Send + Sync + 'static + alloy::providers::Provider,
+{
+    let total_keys: u64 = registry
+        .getTotalSigningKeyCount(node_operator_id)
+        .call()
+        .await?
+        .try_into()?;
+
+    Ok(total_keys)
+}
+
+async fn fetch_lido_csm_keys_batch<P>(
+    registry: &LidoCSMRegistry::LidoCSMRegistryInstance<P>,
+    node_operator_id: U256,
+    offset: u64,
+    limit: u64
+) -> eyre::Result<Bytes>
+where
+    P: Clone + Send + Sync + 'static + alloy::providers::Provider,
+{
+    let pubkeys = registry
+        .getSigningKeys(node_operator_id, U256::from(offset), U256::from(limit))
+        .call()
+        .await?;
+
+    Ok(pubkeys)
+}
+
+async fn fetch_lido_module_keys_batch<P>(
+    registry: &LidoRegistry::LidoRegistryInstance<P>,
+    node_operator_id: U256,
+    offset: u64,
+    limit: u64
+) -> eyre::Result<Bytes>
+where
+    P: Clone + Send + Sync + 'static + alloy::providers::Provider,
+{
+    let pubkeys = registry
+        .getSigningKeys(node_operator_id, U256::from(offset), U256::from(limit))
+        .call()
+        .await?
+        .pubkeys;
+
+    Ok(pubkeys)
+}
+
+async fn collect_registry_keys<F, Fut>(
+    total_keys: u64,
+    mut fetch_batch: F,
+) -> eyre::Result<Vec<BlsPublicKey>> 
+where
+    F: FnMut(u64, u64) -> Fut,
+    Fut: std::future::Future<Output = eyre::Result<Bytes>>,
+{
     if total_keys == 0 {
         return Ok(Vec::new());
     }
-
     debug!("fetching {total_keys} total keys");
 
     const CALL_BATCH_SIZE: u64 = 250u64;
 
     let mut keys = vec![];
-    let mut offset = 0;
+    let mut offset: u64 = 0;
 
     while offset < total_keys {
         let limit = CALL_BATCH_SIZE.min(total_keys - offset);
 
-        let pubkeys = registry
-            .getSigningKeys(node_operator_id, U256::from(offset), U256::from(limit))
-            .call()
-            .await?
-            .pubkeys;
+        let pubkeys = fetch_batch(offset, limit).await?;
 
         ensure!(
             pubkeys.len() % BLS_PUBLIC_KEY_BYTES_LEN == 0,
@@ -371,6 +461,58 @@ async fn fetch_lido_registry_keys(
     ensure!(keys.len() == total_keys as usize, "expected {total_keys} keys, got {}", keys.len());
 
     Ok(keys)
+}
+
+async fn fetch_lido_csm_registry_keys (
+    registry_address: Address,
+    rpc_client: RpcClient,
+    node_operator_id: U256,
+) -> eyre::Result<Vec<BlsPublicKey>> {
+    let provider = ProviderBuilder::new().connect_client(rpc_client);
+    let registry = get_lido_csm_registry(registry_address, provider);
+    
+    let total_keys = fetch_lido_csm_keys_total(&registry, node_operator_id).await?.try_into()?;
+
+    collect_registry_keys(total_keys, |offset, limit| {
+        fetch_lido_csm_keys_batch(&registry, node_operator_id, offset, limit)
+    }).await
+}
+
+async fn fetch_lido_module_registry_keys (
+    registry_address: Address,
+    rpc_client: RpcClient,
+    node_operator_id: U256,
+) -> eyre::Result<Vec<BlsPublicKey>> {
+    let provider = ProviderBuilder::new().connect_client(rpc_client);
+    let registry = get_lido_module_registry(registry_address, provider);
+    let total_keys: u64 = fetch_lido_module_keys_total(&registry, node_operator_id).await?.try_into()?;
+
+    collect_registry_keys(total_keys, |offset, limit| {
+        fetch_lido_module_keys_batch(&registry, node_operator_id, offset, limit)
+    }).await
+}
+
+async fn fetch_lido_registry_keys(
+    rpc_url: Url,
+    chain: Chain,
+    node_operator_id: U256,
+    lido_module_id: u8,
+    http_timeout: Duration,
+) -> eyre::Result<Vec<BlsPublicKey>> {
+    debug!(?chain, %node_operator_id, ?lido_module_id, "loading operator keys from Lido registry");
+
+    // Create an RPC provider with HTTP timeout support
+    let client = Client::builder().timeout(http_timeout).build()?;
+    let http = Http::with_client(client, rpc_url);
+    let is_local = http.guess_local();
+    let rpc_client = RpcClient::new(http, is_local);
+    let registry_address = lido_registry_address(chain, lido_module_id)?;
+
+    if is_csm_module(chain, lido_module_id) {
+        fetch_lido_csm_registry_keys(registry_address, rpc_client, node_operator_id).await
+    } else {
+        fetch_lido_module_registry_keys(registry_address, rpc_client, node_operator_id).await
+    }
 }
 
 async fn fetch_ssv_pubkeys(
@@ -517,6 +659,49 @@ mod tests {
 
         assert_eq!(vec.len(), LIMIT);
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_lido_csm_registry_address() -> eyre::Result<()> {
+        use alloy::{primitives::U256, providers::ProviderBuilder};
+        
+        let url = Url::parse("https://ethereum-rpc.publicnode.com")?;
+        let provider = ProviderBuilder::new().connect_http(url);
+        
+        let registry = LidoCSMRegistry::new(
+            address!("dA7dE2ECdDfccC6c3AF10108Db212ACBBf9EA83F"),
+            provider,
+        );
+    
+        const LIMIT: usize = 3;
+        let node_operator_id = U256::from(1);
+    
+        let summary = registry
+            .getNodeOperatorSummary(node_operator_id)
+            .call()
+            .await?;
+    
+        let total_keys_u256 = summary.totalDepositedValidators + summary.depositableValidatorsCount;
+        let total_keys: u64 = total_keys_u256.try_into()?;
+    
+        assert!(total_keys > LIMIT as u64, "expected more than {LIMIT} keys, got {total_keys}");
+    
+        let pubkeys = registry
+            .getSigningKeys(node_operator_id, U256::ZERO, U256::from(LIMIT))
+            .call()
+            .await?;
+    
+        let mut vec = Vec::new();
+        for chunk in pubkeys.chunks(BLS_PUBLIC_KEY_BYTES_LEN) {
+            vec.push(
+                BlsPublicKey::deserialize(chunk)
+                    .map_err(|_| eyre::eyre!("invalid BLS public key"))?,
+            );
+        }
+    
+        assert_eq!(vec.len(), LIMIT, "expected {LIMIT} keys, got {}", vec.len());
+    
         Ok(())
     }
 

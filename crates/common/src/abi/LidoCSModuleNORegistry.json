@@ -1,0 +1,37 @@
+[
+  {
+    "constant": true,
+    "inputs": [
+      { "name": "nodeOperatorId", "type": "uint256" }
+    ],
+    "name": "getNodeOperatorSummary",
+    "outputs": [
+      { "name": "targetLimitMode", "type": "uint256" },
+      { "name": "targetValidatorsCount", "type": "uint256" },
+      { "name": "stuckValidatorsCount", "type": "uint256" },
+      { "name": "refundedValidatorsCount", "type": "uint256" },
+      { "name": "stuckPenaltyEndTimestamp", "type": "uint256" },
+      { "name": "totalExitedValidators", "type": "uint256" },
+      { "name": "totalDepositedValidators", "type": "uint256" },
+      { "name": "depositableValidatorsCount", "type": "uint256" }
+    ],
+    "payable": false,
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "constant": true,
+    "inputs": [
+      { "name": "nodeOperatorId", "type": "uint256" },
+      { "name": "startIndex", "type": "uint256" },
+      { "name": "keysCount", "type": "uint256" }
+    ],
+    "name": "getSigningKeys",
+    "outputs": [
+      { "name": "", "type": "bytes" }
+    ],
+    "payable": false,
+    "stateMutability": "view",
+    "type": "function"
+  }
+]
