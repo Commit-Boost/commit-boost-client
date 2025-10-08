@@ -222,7 +222,7 @@ impl MuxKeysLoader {
                         rpc_url,
                         chain,
                         U256::from(*node_operator_id),
-                        *lido_module_id,
+                        lido_module_id.unwrap_or(1),
                         http_timeout,
                     )
                     .await
@@ -295,15 +295,15 @@ fn lido_registry_addresses_by_module() -> HashMap<Chain, HashMap<u8, Address>> {
 }
 
 // Fetching appropiate registry address
-fn lido_registry_address(chain: Chain, maybe_module: Option<u8>) -> eyre::Result<Address> {
+fn lido_registry_address(chain: Chain, lido_module_id: u8) -> eyre::Result<Address> {
      lido_registry_addresses_by_module()
        .get(&chain)
         .ok_or_else(|| eyre::eyre!("Lido registry not supported for chain: {chain:?}"))?
-        .get(&maybe_module.unwrap_or(1))
+        .get(&lido_module_id)
         .copied()
         .ok_or_else(|| eyre::eyre!(
             "Lido module id {:?} not found for chain: {chain:?}", 
-            maybe_module.unwrap_or(1)
+            lido_module_id
         ))
 }
 
@@ -311,7 +311,7 @@ async fn fetch_lido_registry_keys(
     rpc_url: Url,
     chain: Chain,
     node_operator_id: U256,
-    lido_module_id: Option<u8>,
+    lido_module_id: u8,
     http_timeout: Duration,
 ) -> eyre::Result<Vec<BlsPublicKey>> {
     debug!(?chain, %node_operator_id, ?lido_module_id, "loading operator keys from Lido registry");
