@@ -314,7 +314,7 @@ async fn fetch_lido_registry_keys(
     lido_module_id: Option<u8>,
     http_timeout: Duration,
 ) -> eyre::Result<Vec<BlsPublicKey>> {
-    debug!(?chain, %node_operator_id, "loading operator keys from Lido registry");
+    debug!(?chain, %node_operator_id, ?lido_module_id, "loading operator keys from Lido registry");
 
     // Create an RPC provider with HTTP timeout support
     let client = Client::builder().timeout(http_timeout).build()?;
