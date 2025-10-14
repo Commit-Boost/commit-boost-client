@@ -140,7 +140,8 @@ impl PbsService {
         }
         // Log the new pubkeys
         for (pubkey, runtime_config) in new_pubkeys.iter() {
-            info!("adding new pubkey {pubkey} to mux {}", runtime_config.id);
+            debug!("adding new pubkey {pubkey} to mux {}", runtime_config.id);
+            info!("discovered new pubkey {pubkey} from a registry");
         }
         {
             // Since config isn't an RwLock, the option with the least amount of code churn
