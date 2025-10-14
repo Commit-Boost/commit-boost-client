@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use cb_common::{
-    pbs::{BuilderApiVersion, PayloadAndBlobsElectra, SubmitBlindedBlockResponse},
+    pbs::{BuilderApiVersion, GetPayloadInfo, PayloadAndBlobs, SubmitBlindedBlockResponse},
     signer::random_secret,
     types::Chain,
     utils::{EncodingType, ForkName},
@@ -13,8 +13,8 @@ use cb_tests::{
     utils::{generate_mock_relay, get_pbs_static_config, setup_test_env, to_pbs_config},
 };
 use eyre::Result;
+use lh_types::beacon_response::ForkVersionDecode;
 use reqwest::{Response, StatusCode};
-use ssz::Decode;
 use tracing::info;
 
 #[tokio::test]
@@ -25,7 +25,10 @@ async fn test_submit_block_v1() -> Result<()> {
     let signed_blinded_block = load_test_signed_blinded_block();
 
     let response_body = serde_json::from_slice::<SubmitBlindedBlockResponse>(&res.bytes().await?)?;
-    assert_eq!(response_body.block_hash(), signed_blinded_block.block_hash());
+    assert_eq!(
+        response_body.data.execution_payload.block_hash(),
+        signed_blinded_block.block_hash().into()
+    );
     Ok(())
 }
 
@@ -44,8 +47,12 @@ async fn test_submit_block_v1_ssz() -> Result<()> {
 
     let signed_blinded_block = load_test_signed_blinded_block();
 
-    let response_body = PayloadAndBlobsElectra::from_ssz_bytes(&res.bytes().await?).unwrap();
-    assert_eq!(response_body.block_hash(), signed_blinded_block.block_hash());
+    let response_body =
+        PayloadAndBlobs::from_ssz_bytes_by_fork(&res.bytes().await?, ForkName::Electra).unwrap();
+    assert_eq!(
+        response_body.execution_payload.block_hash(),
+        signed_blinded_block.block_hash().into()
+    );
     Ok(())
 }
 

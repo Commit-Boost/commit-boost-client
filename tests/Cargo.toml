@@ -12,6 +12,7 @@ cb-pbs.workspace = true
 cb-signer.workspace = true
 ethereum_ssz.workspace = true
 eyre.workspace = true
+lh_types.workspace = true
 reqwest.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true

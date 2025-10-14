@@ -5,7 +5,7 @@ use axum::{
     response::IntoResponse,
 };
 use cb_common::{
-    pbs::{BuilderApiVersion, SignedBlindedBeaconBlock, VersionedResponse},
+    pbs::{BuilderApiVersion, GetPayloadInfo},
     utils::{
         CONSENSUS_VERSION_HEADER, EncodingType, RawRequest, deserialize_body, get_accept_type,
         get_user_agent, timestamp_of_slot_start_millis, utcnow_ms,
@@ -46,13 +46,11 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
     api_version: BuilderApiVersion,
 ) -> Result<impl IntoResponse, PbsClientError> {
     let signed_blinded_block =
-        deserialize_body::<SignedBlindedBeaconBlock>(&req_headers, raw_request.body_bytes)
-            .await
-            .map_err(|e| {
-                error!(%e, "failed to deserialize signed blinded block");
-                PbsClientError::DecodeError(format!("failed to deserialize body: {e}"))
-            })?;
-    tracing::Span::current().record("slot", signed_blinded_block.slot());
+        deserialize_body(&req_headers, raw_request.body_bytes).await.map_err(|e| {
+            error!(%e, "failed to deserialize signed blinded block");
+            PbsClientError::DecodeError(format!("failed to deserialize body: {e}"))
+        })?;
+    tracing::Span::current().record("slot", signed_blinded_block.slot().as_u64() as i64);
     tracing::Span::current()
         .record("block_hash", tracing::field::debug(signed_blinded_block.block_hash()));
     tracing::Span::current().record("block_number", signed_blinded_block.block_number());
@@ -64,7 +62,7 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
     let now = utcnow_ms();
     let slot = signed_blinded_block.slot();
     let block_hash = signed_blinded_block.block_hash();
-    let slot_start_ms = timestamp_of_slot_start_millis(slot, state.config.chain);
+    let slot_start_ms = timestamp_of_slot_start_millis(slot.into(), state.config.chain);
     let ua = get_user_agent(&req_headers);
     let response_type = get_accept_type(&req_headers).map_err(|e| {
         error!(%e, "error parsing accept header");
@@ -92,13 +90,9 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
                         Json(payload_and_blobs).into_response()
                     }
                     EncodingType::Ssz => {
-                        let mut response = match &payload_and_blobs {
-                            VersionedResponse::Electra(payload_and_blobs) => {
-                                payload_and_blobs.as_ssz_bytes().into_response()
-                            }
-                        };
+                        let mut response = payload_and_blobs.data.as_ssz_bytes().into_response();
                         let Ok(consensus_version_header) =
-                            HeaderValue::from_str(payload_and_blobs.version())
+                            HeaderValue::from_str(&payload_and_blobs.version.to_string())
                         else {
                             info!("sending response as JSON");
                             return Ok((

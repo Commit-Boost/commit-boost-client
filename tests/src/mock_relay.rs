@@ -16,20 +16,21 @@ use axum::{
 };
 use cb_common::{
     pbs::{
-        BUILDER_V1_API_PATH, BUILDER_V2_API_PATH, BlindedBeaconBlock,
-        ExecutionPayloadHeaderMessageElectra, ExecutionRequests, GET_HEADER_PATH, GET_STATUS_PATH,
-        GetHeaderParams, GetHeaderResponse, KzgProof, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
-        SignedBlindedBeaconBlock, SignedExecutionPayloadHeader, SubmitBlindedBlockResponse,
-        VersionedResponse,
+        BUILDER_V1_API_PATH, BUILDER_V2_API_PATH, BlobsBundle, BuilderBid, BuilderBidElectra,
+        ExecutionPayloadElectra, ExecutionPayloadHeaderElectra, ExecutionRequests, ForkName,
+        GET_HEADER_PATH, GET_STATUS_PATH, GetHeaderParams, GetHeaderResponse, GetPayloadInfo,
+        PayloadAndBlobs, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH, SignedBuilderBid,
+        SubmitBlindedBlockResponse,
     },
     signature::sign_builder_root,
     types::{BlsSecretKey, Chain},
     utils::{
-        CONSENSUS_VERSION_HEADER, EncodingType, ForkName, RawRequest, deserialize_body,
+        CONSENSUS_VERSION_HEADER, EncodingType, RawRequest, TestRandomSeed, deserialize_body,
         get_accept_type, get_consensus_version_header, timestamp_of_slot_start_sec,
     },
 };
 use cb_pbs::MAX_SIZE_SUBMIT_BLOCK_RESPONSE;
+use lh_types::KzgProof;
 use reqwest::header::CONTENT_TYPE;
 use ssz::Encode;
 use tokio::net::TcpListener;
@@ -129,25 +130,33 @@ async fn handle_get_header(
     let data = match consensus_version_header {
         // Add Fusaka and other forks here when necessary
         ForkName::Electra => {
-            let mut message = ExecutionPayloadHeaderMessageElectra {
-                header: Default::default(),
+            let mut header = ExecutionPayloadHeaderElectra {
+                parent_hash: parent_hash.into(),
+                block_hash: Default::default(),
+                timestamp: timestamp_of_slot_start_sec(0, state.chain),
+                ..ExecutionPayloadHeaderElectra::test_random()
+            };
+
+            header.block_hash.0[0] = 1;
+
+            let message = BuilderBid::Electra(BuilderBidElectra {
+                header,
                 blob_kzg_commitments: Default::default(),
                 execution_requests: ExecutionRequests::default(),
-                value: Default::default(),
-                pubkey: state.signer.public_key(),
-            };
-            message.header.parent_hash = parent_hash;
-            message.header.block_hash.0[0] = 1;
-            message.value = U256::from(10);
-            message.pubkey = state.signer.public_key();
-            message.header.timestamp = timestamp_of_slot_start_sec(0, state.chain);
+                value: U256::from(10),
+                pubkey: state.signer.public_key().into(),
+            });
 
             let object_root = message.tree_hash_root();
             let signature = sign_builder_root(state.chain, &state.signer, object_root);
-            let response = SignedExecutionPayloadHeader { message, signature };
+            let response = SignedBuilderBid { message, signature };
             match accept_header {
                 EncodingType::Json => {
-                    let versioned_response = GetHeaderResponse::Electra(response);
+                    let versioned_response = GetHeaderResponse {
+                        version: ForkName::Electra,
+                        data: response,
+                        metadata: Default::default(),
+                    };
                     serde_json::to_vec(&versioned_response).unwrap()
                 }
                 EncodingType::Ssz => response.as_ssz_bytes(),
@@ -209,30 +218,35 @@ async fn handle_submit_block_v1(
     let data = if state.large_body() {
         vec![1u8; 1 + MAX_SIZE_SUBMIT_BLOCK_RESPONSE]
     } else {
-        let VersionedResponse::Electra(mut response) = SubmitBlindedBlockResponse::default();
-        let submit_block =
-            deserialize_body::<SignedBlindedBeaconBlock>(&headers, raw_request.body_bytes)
-                .await
-                .map_err(|e| {
-                    error!(%e, "failed to deserialize signed blinded block");
-                    (StatusCode::BAD_REQUEST, format!("failed to deserialize body: {e}"))
-                });
+        let mut execution_payload = ExecutionPayloadElectra::test_random();
+        let submit_block = deserialize_body(&headers, raw_request.body_bytes).await.map_err(|e| {
+            error!(%e, "failed to deserialize signed blinded block");
+            (StatusCode::BAD_REQUEST, format!("failed to deserialize body: {e}"))
+        });
         if let Err(e) = submit_block {
             return e.into_response();
         }
         let submit_block = submit_block.unwrap();
-        response.execution_payload.block_hash = submit_block.block_hash();
+        execution_payload.block_hash = submit_block.block_hash().into();
 
-        let BlindedBeaconBlock::Electra(body) = submit_block.message;
+        let mut blobs_bundle = BlobsBundle::default();
 
-        response.blobs_bundle.blobs.push(Default::default()).unwrap();
-        response.blobs_bundle.commitments = body.body.blob_kzg_commitments;
-        response.blobs_bundle.proofs.push(KzgProof([0; 48])).unwrap();
+        blobs_bundle.blobs.push(Default::default()).unwrap();
+        blobs_bundle.commitments =
+            submit_block.as_electra().unwrap().message.body.blob_kzg_commitments.clone();
+        blobs_bundle.proofs.push(KzgProof([0; 48])).unwrap();
+
+        let response =
+            PayloadAndBlobs { execution_payload: execution_payload.into(), blobs_bundle };
 
         match accept_header {
             EncodingType::Json => {
                 // Response is versioned for JSON
-                let response = VersionedResponse::Electra(response);
+                let response = SubmitBlindedBlockResponse {
+                    version: ForkName::Electra,
+                    metadata: Default::default(),
+                    data: response,
+                };
                 serde_json::to_vec(&response).unwrap()
             }
             EncodingType::Ssz => match consensus_version_header {

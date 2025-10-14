@@ -281,13 +281,12 @@ async fn fetch_lido_registry_keys(
     let http = Http::with_client(client, rpc_url);
     let is_local = http.guess_local();
     let rpc_client = RpcClient::new(http, is_local);
-    let provider = ProviderBuilder::new().on_client(rpc_client);
+    let provider = ProviderBuilder::new().connect_client(rpc_client);
 
     let registry_address = lido_registry_address(chain)?;
     let registry = LidoRegistry::new(registry_address, provider);
 
-    let total_keys =
-        registry.getTotalSigningKeyCount(node_operator_id).call().await?._0.try_into()?;
+    let total_keys = registry.getTotalSigningKeyCount(node_operator_id).call().await?.try_into()?;
 
     if total_keys == 0 {
         return Ok(Vec::new());
@@ -449,7 +448,7 @@ mod tests {
     #[tokio::test]
     async fn test_lido_registry_address() -> eyre::Result<()> {
         let url = Url::parse("https://ethereum-rpc.publicnode.com")?;
-        let provider = ProviderBuilder::new().on_http(url);
+        let provider = ProviderBuilder::new().connect_http(url);
 
         let registry =
             LidoRegistry::new(address!("55032650b14df07b85bF18A3a3eC8E0Af2e028d5"), provider);
@@ -458,7 +457,7 @@ mod tests {
         let node_operator_id = U256::from(1);
 
         let total_keys: u64 =
-            registry.getTotalSigningKeyCount(node_operator_id).call().await?._0.try_into()?;
+            registry.getTotalSigningKeyCount(node_operator_id).call().await?.try_into()?;
 
         assert!(total_keys > LIMIT as u64);
 

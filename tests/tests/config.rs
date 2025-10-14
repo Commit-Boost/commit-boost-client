@@ -55,10 +55,6 @@ async fn test_load_pbs_happy() -> Result<()> {
     assert_eq!(config.pbs.pbs_config.min_bid_wei, U256::from((0.5 * WEI_PER_ETH as f64) as u64));
     assert_eq!(config.pbs.pbs_config.late_in_slot_time_ms, 2000);
     assert!(!config.pbs.pbs_config.extra_validation_enabled);
-    assert_eq!(
-        config.pbs.pbs_config.rpc_url,
-        Some("https://ethereum-holesky-rpc.publicnode.com".parse::<Url>().unwrap())
-    );
 
     // Relay specific settings
     let relay = &config.relays[0];

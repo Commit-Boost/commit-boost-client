@@ -17,7 +17,10 @@ use bytes::Bytes;
 use futures::StreamExt;
 use headers_accept::Accept;
 pub use lh_types::ForkName;
-use lh_types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+use lh_types::{
+    BeaconBlock,
+    test_utils::{SeedableRng, TestRandom, XorShiftRng},
+};
 use rand::{Rng, distr::Alphanumeric};
 use reqwest::{
     Response,
@@ -38,7 +41,7 @@ use tracing_subscriber::{
 use crate::{
     config::LogsSettings,
     constants::SIGNER_JWT_EXPIRATION,
-    pbs::HEADER_VERSION_VALUE,
+    pbs::{HEADER_VERSION_VALUE, SignedBlindedBeaconBlock},
     types::{BlsPublicKey, Chain, Jwt, JwtClaims, ModuleId},
 };
 
@@ -519,6 +522,7 @@ pub enum BodyDeserializeError {
     SerdeJsonError(serde_json::Error),
     SszDecodeError(ssz::DecodeError),
     UnsupportedMediaType,
+    MissingVersionHeader,
 }
 
 impl Display for BodyDeserializeError {
@@ -529,24 +533,32 @@ impl Display for BodyDeserializeError {
                 write!(f, "SSZ deserialization error: {e:?}")
             }
             BodyDeserializeError::UnsupportedMediaType => write!(f, "unsupported media type"),
+            BodyDeserializeError::MissingVersionHeader => {
+                write!(f, "missing consensus version header")
+            }
         }
     }
 }
 
-pub async fn deserialize_body<T>(
+pub async fn deserialize_body(
     headers: &HeaderMap,
     body: Bytes,
-) -> Result<T, BodyDeserializeError>
-where
-    T: serde::de::DeserializeOwned + ssz::Decode + 'static,
-{
+) -> Result<SignedBlindedBeaconBlock, BodyDeserializeError> {
     if headers.contains_key(CONTENT_TYPE) {
         return match get_content_type(headers) {
-            EncodingType::Json => {
-                serde_json::from_slice::<T>(&body).map_err(BodyDeserializeError::SerdeJsonError)
-            }
+            EncodingType::Json => serde_json::from_slice::<SignedBlindedBeaconBlock>(&body)
+                .map_err(BodyDeserializeError::SerdeJsonError),
             EncodingType::Ssz => {
-                T::from_ssz_bytes(&body).map_err(BodyDeserializeError::SszDecodeError)
+                // Get the version header
+                match get_consensus_version_header(headers) {
+                    Some(version) => {
+                        SignedBlindedBeaconBlock::from_ssz_bytes_with(&body, |bytes| {
+                            BeaconBlock::from_ssz_bytes_for_fork(bytes, version)
+                        })
+                        .map_err(BodyDeserializeError::SszDecodeError)
+                    }
+                    None => Err(BodyDeserializeError::MissingVersionHeader),
+                }
             }
         };
     }
@@ -598,7 +610,7 @@ pub trait TestRandomSeed: TestRandom {
     where
         Self: Sized,
     {
-        let mut rng = XorShiftRng::from_entropy();
+        let mut rng = XorShiftRng::from_os_rng();
         Self::random_for_test(&mut rng)
     }
 }

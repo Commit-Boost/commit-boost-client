@@ -36,6 +36,7 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct RelayConfig {
     /// Relay ID, if missing will default to the URL hostname from the entry
     pub id: Option<String>,
@@ -128,6 +129,10 @@ pub struct PbsConfig {
     /// Maximum number of retries for validator registration request per relay
     #[serde(default = "default_u32::<REGISTER_VALIDATOR_RETRY_LIMIT>")]
     pub register_validator_retry_limit: u32,
+    /// Maximum number of validators to send to relays in a single registration
+    /// request
+    #[serde(deserialize_with = "empty_string_as_none", default)]
+    pub validator_registration_batch_size: Option<usize>,
 }
 
 impl PbsConfig {
@@ -166,7 +171,7 @@ impl PbsConfig {
         if let Some(rpc_url) = &self.rpc_url {
             // TODO: remove this once we support chain ids for custom chains
             if !matches!(chain, Chain::Custom { .. }) {
-                let provider = ProviderBuilder::new().on_http(rpc_url.clone());
+                let provider = ProviderBuilder::new().connect_http(rpc_url.clone());
                 let chain_id = provider.get_chain_id().await?;
                 ensure!(
                     chain_id == chain.id(),
