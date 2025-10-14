@@ -1,4 +1,8 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 
 use cb_common::{
     config::{MuxKeysLoader, PbsModuleConfig},
@@ -82,6 +86,7 @@ impl PbsService {
     async fn refresh_registry_muxes<S: BuilderApiState>(state: PbsStateGuard<S>) {
         // Read-only portion
         let mut new_pubkeys = HashMap::new();
+        let mut removed_pubkeys = HashSet::new();
         {
             let state = state.read().await;
             let config = &state.config;
@@ -121,9 +126,26 @@ impl PbsService {
                         );
 
                         // Add any new pubkeys to the new lookup table
+                        let mut pubkey_set = HashSet::new();
                         for pubkey in pubkeys {
-                            if mux_lookup.get(&pubkey).is_none() {
-                                new_pubkeys.insert(pubkey, runtime_config.clone());
+                            pubkey_set.insert(pubkey.clone());
+                            match mux_lookup.get(&pubkey) {
+                                Some(_) => {
+                                    // Pubkey already existed
+                                }
+                                None => {
+                                    // New pubkey
+                                    new_pubkeys.insert(pubkey.clone(), runtime_config.clone());
+                                }
+                            }
+                        }
+
+                        // Find any pubkeys that were removed
+                        for (pubkey, existing_runtime) in mux_lookup.iter() {
+                            if existing_runtime.id == runtime_config.id &&
+                                !pubkey_set.contains(pubkey)
+                            {
+                                removed_pubkeys.insert(pubkey.clone());
                             }
                         }
                     }
@@ -134,14 +156,26 @@ impl PbsService {
             }
         }
 
-        // Write portion
-        if new_pubkeys.is_empty() {
-            return;
+        // Report changes
+        let mut no_new_changes = true;
+        if !new_pubkeys.is_empty() {
+            no_new_changes = false;
+            info!("discovered {} new pubkeys from registries", new_pubkeys.len());
+            for (pubkey, runtime_config) in new_pubkeys.iter() {
+                debug!("adding new pubkey {pubkey} to mux {}", runtime_config.id);
+            }
         }
-        // Log the new pubkeys
-        for (pubkey, runtime_config) in new_pubkeys.iter() {
-            debug!("adding new pubkey {pubkey} to mux {}", runtime_config.id);
-            info!("discovered new pubkey {pubkey} from a registry");
+        if !removed_pubkeys.is_empty() {
+            no_new_changes = false;
+            info!("registries have removed {} old pubkeys", removed_pubkeys.len());
+            for pubkey in removed_pubkeys.iter() {
+                debug!("removing old pubkey {pubkey} from mux lookup");
+            }
+        }
+
+        // Write portion
+        if no_new_changes {
+            return;
         }
         {
             // Since config isn't an RwLock, the option with the least amount of code churn
@@ -150,12 +184,17 @@ impl PbsService {
             // operation.
             let mut state = state.write().await;
             let config = state.config.as_ref();
-            let new_mux_lookup = match &config.mux_lookup {
-                Some(existing) => {
-                    new_pubkeys.extend(existing.iter().map(|(k, v)| (k.clone(), v.clone())));
-                    new_pubkeys
+            let new_mux_lookup = if let Some(existing) = &config.mux_lookup {
+                let mut map = HashMap::new();
+                for (k, v) in existing.iter() {
+                    if !removed_pubkeys.contains(k) {
+                        map.insert(k.clone(), v.clone());
+                    }
                 }
-                None => new_pubkeys,
+                map.extend(new_pubkeys);
+                map
+            } else {
+                new_pubkeys
             };
             state.config =
                 Arc::new(PbsModuleConfig { mux_lookup: Some(new_mux_lookup), ..config.clone() });

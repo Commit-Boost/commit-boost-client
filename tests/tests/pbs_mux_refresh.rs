@@ -141,11 +141,32 @@ async fn test_auto_refresh() -> Result<()> {
     assert_eq!(default_relay_state.received_get_header(), 1); // default relay was not used here
     assert_eq!(mux_relay_state.received_get_header(), 1); // mux relay was used
 
-    // Finally try to do a get_header with the old pubkey - it should only use the
+    // Now try to do a get_header with the old pubkey - it should only use the
     // default relay
     let res = mock_validator.do_get_header(Some(default_pubkey.clone())).await?;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(default_relay_state.received_get_header(), 2); // default relay was used
+    assert_eq!(mux_relay_state.received_get_header(), 1); // mux relay was not used
+
+    // Finally, remove the original mux pubkey from the SSV server
+    assert!(!logs_contain(&format!("removing old pubkey {existing_mux_pubkey} from mux lookup")));
+    {
+        let mut validators = mock_ssv_state.validators.write().await;
+        validators.retain(|v| v.pubkey != existing_mux_pubkey);
+        info!("Removed existing validator {existing_mux_pubkey} from the SSV mock server");
+    }
+
+    // Wait for the next refresh to complete
+    tokio::time::sleep(wait_for_refresh_time).await;
+
+    // Check the logs to ensure the existing pubkey was removed
+    assert!(logs_contain(&format!("removing old pubkey {existing_mux_pubkey} from mux lookup")));
+
+    // Try to do a get_header with the removed pubkey - it should only use the
+    // default relay
+    let res = mock_validator.do_get_header(Some(existing_mux_pubkey.clone())).await?;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(default_relay_state.received_get_header(), 3); // default relay was used
     assert_eq!(mux_relay_state.received_get_header(), 1); // mux relay was not used
 
     // Shut down the server handles
