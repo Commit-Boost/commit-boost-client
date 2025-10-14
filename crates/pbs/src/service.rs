@@ -31,7 +31,7 @@ impl PbsService {
         let registry_refresh_time = state.config.pbs_config.mux_registry_refresh_interval_seconds;
         let mut is_refreshing_required = false;
         if state.config.pbs_config.mux_registry_refresh_interval_seconds == 0 {
-            info!("registry mux refreshing interval is 0; refreshing is disabled");
+            bail!("registry mux refreshing interval must be greater than 0");
         } else if let Some(muxes) = &state.config.registry_muxes {
             is_refreshing_required = muxes.iter().any(|(loader, _)| {
                 matches!(loader, MuxKeysLoader::Registry { enable_refreshing: true, .. })
