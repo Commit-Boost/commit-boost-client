@@ -211,7 +211,7 @@ impl MuxKeysLoader {
         &self,
         mux_id: &str,
         chain: Chain,
-        ssv_api_url: Option<Url>,
+        ssv_api_url: Url,
         rpc_url: Option<Url>,
         http_timeout: Duration,
     ) -> eyre::Result<Vec<BlsPublicKey>> {
@@ -254,10 +254,6 @@ impl MuxKeysLoader {
                     .await
                 }
                 NORegistry::SSV => {
-                    let Some(ssv_api_url) = ssv_api_url else {
-                        bail!("SSV registry requires SSV API URL to be set in the PBS config");
-                    };
-
                     fetch_ssv_pubkeys(
                         ssv_api_url,
                         chain,

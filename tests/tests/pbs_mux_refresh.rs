@@ -86,7 +86,7 @@ async fn test_auto_refresh() -> Result<()> {
 
     // Set up the PBS config
     let mut pbs_config = get_pbs_static_config(pbs_port);
-    pbs_config.ssv_api_url = Some(ssv_api_url.clone());
+    pbs_config.ssv_api_url = ssv_api_url.clone();
     pbs_config.mux_registry_refresh_interval_seconds = 1; // Refresh the mux every second
     let (mux_lookup, registry_muxes) = muxes.validate_and_fill(chain, &pbs_config).await?;
     let relays = vec![default_relay.clone()]; // Default relay only

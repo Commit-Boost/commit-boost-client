@@ -17,6 +17,7 @@ use cb_common::{
     utils::{bls_pubkey_from_hex, default_host},
 };
 use eyre::Result;
+use url::Url;
 
 pub fn get_local_address(port: u16) -> String {
     format!("http://0.0.0.0:{port}")
@@ -78,7 +79,7 @@ pub fn get_pbs_static_config(port: u16) -> PbsConfig {
         min_bid_wei: U256::ZERO,
         late_in_slot_time_ms: u64::MAX,
         extra_validation_enabled: false,
-        ssv_api_url: None,
+        ssv_api_url: Url::parse("https://example.net").unwrap(),
         rpc_url: None,
         http_timeout_seconds: 10,
         register_validator_retry_limit: u32::MAX,
