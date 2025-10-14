@@ -191,6 +191,11 @@ impl PbsConfig {
             }
         }
 
+        ensure!(
+            self.mux_registry_refresh_interval_seconds > 0,
+            "registry mux refreshing interval must be greater than 0"
+        );
+
         Ok(())
     }
 }
