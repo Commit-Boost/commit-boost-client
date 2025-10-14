@@ -69,7 +69,10 @@ register_validator_retry_limit = 3
 validator_registration_batch_size = ""
 # For any Registry-based Mux configurations that have dynamic pubkey
 # refreshing enabled, this is how often to refresh the list of pubkeys
-# from the registry, in seconds
+# from the registry, in seconds. Enabling registry refreshing is done per-mux
+# with the mux's `enable_refreshing` property. If none of the muxes have it
+# enabled, this value will not be used.
+# OPTIONAL, DEFAULT: 384
 mux_registry_refresh_interval_seconds = 384
 
 # The PBS module needs one or more [[relays]] as defined below.
