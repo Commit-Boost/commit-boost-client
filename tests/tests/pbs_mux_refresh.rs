@@ -132,7 +132,6 @@ async fn test_auto_refresh() -> Result<()> {
     tokio::time::sleep(wait_for_refresh_time).await;
 
     // Check the logs to ensure the new pubkey was added
-    assert!(logs_contain(&format!("adding new pubkey {new_mux_pubkey} to mux {mux_relay_id}")));
     assert!(logs_contain(&format!("fetched 2 pubkeys for registry mux {mux_relay_id}")));
 
     // Try to run a get_header on the new pubkey - now it should use the mux relay
@@ -149,7 +148,6 @@ async fn test_auto_refresh() -> Result<()> {
     assert_eq!(mux_relay_state.received_get_header(), 1); // mux relay was not used
 
     // Finally, remove the original mux pubkey from the SSV server
-    assert!(!logs_contain(&format!("removing old pubkey {existing_mux_pubkey} from mux lookup")));
     {
         let mut validators = mock_ssv_state.validators.write().await;
         validators.retain(|v| v.pubkey != existing_mux_pubkey);
@@ -158,9 +156,6 @@ async fn test_auto_refresh() -> Result<()> {
 
     // Wait for the next refresh to complete
     tokio::time::sleep(wait_for_refresh_time).await;
-
-    // Check the logs to ensure the existing pubkey was removed
-    assert!(logs_contain(&format!("removing old pubkey {existing_mux_pubkey} from mux lookup")));
 
     // Try to do a get_header with the removed pubkey - it should only use the
     // default relay

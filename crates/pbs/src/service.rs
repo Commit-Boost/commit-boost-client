@@ -153,16 +153,10 @@ impl PbsService {
         if !new_pubkeys.is_empty() {
             no_new_changes = false;
             info!("discovered {} new pubkeys from registries", new_pubkeys.len());
-            for (pubkey, runtime_config) in new_pubkeys.iter() {
-                debug!("adding new pubkey {pubkey} to mux {}", runtime_config.id);
-            }
         }
         if !removed_pubkeys.is_empty() {
             no_new_changes = false;
             info!("registries have removed {} old pubkeys", removed_pubkeys.len());
-            for pubkey in removed_pubkeys.iter() {
-                debug!("removing old pubkey {pubkey} from mux lookup");
-            }
         }
 
         // Write portion
