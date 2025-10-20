@@ -5,7 +5,7 @@ resolver = "2"
 [workspace.package]
 edition = "2024"
 rust-version = "1.89"
-version = "0.8.1-rc.2"
+version = "0.8.1-rc.4"
 
 [workspace.dependencies]
 aes = "0.8"
@@ -25,8 +25,8 @@ axum-extra = { version = "0.10.0", features = ["typed-header"] }
 axum-server = { version = "0.7.2", features = ["tls-rustls"] }
 base64 = "0.22.1"
 bimap = { version = "0.6.3", features = ["serde"] }
-blst = "^0.3.15"
 blsful = "^2.5"
+blst = "^0.3.15"
 bytes = "1.10.1"
 cb-cli = { path = "crates/cli" }
 cb-common = { path = "crates/common" }
@@ -51,6 +51,7 @@ headers = "0.4.0"
 indexmap = "2.2.6"
 jsonwebtoken = { version = "9.3.1", default-features = false }
 lazy_static = "1.5.0"
+lh_eth2 = { package = "eth2", git = "https://github.com/sigp/lighthouse", tag = "v8.0.0-rc.0" }
 lh_eth2_keystore = { package = "eth2_keystore", git = "https://github.com/sigp/lighthouse", tag = "v8.0.0-rc.0" }
 lh_types = { package = "types", git = "https://github.com/sigp/lighthouse", tag = "v8.0.0-rc.0" }
 parking_lot = "0.12.3"
