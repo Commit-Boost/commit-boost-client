@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use alloy::rpc::types::beacon::relay::ValidatorRegistration;
+use alloy::primitives::Bytes;
 use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
     pbs::{HEADER_START_TIME_UNIX_MS, RelayClient, error::PbsError},
@@ -8,7 +8,7 @@ use cb_common::{
 };
 use eyre::bail;
 use futures::future::{join_all, select_ok};
-use reqwest::header::USER_AGENT;
+use reqwest::header::{CONTENT_TYPE, USER_AGENT};
 use tracing::{Instrument, debug, error};
 use url::Url;
 
@@ -21,7 +21,7 @@ use crate::{
 /// Implements https://ethereum.github.io/builder-specs/#/Builder/registerValidator
 /// Returns 200 if at least one relay returns 200, else 503
 pub async fn register_validator<S: BuilderApiState>(
-    registrations: Vec<ValidatorRegistration>,
+    registrations: Vec<serde_json::Value>,
     req_headers: HeaderMap,
     state: PbsState<S>,
 ) -> eyre::Result<()> {
@@ -31,27 +31,29 @@ pub async fn register_validator<S: BuilderApiState>(
         .insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from_str(&utcnow_ms().to_string())?);
     send_headers.insert(USER_AGENT, get_user_agent_with_version(&req_headers)?);
 
-    let relays = state.all_relays().to_vec();
-    let mut handles = Vec::with_capacity(relays.len());
-    for relay in relays.clone() {
-        if let Some(batch_size) = relay.config.validator_registration_batch_size {
-            for batch in registrations.chunks(batch_size) {
-                handles.push(tokio::spawn(
-                    send_register_validator_with_timeout(
-                        batch.to_vec(),
-                        relay.clone(),
-                        send_headers.clone(),
-                        state.pbs_config().timeout_register_validator_ms,
-                        state.pbs_config().register_validator_retry_limit,
-                    )
-                    .in_current_span(),
-                ));
-            }
+    // prepare the body in advance, ugly dyn
+    let bodies: Box<dyn Iterator<Item = (usize, Bytes)>> =
+        if let Some(batch_size) = state.config.pbs_config.validator_registration_batch_size {
+            Box::new(registrations.chunks(batch_size).map(|batch| {
+                // SAFETY: unwrap is ok because we're serializing a &[serde_json::Value]
+                let body = serde_json::to_vec(batch).unwrap();
+                (batch.len(), Bytes::from(body))
+            }))
         } else {
+            let body = serde_json::to_vec(&registrations).unwrap();
+            Box::new(std::iter::once((registrations.len(), Bytes::from(body))))
+        };
+    send_headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+    let mut handles = Vec::with_capacity(state.all_relays().len());
+
+    for (n_regs, body) in bodies {
+        for relay in state.all_relays().iter().cloned() {
             handles.push(tokio::spawn(
                 send_register_validator_with_timeout(
-                    registrations.clone(),
-                    relay.clone(),
+                    n_regs,
+                    body.clone(),
+                    relay,
                     send_headers.clone(),
                     state.pbs_config().timeout_register_validator_ms,
                     state.pbs_config().register_validator_retry_limit,
@@ -82,7 +84,8 @@ pub async fn register_validator<S: BuilderApiState>(
 /// Register validator to relay, retry connection errors until the
 /// given timeout has passed
 async fn send_register_validator_with_timeout(
-    registrations: Vec<ValidatorRegistration>,
+    n_regs: usize,
+    body: Bytes,
     relay: RelayClient,
     headers: HeaderMap,
     timeout_ms: u64,
@@ -97,7 +100,8 @@ async fn send_register_validator_with_timeout(
         let start_request = Instant::now();
         match send_register_validator(
             url.clone(),
-            &registrations,
+            n_regs,
+            body.clone(),
             &relay,
             headers.clone(),
             remaining_timeout_ms,
@@ -134,7 +138,8 @@ async fn send_register_validator_with_timeout(
 
 async fn send_register_validator(
     url: Url,
-    registrations: &[ValidatorRegistration],
+    n_regs: usize,
+    body: Bytes,
     relay: &RelayClient,
     headers: HeaderMap,
     timeout_ms: u64,
@@ -146,7 +151,7 @@ async fn send_register_validator(
         .post(url)
         .timeout(Duration::from_millis(timeout_ms))
         .headers(headers)
-        .json(&registrations)
+        .body(body.0)
         .send()
         .await
     {
@@ -189,7 +194,7 @@ async fn send_register_validator(
         retry,
         ?code,
         latency = ?request_latency,
-        num_registrations = registrations.len(),
+        num_registrations = n_regs,
         "registration successful"
     );
 

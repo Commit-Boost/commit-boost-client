@@ -1,6 +1,6 @@
 use axum::{Json, extract::State, http::HeaderMap, response::IntoResponse};
 use cb_common::{
-    pbs::{BuilderApiVersion, SignedBlindedBeaconBlock},
+    pbs::{BuilderApiVersion, GetPayloadInfo, SignedBlindedBeaconBlock},
     utils::{get_user_agent, timestamp_of_slot_start_millis, utcnow_ms},
 };
 use reqwest::StatusCode;
@@ -48,7 +48,7 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
     Json(signed_blinded_block): Json<SignedBlindedBeaconBlock>,
     api_version: BuilderApiVersion,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    tracing::Span::current().record("slot", signed_blinded_block.slot());
+    tracing::Span::current().record("slot", signed_blinded_block.slot().as_u64() as i64);
     tracing::Span::current()
         .record("block_hash", tracing::field::debug(signed_blinded_block.block_hash()));
     tracing::Span::current().record("block_number", signed_blinded_block.block_number());
@@ -60,7 +60,7 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
     let now = utcnow_ms();
     let slot = signed_blinded_block.slot();
     let block_hash = signed_blinded_block.block_hash();
-    let slot_start_ms = timestamp_of_slot_start_millis(slot, state.config.chain);
+    let slot_start_ms = timestamp_of_slot_start_millis(slot.into(), state.config.chain);
     let ua = get_user_agent(&req_headers);
 
     info!(ua, ms_into_slot = now.saturating_sub(slot_start_ms), "new request");

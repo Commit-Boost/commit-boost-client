@@ -407,6 +407,7 @@ mod tests {
                     rpc_url: None,
                     http_timeout_seconds: 30,
                     register_validator_retry_limit: 3,
+                    validator_registration_batch_size: None,
                 },
                 with_signer: true,
             },

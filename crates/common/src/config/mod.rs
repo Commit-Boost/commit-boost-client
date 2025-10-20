@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use eyre::Result;
+use eyre::{Result, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::types::{Chain, ChainLoader, ForkVersion, load_chain_from_file};
@@ -45,6 +45,13 @@ impl CommitBoostConfig {
         if let Some(signer) = &self.signer {
             signer.validate().await?;
         }
+
+        if self.relays.iter().any(|r| r.validator_registration_batch_size.is_some()) {
+            bail!(
+                "validator_registration_batch_size is now obsolete on a per-relay basis. Please use validator_registration_batch_size in the [pbs] section instead"
+            )
+        }
+
         Ok(())
     }
 
@@ -61,18 +68,33 @@ impl CommitBoostConfig {
         let chain = match helper_config.chain {
             ChainLoader::Path { path, genesis_time_secs } => {
                 // check if the file path is overridden by env var
-                let (slot_time_secs, genesis_fork_version) =
+                let (slot_time_secs, genesis_fork_version, fulu_fork_slot) =
                     if let Some(path) = load_optional_env_var(CHAIN_SPEC_ENV) {
                         load_chain_from_file(path.parse()?)?
                     } else {
                         load_chain_from_file(path)?
                     };
-                Chain::Custom { genesis_time_secs, slot_time_secs, genesis_fork_version }
+                Chain::Custom {
+                    genesis_time_secs,
+                    slot_time_secs,
+                    genesis_fork_version,
+                    fulu_fork_slot,
+                }
             }
             ChainLoader::Known(known) => Chain::from(known),
-            ChainLoader::Custom { genesis_time_secs, slot_time_secs, genesis_fork_version } => {
+            ChainLoader::Custom {
+                genesis_time_secs,
+                slot_time_secs,
+                genesis_fork_version,
+                fulu_fork_slot,
+            } => {
                 let genesis_fork_version: ForkVersion = genesis_fork_version.as_ref().try_into()?;
-                Chain::Custom { genesis_time_secs, slot_time_secs, genesis_fork_version }
+                Chain::Custom {
+                    genesis_time_secs,
+                    slot_time_secs,
+                    genesis_fork_version,
+                    fulu_fork_slot,
+                }
             }
         };
 
