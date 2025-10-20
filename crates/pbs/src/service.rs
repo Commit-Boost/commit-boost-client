@@ -126,14 +126,10 @@ impl PbsService {
                         let mut pubkey_set = HashSet::new();
                         for pubkey in pubkeys {
                             pubkey_set.insert(pubkey.clone());
-                            match mux_lookup.get(&pubkey) {
-                                Some(_) => {
-                                    // Pubkey already existed
-                                }
-                                None => {
-                                    // New pubkey
-                                    new_pubkeys.insert(pubkey.clone(), runtime_config.clone());
-                                }
+                            if mux_lookup.get(&pubkey).is_none() {
+                                // New pubkey
+                                new_pubkeys.insert(pubkey.clone(), runtime_config.clone());
+                            }
                             }
                         }
 
