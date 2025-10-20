@@ -16,7 +16,7 @@ pub async fn handle_register_validator<S: BuilderApiState, A: BuilderApi<S>>(
     req_headers: HeaderMap,
     Json(registrations): Json<Vec<serde_json::Value>>,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    let state = state.read().await.clone();
+    let state = state.read().clone();
 
     trace!(?registrations);
 
@@ -24,7 +24,7 @@ pub async fn handle_register_validator<S: BuilderApiState, A: BuilderApi<S>>(
 
     info!(ua, num_registrations = registrations.len(), "new request");
 
-    if let Err(err) = A::register_validator(registrations, req_headers, state.clone()).await {
+    if let Err(err) = A::register_validator(registrations, req_headers, state).await {
         error!(%err, "all relays failed registration");
 
         let err = PbsClientError::NoResponse;

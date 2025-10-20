@@ -55,7 +55,7 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
     tracing::Span::current()
         .record("parent_hash", tracing::field::debug(signed_blinded_block.parent_hash()));
 
-    let state = state.read().await.clone();
+    let state = state.read().clone();
 
     let now = utcnow_ms();
     let slot = signed_blinded_block.slot();
@@ -65,7 +65,7 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
 
     info!(ua, ms_into_slot = now.saturating_sub(slot_start_ms), "new request");
 
-    match A::submit_block(signed_blinded_block, req_headers, state.clone(), &api_version).await {
+    match A::submit_block(signed_blinded_block, req_headers, state, &api_version).await {
         Ok(res) => match res {
             Some(block_response) => {
                 trace!(?block_response);

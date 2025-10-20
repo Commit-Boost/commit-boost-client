@@ -14,17 +14,17 @@ pub async fn handle_reload<S: BuilderApiState, A: BuilderApi<S>>(
     req_headers: HeaderMap,
     State(state): State<PbsStateGuard<S>>,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    let prev_state = state.read().await.clone();
+    let prev_state = state.read().clone();
 
     let ua = get_user_agent(&req_headers);
 
     info!(ua, relay_check = prev_state.config.pbs_config.relay_check);
 
-    match A::reload(prev_state.clone()).await {
+    match A::reload(prev_state).await {
         Ok(new_state) => {
             info!("config reload successful");
 
-            *state.write().await = new_state;
+            *state.write() = new_state;
 
             BEACON_NODE_STATUS.with_label_values(&["200", RELOAD_ENDPOINT_TAG]).inc();
             Ok((StatusCode::OK, "OK"))

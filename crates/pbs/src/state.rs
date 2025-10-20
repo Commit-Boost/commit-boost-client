@@ -5,7 +5,7 @@ use cb_common::{
     pbs::RelayClient,
     types::BlsPublicKey,
 };
-use tokio::sync::RwLock;
+use parking_lot::RwLock;
 
 pub trait BuilderApiState: Clone + Sync + Send + 'static {}
 impl BuilderApiState for () {}

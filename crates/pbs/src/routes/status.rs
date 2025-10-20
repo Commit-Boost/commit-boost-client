@@ -15,13 +15,13 @@ pub async fn handle_get_status<S: BuilderApiState, A: BuilderApi<S>>(
     req_headers: HeaderMap,
     State(state): State<PbsStateGuard<S>>,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    let state = state.read().await.clone();
+    let state = state.read().clone();
 
     let ua = get_user_agent(&req_headers);
 
     info!(ua, relay_check = state.config.pbs_config.relay_check, "new request");
 
-    match A::get_status(req_headers, state.clone()).await {
+    match A::get_status(req_headers, state).await {
         Ok(_) => {
             info!("relay check successful");
 

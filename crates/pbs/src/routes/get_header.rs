@@ -28,14 +28,14 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
     tracing::Span::current().record("parent_hash", tracing::field::debug(params.parent_hash));
     tracing::Span::current().record("validator", tracing::field::debug(&params.pubkey));
 
-    let state = state.read().await.clone();
+    let state = state.read().clone();
 
     let ua = get_user_agent(&req_headers);
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
 
     info!(ua, ms_into_slot, "new request");
 
-    match A::get_header(params, req_headers, state.clone()).await {
+    match A::get_header(params, req_headers, state).await {
         Ok(res) => {
             if let Some(max_bid) = res {
                 info!(value_eth = format_ether(*max_bid.data.message.value()), block_hash =% max_bid.block_hash(), "received header");

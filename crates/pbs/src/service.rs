@@ -12,8 +12,9 @@ use cb_common::{
 };
 use cb_metrics::provider::MetricsProvider;
 use eyre::{Context, Result, bail};
+use parking_lot::RwLock;
 use prometheus::core::Collector;
-use tokio::{net::TcpListener, sync::RwLock};
+use tokio::net::TcpListener;
 use tracing::{debug, info, warn};
 use url::Url;
 
@@ -61,9 +62,16 @@ impl PbsService {
         // Run the registry refresher task
         if is_refreshing_required {
             let mut interval = tokio::time::interval(Duration::from_secs(registry_refresh_time));
+            let state = state.clone();
             tokio::spawn(async move {
+                let mut is_first_tick = true;
                 loop {
                     interval.tick().await;
+                    if is_first_tick {
+                        // Don't run immediately on the first tick, since it was just initialized
+                        is_first_tick = false;
+                        continue;
+                    }
                     Self::refresh_registry_muxes(state.clone()).await;
                 }
             });
@@ -85,7 +93,7 @@ impl PbsService {
         let mut new_pubkeys = HashMap::new();
         let mut removed_pubkeys = HashSet::new();
         {
-            let state = state.read().await;
+            let state = state.read().clone();
             let config = &state.config;
 
             // Short circuit if there aren't any registry muxes with dynamic refreshing
@@ -168,7 +176,7 @@ impl PbsService {
             // is to just clone the whole config and replace the mux_lookup
             // field. Cloning the config may be expensive, but this should be a fairly rare
             // operation.
-            let mut state = state.write().await;
+            let mut state = state.write();
             let config = state.config.as_ref();
             let new_mux_lookup = if let Some(existing) = &config.mux_lookup {
                 let mut map = HashMap::new();
