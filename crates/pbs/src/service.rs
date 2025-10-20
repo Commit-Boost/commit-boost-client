@@ -33,12 +33,11 @@ impl PbsService {
 
         // Check if refreshing registry muxes is required
         let registry_refresh_time = state.config.pbs_config.mux_registry_refresh_interval_seconds;
-        let mut is_refreshing_required = false;
-        if let Some(muxes) = &state.config.registry_muxes {
-            is_refreshing_required = muxes.iter().any(|(loader, _)| {
+        llet is_refreshing_required = state.config.registry_muxes.as_ref().is_some_and(|muxes| {
+            muxes.iter().any(|(loader, _)| {
                 matches!(loader, MuxKeysLoader::Registry { enable_refreshing: true, .. })
-            });
-        }
+            })
+        });
 
         let state: Arc<RwLock<PbsState<S>>> = RwLock::new(state).into();
         let app = create_app_router::<S, A>(state.clone());
