@@ -33,7 +33,7 @@ impl PbsService {
 
         // Check if refreshing registry muxes is required
         let registry_refresh_time = state.config.pbs_config.mux_registry_refresh_interval_seconds;
-        llet is_refreshing_required = state.config.registry_muxes.as_ref().is_some_and(|muxes| {
+        let is_refreshing_required = state.config.registry_muxes.as_ref().is_some_and(|muxes| {
             muxes.iter().any(|(loader, _)| {
                 matches!(loader, MuxKeysLoader::Registry { enable_refreshing: true, .. })
             })
@@ -129,7 +129,6 @@ impl PbsService {
                             if mux_lookup.get(&pubkey).is_none() {
                                 // New pubkey
                                 new_pubkeys.insert(pubkey.clone(), runtime_config.clone());
-                            }
                             }
                         }
 
