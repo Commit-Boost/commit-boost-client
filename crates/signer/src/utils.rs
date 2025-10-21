@@ -2,7 +2,6 @@ use std::net::{IpAddr, SocketAddr};
 
 use axum::http::HeaderMap;
 use cb_common::config::ReverseProxyHeaderSetup;
-use tracing::info;
 
 #[derive(Debug, thiserror::Error)]
 pub enum IpError {
@@ -23,15 +22,11 @@ pub fn get_true_ip(
     addr: &SocketAddr,
     reverse_proxy: &ReverseProxyHeaderSetup,
 ) -> Result<IpAddr, IpError> {
-    let ip = match reverse_proxy {
+    match reverse_proxy {
         ReverseProxyHeaderSetup::None => Ok(addr.ip()),
         ReverseProxyHeaderSetup::Unique(header) => get_ip_from_unique_header(headers, header),
         ReverseProxyHeaderSetup::Rightmost(header) => get_ip_from_rightmost_value(headers, header),
-    };
-
-    info!("IP: {ip:?}");
-
-    ip
+    }
 }
 
 fn get_ip_from_unique_header(headers: &HeaderMap, header_name: &str) -> Result<IpAddr, IpError> {
