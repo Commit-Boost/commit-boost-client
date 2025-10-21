@@ -35,7 +35,7 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
 
     info!(ua, ms_into_slot, "new request");
 
-    match A::get_header(params, req_headers, state.clone()).await {
+    match A::get_header(params, req_headers, state).await {
         Ok(res) => {
             if let Some(max_bid) = res {
                 info!(value_eth = format_ether(*max_bid.data.message.value()), block_hash =% max_bid.block_hash(), "received header");

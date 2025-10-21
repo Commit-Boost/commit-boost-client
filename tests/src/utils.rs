@@ -16,10 +16,11 @@ use cb_common::{
     pbs::{RelayClient, RelayEntry},
     signer::SignerLoader,
     types::{BlsPublicKey, Chain, ModuleId},
-    utils::default_host,
+    utils::{bls_pubkey_from_hex, default_host},
 };
 use eyre::Result;
 use rcgen::generate_simple_self_signed;
+use url::Url;
 
 pub fn get_local_address(port: u16) -> String {
     format!("http://0.0.0.0:{port}")
@@ -81,10 +82,12 @@ pub fn get_pbs_config(port: u16) -> PbsConfig {
         min_bid_wei: U256::ZERO,
         late_in_slot_time_ms: u64::MAX,
         extra_validation_enabled: false,
+        ssv_api_url: Url::parse("https://example.net").unwrap(),
         rpc_url: None,
         http_timeout_seconds: 10,
         register_validator_retry_limit: u32::MAX,
         validator_registration_batch_size: None,
+        mux_registry_refresh_interval_seconds: 5,
     }
 }
 
@@ -117,7 +120,8 @@ pub fn to_pbs_config(
         signer_client: None,
         all_relays: relays.clone(),
         relays,
-        muxes: None,
+        registry_muxes: None,
+        mux_lookup: None,
     }
 }
 
@@ -179,4 +183,8 @@ pub fn create_module_config(id: ModuleId, signing_id: B256) -> StaticModuleConfi
         env_file: None,
         kind: ModuleKind::Commit,
     }
+}
+
+pub fn bls_pubkey_from_hex_unchecked(hex: &str) -> BlsPublicKey {
+    bls_pubkey_from_hex(hex).unwrap()
 }

@@ -24,7 +24,7 @@ pub async fn handle_register_validator<S: BuilderApiState, A: BuilderApi<S>>(
 
     info!(ua, num_registrations = registrations.len(), "new request");
 
-    if let Err(err) = A::register_validator(registrations, req_headers, state.clone()).await {
+    if let Err(err) = A::register_validator(registrations, req_headers, state).await {
         error!(%err, "all relays failed registration");
 
         let err = PbsClientError::NoResponse;

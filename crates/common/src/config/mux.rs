@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    hash::Hash,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -14,18 +15,20 @@ use alloy::{
 };
 use eyre::{Context, bail, ensure};
 use reqwest::Client;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 use url::Url;
 
 use super::{MUX_PATH_ENV, PbsConfig, RelayConfig, load_optional_env_var};
 use crate::{
     config::{remove_duplicate_keys, safe_read_http_response},
+    interop::ssv::utils::fetch_ssv_pubkeys_from_url,
     pbs::RelayClient,
     types::{BlsPublicKey, Chain},
+    utils::default_bool,
 };
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PbsMuxes {
     /// List of PBS multiplexers
     #[serde(rename = "mux")]
@@ -44,7 +47,10 @@ impl PbsMuxes {
         self,
         chain: Chain,
         default_pbs: &PbsConfig,
-    ) -> eyre::Result<HashMap<BlsPublicKey, RuntimeMuxConfig>> {
+    ) -> eyre::Result<(
+        HashMap<BlsPublicKey, RuntimeMuxConfig>,
+        HashMap<MuxKeysLoader, RuntimeMuxConfig>,
+    )> {
         let http_timeout = Duration::from_secs(default_pbs.http_timeout_seconds);
 
         let mut muxes = self.muxes;
@@ -53,8 +59,15 @@ impl PbsMuxes {
             ensure!(!mux.relays.is_empty(), "mux config {} must have at least one relay", mux.id);
 
             if let Some(loader) = &mux.loader {
-                let extra_keys =
-                    loader.load(&mux.id, chain, default_pbs.rpc_url.clone(), http_timeout).await?;
+                let extra_keys = loader
+                    .load(
+                        &mux.id,
+                        chain,
+                        default_pbs.ssv_api_url.clone(),
+                        default_pbs.rpc_url.clone(),
+                        http_timeout,
+                    )
+                    .await?;
                 mux.validator_pubkeys.extend(extra_keys);
             }
 
@@ -76,6 +89,7 @@ impl PbsMuxes {
         }
 
         let mut configs = HashMap::new();
+        let mut registry_muxes = HashMap::new();
         // fill the configs using the default pbs config and relay entries
         for mux in muxes {
             info!(
@@ -102,18 +116,30 @@ impl PbsMuxes {
             config.validate(chain).await?;
             let config = Arc::new(config);
 
+            // Build the map of pubkeys to mux configs
             let runtime_config = RuntimeMuxConfig { id: mux.id, config, relays: relay_clients };
             for pubkey in mux.validator_pubkeys.into_iter() {
                 configs.insert(pubkey, runtime_config.clone());
             }
+
+            // Track registry muxes with refreshing enabled
+            if let Some(loader) = &mux.loader &&
+                let MuxKeysLoader::Registry { enable_refreshing: true, .. } = loader
+            {
+                info!(
+                    "mux {} uses registry loader with dynamic refreshing enabled",
+                    runtime_config.id
+                );
+                registry_muxes.insert(loader.clone(), runtime_config.clone());
+            }
         }
 
-        Ok(configs)
+        Ok((configs, registry_muxes))
     }
 }
 
 /// Configuration for the PBS Multiplexer
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct MuxConfig {
     /// Identifier for this mux config
     pub id: String,
@@ -156,7 +182,7 @@ impl MuxConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
 #[serde(untagged)]
 pub enum MuxKeysLoader {
     /// A file containing a list of validator pubkeys
@@ -167,10 +193,12 @@ pub enum MuxKeysLoader {
     Registry {
         registry: NORegistry,
         node_operator_id: u64,
+        #[serde(default = "default_bool::<false>")]
+        enable_refreshing: bool,
     },
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
 pub enum NORegistry {
     #[serde(alias = "lido")]
     Lido,
@@ -183,6 +211,7 @@ impl MuxKeysLoader {
         &self,
         mux_id: &str,
         chain: Chain,
+        ssv_api_url: Url,
         rpc_url: Option<Url>,
         http_timeout: Duration,
     ) -> eyre::Result<Vec<BlsPublicKey>> {
@@ -210,7 +239,7 @@ impl MuxKeysLoader {
                     .wrap_err("failed to fetch mux keys from HTTP endpoint")
             }
 
-            Self::Registry { registry, node_operator_id } => match registry {
+            Self::Registry { registry, node_operator_id, enable_refreshing: _ } => match registry {
                 NORegistry::Lido => {
                     let Some(rpc_url) = rpc_url else {
                         bail!("Lido registry requires RPC URL to be set in the PBS config");
@@ -225,7 +254,13 @@ impl MuxKeysLoader {
                     .await
                 }
                 NORegistry::SSV => {
-                    fetch_ssv_pubkeys(chain, U256::from(*node_operator_id), http_timeout).await
+                    fetch_ssv_pubkeys(
+                        ssv_api_url,
+                        chain,
+                        U256::from(*node_operator_id),
+                        http_timeout,
+                    )
+                    .await
                 }
             },
         }?;
@@ -334,6 +369,7 @@ async fn fetch_lido_registry_keys(
 }
 
 async fn fetch_ssv_pubkeys(
+    api_url: Url,
     chain: Chain,
     node_operator_id: U256,
     http_timeout: Duration,
@@ -351,11 +387,12 @@ async fn fetch_ssv_pubkeys(
     let mut page = 1;
 
     loop {
-        let url = format!(
-            "https://api.ssv.network/api/v4/{chain_name}/validators/in_operator/{node_operator_id}?perPage={MAX_PER_PAGE}&page={page}",
+        let route = format!(
+            "{chain_name}/validators/in_operator/{node_operator_id}?perPage={MAX_PER_PAGE}&page={page}",
         );
+        let url = api_url.join(&route).wrap_err("failed to construct SSV API URL")?;
 
-        let response = fetch_ssv_pubkeys_from_url(&url, http_timeout).await?;
+        let response = fetch_ssv_pubkeys_from_url(url, http_timeout).await?;
         let fetched = response.validators.len();
         pubkeys.extend(
             response.validators.into_iter().map(|v| v.pubkey).collect::<Vec<BlsPublicKey>>(),
@@ -376,74 +413,12 @@ async fn fetch_ssv_pubkeys(
     Ok(pubkeys)
 }
 
-async fn fetch_ssv_pubkeys_from_url(
-    url: &str,
-    http_timeout: Duration,
-) -> eyre::Result<SSVResponse> {
-    let client = reqwest::ClientBuilder::new().timeout(http_timeout).build()?;
-    let response = client.get(url).send().await.map_err(|e| {
-        if e.is_timeout() {
-            eyre::eyre!("Request to SSV network API timed out: {e}")
-        } else {
-            eyre::eyre!("Error sending request to SSV network API: {e}")
-        }
-    })?;
-
-    // Parse the response as JSON
-    let body_bytes = safe_read_http_response(response).await?;
-    serde_json::from_slice::<SSVResponse>(&body_bytes).wrap_err("failed to parse SSV response")
-}
-
-#[derive(Deserialize)]
-struct SSVResponse {
-    validators: Vec<SSVValidator>,
-    pagination: SSVPagination,
-}
-
-struct SSVValidator {
-    pubkey: BlsPublicKey,
-}
-
-impl<'de> Deserialize<'de> for SSVValidator {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        struct SSVValidator {
-            public_key: String,
-        }
-
-        let s = SSVValidator::deserialize(deserializer)?;
-        let bytes = alloy::hex::decode(&s.public_key).map_err(serde::de::Error::custom)?;
-        let pubkey = BlsPublicKey::deserialize(&bytes)
-            .map_err(|e| serde::de::Error::custom(format!("invalid BLS public key: {e:?}")))?;
-
-        Ok(Self { pubkey })
-    }
-}
-
-#[derive(Deserialize)]
-struct SSVPagination {
-    total: usize,
-}
-
 #[cfg(test)]
 mod tests {
-    use std::net::SocketAddr;
-
     use alloy::{primitives::U256, providers::ProviderBuilder};
-    use axum::{response::Response, routing::get};
-    use tokio::{net::TcpListener, task::JoinHandle};
     use url::Url;
 
     use super::*;
-    use crate::{
-        config::{HTTP_TIMEOUT_SECONDS_DEFAULT, MUXER_HTTP_MAX_LENGTH},
-        utils::{ResponseReadError, bls_pubkey_from_hex_unchecked, set_ignore_content_length},
-    };
-
-    const TEST_HTTP_TIMEOUT: u64 = 2;
 
     #[tokio::test]
     async fn test_lido_registry_address() -> eyre::Result<()> {
@@ -478,186 +453,5 @@ mod tests {
         assert_eq!(vec.len(), LIMIT);
 
         Ok(())
-    }
-
-    #[tokio::test]
-    /// Tests that a successful SSV network fetch is handled and parsed properly
-    async fn test_ssv_network_fetch() -> eyre::Result<()> {
-        // Start the mock server
-        let port = 30100;
-        let _server_handle = create_mock_server(port).await?;
-        let url = format!("http://localhost:{port}/ssv");
-        let response =
-            fetch_ssv_pubkeys_from_url(&url, Duration::from_secs(HTTP_TIMEOUT_SECONDS_DEFAULT))
-                .await?;
-
-        // Make sure the response is correct
-        // NOTE: requires that ssv_data.json dpesn't change
-        assert_eq!(response.validators.len(), 3);
-        let expected_pubkeys = [
-            bls_pubkey_from_hex_unchecked(
-                "967ba17a3e7f82a25aa5350ec34d6923e28ad8237b5a41efe2c5e325240d74d87a015bf04634f21900963539c8229b2a",
-            ),
-            bls_pubkey_from_hex_unchecked(
-                "ac769e8cec802e8ffee34de3253be8f438a0c17ee84bdff0b6730280d24b5ecb77ebc9c985281b41ee3bda8663b6658c",
-            ),
-            bls_pubkey_from_hex_unchecked(
-                "8c866a5a05f3d45c49b457e29365259021a509c5daa82e124f9701a960ee87b8902e87175315ab638a3d8b1115b23639",
-            ),
-        ];
-        for (i, validator) in response.validators.iter().enumerate() {
-            assert_eq!(validator.pubkey, expected_pubkeys[i]);
-        }
-
-        // Clean up the server handle
-        _server_handle.abort();
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    /// Tests that the SSV network fetch is handled properly when the response's
-    /// body is too large
-    async fn test_ssv_network_fetch_big_data() -> eyre::Result<()> {
-        // Start the mock server
-        let port = 30101;
-        let _server_handle = create_mock_server(port).await?;
-        let url = format!("http://localhost:{port}/big_data");
-        let response = fetch_ssv_pubkeys_from_url(&url, Duration::from_secs(120)).await;
-
-        // The response should fail due to content length being too big
-        match response {
-            Ok(_) => {
-                panic!("Expected an error due to big content length, but got a successful response")
-            }
-            Err(e) => match e.downcast_ref::<ResponseReadError>() {
-                Some(ResponseReadError::PayloadTooLarge { max, content_length, raw }) => {
-                    assert_eq!(*max, MUXER_HTTP_MAX_LENGTH);
-                    assert!(*content_length > MUXER_HTTP_MAX_LENGTH);
-                    assert!(raw.is_empty());
-                }
-                _ => panic!("Expected PayloadTooLarge error, got: {}", e),
-            },
-        }
-
-        // Clean up the server handle
-        _server_handle.abort();
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    /// Tests that the SSV network fetch is handled properly when the request
-    /// times out
-    async fn test_ssv_network_fetch_timeout() -> eyre::Result<()> {
-        // Start the mock server
-        let port = 30102;
-        let _server_handle = create_mock_server(port).await?;
-        let url = format!("http://localhost:{port}/timeout");
-        let response =
-            fetch_ssv_pubkeys_from_url(&url, Duration::from_secs(TEST_HTTP_TIMEOUT)).await;
-
-        // The response should fail due to timeout
-        assert!(response.is_err(), "Expected timeout error, but got success");
-        if let Err(e) = response {
-            assert!(e.to_string().contains("timed out"), "Expected timeout error, got: {}", e);
-        }
-
-        // Clean up the server handle
-        _server_handle.abort();
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    /// Tests that the SSV network fetch is handled properly when the response's
-    /// content-length header is missing
-    async fn test_ssv_network_fetch_big_data_without_content_length() -> eyre::Result<()> {
-        // Start the mock server
-        let port = 30103;
-        set_ignore_content_length(true);
-        let _server_handle = create_mock_server(port).await?;
-        let url = format!("http://localhost:{port}/big_data");
-        let response = fetch_ssv_pubkeys_from_url(&url, Duration::from_secs(120)).await;
-
-        // The response should fail due to the body being too big
-        match response {
-            Ok(_) => {
-                panic!("Expected an error due to excessive data, but got a successful response")
-            }
-            Err(e) => match e.downcast_ref::<ResponseReadError>() {
-                Some(ResponseReadError::PayloadTooLarge { max, content_length, raw }) => {
-                    assert_eq!(*max, MUXER_HTTP_MAX_LENGTH);
-                    assert_eq!(*content_length, 0);
-                    assert!(!raw.is_empty());
-                }
-                _ => panic!("Expected PayloadTooLarge error, got: {}", e),
-            },
-        }
-
-        // Clean up the server handle
-        _server_handle.abort();
-
-        Ok(())
-    }
-
-    /// Creates a simple mock server to simulate the SSV API endpoint under
-    /// various conditions for testing
-    async fn create_mock_server(port: u16) -> Result<JoinHandle<()>, axum::Error> {
-        let router = axum::Router::new()
-            .route("/ssv", get(handle_ssv))
-            .route("/big_data", get(handle_big_data))
-            .route("/timeout", get(handle_timeout))
-            .into_make_service();
-
-        let address = SocketAddr::from(([127, 0, 0, 1], port));
-        let listener = TcpListener::bind(address).await.map_err(axum::Error::new)?;
-        let server = axum::serve(listener, router).with_graceful_shutdown(async {
-            tokio::signal::ctrl_c().await.expect("Failed to listen for shutdown signal");
-        });
-        let result = Ok(tokio::spawn(async move {
-            if let Err(e) = server.await {
-                eprintln!("Server error: {}", e);
-            }
-        }));
-        info!("Mock server started on http://localhost:{port}/");
-        result
-    }
-
-    /// Sends the good SSV JSON data to the client
-    async fn handle_ssv() -> Response {
-        // Read the JSON data
-        let data = include_str!("../../../../tests/data/ssv_valid.json");
-
-        // Create a valid response
-        Response::builder()
-            .status(200)
-            .header("Content-Type", "application/json")
-            .body(data.into())
-            .unwrap()
-    }
-
-    /// Sends a response with a large body - larger than the maximum allowed.
-    /// Note that hyper overwrites the content-length header automatically, so
-    /// setting it here wouldn't actually change the value that ultimately
-    /// gets sent to the server.
-    async fn handle_big_data() -> Response {
-        let body = "f".repeat(2 * MUXER_HTTP_MAX_LENGTH);
-        Response::builder()
-            .status(200)
-            .header("Content-Type", "application/text")
-            .body(body.into())
-            .unwrap()
-    }
-
-    /// Simulates a timeout by sleeping for a long time
-    async fn handle_timeout() -> Response {
-        // Sleep for a long time to simulate a timeout
-        tokio::time::sleep(std::time::Duration::from_secs(2 * TEST_HTTP_TIMEOUT)).await;
-        Response::builder()
-            .status(200)
-            .header("Content-Type", "application/text")
-            .body("Timeout response".into())
-            .unwrap()
     }
 }

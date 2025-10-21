@@ -400,6 +400,8 @@ mod tests {
                     http_timeout_seconds: 30,
                     register_validator_retry_limit: 3,
                     validator_registration_batch_size: None,
+                    mux_registry_refresh_interval_seconds: 5,
+                    ssv_api_url: Url::parse("https://example.net").unwrap(),
                 },
                 with_signer: true,
             },

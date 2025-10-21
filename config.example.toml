@@ -55,6 +55,9 @@ extra_validation_enabled = false
 # Execution Layer RPC url to use for extra validation
 # OPTIONAL
 # rpc_url = "https://ethereum-holesky-rpc.publicnode.com"
+# URL of the SSV API server to use, if you have a mux that targets an SSV node operator
+# OPTIONAL, DEFAULT: "https://api.ssv.network/api/v4"
+# ssv_api_url = "https://api.ssv.network/api/v4"
 # Timeout for any HTTP requests sent from the PBS module to other services, in seconds
 # OPTIONAL, DEFAULT: 10
 http_timeout_seconds = 10
@@ -64,6 +67,13 @@ register_validator_retry_limit = 3
 # Maximum number of validators to register in a single request.
 # OPTIONAL, DEFAULT: "" (unlimited)
 validator_registration_batch_size = ""
+# For any Registry-based Mux configurations that have dynamic pubkey
+# refreshing enabled, this is how often to refresh the list of pubkeys
+# from the registry, in seconds. Enabling registry refreshing is done per-mux
+# with the mux's `enable_refreshing` property. If none of the muxes have it
+# enabled, this value will not be used.
+# OPTIONAL, DEFAULT: 384
+mux_registry_refresh_interval_seconds = 384
 
 # The PBS module needs one or more [[relays]] as defined below.
 [[relays]]
@@ -126,6 +136,11 @@ validator_pubkeys = [
 #   - Registry: details of a registry to load keys from. Supported registries:
 #       - Lido: NodeOperatorsRegistry
 #       - SSV: SSV API
+#       You can toggle the 'enable_refreshing' flag to let this registry periodically query Lido or SSV and refresh the list of validator pubkeys belonging to the corresponding operator.
+#       Each of these registry entries must be unique:
+#       - There can only be one Lido entry with a given Lido node operator ID.
+#       - There can only be one SSV entry with a given SSV node operator ID.
+#       - A Lido entry can have the same node operator ID as an SSV entry if they happen to coincide; they're treated as separate entities.
 #
 # Example JSON list:
 # [
@@ -135,8 +150,8 @@ validator_pubkeys = [
 # OPTIONAL
 loader = "./tests/data/mux_keys.example.json"
 # loader = { url = "http://localhost:8000/keys" }
-# loader = { registry = "lido", node_operator_id = 8 }
-# loader = { registry = "ssv", node_operator_id = 8 }
+# loader = { registry = "lido", node_operator_id = 8, enable_refreshing = false }
+# loader = { registry = "ssv", node_operator_id = 8, enable_refreshing = false }
 late_in_slot_time_ms = 1500
 timeout_get_header_ms = 900
 # For each mux, one or more [[mux.relays]] can be defined, which will be used for the matching validator pubkeys

@@ -5,6 +5,9 @@ publish = false
 rust-version.workspace = true
 version.workspace = true
 
+[features]
+testing-flags = []
+
 [dependencies]
 aes.workspace = true
 alloy.workspace = true
