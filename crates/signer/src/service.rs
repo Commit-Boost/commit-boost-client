@@ -30,7 +30,7 @@ use cb_common::{
         },
         response::{BlsSignResponse, EcdsaSignResponse},
     },
-    config::{ModuleSigningConfig, StartSignerConfig},
+    config::{ModuleSigningConfig, ReverseProxyHeaderSetup, StartSignerConfig},
     constants::{COMMIT_BOOST_COMMIT, COMMIT_BOOST_VERSION},
     types::{BlsPublicKey, Chain, Jwt, ModuleId, SignatureRequestInfo},
     utils::{decode_jwt, validate_admin_jwt, validate_jwt},
@@ -48,6 +48,7 @@ use crate::{
     error::SignerModuleError,
     manager::{SigningManager, dirk::DirkManager, local::LocalSigningManager},
     metrics::{SIGNER_METRICS_REGISTRY, SIGNER_STATUS, uri_to_tag},
+    utils::get_true_ip,
 };
 
 pub const REQUEST_MAX_BODY_LENGTH: usize = 1024 * 1024; // 1 MB
@@ -84,7 +85,7 @@ struct SigningState {
     jwt_auth_fail_timeout: Duration,
 
     /// Header to extract the trusted client IP from
-    trusted_ip_header: Option<String>,
+    reverse_proxy: ReverseProxyHeaderSetup,
 }
 
 impl SigningService {
@@ -104,7 +105,7 @@ impl SigningService {
             jwt_auth_failures: Arc::new(ParkingRwLock::new(HashMap::new())),
             jwt_auth_fail_limit: config.jwt_auth_fail_limit,
             jwt_auth_fail_timeout: Duration::from_secs(config.jwt_auth_fail_timeout_seconds as u64),
-            trusted_ip_header: config.trusted_ip_header,
+            reverse_proxy: config.reverse_proxy,
         };
 
         // Get the signer counts
@@ -125,7 +126,7 @@ impl SigningService {
             loaded_proxies,
             jwt_auth_fail_limit =? state.jwt_auth_fail_limit,
             jwt_auth_fail_timeout =? state.jwt_auth_fail_timeout,
-            trusted_ip_header = state.trusted_ip_header,
+            reverse_proxy =? state.reverse_proxy,
             "Starting signing service"
         );
 
@@ -228,25 +229,6 @@ fn mark_jwt_failure(state: &SigningState, client_ip: IpAddr) {
     failure_info.last_failure = Instant::now();
 }
 
-/// Get the true client IP from the request headers or fallback to the socket
-/// address
-fn get_true_ip(
-    req_headers: &HeaderMap,
-    addr: &SocketAddr,
-    trusted_ip_header: &Option<String>,
-) -> eyre::Result<IpAddr> {
-    if let Some(header) = trusted_ip_header {
-        req_headers
-            .get(header)
-            .ok_or(eyre::eyre!("{header} header not found"))?
-            .to_str()?
-            .parse()
-            .map_err(|_| eyre::eyre!("Trustrd IP header has not a valid IP"))
-    } else {
-        Ok(addr.ip())
-    }
-}
-
 /// Authentication middleware layer
 async fn jwt_auth(
     State(state): State<SigningState>,
@@ -257,7 +239,7 @@ async fn jwt_auth(
     next: Next,
 ) -> Result<Response, SignerModuleError> {
     // Check if the request needs to be rate limited
-    let client_ip = get_true_ip(&req_headers, &addr, &state.trusted_ip_header).map_err(|e| {
+    let client_ip = get_true_ip(&req_headers, &addr, &state.reverse_proxy).map_err(|e| {
         error!("Failed to get client IP: {e}");
         SignerModuleError::RequestError("failed to get client IP".to_string())
     })?;
@@ -367,7 +349,7 @@ async fn admin_auth(
     next: Next,
 ) -> Result<Response, SignerModuleError> {
     // Check if the request needs to be rate limited
-    let client_ip = get_true_ip(&req_headers, &addr, &state.trusted_ip_header).map_err(|e| {
+    let client_ip = get_true_ip(&req_headers, &addr, &state.reverse_proxy).map_err(|e| {
         error!("Failed to get client IP: {e}");
         SignerModuleError::RequestError("failed to get client IP".to_string())
     })?;

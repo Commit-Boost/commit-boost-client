@@ -9,9 +9,10 @@ use alloy::primitives::{B256, U256};
 use cb_common::{
     config::{
         CommitBoostConfig, LogsSettings, ModuleKind, ModuleSigningConfig, PbsConfig,
-        PbsModuleConfig, RelayConfig, SIGNER_IMAGE_DEFAULT, SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT,
-        SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT, SIGNER_PORT_DEFAULT, SignerConfig,
-        SignerType, StartSignerConfig, StaticModuleConfig, StaticPbsConfig, TlsMode,
+        PbsModuleConfig, RelayConfig, ReverseProxyHeaderSetup, SIGNER_IMAGE_DEFAULT,
+        SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT, SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT,
+        SIGNER_PORT_DEFAULT, SignerConfig, SignerType, StartSignerConfig, StaticModuleConfig,
+        StaticPbsConfig, TlsMode,
     },
     pbs::{RelayClient, RelayEntry},
     signer::SignerLoader,
@@ -130,7 +131,7 @@ pub fn get_signer_config(loader: SignerLoader, tls: bool) -> SignerConfig {
         jwt_auth_fail_timeout_seconds: SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT,
         inner: SignerType::Local { loader, store: None },
         tls_mode: if tls { TlsMode::Certificate(PathBuf::new()) } else { TlsMode::Insecure },
-        trusted_ip_header: None,
+        reverse_proxy: ReverseProxyHeaderSetup::None,
     }
 }
 
@@ -166,7 +167,7 @@ pub fn get_start_signer_config(
             jwt_auth_fail_timeout_seconds: signer_config.jwt_auth_fail_timeout_seconds,
             dirk: None,
             tls_certificates,
-            trusted_ip_header: None,
+            reverse_proxy: ReverseProxyHeaderSetup::None,
         },
         _ => panic!("Only local signers are supported in tests"),
     }
