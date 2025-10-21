@@ -50,7 +50,7 @@ fn get_ip_from_rightmost_value(headers: &HeaderMap, header_name: &str) -> Result
     let last_value = headers
         .get_all(header_name)
         .iter()
-        .last()
+        .next_back()
         .ok_or(IpError::NotPresent(header_name.to_string()))?
         .to_str()
         .map_err(|_| IpError::HasInvalidCharacters)?;
