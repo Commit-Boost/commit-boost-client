@@ -399,11 +399,21 @@ jwt_auth_fail_limit = 3 # The amount of failed requests allowed
 jwt_auth_fail_timeout_seconds = 300 # The time window in seconds
 ```
 
-The rate limit is applied to the IP address of the client making the request. By default, the IP is extracted directly from the TCP connection. If you're running the Signer service behind a reverse proxy (e.g. Nginx), you can configure it to extract the IP from a custom HTTP header instead:
+The rate limit is applied to the IP address of the client making the request. By default, the IP is extracted directly from the TCP connection. If you're running the Signer service behind a reverse proxy (e.g. Nginx), you can configure it to extract the IP from a custom HTTP header instead. There're two options:
+
+- `unique`: The name of the HTTP header that contains the IP. This header is expected to appear only once in the request. This is common when using `X-Real-IP`, `True-Client-IP`, etc.
+- `rightmost`: The name of the HTTP header that contains a comma-separated list of IPs. The rightmost IP in the list is used. If the header appears multiple times, the last occurrence is used. This is common when using `X-Forwarded-For`.
+
+Examples:
 
 ```toml
-[signer]
-trusted_ip_header = "X-Real-IP"
+[signer.reverse_proxy]
+unique = "X-Real-IP"
+```
+
+```toml
+[signer.reverse_proxy]
+rightmost = "X-Forwarded-For"
 ```
 
 ## Custom module
