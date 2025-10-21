@@ -1,4 +1,4 @@
-#[cfg(test)]
+#[cfg(feature = "testing-flags")]
 use std::cell::Cell;
 use std::{
     net::Ipv4Addr,
@@ -43,17 +43,18 @@ pub enum ResponseReadError {
     ReqwestError(#[from] reqwest::Error),
 }
 
-#[cfg(test)]
+#[cfg(feature = "testing-flags")]
 thread_local! {
     static IGNORE_CONTENT_LENGTH: Cell<bool> = const { Cell::new(false) };
 }
 
-#[cfg(test)]
+#[cfg(feature = "testing-flags")]
 pub fn set_ignore_content_length(val: bool) {
     IGNORE_CONTENT_LENGTH.with(|f| f.set(val));
 }
 
-#[cfg(test)]
+#[cfg(feature = "testing-flags")]
+#[allow(dead_code)]
 fn should_ignore_content_length() -> bool {
     IGNORE_CONTENT_LENGTH.with(|f| f.get())
 }
@@ -65,13 +66,13 @@ pub async fn read_chunked_body_with_max(
     max_size: usize,
 ) -> Result<Vec<u8>, ResponseReadError> {
     // Get the content length from the response headers
-    #[cfg(not(test))]
+    #[cfg(not(feature = "testing-flags"))]
     let content_length = res.content_length();
 
-    #[cfg(test)]
+    #[cfg(feature = "testing-flags")]
     let mut content_length = res.content_length();
 
-    #[cfg(test)]
+    #[cfg(feature = "testing-flags")]
     if should_ignore_content_length() {
         // Used for testing purposes to ignore content length
         content_length = None;
