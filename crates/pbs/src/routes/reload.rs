@@ -20,7 +20,7 @@ pub async fn handle_reload<S: BuilderApiState, A: BuilderApi<S>>(
 
     info!(ua, relay_check = prev_state.config.pbs_config.relay_check);
 
-    match A::reload(prev_state.clone()).await {
+    match A::reload(prev_state).await {
         Ok(new_state) => {
             info!("config reload successful");
 

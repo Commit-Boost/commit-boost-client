@@ -1575,7 +1575,7 @@ dependencies = [
 
 [[package]]
 name = "cb-bench-pbs"
-version = "0.8.1-rc.4"
+version = "0.9.0"
 dependencies = [
  "alloy",
  "cb-common",
@@ -1592,7 +1592,7 @@ dependencies = [
 
 [[package]]
 name = "cb-cli"
-version = "0.8.1-rc.4"
+version = "0.9.0"
 dependencies = [
  "cb-common",
  "clap",
@@ -1604,7 +1604,7 @@ dependencies = [
 
 [[package]]
 name = "cb-common"
-version = "0.8.1-rc.4"
+version = "0.9.0"
 dependencies = [
  "aes 0.8.4",
  "alloy",
@@ -1650,7 +1650,7 @@ dependencies = [
 
 [[package]]
 name = "cb-metrics"
-version = "0.8.1-rc.4"
+version = "0.9.0"
 dependencies = [
  "axum 0.8.4",
  "cb-common",
@@ -1663,7 +1663,7 @@ dependencies = [
 
 [[package]]
 name = "cb-pbs"
-version = "0.8.1-rc.4"
+version = "0.9.0"
 dependencies = [
  "alloy",
  "async-trait",
@@ -1689,7 +1689,7 @@ dependencies = [
 
 [[package]]
 name = "cb-signer"
-version = "0.8.1-rc.4"
+version = "0.9.0"
 dependencies = [
  "alloy",
  "axum 0.8.4",
@@ -1718,7 +1718,7 @@ dependencies = [
 
 [[package]]
 name = "cb-tests"
-version = "0.8.1-rc.4"
+version = "0.9.0"
 dependencies = [
  "alloy",
  "axum 0.8.4",
@@ -1732,6 +1732,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "tracing-test",
  "tree_hash",
  "types",
  "url",
@@ -1876,7 +1877,7 @@ dependencies = [
 
 [[package]]
 name = "commit-boost"
-version = "0.8.1-rc.4"
+version = "0.9.0"
 dependencies = [
  "cb-cli",
  "cb-common",
@@ -2164,7 +2165,7 @@ dependencies = [
 
 [[package]]
 name = "da_commit"
-version = "0.8.1-rc.4"
+version = "0.9.0"
 dependencies = [
  "alloy",
  "color-eyre",
@@ -2747,7 +2748,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.0",
 ]
 
 [[package]]
@@ -5451,7 +5452,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.0",
 ]
 
 [[package]]
@@ -6075,7 +6076,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "status_api"
-version = "0.8.1-rc.4"
+version = "0.9.0"
 dependencies = [
  "async-trait",
  "axum 0.8.4",
@@ -6271,7 +6272,7 @@ dependencies = [
  "getrandom 0.3.3",
  "once_cell",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.0",
 ]
 
 [[package]]
@@ -6807,6 +6808,27 @@ dependencies = [
  "tracing-core",
  "tracing-log",
  "tracing-serde",
+]
+
+[[package]]
+name = "tracing-test"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "557b891436fe0d5e0e363427fc7f217abf9ccd510d5136549847bdcbcd011d68"
+dependencies = [
+ "tracing-core",
+ "tracing-subscriber",
+ "tracing-test-macro",
+]
+
+[[package]]
+name = "tracing-test-macro"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04659ddb06c87d233c566112c1c9c5b9e98256d9af50ec3bc9c8327f873a7568"
+dependencies = [
+ "quote",
+ "syn 2.0.106",
 ]
 
 [[package]]
