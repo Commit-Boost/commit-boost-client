@@ -56,7 +56,7 @@ where
         &self,
         pubkey: &BlsPublicKey,
     ) -> (&PbsConfig, &[RelayClient], Option<&str>) {
-        match self.config.muxes.as_ref().and_then(|muxes| muxes.get(pubkey)) {
+        match self.config.mux_lookup.as_ref().and_then(|muxes| muxes.get(pubkey)) {
             Some(mux) => (&mux.config, mux.relays.as_slice(), Some(&mux.id)),
             // return only the default relays if there's no match
             None => (self.pbs_config(), &self.config.relays, None),
