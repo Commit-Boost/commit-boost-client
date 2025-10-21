@@ -69,6 +69,16 @@ pub enum TlsMode {
     Certificate(PathBuf),
 }
 
+/// Reverse proxy setup, used to extract real client's IP
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ReverseProxyHeaderSetup {
+    #[default]
+    None,
+    Unique(String),
+    Rightmost(String),
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct SignerConfig {
@@ -98,6 +108,10 @@ pub struct SignerConfig {
     /// certificates directory (with a `cert.pem` and a `key.pem` file).
     #[serde(default = "default_tls_mode")]
     pub tls_mode: TlsMode,
+
+    /// Reverse proxy setup to extract real client's IP
+    #[serde(default)]
+    pub reverse_proxy: ReverseProxyHeaderSetup,
 
     /// Inner type-specific configuration
     #[serde(flatten)]
@@ -194,6 +208,7 @@ pub struct StartSignerConfig {
     pub jwt_auth_fail_timeout_seconds: u32,
     pub dirk: Option<DirkConfig>,
     pub tls_certificates: Option<(Vec<u8>, Vec<u8>)>,
+    pub reverse_proxy: ReverseProxyHeaderSetup,
 }
 
 impl StartSignerConfig {
@@ -247,6 +262,8 @@ impl StartSignerConfig {
             }
         };
 
+        let reverse_proxy = signer_config.reverse_proxy;
+
         match signer_config.inner {
             SignerType::Local { loader, store, .. } => Ok(StartSignerConfig {
                 chain: config.chain,
@@ -259,6 +276,7 @@ impl StartSignerConfig {
                 store,
                 dirk: None,
                 tls_certificates,
+                reverse_proxy,
             }),
 
             SignerType::Dirk {
@@ -305,6 +323,7 @@ impl StartSignerConfig {
                         },
                     }),
                     tls_certificates,
+                    reverse_proxy,
                 })
             }
 

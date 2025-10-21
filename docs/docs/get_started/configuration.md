@@ -388,6 +388,33 @@ path = "path/to/your/cert/folder"
 
 Where `path` is the aforementioned folder. It defaults to `./certs` but can be replaced with whichever directory your certificate and private key file reside in, as long as they're readable by the Signer service (or its Docker container, if using Docker).
 
+### Rate limit
+
+The Signer service implements a rate limit system of 3 failed authentications every 5 minutes. These values can be modified in the config file:
+
+```toml
+[signer]
+...
+jwt_auth_fail_limit = 3 # The amount of failed requests allowed
+jwt_auth_fail_timeout_seconds = 300 # The time window in seconds
+```
+
+The rate limit is applied to the IP address of the client making the request. By default, the IP is extracted directly from the TCP connection. If you're running the Signer service behind a reverse proxy (e.g. Nginx), you can configure it to extract the IP from a custom HTTP header instead. There're two options:
+
+- `unique`: The name of the HTTP header that contains the IP. This header is expected to appear only once in the request. This is common when using `X-Real-IP`, `True-Client-IP`, etc. If a request is received that has multiple values for this header, it will be considered invalid and rejected.
+- `rightmost`: The name of the HTTP header that contains a comma-separated list of IPs. The rightmost IP in the list is used. If the header appears multiple times, the last occurrence is used. This is common when using `X-Forwarded-For`.
+
+Examples:
+
+```toml
+[signer.reverse_proxy]
+unique = "X-Real-IP"
+```
+
+```toml
+[signer.reverse_proxy]
+rightmost = "X-Forwarded-For"
+```
 
 ## Custom module
 
