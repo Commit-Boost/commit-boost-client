@@ -582,7 +582,7 @@ async fn fetch_lido_registry_keys(
 }
 
 async fn fetch_ssv_pubkeys(
-    api_url: Url,
+    mut api_url: Url,
     chain: Chain,
     node_operator_id: U256,
     http_timeout: Duration,
@@ -598,6 +598,15 @@ async fn fetch_ssv_pubkeys(
 
     let mut pubkeys: Vec<BlsPublicKey> = vec![];
     let mut page = 1;
+
+    // Validate the URL - this appends a trailing slash if missing as efficiently as
+    // possible
+    if !api_url.path().ends_with('/') {
+        match api_url.path_segments_mut() {
+            Ok(mut segments) => segments.push(""), // Analogous to a trailing slash
+            Err(_) => bail!("SSV API URL is not a valid base URL"),
+        };
+    }
 
     loop {
         let route = format!(
