@@ -29,8 +29,9 @@ async fn test_ssv_network_fetch() -> Result<()> {
     // Start the mock server
     let port = 30100;
     let _server_handle = create_mock_ssv_server(port, None).await?;
-    let url = Url::parse(&format!("http://localhost:{port}/test_chain/validators/in_operator/1"))
-        .unwrap();
+    let url =
+        Url::parse(&format!("http://localhost:{port}/api/v4/test_chain/validators/in_operator/1"))
+            .unwrap();
     let response =
         fetch_ssv_pubkeys_from_url(url, Duration::from_secs(HTTP_TIMEOUT_SECONDS_DEFAULT)).await?;
 
@@ -100,8 +101,9 @@ async fn test_ssv_network_fetch_timeout() -> Result<()> {
         force_timeout: Arc::new(RwLock::new(true)),
     };
     let server_handle = create_mock_ssv_server(port, Some(state)).await?;
-    let url = Url::parse(&format!("http://localhost:{port}/test_chain/validators/in_operator/1"))
-        .unwrap();
+    let url =
+        Url::parse(&format!("http://localhost:{port}/api/v4/test_chain/validators/in_operator/1"))
+            .unwrap();
     let response = fetch_ssv_pubkeys_from_url(url, Duration::from_secs(TEST_HTTP_TIMEOUT)).await;
 
     // The response should fail due to timeout

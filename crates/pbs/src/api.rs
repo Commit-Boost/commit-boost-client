@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use axum::{Router, http::HeaderMap};
 use cb_common::pbs::{
@@ -34,10 +36,10 @@ pub trait BuilderApi<S: BuilderApiState>: 'static {
     /// https://ethereum.github.io/builder-specs/#/Builder/submitBlindedBlock and
     /// https://ethereum.github.io/builder-specs/#/Builder/submitBlindedBlockV2
     async fn submit_block(
-        signed_blinded_block: SignedBlindedBeaconBlock,
+        signed_blinded_block: Arc<SignedBlindedBeaconBlock>,
         req_headers: HeaderMap,
         state: PbsState<S>,
-        api_version: &BuilderApiVersion,
+        api_version: BuilderApiVersion,
     ) -> eyre::Result<Option<SubmitBlindedBlockResponse>> {
         mev_boost::submit_block(signed_blinded_block, req_headers, state, api_version).await
     }

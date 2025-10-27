@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use axum::{
     Json,
     extract::State,
@@ -45,11 +47,11 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
     raw_request: RawRequest,
     api_version: BuilderApiVersion,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    let signed_blinded_block =
+    let signed_blinded_block = Arc::new(
         deserialize_body(&req_headers, raw_request.body_bytes).await.map_err(|e| {
             error!(%e, "failed to deserialize signed blinded block");
             PbsClientError::DecodeError(format!("failed to deserialize body: {e}"))
-        })?;
+        })?);
     tracing::Span::current().record("slot", signed_blinded_block.slot().as_u64() as i64);
     tracing::Span::current()
         .record("block_hash", tracing::field::debug(signed_blinded_block.block_hash()));
@@ -75,7 +77,7 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
 
     info!(ua, ms_into_slot = now.saturating_sub(slot_start_ms), "new request");
 
-    match A::submit_block(signed_blinded_block, req_headers, state, &api_version).await {
+    match A::submit_block(signed_blinded_block, req_headers, state, api_version).await {
         Ok(res) => match res {
             Some(payload_and_blobs) => {
                 trace!(?payload_and_blobs);
