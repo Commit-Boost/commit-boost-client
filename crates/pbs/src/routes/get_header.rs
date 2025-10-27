@@ -1,14 +1,17 @@
 use alloy::primitives::utils::format_ether;
 use axum::{
     extract::{Path, State},
-    http::HeaderMap,
+    http::{HeaderMap, HeaderValue},
     response::IntoResponse,
 };
 use cb_common::{
     pbs::{GetHeaderInfo, GetHeaderParams},
-    utils::{get_user_agent, ms_into_slot},
+    utils::{
+        CONSENSUS_VERSION_HEADER, EncodingType, get_accept_type, get_user_agent, ms_into_slot,
+    },
 };
-use reqwest::StatusCode;
+use reqwest::{StatusCode, header::CONTENT_TYPE};
+use ssz::Encode;
 use tracing::{error, info};
 
 use crate::{
@@ -32,6 +35,14 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
 
     let ua = get_user_agent(&req_headers);
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
+    let accept_type = get_accept_type(&req_headers).map_err(|e| {
+        error!(%e, "error parsing accept header");
+        PbsClientError::DecodeError(format!("error parsing accept header: {e}"))
+    });
+    if let Err(e) = accept_type {
+        return Ok((StatusCode::BAD_REQUEST, e).into_response());
+    }
+    let accept_type = accept_type.unwrap();
 
     info!(ua, ms_into_slot, "new request");
 
@@ -41,7 +52,30 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
                 info!(value_eth = format_ether(*max_bid.data.message.value()), block_hash =% max_bid.block_hash(), "received header");
 
                 BEACON_NODE_STATUS.with_label_values(&["200", GET_HEADER_ENDPOINT_TAG]).inc();
-                Ok((StatusCode::OK, axum::Json(max_bid)).into_response())
+                let response = match accept_type {
+                    EncodingType::Ssz => {
+                        let mut res = max_bid.data.as_ssz_bytes().into_response();
+                        let Ok(consensus_version_header) =
+                            HeaderValue::from_str(&max_bid.version.to_string())
+                        else {
+                            info!("sending response as JSON");
+                            return Ok((StatusCode::OK, axum::Json(max_bid)).into_response());
+                        };
+                        let Ok(content_type_header) =
+                            HeaderValue::from_str(&format!("{}", EncodingType::Ssz))
+                        else {
+                            info!("sending response as JSON");
+                            return Ok((StatusCode::OK, axum::Json(max_bid)).into_response());
+                        };
+                        res.headers_mut()
+                            .insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
+                        res.headers_mut().insert(CONTENT_TYPE, content_type_header);
+                        info!("sending response as SSZ");
+                        res
+                    }
+                    EncodingType::Json => (StatusCode::OK, axum::Json(max_bid)).into_response(),
+                };
+                Ok(response)
             } else {
                 // spec: return 204 if request is valid but no bid available
                 info!("no header available for slot");

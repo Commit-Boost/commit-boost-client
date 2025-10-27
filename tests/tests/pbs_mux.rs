@@ -5,7 +5,7 @@ use cb_common::{
     interop::ssv::utils::fetch_ssv_pubkeys_from_url,
     signer::random_secret,
     types::Chain,
-    utils::{ResponseReadError, set_ignore_content_length},
+    utils::{EncodingType, ForkName, ResponseReadError, set_ignore_content_length},
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
@@ -195,13 +195,19 @@ async fn test_mux() -> Result<()> {
     // Send default request without specifying a validator key
     let mock_validator = MockValidator::new(pbs_port)?;
     info!("Sending get header with default");
-    assert_eq!(mock_validator.do_get_header(None).await?.status(), StatusCode::OK);
+    assert_eq!(
+        mock_validator.do_get_header(None, None, ForkName::Electra).await?.status(),
+        StatusCode::OK
+    );
     assert_eq!(mock_state.received_get_header(), 1); // only default relay was used
 
     // Send request specifying a validator key to use mux
     info!("Sending get header with mux");
     assert_eq!(
-        mock_validator.do_get_header(Some(validator_pubkey)).await?.status(),
+        mock_validator
+            .do_get_header(Some(validator_pubkey), None, ForkName::Electra)
+            .await?
+            .status(),
         StatusCode::OK
     );
     assert_eq!(mock_state.received_get_header(), 3); // two mux relays were used
@@ -218,12 +224,24 @@ async fn test_mux() -> Result<()> {
 
     // v1 Submit block requests should go to all relays
     info!("Sending submit block v1");
-    assert_eq!(mock_validator.do_submit_block_v1(None).await?.status(), StatusCode::OK);
+    assert_eq!(
+        mock_validator
+            .do_submit_block_v1(None, EncodingType::Json, EncodingType::Json, ForkName::Electra)
+            .await?
+            .status(),
+        StatusCode::OK
+    );
     assert_eq!(mock_state.received_submit_block(), 3); // default + 2 mux relays were used
 
     // v2 Submit block requests should go to all relays
     info!("Sending submit block v2");
-    assert_eq!(mock_validator.do_submit_block_v2(None).await?.status(), StatusCode::ACCEPTED);
+    assert_eq!(
+        mock_validator
+            .do_submit_block_v2(None, EncodingType::Json, EncodingType::Json, ForkName::Electra)
+            .await?
+            .status(),
+        StatusCode::ACCEPTED
+    );
     assert_eq!(mock_state.received_submit_block(), 6); // default + 2 mux relays were used
 
     Ok(())

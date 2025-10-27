@@ -14,6 +14,7 @@ use cb_tests::{
     utils::{generate_mock_relay, get_pbs_static_config, to_pbs_config},
 };
 use eyre::Result;
+use lh_types::ForkName;
 use reqwest::StatusCode;
 use tokio::sync::RwLock;
 use tracing::info;
@@ -108,7 +109,8 @@ async fn test_auto_refresh() -> Result<()> {
     // relay only since it hasn't been seen in the mux yet
     let mock_validator = MockValidator::new(pbs_port)?;
     info!("Sending get header");
-    let res = mock_validator.do_get_header(Some(new_mux_pubkey.clone())).await?;
+    let res =
+        mock_validator.do_get_header(Some(new_mux_pubkey.clone()), None, ForkName::Electra).await?;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(default_relay_state.received_get_header(), 1); // default relay was used
     assert_eq!(mux_relay_state.received_get_header(), 0); // mux relay was not used
@@ -136,14 +138,16 @@ async fn test_auto_refresh() -> Result<()> {
     assert!(logs_contain(&format!("fetched 2 pubkeys for registry mux {mux_relay_id}")));
 
     // Try to run a get_header on the new pubkey - now it should use the mux relay
-    let res = mock_validator.do_get_header(Some(new_mux_pubkey.clone())).await?;
+    let res =
+        mock_validator.do_get_header(Some(new_mux_pubkey.clone()), None, ForkName::Electra).await?;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(default_relay_state.received_get_header(), 1); // default relay was not used here
     assert_eq!(mux_relay_state.received_get_header(), 1); // mux relay was used
 
     // Now try to do a get_header with the old pubkey - it should only use the
     // default relay
-    let res = mock_validator.do_get_header(Some(default_pubkey.clone())).await?;
+    let res =
+        mock_validator.do_get_header(Some(default_pubkey.clone()), None, ForkName::Electra).await?;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(default_relay_state.received_get_header(), 2); // default relay was used
     assert_eq!(mux_relay_state.received_get_header(), 1); // mux relay was not used
@@ -160,7 +164,9 @@ async fn test_auto_refresh() -> Result<()> {
 
     // Try to do a get_header with the removed pubkey - it should only use the
     // default relay
-    let res = mock_validator.do_get_header(Some(existing_mux_pubkey.clone())).await?;
+    let res = mock_validator
+        .do_get_header(Some(existing_mux_pubkey.clone()), None, ForkName::Electra)
+        .await?;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(default_relay_state.received_get_header(), 3); // default relay was used
     assert_eq!(mux_relay_state.received_get_header(), 1); // mux relay was not used

@@ -1,5 +1,6 @@
 use std::{
     str::FromStr,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -14,7 +15,7 @@ use cb_common::{
     },
     utils::{get_user_agent_with_version, read_chunked_body_with_max, utcnow_ms},
 };
-use futures::future::select_ok;
+use futures::{FutureExt, future::select_ok};
 use reqwest::header::USER_AGENT;
 use tracing::{debug, warn};
 use url::Url;
@@ -31,10 +32,10 @@ use crate::{
 /// https://ethereum.github.io/builder-specs/#/Builder/submitBlindedBlockV2. Use `api_version` to
 /// distinguish between the two.
 pub async fn submit_block<S: BuilderApiState>(
-    signed_blinded_block: SignedBlindedBeaconBlock,
+    signed_blinded_block: Arc<SignedBlindedBeaconBlock>,
     req_headers: HeaderMap,
     state: PbsState<S>,
-    api_version: &BuilderApiVersion,
+    api_version: BuilderApiVersion,
 ) -> eyre::Result<Option<SubmitBlindedBlockResponse>> {
     debug!(?req_headers, "received headers");
 
@@ -58,17 +59,22 @@ pub async fn submit_block<S: BuilderApiState>(
     send_headers.insert(USER_AGENT, get_user_agent_with_version(&req_headers)?);
     send_headers.insert(HEADER_CONSENSUS_VERSION, consensus_version);
 
-    let relays = state.all_relays();
-    let mut handles = Vec::with_capacity(relays.len());
-    for relay in relays.iter() {
-        handles.push(Box::pin(submit_block_with_timeout(
-            &signed_blinded_block,
-            relay,
-            send_headers.clone(),
-            state.pbs_config().timeout_get_payload_ms,
-            api_version,
-            fork_name,
-        )));
+    let mut handles = Vec::with_capacity(state.all_relays().len());
+    for relay in state.all_relays().iter().cloned() {
+        handles.push(
+            tokio::spawn(submit_block_with_timeout(
+                signed_blinded_block.clone(),
+                relay,
+                send_headers.clone(),
+                state.pbs_config().timeout_get_payload_ms,
+                api_version,
+                fork_name,
+            ))
+            .map(|join_result| match join_result {
+                Ok(res) => res,
+                Err(err) => Err(PbsError::TokioJoinError(err)),
+            }),
+        );
     }
 
     let results = select_ok(handles).await;
@@ -81,14 +87,14 @@ pub async fn submit_block<S: BuilderApiState>(
 /// Submit blinded block to relay, retry connection errors until the
 /// given timeout has passed
 async fn submit_block_with_timeout(
-    signed_blinded_block: &SignedBlindedBeaconBlock,
-    relay: &RelayClient,
+    signed_blinded_block: Arc<SignedBlindedBeaconBlock>,
+    relay: RelayClient,
     headers: HeaderMap,
     timeout_ms: u64,
-    api_version: &BuilderApiVersion,
+    api_version: BuilderApiVersion,
     fork_name: ForkName,
 ) -> Result<Option<SubmitBlindedBlockResponse>, PbsError> {
-    let mut url = relay.submit_block_url(*api_version)?;
+    let mut url = relay.submit_block_url(api_version)?;
     let mut remaining_timeout_ms = timeout_ms;
     let mut retry = 0;
     let mut backoff = Duration::from_millis(250);
@@ -97,12 +103,12 @@ async fn submit_block_with_timeout(
         let start_request = Instant::now();
         match send_submit_block(
             url.clone(),
-            signed_blinded_block,
-            relay,
+            &signed_blinded_block,
+            &relay,
             headers.clone(),
             remaining_timeout_ms,
             retry,
-            api_version,
+            &api_version,
             fork_name,
         )
         .await
