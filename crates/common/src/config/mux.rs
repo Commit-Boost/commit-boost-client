@@ -344,7 +344,6 @@ async fn fetch_lido_csm_registry_keys(
 ) -> eyre::Result<Vec<BlsPublicKey>> {
     let provider = ProviderBuilder::new().connect_client(rpc_client);
     let registry = get_lido_csm_registry(registry_address, provider);
-
     let total_keys = fetch_lido_csm_keys_total(&registry, node_operator_id).await?;
 
     collect_registry_keys(total_keys, |offset, limit| {
