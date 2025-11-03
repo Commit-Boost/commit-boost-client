@@ -10,7 +10,7 @@ use cb_common::{
     pbs::{BuilderApiVersion, GetPayloadInfo},
     utils::{
         CONSENSUS_VERSION_HEADER, EncodingType, RawRequest, deserialize_body, get_accept_type,
-        get_user_agent, timestamp_of_slot_start_millis, utcnow_ms,
+        get_user_agent, timestamp_of_slot_start_millis, utcnow_ms
     },
 };
 use reqwest::{StatusCode, header::CONTENT_TYPE};

@@ -40,6 +40,9 @@ git clone https://github.com/Commit-Boost/commit-boost-client
 
 # Stable branch has the latest released version
 git checkout stable
+
+# Init submodules
+git submodule update --init --recursive
 ```
 
 :::note
