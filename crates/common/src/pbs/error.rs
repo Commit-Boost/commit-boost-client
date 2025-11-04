@@ -25,6 +25,9 @@ pub enum PbsError {
 
     #[error("URL parsing error: {0}")]
     UrlParsing(#[from] url::ParseError),
+
+    #[error("tokio join error: {0}")]
+    TokioJoinError(#[from] tokio::task::JoinError),
 }
 
 impl PbsError {
