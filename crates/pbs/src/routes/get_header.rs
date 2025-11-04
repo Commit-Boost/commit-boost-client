@@ -7,7 +7,7 @@ use axum::{
 use cb_common::{
     pbs::{GetHeaderInfo, GetHeaderParams},
     utils::{
-        CONSENSUS_VERSION_HEADER, EncodingType, get_accept_type, get_user_agent, ms_into_slot,
+        CONSENSUS_VERSION_HEADER, EncodingType, get_accept_types, get_user_agent, ms_into_slot,
     },
 };
 use reqwest::{StatusCode, header::CONTENT_TYPE};
@@ -35,14 +35,14 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
 
     let ua = get_user_agent(&req_headers);
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
-    let accept_type = get_accept_type(&req_headers).map_err(|e| {
+    let accept_types = get_accept_types(&req_headers).map_err(|e| {
         error!(%e, "error parsing accept header");
         PbsClientError::DecodeError(format!("error parsing accept header: {e}"))
     });
-    if let Err(e) = accept_type {
+    if let Err(e) = accept_types {
         return Ok((StatusCode::BAD_REQUEST, e).into_response());
     }
-    let accept_type = accept_type.unwrap();
+    let accept_types = accept_types.unwrap();
 
     info!(ua, ms_into_slot, "new request");
 
@@ -52,30 +52,48 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
                 info!(value_eth = format_ether(*max_bid.data.message.value()), block_hash =% max_bid.block_hash(), "received header");
 
                 BEACON_NODE_STATUS.with_label_values(&["200", GET_HEADER_ENDPOINT_TAG]).inc();
-                let response = match accept_type {
-                    EncodingType::Ssz => {
-                        let mut res = max_bid.data.as_ssz_bytes().into_response();
-                        let Ok(consensus_version_header) =
-                            HeaderValue::from_str(&max_bid.version.to_string())
-                        else {
-                            info!("sending response as JSON");
-                            return Ok((StatusCode::OK, axum::Json(max_bid)).into_response());
-                        };
-                        let Ok(content_type_header) =
-                            HeaderValue::from_str(&format!("{}", EncodingType::Ssz))
-                        else {
-                            info!("sending response as JSON");
-                            return Ok((StatusCode::OK, axum::Json(max_bid)).into_response());
-                        };
-                        res.headers_mut()
-                            .insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
-                        res.headers_mut().insert(CONTENT_TYPE, content_type_header);
-                        info!("sending response as SSZ");
-                        res
-                    }
-                    EncodingType::Json => (StatusCode::OK, axum::Json(max_bid)).into_response(),
-                };
-                Ok(response)
+
+                let accepts_ssz = accept_types.contains(&EncodingType::Ssz);
+                let accepts_json = accept_types.contains(&EncodingType::Json);
+
+                // Handle SSZ
+                if accepts_ssz {
+                    let mut res = max_bid.data.as_ssz_bytes().into_response();
+                    let consensus_version_header = match HeaderValue::from_str(
+                        &max_bid.version.to_string(),
+                    ) {
+                        Ok(consensus_version_header) => Ok(consensus_version_header),
+                        Err(e) => {
+                            if accepts_json {
+                                info!("sending response as JSON");
+                                return Ok((StatusCode::OK, axum::Json(max_bid)).into_response());
+                            } else {
+                                return Err(PbsClientError::RelayError(format!(
+                                    "error decoding consensus version from relay payload: {e}"
+                                )));
+                            }
+                        }
+                    }?;
+
+                    // This won't actually fail since the string is a const
+                    let content_type_header =
+                        HeaderValue::from_str(&EncodingType::Ssz.to_string()).unwrap();
+
+                    res.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
+                    res.headers_mut().insert(CONTENT_TYPE, content_type_header);
+                    info!("sending response as SSZ");
+                    return Ok(res);
+                }
+
+                // Handle JSON
+                if accepts_json {
+                    Ok((StatusCode::OK, axum::Json(max_bid)).into_response())
+                } else {
+                    // This shouldn't ever happen but the compiler needs it
+                    Err(PbsClientError::DecodeError(
+                        "no viable accept types in request".to_string(),
+                    ))
+                }
             } else {
                 // spec: return 204 if request is valid but no bid available
                 info!("no header available for slot");

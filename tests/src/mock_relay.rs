@@ -26,7 +26,7 @@ use cb_common::{
     types::{BlsSecretKey, Chain},
     utils::{
         CONSENSUS_VERSION_HEADER, EncodingType, RawRequest, TestRandomSeed, deserialize_body,
-        get_accept_type, get_consensus_version_header, timestamp_of_slot_start_sec,
+        get_accept_types, get_consensus_version_header, timestamp_of_slot_start_sec,
     },
 };
 use cb_pbs::MAX_SIZE_SUBMIT_BLOCK_RESPONSE;
@@ -118,16 +118,16 @@ async fn handle_get_header(
     headers: HeaderMap,
 ) -> Response {
     state.received_get_header.fetch_add(1, Ordering::Relaxed);
-    let accept_type = get_accept_type(&headers)
+    let accept_types = get_accept_types(&headers)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("error parsing accept header: {e}")));
-    if let Err(e) = accept_type {
+    if let Err(e) = accept_types {
         return e.into_response();
     }
-    let accept_header = accept_type.unwrap();
+    let accept_types = accept_types.unwrap();
     let consensus_version_header =
         get_consensus_version_header(&headers).unwrap_or(ForkName::Electra);
 
-    let data = match consensus_version_header {
+    let (data, accept_type) = match consensus_version_header {
         // Add Fusaka and other forks here when necessary
         ForkName::Electra => {
             let mut header = ExecutionPayloadHeaderElectra {
@@ -150,16 +150,16 @@ async fn handle_get_header(
             let object_root = message.tree_hash_root();
             let signature = sign_builder_root(state.chain, &state.signer, object_root);
             let response = SignedBuilderBid { message, signature };
-            match accept_header {
-                EncodingType::Json => {
-                    let versioned_response = GetHeaderResponse {
-                        version: ForkName::Electra,
-                        data: response,
-                        metadata: Default::default(),
-                    };
-                    serde_json::to_vec(&versioned_response).unwrap()
-                }
-                EncodingType::Ssz => response.as_ssz_bytes(),
+            if accept_types.contains(&EncodingType::Ssz) {
+                (response.as_ssz_bytes(), EncodingType::Ssz)
+            } else {
+                // Return JSON for everything else; this is fine for the mock
+                let versioned_response = GetHeaderResponse {
+                    version: ForkName::Electra,
+                    data: response,
+                    metadata: Default::default(),
+                };
+                (serde_json::to_vec(&versioned_response).unwrap(), EncodingType::Json)
             }
         }
         _ => {
@@ -174,7 +174,7 @@ async fn handle_get_header(
     let mut response = (StatusCode::OK, data).into_response();
     let consensus_version_header =
         HeaderValue::from_str(&consensus_version_header.to_string()).unwrap();
-    let content_type_header = HeaderValue::from_str(&accept_header.to_string()).unwrap();
+    let content_type_header = HeaderValue::from_str(&accept_type.to_string()).unwrap();
     response.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
     response.headers_mut().insert(CONTENT_TYPE, content_type_header);
     response
@@ -205,18 +205,21 @@ async fn handle_submit_block_v1(
     raw_request: RawRequest,
 ) -> Response {
     state.received_submit_block.fetch_add(1, Ordering::Relaxed);
-    let accept_header = get_accept_type(&headers);
-    if let Err(e) = accept_header {
+    let accept_types = get_accept_types(&headers);
+    if let Err(e) = accept_types {
         error!(%e, "error parsing accept header");
         return (StatusCode::BAD_REQUEST, format!("error parsing accept header: {e}"))
             .into_response();
     }
-    let accept_header = accept_header.unwrap();
+    let accept_types = accept_types.unwrap();
     let consensus_version_header =
         get_consensus_version_header(&headers).unwrap_or(ForkName::Electra);
 
-    let data = if state.large_body() {
-        vec![1u8; 1 + MAX_SIZE_SUBMIT_BLOCK_RESPONSE]
+    let (data, accept_type) = if state.large_body() {
+        (
+            vec![1u8; 1 + MAX_SIZE_SUBMIT_BLOCK_RESPONSE],
+            accept_types.iter().next().unwrap_or(&EncodingType::Json),
+        )
     } else {
         let mut execution_payload = ExecutionPayloadElectra::test_random();
         let submit_block = deserialize_body(&headers, raw_request.body_bytes).await.map_err(|e| {
@@ -239,19 +242,10 @@ async fn handle_submit_block_v1(
         let response =
             PayloadAndBlobs { execution_payload: execution_payload.into(), blobs_bundle };
 
-        match accept_header {
-            EncodingType::Json => {
-                // Response is versioned for JSON
-                let response = SubmitBlindedBlockResponse {
-                    version: ForkName::Electra,
-                    metadata: Default::default(),
-                    data: response,
-                };
-                serde_json::to_vec(&response).unwrap()
-            }
-            EncodingType::Ssz => match consensus_version_header {
+        if accept_types.contains(&EncodingType::Ssz) {
+            match consensus_version_header {
                 // Response isn't versioned for SSZ
-                ForkName::Electra => response.as_ssz_bytes(),
+                ForkName::Electra => (response.as_ssz_bytes(), &EncodingType::Ssz),
                 _ => {
                     return (
                         StatusCode::BAD_REQUEST,
@@ -259,14 +253,22 @@ async fn handle_submit_block_v1(
                     )
                         .into_response();
                 }
-            },
+            }
+        } else {
+            // Response is versioned for JSON
+            let response = SubmitBlindedBlockResponse {
+                version: ForkName::Electra,
+                metadata: Default::default(),
+                data: response,
+            };
+            (serde_json::to_vec(&response).unwrap(), &EncodingType::Json)
         }
     };
 
     let mut response = (StatusCode::OK, data).into_response();
     let consensus_version_header =
         HeaderValue::from_str(&consensus_version_header.to_string()).unwrap();
-    let content_type_header = HeaderValue::from_str(&accept_header.to_string()).unwrap();
+    let content_type_header = HeaderValue::from_str(&accept_type.to_string()).unwrap();
     response.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
     response.headers_mut().insert(CONTENT_TYPE, content_type_header);
     response

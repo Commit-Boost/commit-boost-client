@@ -7,6 +7,7 @@ pub enum PbsClientError {
     NoPayload,
     Internal,
     DecodeError(String),
+    RelayError(String),
 }
 
 impl PbsClientError {
@@ -16,6 +17,7 @@ impl PbsClientError {
             PbsClientError::NoPayload => StatusCode::BAD_GATEWAY,
             PbsClientError::Internal => StatusCode::INTERNAL_SERVER_ERROR,
             PbsClientError::DecodeError(_) => StatusCode::BAD_REQUEST,
+            PbsClientError::RelayError(_) => StatusCode::FAILED_DEPENDENCY,
         }
     }
 }
@@ -27,6 +29,7 @@ impl IntoResponse for PbsClientError {
             PbsClientError::NoPayload => "no payload from relays".to_string(),
             PbsClientError::Internal => "internal server error".to_string(),
             PbsClientError::DecodeError(e) => format!("error decoding request: {e}"),
+            PbsClientError::RelayError(e) => format!("error processing relay response: {e}"),
         };
 
         (self.status_code(), msg).into_response()
