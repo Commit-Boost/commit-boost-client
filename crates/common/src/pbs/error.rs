@@ -14,6 +14,9 @@ pub enum PbsError {
     #[error("json decode error: {err:?}, raw: {raw}")]
     JsonDecode { err: serde_json::Error, raw: String },
 
+    #[error("error with request: {0}")]
+    GeneralRequest(String),
+
     #[error("{0}")]
     ReadResponse(#[from] ResponseReadError),
 

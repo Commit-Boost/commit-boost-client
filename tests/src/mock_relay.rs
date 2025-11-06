@@ -127,7 +127,7 @@ async fn handle_get_header(
     let consensus_version_header =
         get_consensus_version_header(&headers).unwrap_or(ForkName::Electra);
 
-    let (data, accept_type) = match consensus_version_header {
+    let (data, content_type) = match consensus_version_header {
         // Add Fusaka and other forks here when necessary
         ForkName::Electra => {
             let mut header = ExecutionPayloadHeaderElectra {
@@ -174,7 +174,7 @@ async fn handle_get_header(
     let mut response = (StatusCode::OK, data).into_response();
     let consensus_version_header =
         HeaderValue::from_str(&consensus_version_header.to_string()).unwrap();
-    let content_type_header = HeaderValue::from_str(&accept_type.to_string()).unwrap();
+    let content_type_header = HeaderValue::from_str(&content_type.to_string()).unwrap();
     response.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
     response.headers_mut().insert(CONTENT_TYPE, content_type_header);
     response

@@ -1676,6 +1676,7 @@ dependencies = [
  "ethereum_ssz",
  "eyre",
  "futures",
+ "headers",
  "lazy_static",
  "parking_lot",
  "prometheus",
