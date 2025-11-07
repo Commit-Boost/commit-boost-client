@@ -27,8 +27,8 @@ use cb_common::{
 use futures::future::join_all;
 use parking_lot::RwLock;
 use reqwest::{
-    StatusCode,
-    header::{CONTENT_TYPE, USER_AGENT},
+    Response, StatusCode,
+    header::{ACCEPT, CONTENT_TYPE, USER_AGENT},
 };
 use tokio::time::sleep;
 use tracing::{Instrument, debug, error, warn};
@@ -305,13 +305,12 @@ struct ValidationContext {
     parent_block: Arc<RwLock<Option<Block>>>,
 }
 
-async fn send_one_get_header(
-    params: GetHeaderParams,
-    relay: RelayClient,
-    chain: Chain,
+async fn send_get_header_impl(
+    relay: &RelayClient,
     mut req_config: RequestContext,
-    validation: ValidationContext,
-) -> Result<(u64, Option<GetHeaderResponse>), PbsError> {
+    accepts_ssz: bool,
+    accepts_json: bool,
+) -> Result<(Response, u64, EncodingType), PbsError> {
     // the timestamp in the header is the consensus block time which is fixed,
     // use the beginning of the request as proxy to make sure we use only the
     // last one received
@@ -322,14 +321,6 @@ async fn send_one_get_header(
     // minimize timing games without losing the bid
     req_config.headers.insert(HEADER_TIMEOUT_MS, HeaderValue::from(req_config.timeout_ms));
 
-    // Check which types this request is for
-    let accept_types = get_accept_types(&req_config.headers).map_err(|e| {
-        PbsError::GeneralRequest(format!("error reading accept types: {e}").to_string())
-    })?;
-    let accepts_ssz = accept_types.contains(&EncodingType::Ssz);
-    let accepts_json = accept_types.contains(&EncodingType::Json);
-
-    let start_request = Instant::now();
     let res = match relay
         .client
         .get(req_config.url)
@@ -348,12 +339,11 @@ async fn send_one_get_header(
     };
 
     // Make sure the response type is acceptable
-    let code = res.status();
     let content_type = match res.headers().get(CONTENT_TYPE) {
         Some(header) => {
             let header_str = header.to_str().map_err(|e| PbsError::RelayResponse {
                 error_msg: format!("cannot decode content-type header: {e}").to_string(),
-                code: (code.as_u16()),
+                code: (res.status().as_u16()),
             })?;
             if header_str.eq_ignore_ascii_case(&EncodingType::Ssz.to_string()) && accepts_ssz {
                 EncodingType::Ssz
@@ -369,6 +359,73 @@ async fn send_one_get_header(
         }
         None => EncodingType::Json, // Default to JSON if no content type is provided
     };
+
+    Ok((res, start_request_time, content_type))
+}
+
+async fn send_one_get_header(
+    params: GetHeaderParams,
+    relay: RelayClient,
+    chain: Chain,
+    req_config: RequestContext,
+    validation: ValidationContext,
+) -> Result<(u64, Option<GetHeaderResponse>), PbsError> {
+    let mut original_headers = req_config.headers.clone();
+
+    // Check which types this request is for
+    let accept_types = get_accept_types(&req_config.headers).map_err(|e| {
+        PbsError::GeneralRequest(format!("error reading accept types: {e}").to_string())
+    })?;
+    let accepts_ssz = accept_types.contains(&EncodingType::Ssz);
+    let accepts_json = accept_types.contains(&EncodingType::Json);
+
+    // Send the header request
+    let mut start_request = Instant::now();
+    let config = RequestContext {
+        url: req_config.url.clone(),
+        timeout_ms: req_config.timeout_ms,
+        headers: req_config.headers,
+    };
+    let (mut res, mut start_request_time, mut content_type) =
+        send_get_header_impl(&relay, config, accepts_ssz, accepts_json).await?;
+    let mut code = res.status();
+
+    // If the request only supports SSZ, but the relay only supports JSON, resubmit
+    // to the relay with JSON - we'll convert it ourselves
+    if code == StatusCode::NOT_ACCEPTABLE && accepts_ssz && !accepts_json {
+        debug!(
+            relay_id = relay.id.as_ref(),
+            "relay does not support SSZ, resubmitting request with JSON accept header"
+        );
+
+        // Make sure there's enough time left to resubmit
+        let elapsed = start_request.elapsed().as_millis() as u64;
+        if elapsed >= req_config.timeout_ms {
+            RELAY_STATUS_CODE
+                .with_label_values(&[TIMEOUT_ERROR_CODE_STR, GET_HEADER_ENDPOINT_TAG, &relay.id])
+                .inc();
+            return Err(PbsError::RelayResponse {
+                error_msg: "not enough time left to resubmit request with JSON accept header"
+                    .to_string(),
+                code: TIMEOUT_ERROR_CODE,
+            });
+        }
+
+        // Resubmit the request with JSON accept header
+        // Also resets the start request timer
+        original_headers.remove(ACCEPT);
+        original_headers
+            .insert(ACCEPT, HeaderValue::from_str(&EncodingType::Json.to_string()).unwrap());
+        let config = RequestContext {
+            url: req_config.url.clone(),
+            timeout_ms: req_config.timeout_ms - elapsed,
+            headers: original_headers,
+        };
+        start_request = Instant::now();
+        (res, start_request_time, content_type) =
+            send_get_header_impl(&relay, config, false, true).await?;
+        code = res.status();
+    }
 
     // Get the consensus fork version if provided (to avoid cloning later)
     let fork = get_consensus_version_header(res.headers());
