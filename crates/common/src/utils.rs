@@ -510,7 +510,7 @@ impl std::fmt::Display for EncodingType {
 impl FromStr for EncodingType {
     type Err = String;
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
+        match value.to_ascii_lowercase().as_str() {
             "application/json" | "" => Ok(EncodingType::Json),
             "application/octet-stream" => Ok(EncodingType::Ssz),
             _ => Err(format!("unsupported encoding type: {value}")),
