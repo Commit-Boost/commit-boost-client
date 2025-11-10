@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     net::SocketAddr,
     sync::{
         Arc, RwLock,
@@ -50,6 +51,7 @@ pub async fn start_mock_relay_service(state: Arc<MockRelayState>, port: u16) -> 
 pub struct MockRelayState {
     pub chain: Chain,
     pub signer: BlsSecretKey,
+    pub supported_content_types: Arc<HashSet<EncodingType>>,
     large_body: bool,
     received_get_header: Arc<AtomicU64>,
     received_get_status: Arc<AtomicU64>,
@@ -90,6 +92,9 @@ impl MockRelayState {
             received_register_validator: Default::default(),
             received_submit_block: Default::default(),
             response_override: RwLock::new(None),
+            supported_content_types: Arc::new(
+                [EncodingType::Json, EncodingType::Ssz].iter().cloned().collect(),
+            ),
         }
     }
 
@@ -127,7 +132,20 @@ async fn handle_get_header(
     let consensus_version_header =
         get_consensus_version_header(&headers).unwrap_or(ForkName::Electra);
 
-    let (data, content_type) = match consensus_version_header {
+    let content_type = if state.supported_content_types.contains(&EncodingType::Ssz) &&
+        accept_types.contains(&EncodingType::Ssz)
+    {
+        EncodingType::Ssz
+    } else if state.supported_content_types.contains(&EncodingType::Json) &&
+        accept_types.contains(&EncodingType::Json)
+    {
+        EncodingType::Json
+    } else {
+        return (StatusCode::NOT_ACCEPTABLE, "No acceptable content type found".to_string())
+            .into_response();
+    };
+
+    let data = match consensus_version_header {
         // Add Fusaka and other forks here when necessary
         ForkName::Electra => {
             let mut header = ExecutionPayloadHeaderElectra {
@@ -150,8 +168,8 @@ async fn handle_get_header(
             let object_root = message.tree_hash_root();
             let signature = sign_builder_root(state.chain, &state.signer, object_root);
             let response = SignedBuilderBid { message, signature };
-            if accept_types.contains(&EncodingType::Ssz) {
-                (response.as_ssz_bytes(), EncodingType::Ssz)
+            if content_type == EncodingType::Ssz {
+                response.as_ssz_bytes()
             } else {
                 // Return JSON for everything else; this is fine for the mock
                 let versioned_response = GetHeaderResponse {
@@ -159,7 +177,7 @@ async fn handle_get_header(
                     data: response,
                     metadata: Default::default(),
                 };
-                (serde_json::to_vec(&versioned_response).unwrap(), EncodingType::Json)
+                serde_json::to_vec(&versioned_response).unwrap()
             }
         }
         _ => {

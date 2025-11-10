@@ -101,6 +101,11 @@ pub async fn get_header<S: BuilderApiState>(
     let mut send_headers = HeaderMap::new();
     send_headers.insert(USER_AGENT, get_user_agent_with_version(&req_headers)?);
 
+    // Get the accept types from the request and forward them
+    for value in req_headers.get_all(ACCEPT).iter() {
+        send_headers.append(ACCEPT, value.clone());
+    }
+
     let mut handles = Vec::with_capacity(relays.len());
     for relay in relays.iter() {
         handles.push(
@@ -308,9 +313,7 @@ struct ValidationContext {
 async fn send_get_header_impl(
     relay: &RelayClient,
     mut req_config: RequestContext,
-    accepts_ssz: bool,
-    accepts_json: bool,
-) -> Result<(Response, u64, EncodingType), PbsError> {
+) -> Result<(Response, u64, Option<EncodingType>), PbsError> {
     // the timestamp in the header is the consensus block time which is fixed,
     // use the beginning of the request as proxy to make sure we use only the
     // last one received
@@ -338,28 +341,22 @@ async fn send_get_header_impl(
         }
     };
 
-    // Make sure the response type is acceptable
-    let content_type = match res.headers().get(CONTENT_TYPE) {
-        Some(header) => {
-            let header_str = header.to_str().map_err(|e| PbsError::RelayResponse {
-                error_msg: format!("cannot decode content-type header: {e}").to_string(),
-                code: (res.status().as_u16()),
-            })?;
-            if header_str.eq_ignore_ascii_case(&EncodingType::Ssz.to_string()) && accepts_ssz {
-                EncodingType::Ssz
-            } else if header_str.eq_ignore_ascii_case(&EncodingType::Json.to_string()) &&
-                accepts_json
-            {
-                EncodingType::Json
-            } else {
-                return Err(PbsError::GeneralRequest(format!(
-                    "relay returned unsupported content type: {header_str}"
-                )));
-            }
+    // Get the content type; this is only really useful for OK responses, and
+    // doesn't handle encoding types besides SSZ and JSON
+    let mut content_type: Option<EncodingType> = None;
+    if res.status() == StatusCode::OK &&
+        let Some(header) = res.headers().get(CONTENT_TYPE)
+    {
+        let header_str = header.to_str().map_err(|e| PbsError::RelayResponse {
+            error_msg: format!("cannot decode content-type header: {e}").to_string(),
+            code: (res.status().as_u16()),
+        })?;
+        if header_str.eq_ignore_ascii_case(&EncodingType::Ssz.to_string()) {
+            content_type = Some(EncodingType::Ssz)
+        } else if header_str.eq_ignore_ascii_case(&EncodingType::Json.to_string()) {
+            content_type = Some(EncodingType::Json)
         }
-        None => EncodingType::Json, // Default to JSON if no content type is provided
-    };
-
+    }
     Ok((res, start_request_time, content_type))
 }
 
@@ -387,7 +384,7 @@ async fn send_one_get_header(
         headers: req_config.headers,
     };
     let (mut res, mut start_request_time, mut content_type) =
-        send_get_header_impl(&relay, config, accepts_ssz, accepts_json).await?;
+        send_get_header_impl(&relay, config).await?;
     let mut code = res.status();
 
     // If the request only supports SSZ, but the relay only supports JSON, resubmit
@@ -422,13 +419,13 @@ async fn send_one_get_header(
             headers: original_headers,
         };
         start_request = Instant::now();
-        (res, start_request_time, content_type) =
-            send_get_header_impl(&relay, config, false, true).await?;
+        (res, start_request_time, content_type) = send_get_header_impl(&relay, config).await?;
         code = res.status();
     }
 
     // Get the consensus fork version if provided (to avoid cloning later)
     let fork = get_consensus_version_header(res.headers());
+    let content_type_header = res.headers().get(CONTENT_TYPE).cloned();
 
     let request_latency = start_request.elapsed();
     RELAY_LATENCY
@@ -457,33 +454,41 @@ async fn send_one_get_header(
     }
 
     // Regenerate the header from the response
-    let get_header_response = match content_type {
-        EncodingType::Ssz => {
-            // Get the consensus fork version - this is required according to the spec
-            let fork = fork.ok_or(PbsError::RelayResponse {
-                error_msg: "relay did not provide consensus version header for ssz payload"
-                    .to_string(),
-                code: code.as_u16(),
-            })?;
-            let data =
-                SignedBuilderBid::from_ssz_bytes_by_fork(&response_bytes, fork).map_err(|e| {
-                    PbsError::RelayResponse {
+    let get_header_response =
+        match content_type {
+            Some(EncodingType::Ssz) => {
+                // Get the consensus fork version - this is required according to the spec
+                let fork = fork.ok_or(PbsError::RelayResponse {
+                    error_msg: "relay did not provide consensus version header for ssz payload"
+                        .to_string(),
+                    code: code.as_u16(),
+                })?;
+                let data = SignedBuilderBid::from_ssz_bytes_by_fork(&response_bytes, fork)
+                    .map_err(|e| PbsError::RelayResponse {
                         error_msg: (format!("error decoding relay payload: {:?}", e)).to_string(),
                         code: (code.as_u16()),
-                    }
-                })?;
-            GetHeaderResponse { version: fork, data, metadata: Default::default() }
-        }
-        EncodingType::Json => match serde_json::from_slice::<GetHeaderResponse>(&response_bytes) {
-            Ok(parsed) => parsed,
-            Err(err) => {
-                return Err(PbsError::JsonDecode {
-                    err,
-                    raw: String::from_utf8_lossy(&response_bytes).into_owned(),
-                });
+                    })?;
+                GetHeaderResponse { version: fork, data, metadata: Default::default() }
             }
-        },
-    };
+            Some(EncodingType::Json) => {
+                match serde_json::from_slice::<GetHeaderResponse>(&response_bytes) {
+                    Ok(parsed) => parsed,
+                    Err(err) => {
+                        return Err(PbsError::JsonDecode {
+                            err,
+                            raw: String::from_utf8_lossy(&response_bytes).into_owned(),
+                        });
+                    }
+                }
+            }
+            None => {
+                let error_msg = match content_type_header {
+                    None => "relay response missing content type header".to_string(),
+                    Some(ct) => format!("relay response has unsupported content type {ct:?}"),
+                };
+                return Err(PbsError::RelayResponse { error_msg, code: code.as_u16() });
+            }
+        };
 
     debug!(
         relay_id = relay.id.as_ref(),
@@ -492,7 +497,7 @@ async fn send_one_get_header(
         version =? get_header_response.version,
         value_eth = format_ether(*get_header_response.value()),
         block_hash = %get_header_response.block_hash(),
-        content_type = %content_type,
+        content_type = ?content_type,
         "received new header"
     );
 

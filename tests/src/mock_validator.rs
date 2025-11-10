@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use alloy::{primitives::B256, rpc::types::beacon::relay::ValidatorRegistration};
 use cb_common::{
     pbs::{BuilderApiVersion, RelayClient, SignedBlindedBeaconBlock},
@@ -27,7 +29,7 @@ impl MockValidator {
     pub async fn do_get_header(
         &self,
         pubkey: Option<BlsPublicKey>,
-        accept: Option<EncodingType>,
+        accept: HashSet<EncodingType>,
         fork_name: ForkName,
     ) -> eyre::Result<Response> {
         let default_pubkey = bls_pubkey_from_hex(
@@ -35,14 +37,24 @@ impl MockValidator {
         )?;
         let url =
             self.comm_boost.get_header_url(0, &B256::ZERO, &pubkey.unwrap_or(default_pubkey))?;
-        let res = self
+        let accept = match accept.len() {
+            0 => None,
+            1 => Some(accept.into_iter().next().unwrap().to_string()),
+            _ => {
+                let accept_strings: Vec<String> =
+                    accept.into_iter().map(|e| e.to_string()).collect();
+                Some(accept_strings.join(", "))
+            }
+        };
+        let mut res = self
             .comm_boost
             .client
             .get(url)
-            .header(ACCEPT, &accept.unwrap_or(EncodingType::Json).to_string())
-            .header(CONSENSUS_VERSION_HEADER, &fork_name.to_string())
-            .send()
-            .await?;
+            .header(CONSENSUS_VERSION_HEADER, &fork_name.to_string());
+        if let Some(accept_header) = accept {
+            res = res.header(ACCEPT, accept_header);
+        }
+        let res = res.send().await?;
         Ok(res)
     }
 
