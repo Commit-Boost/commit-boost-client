@@ -38,11 +38,7 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
     let accept_types = get_accept_types(&req_headers).map_err(|e| {
         error!(%e, "error parsing accept header");
         PbsClientError::DecodeError(format!("error parsing accept header: {e}"))
-    });
-    if let Err(e) = accept_types {
-        return Ok((StatusCode::BAD_REQUEST, e).into_response());
-    }
-    let accept_types = accept_types.unwrap();
+    })?;
 
     info!(ua, ms_into_slot, "new request");
 
