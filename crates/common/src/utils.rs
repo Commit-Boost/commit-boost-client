@@ -1,16 +1,31 @@
 #[cfg(feature = "testing-flags")]
 use std::cell::Cell;
 use std::{
+    fmt::Display,
     net::Ipv4Addr,
+    str::FromStr,
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use alloy::{hex, primitives::U256};
-use axum::http::HeaderValue;
+use axum::{
+    extract::{FromRequest, Request},
+    http::HeaderValue,
+    response::{IntoResponse, Response as AxumResponse},
+};
+use bytes::Bytes;
 use futures::StreamExt;
-use lh_types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+use headers_accept::Accept;
+pub use lh_types::ForkName;
+use lh_types::{
+    BeaconBlock,
+    test_utils::{SeedableRng, TestRandom, XorShiftRng},
+};
 use rand::{Rng, distr::Alphanumeric};
-use reqwest::{Response, header::HeaderMap};
+use reqwest::{
+    Response,
+    header::{ACCEPT, CONTENT_TYPE, HeaderMap},
+};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use ssz::{Decode, Encode};
@@ -26,11 +41,16 @@ use tracing_subscriber::{
 use crate::{
     config::LogsSettings,
     constants::SIGNER_JWT_EXPIRATION,
-    pbs::HEADER_VERSION_VALUE,
+    pbs::{HEADER_VERSION_VALUE, SignedBlindedBeaconBlock},
     types::{BlsPublicKey, Chain, Jwt, JwtClaims, ModuleId},
 };
 
+const APPLICATION_JSON: &str = "application/json";
+const APPLICATION_OCTET_STREAM: &str = "application/octet-stream";
+const WILDCARD: &str = "*/*";
+
 const MILLIS_PER_SECOND: u64 = 1_000;
+pub const CONSENSUS_VERSION_HEADER: &str = "Eth-Consensus-Version";
 
 #[derive(Debug, Error)]
 pub enum ResponseReadError {
@@ -407,6 +427,162 @@ pub fn get_user_agent(req_headers: &HeaderMap) -> String {
 pub fn get_user_agent_with_version(req_headers: &HeaderMap) -> eyre::Result<HeaderValue> {
     let ua = get_user_agent(req_headers);
     Ok(HeaderValue::from_str(&format!("commit-boost/{HEADER_VERSION_VALUE} {ua}"))?)
+}
+
+/// Parse the ACCEPT header to get the type of response to encode the body with,
+/// defaulting to JSON if missing. Returns an error if malformed or unsupported
+/// types are requested. Supports requests with multiple ACCEPT headers or
+/// headers with multiple media types.
+pub fn get_accept_type(req_headers: &HeaderMap) -> eyre::Result<EncodingType> {
+    let accept = Accept::from_str(
+        req_headers.get(ACCEPT).and_then(|value| value.to_str().ok()).unwrap_or(APPLICATION_JSON),
+    )
+    .map_err(|e| eyre::eyre!("invalid accept header: {e}"))?;
+
+    if accept.media_types().count() == 0 {
+        // No valid media types found, default to JSON
+        return Ok(EncodingType::Json);
+    }
+
+    // Get the SSZ and JSON media types if present
+    let mut ssz_type = false;
+    let mut json_type = false;
+    let mut unsupported_type = false;
+    accept.media_types().for_each(|mt| match mt.essence().to_string().as_str() {
+        APPLICATION_OCTET_STREAM => ssz_type = true,
+        APPLICATION_JSON | WILDCARD => json_type = true,
+        _ => unsupported_type = true,
+    });
+
+    // If SSZ is present, prioritize it
+    if ssz_type {
+        return Ok(EncodingType::Ssz);
+    }
+    // If there aren't any unsupported types, use JSON
+    if !unsupported_type {
+        return Ok(EncodingType::Json);
+    }
+    Err(eyre::eyre!("unsupported accept type"))
+}
+
+/// Parse CONTENT TYPE header to get the encoding type of the body, defaulting
+/// to JSON if missing or malformed.
+pub fn get_content_type(req_headers: &HeaderMap) -> EncodingType {
+    EncodingType::from_str(
+        req_headers
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or(APPLICATION_JSON),
+    )
+    .unwrap_or(EncodingType::Json)
+}
+
+/// Parse CONSENSUS_VERSION header
+pub fn get_consensus_version_header(req_headers: &HeaderMap) -> Option<ForkName> {
+    ForkName::from_str(
+        req_headers
+            .get(CONSENSUS_VERSION_HEADER)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or(""),
+    )
+    .ok()
+}
+
+/// Enum for types that can be used to encode incoming request bodies or
+/// outgoing response bodies
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum EncodingType {
+    /// Body is UTF-8 encoded as JSON
+    Json,
+
+    /// Body is raw bytes representing an SSZ object
+    Ssz,
+}
+
+impl std::fmt::Display for EncodingType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EncodingType::Json => write!(f, "application/json"),
+            EncodingType::Ssz => write!(f, "application/octet-stream"),
+        }
+    }
+}
+
+impl FromStr for EncodingType {
+    type Err = String;
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "application/json" | "" => Ok(EncodingType::Json),
+            "application/octet-stream" => Ok(EncodingType::Ssz),
+            _ => Err(format!("unsupported encoding type: {value}")),
+        }
+    }
+}
+
+pub enum BodyDeserializeError {
+    SerdeJsonError(serde_json::Error),
+    SszDecodeError(ssz::DecodeError),
+    UnsupportedMediaType,
+    MissingVersionHeader,
+}
+
+impl Display for BodyDeserializeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BodyDeserializeError::SerdeJsonError(e) => write!(f, "JSON deserialization error: {e}"),
+            BodyDeserializeError::SszDecodeError(e) => {
+                write!(f, "SSZ deserialization error: {e:?}")
+            }
+            BodyDeserializeError::UnsupportedMediaType => write!(f, "unsupported media type"),
+            BodyDeserializeError::MissingVersionHeader => {
+                write!(f, "missing consensus version header")
+            }
+        }
+    }
+}
+
+pub async fn deserialize_body(
+    headers: &HeaderMap,
+    body: Bytes,
+) -> Result<SignedBlindedBeaconBlock, BodyDeserializeError> {
+    if headers.contains_key(CONTENT_TYPE) {
+        return match get_content_type(headers) {
+            EncodingType::Json => serde_json::from_slice::<SignedBlindedBeaconBlock>(&body)
+                .map_err(BodyDeserializeError::SerdeJsonError),
+            EncodingType::Ssz => {
+                // Get the version header
+                match get_consensus_version_header(headers) {
+                    Some(version) => {
+                        SignedBlindedBeaconBlock::from_ssz_bytes_with(&body, |bytes| {
+                            BeaconBlock::from_ssz_bytes_for_fork(bytes, version)
+                        })
+                        .map_err(BodyDeserializeError::SszDecodeError)
+                    }
+                    None => Err(BodyDeserializeError::MissingVersionHeader),
+                }
+            }
+        };
+    }
+
+    Err(BodyDeserializeError::UnsupportedMediaType)
+}
+
+#[must_use]
+#[derive(Debug, Clone, Default)]
+pub struct RawRequest {
+    pub body_bytes: Bytes,
+}
+
+impl<S> FromRequest<S> for RawRequest
+where
+    S: Send + Sync,
+{
+    type Rejection = AxumResponse;
+
+    async fn from_request(req: Request, _state: &S) -> Result<Self, Self::Rejection> {
+        let bytes = Bytes::from_request(req, _state).await.map_err(IntoResponse::into_response)?;
+        Ok(Self { body_bytes: bytes })
+    }
 }
 
 #[cfg(unix)]

@@ -10,6 +10,7 @@ axum.workspace = true
 cb-common.workspace = true
 cb-pbs.workspace = true
 cb-signer.workspace = true
+ethereum_ssz.workspace = true
 eyre.workspace = true
 lh_types.workspace = true
 reqwest.workspace = true

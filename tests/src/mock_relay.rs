@@ -10,7 +10,7 @@ use alloy::{primitives::U256, rpc::types::beacon::relay::ValidatorRegistration};
 use axum::{
     Json, Router,
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
@@ -19,17 +19,22 @@ use cb_common::{
         BUILDER_V1_API_PATH, BUILDER_V2_API_PATH, BlobsBundle, BuilderBid, BuilderBidElectra,
         ExecutionPayloadElectra, ExecutionPayloadHeaderElectra, ExecutionRequests, ForkName,
         GET_HEADER_PATH, GET_STATUS_PATH, GetHeaderParams, GetHeaderResponse, GetPayloadInfo,
-        PayloadAndBlobs, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH, SignedBlindedBeaconBlock,
-        SignedBuilderBid, SubmitBlindedBlockResponse,
+        PayloadAndBlobs, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH, SignedBuilderBid,
+        SubmitBlindedBlockResponse,
     },
     signature::sign_builder_root,
     types::{BlsSecretKey, Chain},
-    utils::{TestRandomSeed, timestamp_of_slot_start_sec},
+    utils::{
+        CONSENSUS_VERSION_HEADER, EncodingType, RawRequest, TestRandomSeed, deserialize_body,
+        get_accept_type, get_consensus_version_header, timestamp_of_slot_start_sec,
+    },
 };
 use cb_pbs::MAX_SIZE_SUBMIT_BLOCK_RESPONSE;
 use lh_types::KzgProof;
+use reqwest::header::CONTENT_TYPE;
+use ssz::Encode;
 use tokio::net::TcpListener;
-use tracing::debug;
+use tracing::{debug, error};
 use tree_hash::TreeHash;
 
 pub async fn start_mock_relay_service(state: Arc<MockRelayState>, port: u16) -> eyre::Result<()> {
@@ -110,36 +115,69 @@ pub fn mock_relay_app_router(state: Arc<MockRelayState>) -> Router {
 async fn handle_get_header(
     State(state): State<Arc<MockRelayState>>,
     Path(GetHeaderParams { parent_hash, .. }): Path<GetHeaderParams>,
+    headers: HeaderMap,
 ) -> Response {
     state.received_get_header.fetch_add(1, Ordering::Relaxed);
+    let accept_type = get_accept_type(&headers)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("error parsing accept header: {e}")));
+    if let Err(e) = accept_type {
+        return e.into_response();
+    }
+    let accept_header = accept_type.unwrap();
+    let consensus_version_header =
+        get_consensus_version_header(&headers).unwrap_or(ForkName::Electra);
 
-    let mut header = ExecutionPayloadHeaderElectra {
-        parent_hash: parent_hash.into(),
-        block_hash: Default::default(),
-        timestamp: timestamp_of_slot_start_sec(0, state.chain),
-        ..ExecutionPayloadHeaderElectra::test_random()
+    let data = match consensus_version_header {
+        // Add Fusaka and other forks here when necessary
+        ForkName::Electra => {
+            let mut header = ExecutionPayloadHeaderElectra {
+                parent_hash: parent_hash.into(),
+                block_hash: Default::default(),
+                timestamp: timestamp_of_slot_start_sec(0, state.chain),
+                ..ExecutionPayloadHeaderElectra::test_random()
+            };
+
+            header.block_hash.0[0] = 1;
+
+            let message = BuilderBid::Electra(BuilderBidElectra {
+                header,
+                blob_kzg_commitments: Default::default(),
+                execution_requests: ExecutionRequests::default(),
+                value: U256::from(10),
+                pubkey: state.signer.public_key().into(),
+            });
+
+            let object_root = message.tree_hash_root();
+            let signature = sign_builder_root(state.chain, &state.signer, object_root);
+            let response = SignedBuilderBid { message, signature };
+            match accept_header {
+                EncodingType::Json => {
+                    let versioned_response = GetHeaderResponse {
+                        version: ForkName::Electra,
+                        data: response,
+                        metadata: Default::default(),
+                    };
+                    serde_json::to_vec(&versioned_response).unwrap()
+                }
+                EncodingType::Ssz => response.as_ssz_bytes(),
+            }
+        }
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                format!("Unsupported fork {consensus_version_header}"),
+            )
+                .into_response();
+        }
     };
 
-    header.block_hash.0[0] = 1;
-
-    let message = BuilderBid::Electra(BuilderBidElectra {
-        header,
-        blob_kzg_commitments: Default::default(),
-        execution_requests: ExecutionRequests::default(),
-        value: U256::from(10),
-        pubkey: state.signer.public_key().into(),
-    });
-
-    let object_root = message.tree_hash_root();
-    let signature = sign_builder_root(state.chain, &state.signer, object_root);
-    let response = SignedBuilderBid { message, signature };
-
-    let response = GetHeaderResponse {
-        version: ForkName::Electra,
-        data: response,
-        metadata: Default::default(),
-    };
-    (StatusCode::OK, Json(response)).into_response()
+    let mut response = (StatusCode::OK, data).into_response();
+    let consensus_version_header =
+        HeaderValue::from_str(&consensus_version_header.to_string()).unwrap();
+    let content_type_header = HeaderValue::from_str(&accept_header.to_string()).unwrap();
+    response.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
+    response.headers_mut().insert(CONTENT_TYPE, content_type_header);
+    response
 }
 
 async fn handle_get_status(State(state): State<Arc<MockRelayState>>) -> impl IntoResponse {
@@ -162,14 +200,33 @@ async fn handle_register_validator(
 }
 
 async fn handle_submit_block_v1(
+    headers: HeaderMap,
     State(state): State<Arc<MockRelayState>>,
-    Json(submit_block): Json<SignedBlindedBeaconBlock>,
+    raw_request: RawRequest,
 ) -> Response {
     state.received_submit_block.fetch_add(1, Ordering::Relaxed);
-    if state.large_body() {
-        (StatusCode::OK, Json(vec![1u8; 1 + MAX_SIZE_SUBMIT_BLOCK_RESPONSE])).into_response()
+    let accept_header = get_accept_type(&headers);
+    if let Err(e) = accept_header {
+        error!(%e, "error parsing accept header");
+        return (StatusCode::BAD_REQUEST, format!("error parsing accept header: {e}"))
+            .into_response();
+    }
+    let accept_header = accept_header.unwrap();
+    let consensus_version_header =
+        get_consensus_version_header(&headers).unwrap_or(ForkName::Electra);
+
+    let data = if state.large_body() {
+        vec![1u8; 1 + MAX_SIZE_SUBMIT_BLOCK_RESPONSE]
     } else {
         let mut execution_payload = ExecutionPayloadElectra::test_random();
+        let submit_block = deserialize_body(&headers, raw_request.body_bytes).await.map_err(|e| {
+            error!(%e, "failed to deserialize signed blinded block");
+            (StatusCode::BAD_REQUEST, format!("failed to deserialize body: {e}"))
+        });
+        if let Err(e) = submit_block {
+            return e.into_response();
+        }
+        let submit_block = submit_block.unwrap();
         execution_payload.block_hash = submit_block.block_hash().into();
 
         let mut blobs_bundle = BlobsBundle::default();
@@ -182,15 +239,39 @@ async fn handle_submit_block_v1(
         let response =
             PayloadAndBlobs { execution_payload: execution_payload.into(), blobs_bundle };
 
-        let response = SubmitBlindedBlockResponse {
-            version: ForkName::Electra,
-            metadata: Default::default(),
-            data: response,
-        };
+        match accept_header {
+            EncodingType::Json => {
+                // Response is versioned for JSON
+                let response = SubmitBlindedBlockResponse {
+                    version: ForkName::Electra,
+                    metadata: Default::default(),
+                    data: response,
+                };
+                serde_json::to_vec(&response).unwrap()
+            }
+            EncodingType::Ssz => match consensus_version_header {
+                // Response isn't versioned for SSZ
+                ForkName::Electra => response.as_ssz_bytes(),
+                _ => {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        format!("Unsupported fork {consensus_version_header}"),
+                    )
+                        .into_response();
+                }
+            },
+        }
+    };
 
-        (StatusCode::OK, Json(response)).into_response()
-    }
+    let mut response = (StatusCode::OK, data).into_response();
+    let consensus_version_header =
+        HeaderValue::from_str(&consensus_version_header.to_string()).unwrap();
+    let content_type_header = HeaderValue::from_str(&accept_header.to_string()).unwrap();
+    response.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
+    response.headers_mut().insert(CONTENT_TYPE, content_type_header);
+    response
 }
+
 async fn handle_submit_block_v2(State(state): State<Arc<MockRelayState>>) -> Response {
     state.received_submit_block.fetch_add(1, Ordering::Relaxed);
     (StatusCode::ACCEPTED, "").into_response()
