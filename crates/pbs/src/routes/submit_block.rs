@@ -47,10 +47,7 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
     api_version: BuilderApiVersion,
 ) -> Result<impl IntoResponse, PbsClientError> {
     let signed_blinded_block =
-        Arc::new(deserialize_body(&req_headers, raw_request.body_bytes).await.map_err(|e| {
-            error!(%e, "failed to deserialize signed blinded block");
-            PbsClientError::DecodeError(format!("failed to deserialize body: {e}"))
-        })?);
+        Arc::new(deserialize_body(&req_headers, raw_request.body_bytes).await?);
     tracing::Span::current().record("slot", signed_blinded_block.slot().as_u64() as i64);
     tracing::Span::current()
         .record("block_hash", tracing::field::debug(signed_blinded_block.block_hash()));
@@ -94,7 +91,9 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
                     let mut response = payload_and_blobs.data.as_ssz_bytes().into_response();
                     let consensus_version_header =
                         match HeaderValue::from_str(&payload_and_blobs.version.to_string()) {
-                            Ok(consensus_version_header) => Ok(consensus_version_header),
+                            Ok(consensus_version_header) => {
+                                Ok::<HeaderValue, PbsClientError>(consensus_version_header)
+                            }
                             Err(e) => {
                                 if accepts_json {
                                     info!("sending response as JSON");

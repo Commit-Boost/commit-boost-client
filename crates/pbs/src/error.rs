@@ -1,4 +1,5 @@
 use axum::{http::StatusCode, response::IntoResponse};
+use cb_common::utils::BodyDeserializeError;
 
 #[derive(Debug)]
 /// Errors that the PbsService returns to client
@@ -19,6 +20,12 @@ impl PbsClientError {
             PbsClientError::DecodeError(_) => StatusCode::BAD_REQUEST,
             PbsClientError::RelayError(_) => StatusCode::FAILED_DEPENDENCY,
         }
+    }
+}
+
+impl From<BodyDeserializeError> for PbsClientError {
+    fn from(e: BodyDeserializeError) -> Self {
+        PbsClientError::DecodeError(format!("failed to deserialize body: {e}"))
     }
 }
 

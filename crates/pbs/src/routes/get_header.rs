@@ -58,7 +58,9 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
                     let consensus_version_header = match HeaderValue::from_str(
                         &max_bid.version.to_string(),
                     ) {
-                        Ok(consensus_version_header) => Ok(consensus_version_header),
+                        Ok(consensus_version_header) => {
+                            Ok::<HeaderValue, PbsClientError>(consensus_version_header)
+                        }
                         Err(e) => {
                             if accepts_json {
                                 info!("sending response as JSON");
