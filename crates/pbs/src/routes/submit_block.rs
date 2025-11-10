@@ -110,7 +110,7 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
 
                     // This won't actually fail since the string is a const
                     let content_type_header =
-                        HeaderValue::from_str(&EncodingType::Ssz.to_string()).unwrap();
+                        HeaderValue::from_str(EncodingType::Ssz.content_type()).unwrap();
 
                     response
                         .headers_mut()

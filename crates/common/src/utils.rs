@@ -46,9 +46,9 @@ use crate::{
     types::{BlsPublicKey, Chain, Jwt, JwtClaims, ModuleId},
 };
 
-const APPLICATION_JSON: &str = "application/json";
-const APPLICATION_OCTET_STREAM: &str = "application/octet-stream";
-const WILDCARD: &str = "*/*";
+pub const APPLICATION_JSON: &str = "application/json";
+pub const APPLICATION_OCTET_STREAM: &str = "application/octet-stream";
+pub const WILDCARD: &str = "*/*";
 
 const MILLIS_PER_SECOND: u64 = 1_000;
 pub const CONSENSUS_VERSION_HEADER: &str = "Eth-Consensus-Version";
@@ -498,12 +498,19 @@ pub enum EncodingType {
     Ssz,
 }
 
+impl EncodingType {
+    /// Get the content type string for the encoding type
+    pub fn content_type(&self) -> &str {
+        match self {
+            EncodingType::Json => APPLICATION_JSON,
+            EncodingType::Ssz => APPLICATION_OCTET_STREAM,
+        }
+    }
+}
+
 impl std::fmt::Display for EncodingType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            EncodingType::Json => write!(f, "application/json"),
-            EncodingType::Ssz => write!(f, "application/octet-stream"),
-        }
+        write!(f, "{}", self.content_type())
     }
 }
 
@@ -511,8 +518,8 @@ impl FromStr for EncodingType {
     type Err = String;
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value.to_ascii_lowercase().as_str() {
-            "application/json" | "" => Ok(EncodingType::Json),
-            "application/octet-stream" => Ok(EncodingType::Ssz),
+            APPLICATION_JSON | "" => Ok(EncodingType::Json),
+            APPLICATION_OCTET_STREAM => Ok(EncodingType::Ssz),
             _ => Err(format!("unsupported encoding type: {value}")),
         }
     }

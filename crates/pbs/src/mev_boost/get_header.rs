@@ -412,7 +412,7 @@ async fn send_one_get_header(
         // Also resets the start request timer
         original_headers.remove(ACCEPT);
         original_headers
-            .insert(ACCEPT, HeaderValue::from_str(&EncodingType::Json.to_string()).unwrap());
+            .insert(ACCEPT, HeaderValue::from_str(EncodingType::Json.content_type()).unwrap());
         let config = RequestContext {
             url: req_config.url.clone(),
             timeout_ms: req_config.timeout_ms - elapsed,

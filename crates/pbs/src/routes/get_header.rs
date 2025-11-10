@@ -73,7 +73,7 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
 
                     // This won't actually fail since the string is a const
                     let content_type_header =
-                        HeaderValue::from_str(&EncodingType::Ssz.to_string()).unwrap();
+                        HeaderValue::from_str(EncodingType::Ssz.content_type()).unwrap();
 
                     res.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
                     res.headers_mut().insert(CONTENT_TYPE, content_type_header);
