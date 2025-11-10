@@ -7,7 +7,10 @@ use cb_common::{
     utils::{get_user_agent_with_version, read_chunked_body_with_max, utcnow_ms},
 };
 use eyre::bail;
-use futures::future::{join_all, select_ok};
+use futures::{
+    FutureExt,
+    future::{join_all, select_ok},
+};
 use reqwest::header::{CONTENT_TYPE, USER_AGENT};
 use tracing::{Instrument, debug, error};
 use url::Url;
@@ -49,32 +52,38 @@ pub async fn register_validator<S: BuilderApiState>(
 
     for (n_regs, body) in bodies {
         for relay in state.all_relays().iter().cloned() {
-            handles.push(tokio::spawn(
-                send_register_validator_with_timeout(
-                    n_regs,
-                    body.clone(),
-                    relay,
-                    send_headers.clone(),
-                    state.pbs_config().timeout_register_validator_ms,
-                    state.pbs_config().register_validator_retry_limit,
+            handles.push(
+                tokio::spawn(
+                    send_register_validator_with_timeout(
+                        n_regs,
+                        body.clone(),
+                        relay,
+                        send_headers.clone(),
+                        state.pbs_config().timeout_register_validator_ms,
+                        state.pbs_config().register_validator_retry_limit,
+                    )
+                    .in_current_span(),
                 )
-                .in_current_span(),
-            ));
+                .map(|join_result| match join_result {
+                    Ok(res) => res,
+                    Err(err) => Err(PbsError::TokioJoinError(err)),
+                }),
+            );
         }
     }
 
     if state.pbs_config().wait_all_registrations {
         // wait for all relays registrations to complete
         let results = join_all(handles).await;
-        if results.into_iter().any(|res| res.is_ok_and(|res| res.is_ok())) {
+        if results.into_iter().any(|res| res.is_ok()) {
             Ok(())
         } else {
             bail!("No relay passed register_validator successfully")
         }
     } else {
         // return once first completes, others proceed in background
-        let result = select_ok(handles).await?;
-        match result.0 {
+        let result = select_ok(handles).await;
+        match result {
             Ok(_) => Ok(()),
             Err(_) => bail!("No relay passed register_validator successfully"),
         }
