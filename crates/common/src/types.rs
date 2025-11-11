@@ -29,7 +29,7 @@ pub struct JwtClaims {
     pub module: String,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Chain {
     Mainnet,
     Holesky,
@@ -42,6 +42,26 @@ pub enum Chain {
         genesis_fork_version: ForkVersion,
         fulu_fork_slot: u64,
     },
+}
+
+pub enum MainnetLidoModule {
+    Curated = 1,
+    SimpleDVT = 2,
+    CommunityStaking = 3,
+}
+
+pub enum HoleskyLidoModule {
+    Curated = 1,
+    SimpleDVT = 2,
+    Sandbox = 3,
+    CommunityStaking = 4,
+}
+
+pub enum HoodiLidoModule {
+    Curated = 1,
+    SimpleDVT = 2,
+    Sandbox = 3,
+    CommunityStaking = 4,
 }
 
 pub type ForkVersion = [u8; 4];

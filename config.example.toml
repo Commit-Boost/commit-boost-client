@@ -150,7 +150,7 @@ validator_pubkeys = [
 # OPTIONAL
 loader = "./tests/data/mux_keys.example.json"
 # loader = { url = "http://localhost:8000/keys" }
-# loader = { registry = "lido", node_operator_id = 8, enable_refreshing = false }
+# loader = { registry = "lido", node_operator_id = 8, lido_module_id = 1, enable_refreshing = false }
 # loader = { registry = "ssv", node_operator_id = 8, enable_refreshing = false }
 late_in_slot_time_ms = 1500
 timeout_get_header_ms = 900
