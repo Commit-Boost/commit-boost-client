@@ -47,7 +47,7 @@ pub enum Chain {
 pub enum MainnetLidoModule {
     Curated = 1,
     SimpleDVT = 2,
-    CommunityStaking = 3
+    CommunityStaking = 3,
 }
 
 pub enum HoleskyLidoModule {
