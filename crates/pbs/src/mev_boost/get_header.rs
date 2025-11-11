@@ -465,7 +465,7 @@ async fn send_one_get_header(
                 })?;
                 let data = SignedBuilderBid::from_ssz_bytes_by_fork(&response_bytes, fork)
                     .map_err(|e| PbsError::RelayResponse {
-                        error_msg: (format!("error decoding relay payload: {:?}", e)).to_string(),
+                        error_msg: (format!("error decoding relay payload: {e:?}")).to_string(),
                         code: (code.as_u16()),
                     })?;
                 GetHeaderResponse { version: fork, data, metadata: Default::default() }
