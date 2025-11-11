@@ -54,7 +54,7 @@ pub enum HoleskyLidoModule {
     Curated = 1,
     SimpleDVT = 2,
     Sandbox = 3,
-    CommunityStaking = 4
+    CommunityStaking = 4,
 }
 
 pub enum HoodiLidoModule {
