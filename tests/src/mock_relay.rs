@@ -223,21 +223,27 @@ async fn handle_submit_block_v1(
     raw_request: RawRequest,
 ) -> Response {
     state.received_submit_block.fetch_add(1, Ordering::Relaxed);
-    let accept_types = get_accept_types(&headers);
+    let accept_types = get_accept_types(&headers)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("error parsing accept header: {e}")));
     if let Err(e) = accept_types {
-        error!(%e, "error parsing accept header");
-        return (StatusCode::BAD_REQUEST, format!("error parsing accept header: {e}"))
-            .into_response();
+        return e.into_response();
     }
     let accept_types = accept_types.unwrap();
-    let consensus_version_header =
-        get_consensus_version_header(&headers).unwrap_or(ForkName::Electra);
+    let content_type = if state.supported_content_types.contains(&EncodingType::Ssz) &&
+        accept_types.contains(&EncodingType::Ssz)
+    {
+        EncodingType::Ssz
+    } else if state.supported_content_types.contains(&EncodingType::Json) &&
+        accept_types.contains(&EncodingType::Json)
+    {
+        EncodingType::Json
+    } else {
+        return (StatusCode::NOT_ACCEPTABLE, "No acceptable content type found".to_string())
+            .into_response();
+    };
 
-    let (data, accept_type) = if state.large_body() {
-        (
-            vec![1u8; 1 + MAX_SIZE_SUBMIT_BLOCK_RESPONSE],
-            accept_types.iter().next().unwrap_or(&EncodingType::Json),
-        )
+    let data = if state.large_body() {
+        vec![1u8; 1 + MAX_SIZE_SUBMIT_BLOCK_RESPONSE]
     } else {
         let mut execution_payload = ExecutionPayloadElectra::test_random();
         let submit_block = deserialize_body(&headers, raw_request.body_bytes).await.map_err(|e| {
@@ -260,34 +266,21 @@ async fn handle_submit_block_v1(
         let response =
             PayloadAndBlobs { execution_payload: execution_payload.into(), blobs_bundle };
 
-        if accept_types.contains(&EncodingType::Ssz) {
-            match consensus_version_header {
-                // Response isn't versioned for SSZ
-                ForkName::Electra => (response.as_ssz_bytes(), &EncodingType::Ssz),
-                _ => {
-                    return (
-                        StatusCode::BAD_REQUEST,
-                        format!("Unsupported fork {consensus_version_header}"),
-                    )
-                        .into_response();
-                }
-            }
+        if content_type == EncodingType::Ssz {
+            response.as_ssz_bytes()
         } else {
-            // Response is versioned for JSON
+            // Return JSON for everything else; this is fine for the mock
             let response = SubmitBlindedBlockResponse {
                 version: ForkName::Electra,
                 metadata: Default::default(),
                 data: response,
             };
-            (serde_json::to_vec(&response).unwrap(), &EncodingType::Json)
+            serde_json::to_vec(&response).unwrap()
         }
     };
 
     let mut response = (StatusCode::OK, data).into_response();
-    let consensus_version_header =
-        HeaderValue::from_str(&consensus_version_header.to_string()).unwrap();
-    let content_type_header = HeaderValue::from_str(&accept_type.to_string()).unwrap();
-    response.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
+    let content_type_header = HeaderValue::from_str(&content_type.to_string()).unwrap();
     response.headers_mut().insert(CONTENT_TYPE, content_type_header);
     response
 }
