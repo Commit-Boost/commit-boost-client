@@ -310,56 +310,6 @@ struct ValidationContext {
     parent_block: Arc<RwLock<Option<Block>>>,
 }
 
-async fn send_get_header_impl(
-    relay: &RelayClient,
-    mut req_config: RequestContext,
-) -> Result<(Response, u64, Option<EncodingType>), PbsError> {
-    // the timestamp in the header is the consensus block time which is fixed,
-    // use the beginning of the request as proxy to make sure we use only the
-    // last one received
-    let start_request_time = utcnow_ms();
-    req_config.headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(start_request_time));
-
-    // The timeout header indicating how long a relay has to respond, so they can
-    // minimize timing games without losing the bid
-    req_config.headers.insert(HEADER_TIMEOUT_MS, HeaderValue::from(req_config.timeout_ms));
-
-    let res = match relay
-        .client
-        .get(req_config.url)
-        .timeout(Duration::from_millis(req_config.timeout_ms))
-        .headers(req_config.headers)
-        .send()
-        .await
-    {
-        Ok(res) => res,
-        Err(err) => {
-            RELAY_STATUS_CODE
-                .with_label_values(&[TIMEOUT_ERROR_CODE_STR, GET_HEADER_ENDPOINT_TAG, &relay.id])
-                .inc();
-            return Err(err.into());
-        }
-    };
-
-    // Get the content type; this is only really useful for OK responses, and
-    // doesn't handle encoding types besides SSZ and JSON
-    let mut content_type: Option<EncodingType> = None;
-    if res.status() == StatusCode::OK &&
-        let Some(header) = res.headers().get(CONTENT_TYPE)
-    {
-        let header_str = header.to_str().map_err(|e| PbsError::RelayResponse {
-            error_msg: format!("cannot decode content-type header: {e}").to_string(),
-            code: (res.status().as_u16()),
-        })?;
-        if header_str.eq_ignore_ascii_case(&EncodingType::Ssz.to_string()) {
-            content_type = Some(EncodingType::Ssz)
-        } else if header_str.eq_ignore_ascii_case(&EncodingType::Json.to_string()) {
-            content_type = Some(EncodingType::Json)
-        }
-    }
-    Ok((res, start_request_time, content_type))
-}
-
 async fn send_one_get_header(
     params: GetHeaderParams,
     relay: RelayClient,
@@ -410,7 +360,6 @@ async fn send_one_get_header(
 
         // Resubmit the request with JSON accept header
         // Also resets the start request timer
-        original_headers.remove(ACCEPT);
         original_headers
             .insert(ACCEPT, HeaderValue::from_str(EncodingType::Json.content_type()).unwrap());
         let config = RequestContext {
@@ -577,6 +526,56 @@ async fn send_one_get_header(
     }
 
     Ok((start_request_time, Some(get_header_response)))
+}
+
+async fn send_get_header_impl(
+    relay: &RelayClient,
+    mut req_config: RequestContext,
+) -> Result<(Response, u64, Option<EncodingType>), PbsError> {
+    // the timestamp in the header is the consensus block time which is fixed,
+    // use the beginning of the request as proxy to make sure we use only the
+    // last one received
+    let start_request_time = utcnow_ms();
+    req_config.headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(start_request_time));
+
+    // The timeout header indicating how long a relay has to respond, so they can
+    // minimize timing games without losing the bid
+    req_config.headers.insert(HEADER_TIMEOUT_MS, HeaderValue::from(req_config.timeout_ms));
+
+    let res = match relay
+        .client
+        .get(req_config.url)
+        .timeout(Duration::from_millis(req_config.timeout_ms))
+        .headers(req_config.headers)
+        .send()
+        .await
+    {
+        Ok(res) => res,
+        Err(err) => {
+            RELAY_STATUS_CODE
+                .with_label_values(&[TIMEOUT_ERROR_CODE_STR, GET_HEADER_ENDPOINT_TAG, &relay.id])
+                .inc();
+            return Err(err.into());
+        }
+    };
+
+    // Get the content type; this is only really useful for OK responses, and
+    // doesn't handle encoding types besides SSZ and JSON
+    let mut content_type: Option<EncodingType> = None;
+    if res.status() == StatusCode::OK &&
+        let Some(header) = res.headers().get(CONTENT_TYPE)
+    {
+        let header_str = header.to_str().map_err(|e| PbsError::RelayResponse {
+            error_msg: format!("cannot decode content-type header: {e}").to_string(),
+            code: (res.status().as_u16()),
+        })?;
+        if header_str.eq_ignore_ascii_case(&EncodingType::Ssz.to_string()) {
+            content_type = Some(EncodingType::Ssz)
+        } else if header_str.eq_ignore_ascii_case(&EncodingType::Json.to_string()) {
+            content_type = Some(EncodingType::Json)
+        }
+    }
+    Ok((res, start_request_time, content_type))
 }
 
 struct HeaderData {
