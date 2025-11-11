@@ -8,8 +8,8 @@ use axum::{
 use cb_common::{
     pbs::{BuilderApiVersion, GetPayloadInfo},
     utils::{
-        CONSENSUS_VERSION_HEADER, EncodingType, RawRequest, deserialize_body, get_accept_types,
-        get_user_agent, timestamp_of_slot_start_millis, utcnow_ms,
+        EncodingType, RawRequest, deserialize_body, get_accept_types, get_user_agent,
+        timestamp_of_slot_start_millis, utcnow_ms,
     },
 };
 use reqwest::{StatusCode, header::CONTENT_TYPE};
@@ -89,31 +89,10 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
                 // Try SSZ
                 if accepts_ssz {
                     let mut response = payload_and_blobs.data.as_ssz_bytes().into_response();
-                    let consensus_version_header =
-                        match HeaderValue::from_str(&payload_and_blobs.version.to_string()) {
-                            Ok(consensus_version_header) => {
-                                Ok::<HeaderValue, PbsClientError>(consensus_version_header)
-                            }
-                            Err(e) => {
-                                if accepts_json {
-                                    info!("sending response as JSON");
-                                    return Ok((StatusCode::OK, axum::Json(payload_and_blobs))
-                                        .into_response());
-                                } else {
-                                    return Err(PbsClientError::RelayError(format!(
-                                        "error decoding consensus version from relay payload: {e}"
-                                    )));
-                                }
-                            }
-                        }?;
 
                     // This won't actually fail since the string is a const
                     let content_type_header =
                         HeaderValue::from_str(EncodingType::Ssz.content_type()).unwrap();
-
-                    response
-                        .headers_mut()
-                        .insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
                     response.headers_mut().insert(CONTENT_TYPE, content_type_header);
                     info!("sending response as SSZ");
                     return Ok(response);
