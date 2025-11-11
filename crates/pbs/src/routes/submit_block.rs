@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use axum::{Json, extract::State, http::HeaderMap, response::IntoResponse};
 use cb_common::{
     pbs::{BuilderApiVersion, GetPayloadInfo, SignedBlindedBeaconBlock},
@@ -17,7 +19,7 @@ use crate::{
 pub async fn handle_submit_block_v1<S: BuilderApiState, A: BuilderApi<S>>(
     state: State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
-    signed_blinded_block: Json<SignedBlindedBeaconBlock>,
+    Json(signed_blinded_block): Json<Arc<SignedBlindedBeaconBlock>>,
 ) -> Result<impl IntoResponse, PbsClientError> {
     handle_submit_block_impl::<S, A>(
         state,
@@ -31,7 +33,7 @@ pub async fn handle_submit_block_v1<S: BuilderApiState, A: BuilderApi<S>>(
 pub async fn handle_submit_block_v2<S: BuilderApiState, A: BuilderApi<S>>(
     state: State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
-    signed_blinded_block: Json<SignedBlindedBeaconBlock>,
+    Json(signed_blinded_block): Json<Arc<SignedBlindedBeaconBlock>>,
 ) -> Result<impl IntoResponse, PbsClientError> {
     handle_submit_block_impl::<S, A>(
         state,
@@ -45,7 +47,7 @@ pub async fn handle_submit_block_v2<S: BuilderApiState, A: BuilderApi<S>>(
 async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
     State(state): State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
-    Json(signed_blinded_block): Json<SignedBlindedBeaconBlock>,
+    signed_blinded_block: Arc<SignedBlindedBeaconBlock>,
     api_version: BuilderApiVersion,
 ) -> Result<impl IntoResponse, PbsClientError> {
     tracing::Span::current().record("slot", signed_blinded_block.slot().as_u64() as i64);
@@ -65,7 +67,7 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
 
     info!(ua, ms_into_slot = now.saturating_sub(slot_start_ms), "new request");
 
-    match A::submit_block(signed_blinded_block, req_headers, state.clone(), &api_version).await {
+    match A::submit_block(signed_blinded_block, req_headers, state, api_version).await {
         Ok(res) => match res {
             Some(block_response) => {
                 trace!(?block_response);
