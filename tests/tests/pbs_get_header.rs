@@ -105,7 +105,7 @@ async fn test_get_header_impl(
     tokio::spawn(start_mock_relay_service(mock_state.clone(), relay_port));
 
     // Run the PBS service
-    let config = to_pbs_config(chain, get_pbs_static_config(pbs_port), vec![mock_relay.clone()]);
+    let config = to_pbs_config(chain, get_pbs_static_config(pbs_port), vec![mock_relay]);
     let state = PbsState::new(config);
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 

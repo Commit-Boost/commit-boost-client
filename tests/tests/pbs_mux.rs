@@ -230,7 +230,12 @@ async fn test_mux() -> Result<()> {
     info!("Sending submit block v1");
     assert_eq!(
         mock_validator
-            .do_submit_block_v1(None, EncodingType::Json, EncodingType::Json, ForkName::Electra)
+            .do_submit_block_v1(
+                None,
+                HashSet::from([EncodingType::Json]),
+                EncodingType::Json,
+                ForkName::Electra
+            )
             .await?
             .status(),
         StatusCode::OK
@@ -241,7 +246,12 @@ async fn test_mux() -> Result<()> {
     info!("Sending submit block v2");
     assert_eq!(
         mock_validator
-            .do_submit_block_v2(None, EncodingType::Json, EncodingType::Json, ForkName::Electra)
+            .do_submit_block_v2(
+                None,
+                HashSet::from([EncodingType::Json]),
+                EncodingType::Json,
+                ForkName::Electra
+            )
             .await?
             .status(),
         StatusCode::ACCEPTED
