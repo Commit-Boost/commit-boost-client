@@ -458,8 +458,8 @@ pub fn get_accept_types(req_headers: &HeaderMap) -> eyre::Result<HashSet<Encodin
             return Err(eyre::eyre!("unsupported accept type"));
         }
 
-        // No accept header so just return JSON
-        accepted_types.insert(EncodingType::Json);
+        // No accept header so just return the same type as the content type
+        accepted_types.insert(get_content_type(req_headers));
     }
     Ok(accepted_types)
 }

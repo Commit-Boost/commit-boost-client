@@ -27,7 +27,8 @@ use cb_common::{
     types::{BlsSecretKey, Chain},
     utils::{
         CONSENSUS_VERSION_HEADER, EncodingType, RawRequest, TestRandomSeed, deserialize_body,
-        get_accept_types, get_consensus_version_header, timestamp_of_slot_start_sec,
+        get_accept_types, get_consensus_version_header, get_content_type,
+        timestamp_of_slot_start_sec,
     },
 };
 use cb_pbs::MAX_SIZE_SUBMIT_BLOCK_RESPONSE;
@@ -285,7 +286,15 @@ async fn handle_submit_block_v1(
     response
 }
 
-async fn handle_submit_block_v2(State(state): State<Arc<MockRelayState>>) -> Response {
+async fn handle_submit_block_v2(
+    headers: HeaderMap,
+    State(state): State<Arc<MockRelayState>>,
+) -> Response {
     state.received_submit_block.fetch_add(1, Ordering::Relaxed);
+    let content_type = get_content_type(&headers);
+    if !state.supported_content_types.contains(&content_type) {
+        return (StatusCode::NOT_ACCEPTABLE, "No acceptable content type found".to_string())
+            .into_response();
+    };
     (StatusCode::ACCEPTED, "").into_response()
 }

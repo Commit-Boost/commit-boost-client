@@ -25,6 +25,7 @@ async fn test_submit_block_v1() -> Result<()> {
         HashSet::from([EncodingType::Json]),
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         EncodingType::Json,
+        1,
     )
     .await?;
     assert_eq!(res.status(), StatusCode::OK);
@@ -42,11 +43,12 @@ async fn test_submit_block_v1() -> Result<()> {
 #[tokio::test]
 async fn test_submit_block_v2() -> Result<()> {
     let res = submit_block_impl(
-        3850,
+        3810,
         BuilderApiVersion::V2,
         HashSet::from([EncodingType::Json]),
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         EncodingType::Json,
+        1,
     )
     .await?;
     assert_eq!(res.status(), StatusCode::ACCEPTED);
@@ -57,11 +59,12 @@ async fn test_submit_block_v2() -> Result<()> {
 #[tokio::test]
 async fn test_submit_block_v1_ssz() -> Result<()> {
     let res = submit_block_impl(
-        3810,
+        3820,
         BuilderApiVersion::V1,
         HashSet::from([EncodingType::Ssz]),
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         EncodingType::Ssz,
+        1,
     )
     .await?;
     assert_eq!(res.status(), StatusCode::OK);
@@ -80,15 +83,111 @@ async fn test_submit_block_v1_ssz() -> Result<()> {
 #[tokio::test]
 async fn test_submit_block_v2_ssz() -> Result<()> {
     let res = submit_block_impl(
-        3860,
+        3830,
         BuilderApiVersion::V2,
         HashSet::from([EncodingType::Ssz]),
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         EncodingType::Ssz,
+        1,
     )
     .await?;
     assert_eq!(res.status(), StatusCode::ACCEPTED);
     assert_eq!(res.bytes().await?.len(), 0);
+    Ok(())
+}
+
+/// Test that a v1 submit block request in SSZ is converted to JSON if the relay
+/// only supports JSON
+#[tokio::test]
+async fn test_submit_block_v1_ssz_into_json() -> Result<()> {
+    let res = submit_block_impl(
+        3840,
+        BuilderApiVersion::V1,
+        HashSet::from([EncodingType::Ssz]),
+        HashSet::from([EncodingType::Json]),
+        EncodingType::Ssz,
+        2,
+    )
+    .await?;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let signed_blinded_block = load_test_signed_blinded_block();
+
+    let response_body =
+        PayloadAndBlobs::from_ssz_bytes_by_fork(&res.bytes().await?, ForkName::Electra).unwrap();
+    assert_eq!(
+        response_body.execution_payload.block_hash(),
+        signed_blinded_block.block_hash().into()
+    );
+    Ok(())
+}
+
+/// Test that a v2 submit block request in SSZ is converted to JSON if the relay
+/// only supports JSON
+#[tokio::test]
+async fn test_submit_block_v2_ssz_into_json() -> Result<()> {
+    let res = submit_block_impl(
+        3850,
+        BuilderApiVersion::V2,
+        HashSet::from([EncodingType::Ssz]),
+        HashSet::from([EncodingType::Json]),
+        EncodingType::Ssz,
+        2,
+    )
+    .await?;
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
+    assert_eq!(res.bytes().await?.len(), 0);
+    Ok(())
+}
+
+/// Test v1 requesting multiple types when the relay supports SSZ, which should
+/// return SSZ
+#[tokio::test]
+async fn test_submit_block_v1_multitype_ssz() -> Result<()> {
+    let res = submit_block_impl(
+        3860,
+        BuilderApiVersion::V1,
+        HashSet::from([EncodingType::Ssz, EncodingType::Json]),
+        HashSet::from([EncodingType::Ssz]),
+        EncodingType::Ssz,
+        1,
+    )
+    .await?;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let signed_blinded_block = load_test_signed_blinded_block();
+
+    let response_body =
+        PayloadAndBlobs::from_ssz_bytes_by_fork(&res.bytes().await?, ForkName::Electra).unwrap();
+    assert_eq!(
+        response_body.execution_payload.block_hash(),
+        signed_blinded_block.block_hash().into()
+    );
+    Ok(())
+}
+
+/// Test v1 requesting multiple types when the relay supports SSZ, which should
+/// return JSON
+#[tokio::test]
+async fn test_submit_block_v1_multitype_json() -> Result<()> {
+    let res = submit_block_impl(
+        3870,
+        BuilderApiVersion::V1,
+        HashSet::from([EncodingType::Ssz, EncodingType::Json]),
+        HashSet::from([EncodingType::Json]),
+        EncodingType::Json,
+        1,
+    )
+    .await?;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let signed_blinded_block = load_test_signed_blinded_block();
+
+    let response_body = serde_json::from_slice::<SubmitBlindedBlockResponse>(&res.bytes().await?)?;
+    assert_eq!(
+        response_body.data.execution_payload.block_hash(),
+        signed_blinded_block.block_hash().into()
+    );
     Ok(())
 }
 
@@ -135,6 +234,7 @@ async fn submit_block_impl(
     accept_types: HashSet<EncodingType>,
     relay_types: HashSet<EncodingType>,
     serialization_mode: EncodingType,
+    expected_try_count: u64,
 ) -> Result<Response> {
     // Setup test environment
     setup_test_env();
@@ -184,6 +284,6 @@ async fn submit_block_impl(
                 .await?
         }
     };
-    assert_eq!(mock_state.received_submit_block(), 1);
+    assert_eq!(mock_state.received_submit_block(), expected_try_count);
     Ok(res)
 }

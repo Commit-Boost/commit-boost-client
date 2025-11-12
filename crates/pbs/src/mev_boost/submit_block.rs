@@ -14,8 +14,8 @@ use cb_common::{
         error::{PbsError, ValidationError},
     },
     utils::{
-        EncodingType, get_accept_types, get_user_agent_with_version, read_chunked_body_with_max,
-        utcnow_ms,
+        EncodingType, get_accept_types, get_content_type, get_user_agent_with_version,
+        read_chunked_body_with_max, utcnow_ms,
     },
 };
 use futures::{FutureExt, future::select_ok};
@@ -23,13 +23,13 @@ use reqwest::{
     Response, StatusCode,
     header::{ACCEPT, CONTENT_TYPE, USER_AGENT},
 };
+use ssz::Encode;
 use tracing::{debug, warn};
 use url::Url;
 
 use crate::{
-    constants::{
-        MAX_SIZE_SUBMIT_BLOCK_RESPONSE, SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG, TIMEOUT_ERROR_CODE_STR,
-    },
+    TIMEOUT_ERROR_CODE_STR,
+    constants::{MAX_SIZE_SUBMIT_BLOCK_RESPONSE, SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG},
     metrics::{RELAY_LATENCY, RELAY_STATUS_CODE},
     state::{BuilderApiState, PbsState},
 };
@@ -64,6 +64,17 @@ pub async fn submit_block<S: BuilderApiState>(
     send_headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(utcnow_ms()));
     send_headers.insert(USER_AGENT, get_user_agent_with_version(&req_headers)?);
     send_headers.insert(HEADER_CONSENSUS_VERSION, consensus_version);
+
+    // Get the accept types from the request and forward them
+    for value in req_headers.get_all(ACCEPT).iter() {
+        send_headers.append(ACCEPT, value.clone());
+    }
+
+    // Copy the content type header
+    send_headers.insert(
+        CONTENT_TYPE,
+        HeaderValue::from_str(get_content_type(&req_headers).content_type()).unwrap(),
+    );
 
     let mut handles = Vec::with_capacity(state.all_relays().len());
     for relay in state.all_relays().iter().cloned() {
@@ -180,15 +191,17 @@ async fn send_submit_block(
     // If the request only supports SSZ, but the relay only supports JSON, resubmit
     // to the relay with JSON - we'll convert it ourselves
     if code == StatusCode::NOT_ACCEPTABLE && accepts_ssz && !accepts_json {
+        // TODO: needs to handle the case where the content-type is wrong too
         debug!(
             relay_id = relay.id.as_ref(),
-            "relay does not support SSZ, resubmitting request with JSON accept header"
+            "relay does not support SSZ, resubmitting request with JSON accept and content-type"
         );
 
-        // Resubmit the request with JSON accept header
+        // Resubmit the request with JSON accept and content-type headers
         let elapsed = start_request.elapsed().as_millis() as u64;
-        original_headers
-            .insert(ACCEPT, HeaderValue::from_str(EncodingType::Json.content_type()).unwrap());
+        let json_header_value = HeaderValue::from_str(EncodingType::Json.content_type()).unwrap();
+        original_headers.insert(ACCEPT, json_header_value.clone());
+        original_headers.insert(CONTENT_TYPE, json_header_value);
         start_request = Instant::now();
         (res, content_type) = send_submit_block_impl(
             url,
@@ -321,16 +334,16 @@ async fn send_submit_block_impl(
     headers: HeaderMap,
     timeout_ms: u64,
 ) -> Result<(Response, Option<EncodingType>), PbsError> {
+    // Get the content type of the request
+    let content_type = get_content_type(&headers);
+
     // Send the request
-    let res = match relay
-        .client
-        .post(url)
-        .timeout(Duration::from_millis(timeout_ms))
-        .headers(headers)
-        .json(&signed_blinded_block)
-        .send()
-        .await
-    {
+    let res = relay.client.post(url).timeout(Duration::from_millis(timeout_ms)).headers(headers);
+    let body = match content_type {
+        EncodingType::Json => serde_json::to_vec(&signed_blinded_block).unwrap(),
+        EncodingType::Ssz => signed_blinded_block.as_ssz_bytes(),
+    };
+    let res = match res.body(body).header(CONTENT_TYPE, &content_type.to_string()).send().await {
         Ok(res) => res,
         Err(err) => {
             RELAY_STATUS_CODE
