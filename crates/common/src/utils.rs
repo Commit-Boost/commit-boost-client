@@ -1,6 +1,7 @@
 #[cfg(feature = "testing-flags")]
 use std::cell::Cell;
 use std::{
+    collections::HashSet,
     fmt::Display,
     net::Ipv4Addr,
     str::FromStr,
@@ -45,9 +46,9 @@ use crate::{
     types::{BlsPublicKey, Chain, Jwt, JwtClaims, ModuleId},
 };
 
-const APPLICATION_JSON: &str = "application/json";
-const APPLICATION_OCTET_STREAM: &str = "application/octet-stream";
-const WILDCARD: &str = "*/*";
+pub const APPLICATION_JSON: &str = "application/json";
+pub const APPLICATION_OCTET_STREAM: &str = "application/octet-stream";
+pub const WILDCARD: &str = "*/*";
 
 const MILLIS_PER_SECOND: u64 = 1_000;
 pub const CONSENSUS_VERSION_HEADER: &str = "Eth-Consensus-Version";
@@ -433,36 +434,34 @@ pub fn get_user_agent_with_version(req_headers: &HeaderMap) -> eyre::Result<Head
 /// defaulting to JSON if missing. Returns an error if malformed or unsupported
 /// types are requested. Supports requests with multiple ACCEPT headers or
 /// headers with multiple media types.
-pub fn get_accept_type(req_headers: &HeaderMap) -> eyre::Result<EncodingType> {
-    let accept = Accept::from_str(
-        req_headers.get(ACCEPT).and_then(|value| value.to_str().ok()).unwrap_or(APPLICATION_JSON),
-    )
-    .map_err(|e| eyre::eyre!("invalid accept header: {e}"))?;
-
-    if accept.media_types().count() == 0 {
-        // No valid media types found, default to JSON
-        return Ok(EncodingType::Json);
-    }
-
-    // Get the SSZ and JSON media types if present
-    let mut ssz_type = false;
-    let mut json_type = false;
+pub fn get_accept_types(req_headers: &HeaderMap) -> eyre::Result<HashSet<EncodingType>> {
+    let mut accepted_types = HashSet::new();
     let mut unsupported_type = false;
-    accept.media_types().for_each(|mt| match mt.essence().to_string().as_str() {
-        APPLICATION_OCTET_STREAM => ssz_type = true,
-        APPLICATION_JSON | WILDCARD => json_type = true,
-        _ => unsupported_type = true,
-    });
+    for header in req_headers.get_all(ACCEPT).iter() {
+        let accept = Accept::from_str(header.to_str()?)
+            .map_err(|e| eyre::eyre!("invalid accept header: {e}"))?;
+        for mt in accept.media_types() {
+            match mt.essence().to_string().as_str() {
+                APPLICATION_OCTET_STREAM => {
+                    accepted_types.insert(EncodingType::Ssz);
+                }
+                APPLICATION_JSON | WILDCARD => {
+                    accepted_types.insert(EncodingType::Json);
+                }
+                _ => unsupported_type = true,
+            };
+        }
+    }
 
-    // If SSZ is present, prioritize it
-    if ssz_type {
-        return Ok(EncodingType::Ssz);
+    if accepted_types.is_empty() {
+        if unsupported_type {
+            return Err(eyre::eyre!("unsupported accept type"));
+        }
+
+        // No accept header so just return the same type as the content type
+        accepted_types.insert(get_content_type(req_headers));
     }
-    // If there aren't any unsupported types, use JSON
-    if !unsupported_type {
-        return Ok(EncodingType::Json);
-    }
-    Err(eyre::eyre!("unsupported accept type"))
+    Ok(accepted_types)
 }
 
 /// Parse CONTENT TYPE header to get the encoding type of the body, defaulting
@@ -490,7 +489,7 @@ pub fn get_consensus_version_header(req_headers: &HeaderMap) -> Option<ForkName>
 
 /// Enum for types that can be used to encode incoming request bodies or
 /// outgoing response bodies
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EncodingType {
     /// Body is UTF-8 encoded as JSON
     Json,
@@ -499,21 +498,28 @@ pub enum EncodingType {
     Ssz,
 }
 
+impl EncodingType {
+    /// Get the content type string for the encoding type
+    pub fn content_type(&self) -> &str {
+        match self {
+            EncodingType::Json => APPLICATION_JSON,
+            EncodingType::Ssz => APPLICATION_OCTET_STREAM,
+        }
+    }
+}
+
 impl std::fmt::Display for EncodingType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            EncodingType::Json => write!(f, "application/json"),
-            EncodingType::Ssz => write!(f, "application/octet-stream"),
-        }
+        write!(f, "{}", self.content_type())
     }
 }
 
 impl FromStr for EncodingType {
     type Err = String;
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "application/json" | "" => Ok(EncodingType::Json),
-            "application/octet-stream" => Ok(EncodingType::Ssz),
+        match value.to_ascii_lowercase().as_str() {
+            APPLICATION_JSON | "" => Ok(EncodingType::Json),
+            APPLICATION_OCTET_STREAM => Ok(EncodingType::Ssz),
             _ => Err(format!("unsupported encoding type: {value}")),
         }
     }
@@ -636,8 +642,18 @@ pub fn bls_pubkey_from_hex_unchecked(hex: &str) -> BlsPublicKey {
 
 #[cfg(test)]
 mod test {
+    use axum::http::{HeaderMap, HeaderValue};
+    use reqwest::header::ACCEPT;
+
     use super::{create_jwt, decode_jwt, validate_jwt};
-    use crate::types::{Jwt, ModuleId};
+    use crate::{
+        types::{Jwt, ModuleId},
+        utils::{
+            APPLICATION_JSON, APPLICATION_OCTET_STREAM, EncodingType, WILDCARD, get_accept_types,
+        },
+    };
+
+    const APPLICATION_TEXT: &str = "application/text";
 
     #[test]
     fn test_jwt_validation() {
@@ -659,5 +675,101 @@ mod test {
         let response = validate_jwt(invalid_jwt, "secret");
         assert!(response.is_err());
         assert_eq!(response.unwrap_err().to_string(), "InvalidSignature");
+    }
+
+    /// Make sure a missing Accept header is interpreted as JSON
+    #[test]
+    fn test_missing_accept_header() {
+        let headers = HeaderMap::new();
+        let result = get_accept_types(&headers).unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(result.contains(&EncodingType::Json));
+    }
+
+    /// Test accepting JSON
+    #[test]
+    fn test_accept_header_json() {
+        let mut headers = HeaderMap::new();
+        headers.append(ACCEPT, HeaderValue::from_str(APPLICATION_JSON).unwrap());
+        let result = get_accept_types(&headers).unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(result.contains(&EncodingType::Json));
+    }
+
+    /// Test accepting SSZ
+    #[test]
+    fn test_accept_header_ssz() {
+        let mut headers = HeaderMap::new();
+        headers.append(ACCEPT, HeaderValue::from_str(APPLICATION_OCTET_STREAM).unwrap());
+        let result = get_accept_types(&headers).unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(result.contains(&EncodingType::Ssz));
+    }
+
+    /// Test accepting wildcards
+    #[test]
+    fn test_accept_header_wildcard() {
+        let mut headers = HeaderMap::new();
+        headers.append(ACCEPT, HeaderValue::from_str(WILDCARD).unwrap());
+        let result = get_accept_types(&headers).unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(result.contains(&EncodingType::Json));
+    }
+
+    /// Test accepting one header with multiple values
+    #[test]
+    fn test_accept_header_multiple_values() {
+        let header_string = format!("{APPLICATION_JSON}, {APPLICATION_OCTET_STREAM}");
+        let mut headers = HeaderMap::new();
+        headers.append(ACCEPT, HeaderValue::from_str(&header_string).unwrap());
+        let result = get_accept_types(&headers).unwrap();
+        assert_eq!(result.len(), 2);
+        assert!(result.contains(&EncodingType::Json));
+        assert!(result.contains(&EncodingType::Ssz));
+    }
+
+    /// Test accepting multiple headers
+    #[test]
+    fn test_multiple_accept_headers() {
+        let mut headers = HeaderMap::new();
+        headers.append(ACCEPT, HeaderValue::from_str(APPLICATION_JSON).unwrap());
+        headers.append(ACCEPT, HeaderValue::from_str(APPLICATION_OCTET_STREAM).unwrap());
+        let result = get_accept_types(&headers).unwrap();
+        assert_eq!(result.len(), 2);
+        assert!(result.contains(&EncodingType::Json));
+        assert!(result.contains(&EncodingType::Ssz));
+    }
+
+    /// Test accepting one header with multiple values, including a type that
+    /// can't be used
+    #[test]
+    fn test_accept_header_multiple_values_including_unknown() {
+        let header_string =
+            format!("{APPLICATION_JSON}, {APPLICATION_OCTET_STREAM}, {APPLICATION_TEXT}");
+        let mut headers = HeaderMap::new();
+        headers.append(ACCEPT, HeaderValue::from_str(&header_string).unwrap());
+        let result = get_accept_types(&headers).unwrap();
+        assert_eq!(result.len(), 2);
+        assert!(result.contains(&EncodingType::Json));
+        assert!(result.contains(&EncodingType::Ssz));
+    }
+
+    /// Test rejecting an unknown accept type
+    #[test]
+    fn test_invalid_accept_header_type() {
+        let mut headers = HeaderMap::new();
+        headers.append(ACCEPT, HeaderValue::from_str(APPLICATION_TEXT).unwrap());
+        let result = get_accept_types(&headers);
+        assert!(result.is_err());
+    }
+
+    /// Test accepting one header with multiple values
+    #[test]
+    fn test_accept_header_invalid_parse() {
+        let header_string = format!("{APPLICATION_JSON}, a?;ef)");
+        let mut headers = HeaderMap::new();
+        headers.append(ACCEPT, HeaderValue::from_str(&header_string).unwrap());
+        let result = get_accept_types(&headers);
+        assert!(result.is_err());
     }
 }

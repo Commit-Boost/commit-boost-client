@@ -1,4 +1,8 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 
 use cb_common::{
     config::{HTTP_TIMEOUT_SECONDS_DEFAULT, MUXER_HTTP_MAX_LENGTH, RuntimeMuxConfig},
@@ -196,7 +200,7 @@ async fn test_mux() -> Result<()> {
     let mock_validator = MockValidator::new(pbs_port)?;
     info!("Sending get header with default");
     assert_eq!(
-        mock_validator.do_get_header(None, None, ForkName::Electra).await?.status(),
+        mock_validator.do_get_header(None, HashSet::new(), ForkName::Electra).await?.status(),
         StatusCode::OK
     );
     assert_eq!(mock_state.received_get_header(), 1); // only default relay was used
@@ -205,7 +209,7 @@ async fn test_mux() -> Result<()> {
     info!("Sending get header with mux");
     assert_eq!(
         mock_validator
-            .do_get_header(Some(validator_pubkey), None, ForkName::Electra)
+            .do_get_header(Some(validator_pubkey), HashSet::new(), ForkName::Electra)
             .await?
             .status(),
         StatusCode::OK
@@ -226,7 +230,12 @@ async fn test_mux() -> Result<()> {
     info!("Sending submit block v1");
     assert_eq!(
         mock_validator
-            .do_submit_block_v1(None, EncodingType::Json, EncodingType::Json, ForkName::Electra)
+            .do_submit_block_v1(
+                None,
+                HashSet::from([EncodingType::Json]),
+                EncodingType::Json,
+                ForkName::Electra
+            )
             .await?
             .status(),
         StatusCode::OK
@@ -237,7 +246,12 @@ async fn test_mux() -> Result<()> {
     info!("Sending submit block v2");
     assert_eq!(
         mock_validator
-            .do_submit_block_v2(None, EncodingType::Json, EncodingType::Json, ForkName::Electra)
+            .do_submit_block_v2(
+                None,
+                HashSet::from([EncodingType::Json]),
+                EncodingType::Json,
+                ForkName::Electra
+            )
             .await?
             .status(),
         StatusCode::ACCEPTED

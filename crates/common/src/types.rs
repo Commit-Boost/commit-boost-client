@@ -233,7 +233,8 @@ impl KnownChain {
 
     pub fn fulu_fork_slot(&self) -> u64 {
         match self {
-            KnownChain::Mainnet | KnownChain::Helder => u64::MAX,
+            KnownChain::Mainnet => 13164544,
+            KnownChain::Helder => u64::MAX,
             KnownChain::Holesky => 5283840,
             KnownChain::Sepolia => 8724480,
             KnownChain::Hoodi => 1622016,
