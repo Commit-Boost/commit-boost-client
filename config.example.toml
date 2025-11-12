@@ -199,6 +199,9 @@ jwt_auth_fail_timeout_seconds = 300
 # Path to the CA certificate that signed the Dirk server certificate
 # OPTIONAL
 # ca_cert_path = "/path/to/ca.crt"
+# Limits the maximum size of a decoded gRPC response
+# OPTIONAL. Default: 4MB
+# max_response_size_bytes = 4194304
 
 # Add one entry like this for each Dirk host
 # [[signer.dirk.hosts]]
