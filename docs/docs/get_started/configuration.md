@@ -329,6 +329,7 @@ key_path = "/path/to/client.key"
 secrets_path = "/path/to/secrets"
 # Optional parameters
 ca_cert_path = "/path/to/ca.crt"
+max_response_size_bytes = "4194304"
 
 # Add one entry like this for each host
 [[signer.dirk.hosts]]

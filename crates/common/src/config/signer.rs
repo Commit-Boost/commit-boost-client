@@ -113,6 +113,9 @@ pub enum SignerType {
         /// How to store proxy key delegations
         /// ERC2335 is not supported with Dirk signer
         store: Option<ProxyStore>,
+        /// Limits the maximum size of a decoded gRPC response.
+        /// Default is 4MB (from tonic bindings)
+        max_response_size_bytes: Option<usize>,
     },
 }
 
@@ -122,6 +125,7 @@ pub struct DirkConfig {
     pub client_cert: Identity,
     pub secrets_path: PathBuf,
     pub cert_auth: Option<Certificate>,
+    pub max_response_size_bytes: Option<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -188,7 +192,7 @@ impl StartSignerConfig {
                 secrets_path,
                 ca_cert_path,
                 store,
-                ..
+                max_response_size_bytes,
             } => {
                 let cert_path = load_env_var(DIRK_CERT_ENV).map(PathBuf::from).unwrap_or(cert_path);
                 let key_path = load_env_var(DIRK_KEY_ENV).map(PathBuf::from).unwrap_or(key_path);
@@ -222,6 +226,7 @@ impl StartSignerConfig {
                             }
                             None => None,
                         },
+                        max_response_size_bytes,
                     }),
                 })
             }
