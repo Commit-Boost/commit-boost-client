@@ -166,8 +166,8 @@ async fn test_submit_block_v1_multitype_ssz() -> Result<()> {
     Ok(())
 }
 
-/// Test v1 requesting multiple types when the relay supports SSZ, which should
-/// return JSON
+/// Test v1 requesting multiple types when the relay supports JSON, which should
+/// still return SSZ
 #[tokio::test]
 async fn test_submit_block_v1_multitype_json() -> Result<()> {
     let res = submit_block_impl(
@@ -175,7 +175,7 @@ async fn test_submit_block_v1_multitype_json() -> Result<()> {
         BuilderApiVersion::V1,
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         HashSet::from([EncodingType::Json]),
-        EncodingType::Json,
+        EncodingType::Ssz,
         1,
     )
     .await?;
@@ -183,9 +183,10 @@ async fn test_submit_block_v1_multitype_json() -> Result<()> {
 
     let signed_blinded_block = load_test_signed_blinded_block();
 
-    let response_body = serde_json::from_slice::<SubmitBlindedBlockResponse>(&res.bytes().await?)?;
+    let response_body =
+        PayloadAndBlobs::from_ssz_bytes_by_fork(&res.bytes().await?, ForkName::Electra).unwrap();
     assert_eq!(
-        response_body.data.execution_payload.block_hash(),
+        response_body.execution_payload.block_hash(),
         signed_blinded_block.block_hash().into()
     );
     Ok(())

@@ -190,8 +190,7 @@ async fn send_submit_block(
 
     // If the request only supports SSZ, but the relay only supports JSON, resubmit
     // to the relay with JSON - we'll convert it ourselves
-    if code == StatusCode::NOT_ACCEPTABLE && accepts_ssz && !accepts_json {
-        // TODO: needs to handle the case where the content-type is wrong too
+    if code.is_client_error() && accepts_ssz && !accepts_json {
         debug!(
             relay_id = relay.id.as_ref(),
             "relay does not support SSZ, resubmitting request with JSON accept and content-type"

@@ -71,7 +71,7 @@ async fn test_get_header_multitype_ssz() -> Result<()> {
 }
 
 /// Test requesting multiple types when the relay supports JSON, which should
-/// return JSON
+/// still work
 #[tokio::test]
 async fn test_get_header_multitype_json() -> Result<()> {
     test_get_header_impl(

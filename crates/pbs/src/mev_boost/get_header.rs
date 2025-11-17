@@ -339,7 +339,7 @@ async fn send_one_get_header(
 
     // If the request only supports SSZ, but the relay only supports JSON, resubmit
     // to the relay with JSON - we'll convert it ourselves
-    if code == StatusCode::NOT_ACCEPTABLE && accepts_ssz && !accepts_json {
+    if code.is_client_error() && accepts_ssz && !accepts_json {
         debug!(
             relay_id = relay.id.as_ref(),
             "relay does not support SSZ, resubmitting request with JSON accept header"
