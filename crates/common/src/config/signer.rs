@@ -83,6 +83,16 @@ pub struct DirkHostConfig {
     pub wallets: Vec<String>,
 }
 
+/// Client authentication configuration for remote signers
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "snake_case")]
+pub struct ClientAuthConfig {
+    /// Path to the client certificate
+    pub cert_path: PathBuf,
+    /// Path to the client key
+    pub key_path: PathBuf,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum SignerType {
@@ -97,6 +107,9 @@ pub enum SignerType {
     Remote {
         /// Complete URL of the base API endpoint
         url: Url,
+        /// Client authentication configuration
+        #[serde(flatten)]
+        client_auth: Option<ClientAuthConfig>,
     },
     /// Dirk remote signer module
     Dirk {

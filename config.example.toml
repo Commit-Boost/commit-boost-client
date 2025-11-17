@@ -188,6 +188,13 @@ jwt_auth_fail_timeout_seconds = 300
 # [signer.remote]
 # URL of the Web3Signer instance
 # url = "https://remote.signer.url"
+# Path to the client certificate for client authentication
+# OPTIONAL
+# cert_path = "/path/to/client.crt"
+# Path to the client key for client authentication
+# OPTIONAL
+# key_path = "/path/to/client.key"
+
 # For Dirk signer:
 # [signer.dirk]
 # Path to the client certificate to authenticate with Dirk

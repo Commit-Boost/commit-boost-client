@@ -318,6 +318,15 @@ Web3Signer implements the same API as Commit-Boost, so there's no need to set up
 url = "https://remote.signer.url"
 ```
 
+Optionally, you can also provide a client certificate and corresponding private key if the remote signer requires client authentication:
+
+```toml
+[signer.remote]
+url = "https://remote.signer.url"
+cert_path = "/path/to/client.crt"
+key_path = "/path/to/client.key"
+```
+
 #### Dirk
 
 Dirk is a distributed key management system that can be used to sign transactions. In this case the Signer module is needed as an intermediary between the modules and Dirk. The following parameters are needed:
