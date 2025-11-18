@@ -5,13 +5,14 @@ use std::{
 };
 
 use cb_common::{
-    config::{MuxKeysLoader, PbsModuleConfig},
+    config::{MuxKeysLoader, PbsModuleConfig, load_pbs_config},
     constants::{COMMIT_BOOST_COMMIT, COMMIT_BOOST_VERSION},
     pbs::{BUILDER_V1_API_PATH, GET_STATUS_PATH},
     types::Chain,
 };
 use cb_metrics::provider::MetricsProvider;
 use eyre::{Context, Result, bail};
+use notify::{Error, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use parking_lot::RwLock;
 use prometheus::core::Collector;
 use tokio::net::TcpListener;
@@ -40,6 +41,7 @@ impl PbsService {
             })
         });
 
+        let config_path = state.config_path.clone();
         let state: Arc<RwLock<PbsState<S>>> = RwLock::new(state).into();
         let app = create_app_router::<S, A>(state.clone());
         let listener = TcpListener::bind(addr).await?;
@@ -58,6 +60,32 @@ impl PbsService {
         if !status.status().is_success() {
             bail!("PBS server failed to start. Are the relays properly configured?");
         }
+
+        // Set up the filesystem watcher for the config file
+        let state_for_watcher = state.clone();
+        let mut watcher = RecommendedWatcher::new(
+            move |result: Result<Event, Error>| {
+                let event = result.unwrap();
+                if !event.kind.is_modify() {
+                    return;
+                }
+
+                // Reload the configuration when the file is modified
+                let result = futures::executor::block_on(load_pbs_config());
+                match result {
+                    Ok((new_config, _)) => {
+                        let mut state = state_for_watcher.write();
+                        state.config = Arc::new(new_config);
+                        info!("configuration reloaded from file after update");
+                    }
+                    Err(err) => {
+                        warn!(%err, "failed to reload configuration from file after update");
+                    }
+                }
+            },
+            notify::Config::default(),
+        )?;
+        watcher.watch(config_path.as_path(), RecursiveMode::Recursive)?;
 
         // Run the registry refresher task
         if is_refreshing_required {

@@ -56,14 +56,14 @@ impl CommitBoostConfig {
     }
 
     pub fn from_file(path: &PathBuf) -> Result<Self> {
-        let config: Self = load_from_file(path)?;
+        let (config, _): (Self, _) = load_from_file(path)?;
         Ok(config)
     }
 
     // When loading the config from the environment, it's important that every path
     // is replaced with the correct value if the config is loaded inside a container
-    pub fn from_env_path() -> Result<Self> {
-        let helper_config: HelperConfig = load_file_from_env(CONFIG_ENV)?;
+    pub fn from_env_path() -> Result<(Self, PathBuf)> {
+        let (helper_config, config_path): (HelperConfig, PathBuf) = load_file_from_env(CONFIG_ENV)?;
 
         let chain = match helper_config.chain {
             ChainLoader::Path { path, genesis_time_secs } => {
@@ -109,13 +109,13 @@ impl CommitBoostConfig {
             logs: helper_config.logs,
         };
 
-        Ok(config)
+        Ok((config, config_path))
     }
 
     /// Returns the path to the chain spec file if any
     pub fn chain_spec_file(path: &PathBuf) -> Option<PathBuf> {
         match load_from_file::<_, ChainConfig>(path) {
-            Ok(config) => {
+            Ok((config, _)) => {
                 if let ChainLoader::Path { path, genesis_time_secs: _ } = config.chain {
                     Some(path)
                 } else {
