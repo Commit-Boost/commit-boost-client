@@ -15,7 +15,7 @@ async fn main() -> Result<()> {
 
     let _args = cb_cli::PbsArgs::parse();
 
-    let (pbs_config, config_path) = load_pbs_config().await?;
+    let (pbs_config, config_path) = load_pbs_config(None).await?;
 
     PbsService::init_metrics(pbs_config.chain)?;
     let state = PbsState::new(pbs_config, config_path);

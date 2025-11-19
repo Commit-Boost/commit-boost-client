@@ -243,8 +243,11 @@ fn default_pbs() -> String {
 }
 
 /// Loads the default pbs config, i.e. with no signer client or custom data
-pub async fn load_pbs_config() -> Result<(PbsModuleConfig, PathBuf)> {
-    let (config, config_path) = CommitBoostConfig::from_env_path()?;
+pub async fn load_pbs_config(config_path: Option<PathBuf>) -> Result<(PbsModuleConfig, PathBuf)> {
+    let (config, config_path) = match config_path {
+        Some(path) => (CommitBoostConfig::from_file(&path)?, path),
+        None => CommitBoostConfig::from_env_path()?,
+    };
     config.validate().await?;
 
     // Make sure relays isn't empty - since the config is still technically valid if

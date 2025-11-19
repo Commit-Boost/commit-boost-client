@@ -62,30 +62,36 @@ impl PbsService {
         }
 
         // Set up the filesystem watcher for the config file
-        let state_for_watcher = state.clone();
-        let mut watcher = RecommendedWatcher::new(
-            move |result: Result<Event, Error>| {
-                let event = result.unwrap();
-                if !event.kind.is_modify() {
-                    return;
-                }
+        let mut watcher: RecommendedWatcher;
+        if config_path.to_str() != Some("") {
+            let state_for_watcher = state.clone();
+            let config_path_for_watcher = config_path.clone();
+            watcher = RecommendedWatcher::new(
+                move |result: Result<Event, Error>| {
+                    let event = result.unwrap();
+                    if !event.kind.is_modify() {
+                        return;
+                    }
 
-                // Reload the configuration when the file is modified
-                let result = futures::executor::block_on(load_pbs_config());
-                match result {
-                    Ok((new_config, _)) => {
-                        let mut state = state_for_watcher.write();
-                        state.config = Arc::new(new_config);
-                        info!("configuration reloaded from file after update");
+                    // Reload the configuration when the file is modified
+                    let result = futures::executor::block_on(load_pbs_config(Some(
+                        config_path_for_watcher.to_path_buf(),
+                    )));
+                    match result {
+                        Ok((new_config, _)) => {
+                            let mut state = state_for_watcher.write();
+                            state.config = Arc::new(new_config);
+                            info!("configuration reloaded from file after update");
+                        }
+                        Err(err) => {
+                            warn!(%err, "failed to reload configuration from file after update");
+                        }
                     }
-                    Err(err) => {
-                        warn!(%err, "failed to reload configuration from file after update");
-                    }
-                }
-            },
-            notify::Config::default(),
-        )?;
-        watcher.watch(config_path.as_path(), RecursiveMode::Recursive)?;
+                },
+                notify::Config::default(),
+            )?;
+            watcher.watch(config_path.as_path(), RecursiveMode::Recursive)?;
+        }
 
         // Run the registry refresher task
         if is_refreshing_required {
