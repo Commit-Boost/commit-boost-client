@@ -188,10 +188,16 @@ jwt_auth_fail_timeout_seconds = 300
 # HTTP header to use to determine the real client IP, if the Signer is behind a proxy (e.g. nginx)
 # OPTIONAL. If missing, the client IP will be taken directly from the TCP connection.
 # [signer.reverse_proxy]
-# Unique: HTTP header name to use to determine the real client IP. Expected to appear only once in the request. Requests with multiple values of this header will be rejected.
-# unique = "X-Real-IP"
-# Rightmost: HTTP header name to use to determine the real client IP from a comma-separated list of IPs. Rightmost IP is the client IP. If the header appears multiple times, the last value will be used.
-# rightmost = "X-Forwarded-For"
+# Type of reverse proxy configuration. Supported values:
+# - unique: use a single HTTP header value as the client IP.
+# - rightmost: use the rightmost IP from a comma-separated list of IPs in the HTTP header.
+# type = "unique"
+# Unique: HTTP header name to use to determine the real client IP. If the header appears multiple times, the request will be rejected.
+# header = "X-Real-IP"
+# Rightmost: HTTP header name to use to determine the real client IP from a comma-separated list of IPs. If the header appears multiple times, the last value will be used.
+# header = "X-Forwarded-For"
+# Rightmost: number of trusted proxies in front of the Signer, whose IPs will be skipped when extracting the client IP from the rightmost side of the list. Must be greater than 0.
+# trusted_count = 1
 
 # [signer.tls_mode]
 # How to use TLS for the Signer's HTTP server; two modes are supported:

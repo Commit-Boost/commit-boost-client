@@ -13,6 +13,8 @@ pub enum IpError {
     InvalidValue,
     #[error("header `{0}` appears multiple times but expected to be unique")]
     NotUnique(String),
+    #[error("header does not contain enough values: found {found}, required {required}")]
+    NotEnoughValues { found: usize, required: usize },
 }
 
 /// Get the true client IP from the request headers or fallback to the socket
@@ -24,8 +26,10 @@ pub fn get_true_ip(
 ) -> Result<IpAddr, IpError> {
     match reverse_proxy {
         ReverseProxyHeaderSetup::None => Ok(addr.ip()),
-        ReverseProxyHeaderSetup::Unique(header) => get_ip_from_unique_header(headers, header),
-        ReverseProxyHeaderSetup::Rightmost(header) => get_ip_from_rightmost_value(headers, header),
+        ReverseProxyHeaderSetup::Unique { header } => get_ip_from_unique_header(headers, header),
+        ReverseProxyHeaderSetup::Rightmost { header, trusted_count } => {
+            get_ip_from_rightmost_value(headers, header, trusted_count.get())
+        }
     }
 }
 
@@ -46,7 +50,11 @@ fn get_ip_from_unique_header(headers: &HeaderMap, header_name: &str) -> Result<I
     Ok(ip)
 }
 
-fn get_ip_from_rightmost_value(headers: &HeaderMap, header_name: &str) -> Result<IpAddr, IpError> {
+fn get_ip_from_rightmost_value(
+    headers: &HeaderMap,
+    header_name: &str,
+    trusted_count: usize,
+) -> Result<IpAddr, IpError> {
     let last_value = headers
         .get_all(header_name)
         .iter()
@@ -55,10 +63,15 @@ fn get_ip_from_rightmost_value(headers: &HeaderMap, header_name: &str) -> Result
         .to_str()
         .map_err(|_| IpError::HasInvalidCharacters)?;
 
+    // Selecting the first untrusted IP from the right according to:
+    // https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Forwarded-For#selecting_an_ip_address
     last_value
-        .rsplit_once(",")
-        .map(|(_, rightmost)| rightmost)
-        .unwrap_or(last_value)
+        .rsplit(",")
+        .nth(trusted_count - 1)
+        .ok_or(IpError::NotEnoughValues {
+            found: last_value.split(",").count(),
+            required: trusted_count,
+        })?
         .parse::<IpAddr>()
         .map_err(|_| IpError::InvalidValue)
 }

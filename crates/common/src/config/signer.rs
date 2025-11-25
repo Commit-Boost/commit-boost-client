@@ -1,6 +1,8 @@
 use std::{
     collections::HashMap,
+    fmt::Display,
     net::{Ipv4Addr, SocketAddr},
+    num::NonZeroUsize,
     path::PathBuf,
 };
 
@@ -71,12 +73,37 @@ pub enum TlsMode {
 
 /// Reverse proxy setup, used to extract real client's IP
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", tag = "type")]
 pub enum ReverseProxyHeaderSetup {
     #[default]
     None,
-    Unique(String),
-    Rightmost(String),
+    Unique {
+        header: String,
+    },
+    Rightmost {
+        header: String,
+        trusted_count: NonZeroUsize,
+    },
+}
+
+impl Display for ReverseProxyHeaderSetup {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ReverseProxyHeaderSetup::None => write!(f, "None"),
+            ReverseProxyHeaderSetup::Unique { header } => {
+                write!(f, "\"{header} (unique)\"")
+            }
+            ReverseProxyHeaderSetup::Rightmost { header, trusted_count } => {
+                let suffix = match trusted_count.get() % 10 {
+                    1 => "st",
+                    2 => "nd",
+                    3 => "rd",
+                    _ => "th",
+                };
+                write!(f, "\"{header} ({trusted_count}{suffix} from the right)\"")
+            }
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
