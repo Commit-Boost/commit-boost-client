@@ -126,7 +126,7 @@ impl SigningService {
             loaded_proxies,
             jwt_auth_fail_limit =? state.jwt_auth_fail_limit,
             jwt_auth_fail_timeout =? state.jwt_auth_fail_timeout,
-            reverse_proxy =? state.reverse_proxy,
+            reverse_proxy =% state.reverse_proxy,
             "Starting signing service"
         );
 
