@@ -89,6 +89,8 @@ headers = { X-MyCustomHeader = "MyCustomValue" }
 # OPTIONAL
 get_params = { param1 = "value1", param2 = "value2" }
 # Whether to enable timing games, as tuned by `target_first_request_ms` and `frequency_get_header_ms`.
+# NOTE: if neither `target_first_request_ms` nor `frequency_get_header_ms` is set, this flag has no effect.
+#
 # These values should be carefully chosen for each relay, as each relay has different latency and timing games setups.
 # They should only be used by advanced users, and if mis-configured can result in unforeseen effects, e.g. fetching a lower header value,
 # or getting a temporary IP ban.
