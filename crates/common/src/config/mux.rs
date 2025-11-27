@@ -70,11 +70,13 @@ impl PbsMuxes {
                 mux.validator_pubkeys.extend(extra_keys);
             }
 
-            ensure!(
-                !mux.validator_pubkeys.is_empty(),
-                "mux config {} must have at least one validator pubkey",
-                mux.id
-            );
+            if mux.loader.as_ref().is_none_or(|loader| !loader.refreshing_enabled()) {
+                ensure!(
+                    !mux.validator_pubkeys.is_empty(),
+                    "mux config {} must have at least one validator pubkey",
+                    mux.id
+                );
+            }
         }
 
         // check that validator pubkeys are in disjoint sets
@@ -122,8 +124,8 @@ impl PbsMuxes {
             }
 
             // Track registry muxes with refreshing enabled
-            if let Some(loader) = &mux.loader &&
-                let MuxKeysLoader::Registry { enable_refreshing: true, .. } = loader
+            if let Some(loader) = &mux.loader
+                && let MuxKeysLoader::Registry { enable_refreshing: true, .. } = loader
             {
                 info!(
                     "mux {} uses registry loader with dynamic refreshing enabled",
@@ -272,6 +274,10 @@ impl MuxKeysLoader {
         // Remove duplicates
         let deduped_keys = remove_duplicate_keys(keys);
         Ok(deduped_keys)
+    }
+
+    pub fn refreshing_enabled(&self) -> bool {
+        matches!(self, Self::Registry { enable_refreshing: true, .. })
     }
 }
 
