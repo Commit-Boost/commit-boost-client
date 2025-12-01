@@ -22,7 +22,7 @@ use crate::{
     commit::client::SignerClient,
     config::{
         CONFIG_ENV, MODULE_JWT_ENV, MuxKeysLoader, PBS_MODULE_NAME, PbsMuxes, SIGNER_URL_ENV,
-        load_env_var, load_file_from_env,
+        SignerConfig, SignerType, load_env_var, load_file_from_env,
     },
     pbs::{
         DEFAULT_PBS_PORT, DEFAULT_REGISTRY_REFRESH_SECONDS, DefaultTimeout, LATE_IN_SLOT_TIME_MS,
@@ -323,6 +323,7 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
         relays: Vec<RelayConfig>,
         pbs: CustomPbsConfig<U>,
         muxes: Option<PbsMuxes>,
+        signer: Option<SignerConfig>,
     }
 
     // load module config including the extra data (if any)
@@ -375,13 +376,22 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
     let all_relays = all_relays.into_values().collect();
 
     let signer_client = if cb_config.pbs.static_config.with_signer {
-        // if custom pbs requires a signer client, load jwt
+        // if custom pbs requires a signer client, load jwt and client auth info
         let module_jwt = Jwt(load_env_var(MODULE_JWT_ENV)?);
         let signer_server_url = load_env_var(SIGNER_URL_ENV)?.parse()?;
+        let client_auth = if let Some(signer) = cb_config.signer {
+            match signer.inner {
+                SignerType::Remote { url: _, client_auth } => client_auth,
+                _ => None,
+            }
+        } else {
+            None
+        };
         Some(SignerClient::new(
             signer_server_url,
             module_jwt,
             ModuleId(PBS_MODULE_NAME.to_string()),
+            client_auth,
         )?)
     } else {
         None
