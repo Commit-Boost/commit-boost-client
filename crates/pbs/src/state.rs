@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use cb_common::{
     config::{PbsConfig, PbsModuleConfig},
@@ -19,17 +19,19 @@ pub type PbsStateGuard<S> = Arc<RwLock<PbsState<S>>>;
 pub struct PbsState<S: BuilderApiState = ()> {
     /// Config data for the Pbs service
     pub config: Arc<PbsModuleConfig>,
+    /// Path of the config file, for watching changes
+    pub config_path: Arc<PathBuf>,
     /// Opaque extra data for library use
     pub data: S,
 }
 
 impl PbsState<()> {
-    pub fn new(config: PbsModuleConfig) -> Self {
-        Self { config: Arc::new(config), data: () }
+    pub fn new(config: PbsModuleConfig, config_path: PathBuf) -> Self {
+        Self { config: Arc::new(config), config_path: Arc::new(config_path), data: () }
     }
 
     pub fn with_data<S: BuilderApiState>(self, data: S) -> PbsState<S> {
-        PbsState { data, config: self.config }
+        PbsState { data, config: self.config, config_path: self.config_path }
     }
 }
 
