@@ -57,7 +57,7 @@ extra_validation_enabled = false
 # rpc_url = "https://ethereum-holesky-rpc.publicnode.com"
 # URL of the SSV API server to use, if you have a mux that targets an SSV node operator
 # OPTIONAL, DEFAULT: "https://api.ssv.network/api/v4"
-# ssv_api_url = "https://api.ssv.network/api/v4"
+# ssv_api_url = "http://localhost:16000/v1"
 # Timeout for any HTTP requests sent from the PBS module to other services, in seconds
 # OPTIONAL, DEFAULT: 10
 http_timeout_seconds = 10

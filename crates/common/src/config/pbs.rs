@@ -402,7 +402,8 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
     ))
 }
 
-/// Default URL for the SSV network API
+/// Default URL for the SSV network API, it's a 3rd-party endpoint for backward compatibility -
+/// it's better to use your SSV node API instead (its /v1/validators endpoint).
 fn default_ssv_api_url() -> Url {
     Url::parse("https://api.ssv.network/api/v4/").expect("default URL is valid")
 }
