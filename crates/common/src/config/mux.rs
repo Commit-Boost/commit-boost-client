@@ -408,26 +408,31 @@ async fn fetch_ssv_pubkeys(
     // Depending on which api_url the user configured, we might have to fall back to
     // using 3rd party API (the old way)
     if api_url.path().contains("api.ssv.network") {
-        return fetch_ssv_pubkeys_old(api_url, chain, node_operator_id, http_timeout).await;
+        return fetch_ssv_pubkeys_from_public_api(api_url, chain, node_operator_id, http_timeout)
+            .await;
     }
 
     // We assume the api_url is pointing to SSV node API then (the new way)
+    fetch_ssv_pubkeys_from_ssv_node(api_url, node_operator_id, http_timeout).await
+}
 
-    let mut pubkeys: Vec<BlsPublicKey> = vec![];
-
+/// Fetches SSV pubkeys from the user's SSV node
+async fn fetch_ssv_pubkeys_from_ssv_node(
+    url: Url,
+    node_operator_id: U256,
+    http_timeout: Duration,
+) -> eyre::Result<Vec<BlsPublicKey>> {
     let route = "validators";
-    let url = api_url.join(&route).wrap_err("failed to construct SSV API URL")?;
+    let url = url.join(route).wrap_err("failed to construct SSV API URL")?;
 
-    let response = fetch_ssv_pubkeys_from_url(url, node_operator_id, http_timeout).await?;
-    pubkeys.extend(
-        response.data.into_iter().map(|v| v.pubkey).collect::<Vec<BlsPublicKey>>(),
-    );
-
+    let response = request_ssv_pubkeys_from_ssv_node(url, node_operator_id, http_timeout).await?;
+    let pubkeys = response.data.into_iter().map(|v| v.pubkey).collect::<Vec<BlsPublicKey>>();
     Ok(pubkeys)
 }
 
-async fn fetch_ssv_pubkeys_old(
-    mut api_url: Url,
+/// Fetches SSV pubkeys from the public SSV network API with pagination
+async fn fetch_ssv_pubkeys_from_public_api(
+    api_url: Url,
     chain: Chain,
     node_operator_id: U256,
     http_timeout: Duration,
@@ -450,7 +455,7 @@ async fn fetch_ssv_pubkeys_old(
         );
         let url = api_url.join(&route).wrap_err("failed to construct SSV API URL")?;
 
-        let response = fetch_ssv_pubkeys_from_url_old(url, http_timeout).await?;
+        let response = request_ssv_pubkeys_from_public_api(url, http_timeout).await?;
         let fetched = response.validators.len();
         pubkeys.extend(
             response.validators.into_iter().map(|v| v.pubkey).collect::<Vec<BlsPublicKey>>(),

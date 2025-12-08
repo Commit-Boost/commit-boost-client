@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use cb_common::{
     config::{HTTP_TIMEOUT_SECONDS_DEFAULT, MUXER_HTTP_MAX_LENGTH, RuntimeMuxConfig},
-    interop::ssv::utils::fetch_ssv_pubkeys_from_url,
+    interop::ssv::utils::request_ssv_pubkeys_from_ssv_node,
     signer::random_secret,
     types::Chain,
     utils::{ResponseReadError, set_ignore_content_length},
@@ -33,7 +33,8 @@ async fn test_ssv_network_fetch() -> Result<()> {
         Url::parse(&format!("http://localhost:{port}/api/v4/test_chain/validators/in_operator/1"))
             .unwrap();
     let response =
-        fetch_ssv_pubkeys_from_url(url, Duration::from_secs(HTTP_TIMEOUT_SECONDS_DEFAULT)).await?;
+        request_ssv_pubkeys_from_ssv_node(url, Duration::from_secs(HTTP_TIMEOUT_SECONDS_DEFAULT))
+            .await?;
 
     // Make sure the response is correct
     // NOTE: requires that ssv_data.json dpesn't change
@@ -67,7 +68,7 @@ async fn test_ssv_network_fetch_big_data() -> Result<()> {
     let port = 30101;
     let server_handle = cb_tests::mock_ssv::create_mock_ssv_server(port, None).await?;
     let url = Url::parse(&format!("http://localhost:{port}/big_data")).unwrap();
-    let response = fetch_ssv_pubkeys_from_url(url, Duration::from_secs(120)).await;
+    let response = request_ssv_pubkeys_from_ssv_node(url, Duration::from_secs(120)).await;
 
     // The response should fail due to content length being too big
     match response {
@@ -104,7 +105,8 @@ async fn test_ssv_network_fetch_timeout() -> Result<()> {
     let url =
         Url::parse(&format!("http://localhost:{port}/api/v4/test_chain/validators/in_operator/1"))
             .unwrap();
-    let response = fetch_ssv_pubkeys_from_url(url, Duration::from_secs(TEST_HTTP_TIMEOUT)).await;
+    let response =
+        request_ssv_pubkeys_from_ssv_node(url, Duration::from_secs(TEST_HTTP_TIMEOUT)).await;
 
     // The response should fail due to timeout
     assert!(response.is_err(), "Expected timeout error, but got success");
@@ -127,7 +129,7 @@ async fn test_ssv_network_fetch_big_data_without_content_length() -> Result<()> 
     set_ignore_content_length(true);
     let server_handle = create_mock_ssv_server(port, None).await?;
     let url = Url::parse(&format!("http://localhost:{port}/big_data")).unwrap();
-    let response = fetch_ssv_pubkeys_from_url(url, Duration::from_secs(120)).await;
+    let response = request_ssv_pubkeys_from_ssv_node(url, Duration::from_secs(120)).await;
 
     // The response should fail due to the body being too big
     match response {

@@ -124,7 +124,7 @@ pub struct PbsConfig {
     /// Execution Layer RPC url to use for extra validation
     pub rpc_url: Option<Url>,
     /// URL for the SSV network API
-    #[serde(default = "default_ssv_api_url")]
+    #[serde(default = "default_public_ssv_api_url")]
     pub ssv_api_url: Url,
     /// Timeout for HTTP requests in seconds
     #[serde(default = "default_u64::<HTTP_TIMEOUT_SECONDS_DEFAULT>")]
@@ -402,8 +402,9 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
     ))
 }
 
-/// Default URL for the SSV network API, it's a 3rd-party endpoint for backward compatibility -
-/// it's better to use your SSV node API instead (its /v1/validators endpoint).
-fn default_ssv_api_url() -> Url {
+/// Default URL for the public SSV network API.
+/// The user's own SSV node is preferred (the /v1/validators endpoint) but this
+/// is here for backwards compatibility.
+fn default_public_ssv_api_url() -> Url {
     Url::parse("https://api.ssv.network/api/v4/").expect("default URL is valid")
 }

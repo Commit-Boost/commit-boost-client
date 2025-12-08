@@ -7,7 +7,7 @@ use axum::{
 };
 use cb_common::{
     config::MUXER_HTTP_MAX_LENGTH,
-    interop::ssv::types::{SSVPagination, SSVResponse, SSVValidator},
+    interop::ssv::types::{SSVNodeResponse, SSVPagination, SSVValidator},
 };
 use tokio::{net::TcpListener, sync::RwLock, task::JoinHandle};
 use tracing::info;
@@ -31,7 +31,8 @@ pub async fn create_mock_ssv_server(
     state: Option<SsvMockState>,
 ) -> Result<JoinHandle<()>, axum::Error> {
     let data = include_str!("../../tests/data/ssv_valid.json");
-    let response = serde_json::from_str::<SSVResponse>(data).expect("failed to parse test data");
+    let response =
+        serde_json::from_str::<SSVNodeResponse>(data).expect("failed to parse test data");
     let state = state.unwrap_or(SsvMockState {
         validators: Arc::new(RwLock::new(response.validators)),
         force_timeout: Arc::new(RwLock::new(false)),
@@ -71,11 +72,11 @@ async fn handle_validators(
     }
 
     // Generate the response based on the current validators
-    let response: SSVResponse;
+    let response: SSVNodeResponse;
     {
         let validators = state.validators.read().await;
         let pagination = SSVPagination { total: validators.len() };
-        response = SSVResponse { validators: validators.clone(), pagination };
+        response = SSVNodeResponse { validators: validators.clone(), pagination };
     }
 
     // Create a valid response
