@@ -1,8 +1,9 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
+use alloy::primitives::U256;
 use cb_common::{
     config::{HTTP_TIMEOUT_SECONDS_DEFAULT, MUXER_HTTP_MAX_LENGTH, RuntimeMuxConfig},
-    interop::ssv::utils::request_ssv_pubkeys_from_public_api,
+    interop::ssv::utils::{request_ssv_pubkeys_from_public_api, request_ssv_pubkeys_from_ssv_node},
     signer::random_secret,
     types::Chain,
     utils::{ResponseReadError, set_ignore_content_length},
@@ -10,7 +11,8 @@ use cb_common::{
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
     mock_relay::{MockRelayState, start_mock_relay_service},
-    mock_ssv::{SsvMockState, TEST_HTTP_TIMEOUT, create_mock_ssv_server},
+    mock_ssv_node::create_mock_ssv_node_server,
+    mock_ssv_public::{PublicSsvMockState, TEST_HTTP_TIMEOUT, create_mock_public_ssv_server},
     mock_validator::MockValidator,
     utils::{
         bls_pubkey_from_hex_unchecked, generate_mock_relay, get_pbs_static_config, setup_test_env,
@@ -25,10 +27,11 @@ use url::Url;
 
 #[tokio::test]
 /// Tests that a successful SSV network fetch is handled and parsed properly
-async fn test_ssv_network_fetch() -> Result<()> {
+/// from the public API
+async fn test_ssv_public_network_fetch() -> Result<()> {
     // Start the mock server
     let port = 30100;
-    let _server_handle = create_mock_ssv_server(port, None).await?;
+    let _server_handle = create_mock_public_ssv_server(port, None).await?;
     let url =
         Url::parse(&format!("http://localhost:{port}/api/v4/test_chain/validators/in_operator/1"))
             .unwrap();
@@ -37,11 +40,11 @@ async fn test_ssv_network_fetch() -> Result<()> {
             .await?;
 
     // Make sure the response is correct
-    // NOTE: requires that ssv_data.json dpesn't change
+    // NOTE: requires that ssv_valid_public.json doesn't change
     assert_eq!(response.validators.len(), 3);
     let expected_pubkeys = [
         bls_pubkey_from_hex_unchecked(
-            "967ba17a3e7f82a25aa5350ec34d6923e28ad8237b5a41efe2c5e325240d74d87a015bf04634f21900963539c8229b2a",
+            "aa370f6250d421d00437b9900407a7ad93b041aeb7259d99b55ab8b163277746680e93e841f87350737bceee46aa104d",
         ),
         bls_pubkey_from_hex_unchecked(
             "ac769e8cec802e8ffee34de3253be8f438a0c17ee84bdff0b6730280d24b5ecb77ebc9c985281b41ee3bda8663b6658c",
@@ -66,7 +69,8 @@ async fn test_ssv_network_fetch() -> Result<()> {
 async fn test_ssv_network_fetch_big_data() -> Result<()> {
     // Start the mock server
     let port = 30101;
-    let server_handle = cb_tests::mock_ssv::create_mock_ssv_server(port, None).await?;
+    let server_handle =
+        cb_tests::mock_ssv_public::create_mock_public_ssv_server(port, None).await?;
     let url = Url::parse(&format!("http://localhost:{port}/big_data")).unwrap();
     let response = request_ssv_pubkeys_from_public_api(url, Duration::from_secs(120)).await;
 
@@ -97,11 +101,11 @@ async fn test_ssv_network_fetch_big_data() -> Result<()> {
 async fn test_ssv_network_fetch_timeout() -> Result<()> {
     // Start the mock server
     let port = 30102;
-    let state = SsvMockState {
+    let state = PublicSsvMockState {
         validators: Arc::new(RwLock::new(vec![])),
         force_timeout: Arc::new(RwLock::new(true)),
     };
-    let server_handle = create_mock_ssv_server(port, Some(state)).await?;
+    let server_handle = create_mock_public_ssv_server(port, Some(state)).await?;
     let url =
         Url::parse(&format!("http://localhost:{port}/api/v4/test_chain/validators/in_operator/1"))
             .unwrap();
@@ -127,7 +131,7 @@ async fn test_ssv_network_fetch_big_data_without_content_length() -> Result<()> 
     // Start the mock server
     let port = 30103;
     set_ignore_content_length(true);
-    let server_handle = create_mock_ssv_server(port, None).await?;
+    let server_handle = create_mock_public_ssv_server(port, None).await?;
     let url = Url::parse(&format!("http://localhost:{port}/big_data")).unwrap();
     let response = request_ssv_pubkeys_from_public_api(url, Duration::from_secs(120)).await;
 
@@ -148,6 +152,37 @@ async fn test_ssv_network_fetch_big_data_without_content_length() -> Result<()> 
 
     // Clean up the server handle
     server_handle.abort();
+
+    Ok(())
+}
+
+#[tokio::test]
+/// Tests that a successful SSV network fetch is handled and parsed properly
+/// from the node API
+async fn test_ssv_node_network_fetch() -> Result<()> {
+    // Start the mock server
+    let port = 30104;
+    let _server_handle = create_mock_ssv_node_server(port, None).await?;
+    let url = Url::parse(&format!("http://localhost:{port}/v1/validators")).unwrap();
+    let response = request_ssv_pubkeys_from_ssv_node(
+        url,
+        U256::from(1),
+        Duration::from_secs(HTTP_TIMEOUT_SECONDS_DEFAULT),
+    )
+    .await?;
+
+    // Make sure the response is correct
+    // NOTE: requires that ssv_valid_node.json doesn't change
+    assert_eq!(response.data.len(), 1);
+    let expected_pubkeys = [bls_pubkey_from_hex_unchecked(
+        "aa370f6250d421d00437b9900407a7ad93b041aeb7259d99b55ab8b163277746680e93e841f87350737bceee46aa104d",
+    )];
+    for (i, validator) in response.data.iter().enumerate() {
+        assert_eq!(validator.public_key, expected_pubkeys[i]);
+    }
+
+    // Clean up the server handle
+    _server_handle.abort();
 
     Ok(())
 }

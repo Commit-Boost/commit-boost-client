@@ -1,0 +1,22 @@
+{
+  "data": [
+    {
+      "public_key": "aa370f6250d421d00437b9900407a7ad93b041aeb7259d99b55ab8b163277746680e93e841f87350737bceee46aa104d",
+      "index": "1311498",
+      "status": "active_ongoing",
+      "activation_epoch": "273156",
+      "exit_epoch": "18446744073709551615",
+      "owner": "5e33db0b37622f7e6b2f0654aa7b985d854ea9cb",
+      "committee": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "quorum": 0,
+      "partial_quorum": 0,
+      "graffiti": "",
+      "liquidated": false
+    }
+  ]
+}

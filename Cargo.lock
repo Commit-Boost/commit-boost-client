@@ -1728,6 +1728,7 @@ dependencies = [
  "cb-signer",
  "eyre",
  "reqwest 0.12.23",
+ "serde",
  "serde_json",
  "tempfile",
  "tokio",

@@ -9,7 +9,7 @@ use cb_common::{
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
     mock_relay::{MockRelayState, start_mock_relay_service},
-    mock_ssv::{SsvMockState, create_mock_ssv_server},
+    mock_ssv_public::{PublicSsvMockState, create_mock_public_ssv_server},
     mock_validator::MockValidator,
     utils::{generate_mock_relay, get_pbs_static_config, to_pbs_config},
 };
@@ -44,14 +44,14 @@ async fn test_auto_refresh() -> Result<()> {
     let ssv_api_port = pbs_port + 1;
     // Intentionally missing a trailing slash to ensure this is handled properly
     let ssv_api_url = Url::parse(&format!("http://localhost:{ssv_api_port}/api/v4"))?;
-    let mock_ssv_state = SsvMockState {
+    let mock_ssv_state = PublicSsvMockState {
         validators: Arc::new(RwLock::new(vec![SSVPublicValidator {
             pubkey: existing_mux_pubkey.clone(),
         }])),
         force_timeout: Arc::new(RwLock::new(false)),
     };
     let ssv_server_handle =
-        create_mock_ssv_server(ssv_api_port, Some(mock_ssv_state.clone())).await?;
+        create_mock_public_ssv_server(ssv_api_port, Some(mock_ssv_state.clone())).await?;
 
     // Start a default relay for non-mux keys
     let default_relay_port = ssv_api_port + 1;
