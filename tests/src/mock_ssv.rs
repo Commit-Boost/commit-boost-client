@@ -7,7 +7,7 @@ use axum::{
 };
 use cb_common::{
     config::MUXER_HTTP_MAX_LENGTH,
-    interop::ssv::types::{SSVNodeResponse, SSVPagination, SSVValidator},
+    interop::ssv::types::{SSVPagination, SSVPublicResponse, SSVPublicValidator},
 };
 use tokio::{net::TcpListener, sync::RwLock, task::JoinHandle};
 use tracing::info;
@@ -18,7 +18,7 @@ pub const TEST_HTTP_TIMEOUT: u64 = 2;
 #[derive(Clone)]
 pub struct SsvMockState {
     /// List of pubkeys for the mock server to return
-    pub validators: Arc<RwLock<Vec<SSVValidator>>>,
+    pub validators: Arc<RwLock<Vec<SSVPublicValidator>>>,
 
     /// Whether to force a timeout response to simulate a server error
     pub force_timeout: Arc<RwLock<bool>>,
@@ -32,7 +32,7 @@ pub async fn create_mock_ssv_server(
 ) -> Result<JoinHandle<()>, axum::Error> {
     let data = include_str!("../../tests/data/ssv_valid.json");
     let response =
-        serde_json::from_str::<SSVNodeResponse>(data).expect("failed to parse test data");
+        serde_json::from_str::<SSVPublicResponse>(data).expect("failed to parse test data");
     let state = state.unwrap_or(SsvMockState {
         validators: Arc::new(RwLock::new(response.validators)),
         force_timeout: Arc::new(RwLock::new(false)),
@@ -72,11 +72,11 @@ async fn handle_validators(
     }
 
     // Generate the response based on the current validators
-    let response: SSVNodeResponse;
+    let response: SSVPublicResponse;
     {
         let validators = state.validators.read().await;
         let pagination = SSVPagination { total: validators.len() };
-        response = SSVNodeResponse { validators: validators.clone(), pagination };
+        response = SSVPublicResponse { validators: validators.clone(), pagination };
     }
 
     // Create a valid response

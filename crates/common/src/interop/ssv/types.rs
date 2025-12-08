@@ -7,17 +7,17 @@ use crate::types::BlsPublicKey;
 #[derive(Deserialize, Serialize)]
 pub struct SSVNodeResponse {
     /// List of validators returned by the SSV API
-    pub data: Vec<SSVValidator>,
+    pub data: Vec<SSVNodeValidator>,
 }
 
 /// Representation of a validator in the SSV API
 #[derive(Clone)]
-pub struct SSVValidator {
+pub struct SSVNodeValidator {
     /// The public key of the validator
-    pub pubkey: BlsPublicKey,
+    pub public_key: BlsPublicKey,
 }
 
-impl<'de> Deserialize<'de> for SSVValidator {
+impl<'de> Deserialize<'de> for SSVNodeValidator {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -32,11 +32,11 @@ impl<'de> Deserialize<'de> for SSVValidator {
         let pubkey = BlsPublicKey::deserialize(&bytes)
             .map_err(|e| serde::de::Error::custom(format!("invalid BLS public key: {e:?}")))?;
 
-        Ok(Self { pubkey })
+        Ok(Self { public_key: pubkey })
     }
 }
 
-impl Serialize for SSVValidator {
+impl Serialize for SSVNodeValidator {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -46,7 +46,7 @@ impl Serialize for SSVValidator {
             public_key: String,
         }
 
-        let s = SSVValidator { public_key: self.pubkey.as_hex_string() };
+        let s = SSVValidator { public_key: self.public_key.as_hex_string() };
         s.serialize(serializer)
     }
 }
@@ -55,10 +55,51 @@ impl Serialize for SSVValidator {
 #[derive(Deserialize, Serialize)]
 pub struct SSVPublicResponse {
     /// List of validators returned by the SSV API
-    pub validators: Vec<SSVValidator>,
+    pub validators: Vec<SSVPublicValidator>,
 
     /// Pagination information
     pub pagination: SSVPagination,
+}
+
+/// Representation of a validator in the SSV API
+#[derive(Clone)]
+pub struct SSVPublicValidator {
+    /// The public key of the validator
+    pub pubkey: BlsPublicKey,
+}
+
+impl<'de> Deserialize<'de> for SSVPublicValidator {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct SSVValidatorOld {
+            public_key: String,
+        }
+
+        let s = SSVValidatorOld::deserialize(deserializer)?;
+        let bytes = alloy::hex::decode(&s.public_key).map_err(serde::de::Error::custom)?;
+        let pubkey = BlsPublicKey::deserialize(&bytes)
+            .map_err(|e| serde::de::Error::custom(format!("invalid BLS public key: {e:?}")))?;
+
+        Ok(Self { pubkey })
+    }
+}
+
+impl Serialize for SSVPublicValidator {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        #[derive(Serialize)]
+        struct SSVValidatorOld {
+            public_key: String,
+        }
+
+        let s = SSVValidatorOld { public_key: self.pubkey.as_hex_string() };
+        s.serialize(serializer)
+    }
 }
 
 /// Pagination information from the SSV API

@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use cb_common::{
     config::{MuxConfig, MuxKeysLoader, PbsMuxes},
-    interop::ssv::types::SSVValidator,
+    interop::ssv::types::SSVPublicValidator,
     signer::random_secret,
     types::Chain,
 };
@@ -43,9 +43,9 @@ async fn test_auto_refresh() -> Result<()> {
     // Start the mock SSV API server
     let ssv_api_port = pbs_port + 1;
     // Intentionally missing a trailing slash to ensure this is handled properly
-    let ssv_api_url = Url::parse(&format!("http://localhost:{ssv_api_port}/v1"))?;
+    let ssv_api_url = Url::parse(&format!("http://localhost:{ssv_api_port}/api/v4"))?;
     let mock_ssv_state = SsvMockState {
-        validators: Arc::new(RwLock::new(vec![SSVValidator {
+        validators: Arc::new(RwLock::new(vec![SSVPublicValidator {
             pubkey: existing_mux_pubkey.clone(),
         }])),
         force_timeout: Arc::new(RwLock::new(false)),
@@ -88,7 +88,7 @@ async fn test_auto_refresh() -> Result<()> {
 
     // Set up the PBS config
     let mut pbs_config = get_pbs_static_config(pbs_port);
-    pbs_config.ssv_api_url = ssv_api_url.clone();
+    pbs_config.ssv_public_api_url = ssv_api_url.clone();
     pbs_config.mux_registry_refresh_interval_seconds = 1; // Refresh the mux every second
     let (mux_lookup, registry_muxes) = muxes.validate_and_fill(chain, &pbs_config).await?;
     let relays = vec![default_relay.clone()]; // Default relay only
@@ -126,7 +126,7 @@ async fn test_auto_refresh() -> Result<()> {
     // Add another validator
     {
         let mut validators = mock_ssv_state.validators.write().await;
-        validators.push(SSVValidator { pubkey: new_mux_pubkey.clone() });
+        validators.push(SSVPublicValidator { pubkey: new_mux_pubkey.clone() });
         info!("Added new validator {new_mux_pubkey} to the SSV mock server");
     }
 

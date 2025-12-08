@@ -55,9 +55,13 @@ extra_validation_enabled = false
 # Execution Layer RPC url to use for extra validation
 # OPTIONAL
 # rpc_url = "https://ethereum-holesky-rpc.publicnode.com"
-# URL of the SSV API server to use, if you have a mux that targets an SSV node operator
-# OPTIONAL, DEFAULT: "https://api.ssv.network/api/v4"
-# ssv_api_url = "http://localhost:16000/v1"
+# URL of your local SSV node API endpoint, if you have a mux that targets an SSV node operator
+# OPTIONAL, DEFAULT: "http://localhost:16000/v1/"
+# ssv_node_api_url = "http://localhost:16000/v1/"
+# URL of the public SSV API server, if you have a mux that targets an SSV node operator. This is used as
+# a fallback if the user's own SSV node is not reachable.
+# OPTIONAL, DEFAULT: "https://api.ssv.network/api/v4/"
+# ssv_public_api_url = "https://api.ssv.network/api/v4/"
 # Timeout for any HTTP requests sent from the PBS module to other services, in seconds
 # OPTIONAL, DEFAULT: 10
 http_timeout_seconds = 10

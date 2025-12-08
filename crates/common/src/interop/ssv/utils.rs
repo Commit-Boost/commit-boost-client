@@ -21,9 +21,9 @@ pub async fn request_ssv_pubkeys_from_ssv_node(
     });
     let response = client.get(url).json(&body).send().await.map_err(|e| {
         if e.is_timeout() {
-            eyre::eyre!("Request to SSV network API timed out: {e}")
+            eyre::eyre!("Request to SSV node timed out: {e}")
         } else {
-            eyre::eyre!("Error sending request to SSV network API: {e}")
+            eyre::eyre!("Error sending request to SSV node: {e}")
         }
     })?;
 
@@ -39,9 +39,9 @@ pub async fn request_ssv_pubkeys_from_public_api(
     let client = reqwest::ClientBuilder::new().timeout(http_timeout).build()?;
     let response = client.get(url).send().await.map_err(|e| {
         if e.is_timeout() {
-            eyre::eyre!("Request to SSV network API timed out: {e}")
+            eyre::eyre!("Request to SSV public API timed out: {e}")
         } else {
-            eyre::eyre!("Error sending request to SSV network API: {e}")
+            eyre::eyre!("Error sending request to SSV public API: {e}")
         }
     })?;
 
