@@ -2,8 +2,14 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use alloy::primitives::U256;
 use cb_common::{
-    config::{HTTP_TIMEOUT_SECONDS_DEFAULT, MUXER_HTTP_MAX_LENGTH, RuntimeMuxConfig},
-    interop::ssv::utils::{request_ssv_pubkeys_from_public_api, request_ssv_pubkeys_from_ssv_node},
+    config::{
+        HTTP_TIMEOUT_SECONDS_DEFAULT, MUXER_HTTP_MAX_LENGTH, MuxConfig, MuxKeysLoader, PbsMuxes,
+        RuntimeMuxConfig,
+    },
+    interop::ssv::{
+        types::{SSVNodeValidator, SSVPublicValidator},
+        utils::{request_ssv_pubkeys_from_public_api, request_ssv_pubkeys_from_ssv_node},
+    },
     signer::random_secret,
     types::Chain,
     utils::{ResponseReadError, set_ignore_content_length},
@@ -11,7 +17,7 @@ use cb_common::{
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
     mock_relay::{MockRelayState, start_mock_relay_service},
-    mock_ssv_node::create_mock_ssv_node_server,
+    mock_ssv_node::{SsvNodeMockState, create_mock_ssv_node_server},
     mock_ssv_public::{PublicSsvMockState, TEST_HTTP_TIMEOUT, create_mock_public_ssv_server},
     mock_validator::MockValidator,
     utils::{
@@ -31,7 +37,7 @@ use url::Url;
 async fn test_ssv_public_network_fetch() -> Result<()> {
     // Start the mock server
     let port = 30100;
-    let _server_handle = create_mock_public_ssv_server(port, None).await?;
+    let server_handle = create_mock_public_ssv_server(port, None).await?;
     let url =
         Url::parse(&format!("http://localhost:{port}/api/v4/test_chain/validators/in_operator/1"))
             .unwrap();
@@ -44,7 +50,7 @@ async fn test_ssv_public_network_fetch() -> Result<()> {
     assert_eq!(response.validators.len(), 3);
     let expected_pubkeys = [
         bls_pubkey_from_hex_unchecked(
-            "aa370f6250d421d00437b9900407a7ad93b041aeb7259d99b55ab8b163277746680e93e841f87350737bceee46aa104d",
+            "967ba17a3e7f82a25aa5350ec34d6923e28ad8237b5a41efe2c5e325240d74d87a015bf04634f21900963539c8229b2a",
         ),
         bls_pubkey_from_hex_unchecked(
             "ac769e8cec802e8ffee34de3253be8f438a0c17ee84bdff0b6730280d24b5ecb77ebc9c985281b41ee3bda8663b6658c",
@@ -58,7 +64,7 @@ async fn test_ssv_public_network_fetch() -> Result<()> {
     }
 
     // Clean up the server handle
-    _server_handle.abort();
+    server_handle.abort();
 
     Ok(())
 }
@@ -262,6 +268,199 @@ async fn test_mux() -> Result<()> {
     info!("Sending submit block v2");
     assert_eq!(mock_validator.do_submit_block_v2(None).await?.status(), StatusCode::ACCEPTED);
     assert_eq!(mock_state.received_submit_block(), 6); // default + 2 mux relays were used
+
+    Ok(())
+}
+
+/// Tests the SSV mux with dynamic registry fetching from an SSV node
+#[tokio::test]
+async fn test_ssv_multi_with_node() -> Result<()> {
+    // Generate keys
+    let signer = random_secret();
+    let pubkey = signer.public_key();
+    let signer2 = random_secret();
+    let pubkey2 = signer2.public_key();
+
+    let chain = Chain::Hoodi;
+    let pbs_port = 3711;
+
+    // Start the mock SSV node
+    let ssv_node_port = pbs_port + 1;
+    let ssv_node_url = Url::parse(&format!("http://localhost:{ssv_node_port}/v1/"))?;
+    let mock_ssv_node_state = SsvNodeMockState {
+        validators: Arc::new(RwLock::new(vec![
+            SSVNodeValidator { public_key: pubkey.clone() },
+            SSVNodeValidator { public_key: pubkey2.clone() },
+        ])),
+        force_timeout: Arc::new(RwLock::new(false)),
+    };
+    let ssv_node_handle =
+        create_mock_ssv_node_server(ssv_node_port, Some(mock_ssv_node_state.clone())).await?;
+
+    // Start the mock SSV public API
+    let ssv_public_port = ssv_node_port + 1;
+    let ssv_public_url = Url::parse(&format!("http://localhost:{ssv_public_port}/api/v4/"))?;
+    let mock_ssv_public_state = PublicSsvMockState {
+        validators: Arc::new(RwLock::new(vec![SSVPublicValidator { pubkey: pubkey.clone() }])),
+        force_timeout: Arc::new(RwLock::new(false)),
+    };
+    let ssv_public_handle =
+        create_mock_public_ssv_server(ssv_public_port, Some(mock_ssv_public_state.clone())).await?;
+
+    // Start a mock relay to be used by the mux
+    let relay_port = ssv_public_port + 1;
+    let relay = generate_mock_relay(relay_port, pubkey.clone())?;
+    let relay_id = relay.id.clone().to_string();
+    let relay_state = Arc::new(MockRelayState::new(chain, signer));
+    let relay_task = tokio::spawn(start_mock_relay_service(relay_state.clone(), relay_port));
+
+    // Create the registry mux
+    let loader = MuxKeysLoader::Registry {
+        enable_refreshing: true,
+        node_operator_id: 1,
+        lido_module_id: None,
+        registry: cb_common::config::NORegistry::SSV,
+    };
+    let muxes = PbsMuxes {
+        muxes: vec![MuxConfig {
+            id: relay_id.clone(),
+            loader: Some(loader),
+            late_in_slot_time_ms: Some(u64::MAX),
+            relays: vec![(*relay.config).clone()],
+            timeout_get_header_ms: Some(u64::MAX - 1),
+            validator_pubkeys: vec![],
+        }],
+    };
+
+    // Set up the PBS config
+    let mut pbs_config = get_pbs_static_config(pbs_port);
+    pbs_config.ssv_node_api_url = ssv_node_url.clone();
+    pbs_config.ssv_public_api_url = ssv_public_url.clone();
+    pbs_config.mux_registry_refresh_interval_seconds = 1; // Refresh the mux every second
+    let (mux_lookup, registry_muxes) = muxes.validate_and_fill(chain, &pbs_config).await?;
+    let relays = vec![relay.clone()]; // Default relay only
+    let mut config = to_pbs_config(chain, pbs_config, relays);
+    config.all_relays.push(relay.clone()); // Add the mux relay to just this field
+    config.mux_lookup = Some(mux_lookup);
+    config.registry_muxes = Some(registry_muxes);
+
+    // Run PBS service
+    let state = PbsState::new(config);
+    let pbs_server = tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    info!("Started PBS server with pubkey {pubkey}");
+
+    // Wait for the server to start
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Try to run a get_header on the new pubkey, which should use the default
+    // relay only since it hasn't been seen in the mux yet
+    let mock_validator = MockValidator::new(pbs_port)?;
+    info!("Sending get header");
+    let res = mock_validator.do_get_header(Some(pubkey2.clone())).await?;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(relay_state.received_get_header(), 1); // pubkey2 was loaded from the SSV node 
+
+    // Shut down the server handles
+    pbs_server.abort();
+    ssv_node_handle.abort();
+    ssv_public_handle.abort();
+    relay_task.abort();
+
+    Ok(())
+}
+
+/// Tests the SSV mux with dynamic registry fetching from the public SSV API
+/// when the local node is down
+#[tokio::test]
+async fn test_ssv_multi_with_public() -> Result<()> {
+    // Generate keys
+    let signer = random_secret();
+    let pubkey = signer.public_key();
+    let signer2 = random_secret();
+    let pubkey2 = signer2.public_key();
+
+    let chain = Chain::Hoodi;
+    let pbs_port = 3720;
+
+    // Start the mock SSV node
+    let ssv_node_port = pbs_port + 1;
+    let ssv_node_url = Url::parse(&format!("http://localhost:{ssv_node_port}/v1/"))?;
+
+    // Don't start the SSV node server to simulate it being down
+    // let ssv_node_handle = create_mock_ssv_node_server(ssv_node_port,
+    // Some(mock_ssv_node_state.clone())).await?;
+
+    // Start the mock SSV public API
+    let ssv_public_port = ssv_node_port + 1;
+    let ssv_public_url = Url::parse(&format!("http://localhost:{ssv_public_port}/api/v4/"))?;
+    let mock_ssv_public_state = PublicSsvMockState {
+        validators: Arc::new(RwLock::new(vec![
+            SSVPublicValidator { pubkey: pubkey.clone() },
+            SSVPublicValidator { pubkey: pubkey2.clone() },
+        ])),
+        force_timeout: Arc::new(RwLock::new(false)),
+    };
+    let ssv_public_handle =
+        create_mock_public_ssv_server(ssv_public_port, Some(mock_ssv_public_state.clone())).await?;
+
+    // Start a mock relay to be used by the mux
+    let relay_port = ssv_public_port + 1;
+    let relay = generate_mock_relay(relay_port, pubkey.clone())?;
+    let relay_id = relay.id.clone().to_string();
+    let relay_state = Arc::new(MockRelayState::new(chain, signer));
+    let relay_task = tokio::spawn(start_mock_relay_service(relay_state.clone(), relay_port));
+
+    // Create the registry mux
+    let loader = MuxKeysLoader::Registry {
+        enable_refreshing: true,
+        node_operator_id: 1,
+        lido_module_id: None,
+        registry: cb_common::config::NORegistry::SSV,
+    };
+    let muxes = PbsMuxes {
+        muxes: vec![MuxConfig {
+            id: relay_id.clone(),
+            loader: Some(loader),
+            late_in_slot_time_ms: Some(u64::MAX),
+            relays: vec![(*relay.config).clone()],
+            timeout_get_header_ms: Some(u64::MAX - 1),
+            validator_pubkeys: vec![],
+        }],
+    };
+
+    // Set up the PBS config
+    let mut pbs_config = get_pbs_static_config(pbs_port);
+    pbs_config.ssv_node_api_url = ssv_node_url.clone();
+    pbs_config.ssv_public_api_url = ssv_public_url.clone();
+    pbs_config.mux_registry_refresh_interval_seconds = 1; // Refresh the mux every second
+    let (mux_lookup, registry_muxes) = muxes.validate_and_fill(chain, &pbs_config).await?;
+    let relays = vec![relay.clone()]; // Default relay only
+    let mut config = to_pbs_config(chain, pbs_config, relays);
+    config.all_relays.push(relay.clone()); // Add the mux relay to just this field
+    config.mux_lookup = Some(mux_lookup);
+    config.registry_muxes = Some(registry_muxes);
+
+    // Run PBS service
+    let state = PbsState::new(config);
+    let pbs_server = tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    info!("Started PBS server with pubkey {pubkey}");
+
+    // Wait for the server to start
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Try to run a get_header on the new pubkey, which should use the default
+    // relay only since it hasn't been seen in the mux yet
+    let mock_validator = MockValidator::new(pbs_port)?;
+    info!("Sending get header");
+    let res = mock_validator.do_get_header(Some(pubkey2.clone())).await?;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(relay_state.received_get_header(), 1); // pubkey2 was loaded from the SSV public API 
+
+    // Shut down the server handles
+    pbs_server.abort();
+    //ssv_node_handle.abort();
+    ssv_public_handle.abort();
+    relay_task.abort();
 
     Ok(())
 }
