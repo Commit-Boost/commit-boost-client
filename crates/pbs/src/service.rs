@@ -68,12 +68,20 @@ impl PbsService {
             let config_path_for_watcher = config_path.clone();
             watcher = RecommendedWatcher::new(
                 move |result: Result<Event, Error>| {
-                    let event = result.unwrap();
-                    if !event.kind.is_modify() {
-                        return;
+                    match result {
+                        Err(e) => {
+                            warn!(%e, "error watching PBS config file for changes");
+                            return;
+                        }
+                        Ok(event) => {
+                            if !event.kind.is_modify() {
+                                return;
+                            }
+                        }
                     }
 
                     // Reload the configuration when the file is modified
+                    info!("detected change in PBS config file, reloading configuration");
                     let result = futures::executor::block_on(load_pbs_config(Some(
                         config_path_for_watcher.to_path_buf(),
                     )));
@@ -91,6 +99,7 @@ impl PbsService {
                 notify::Config::default(),
             )?;
             watcher.watch(config_path.as_path(), RecursiveMode::Recursive)?;
+            info!("watching PBS config file for changes: {:?}", config_path);
         }
 
         // Run the registry refresher task
