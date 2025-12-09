@@ -1626,6 +1626,7 @@ dependencies = [
  "futures",
  "headers-accept",
  "jsonwebtoken",
+ "lazy_static",
  "mediatype 0.20.0",
  "pbkdf2 0.12.2",
  "rand 0.9.2",

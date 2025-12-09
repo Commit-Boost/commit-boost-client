@@ -7,10 +7,9 @@ use std::{
 };
 
 use alloy::{
-    primitives::{Address, U256, address},
+    primitives::{Address, Bytes, U256},
     providers::ProviderBuilder,
     rpc::{client::RpcClient, types::beacon::constants::BLS_PUBLIC_KEY_BYTES_LEN},
-    sol,
     transports::http::Http,
 };
 use eyre::{Context, bail, ensure};
@@ -22,7 +21,7 @@ use url::Url;
 use super::{MUX_PATH_ENV, PbsConfig, RelayConfig, load_optional_env_var};
 use crate::{
     config::{remove_duplicate_keys, safe_read_http_response},
-    interop::ssv::utils::fetch_ssv_pubkeys_from_url,
+    interop::{lido::utils::*, ssv::utils::*},
     pbs::RelayClient,
     types::{BlsPublicKey, Chain},
     utils::default_bool,
@@ -193,6 +192,8 @@ pub enum MuxKeysLoader {
     Registry {
         registry: NORegistry,
         node_operator_id: u64,
+        #[serde(default)]
+        lido_module_id: Option<u8>,
         #[serde(default = "default_bool::<false>")]
         enable_refreshing: bool,
     },
@@ -239,30 +240,33 @@ impl MuxKeysLoader {
                     .wrap_err("failed to fetch mux keys from HTTP endpoint")
             }
 
-            Self::Registry { registry, node_operator_id, enable_refreshing: _ } => match registry {
-                NORegistry::Lido => {
-                    let Some(rpc_url) = rpc_url else {
-                        bail!("Lido registry requires RPC URL to be set in the PBS config");
-                    };
+            Self::Registry { registry, node_operator_id, lido_module_id, enable_refreshing: _ } => {
+                match registry {
+                    NORegistry::Lido => {
+                        let Some(rpc_url) = rpc_url else {
+                            bail!("Lido registry requires RPC URL to be set in the PBS config");
+                        };
 
-                    fetch_lido_registry_keys(
-                        rpc_url,
-                        chain,
-                        U256::from(*node_operator_id),
-                        http_timeout,
-                    )
-                    .await
+                        fetch_lido_registry_keys(
+                            rpc_url,
+                            chain,
+                            U256::from(*node_operator_id),
+                            lido_module_id.unwrap_or(1),
+                            http_timeout,
+                        )
+                        .await
+                    }
+                    NORegistry::SSV => {
+                        fetch_ssv_pubkeys(
+                            ssv_api_url,
+                            chain,
+                            U256::from(*node_operator_id),
+                            http_timeout,
+                        )
+                        .await
+                    }
                 }
-                NORegistry::SSV => {
-                    fetch_ssv_pubkeys(
-                        ssv_api_url,
-                        chain,
-                        U256::from(*node_operator_id),
-                        http_timeout,
-                    )
-                    .await
-                }
-            },
+            }
         }?;
 
         // Remove duplicates
@@ -285,63 +289,28 @@ fn get_mux_path(mux_id: &str) -> String {
     format!("/{mux_id}-mux_keys.json")
 }
 
-sol! {
-    #[allow(missing_docs)]
-    #[sol(rpc)]
-    LidoRegistry,
-    "src/abi/LidoNORegistry.json"
-}
-
-// Fetching Lido Curated Module
-fn lido_registry_address(chain: Chain) -> eyre::Result<Address> {
-    match chain {
-        Chain::Mainnet => Ok(address!("55032650b14df07b85bF18A3a3eC8E0Af2e028d5")),
-        Chain::Holesky => Ok(address!("595F64Ddc3856a3b5Ff4f4CC1d1fb4B46cFd2bAC")),
-        Chain::Hoodi => Ok(address!("5cDbE1590c083b5A2A64427fAA63A7cfDB91FbB5")),
-        Chain::Sepolia => Ok(address!("33d6E15047E8644F8DDf5CD05d202dfE587DA6E3")),
-        _ => bail!("Lido registry not supported for chain: {chain:?}"),
-    }
-}
-
-async fn fetch_lido_registry_keys(
-    rpc_url: Url,
-    chain: Chain,
-    node_operator_id: U256,
-    http_timeout: Duration,
-) -> eyre::Result<Vec<BlsPublicKey>> {
-    debug!(?chain, %node_operator_id, "loading operator keys from Lido registry");
-
-    // Create an RPC provider with HTTP timeout support
-    let client = Client::builder().timeout(http_timeout).build()?;
-    let http = Http::with_client(client, rpc_url);
-    let is_local = http.guess_local();
-    let rpc_client = RpcClient::new(http, is_local);
-    let provider = ProviderBuilder::new().connect_client(rpc_client);
-
-    let registry_address = lido_registry_address(chain)?;
-    let registry = LidoRegistry::new(registry_address, provider);
-
-    let total_keys = registry.getTotalSigningKeyCount(node_operator_id).call().await?.try_into()?;
-
+async fn collect_registry_keys<F, Fut>(
+    total_keys: u64,
+    mut fetch_batch: F,
+) -> eyre::Result<Vec<BlsPublicKey>>
+where
+    F: FnMut(u64, u64) -> Fut,
+    Fut: std::future::Future<Output = eyre::Result<Bytes>>,
+{
     if total_keys == 0 {
         return Ok(Vec::new());
     }
-
     debug!("fetching {total_keys} total keys");
 
     const CALL_BATCH_SIZE: u64 = 250u64;
 
     let mut keys = vec![];
-    let mut offset = 0;
+    let mut offset: u64 = 0;
 
     while offset < total_keys {
         let limit = CALL_BATCH_SIZE.min(total_keys - offset);
 
-        let pubkeys = registry
-            .getSigningKeys(node_operator_id, U256::from(offset), U256::from(limit))
-            .call()
-            .await?
-            .pubkeys;
+        let pubkeys = fetch_batch(offset, limit).await?;
 
         ensure!(
             pubkeys.len() % BLS_PUBLIC_KEY_BYTES_LEN == 0,
@@ -366,6 +335,59 @@ async fn fetch_lido_registry_keys(
     ensure!(keys.len() == total_keys as usize, "expected {total_keys} keys, got {}", keys.len());
 
     Ok(keys)
+}
+
+async fn fetch_lido_csm_registry_keys(
+    registry_address: Address,
+    rpc_client: RpcClient,
+    node_operator_id: U256,
+) -> eyre::Result<Vec<BlsPublicKey>> {
+    let provider = ProviderBuilder::new().connect_client(rpc_client);
+    let registry = get_lido_csm_registry(registry_address, provider);
+    let total_keys = fetch_lido_csm_keys_total(&registry, node_operator_id).await?;
+
+    collect_registry_keys(total_keys, |offset, limit| {
+        fetch_lido_csm_keys_batch(&registry, node_operator_id, offset, limit)
+    })
+    .await
+}
+
+async fn fetch_lido_module_registry_keys(
+    registry_address: Address,
+    rpc_client: RpcClient,
+    node_operator_id: U256,
+) -> eyre::Result<Vec<BlsPublicKey>> {
+    let provider = ProviderBuilder::new().connect_client(rpc_client);
+    let registry = get_lido_module_registry(registry_address, provider);
+    let total_keys: u64 = fetch_lido_module_keys_total(&registry, node_operator_id).await?;
+
+    collect_registry_keys(total_keys, |offset, limit| {
+        fetch_lido_module_keys_batch(&registry, node_operator_id, offset, limit)
+    })
+    .await
+}
+
+async fn fetch_lido_registry_keys(
+    rpc_url: Url,
+    chain: Chain,
+    node_operator_id: U256,
+    lido_module_id: u8,
+    http_timeout: Duration,
+) -> eyre::Result<Vec<BlsPublicKey>> {
+    debug!(?chain, %node_operator_id, ?lido_module_id, "loading operator keys from Lido registry");
+
+    // Create an RPC provider with HTTP timeout support
+    let client = Client::builder().timeout(http_timeout).build()?;
+    let http = Http::with_client(client, rpc_url);
+    let is_local = http.guess_local();
+    let rpc_client = RpcClient::new(http, is_local);
+    let registry_address = lido_registry_address(chain, lido_module_id)?;
+
+    if is_csm_module(chain, lido_module_id) {
+        fetch_lido_csm_registry_keys(registry_address, rpc_client, node_operator_id).await
+    } else {
+        fetch_lido_module_registry_keys(registry_address, rpc_client, node_operator_id).await
+    }
 }
 
 async fn fetch_ssv_pubkeys(
@@ -420,47 +442,4 @@ async fn fetch_ssv_pubkeys(
     }
 
     Ok(pubkeys)
-}
-
-#[cfg(test)]
-mod tests {
-    use alloy::{primitives::U256, providers::ProviderBuilder};
-    use url::Url;
-
-    use super::*;
-
-    #[tokio::test]
-    async fn test_lido_registry_address() -> eyre::Result<()> {
-        let url = Url::parse("https://ethereum-rpc.publicnode.com")?;
-        let provider = ProviderBuilder::new().connect_http(url);
-
-        let registry =
-            LidoRegistry::new(address!("55032650b14df07b85bF18A3a3eC8E0Af2e028d5"), provider);
-
-        const LIMIT: usize = 3;
-        let node_operator_id = U256::from(1);
-
-        let total_keys: u64 =
-            registry.getTotalSigningKeyCount(node_operator_id).call().await?.try_into()?;
-
-        assert!(total_keys > LIMIT as u64);
-
-        let pubkeys = registry
-            .getSigningKeys(node_operator_id, U256::ZERO, U256::from(LIMIT))
-            .call()
-            .await?
-            .pubkeys;
-
-        let mut vec = vec![];
-        for chunk in pubkeys.chunks(BLS_PUBLIC_KEY_BYTES_LEN) {
-            vec.push(
-                BlsPublicKey::deserialize(chunk)
-                    .map_err(|_| eyre::eyre!("invalid BLS public key"))?,
-            );
-        }
-
-        assert_eq!(vec.len(), LIMIT);
-
-        Ok(())
-    }
 }

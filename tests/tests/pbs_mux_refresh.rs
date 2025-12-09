@@ -73,6 +73,7 @@ async fn test_auto_refresh() -> Result<()> {
     let loader = MuxKeysLoader::Registry {
         enable_refreshing: true,
         node_operator_id: 1,
+        lido_module_id: None,
         registry: cb_common::config::NORegistry::SSV,
     };
     let muxes = PbsMuxes {
