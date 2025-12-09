@@ -74,11 +74,11 @@ impl<'de> Deserialize<'de> for SSVPublicValidator {
         D: Deserializer<'de>,
     {
         #[derive(Deserialize)]
-        struct SSVValidatorOld {
+        struct SSVValidator {
             public_key: String,
         }
 
-        let s = SSVValidatorOld::deserialize(deserializer)?;
+        let s = SSVValidator::deserialize(deserializer)?;
         let bytes = alloy::hex::decode(&s.public_key).map_err(serde::de::Error::custom)?;
         let pubkey = BlsPublicKey::deserialize(&bytes)
             .map_err(|e| serde::de::Error::custom(format!("invalid BLS public key: {e:?}")))?;
@@ -93,11 +93,11 @@ impl Serialize for SSVPublicValidator {
         S: serde::Serializer,
     {
         #[derive(Serialize)]
-        struct SSVValidatorOld {
+        struct SSVValidator {
             public_key: String,
         }
 
-        let s = SSVValidatorOld { public_key: self.pubkey.as_hex_string() };
+        let s = SSVValidator { public_key: self.pubkey.as_hex_string() };
         s.serialize(serializer)
     }
 }
