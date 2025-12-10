@@ -33,7 +33,7 @@ target_first_request_ms = 200
 
 [[mux]]
 id = "lido-mux"
-loader = { registry = "lido", node_operator_id = 8 }
+loader = { registry = "lido", node_operator_id = 8, lido_module_id = 1 }
 
 [[mux.relays]]
 id = "relay-3"

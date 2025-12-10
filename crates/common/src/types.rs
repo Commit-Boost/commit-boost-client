@@ -29,7 +29,7 @@ pub struct JwtClaims {
     pub module: String,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Chain {
     Mainnet,
     Holesky,
@@ -42,6 +42,26 @@ pub enum Chain {
         genesis_fork_version: ForkVersion,
         fulu_fork_slot: u64,
     },
+}
+
+pub enum MainnetLidoModule {
+    Curated = 1,
+    SimpleDVT = 2,
+    CommunityStaking = 3,
+}
+
+pub enum HoleskyLidoModule {
+    Curated = 1,
+    SimpleDVT = 2,
+    Sandbox = 3,
+    CommunityStaking = 4,
+}
+
+pub enum HoodiLidoModule {
+    Curated = 1,
+    SimpleDVT = 2,
+    Sandbox = 3,
+    CommunityStaking = 4,
 }
 
 pub type ForkVersion = [u8; 4];
@@ -233,7 +253,8 @@ impl KnownChain {
 
     pub fn fulu_fork_slot(&self) -> u64 {
         match self {
-            KnownChain::Mainnet | KnownChain::Helder => u64::MAX,
+            KnownChain::Mainnet => 13164544,
+            KnownChain::Helder => u64::MAX,
             KnownChain::Holesky => 5283840,
             KnownChain::Sepolia => 8724480,
             KnownChain::Hoodi => 1622016,
