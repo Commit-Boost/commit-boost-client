@@ -44,15 +44,16 @@ async fn test_get_header_ssz() -> Result<()> {
     .await
 }
 
-/// Test requesting SSZ when the relay only supports JSON, which should cause
-/// PBS to retry internally with JSON
+/// Test requesting SSZ when the relay only supports JSON, which should be
+/// handled because PBS supports both types internally and re-maps them on the
+/// fly
 #[tokio::test]
 async fn test_get_header_ssz_into_json() -> Result<()> {
     test_get_header_impl(
         3220,
         HashSet::from([EncodingType::Ssz]),
         HashSet::from([EncodingType::Json]),
-        2,
+        1,
     )
     .await
 }

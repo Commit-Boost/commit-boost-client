@@ -39,6 +39,8 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
         error!(%e, "error parsing accept header");
         PbsClientError::DecodeError(format!("error parsing accept header: {e}"))
     })?;
+    let accepts_ssz = accept_types.contains(&EncodingType::Ssz);
+    let accepts_json = accept_types.contains(&EncodingType::Json);
 
     info!(ua, ms_into_slot, "new request");
 
@@ -48,9 +50,6 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
                 info!(value_eth = format_ether(*max_bid.data.message.value()), block_hash =% max_bid.block_hash(), "received header");
 
                 BEACON_NODE_STATUS.with_label_values(&["200", GET_HEADER_ENDPOINT_TAG]).inc();
-
-                let accepts_ssz = accept_types.contains(&EncodingType::Ssz);
-                let accepts_json = accept_types.contains(&EncodingType::Json);
 
                 // Handle SSZ
                 if accepts_ssz {

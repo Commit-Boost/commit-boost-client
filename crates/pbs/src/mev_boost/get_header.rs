@@ -20,8 +20,8 @@ use cb_common::{
     signature::verify_signed_message,
     types::{BlsPublicKey, BlsPublicKeyBytes, BlsSignature, Chain},
     utils::{
-        EncodingType, get_accept_types, get_consensus_version_header, get_user_agent_with_version,
-        ms_into_slot, read_chunked_body_with_max, timestamp_of_slot_start_sec, utcnow_ms,
+        EncodingType, get_consensus_version_header, get_user_agent_with_version, ms_into_slot,
+        read_chunked_body_with_max, timestamp_of_slot_start_sec, utcnow_ms,
     },
 };
 use futures::future::join_all;
@@ -44,6 +44,40 @@ use crate::{
     state::{BuilderApiState, PbsState},
     utils::check_gas_limit,
 };
+
+/// Info about an incoming get_header request.
+/// Sent from get_header to each send_timed_get_header call.
+#[derive(Clone)]
+struct RequestInfo {
+    /// The blockchain parameters of the get_header request (what slot it's for,
+    /// which pubkey is requesting it, etc)
+    params: GetHeaderParams,
+
+    /// Common baseline of headers to send with each request
+    headers: Arc<HeaderMap>,
+
+    /// The chain the request is for
+    chain: Chain,
+
+    /// Context for validating the header returned by the relay
+    validation: ValidationContext,
+}
+
+// Context for validating the header
+#[derive(Clone)]
+struct ValidationContext {
+    // Whether to skip signature verification
+    skip_sigverify: bool,
+
+    // Minimum acceptable bid, in wei
+    min_bid_wei: U256,
+
+    // Whether extra validation of the parent block is enabled
+    extra_validation_enabled: bool,
+
+    // The parent block, if fetched
+    parent_block: Arc<RwLock<Option<Block>>>,
+}
 
 /// Implements https://ethereum.github.io/builder-specs/#/Builder/getHeader
 /// Returns 200 if at least one relay returns 200, else 204
@@ -101,27 +135,34 @@ pub async fn get_header<S: BuilderApiState>(
     let mut send_headers = HeaderMap::new();
     send_headers.insert(USER_AGENT, get_user_agent_with_version(&req_headers)?);
 
-    // Get the accept types from the request and forward them
-    for value in req_headers.get_all(ACCEPT).iter() {
-        send_headers.append(ACCEPT, value.clone());
-    }
+    // Create the Accept headers for requests since the module handles both SSZ and
+    // JSON
+    let accept_types =
+        [EncodingType::Ssz.content_type(), EncodingType::Json.content_type()].join(",");
 
+    send_headers.insert(ACCEPT, HeaderValue::from_str(&accept_types).unwrap());
+
+    // Send requests to all relays concurrently
+    let slot = params.slot as i64;
+    let request_info = Arc::new(RequestInfo {
+        params,
+        headers: Arc::new(send_headers),
+        chain: state.config.chain,
+        validation: ValidationContext {
+            skip_sigverify: state.pbs_config().skip_sigverify,
+            min_bid_wei: state.pbs_config().min_bid_wei,
+            extra_validation_enabled: state.extra_validation_enabled(),
+            parent_block,
+        },
+    });
     let mut handles = Vec::with_capacity(relays.len());
     for relay in relays.iter() {
         handles.push(
             send_timed_get_header(
-                params.clone(),
+                request_info.clone(),
                 relay.clone(),
-                state.config.chain,
-                send_headers.clone(),
                 ms_into_slot,
                 max_timeout_ms,
-                ValidationContext {
-                    skip_sigverify: state.pbs_config().skip_sigverify,
-                    min_bid_wei: state.pbs_config().min_bid_wei,
-                    extra_validation_enabled: state.extra_validation_enabled(),
-                    parent_block: parent_block.clone(),
-                },
             )
             .in_current_span(),
         );
@@ -134,7 +175,7 @@ pub async fn get_header<S: BuilderApiState>(
 
         match res {
             Ok(Some(res)) => {
-                RELAY_LAST_SLOT.with_label_values(&[relay_id]).set(params.slot as i64);
+                RELAY_LAST_SLOT.with_label_values(&[relay_id]).set(slot);
                 let value_gwei = (res.data.message.value() / U256::from(1_000_000_000))
                     .try_into()
                     .unwrap_or_default();
@@ -179,15 +220,13 @@ async fn fetch_parent_block(
 }
 
 async fn send_timed_get_header(
-    params: GetHeaderParams,
+    request_info: Arc<RequestInfo>,
     relay: RelayClient,
-    chain: Chain,
-    headers: HeaderMap,
     ms_into_slot: u64,
     mut timeout_left_ms: u64,
-    validation: ValidationContext,
 ) -> Result<Option<GetHeaderResponse>, PbsError> {
-    let url = relay.get_header_url(params.slot, &params.parent_hash, &params.pubkey)?;
+    let params = &request_info.params;
+    let url = Arc::new(relay.get_header_url(params.slot, &params.parent_hash, &params.pubkey)?);
 
     if relay.config.enable_timing_games {
         if let Some(target_ms) = relay.config.target_first_request_ms {
@@ -218,18 +257,12 @@ async fn send_timed_get_header(
             );
 
             loop {
-                let params = params.clone();
                 handles.push(tokio::spawn(
                     send_one_get_header(
-                        params,
+                        request_info.clone(),
                         relay.clone(),
-                        chain,
-                        RequestContext {
-                            timeout_ms: timeout_left_ms,
-                            url: url.clone(),
-                            headers: headers.clone(),
-                        },
-                        validation.clone(),
+                        url.clone(),
+                        timeout_left_ms,
                     )
                     .in_current_span(),
                 ));
@@ -285,92 +318,30 @@ async fn send_timed_get_header(
     }
 
     // if no timing games or no repeated send, just send one request
-    send_one_get_header(
-        params,
-        relay,
-        chain,
-        RequestContext { timeout_ms: timeout_left_ms, url, headers },
-        validation,
-    )
-    .await
-    .map(|(_, maybe_header)| maybe_header)
+    send_one_get_header(request_info, relay, url, timeout_left_ms)
+        .await
+        .map(|(_, maybe_header)| maybe_header)
 }
 
-struct RequestContext {
-    url: Url,
-    timeout_ms: u64,
-    headers: HeaderMap,
-}
-
-#[derive(Clone)]
-struct ValidationContext {
-    skip_sigverify: bool,
-    min_bid_wei: U256,
-    extra_validation_enabled: bool,
-    parent_block: Arc<RwLock<Option<Block>>>,
-}
-
+/// Handles requesting a header from a relay, decoding, and validation.
+/// Used by send_timed_get_header to handle each individual request.
 async fn send_one_get_header(
-    params: GetHeaderParams,
+    request_info: Arc<RequestInfo>,
     relay: RelayClient,
-    chain: Chain,
-    req_config: RequestContext,
-    validation: ValidationContext,
+    url: Arc<Url>,
+    timeout_left_ms: u64,
 ) -> Result<(u64, Option<GetHeaderResponse>), PbsError> {
-    let mut original_headers = req_config.headers.clone();
-
-    // Check which types this request is for
-    let accept_types = get_accept_types(&req_config.headers).map_err(|e| {
-        PbsError::GeneralRequest(format!("error reading accept types: {e}").to_string())
-    })?;
-    let accepts_ssz = accept_types.contains(&EncodingType::Ssz);
-    let accepts_json = accept_types.contains(&EncodingType::Json);
-
     // Send the header request
-    let mut start_request = Instant::now();
-    let config = RequestContext {
-        url: req_config.url.clone(),
-        timeout_ms: req_config.timeout_ms,
-        headers: req_config.headers,
-    };
-    let (mut res, mut start_request_time, mut content_type) =
-        send_get_header_impl(&relay, config).await?;
-    let mut code = res.status();
-
-    // If the request only supports SSZ, but the relay only supports JSON, resubmit
-    // to the relay with JSON - we'll convert it ourselves
-    if code.is_client_error() && accepts_ssz && !accepts_json {
-        debug!(
-            relay_id = relay.id.as_ref(),
-            "relay does not support SSZ, resubmitting request with JSON accept header"
-        );
-
-        // Make sure there's enough time left to resubmit
-        let elapsed = start_request.elapsed().as_millis() as u64;
-        if elapsed >= req_config.timeout_ms {
-            RELAY_STATUS_CODE
-                .with_label_values(&[TIMEOUT_ERROR_CODE_STR, GET_HEADER_ENDPOINT_TAG, &relay.id])
-                .inc();
-            return Err(PbsError::RelayResponse {
-                error_msg: "not enough time left to resubmit request with JSON accept header"
-                    .to_string(),
-                code: TIMEOUT_ERROR_CODE,
-            });
-        }
-
-        // Resubmit the request with JSON accept header
-        // Also resets the start request timer
-        original_headers
-            .insert(ACCEPT, HeaderValue::from_str(EncodingType::Json.content_type()).unwrap());
-        let config = RequestContext {
-            url: req_config.url.clone(),
-            timeout_ms: req_config.timeout_ms - elapsed,
-            headers: original_headers,
-        };
-        start_request = Instant::now();
-        (res, start_request_time, content_type) = send_get_header_impl(&relay, config).await?;
-        code = res.status();
-    }
+    let start_request = Instant::now();
+    let (res, start_request_time, content_type) = send_get_header_impl(
+        &relay,
+        url,
+        timeout_left_ms,
+        (*request_info.headers).clone(), /* Create a copy of the HeaderMap because the impl will
+                                          * modify it */
+    )
+    .await?;
+    let code = res.status();
 
     // Get the consensus fork version if provided (to avoid cloning later)
     let fork = get_consensus_version_header(res.headers());
@@ -450,6 +421,9 @@ async fn send_one_get_header(
         "received new header"
     );
 
+    let chain = request_info.chain;
+    let params = &request_info.params;
+    let validation = &request_info.validation;
     match &get_header_response.data.message.header() {
         ExecutionPayloadHeaderRef::Bellatrix(_) |
         ExecutionPayloadHeaderRef::Capella(_) |
@@ -528,25 +502,30 @@ async fn send_one_get_header(
     Ok((start_request_time, Some(get_header_response)))
 }
 
+/// Sends a get_header request to a relay, returning the response, the time the
+/// request was started, and the encoding type of the response (if any).
+/// Used by send_one_get_header to perform the actual request submission.
 async fn send_get_header_impl(
     relay: &RelayClient,
-    mut req_config: RequestContext,
+    url: Arc<Url>,
+    timeout_left_ms: u64,
+    mut headers: HeaderMap,
 ) -> Result<(Response, u64, Option<EncodingType>), PbsError> {
     // the timestamp in the header is the consensus block time which is fixed,
     // use the beginning of the request as proxy to make sure we use only the
     // last one received
     let start_request_time = utcnow_ms();
-    req_config.headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(start_request_time));
+    headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(start_request_time));
 
     // The timeout header indicating how long a relay has to respond, so they can
     // minimize timing games without losing the bid
-    req_config.headers.insert(HEADER_TIMEOUT_MS, HeaderValue::from(req_config.timeout_ms));
+    headers.insert(HEADER_TIMEOUT_MS, HeaderValue::from(timeout_left_ms));
 
     let res = match relay
         .client
-        .get(req_config.url)
-        .timeout(Duration::from_millis(req_config.timeout_ms))
-        .headers(req_config.headers)
+        .get(url.as_ref().clone())
+        .timeout(Duration::from_millis(timeout_left_ms))
+        .headers(headers)
         .send()
         .await
     {
