@@ -3,6 +3,7 @@
 use std::{
     collections::HashMap,
     net::{Ipv4Addr, SocketAddr},
+    path::PathBuf,
     sync::Arc,
 };
 
@@ -242,8 +243,11 @@ fn default_pbs() -> String {
 }
 
 /// Loads the default pbs config, i.e. with no signer client or custom data
-pub async fn load_pbs_config() -> Result<PbsModuleConfig> {
-    let config = CommitBoostConfig::from_env_path()?;
+pub async fn load_pbs_config(config_path: Option<PathBuf>) -> Result<(PbsModuleConfig, PathBuf)> {
+    let (config, config_path) = match config_path {
+        Some(path) => (CommitBoostConfig::from_file(&path)?, path),
+        None => CommitBoostConfig::from_env_path()?,
+    };
     config.validate().await?;
 
     // Make sure relays isn't empty - since the config is still technically valid if
@@ -295,16 +299,19 @@ pub async fn load_pbs_config() -> Result<PbsModuleConfig> {
 
     let all_relays = all_relays.into_values().collect();
 
-    Ok(PbsModuleConfig {
-        chain: config.chain,
-        endpoint,
-        pbs_config: Arc::new(config.pbs.pbs_config),
-        relays: relay_clients,
-        all_relays,
-        signer_client: None,
-        registry_muxes,
-        mux_lookup,
-    })
+    Ok((
+        PbsModuleConfig {
+            chain: config.chain,
+            endpoint,
+            pbs_config: Arc::new(config.pbs.pbs_config),
+            relays: relay_clients,
+            all_relays,
+            signer_client: None,
+            registry_muxes,
+            mux_lookup,
+        },
+        config_path,
+    ))
 }
 
 /// Loads a custom pbs config, i.e. with signer client and/or custom data
@@ -326,7 +333,7 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
     }
 
     // load module config including the extra data (if any)
-    let cb_config: StubConfig<T> = load_file_from_env(CONFIG_ENV)?;
+    let (cb_config, _): (StubConfig<T>, _) = load_file_from_env(CONFIG_ENV)?;
     cb_config.pbs.static_config.pbs_config.validate(cb_config.chain).await?;
 
     // use endpoint from env if set, otherwise use default host and port
