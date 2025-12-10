@@ -62,7 +62,8 @@ impl PbsMuxes {
                     .load(
                         &mux.id,
                         chain,
-                        default_pbs.ssv_api_url.clone(),
+                        default_pbs.ssv_node_api_url.clone(),
+                        default_pbs.ssv_public_api_url.clone(),
                         default_pbs.rpc_url.clone(),
                         http_timeout,
                     )
@@ -212,7 +213,8 @@ impl MuxKeysLoader {
         &self,
         mux_id: &str,
         chain: Chain,
-        ssv_api_url: Url,
+        ssv_node_api_url: Url,
+        ssv_public_api_url: Url,
         rpc_url: Option<Url>,
         http_timeout: Duration,
     ) -> eyre::Result<Vec<BlsPublicKey>> {
@@ -258,7 +260,8 @@ impl MuxKeysLoader {
                     }
                     NORegistry::SSV => {
                         fetch_ssv_pubkeys(
-                            ssv_api_url,
+                            ssv_node_api_url,
+                            ssv_public_api_url,
                             chain,
                             U256::from(*node_operator_id),
                             http_timeout,
@@ -391,11 +394,62 @@ async fn fetch_lido_registry_keys(
 }
 
 async fn fetch_ssv_pubkeys(
-    mut api_url: Url,
+    node_url: Url,
+    public_url: Url,
     chain: Chain,
     node_operator_id: U256,
     http_timeout: Duration,
 ) -> eyre::Result<Vec<BlsPublicKey>> {
+    // Try the node API first
+    match fetch_ssv_pubkeys_from_ssv_node(node_url.clone(), node_operator_id, http_timeout).await {
+        Ok(pubkeys) => Ok(pubkeys),
+        Err(e) => {
+            // Fall back to public API
+            warn!(
+                "failed to fetch pubkeys from SSV node API at {node_url}: {e}; falling back to public API",
+            );
+            fetch_ssv_pubkeys_from_public_api(public_url, chain, node_operator_id, http_timeout)
+                .await
+        }
+    }
+}
+
+/// Ensures that the SSV API URL has a trailing slash
+fn ensure_ssv_api_url(url: &mut Url) -> eyre::Result<()> {
+    // Validate the URL - this appends a trailing slash if missing as efficiently as
+    // possible
+    if !url.path().ends_with('/') {
+        match url.path_segments_mut() {
+            Ok(mut segments) => segments.push(""), // Analogous to a trailing slash
+            Err(_) => bail!("SSV API URL is not a valid base URL"),
+        };
+    }
+    Ok(())
+}
+
+/// Fetches SSV pubkeys from the user's SSV node
+async fn fetch_ssv_pubkeys_from_ssv_node(
+    mut url: Url,
+    node_operator_id: U256,
+    http_timeout: Duration,
+) -> eyre::Result<Vec<BlsPublicKey>> {
+    ensure_ssv_api_url(&mut url)?;
+    let route = "validators";
+    let url = url.join(route).wrap_err("failed to construct SSV API URL")?;
+
+    let response = request_ssv_pubkeys_from_ssv_node(url, node_operator_id, http_timeout).await?;
+    let pubkeys = response.data.into_iter().map(|v| v.public_key).collect::<Vec<BlsPublicKey>>();
+    Ok(pubkeys)
+}
+
+/// Fetches SSV pubkeys from the public SSV network API with pagination
+async fn fetch_ssv_pubkeys_from_public_api(
+    mut url: Url,
+    chain: Chain,
+    node_operator_id: U256,
+    http_timeout: Duration,
+) -> eyre::Result<Vec<BlsPublicKey>> {
+    ensure_ssv_api_url(&mut url)?;
     const MAX_PER_PAGE: usize = 100;
 
     let chain_name = match chain {
@@ -408,22 +462,13 @@ async fn fetch_ssv_pubkeys(
     let mut pubkeys: Vec<BlsPublicKey> = vec![];
     let mut page = 1;
 
-    // Validate the URL - this appends a trailing slash if missing as efficiently as
-    // possible
-    if !api_url.path().ends_with('/') {
-        match api_url.path_segments_mut() {
-            Ok(mut segments) => segments.push(""), // Analogous to a trailing slash
-            Err(_) => bail!("SSV API URL is not a valid base URL"),
-        };
-    }
-
     loop {
         let route = format!(
             "{chain_name}/validators/in_operator/{node_operator_id}?perPage={MAX_PER_PAGE}&page={page}",
         );
-        let url = api_url.join(&route).wrap_err("failed to construct SSV API URL")?;
+        let url = url.join(&route).wrap_err("failed to construct SSV API URL")?;
 
-        let response = fetch_ssv_pubkeys_from_url(url, http_timeout).await?;
+        let response = request_ssv_pubkeys_from_public_api(url, http_timeout).await?;
         let fetched = response.validators.len();
         pubkeys.extend(
             response.validators.into_iter().map(|v| v.pubkey).collect::<Vec<BlsPublicKey>>(),
