@@ -15,6 +15,7 @@ cb-metrics.workspace = true
 ethereum_ssz.workspace = true
 eyre.workspace = true
 futures.workspace = true
+headers.workspace = true
 lazy_static.workspace = true
 parking_lot.workspace = true
 prometheus.workspace = true

@@ -27,6 +27,7 @@ eyre.workspace = true
 futures.workspace = true
 headers-accept.workspace = true
 jsonwebtoken.workspace = true
+lazy_static.workspace = true
 lh_eth2.workspace = true
 lh_eth2_keystore.workspace = true
 lh_types.workspace = true

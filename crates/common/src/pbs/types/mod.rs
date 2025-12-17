@@ -54,6 +54,17 @@ pub struct GetHeaderParams {
     pub pubkey: BlsPublicKey,
 }
 
+/// Which encoding types the original requester accepts in the response.
+/// As the builder spec adds more encoding types, this struct can be expanded.
+#[derive(Clone)]
+pub struct AcceptTypes {
+    /// Whether SSZ encoding is accepted
+    pub ssz: bool,
+
+    /// Whether JSON encoding is accepted
+    pub json: bool,
+}
+
 pub trait GetHeaderInfo {
     fn block_hash(&self) -> B256;
     fn value(&self) -> &U256;

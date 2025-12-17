@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use alloy::primitives::{B256, U256};
 use cb_common::{
@@ -15,42 +15,137 @@ use cb_tests::{
     utils::{generate_mock_relay, get_pbs_static_config, setup_test_env, to_pbs_config},
 };
 use eyre::Result;
-use lh_types::ForkVersionDecode;
+use lh_types::{ForkVersionDecode, beacon_response::EmptyMetadata};
 use reqwest::StatusCode;
 use tracing::info;
 use tree_hash::TreeHash;
 
+/// Test requesting JSON when the relay supports JSON
 #[tokio::test]
 async fn test_get_header() -> Result<()> {
+    test_get_header_impl(
+        3200,
+        HashSet::from([EncodingType::Json]),
+        HashSet::from([EncodingType::Ssz, EncodingType::Json]),
+        1,
+    )
+    .await
+}
+
+/// Test requesting SSZ when the relay supports SSZ
+#[tokio::test]
+async fn test_get_header_ssz() -> Result<()> {
+    test_get_header_impl(
+        3210,
+        HashSet::from([EncodingType::Ssz]),
+        HashSet::from([EncodingType::Ssz, EncodingType::Json]),
+        1,
+    )
+    .await
+}
+
+/// Test requesting SSZ when the relay only supports JSON, which should be
+/// handled because PBS supports both types internally and re-maps them on the
+/// fly
+#[tokio::test]
+async fn test_get_header_ssz_into_json() -> Result<()> {
+    test_get_header_impl(
+        3220,
+        HashSet::from([EncodingType::Ssz]),
+        HashSet::from([EncodingType::Json]),
+        1,
+    )
+    .await
+}
+
+/// Test requesting multiple types when the relay supports SSZ, which should
+/// return SSZ
+#[tokio::test]
+async fn test_get_header_multitype_ssz() -> Result<()> {
+    test_get_header_impl(
+        3230,
+        HashSet::from([EncodingType::Ssz, EncodingType::Json]),
+        HashSet::from([EncodingType::Ssz]),
+        1,
+    )
+    .await
+}
+
+/// Test requesting multiple types when the relay supports JSON, which should
+/// still work
+#[tokio::test]
+async fn test_get_header_multitype_json() -> Result<()> {
+    test_get_header_impl(
+        3240,
+        HashSet::from([EncodingType::Ssz, EncodingType::Json]),
+        HashSet::from([EncodingType::Json]),
+        1,
+    )
+    .await
+}
+
+/// Core implementation for get_header tests
+async fn test_get_header_impl(
+    pbs_port: u16,
+    accept_types: HashSet<EncodingType>,
+    relay_types: HashSet<EncodingType>,
+    expected_try_count: u64,
+) -> Result<()> {
+    // Setup test environment
     setup_test_env();
     let signer = random_secret();
     let pubkey = signer.public_key();
-
     let chain = Chain::Holesky;
-    let pbs_port = 3200;
     let relay_port = pbs_port + 1;
 
     // Run a mock relay
-    let mock_state = Arc::new(MockRelayState::new(chain, signer));
+    let mut mock_state = MockRelayState::new(chain, signer);
+    mock_state.supported_content_types = Arc::new(relay_types);
+    let mock_state = Arc::new(mock_state);
     let mock_relay = generate_mock_relay(relay_port, pubkey)?;
     tokio::spawn(start_mock_relay_service(mock_state.clone(), relay_port));
 
     // Run the PBS service
-    let config = to_pbs_config(chain, get_pbs_static_config(pbs_port), vec![mock_relay.clone()]);
+    let config = to_pbs_config(chain, get_pbs_static_config(pbs_port), vec![mock_relay]);
     let state = PbsState::new(config);
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
     // leave some time to start servers
     tokio::time::sleep(Duration::from_millis(100)).await;
 
+    // Send the get_header request
     let mock_validator = MockValidator::new(pbs_port)?;
     info!("Sending get header");
-    let res = mock_validator.do_get_header(None, None, ForkName::Electra).await?;
+    let res = mock_validator.do_get_header(None, accept_types.clone(), ForkName::Electra).await?;
     assert_eq!(res.status(), StatusCode::OK);
 
-    let res = serde_json::from_slice::<GetHeaderResponse>(&res.bytes().await?)?;
+    // Get the content type
+    let content_type = match res
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|ct| ct.to_str().ok())
+        .unwrap()
+    {
+        ct if ct == EncodingType::Ssz.to_string() => EncodingType::Ssz,
+        ct if ct == EncodingType::Json.to_string() => EncodingType::Json,
+        _ => panic!("unexpected content type"),
+    };
+    assert!(accept_types.contains(&content_type));
 
-    assert_eq!(mock_state.received_get_header(), 1);
+    // Get the data
+    let res = match content_type {
+        EncodingType::Json => serde_json::from_slice::<GetHeaderResponse>(&res.bytes().await?)?,
+        EncodingType::Ssz => {
+            let fork =
+                get_consensus_version_header(res.headers()).expect("missing fork version header");
+            assert_eq!(fork, ForkName::Electra);
+            let data = SignedBuilderBid::from_ssz_bytes_by_fork(&res.bytes().await?, fork).unwrap();
+            GetHeaderResponse { version: fork, data, metadata: EmptyMetadata::default() }
+        }
+    };
+
+    // Validate the data
+    assert_eq!(mock_state.received_get_header(), expected_try_count);
     assert_eq!(res.version, ForkName::Electra);
     assert_eq!(res.data.message.header().block_hash().0[0], 1);
     assert_eq!(res.data.message.header().parent_hash().0, B256::ZERO);
@@ -60,52 +155,6 @@ async fn test_get_header() -> Result<()> {
     assert_eq!(
         res.data.signature,
         sign_builder_root(chain, &mock_state.signer, res.data.message.tree_hash_root())
-    );
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_get_header_ssz() -> Result<()> {
-    setup_test_env();
-    let signer = random_secret();
-    let pubkey = signer.public_key();
-
-    let chain = Chain::Holesky;
-    let pbs_port = 3210;
-    let relay_port = pbs_port + 1;
-
-    // Run a mock relay
-    let mock_state = Arc::new(MockRelayState::new(chain, signer));
-    let mock_relay = generate_mock_relay(relay_port, pubkey)?;
-    tokio::spawn(start_mock_relay_service(mock_state.clone(), relay_port));
-
-    // Run the PBS service
-    let config = to_pbs_config(chain, get_pbs_static_config(pbs_port), vec![mock_relay.clone()]);
-    let state = PbsState::new(config);
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
-
-    // leave some time to start servers
-    tokio::time::sleep(Duration::from_millis(100)).await;
-
-    let mock_validator = MockValidator::new(pbs_port)?;
-    info!("Sending get header");
-    let res =
-        mock_validator.do_get_header(None, Some(EncodingType::Ssz), ForkName::Electra).await?;
-    assert_eq!(res.status(), StatusCode::OK);
-
-    let fork = get_consensus_version_header(res.headers()).expect("missing fork version header");
-    assert_eq!(fork, ForkName::Electra);
-    let data = SignedBuilderBid::from_ssz_bytes_by_fork(&res.bytes().await?, fork).unwrap();
-
-    assert_eq!(mock_state.received_get_header(), 1);
-    assert_eq!(data.message.header().block_hash().0[0], 1);
-    assert_eq!(data.message.header().parent_hash().0, B256::ZERO);
-    assert_eq!(*data.message.value(), U256::from(10));
-    assert_eq!(*data.message.pubkey(), BlsPublicKeyBytes::from(mock_state.signer.public_key()));
-    assert_eq!(data.message.header().timestamp(), timestamp_of_slot_start_sec(0, chain));
-    assert_eq!(
-        data.signature,
-        sign_builder_root(chain, &mock_state.signer, data.message.tree_hash_root())
     );
     Ok(())
 }
@@ -137,7 +186,7 @@ async fn test_get_header_returns_204_if_relay_down() -> Result<()> {
 
     let mock_validator = MockValidator::new(pbs_port)?;
     info!("Sending get header");
-    let res = mock_validator.do_get_header(None, None, ForkName::Electra).await?;
+    let res = mock_validator.do_get_header(None, HashSet::new(), ForkName::Electra).await?;
 
     assert_eq!(res.status(), StatusCode::NO_CONTENT); // 204 error
     assert_eq!(mock_state.received_get_header(), 0); // no header received

@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     net::SocketAddr,
     sync::{
         Arc, RwLock,
@@ -26,7 +27,8 @@ use cb_common::{
     types::{BlsSecretKey, Chain},
     utils::{
         CONSENSUS_VERSION_HEADER, EncodingType, RawRequest, TestRandomSeed, deserialize_body,
-        get_accept_type, get_consensus_version_header, timestamp_of_slot_start_sec,
+        get_accept_types, get_consensus_version_header, get_content_type,
+        timestamp_of_slot_start_sec,
     },
 };
 use cb_pbs::MAX_SIZE_SUBMIT_BLOCK_RESPONSE;
@@ -50,6 +52,7 @@ pub async fn start_mock_relay_service(state: Arc<MockRelayState>, port: u16) -> 
 pub struct MockRelayState {
     pub chain: Chain,
     pub signer: BlsSecretKey,
+    pub supported_content_types: Arc<HashSet<EncodingType>>,
     large_body: bool,
     received_get_header: Arc<AtomicU64>,
     received_get_status: Arc<AtomicU64>,
@@ -90,6 +93,9 @@ impl MockRelayState {
             received_register_validator: Default::default(),
             received_submit_block: Default::default(),
             response_override: RwLock::new(None),
+            supported_content_types: Arc::new(
+                [EncodingType::Json, EncodingType::Ssz].iter().cloned().collect(),
+            ),
         }
     }
 
@@ -118,14 +124,27 @@ async fn handle_get_header(
     headers: HeaderMap,
 ) -> Response {
     state.received_get_header.fetch_add(1, Ordering::Relaxed);
-    let accept_type = get_accept_type(&headers)
+    let accept_types = get_accept_types(&headers)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("error parsing accept header: {e}")));
-    if let Err(e) = accept_type {
+    if let Err(e) = accept_types {
         return e.into_response();
     }
-    let accept_header = accept_type.unwrap();
+    let accept_types = accept_types.unwrap();
     let consensus_version_header =
         get_consensus_version_header(&headers).unwrap_or(ForkName::Electra);
+
+    let content_type = if state.supported_content_types.contains(&EncodingType::Ssz) &&
+        accept_types.contains(&EncodingType::Ssz)
+    {
+        EncodingType::Ssz
+    } else if state.supported_content_types.contains(&EncodingType::Json) &&
+        accept_types.contains(&EncodingType::Json)
+    {
+        EncodingType::Json
+    } else {
+        return (StatusCode::NOT_ACCEPTABLE, "No acceptable content type found".to_string())
+            .into_response();
+    };
 
     let data = match consensus_version_header {
         // Add Fusaka and other forks here when necessary
@@ -150,16 +169,16 @@ async fn handle_get_header(
             let object_root = message.tree_hash_root();
             let signature = sign_builder_root(state.chain, &state.signer, object_root);
             let response = SignedBuilderBid { message, signature };
-            match accept_header {
-                EncodingType::Json => {
-                    let versioned_response = GetHeaderResponse {
-                        version: ForkName::Electra,
-                        data: response,
-                        metadata: Default::default(),
-                    };
-                    serde_json::to_vec(&versioned_response).unwrap()
-                }
-                EncodingType::Ssz => response.as_ssz_bytes(),
+            if content_type == EncodingType::Ssz {
+                response.as_ssz_bytes()
+            } else {
+                // Return JSON for everything else; this is fine for the mock
+                let versioned_response = GetHeaderResponse {
+                    version: ForkName::Electra,
+                    data: response,
+                    metadata: Default::default(),
+                };
+                serde_json::to_vec(&versioned_response).unwrap()
             }
         }
         _ => {
@@ -174,7 +193,7 @@ async fn handle_get_header(
     let mut response = (StatusCode::OK, data).into_response();
     let consensus_version_header =
         HeaderValue::from_str(&consensus_version_header.to_string()).unwrap();
-    let content_type_header = HeaderValue::from_str(&accept_header.to_string()).unwrap();
+    let content_type_header = HeaderValue::from_str(&content_type.to_string()).unwrap();
     response.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
     response.headers_mut().insert(CONTENT_TYPE, content_type_header);
     response
@@ -205,15 +224,32 @@ async fn handle_submit_block_v1(
     raw_request: RawRequest,
 ) -> Response {
     state.received_submit_block.fetch_add(1, Ordering::Relaxed);
-    let accept_header = get_accept_type(&headers);
-    if let Err(e) = accept_header {
-        error!(%e, "error parsing accept header");
-        return (StatusCode::BAD_REQUEST, format!("error parsing accept header: {e}"))
-            .into_response();
+    let accept_types = get_accept_types(&headers)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("error parsing accept header: {e}")));
+    if let Err(e) = accept_types {
+        return e.into_response();
     }
-    let accept_header = accept_header.unwrap();
-    let consensus_version_header =
-        get_consensus_version_header(&headers).unwrap_or(ForkName::Electra);
+    let accept_types = accept_types.unwrap();
+    let consensus_version_header = get_consensus_version_header(&headers);
+    let response_content_type = if state.supported_content_types.contains(&EncodingType::Ssz) &&
+        accept_types.contains(&EncodingType::Ssz)
+    {
+        EncodingType::Ssz
+    } else if state.supported_content_types.contains(&EncodingType::Json) &&
+        accept_types.contains(&EncodingType::Json)
+    {
+        EncodingType::Json
+    } else {
+        return (StatusCode::NOT_ACCEPTABLE, "No acceptable content type found".to_string())
+            .into_response();
+    };
+
+    // Error out if the request content type is not supported
+    let content_type = get_content_type(&headers);
+    if !state.supported_content_types.contains(&content_type) {
+        return (StatusCode::UNSUPPORTED_MEDIA_TYPE, "Unsupported content type".to_string())
+            .into_response();
+    };
 
     let data = if state.large_body() {
         vec![1u8; 1 + MAX_SIZE_SUBMIT_BLOCK_RESPONSE]
@@ -239,40 +275,46 @@ async fn handle_submit_block_v1(
         let response =
             PayloadAndBlobs { execution_payload: execution_payload.into(), blobs_bundle };
 
-        match accept_header {
-            EncodingType::Json => {
-                // Response is versioned for JSON
-                let response = SubmitBlindedBlockResponse {
-                    version: ForkName::Electra,
-                    metadata: Default::default(),
-                    data: response,
-                };
-                serde_json::to_vec(&response).unwrap()
-            }
-            EncodingType::Ssz => match consensus_version_header {
-                // Response isn't versioned for SSZ
-                ForkName::Electra => response.as_ssz_bytes(),
-                _ => {
-                    return (
-                        StatusCode::BAD_REQUEST,
-                        format!("Unsupported fork {consensus_version_header}"),
-                    )
-                        .into_response();
-                }
-            },
+        if response_content_type == EncodingType::Ssz {
+            response.as_ssz_bytes()
+        } else {
+            // Return JSON for everything else; this is fine for the mock
+            let response = SubmitBlindedBlockResponse {
+                version: ForkName::Electra,
+                metadata: Default::default(),
+                data: response,
+            };
+            serde_json::to_vec(&response).unwrap()
         }
     };
 
     let mut response = (StatusCode::OK, data).into_response();
-    let consensus_version_header =
-        HeaderValue::from_str(&consensus_version_header.to_string()).unwrap();
-    let content_type_header = HeaderValue::from_str(&accept_header.to_string()).unwrap();
-    response.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
+    if response_content_type == EncodingType::Ssz {
+        let consensus_version_header = match consensus_version_header {
+            Some(header) => header,
+            None => {
+                return (StatusCode::BAD_REQUEST, "Missing consensus version header".to_string())
+                    .into_response()
+            }
+        };
+        let consensus_version_header =
+            HeaderValue::from_str(&consensus_version_header.to_string()).unwrap();
+        response.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
+    }
+    let content_type_header = HeaderValue::from_str(&response_content_type.to_string()).unwrap();
     response.headers_mut().insert(CONTENT_TYPE, content_type_header);
     response
 }
 
-async fn handle_submit_block_v2(State(state): State<Arc<MockRelayState>>) -> Response {
+async fn handle_submit_block_v2(
+    headers: HeaderMap,
+    State(state): State<Arc<MockRelayState>>,
+) -> Response {
     state.received_submit_block.fetch_add(1, Ordering::Relaxed);
+    let content_type = get_content_type(&headers);
+    if !state.supported_content_types.contains(&content_type) {
+        return (StatusCode::NOT_ACCEPTABLE, "No acceptable content type found".to_string())
+            .into_response();
+    };
     (StatusCode::ACCEPTED, "").into_response()
 }
