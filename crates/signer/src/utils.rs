@@ -72,6 +72,7 @@ fn get_ip_from_rightmost_value(
             found: last_value.split(",").count(),
             required: trusted_count,
         })?
+        .trim()
         .parse::<IpAddr>()
         .map_err(|_| IpError::InvalidValue)
 }
