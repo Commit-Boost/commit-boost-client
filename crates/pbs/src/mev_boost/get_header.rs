@@ -139,7 +139,6 @@ pub async fn get_header<S: BuilderApiState>(
     // JSON
     let accept_types =
         [EncodingType::Ssz.content_type(), EncodingType::Json.content_type()].join(",");
-
     send_headers.insert(ACCEPT, HeaderValue::from_str(&accept_types).unwrap());
 
     // Send requests to all relays concurrently

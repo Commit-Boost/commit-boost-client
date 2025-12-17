@@ -176,7 +176,7 @@ async fn test_submit_block_v1_multitype_json() -> Result<()> {
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         HashSet::from([EncodingType::Json]),
         EncodingType::Ssz,
-        1,
+        2,
     )
     .await?;
     assert_eq!(res.status(), StatusCode::OK);

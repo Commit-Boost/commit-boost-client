@@ -1,5 +1,4 @@
 use std::{
-    str::FromStr,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -9,18 +8,18 @@ use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
     pbs::{
         BlindedBeaconBlock, BlobsBundle, BuilderApiVersion, ForkName, ForkVersionDecode,
-        HEADER_CONSENSUS_VERSION, HEADER_START_TIME_UNIX_MS, KzgCommitments, PayloadAndBlobs,
-        RelayClient, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
+        HEADER_START_TIME_UNIX_MS, KzgCommitments, PayloadAndBlobs, RelayClient,
+        SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
         error::{PbsError, ValidationError},
     },
     utils::{
-        EncodingType, get_accept_types, get_content_type, get_user_agent_with_version,
-        read_chunked_body_with_max, utcnow_ms,
+        CONSENSUS_VERSION_HEADER, EncodingType, get_consensus_version_header,
+        get_user_agent_with_version, read_chunked_body_with_max, utcnow_ms,
     },
 };
 use futures::{FutureExt, future::select_ok};
 use reqwest::{
-    Response, StatusCode,
+    StatusCode,
     header::{ACCEPT, CONTENT_TYPE, USER_AGENT},
 };
 use ssz::Encode;
@@ -34,6 +33,20 @@ use crate::{
     state::{BuilderApiState, PbsState},
 };
 
+/// Info about a proposal submission request.
+/// Sent from submit_block to the submit_block_with_timeout function.
+#[derive(Clone)]
+struct ProposalInfo {
+    /// The signed blinded block to submit
+    signed_blinded_block: Arc<SignedBlindedBeaconBlock>,
+
+    /// Common baseline of headers to send with each request
+    headers: Arc<HeaderMap>,
+
+    /// The version of the submit_block route being used
+    api_version: BuilderApiVersion,
+}
+
 /// Implements https://ethereum.github.io/builder-specs/#/Builder/submitBlindedBlock and
 /// https://ethereum.github.io/builder-specs/#/Builder/submitBlindedBlockV2. Use `api_version` to
 /// distinguish between the two.
@@ -45,47 +58,30 @@ pub async fn submit_block<S: BuilderApiState>(
 ) -> eyre::Result<Option<SubmitBlindedBlockResponse>> {
     debug!(?req_headers, "received headers");
 
-    let fork_name = req_headers
-        .get(HEADER_CONSENSUS_VERSION)
-        .and_then(|h| {
-            let str = h.to_str().ok()?;
-            ForkName::from_str(str).ok()
-        })
-        .unwrap_or_else(|| {
-            let slot = signed_blinded_block.slot().as_u64();
-            state.config.chain.fork_by_slot(slot)
-        });
-
-    // safe because ForkName is visible ASCII chars
-    let consensus_version = HeaderValue::from_str(&fork_name.to_string()).unwrap();
-
     // prepare headers
     let mut send_headers = HeaderMap::new();
     send_headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(utcnow_ms()));
     send_headers.insert(USER_AGENT, get_user_agent_with_version(&req_headers)?);
-    send_headers.insert(HEADER_CONSENSUS_VERSION, consensus_version);
 
-    // Get the accept types from the request and forward them
-    for value in req_headers.get_all(ACCEPT).iter() {
-        send_headers.append(ACCEPT, value.clone());
-    }
+    // Create the Accept headers for requests since the module handles both SSZ and
+    // JSON
+    let accept_types =
+        [EncodingType::Ssz.content_type(), EncodingType::Json.content_type()].join(",");
+    send_headers.insert(ACCEPT, HeaderValue::from_str(&accept_types).unwrap());
 
-    // Copy the content type header
-    send_headers.insert(
-        CONTENT_TYPE,
-        HeaderValue::from_str(get_content_type(&req_headers).content_type()).unwrap(),
-    );
-
+    // Send requests to all relays concurrently
+    let proposal_info = Arc::new(ProposalInfo {
+        signed_blinded_block,
+        headers: Arc::new(send_headers),
+        api_version,
+    });
     let mut handles = Vec::with_capacity(state.all_relays().len());
-    for relay in state.all_relays().iter().cloned() {
+    for relay in state.all_relays().iter() {
         handles.push(
             tokio::spawn(submit_block_with_timeout(
-                signed_blinded_block.clone(),
-                relay,
-                send_headers.clone(),
+                proposal_info.clone(),
+                relay.clone(),
                 state.pbs_config().timeout_get_payload_ms,
-                api_version,
-                fork_name,
             ))
             .map(|join_result| match join_result {
                 Ok(res) => res,
@@ -104,14 +100,11 @@ pub async fn submit_block<S: BuilderApiState>(
 /// Submit blinded block to relay, retry connection errors until the
 /// given timeout has passed
 async fn submit_block_with_timeout(
-    signed_blinded_block: Arc<SignedBlindedBeaconBlock>,
+    proposal_info: Arc<ProposalInfo>,
     relay: RelayClient,
-    headers: HeaderMap,
     timeout_ms: u64,
-    api_version: BuilderApiVersion,
-    fork_name: ForkName,
 ) -> Result<Option<SubmitBlindedBlockResponse>, PbsError> {
-    let mut url = relay.submit_block_url(api_version)?;
+    let mut url = Arc::new(relay.submit_block_url(proposal_info.api_version)?);
     let mut remaining_timeout_ms = timeout_ms;
     let mut retry = 0;
     let mut backoff = Duration::from_millis(250);
@@ -119,14 +112,11 @@ async fn submit_block_with_timeout(
     loop {
         let start_request = Instant::now();
         match send_submit_block(
+            proposal_info.clone(),
             url.clone(),
-            &signed_blinded_block,
             &relay,
-            headers.clone(),
             remaining_timeout_ms,
             retry,
-            &api_version,
-            fork_name,
         )
         .await
         {
@@ -144,12 +134,14 @@ async fn submit_block_with_timeout(
                 }
             }
 
-            Err(err) if err.is_not_found() && matches!(api_version, BuilderApiVersion::V2) => {
+            Err(err)
+                if err.is_not_found() && proposal_info.api_version == BuilderApiVersion::V2 =>
+            {
                 warn!(
                     relay_id = relay.id.as_ref(),
                     "relay does not support v2 endpoint, retrying with v1"
                 );
-                url = relay.submit_block_url(BuilderApiVersion::V1)?;
+                url = Arc::new(relay.submit_block_url(BuilderApiVersion::V1)?);
             }
 
             Err(err) => return Err(err),
@@ -163,135 +155,37 @@ async fn submit_block_with_timeout(
 // back
 #[allow(clippy::too_many_arguments)]
 async fn send_submit_block(
-    url: Url,
-    signed_blinded_block: &SignedBlindedBeaconBlock,
+    proposal_info: Arc<ProposalInfo>,
+    url: Arc<Url>,
     relay: &RelayClient,
-    headers: HeaderMap,
     timeout_ms: u64,
     retry: u32,
-    api_version: &BuilderApiVersion,
-    fork_name: ForkName,
 ) -> Result<Option<SubmitBlindedBlockResponse>, PbsError> {
-    let mut original_headers = headers.clone();
-
-    // Check which types this request is for
-    let accept_types = get_accept_types(&headers).map_err(|e| {
-        PbsError::GeneralRequest(format!("error reading accept types: {e}").to_string())
-    })?;
-    let accepts_ssz = accept_types.contains(&EncodingType::Ssz);
-    let accepts_json = accept_types.contains(&EncodingType::Json);
-
     // Send the request
-    let mut start_request = Instant::now();
-    let (mut res, mut content_type) =
-        send_submit_block_impl(url.clone(), signed_blinded_block, relay, headers, timeout_ms)
-            .await?;
-    let mut code = res.status();
-
-    // If the request only supports SSZ, but the relay only supports JSON, resubmit
-    // to the relay with JSON - we'll convert it ourselves
-    if code.is_client_error() && accepts_ssz && !accepts_json {
-        debug!(
-            relay_id = relay.id.as_ref(),
-            "relay does not support SSZ, resubmitting request with JSON accept and content-type"
-        );
-
-        // Resubmit the request with JSON accept and content-type headers
-        let elapsed = start_request.elapsed().as_millis() as u64;
-        let json_header_value = HeaderValue::from_str(EncodingType::Json.content_type()).unwrap();
-        original_headers.insert(ACCEPT, json_header_value.clone());
-        original_headers.insert(CONTENT_TYPE, json_header_value);
-        start_request = Instant::now();
-        (res, content_type) = send_submit_block_impl(
-            url,
-            signed_blinded_block,
-            relay,
-            original_headers,
-            timeout_ms - elapsed,
-        )
-        .await?;
-        code = res.status();
-    }
-
-    // Get the consensus fork version if provided (to avoid cloning later)
-    let content_type_header = res.headers().get(CONTENT_TYPE).cloned();
-
-    let request_latency = start_request.elapsed();
-    RELAY_LATENCY
-        .with_label_values(&[SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG, &relay.id])
-        .observe(request_latency.as_secs_f64());
-
-    RELAY_STATUS_CODE
-        .with_label_values(&[code.as_str(), SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG, &relay.id])
-        .inc();
-
-    let response_bytes = read_chunked_body_with_max(res, MAX_SIZE_SUBMIT_BLOCK_RESPONSE).await?;
-    if !code.is_success() {
-        let err = PbsError::RelayResponse {
-            error_msg: String::from_utf8_lossy(&response_bytes).into_owned(),
-            code: code.as_u16(),
-        };
-
-        // we requested the payload from all relays, but some may have not received it
-        warn!(relay_id = relay.id.as_ref(), retry, %err, "failed to get payload (this might be ok if other relays have it)");
-        return Err(err);
-    };
-
-    if api_version != &BuilderApiVersion::V1 {
-        // v2 response is going to be empty, so just break here
-        debug!(
-            relay_id = relay.id.as_ref(),
-            retry,
-            latency = ?request_latency,
-            "successful request"
-        );
-
-        return Ok(None);
-    }
-
-    // Regenerate the block from the response
-    let block_response = match content_type {
-        Some(EncodingType::Ssz) => {
-            let data = PayloadAndBlobs::from_ssz_bytes_by_fork(&response_bytes, fork_name)
-                .map_err(|e| PbsError::RelayResponse {
-                    error_msg: (format!("error decoding relay payload: {e:?}")).to_string(),
-                    code: (code.as_u16()),
-                })?;
-            SubmitBlindedBlockResponse { version: fork_name, data, metadata: Default::default() }
-        }
-        Some(EncodingType::Json) => {
-            match serde_json::from_slice::<SubmitBlindedBlockResponse>(&response_bytes) {
-                Ok(parsed) => parsed,
-                Err(err) => {
-                    return Err(PbsError::JsonDecode {
-                        err,
-                        raw: String::from_utf8_lossy(&response_bytes).into_owned(),
-                    });
-                }
-            }
-        }
-        None => {
-            let error_msg = match content_type_header {
-                None => "relay response missing content type header".to_string(),
-                Some(ct) => format!("relay response has unsupported content type {ct:?}"),
-            };
-            return Err(PbsError::RelayResponse { error_msg, code: code.as_u16() });
-        }
-    };
-
-    debug!(
-        relay_id = relay.id.as_ref(),
+    let block_response = send_submit_block_impl(
+        relay,
+        url,
+        timeout_ms,
+        (*proposal_info.headers).clone(),
+        &proposal_info.signed_blinded_block,
         retry,
-        latency = ?request_latency,
-        version =% block_response.version,
-        "received unblinded block"
-    );
+        proposal_info.api_version,
+    )
+    .await?;
+    let block_response = match block_response {
+        None => {
+            // Break if there's no response (v2 accepted)
+            return Ok(None);
+        }
+        Some(res) => res,
+    };
 
+    // Extract the info needed for validation
     let got_block_hash = block_response.data.execution_payload.block_hash().0;
 
     // request has different type so cant be deserialized in the wrong version,
     // response has a "version" field
-    match &signed_blinded_block.message() {
+    match &proposal_info.signed_blinded_block.message() {
         BlindedBeaconBlock::Electra(blinded_block) => {
             let expected_block_hash =
                 blinded_block.body.execution_payload.execution_payload_header.block_hash.0;
@@ -302,7 +196,7 @@ async fn send_submit_block(
                 got_block_hash,
                 expected_commitments,
                 &block_response.data.blobs_bundle,
-                fork_name,
+                block_response.version,
             )
         }
 
@@ -316,7 +210,7 @@ async fn send_submit_block(
                 got_block_hash,
                 expected_commitments,
                 &block_response.data.blobs_bundle,
-                fork_name,
+                block_response.version,
             )
         }
 
@@ -327,22 +221,28 @@ async fn send_submit_block(
 }
 
 async fn send_submit_block_impl(
-    url: Url,
-    signed_blinded_block: &SignedBlindedBeaconBlock,
     relay: &RelayClient,
-    headers: HeaderMap,
+    url: Arc<Url>,
     timeout_ms: u64,
-) -> Result<(Response, Option<EncodingType>), PbsError> {
-    // Get the content type of the request
-    let content_type = get_content_type(&headers);
+    headers: HeaderMap,
+    signed_blinded_block: &SignedBlindedBeaconBlock,
+    retry: u32,
+    api_version: BuilderApiVersion,
+) -> Result<Option<SubmitBlindedBlockResponse>, PbsError> {
+    let start_request = Instant::now();
 
-    // Send the request
-    let res = relay.client.post(url).timeout(Duration::from_millis(timeout_ms)).headers(headers);
-    let body = match content_type {
-        EncodingType::Json => serde_json::to_vec(&signed_blinded_block).unwrap(),
-        EncodingType::Ssz => signed_blinded_block.as_ssz_bytes(),
-    };
-    let res = match res.body(body).header(CONTENT_TYPE, &content_type.to_string()).send().await {
+    // Try SSZ first
+    let mut res = match relay
+        .client
+        .post(url.as_ref().clone())
+        .timeout(Duration::from_millis(timeout_ms))
+        .headers(headers.clone())
+        .body(signed_blinded_block.as_ssz_bytes())
+        .header(CONTENT_TYPE, EncodingType::Ssz.to_string())
+        .header(CONSENSUS_VERSION_HEADER, signed_blinded_block.fork_name_unchecked().to_string())
+        .send()
+        .await
+    {
         Ok(res) => res,
         Err(err) => {
             RELAY_STATUS_CODE
@@ -356,23 +256,168 @@ async fn send_submit_block_impl(
         }
     };
 
-    // Get the content type; this is only really useful for OK responses, and
-    // doesn't handle encoding types besides SSZ and JSON
-    let mut content_type: Option<EncodingType> = None;
-    if res.status() == StatusCode::OK &&
-        let Some(header) = res.headers().get(CONTENT_TYPE)
-    {
-        let header_str = header.to_str().map_err(|e| PbsError::RelayResponse {
-            error_msg: format!("cannot decode content-type header: {e}").to_string(),
-            code: (res.status().as_u16()),
-        })?;
-        if header_str.eq_ignore_ascii_case(&EncodingType::Ssz.to_string()) {
-            content_type = Some(EncodingType::Ssz)
-        } else if header_str.eq_ignore_ascii_case(&EncodingType::Json.to_string()) {
-            content_type = Some(EncodingType::Json)
+    // If we got a client error, retry with JSON - the spec says that this should be
+    // a 406 or 415, but we're a little more permissive here
+    if res.status().is_client_error() {
+        warn!(
+            relay_id = relay.id.as_ref(),
+            "relay does not support SSZ, resubmitting block with JSON content-type"
+        );
+        res = match relay
+            .client
+            .post(url.as_ref().clone())
+            .timeout(Duration::from_millis(timeout_ms))
+            .headers(headers)
+            .body(serde_json::to_vec(&signed_blinded_block).unwrap())
+            .header(CONTENT_TYPE, EncodingType::Json.to_string())
+            .send()
+            .await
+        {
+            Ok(res) => res,
+            Err(err) => {
+                RELAY_STATUS_CODE
+                    .with_label_values(&[
+                        TIMEOUT_ERROR_CODE_STR,
+                        SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG,
+                        &relay.id,
+                    ])
+                    .inc();
+                return Err(err.into());
+            }
+        };
+    }
+
+    // Log the response code and latency
+    let code = res.status();
+    let request_latency = start_request.elapsed();
+    RELAY_LATENCY
+        .with_label_values(&[SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG, &relay.id])
+        .observe(request_latency.as_secs_f64());
+    RELAY_STATUS_CODE
+        .with_label_values(&[code.as_str(), SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG, &relay.id])
+        .inc();
+
+    // If this was API v2 and succeeded then we can just return here
+    if api_version != BuilderApiVersion::V1 {
+        debug!(
+            relay_id = relay.id.as_ref(),
+            retry,
+            latency = ?request_latency,
+            "received 202 Accepted for v2 submit_block"
+        );
+
+        match code {
+            StatusCode::ACCEPTED => {
+                return Ok(None);
+            }
+            StatusCode::OK => {
+                warn!(
+                    relay_id = relay.id.as_ref(),
+                    "relay sent OK response for v2 submit_block, expected 202 Accepted"
+                );
+                return Ok(None);
+            }
+            _ => {
+                return Err(PbsError::RelayResponse {
+                    error_msg: format!(
+                        "relay sent unexpected code for builder route v2 {}: {code}",
+                        relay.id.as_ref()
+                    ),
+                    code: code.as_u16(),
+                });
+            }
         }
     }
-    Ok((res, content_type))
+
+    // If the code is not OK, return early
+    if code != StatusCode::OK {
+        let response_bytes =
+            read_chunked_body_with_max(res, MAX_SIZE_SUBMIT_BLOCK_RESPONSE).await?;
+        let err = PbsError::RelayResponse {
+            error_msg: String::from_utf8_lossy(&response_bytes).into_owned(),
+            code: code.as_u16(),
+        };
+
+        // we requested the payload from all relays, but some may have not received it
+        warn!(relay_id = relay.id.as_ref(), %err, "failed to get payload (this might be ok if other relays have it)");
+        return Err(err);
+    }
+
+    // We're on v1 so decode the payload normally - get the content type
+    let content_type = match res.headers().get(CONTENT_TYPE) {
+        None => {
+            // Assume a missing content type means JSON; shouldn't happen in practice with
+            // any respectable HTTP server but just in case
+            EncodingType::Json
+        }
+        Some(header_value) => match header_value.to_str().map_err(|e| PbsError::RelayResponse {
+            error_msg: format!("cannot decode content-type header: {e}").to_string(),
+            code: (code.as_u16()),
+        })? {
+            header_str if header_str.eq_ignore_ascii_case(&EncodingType::Ssz.to_string()) => {
+                EncodingType::Ssz
+            }
+            header_str if header_str.eq_ignore_ascii_case(&EncodingType::Json.to_string()) => {
+                EncodingType::Json
+            }
+            header_str => {
+                return Err(PbsError::RelayResponse {
+                    error_msg: format!("unsupported content type: {header_str}"),
+                    code: code.as_u16(),
+                })
+            }
+        },
+    };
+
+    // Decode the body
+    let fork = get_consensus_version_header(res.headers());
+    let response_bytes = read_chunked_body_with_max(res, MAX_SIZE_SUBMIT_BLOCK_RESPONSE).await?;
+    let block_response = match content_type {
+        EncodingType::Json => decode_json_payload(&response_bytes)?,
+        EncodingType::Ssz => {
+            let fork = fork.ok_or(PbsError::RelayResponse {
+                error_msg: "relay did not provide consensus version header for ssz payload"
+                    .to_string(),
+                code: code.as_u16(),
+            })?;
+            decode_ssz_payload(&response_bytes, fork)?
+        }
+    };
+
+    // Log and return
+    debug!(
+        relay_id = relay.id.as_ref(),
+        retry,
+        latency = ?request_latency,
+        version =% block_response.version,
+        "received unblinded block"
+    );
+    Ok(Some(block_response))
+}
+
+/// Decode a JSON-encoded submit_block response
+fn decode_json_payload(response_bytes: &[u8]) -> Result<SubmitBlindedBlockResponse, PbsError> {
+    match serde_json::from_slice::<SubmitBlindedBlockResponse>(response_bytes) {
+        Ok(parsed) => Ok(parsed),
+        Err(err) => Err(PbsError::JsonDecode {
+            err,
+            raw: String::from_utf8_lossy(response_bytes).into_owned(),
+        }),
+    }
+}
+
+/// Decode an SSZ-encoded submit_block response
+fn decode_ssz_payload(
+    response_bytes: &[u8],
+    fork: ForkName,
+) -> Result<SubmitBlindedBlockResponse, PbsError> {
+    let data = PayloadAndBlobs::from_ssz_bytes_by_fork(response_bytes, fork).map_err(|e| {
+        PbsError::RelayResponse {
+            error_msg: (format!("error decoding relay payload: {e:?}")).to_string(),
+            code: 200,
+        }
+    })?;
+    Ok(SubmitBlindedBlockResponse { version: fork, data, metadata: Default::default() })
 }
 
 fn validate_unblinded_block(

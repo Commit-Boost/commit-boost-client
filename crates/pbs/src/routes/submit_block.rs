@@ -8,8 +8,8 @@ use axum::{
 use cb_common::{
     pbs::{BuilderApiVersion, GetPayloadInfo},
     utils::{
-        EncodingType, RawRequest, deserialize_body, get_accept_types, get_user_agent,
-        timestamp_of_slot_start_millis, utcnow_ms,
+        CONSENSUS_VERSION_HEADER, EncodingType, RawRequest, deserialize_body, get_accept_types,
+        get_user_agent, timestamp_of_slot_start_millis, utcnow_ms,
     },
 };
 use reqwest::{StatusCode, header::CONTENT_TYPE};
@@ -62,14 +62,12 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
     let block_hash = signed_blinded_block.block_hash();
     let slot_start_ms = timestamp_of_slot_start_millis(slot.into(), state.config.chain);
     let ua = get_user_agent(&req_headers);
-    let response_types = get_accept_types(&req_headers).map_err(|e| {
+    let accept_types = get_accept_types(&req_headers).map_err(|e| {
         error!(%e, "error parsing accept header");
         PbsClientError::DecodeError(format!("error parsing accept header: {e}"))
-    });
-    if let Err(e) = response_types {
-        return Ok((StatusCode::BAD_REQUEST, e).into_response());
-    }
-    let response_types = response_types.unwrap();
+    })?;
+    let accepts_ssz = accept_types.contains(&EncodingType::Ssz);
+    let accepts_json = accept_types.contains(&EncodingType::Json);
 
     info!(ua, ms_into_slot = now.saturating_sub(slot_start_ms), "new request");
 
@@ -83,9 +81,6 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
                     .with_label_values(&["200", SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG])
                     .inc();
 
-                let accepts_ssz = response_types.contains(&EncodingType::Ssz);
-                let accepts_json = response_types.contains(&EncodingType::Json);
-
                 // Try SSZ
                 if accepts_ssz {
                     let mut response = payload_and_blobs.data.as_ssz_bytes().into_response();
@@ -94,6 +89,10 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
                     let content_type_header =
                         HeaderValue::from_str(EncodingType::Ssz.content_type()).unwrap();
                     response.headers_mut().insert(CONTENT_TYPE, content_type_header);
+                    response.headers_mut().insert(
+                        CONSENSUS_VERSION_HEADER,
+                        HeaderValue::from_str(&payload_and_blobs.version.to_string()).unwrap(),
+                    );
                     info!("sending response as SSZ");
                     return Ok(response);
                 }

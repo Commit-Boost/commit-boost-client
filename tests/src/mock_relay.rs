@@ -230,7 +230,8 @@ async fn handle_submit_block_v1(
         return e.into_response();
     }
     let accept_types = accept_types.unwrap();
-    let content_type = if state.supported_content_types.contains(&EncodingType::Ssz) &&
+    let consensus_version_header = get_consensus_version_header(&headers);
+    let response_content_type = if state.supported_content_types.contains(&EncodingType::Ssz) &&
         accept_types.contains(&EncodingType::Ssz)
     {
         EncodingType::Ssz
@@ -240,6 +241,13 @@ async fn handle_submit_block_v1(
         EncodingType::Json
     } else {
         return (StatusCode::NOT_ACCEPTABLE, "No acceptable content type found".to_string())
+            .into_response();
+    };
+
+    // Error out if the request content type is not supported
+    let content_type = get_content_type(&headers);
+    if !state.supported_content_types.contains(&content_type) {
+        return (StatusCode::UNSUPPORTED_MEDIA_TYPE, "Unsupported content type".to_string())
             .into_response();
     };
 
@@ -267,7 +275,7 @@ async fn handle_submit_block_v1(
         let response =
             PayloadAndBlobs { execution_payload: execution_payload.into(), blobs_bundle };
 
-        if content_type == EncodingType::Ssz {
+        if response_content_type == EncodingType::Ssz {
             response.as_ssz_bytes()
         } else {
             // Return JSON for everything else; this is fine for the mock
@@ -281,7 +289,19 @@ async fn handle_submit_block_v1(
     };
 
     let mut response = (StatusCode::OK, data).into_response();
-    let content_type_header = HeaderValue::from_str(&content_type.to_string()).unwrap();
+    if response_content_type == EncodingType::Ssz {
+        let consensus_version_header = match consensus_version_header {
+            Some(header) => header,
+            None => {
+                return (StatusCode::BAD_REQUEST, "Missing consensus version header".to_string())
+                    .into_response()
+            }
+        };
+        let consensus_version_header =
+            HeaderValue::from_str(&consensus_version_header.to_string()).unwrap();
+        response.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
+    }
+    let content_type_header = HeaderValue::from_str(&response_content_type.to_string()).unwrap();
     response.headers_mut().insert(CONTENT_TYPE, content_type_header);
     response
 }
