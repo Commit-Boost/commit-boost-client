@@ -55,21 +55,24 @@ fn get_ip_from_rightmost_value(
     header_name: &str,
     trusted_count: usize,
 ) -> Result<IpAddr, IpError> {
-    let last_value = headers
+    let joined_values = headers
         .get_all(header_name)
         .iter()
-        .next_back()
-        .ok_or(IpError::NotPresent(header_name.to_string()))?
-        .to_str()
-        .map_err(|_| IpError::HasInvalidCharacters)?;
+        .map(|x| x.to_str().map_err(|_| IpError::HasInvalidCharacters))
+        .collect::<Result<Vec<&str>, IpError>>()?
+        .join(",");
+
+    if joined_values.is_empty() {
+        return Err(IpError::NotPresent(header_name.to_string()))
+    }
 
     // Selecting the first untrusted IP from the right according to:
     // https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Forwarded-For#selecting_an_ip_address
-    last_value
+    joined_values
         .rsplit(",")
         .nth(trusted_count - 1)
         .ok_or(IpError::NotEnoughValues {
-            found: last_value.split(",").count(),
+            found: joined_values.split(",").count(),
             required: trusted_count,
         })?
         .trim()
