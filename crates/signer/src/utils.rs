@@ -37,15 +37,16 @@ fn get_ip_from_unique_header(headers: &HeaderMap, header_name: &str) -> Result<I
     let mut values = headers.get_all(header_name).iter();
 
     let first_value = values.next().ok_or(IpError::NotPresent(header_name.to_string()))?;
+
+    if values.next().is_some() {
+        return Err(IpError::NotUnique(header_name.to_string()));
+    }
+
     let ip = first_value
         .to_str()
         .map_err(|_| IpError::HasInvalidCharacters)?
         .parse::<IpAddr>()
         .map_err(|_| IpError::InvalidValue)?;
-
-    if values.next().is_some() {
-        return Err(IpError::NotUnique(header_name.to_string()));
-    }
 
     Ok(ip)
 }
