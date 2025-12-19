@@ -74,7 +74,9 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
     // address for signer API communication
     let signer_port = cb_config.signer.as_ref().map(|s| s.port).unwrap_or(SIGNER_PORT_DEFAULT);
     let signer_server =
-        if let Some(SignerConfig { inner: SignerType::Remote { url }, .. }) = &cb_config.signer {
+        if let Some(SignerConfig { inner: SignerType::Remote { url, client_auth: _ }, .. }) =
+            &cb_config.signer
+        {
             url.to_string()
         } else {
             format!("http://cb_signer:{signer_port}")
