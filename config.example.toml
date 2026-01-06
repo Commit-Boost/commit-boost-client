@@ -89,6 +89,8 @@ headers = { X-MyCustomHeader = "MyCustomValue" }
 # OPTIONAL
 get_params = { param1 = "value1", param2 = "value2" }
 # Whether to enable timing games, as tuned by `target_first_request_ms` and `frequency_get_header_ms`.
+# NOTE: if neither `target_first_request_ms` nor `frequency_get_header_ms` is set, this flag has no effect.
+#
 # These values should be carefully chosen for each relay, as each relay has different latency and timing games setups.
 # They should only be used by advanced users, and if mis-configured can result in unforeseen effects, e.g. fetching a lower header value,
 # or getting a temporary IP ban.
@@ -150,7 +152,7 @@ validator_pubkeys = [
 # OPTIONAL
 loader = "./tests/data/mux_keys.example.json"
 # loader = { url = "http://localhost:8000/keys" }
-# loader = { registry = "lido", node_operator_id = 8, enable_refreshing = false }
+# loader = { registry = "lido", node_operator_id = 8, lido_module_id = 1, enable_refreshing = false }
 # loader = { registry = "ssv", node_operator_id = 8, enable_refreshing = false }
 late_in_slot_time_ms = 1500
 timeout_get_header_ms = 900
@@ -222,6 +224,9 @@ jwt_auth_fail_timeout_seconds = 300
 # Path to the CA certificate that signed the Dirk server certificate
 # OPTIONAL
 # ca_cert_path = "/path/to/ca.crt"
+# Limits the maximum size of a decoded gRPC response
+# OPTIONAL. Default: 4MB
+# max_response_size_bytes = 4194304
 
 # Add one entry like this for each Dirk host
 # [[signer.dirk.hosts]]

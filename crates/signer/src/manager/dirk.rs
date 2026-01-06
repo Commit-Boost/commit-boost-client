@@ -104,7 +104,14 @@ impl DirkManager {
                 }
             };
 
-            let accounts_response = match ListerClient::new(channel.clone())
+            let mut lister_client = ListerClient::new(channel.clone());
+            if let Some(max_decoding_size) = config.max_response_size_bytes {
+                // ListAccounts seems the only method that can return large responses,
+                // so we only set the max decoding size for it.
+                lister_client = lister_client.max_decoding_message_size(max_decoding_size);
+            }
+
+            let accounts_response = match lister_client
                 .list_accounts(ListAccountsRequest { paths: host.wallets.clone() })
                 .await
             {

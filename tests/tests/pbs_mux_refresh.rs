@@ -42,7 +42,8 @@ async fn test_auto_refresh() -> Result<()> {
 
     // Start the mock SSV API server
     let ssv_api_port = pbs_port + 1;
-    let ssv_api_url = Url::parse(&format!("http://localhost:{ssv_api_port}"))?;
+    // Intentionally missing a trailing slash to ensure this is handled properly
+    let ssv_api_url = Url::parse(&format!("http://localhost:{ssv_api_port}/api/v4"))?;
     let mock_ssv_state = SsvMockState {
         validators: Arc::new(RwLock::new(vec![SSVValidator {
             pubkey: existing_mux_pubkey.clone(),
@@ -71,6 +72,7 @@ async fn test_auto_refresh() -> Result<()> {
     let loader = MuxKeysLoader::Registry {
         enable_refreshing: true,
         node_operator_id: 1,
+        lido_module_id: None,
         registry: cb_common::config::NORegistry::SSV,
     };
     let muxes = PbsMuxes {

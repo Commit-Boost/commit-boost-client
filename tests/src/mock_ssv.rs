@@ -37,7 +37,10 @@ pub async fn create_mock_ssv_server(
         force_timeout: Arc::new(RwLock::new(false)),
     });
     let router = axum::Router::new()
-        .route("/{chain_name}/validators/in_operator/{node_operator_id}", get(handle_validators))
+        .route(
+            "/api/v4/{chain_name}/validators/in_operator/{node_operator_id}",
+            get(handle_validators),
+        )
         .route("/big_data", get(handle_big_data))
         .with_state(state)
         .into_make_service();
