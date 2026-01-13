@@ -110,3 +110,25 @@ pub enum ValidationError {
     #[error("unsupported fork")]
     UnsupportedFork,
 }
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum SszValueError {
+    #[error("invalid payload length: required {required} but payload was {actual}")]
+    InvalidPayloadLength { required: usize, actual: usize },
+
+    #[error("unsupported fork")]
+    UnsupportedFork { name: String },
+}
+
+impl From<SszValueError> for PbsError {
+    fn from(err: SszValueError) -> Self {
+        match err {
+            SszValueError::InvalidPayloadLength { required, actual } => PbsError::GeneralRequest(
+                format!("invalid payload length: required {required} but payload was {actual}"),
+            ),
+            SszValueError::UnsupportedFork { name } => {
+                PbsError::GeneralRequest(format!("unsupported fork: {name}"))
+            }
+        }
+    }
+}
