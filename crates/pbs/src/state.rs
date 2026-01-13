@@ -62,8 +62,4 @@ where
             None => (self.pbs_config(), &self.config.relays, None),
         }
     }
-
-    pub fn extra_validation_enabled(&self) -> bool {
-        self.config.pbs_config.extra_validation_enabled
-    }
 }

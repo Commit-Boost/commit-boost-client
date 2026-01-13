@@ -49,9 +49,16 @@ min_bid_eth = 0.0
 # to force local building and miniminzing the risk of missed slots. See also the timing games section below
 # OPTIONAL, DEFAULT: 2000
 late_in_slot_time_ms = 2000
-# Whether to enable extra validation of get_header responses, if this is enabled `rpc_url` must also be set
-# OPTIONAL, DEFAULT: false
-extra_validation_enabled = false
+# The level of validation to perform on get_header responses. Less is faster but not as safe. Supported values:
+#   - "none": no validation, just accept the header provided by the relay as-is
+#   - "standard": perform standard validation of the header provided by the relay, which checks <some stuff> (default)
+#   - "extra": perform extra validation on top of standard validation, which includes checking the header against the execution layer via the `rpc_url` (requires `rpc_url` to be set)
+# OPTIONAL, DEFAULT: standard
+header_validation_mode = "standard"
+# The level of validation to perform on submit_block responses. Less is faster but not as safe. Supported values:
+#   - "none": no validation, just accept the full unblinded block provided by the relay as-is
+#   - "standard": perform standard validation of the unblinded block provided by the relay, which checks <some stuff> (default)
+block_validation_mode = "standard"
 # Execution Layer RPC url to use for extra validation
 # OPTIONAL
 # rpc_url = "https://ethereum-holesky-rpc.publicnode.com"
