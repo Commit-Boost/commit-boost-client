@@ -15,6 +15,7 @@ use ssz::Encode;
 use tracing::{error, info};
 
 use crate::{
+    CompoundGetHeaderResponse,
     api::BuilderApi,
     constants::GET_HEADER_ENDPOINT_TAG,
     error::PbsClientError,
@@ -44,52 +45,89 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
 
     info!(ua, ms_into_slot, "new request");
 
-    match A::get_header(params, req_headers, state).await {
+    match A::get_header(params, req_headers, state, accepts_ssz).await {
         Ok(res) => {
             if let Some(max_bid) = res {
-                info!(value_eth = format_ether(*max_bid.data.message.value()), block_hash =% max_bid.block_hash(), "received header");
-
                 BEACON_NODE_STATUS.with_label_values(&["200", GET_HEADER_ENDPOINT_TAG]).inc();
+                match max_bid {
+                    CompoundGetHeaderResponse::Light(light_bid) => {
+                        // Light validation mode, so just forward the raw response
+                        info!(
+                            value_eth = format_ether(light_bid.value),
+                            "received header (unvalidated)"
+                        );
 
-                // Handle SSZ
-                if accepts_ssz {
-                    let mut res = max_bid.data.as_ssz_bytes().into_response();
-                    let consensus_version_header = match HeaderValue::from_str(
-                        &max_bid.version.to_string(),
-                    ) {
-                        Ok(consensus_version_header) => {
-                            Ok::<HeaderValue, PbsClientError>(consensus_version_header)
+                        // Create the headers
+                        let consensus_version_header =
+                            match HeaderValue::from_str(&light_bid.version.to_string()) {
+                                Ok(consensus_version_header) => {
+                                    Ok::<HeaderValue, PbsClientError>(consensus_version_header)
+                                }
+                                Err(e) => {
+                                    return Err(PbsClientError::RelayError(format!(
+                                        "error decoding consensus version from relay payload: {e}"
+                                    )));
+                                }
+                            }?;
+                        let content_type = light_bid.encoding_type.content_type();
+                        let content_type_header = HeaderValue::from_str(content_type).unwrap();
+
+                        // Build response
+                        let mut res = light_bid.raw_bytes.into_response();
+                        res.headers_mut()
+                            .insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
+                        res.headers_mut().insert(CONTENT_TYPE, content_type_header);
+                        info!("sending response as {} (light)", content_type);
+                        Ok(res)
+                    }
+                    CompoundGetHeaderResponse::Full(max_bid) => {
+                        // Full validation mode, so respond based on requester accept types
+                        info!(value_eth = format_ether(*max_bid.data.message.value()), block_hash =% max_bid.block_hash(), "received header");
+
+                        // Handle SSZ
+                        if accepts_ssz {
+                            let mut res = max_bid.data.as_ssz_bytes().into_response();
+                            let consensus_version_header = match HeaderValue::from_str(
+                                &max_bid.version.to_string(),
+                            ) {
+                                Ok(consensus_version_header) => {
+                                    Ok::<HeaderValue, PbsClientError>(consensus_version_header)
+                                }
+                                Err(e) => {
+                                    if accepts_json {
+                                        info!("sending response as JSON");
+                                        return Ok(
+                                            (StatusCode::OK, axum::Json(max_bid)).into_response()
+                                        );
+                                    } else {
+                                        return Err(PbsClientError::RelayError(format!(
+                                            "error decoding consensus version from relay payload: {e}"
+                                        )));
+                                    }
+                                }
+                            }?;
+
+                            // This won't actually fail since the string is a const
+                            let content_type_header =
+                                HeaderValue::from_str(EncodingType::Ssz.content_type()).unwrap();
+
+                            res.headers_mut()
+                                .insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
+                            res.headers_mut().insert(CONTENT_TYPE, content_type_header);
+                            info!("sending response as SSZ");
+                            return Ok(res);
                         }
-                        Err(e) => {
-                            if accepts_json {
-                                info!("sending response as JSON");
-                                return Ok((StatusCode::OK, axum::Json(max_bid)).into_response());
-                            } else {
-                                return Err(PbsClientError::RelayError(format!(
-                                    "error decoding consensus version from relay payload: {e}"
-                                )));
-                            }
+
+                        // Handle JSON
+                        if accepts_json {
+                            Ok((StatusCode::OK, axum::Json(max_bid)).into_response())
+                        } else {
+                            // This shouldn't ever happen but the compiler needs it
+                            Err(PbsClientError::DecodeError(
+                                "no viable accept types in request".to_string(),
+                            ))
                         }
-                    }?;
-
-                    // This won't actually fail since the string is a const
-                    let content_type_header =
-                        HeaderValue::from_str(EncodingType::Ssz.content_type()).unwrap();
-
-                    res.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
-                    res.headers_mut().insert(CONTENT_TYPE, content_type_header);
-                    info!("sending response as SSZ");
-                    return Ok(res);
-                }
-
-                // Handle JSON
-                if accepts_json {
-                    Ok((StatusCode::OK, axum::Json(max_bid)).into_response())
-                } else {
-                    // This shouldn't ever happen but the compiler needs it
-                    Err(PbsClientError::DecodeError(
-                        "no viable accept types in request".to_string(),
-                    ))
+                    }
                 }
             } else {
                 // spec: return 204 if request is valid but no bid available

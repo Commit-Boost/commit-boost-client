@@ -3,14 +3,11 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use axum::{Router, http::HeaderMap};
 use cb_common::pbs::{
-    BuilderApiVersion, GetHeaderParams, GetHeaderResponse, SignedBlindedBeaconBlock,
-    SubmitBlindedBlockResponse, Uint256,
+    BuilderApiVersion, GetHeaderParams, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
 };
-use lh_types::{ContextDeserialize, ForkName};
-use serde::{Deserialize, Deserializer};
 
 use crate::{
-    mev_boost,
+    CompoundGetHeaderResponse, mev_boost,
     state::{BuilderApiState, PbsState, PbsStateGuard},
 };
 
@@ -26,8 +23,9 @@ pub trait BuilderApi<S: BuilderApiState>: 'static {
         params: GetHeaderParams,
         req_headers: HeaderMap,
         state: PbsState<S>,
-    ) -> eyre::Result<Option<GetHeaderResponse>> {
-        mev_boost::get_header(params, req_headers, state).await
+        accepts_ssz: bool,
+    ) -> eyre::Result<Option<CompoundGetHeaderResponse>> {
+        mev_boost::get_header(params, req_headers, state, accepts_ssz).await
     }
 
     /// https://ethereum.github.io/builder-specs/#/Builder/status
@@ -62,55 +60,3 @@ pub trait BuilderApi<S: BuilderApiState>: 'static {
 
 pub struct DefaultBuilderApi;
 impl BuilderApi<()> for DefaultBuilderApi {}
-
-/// A very light version of a BuilderBid, used for get_header responses when
-/// full validation is not required.
-#[derive(PartialEq, Deserialize, Clone)]
-pub struct LightBuilderBid {
-    #[serde(with = "serde_utils::quoted_u256")]
-    pub value: Uint256,
-}
-
-/// Custom deserialization needed by ForkVersionedResponse; ignores the fork
-/// version because the value doesn't depend on the fork
-impl<'de> ContextDeserialize<'de, ForkName> for LightBuilderBid {
-    fn context_deserialize<D>(deserializer: D, _context: ForkName) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let convert_err =
-            |e| serde::de::Error::custom(format!("BuilderBid failed to deserialize: {:?}", e));
-        Ok(Deserialize::deserialize(deserializer).map_err(convert_err)?)
-    }
-}
-
-/// Wrapper struct to match the ForkVersionedResponse structure for
-/// LightBuilderBid
-#[derive(PartialEq, Deserialize, Clone)]
-pub struct LightBuilderBidWrapper {
-    pub message: LightBuilderBid,
-}
-
-/// Custom deserialization needed by ForkVersionedResponse; ignores the fork
-/// version because the value doesn't depend on the fork
-impl<'de> ContextDeserialize<'de, ForkName> for LightBuilderBidWrapper {
-    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        struct Helper {
-            message: serde_json::Value,
-        }
-
-        let helper = Helper::deserialize(deserializer)?;
-
-        // Deserialize `data` using ContextDeserialize
-        let message = LightBuilderBid::context_deserialize(helper.message, context)
-            .map_err(serde::de::Error::custom)?;
-
-        Ok(LightBuilderBidWrapper { message })
-    }
-}
-
-pub(crate) type LightHeaderResponse = lh_types::ForkVersionedResponse<LightBuilderBidWrapper>;

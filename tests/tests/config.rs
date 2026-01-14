@@ -170,7 +170,7 @@ async fn test_validate_missing_rpc_url() -> Result<()> {
         result
             .unwrap_err()
             .to_string()
-            .contains("rpc_url is required if extra_validation_enabled is true")
+            .contains("rpc_url is required if header_validation_mode is set to extra")
     );
     Ok(())
 }
