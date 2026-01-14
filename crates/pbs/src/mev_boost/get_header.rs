@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -65,6 +66,9 @@ struct RequestInfo {
 
     /// Context for validating the header returned by the relay
     validation: ValidationContext,
+
+    /// The accepted encoding types from the original request
+    accepted_types: HashSet<EncodingType>,
 }
 
 /// Used interally to provide info and context about a get_header request and
@@ -112,7 +116,7 @@ pub async fn get_header<S: BuilderApiState>(
     params: GetHeaderParams,
     req_headers: HeaderMap,
     state: PbsState<S>,
-    accepts_ssz: bool,
+    accepted_types: HashSet<EncodingType>,
 ) -> eyre::Result<Option<CompoundGetHeaderResponse>> {
     let parent_block = Arc::new(RwLock::new(None));
     let extra_validation_enabled =
@@ -163,16 +167,18 @@ pub async fn get_header<S: BuilderApiState>(
     let mut send_headers = HeaderMap::new();
     send_headers.insert(USER_AGENT, get_user_agent_with_version(&req_headers)?);
 
-    // Create the Accept headers for requests since the module handles both SSZ and
-    // JSON
+    // Create the Accept headers for requests
     let mode = state.pbs_config().header_validation_mode;
-    let accept_types = if !accepts_ssz && mode == HeaderValidationMode::None {
-        // Requester doesn't support SSZ and we're in no-validation mode, so only
-        // request JSON responses to avoid unnecessary encoding/decoding
-        EncodingType::Json.content_type().to_string()
-    } else {
-        // Requester supports SSZ or we're doing validation, so request both types
-        [EncodingType::Ssz.content_type(), EncodingType::Json.content_type()].join(",")
+    let accept_types = match mode {
+        HeaderValidationMode::None => {
+            // No validation mode, so only request what the user wants because the response
+            // will be forwarded directly
+            accepted_types.iter().map(|t| t.content_type()).collect::<Vec<&str>>().join(",")
+        }
+        _ => {
+            // We're unpacking the body, so request both types since we can handle both
+            [EncodingType::Ssz.content_type(), EncodingType::Json.content_type()].join(",")
+        }
     };
     send_headers.insert(ACCEPT, HeaderValue::from_str(&accept_types).unwrap());
 
@@ -188,6 +194,7 @@ pub async fn get_header<S: BuilderApiState>(
             mode,
             parent_block,
         },
+        accepted_types,
     });
     let mut handles = Vec::with_capacity(relays.len());
     for relay in relays.iter() {
@@ -385,7 +392,20 @@ async fn send_one_get_header(
             .await?;
             match get_header_response {
                 None => Ok((start_request_time, None)),
-                Some(res) => Ok((start_request_time, Some(CompoundGetHeaderResponse::Light(res)))),
+                Some(res) => {
+                    // Make sure the response is encoded in one of the accepted
+                    // types since we're passing the raw response directly to the client
+                    if !request_info.accepted_types.contains(&res.encoding_type) {
+                        return Err(PbsError::RelayResponse {
+                            error_msg: format!(
+                                "relay returned unsupported encoding type for the requesting client in no-validation mode: {:?}",
+                                res.encoding_type
+                            ),
+                            code: 406, // Not Acceptable
+                        });
+                    }
+                    Ok((start_request_time, Some(CompoundGetHeaderResponse::Light(res))))
+                }
             }
         }
         _ => {

@@ -1,9 +1,12 @@
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use async_trait::async_trait;
 use axum::{Router, http::HeaderMap};
-use cb_common::pbs::{
-    BuilderApiVersion, GetHeaderParams, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
+use cb_common::{
+    pbs::{
+        BuilderApiVersion, GetHeaderParams, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
+    },
+    utils::EncodingType,
 };
 
 use crate::{
@@ -23,9 +26,9 @@ pub trait BuilderApi<S: BuilderApiState>: 'static {
         params: GetHeaderParams,
         req_headers: HeaderMap,
         state: PbsState<S>,
-        accepts_ssz: bool,
+        accepted_types: HashSet<EncodingType>,
     ) -> eyre::Result<Option<CompoundGetHeaderResponse>> {
-        mev_boost::get_header(params, req_headers, state, accepts_ssz).await
+        mev_boost::get_header(params, req_headers, state, accepted_types).await
     }
 
     /// https://ethereum.github.io/builder-specs/#/Builder/status

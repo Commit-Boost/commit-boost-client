@@ -2,6 +2,7 @@ use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use alloy::primitives::{B256, U256};
 use cb_common::{
+    config::HeaderValidationMode,
     pbs::{GetHeaderResponse, SignedBuilderBid},
     signature::sign_builder_root,
     signer::random_secret,
@@ -28,6 +29,8 @@ async fn test_get_header() -> Result<()> {
         HashSet::from([EncodingType::Json]),
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         1,
+        HeaderValidationMode::Standard,
+        StatusCode::OK,
     )
     .await
 }
@@ -36,10 +39,12 @@ async fn test_get_header() -> Result<()> {
 #[tokio::test]
 async fn test_get_header_ssz() -> Result<()> {
     test_get_header_impl(
-        3210,
+        3202,
         HashSet::from([EncodingType::Ssz]),
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         1,
+        HeaderValidationMode::Standard,
+        StatusCode::OK,
     )
     .await
 }
@@ -50,10 +55,12 @@ async fn test_get_header_ssz() -> Result<()> {
 #[tokio::test]
 async fn test_get_header_ssz_into_json() -> Result<()> {
     test_get_header_impl(
-        3220,
+        3204,
         HashSet::from([EncodingType::Ssz]),
         HashSet::from([EncodingType::Json]),
         1,
+        HeaderValidationMode::Standard,
+        StatusCode::OK,
     )
     .await
 }
@@ -63,10 +70,12 @@ async fn test_get_header_ssz_into_json() -> Result<()> {
 #[tokio::test]
 async fn test_get_header_multitype_ssz() -> Result<()> {
     test_get_header_impl(
-        3230,
+        3206,
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         HashSet::from([EncodingType::Ssz]),
         1,
+        HeaderValidationMode::Standard,
+        StatusCode::OK,
     )
     .await
 }
@@ -76,10 +85,88 @@ async fn test_get_header_multitype_ssz() -> Result<()> {
 #[tokio::test]
 async fn test_get_header_multitype_json() -> Result<()> {
     test_get_header_impl(
-        3240,
+        3208,
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         HashSet::from([EncodingType::Json]),
         1,
+        HeaderValidationMode::Standard,
+        StatusCode::OK,
+    )
+    .await
+}
+
+// === Light Mode Tests ===
+
+/// Test requesting JSON without validation when the relay supports JSON
+#[tokio::test]
+async fn test_get_header_light() -> Result<()> {
+    test_get_header_impl(
+        3210,
+        HashSet::from([EncodingType::Json]),
+        HashSet::from([EncodingType::Ssz, EncodingType::Json]),
+        1,
+        HeaderValidationMode::None,
+        StatusCode::OK,
+    )
+    .await
+}
+
+/// Test requesting SSZ without validation when the relay supports SSZ
+#[tokio::test]
+async fn test_get_header_ssz_light() -> Result<()> {
+    test_get_header_impl(
+        3212,
+        HashSet::from([EncodingType::Ssz]),
+        HashSet::from([EncodingType::Ssz, EncodingType::Json]),
+        1,
+        HeaderValidationMode::None,
+        StatusCode::OK,
+    )
+    .await
+}
+
+/// Test requesting SSZ without validation when the relay only supports JSON.
+/// This should actually fail because in no-validation mode we just forward the
+/// response without re-encoding it.
+#[tokio::test]
+async fn test_get_header_ssz_into_json_light() -> Result<()> {
+    test_get_header_impl(
+        3214,
+        HashSet::from([EncodingType::Ssz]),
+        HashSet::from([EncodingType::Json]),
+        1,
+        HeaderValidationMode::None,
+        StatusCode::NO_CONTENT, // Should fail because the only relay can't be used
+    )
+    .await
+}
+
+/// Test requesting multiple types without validation when the relay supports
+/// SSZ, which should return SSZ
+#[tokio::test]
+async fn test_get_header_multitype_ssz_light() -> Result<()> {
+    test_get_header_impl(
+        3216,
+        HashSet::from([EncodingType::Ssz, EncodingType::Json]),
+        HashSet::from([EncodingType::Ssz]),
+        1,
+        HeaderValidationMode::None,
+        StatusCode::OK,
+    )
+    .await
+}
+
+/// Test requesting multiple types without validation when the relay supports
+/// JSON, which should still work
+#[tokio::test]
+async fn test_get_header_multitype_json_light() -> Result<()> {
+    test_get_header_impl(
+        3218,
+        HashSet::from([EncodingType::Ssz, EncodingType::Json]),
+        HashSet::from([EncodingType::Json]),
+        1,
+        HeaderValidationMode::None,
+        StatusCode::OK,
     )
     .await
 }
@@ -90,6 +177,8 @@ async fn test_get_header_impl(
     accept_types: HashSet<EncodingType>,
     relay_types: HashSet<EncodingType>,
     expected_try_count: u64,
+    mode: HeaderValidationMode,
+    expected_code: StatusCode,
 ) -> Result<()> {
     // Setup test environment
     setup_test_env();
@@ -106,7 +195,9 @@ async fn test_get_header_impl(
     tokio::spawn(start_mock_relay_service(mock_state.clone(), relay_port));
 
     // Run the PBS service
-    let config = to_pbs_config(chain, get_pbs_static_config(pbs_port), vec![mock_relay]);
+    let mut pbs_config = get_pbs_static_config(pbs_port);
+    pbs_config.header_validation_mode = mode;
+    let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
     let state = PbsState::new(config);
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
@@ -117,7 +208,12 @@ async fn test_get_header_impl(
     let mock_validator = MockValidator::new(pbs_port)?;
     info!("Sending get header");
     let res = mock_validator.do_get_header(None, accept_types.clone(), ForkName::Electra).await?;
-    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(res.status(), expected_code);
+    assert_eq!(mock_state.received_get_header(), expected_try_count);
+    match expected_code {
+        StatusCode::OK => {}
+        _ => return Ok(()),
+    }
 
     // Get the content type
     let content_type = match res
@@ -145,7 +241,6 @@ async fn test_get_header_impl(
     };
 
     // Validate the data
-    assert_eq!(mock_state.received_get_header(), expected_try_count);
     assert_eq!(res.version, ForkName::Electra);
     assert_eq!(res.data.message.header().block_hash().0[0], 1);
     assert_eq!(res.data.message.header().parent_hash().0, B256::ZERO);

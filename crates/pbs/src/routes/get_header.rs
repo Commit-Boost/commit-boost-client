@@ -45,7 +45,7 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
 
     info!(ua, ms_into_slot, "new request");
 
-    match A::get_header(params, req_headers, state, accepts_ssz).await {
+    match A::get_header(params, req_headers, state, accept_types).await {
         Ok(res) => {
             if let Some(max_bid) = res {
                 BEACON_NODE_STATUS.with_label_values(&["200", GET_HEADER_ENDPOINT_TAG]).inc();
