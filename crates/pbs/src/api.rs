@@ -3,14 +3,12 @@ use std::{collections::HashSet, sync::Arc};
 use async_trait::async_trait;
 use axum::{Router, http::HeaderMap};
 use cb_common::{
-    pbs::{
-        BuilderApiVersion, GetHeaderParams, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
-    },
+    pbs::{BuilderApiVersion, GetHeaderParams, SignedBlindedBeaconBlock},
     utils::EncodingType,
 };
 
 use crate::{
-    CompoundGetHeaderResponse, mev_boost,
+    CompoundGetHeaderResponse, CompoundSubmitBlockResponse, mev_boost,
     state::{BuilderApiState, PbsState, PbsStateGuard},
 };
 
@@ -43,8 +41,16 @@ pub trait BuilderApi<S: BuilderApiState>: 'static {
         req_headers: HeaderMap,
         state: PbsState<S>,
         api_version: BuilderApiVersion,
-    ) -> eyre::Result<Option<SubmitBlindedBlockResponse>> {
-        mev_boost::submit_block(signed_blinded_block, req_headers, state, api_version).await
+        accepted_types: HashSet<EncodingType>,
+    ) -> eyre::Result<CompoundSubmitBlockResponse> {
+        mev_boost::submit_block(
+            signed_blinded_block,
+            req_headers,
+            state,
+            api_version,
+            accepted_types,
+        )
+        .await
     }
 
     /// https://ethereum.github.io/builder-specs/#/Builder/registerValidator

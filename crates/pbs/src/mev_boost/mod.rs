@@ -5,7 +5,10 @@ mod status;
 mod submit_block;
 
 use alloy::primitives::U256;
-use cb_common::{pbs::GetHeaderResponse, utils::EncodingType};
+use cb_common::{
+    pbs::{GetHeaderResponse, SubmitBlindedBlockResponse},
+    utils::EncodingType,
+};
 pub use get_header::get_header;
 use lh_types::ForkName;
 pub use register_validator::register_validator;
@@ -13,8 +16,8 @@ pub use reload::reload;
 pub use status::get_status;
 pub use submit_block::submit_block;
 
-/// Enum that handles different response types based on the level of validation
-/// required
+/// Enum that handles different GetHeader response types based on the level of
+/// validation required
 pub enum CompoundGetHeaderResponse {
     /// Standard response type, fully parsing the response from a relay into a
     /// complete response struct
@@ -34,6 +37,36 @@ pub struct LightGetHeaderResponse {
 
     /// The bid value in wei
     pub value: U256,
+
+    /// The raw bytes of the response, for forwarding to the caller
+    pub raw_bytes: Vec<u8>,
+
+    /// The format the response bytes are encoded with
+    pub encoding_type: EncodingType,
+}
+
+/// Enum that handles different SubmitBlock response types based on the level of
+/// validation required
+pub enum CompoundSubmitBlockResponse {
+    /// Standard response type, fully parsing the response from a relay into a
+    /// complete response struct
+    Full(Box<SubmitBlindedBlockResponse>),
+
+    /// Light response type, only extracting the fork from the response with the
+    /// entire (undecoded) payload for forwarding
+    Light(LightSubmitBlockResponse),
+
+    /// Response with no body, used for v2 requests when the relay does not
+    /// return any content intentionally
+    EmptyBody,
+}
+
+/// Core details of a SubmitBlockResponse, used for light processing when
+/// validation mode is set to none.
+#[derive(Clone, Debug)]
+pub struct LightSubmitBlockResponse {
+    /// The fork name for the bid
+    pub version: ForkName,
 
     /// The raw bytes of the response, for forwarding to the caller
     pub raw_bytes: Vec<u8>,
