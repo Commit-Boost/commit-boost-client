@@ -341,7 +341,7 @@ async fn test_submit_block_v1_multitype_ssz_light() -> Result<()> {
 }
 
 /// Test v1 requesting multiple types in light mode when the relay supports
-/// JSON, which should still return SSZ
+/// JSON, which should be able to handle an SSZ request by converting to JSON
 #[tokio::test]
 async fn test_submit_block_v1_multitype_json_light() -> Result<()> {
     let res = submit_block_impl(
@@ -357,10 +357,9 @@ async fn test_submit_block_v1_multitype_json_light() -> Result<()> {
     .await?;
     let signed_blinded_block = load_test_signed_blinded_block();
 
-    let response_body =
-        PayloadAndBlobs::from_ssz_bytes_by_fork(&res.bytes().await?, ForkName::Electra).unwrap();
+    let response_body = serde_json::from_slice::<SubmitBlindedBlockResponse>(&res.bytes().await?)?;
     assert_eq!(
-        response_body.execution_payload.block_hash(),
+        response_body.data.execution_payload.block_hash(),
         signed_blinded_block.block_hash().into()
     );
     Ok(())
