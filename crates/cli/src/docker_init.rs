@@ -6,15 +6,15 @@ use std::{
 
 use cb_common::{
     config::{
-        CHAIN_SPEC_ENV, CONFIG_DEFAULT, CONFIG_ENV, CommitBoostConfig, DIRK_CA_CERT_DEFAULT,
-        DIRK_CA_CERT_ENV, DIRK_CERT_DEFAULT, DIRK_CERT_ENV, DIRK_DIR_SECRETS_DEFAULT,
-        DIRK_DIR_SECRETS_ENV, DIRK_KEY_DEFAULT, DIRK_KEY_ENV, JWTS_ENV, LOGS_DIR_DEFAULT,
-        LOGS_DIR_ENV, LogsSettings, METRICS_PORT_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, ModuleKind,
-        PBS_ENDPOINT_ENV, PBS_MODULE_NAME, PROXY_DIR_DEFAULT, PROXY_DIR_ENV,
+        CB_MODULE_NAME, CHAIN_SPEC_ENV, CONFIG_DEFAULT, CONFIG_ENV, CommitBoostConfig,
+        DIRK_CA_CERT_DEFAULT, DIRK_CA_CERT_ENV, DIRK_CERT_DEFAULT, DIRK_CERT_ENV,
+        DIRK_DIR_SECRETS_DEFAULT, DIRK_DIR_SECRETS_ENV, DIRK_KEY_DEFAULT, DIRK_KEY_ENV, JWTS_ENV,
+        LOGS_DIR_DEFAULT, LOGS_DIR_ENV, LogsSettings, METRICS_PORT_ENV, MODULE_ID_ENV,
+        MODULE_JWT_ENV, ModuleKind, PBS_ENDPOINT_ENV, PROXY_DIR_DEFAULT, PROXY_DIR_ENV,
         PROXY_DIR_KEYS_DEFAULT, PROXY_DIR_KEYS_ENV, PROXY_DIR_SECRETS_DEFAULT,
         PROXY_DIR_SECRETS_ENV, SIGNER_DEFAULT, SIGNER_DIR_KEYS_DEFAULT, SIGNER_DIR_KEYS_ENV,
         SIGNER_DIR_SECRETS_DEFAULT, SIGNER_DIR_SECRETS_ENV, SIGNER_ENDPOINT_ENV, SIGNER_KEYS_ENV,
-        SIGNER_MODULE_NAME, SIGNER_PORT_DEFAULT, SIGNER_URL_ENV, SignerConfig, SignerType,
+        SIGNER_PORT_DEFAULT, SIGNER_URL_ENV, SignerConfig, SignerType,
     },
     pbs::{BUILDER_V1_API_PATH, GET_STATUS_PATH},
     signer::{ProxyStore, SignerLoader},
@@ -233,7 +233,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
 
     // volumes
     pbs_volumes.extend(chain_spec_volume.clone());
-    pbs_volumes.extend(get_log_volume(&cb_config.logs, PBS_MODULE_NAME));
+    pbs_volumes.extend(get_log_volume(&cb_config.logs, CB_MODULE_NAME));
 
     let pbs_service = Service {
         container_name: Some("cb_pbs".to_owned()),
@@ -576,6 +576,8 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
 
     Ok(())
 }
+
+fn create_pbs_service() {}
 
 /// FOO=${FOO}
 fn get_env_same(k: &str) -> (String, Option<SingleValue>) {

@@ -23,9 +23,5 @@ name = "commit-boost-cli"
 path = "cli.rs"
 
 [[bin]]
-name = "commit-boost-pbs"
-path = "pbs.rs"
-
-[[bin]]
-name = "commit-boost-signer"
-path = "signer.rs"
+name = "commit-boost"
+path = "commit-boost.rs"

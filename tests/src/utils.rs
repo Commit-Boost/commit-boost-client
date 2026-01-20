@@ -7,9 +7,9 @@ use std::{
 use alloy::primitives::U256;
 use cb_common::{
     config::{
-        PbsConfig, PbsModuleConfig, RelayConfig, SIGNER_IMAGE_DEFAULT,
-        SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT, SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT,
-        SIGNER_PORT_DEFAULT, SignerConfig, SignerType, StartSignerConfig,
+        PbsConfig, PbsModuleConfig, RelayConfig, SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT,
+        SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT, SIGNER_PORT_DEFAULT, SignerConfig,
+        SignerType, StartSignerConfig,
     },
     pbs::{RelayClient, RelayEntry},
     signer::SignerLoader,
@@ -109,7 +109,6 @@ pub fn get_signer_config(loader: SignerLoader) -> SignerConfig {
     SignerConfig {
         host: default_host(),
         port: SIGNER_PORT_DEFAULT,
-        docker_image: SIGNER_IMAGE_DEFAULT.to_string(),
         jwt_auth_fail_limit: SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT,
         jwt_auth_fail_timeout_seconds: SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT,
         inner: SignerType::Local { loader, store: None },

@@ -7,7 +7,7 @@ mod docker_init;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = LONG_ABOUT, name = "commit-boost-cli")]
-pub struct Args {
+pub struct CliArgs {
     #[command(subcommand)]
     pub cmd: Command,
 }
@@ -26,7 +26,7 @@ pub enum Command {
     },
 }
 
-impl Args {
+impl CliArgs {
     pub async fn run(self) -> eyre::Result<()> {
         print_logo();
 
@@ -41,9 +41,5 @@ impl Args {
 const LONG_ABOUT: &str = "Commit-Boost allows Ethereum validators to safely run MEV-Boost and community-built commitment protocols";
 
 #[derive(Parser, Debug)]
-#[command(version, about, long_about = LONG_ABOUT, name = "commit-boost-pbs")]
-pub struct PbsArgs;
-
-#[derive(Parser, Debug)]
-#[command(version, about, long_about = LONG_ABOUT, name = "commit-boost-signer")]
-pub struct SignerArgs;
+#[command(version, about, long_about = LONG_ABOUT, name = "commit-boost")]
+pub struct CbArgs;

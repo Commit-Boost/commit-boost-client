@@ -18,7 +18,7 @@ async fn main() -> eyre::Result<()> {
     color_eyre::install()?;
     // set default backtrace unless provided
 
-    let args = cb_cli::Args::parse();
+    let args = cb_cli::CliArgs::parse();
 
     args.run().await
 }

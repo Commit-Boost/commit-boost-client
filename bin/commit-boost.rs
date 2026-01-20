@@ -3,7 +3,7 @@ use cb_common::{
     utils::{initialize_tracing_log, wait_for_signal},
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use eyre::Result;
 use tracing::{error, info};
 
@@ -13,7 +13,19 @@ const VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"));
 /// Subcommands and global arguments for the module
 #[derive(Parser, Debug)]
 #[command(name = "Commit-Boost PBS Service", version = VERSION, about, long_about = None)]
-struct Cli {}
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    /// Run the PBS service
+    Pbs,
+
+    /// Run the Signer service
+    Signer,
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -25,7 +37,7 @@ async fn main() -> Result<()> {
 
     let _guard = initialize_tracing_log(PBS_MODULE_NAME, LogsSettings::from_env_config()?);
 
-    let _args = cb_cli::PbsArgs::parse();
+    let _args = cb_cli::CbArgs::parse();
 
     let pbs_config = load_pbs_config().await?;
 
