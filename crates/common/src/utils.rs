@@ -1,7 +1,7 @@
 #[cfg(feature = "testing-flags")]
 use std::cell::Cell;
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fmt::Display,
     net::Ipv4Addr,
     str::FromStr,
@@ -17,6 +17,7 @@ use axum::{
 use bytes::Bytes;
 use futures::StreamExt;
 use headers_accept::Accept;
+use lazy_static::lazy_static;
 pub use lh_types::ForkName;
 use lh_types::{
     BeaconBlock, Signature,
@@ -52,6 +53,25 @@ pub const WILDCARD: &str = "*/*";
 
 const MILLIS_PER_SECOND: u64 = 1_000;
 pub const CONSENSUS_VERSION_HEADER: &str = "Eth-Consensus-Version";
+
+lazy_static! {
+    static ref SSZ_VALUE_OFFSETS_BY_FORK: HashMap<ForkName, usize> = {
+        let mut map: HashMap<ForkName, usize> = HashMap::new();
+        let forks = [
+            ForkName::Bellatrix,
+            ForkName::Capella,
+            ForkName::Deneb,
+            ForkName::Electra,
+            ForkName::Fulu,
+            ForkName::Gloas,
+        ];
+        for fork in forks {
+            let offset = get_ssz_value_offset_for_fork(fork).unwrap(); // If there isn't a supported fork, this needs to be updated prior to release so panicking is fine
+            map.insert(fork, offset);
+        }
+        map
+    };
+}
 
 #[derive(Debug, Error)]
 pub enum ResponseReadError {
@@ -640,75 +660,81 @@ pub fn bls_pubkey_from_hex_unchecked(hex: &str) -> BlsPublicKey {
     bls_pubkey_from_hex(hex).unwrap()
 }
 
-/// Extracts the bid value from SSZ-encoded SignedBuilderBid response bytes.
-pub fn get_bid_value_from_signed_builder_bid_ssz(
-    response_bytes: &[u8],
-    fork: ForkName,
-) -> Result<U256, SszValueError> {
-    let message_offset = match fork {
-        ForkName::Bellatrix => get_message_offset::<BuilderBidBellatrix>(),
-        ForkName::Capella => get_message_offset::<BuilderBidCapella>(),
-        ForkName::Deneb => get_message_offset::<BuilderBidDeneb>(),
-        ForkName::Electra => get_message_offset::<BuilderBidElectra>(),
-        ForkName::Fulu => get_message_offset::<BuilderBidFulu>(),
-        ForkName::Gloas => get_message_offset::<BuilderBidGloas>(),
-        _ => {
-            return Err(SszValueError::UnsupportedFork { name: fork.to_string() });
-        }
-    };
-
-    // The offset for the start of the `value` field within the BuilderBid message
-    // data.
-    let value_offset_in_message = match fork {
+// Get the offset of the message in a SignedBuilderBid SSZ structure
+fn get_ssz_value_offset_for_fork(fork: ForkName) -> Option<usize> {
+    match fork {
         ForkName::Bellatrix => {
             // Message goes header -> value -> pubkey
-            <ExecutionPayloadHeaderBellatrix as ssz::Decode>::ssz_fixed_len()
+            Some(
+                get_message_offset::<BuilderBidBellatrix>() +
+                    <ExecutionPayloadHeaderBellatrix as ssz::Decode>::ssz_fixed_len(),
+            )
         }
 
         ForkName::Capella => {
             // Message goes header -> value -> pubkey
-            <ExecutionPayloadHeaderCapella as ssz::Decode>::ssz_fixed_len()
+            Some(
+                get_message_offset::<BuilderBidCapella>() +
+                    <ExecutionPayloadHeaderCapella as ssz::Decode>::ssz_fixed_len(),
+            )
         }
 
         ForkName::Deneb => {
             // Message goes header -> blob_kzg_commitments -> value -> pubkey
-            <ExecutionPayloadHeaderDeneb as ssz::Decode>::ssz_fixed_len() +
-                <KzgCommitments as ssz::Decode>::ssz_fixed_len()
+            Some(
+                get_message_offset::<BuilderBidDeneb>() +
+                    <ExecutionPayloadHeaderDeneb as ssz::Decode>::ssz_fixed_len() +
+                    <KzgCommitments as ssz::Decode>::ssz_fixed_len(),
+            )
         }
 
         ForkName::Electra => {
             // Message goes header -> blob_kzg_commitments -> execution_requests -> value ->
             // pubkey
-            <ExecutionPayloadHeaderElectra as ssz::Decode>::ssz_fixed_len() +
-                <KzgCommitments as ssz::Decode>::ssz_fixed_len() +
-                <ExecutionRequests as ssz::Decode>::ssz_fixed_len()
+            Some(
+                get_message_offset::<BuilderBidElectra>() +
+                    <ExecutionPayloadHeaderElectra as ssz::Decode>::ssz_fixed_len() +
+                    <KzgCommitments as ssz::Decode>::ssz_fixed_len() +
+                    <ExecutionRequests as ssz::Decode>::ssz_fixed_len(),
+            )
         }
 
         ForkName::Fulu => {
             // Message goes header -> blob_kzg_commitments -> execution_requests -> value ->
             // pubkey
-            <ExecutionPayloadHeaderFulu as ssz::Decode>::ssz_fixed_len() +
-                <KzgCommitments as ssz::Decode>::ssz_fixed_len() +
-                <ExecutionRequests as ssz::Decode>::ssz_fixed_len()
+            Some(
+                get_message_offset::<BuilderBidFulu>() +
+                    <ExecutionPayloadHeaderFulu as ssz::Decode>::ssz_fixed_len() +
+                    <KzgCommitments as ssz::Decode>::ssz_fixed_len() +
+                    <ExecutionRequests as ssz::Decode>::ssz_fixed_len(),
+            )
         }
 
         ForkName::Gloas => {
             // Message goes header -> blob_kzg_commitments -> execution_requests -> value ->
             // pubkey
-            <ExecutionPayloadHeaderGloas as ssz::Decode>::ssz_fixed_len() +
-                <KzgCommitments as ssz::Decode>::ssz_fixed_len() +
-                <ExecutionRequests as ssz::Decode>::ssz_fixed_len()
+            Some(
+                get_message_offset::<BuilderBidGloas>() +
+                    <ExecutionPayloadHeaderGloas as ssz::Decode>::ssz_fixed_len() +
+                    <KzgCommitments as ssz::Decode>::ssz_fixed_len() +
+                    <ExecutionRequests as ssz::Decode>::ssz_fixed_len(),
+            )
         }
-        _ => {
-            return Err(SszValueError::UnsupportedFork { name: fork.to_string() });
-        }
-    };
+        _ => None,
+    }
+}
 
-    // Get the offset of the value in the full response bytes
-    let value_offset = message_offset + value_offset_in_message;
+/// Extracts the bid value from SSZ-encoded SignedBuilderBid response bytes.
+pub fn get_bid_value_from_signed_builder_bid_ssz(
+    response_bytes: &[u8],
+    fork: ForkName,
+) -> Result<U256, SszValueError> {
+    let value_offset = SSZ_VALUE_OFFSETS_BY_FORK
+        .get(&fork)
+        .ok_or(SszValueError::UnsupportedFork { name: fork.to_string() })?;
 
     // Sanity check the response length so we don't panic trying to slice it
-    let end_offset = value_offset + <U256 as ssz::Decode>::ssz_fixed_len();
+    let end_offset = value_offset + 32; // U256 is 32 bytes
     if response_bytes.len() < end_offset {
         return Err(SszValueError::InvalidPayloadLength {
             required: end_offset,
@@ -717,7 +743,7 @@ pub fn get_bid_value_from_signed_builder_bid_ssz(
     }
 
     // Extract the value bytes and convert to U256
-    let value_bytes = &response_bytes[value_offset..end_offset];
+    let value_bytes = &response_bytes[*value_offset..end_offset];
     let value = U256::from_le_slice(value_bytes);
     Ok(value)
 }
