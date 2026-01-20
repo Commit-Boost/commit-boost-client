@@ -398,7 +398,7 @@ async fn send_one_get_header(
                     if !request_info.accepted_types.contains(&res.encoding_type) {
                         return Err(PbsError::RelayResponse {
                             error_msg: format!(
-                                "relay returned unsupported encoding type for the requesting client in no-validation mode: {:?}",
+                                "relay returned unsupported encoding type for get_header in no-validation mode: {:?}",
                                 res.encoding_type
                             ),
                             code: 406, // Not Acceptable
