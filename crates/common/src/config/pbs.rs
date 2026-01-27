@@ -10,14 +10,13 @@ use alloy::{
     primitives::{U256, utils::format_ether},
     providers::{Provider, ProviderBuilder},
 };
-use docker_image::DockerImage;
 use eyre::{Result, ensure};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use url::Url;
 
 use super::{
     CommitBoostConfig, HTTP_TIMEOUT_SECONDS_DEFAULT, PBS_ENDPOINT_ENV, RuntimeMuxConfig,
-    constants::CB_IMAGE_DEFAULT, load_optional_env_var,
+    load_optional_env_var,
 };
 use crate::{
     commit::client::SignerClient,
@@ -204,9 +203,6 @@ impl PbsConfig {
 /// Static pbs config from config file
 #[derive(Debug, Deserialize, Serialize)]
 pub struct StaticPbsConfig {
-    /// Docker image of the module
-    #[serde(default = "default_image")]
-    pub docker_image: String,
     /// Config of pbs module
     #[serde(flatten)]
     pub pbs_config: PbsConfig,
@@ -219,13 +215,6 @@ impl StaticPbsConfig {
     /// Validate the static pbs config
     pub async fn validate(&self, chain: Chain) -> Result<()> {
         self.pbs_config.validate(chain).await?;
-
-        // The Docker tag must parse
-        ensure!(!self.docker_image.is_empty(), "Docker image is empty");
-        ensure!(
-            DockerImage::parse(&self.docker_image).is_ok(),
-            format!("Invalid Docker image: {}", self.docker_image)
-        );
 
         Ok(())
     }
@@ -252,10 +241,6 @@ pub struct PbsModuleConfig {
     pub registry_muxes: Option<HashMap<MuxKeysLoader, RuntimeMuxConfig>>,
     /// Lookup of pubkey to mux config
     pub mux_lookup: Option<HashMap<BlsPublicKey, RuntimeMuxConfig>>,
-}
-
-fn default_image() -> String {
-    CB_IMAGE_DEFAULT.to_string()
 }
 
 /// Loads the default pbs config, i.e. with no signer client or custom data
@@ -344,7 +329,7 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
 
     // load module config including the extra data (if any)
     let cb_config: StubConfig<T> = load_file_from_env(CONFIG_ENV)?;
-    cb_config.pbs.static_config.pbs_config.validate(cb_config.chain).await?;
+    cb_config.pbs.static_config.validate(cb_config.chain).await?;
 
     // use endpoint from env if set, otherwise use default host and port
     let endpoint = if let Some(endpoint) = load_optional_env_var(PBS_ENDPOINT_ENV) {

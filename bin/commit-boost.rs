@@ -1,5 +1,5 @@
 use cb_common::{
-    config::{LogsSettings, PBS_MODULE_NAME, load_pbs_config},
+    config::{LogsSettings, PBS_SERVICE_NAME, load_pbs_config},
     utils::{initialize_tracing_log, wait_for_signal},
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
@@ -35,7 +35,7 @@ async fn main() -> Result<()> {
 
     color_eyre::install()?;
 
-    let _guard = initialize_tracing_log(PBS_MODULE_NAME, LogsSettings::from_env_config()?);
+    let _guard = initialize_tracing_log(PBS_SERVICE_NAME, LogsSettings::from_env_config()?);
 
     let _args = cb_cli::CbArgs::parse();
 

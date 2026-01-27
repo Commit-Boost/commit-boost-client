@@ -6,7 +6,7 @@ pub mod prelude {
             SignedProxyDelegationBls, SignedProxyDelegationEcdsa,
         },
         config::{
-            LogsSettings, PBS_MODULE_NAME, StartCommitModuleConfig, load_builder_module_config,
+            LogsSettings, PBS_SERVICE_NAME, StartCommitModuleConfig, load_builder_module_config,
             load_commit_module_config, load_pbs_config, load_pbs_custom_config,
         },
         signer::EcdsaSignature,

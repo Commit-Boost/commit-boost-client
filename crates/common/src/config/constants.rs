@@ -22,6 +22,8 @@ pub const PBS_ENDPOINT_ENV: &str = "CB_PBS_ENDPOINT";
 pub const MUX_PATH_ENV: &str = "CB_MUX_PATH";
 
 pub const CB_MODULE_NAME: &str = "commit-boost";
+pub const PBS_SERVICE_NAME: &str = "pbs";
+pub const SIGNER_SERVICE_NAME: &str = "signer";
 
 /// Where the signer module should open the server
 pub const SIGNER_ENDPOINT_ENV: &str = "CB_SIGNER_ENDPOINT";
