@@ -1,6 +1,5 @@
 use std::{sync::Arc, time::Duration};
 
-use alloy::providers::mock;
 use cb_common::{
     pbs::{BuilderApiVersion, GetPayloadInfo, SubmitBlindedBlockResponse},
     signer::random_secret,
@@ -8,7 +7,7 @@ use cb_common::{
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
-    mock_relay::{self, MockRelayState, start_mock_relay_service},
+    mock_relay::{MockRelayState, start_mock_relay_service},
     mock_validator::{MockValidator, load_test_signed_blinded_block},
     utils::{generate_mock_relay, get_pbs_static_config, setup_test_env, to_pbs_config},
 };
