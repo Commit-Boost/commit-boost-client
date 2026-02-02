@@ -17,7 +17,7 @@ use tracing::info;
 
 #[tokio::test]
 async fn test_submit_block_v1() -> Result<()> {
-    let res = submit_block_impl(3800, &BuilderApiVersion::V1).await?;
+    let res = submit_block_impl(3800, &BuilderApiVersion::V1, false, false).await?;
     assert_eq!(res.status(), StatusCode::OK);
 
     let signed_blinded_block = load_test_signed_blinded_block();
@@ -32,9 +32,28 @@ async fn test_submit_block_v1() -> Result<()> {
 
 #[tokio::test]
 async fn test_submit_block_v2() -> Result<()> {
-    let res = submit_block_impl(3850, &BuilderApiVersion::V2).await?;
+    let res = submit_block_impl(3802, &BuilderApiVersion::V2, false, false).await?;
     assert_eq!(res.status(), StatusCode::ACCEPTED);
     assert_eq!(res.bytes().await?.len(), 0);
+    Ok(())
+}
+
+// Test that when submitting a block using v2 to a relay that does not support
+// v2, PBS falls back to v1 and successfully submits the block.
+#[tokio::test]
+async fn test_submit_block_v2_without_relay_support() -> Result<()> {
+    let res = submit_block_impl(3804, &BuilderApiVersion::V2, true, false).await?;
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
+    assert_eq!(res.bytes().await?.len(), 0);
+    Ok(())
+}
+
+// Test that when submitting a block using v2 to a relay that returns 404s
+// for both v1 and v2, PBS doesn't loop forever.
+#[tokio::test]
+async fn test_submit_block_on_broken_relay() -> Result<()> {
+    let res = submit_block_impl(3806, &BuilderApiVersion::V2, true, true).await?;
+    assert_eq!(res.status(), StatusCode::BAD_GATEWAY);
     Ok(())
 }
 
@@ -68,7 +87,12 @@ async fn test_submit_block_too_large() -> Result<()> {
     Ok(())
 }
 
-async fn submit_block_impl(pbs_port: u16, api_version: &BuilderApiVersion) -> Result<Response> {
+async fn submit_block_impl(
+    pbs_port: u16,
+    api_version: &BuilderApiVersion,
+    remove_v2_support: bool,
+    force_404s: bool,
+) -> Result<Response> {
     setup_test_env();
     let signer = random_secret();
     let pubkey = signer.public_key();
@@ -77,7 +101,14 @@ async fn submit_block_impl(pbs_port: u16, api_version: &BuilderApiVersion) -> Re
 
     // Run a mock relay
     let relays = vec![generate_mock_relay(pbs_port + 1, pubkey)?];
-    let mock_state = Arc::new(MockRelayState::new(chain, signer));
+    let mut mock_relay_state = MockRelayState::new(chain, signer);
+    if remove_v2_support {
+        mock_relay_state = mock_relay_state.with_no_submit_block_v2();
+    }
+    if force_404s {
+        mock_relay_state = mock_relay_state.with_not_found_for_submit_block();
+    }
+    let mock_state = Arc::new(mock_relay_state);
     tokio::spawn(start_mock_relay_service(mock_state.clone(), pbs_port + 1));
 
     // Run the PBS service
@@ -99,6 +130,7 @@ async fn submit_block_impl(pbs_port: u16, api_version: &BuilderApiVersion) -> Re
             mock_validator.do_submit_block_v2(Some(signed_blinded_block)).await?
         }
     };
-    assert_eq!(mock_state.received_submit_block(), 1);
+    let expected_count = if force_404s { 0 } else { 1 };
+    assert_eq!(mock_state.received_submit_block(), expected_count);
     Ok(res)
 }
