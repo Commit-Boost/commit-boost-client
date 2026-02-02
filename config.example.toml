@@ -8,8 +8,8 @@
 chain = "Holesky"
 
 # Docker image to use for the Commit-Boost services.
-# OPTIONAL, DEFAULT: ghcr.io/commit-boost/cb:latest
-docker_image = "ghcr.io/commit-boost/cb:latest"
+# OPTIONAL, DEFAULT: ghcr.io/commit-boost/commit-boost:latest
+docker_image = "ghcr.io/commit-boost/commit-boost:latest"
 
 # Configuration for the PBS module
 [pbs]
