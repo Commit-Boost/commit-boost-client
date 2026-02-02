@@ -6,15 +6,16 @@ use std::{
 
 use cb_common::{
     config::{
-        CB_MODULE_NAME, CHAIN_SPEC_ENV, CONFIG_DEFAULT, CONFIG_ENV, CommitBoostConfig,
-        DIRK_CA_CERT_DEFAULT, DIRK_CA_CERT_ENV, DIRK_CERT_DEFAULT, DIRK_CERT_ENV,
-        DIRK_DIR_SECRETS_DEFAULT, DIRK_DIR_SECRETS_ENV, DIRK_KEY_DEFAULT, DIRK_KEY_ENV, JWTS_ENV,
-        LOGS_DIR_DEFAULT, LOGS_DIR_ENV, LogsSettings, METRICS_PORT_ENV, MODULE_ID_ENV,
-        MODULE_JWT_ENV, ModuleKind, PBS_ENDPOINT_ENV, PBS_SERVICE_NAME, PROXY_DIR_DEFAULT,
-        PROXY_DIR_ENV, PROXY_DIR_KEYS_DEFAULT, PROXY_DIR_KEYS_ENV, PROXY_DIR_SECRETS_DEFAULT,
+        CHAIN_SPEC_ENV, CONFIG_DEFAULT, CONFIG_ENV, CommitBoostConfig, DIRK_CA_CERT_DEFAULT,
+        DIRK_CA_CERT_ENV, DIRK_CERT_DEFAULT, DIRK_CERT_ENV, DIRK_DIR_SECRETS_DEFAULT,
+        DIRK_DIR_SECRETS_ENV, DIRK_KEY_DEFAULT, DIRK_KEY_ENV, JWTS_ENV, LOGS_DIR_DEFAULT,
+        LOGS_DIR_ENV, LogsSettings, METRICS_PORT_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, ModuleKind,
+        PBS_ENDPOINT_ENV, PBS_SERVICE_NAME, PROXY_DIR_DEFAULT, PROXY_DIR_ENV,
+        PROXY_DIR_KEYS_DEFAULT, PROXY_DIR_KEYS_ENV, PROXY_DIR_SECRETS_DEFAULT,
         PROXY_DIR_SECRETS_ENV, SIGNER_DEFAULT, SIGNER_DIR_KEYS_DEFAULT, SIGNER_DIR_KEYS_ENV,
         SIGNER_DIR_SECRETS_DEFAULT, SIGNER_DIR_SECRETS_ENV, SIGNER_ENDPOINT_ENV, SIGNER_KEYS_ENV,
         SIGNER_PORT_DEFAULT, SIGNER_SERVICE_NAME, SIGNER_URL_ENV, SignerConfig, SignerType,
+        StaticModuleConfig,
     },
     pbs::{BUILDER_V1_API_PATH, GET_STATUS_PATH},
     signer::{ProxyStore, SignerLoader},
@@ -47,9 +48,6 @@ struct ServiceChainSpecInfo {
 
 // Info about the Commit-Boost config being used to create services
 struct CommitBoostConfigInfo {
-    // Path to the config file
-    config_path: PathBuf,
-
     // Commit-Boost config
     cb_config: CommitBoostConfig,
 
@@ -83,33 +81,20 @@ struct ServiceCreationInfo {
     metrics_port: u16,
 }
 
-// Information about the created CB Signer service
-struct SignerService {
-    // The created signer, as a docker compose service
-    service: Service,
-
-    // The port used for metrics
-    metrics_port: u16,
-
-    // The port used for signer API communication
-    signer_port: u16,
-}
-
 /// Builds the docker compose file for the Commit-Boost services
 // TODO: do more validation for paths, images, etc
 pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Result<()> {
+    // Initialize variables
     let mut services = IndexMap::new();
-
     println!("Initializing Commit-Boost with config file: {}", config_path.display());
     let mut service_config = ServiceCreationInfo {
         config_info: CommitBoostConfigInfo {
-            config_path: config_path.clone(),
-            cb_config: CommitBoostConfig::from_file(&config_path)?,
             config_volume: Volumes::Simple(format!(
                 "./{}:{}:ro",
                 config_path.display(),
                 CONFIG_DEFAULT
             )),
+            cb_config: CommitBoostConfig::from_file(&config_path)?,
         },
         envs: IndexMap::new(),
         targets: Vec::new(),
@@ -118,10 +103,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
         chain_spec: None,
         metrics_port: 9100,
     };
-
-    // Validate the CB config
-    let cb_config = &mut service_config.config_info.cb_config;
-    cb_config.validate().await?;
+    service_config.config_info.cb_config.validate().await?;
 
     // Get the custom chain spec, if any
     let chain_spec_path = CommitBoostConfig::chain_spec_file(&config_path);
@@ -136,114 +118,45 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
     }
 
     // Set up variables
-    service_config.metrics_port =
-        cb_config.metrics.as_ref().map(|m| m.start_port).unwrap_or_default();
-    let needs_signer_module = cb_config.pbs.with_signer ||
-        cb_config.modules.as_ref().is_some_and(|modules| {
+    service_config.metrics_port = service_config
+        .config_info
+        .cb_config
+        .metrics
+        .as_ref()
+        .map(|m| m.start_port)
+        .unwrap_or_default();
+    let needs_signer_module = service_config.config_info.cb_config.pbs.with_signer ||
+        service_config.config_info.cb_config.modules.as_ref().is_some_and(|modules| {
             modules.iter().any(|module| matches!(module.kind, ModuleKind::Commit))
         });
+    let signer_config =
+        if needs_signer_module {
+            Some(service_config.config_info.cb_config.signer.clone().expect(
+                "Signer module required but no signer config provided in Commit-Boost config",
+            ))
+        } else {
+            None
+        };
     let signer_server = if let Some(SignerConfig { inner: SignerType::Remote { url }, .. }) =
-        &cb_config.signer
+        &service_config.config_info.cb_config.signer
     {
         url.to_string()
     } else {
-        let signer_port = cb_config.signer.as_ref().map(|s| s.port).unwrap_or(SIGNER_PORT_DEFAULT);
+        let signer_port = service_config
+            .config_info
+            .cb_config
+            .signer
+            .as_ref()
+            .map(|s| s.port)
+            .unwrap_or(SIGNER_PORT_DEFAULT);
         format!("http://cb_signer:{signer_port}")
     };
 
     // setup modules
-    if let Some(modules_config) = cb_config.modules {
-        for module in modules_config {
-            let module_cid = format!("cb_{}", module.id.to_lowercase());
-
-            let module_service = match module.kind {
-                // a commit module needs a JWT and access to the signer network
-                ModuleKind::Commit => {
-                    let mut ports = vec![];
-
-                    let jwt_secret = random_jwt_secret();
-                    let jwt_name = format!("CB_JWT_{}", module.id.to_uppercase());
-
-                    // module ids are assumed unique, so envs dont override each other
-                    let mut module_envs = IndexMap::from([
-                        get_env_val(MODULE_ID_ENV, &module.id),
-                        get_env_val(CONFIG_ENV, CONFIG_DEFAULT),
-                        get_env_interp(MODULE_JWT_ENV, &jwt_name),
-                        get_env_val(SIGNER_URL_ENV, &signer_server),
-                    ]);
-
-                    // Pass on the env variables
-                    if let Some(envs) = module.env {
-                        for (k, v) in envs {
-                            module_envs.insert(k, Some(SingleValue::String(v)));
-                        }
-                    }
-
-                    // Set environment file
-                    let env_file = module.env_file.map(EnvFile::Simple);
-
-                    if let Some((key, val)) = chain_spec_env.clone() {
-                        module_envs.insert(key, val);
-                    }
-
-                    if let Some(metrics_config) = &cb_config.metrics &&
-                        metrics_config.enabled
-                    {
-                        let host_endpoint = SocketAddr::from((metrics_config.host, metrics_port));
-                        ports.push(format!("{host_endpoint}:{metrics_port}"));
-                        warnings
-                            .push(format!("{module_cid} has an exported port on {metrics_port}"));
-                        targets.push(format!("{host_endpoint}"));
-                        let (key, val) = get_env_uval(METRICS_PORT_ENV, metrics_port as u64);
-                        module_envs.insert(key, val);
-
-                        metrics_port += 1;
-                    }
-
-                    if log_to_file {
-                        let (key, val) = get_env_val(LOGS_DIR_ENV, LOGS_DIR_DEFAULT);
-                        module_envs.insert(key, val);
-                    }
-
-                    envs.insert(jwt_name.clone(), jwt_secret.clone());
-                    jwts.insert(module.id.clone(), jwt_secret);
-
-                    // networks
-                    let module_networks = vec![SIGNER_NETWORK.to_owned()];
-
-                    // volumes
-                    let mut module_volumes = vec![config_volume.clone()];
-                    module_volumes.extend(chain_spec_volume.clone());
-                    module_volumes.extend(get_log_volume(&cb_config.logs, &module.id));
-
-                    // depends_on
-                    let mut module_dependencies = IndexMap::new();
-                    module_dependencies.insert("cb_signer".into(), DependsCondition {
-                        condition: "service_healthy".into(),
-                    });
-
-                    Service {
-                        container_name: Some(module_cid.clone()),
-                        image: Some(module.docker_image),
-                        networks: Networks::Simple(module_networks),
-                        ports: Ports::Short(ports),
-                        volumes: module_volumes,
-                        environment: Environment::KvPair(module_envs),
-                        depends_on: if let Some(SignerConfig {
-                            inner: SignerType::Remote { .. },
-                            ..
-                        }) = &cb_config.signer
-                        {
-                            DependsOnOptions::Simple(vec![])
-                        } else {
-                            DependsOnOptions::Conditional(module_dependencies)
-                        },
-                        env_file,
-                        ..Service::default()
-                    }
-                }
-            };
-
+    if let Some(ref modules_config) = service_config.config_info.cb_config.modules {
+        for module in modules_config.clone() {
+            let (module_cid, module_service) =
+                create_module_service(&module, signer_server.as_str(), &mut service_config)?;
             services.insert(module_cid, Some(module_service));
         }
     };
@@ -253,18 +166,14 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
     services.insert("cb_pbs".to_owned(), Some(pbs_service));
 
     // setup signer service
-    if needs_signer_module {
-        let Some(signer_config) = cb_config.signer else {
-            panic!("Signer module required but no signer config provided");
-        };
-
-        match signer_config.inner {
+    if let Some(signer_config) = signer_config {
+        match &signer_config.inner {
             SignerType::Local { loader, store } => {
                 let signer_service = create_signer_service_local(
                     &mut service_config,
                     &signer_config,
-                    &loader,
-                    &store,
+                    loader,
+                    store,
                 )?;
                 services.insert("cb_signer".to_owned(), Some(signer_service));
             }
@@ -272,11 +181,11 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                 let signer_service = create_signer_service_dirk(
                     &mut service_config,
                     &signer_config,
-                    &cert_path,
-                    &key_path,
-                    &secrets_path,
-                    &ca_cert_path,
-                    &store,
+                    cert_path,
+                    key_path,
+                    secrets_path,
+                    ca_cert_path,
+                    store,
                 )?;
                 services.insert("cb_signer".to_owned(), Some(signer_service));
             }
@@ -298,55 +207,26 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
         );
     }
 
-    compose.services = Services(services);
-
     // write compose to file
-    let compose_str = serde_yaml::to_string(&compose)?;
+    compose.services = Services(services);
     let compose_path = Path::new(&output_dir).join(CB_COMPOSE_FILE);
-    std::fs::write(&compose_path, compose_str)?;
-    if !warnings.is_empty() {
-        println!();
-        for exposed_port in warnings {
-            println!("Warning: {exposed_port}");
-        }
-        println!()
-    }
-    // if file logging is enabled, warn about permissions
-    if cb_config.logs.file.enabled {
-        let log_dir = cb_config.logs.file.dir_path;
-        println!(
-            "Warning: file logging is enabled, you may need to update permissions for the logs directory. e.g. with:\n\t`sudo chown -R 10001:10001 {}`",
-            log_dir.display()
-        );
-        println!()
-    }
+    write_compose_file(&compose, &compose_path, &service_config)?;
 
-    println!("Docker Compose file written to: {compose_path:?}");
-
-    // write prometheus targets to file
-    if !targets.is_empty() {
-        let targets = targets.join(", ");
+    // Inform user about Prometheus targets
+    if !service_config.targets.is_empty() {
+        let targets = service_config.targets.join(", ");
         println!("Note: Make sure to add these targets for Prometheus to scrape: {targets}");
         println!(
             "Check out the docs on how to configure Prometheus/Grafana/cAdvisor: https://commit-boost.github.io/commit-boost-client/get_started/running/metrics"
         );
     }
 
-    if envs.is_empty() {
+    if service_config.envs.is_empty() {
         println!("Run with:\n\tdocker compose -f {compose_path:?} up -d");
     } else {
         // write envs to .env file
-        let envs_str = {
-            let mut envs_str = String::new();
-            for (k, v) in envs {
-                envs_str.push_str(&format!("{k}={v}\n"));
-            }
-            envs_str
-        };
         let env_path = Path::new(&output_dir).join(CB_ENV_FILE);
-        std::fs::write(&env_path, envs_str)?;
-        println!("Env file written to: {env_path:?}");
-
+        write_env_file(&service_config.envs, &env_path)?;
         println!();
         println!("Run with:\n\tdocker compose --env-file {env_path:?} -f {compose_path:?} up -d");
         println!("Stop with:\n\tdocker compose --env-file {env_path:?} -f {compose_path:?} down");
@@ -357,7 +237,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
 
 // Creates a PBS service
 fn create_pbs_service(service_config: &mut ServiceCreationInfo) -> eyre::Result<Service> {
-    let mut metrics_port = service_config.metrics_port;
+    let metrics_port = service_config.metrics_port;
     let cb_config = &service_config.config_info.cb_config;
     let config_volume = &service_config.config_info.config_volume;
     let mut envs = IndexMap::from([get_env_val(CONFIG_ENV, CONFIG_DEFAULT)]);
@@ -405,7 +285,7 @@ fn create_pbs_service(service_config: &mut ServiceCreationInfo) -> eyre::Result<
         let (key, val) = get_env_uval(METRICS_PORT_ENV, metrics_port as u64);
         envs.insert(key, val);
 
-        metrics_port += 1;
+        service_config.metrics_port += 1;
     }
 
     // Logging
@@ -683,7 +563,8 @@ fn create_signer_service_dirk(
         environment: Environment::KvPair(envs),
         healthcheck: Some(Healthcheck {
             test: Some(HealthcheckTest::Single(format!(
-                "curl -f http://localhost:{signer_port}/status"
+                "curl -f http://localhost:{}/status",
+                signer_config.port,
             ))),
             interval: Some("30s".into()),
             timeout: Some("5s".into()),
@@ -696,6 +577,149 @@ fn create_signer_service_dirk(
     };
 
     Ok(signer_service)
+}
+
+/// Creates a Commit-Boost module service
+fn create_module_service(
+    module: &StaticModuleConfig,
+    signer_server: &str,
+    service_config: &mut ServiceCreationInfo,
+) -> eyre::Result<(String, Service)> {
+    let cb_config = &service_config.config_info.cb_config;
+    let config_volume = &service_config.config_info.config_volume;
+    let metrics_port = service_config.metrics_port;
+    let module_cid = format!("cb_{}", module.id.to_lowercase());
+
+    let module_service = match module.kind {
+        // a commit module needs a JWT and access to the signer network
+        ModuleKind::Commit => {
+            let mut ports = vec![];
+
+            let jwt_secret = random_jwt_secret();
+            let jwt_name = format!("CB_JWT_{}", module.id.to_uppercase());
+
+            // module ids are assumed unique, so envs dont override each other
+            let mut module_envs = IndexMap::from([
+                get_env_val(MODULE_ID_ENV, &module.id),
+                get_env_val(CONFIG_ENV, CONFIG_DEFAULT),
+                get_env_interp(MODULE_JWT_ENV, &jwt_name),
+                get_env_val(SIGNER_URL_ENV, signer_server),
+            ]);
+
+            // Pass on the env variables
+            if let Some(envs) = &module.env {
+                for (k, v) in envs {
+                    module_envs.insert(k.clone(), Some(SingleValue::String(v.clone())));
+                }
+            };
+
+            // volumes
+            let mut module_volumes = vec![config_volume.clone()];
+            module_volumes.extend(get_log_volume(&cb_config.logs, &module.id));
+
+            // Chain spec env/volume
+            if let Some(spec) = &service_config.chain_spec {
+                module_envs.insert(spec.env.0.clone(), spec.env.1.clone());
+                module_volumes.push(spec.volume.clone());
+            }
+
+            if let Some(metrics_config) = &cb_config.metrics &&
+                metrics_config.enabled
+            {
+                let host_endpoint = SocketAddr::from((metrics_config.host, metrics_port));
+                ports.push(format!("{host_endpoint}:{metrics_port}"));
+                service_config
+                    .warnings
+                    .push(format!("{module_cid} has an exported port on {metrics_port}"));
+                service_config.targets.push(format!("{host_endpoint}"));
+                let (key, val) = get_env_uval(METRICS_PORT_ENV, metrics_port as u64);
+                module_envs.insert(key, val);
+
+                service_config.metrics_port += 1;
+            }
+
+            // Logging
+            if cb_config.logs.file.enabled {
+                let (key, val) = get_env_val(LOGS_DIR_ENV, LOGS_DIR_DEFAULT);
+                module_envs.insert(key, val);
+            }
+
+            // write jwts to env
+            service_config.envs.insert(jwt_name.clone(), jwt_secret.clone());
+            service_config.jwts.insert(module.id.clone(), jwt_secret);
+
+            // Dependencies
+            let mut module_dependencies = IndexMap::new();
+            module_dependencies.insert("cb_signer".into(), DependsCondition {
+                condition: "service_healthy".into(),
+            });
+
+            // Create the service
+            let module_networks = vec![SIGNER_NETWORK.to_owned()];
+            Service {
+                container_name: Some(module_cid.clone()),
+                image: Some(module.docker_image.clone()),
+                networks: Networks::Simple(module_networks),
+                ports: Ports::Short(ports),
+                volumes: module_volumes,
+                environment: Environment::KvPair(module_envs),
+                depends_on: if let Some(SignerConfig { inner: SignerType::Remote { .. }, .. }) =
+                    &cb_config.signer
+                {
+                    DependsOnOptions::Simple(vec![])
+                } else {
+                    DependsOnOptions::Conditional(module_dependencies)
+                },
+                env_file: module.env_file.clone().map(EnvFile::Simple),
+                ..Service::default()
+            }
+        }
+    };
+
+    Ok((module_cid, module_service))
+}
+
+/// Writes the docker compose file to disk and prints any warnings
+fn write_compose_file(
+    compose: &Compose,
+    output_path: &Path,
+    service_config: &ServiceCreationInfo,
+) -> Result<()> {
+    let compose_str = serde_yaml::to_string(compose)?;
+    std::fs::write(output_path, compose_str)?;
+    if !service_config.warnings.is_empty() {
+        println!();
+        for exposed_port in &service_config.warnings {
+            println!("Warning: {exposed_port}");
+        }
+        println!()
+    }
+    // if file logging is enabled, warn about permissions
+    let cb_config = &service_config.config_info.cb_config;
+    if cb_config.logs.file.enabled {
+        let log_dir = &cb_config.logs.file.dir_path;
+        println!(
+            "Warning: file logging is enabled, you may need to update permissions for the logs directory. e.g. with:\n\t`sudo chown -R 10001:10001 {}`",
+            log_dir.display()
+        );
+        println!()
+    }
+    println!("Docker Compose file written to: {output_path:?}");
+    Ok(())
+}
+
+/// Writes the envs to a .env file
+fn write_env_file(envs: &IndexMap<String, String>, output_path: &Path) -> Result<()> {
+    let envs_str = {
+        let mut envs_str = String::new();
+        for (k, v) in envs {
+            envs_str.push_str(&format!("{k}={v}\n"));
+        }
+        envs_str
+    };
+    std::fs::write(output_path, envs_str)?;
+    println!("Env file written to: {output_path:?}");
+    Ok(())
 }
 
 /// FOO=${FOO}
