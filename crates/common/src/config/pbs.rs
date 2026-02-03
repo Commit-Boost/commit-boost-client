@@ -10,6 +10,7 @@ use alloy::{
     primitives::{U256, utils::format_ether},
     providers::{Provider, ProviderBuilder},
 };
+use docker_image::DockerImage;
 use eyre::{Result, ensure};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use url::Url;
@@ -21,8 +22,8 @@ use super::{
 use crate::{
     commit::client::SignerClient,
     config::{
-        CB_MODULE_NAME, CONFIG_ENV, MODULE_JWT_ENV, MuxKeysLoader, PbsMuxes, SIGNER_URL_ENV,
-        load_env_var, load_file_from_env,
+        CONFIG_ENV, MODULE_JWT_ENV, MuxKeysLoader, PBS_IMAGE_DEFAULT, PBS_SERVICE_NAME, PbsMuxes,
+        SIGNER_URL_ENV, load_env_var, load_file_from_env,
     },
     pbs::{
         DEFAULT_PBS_PORT, DEFAULT_REGISTRY_REFRESH_SECONDS, DefaultTimeout, LATE_IN_SLOT_TIME_MS,
@@ -203,6 +204,9 @@ impl PbsConfig {
 /// Static pbs config from config file
 #[derive(Debug, Deserialize, Serialize)]
 pub struct StaticPbsConfig {
+    /// Docker image of the module
+    #[serde(default = "default_pbs")]
+    pub docker_image: String,
     /// Config of pbs module
     #[serde(flatten)]
     pub pbs_config: PbsConfig,
@@ -212,11 +216,17 @@ pub struct StaticPbsConfig {
 }
 
 impl StaticPbsConfig {
-    /// Validate the static pbs config
+    /// Validate static pbs config
     pub async fn validate(&self, chain: Chain) -> Result<()> {
-        self.pbs_config.validate(chain).await?;
+        // The Docker tag must parse
+        ensure!(!self.docker_image.is_empty(), "Docker image is empty");
+        ensure!(
+            DockerImage::parse(&self.docker_image).is_ok(),
+            format!("Invalid Docker image: {}", self.docker_image)
+        );
 
-        Ok(())
+        // Validate the inner pbs config
+        self.pbs_config.validate(chain).await
     }
 }
 
@@ -241,6 +251,10 @@ pub struct PbsModuleConfig {
     pub registry_muxes: Option<HashMap<MuxKeysLoader, RuntimeMuxConfig>>,
     /// Lookup of pubkey to mux config
     pub mux_lookup: Option<HashMap<BlsPublicKey, RuntimeMuxConfig>>,
+}
+
+fn default_pbs() -> String {
+    PBS_IMAGE_DEFAULT.to_string()
 }
 
 /// Loads the default pbs config, i.e. with no signer client or custom data
@@ -383,7 +397,7 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
         Some(SignerClient::new(
             signer_server_url,
             module_jwt,
-            ModuleId(CB_MODULE_NAME.to_string()),
+            ModuleId(PBS_SERVICE_NAME.to_string()),
         )?)
     } else {
         None

@@ -1,8 +1,14 @@
+use std::path::PathBuf;
+
+use cb_cli::docker_init::handle_docker_init;
 use cb_common::{
-    config::{LogsSettings, PBS_SERVICE_NAME, load_pbs_config},
-    utils::{initialize_tracing_log, wait_for_signal},
+    config::{
+        LogsSettings, PBS_SERVICE_NAME, SIGNER_SERVICE_NAME, StartSignerConfig, load_pbs_config,
+    },
+    utils::{initialize_tracing_log, print_logo, wait_for_signal},
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
+use cb_signer::service::SigningService;
 use clap::{Parser, Subcommand};
 use eyre::Result;
 use tracing::{error, info};
@@ -10,9 +16,12 @@ use tracing::{error, info};
 /// Version string with a leading 'v'
 const VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"));
 
+/// Long about string for the CLI
+const LONG_ABOUT: &str = "Commit-Boost allows Ethereum validators to safely run MEV-Boost and community-built commitment protocols";
+
 /// Subcommands and global arguments for the module
 #[derive(Parser, Debug)]
-#[command(name = "Commit-Boost PBS Service", version = VERSION, about, long_about = None)]
+#[command(name = "Commit-Boost", version = VERSION, about, long_about = LONG_ABOUT)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -25,6 +34,17 @@ enum Commands {
 
     /// Run the Signer service
     Signer,
+
+    /// Generate the starting docker-compose file (the old CLI binary)
+    Init {
+        /// Path to config file
+        #[arg(long("config"))]
+        config_path: PathBuf,
+
+        /// Path to output files
+        #[arg(short, long("output"), default_value = "./")]
+        output_path: PathBuf,
+    },
 }
 
 #[tokio::main]
@@ -35,10 +55,18 @@ async fn main() -> Result<()> {
 
     color_eyre::install()?;
 
+    match _cli.command {
+        Commands::Pbs => run_pbs_service().await?,
+        Commands::Signer => run_signer_service().await?,
+        Commands::Init { config_path, output_path } => run_init(config_path, output_path).await?,
+    }
+
+    Ok(())
+}
+
+/// Run the PBS service
+async fn run_pbs_service() -> Result<()> {
     let _guard = initialize_tracing_log(PBS_SERVICE_NAME, LogsSettings::from_env_config()?);
-
-    let _args = cb_cli::CbArgs::parse();
-
     let pbs_config = load_pbs_config().await?;
 
     PbsService::init_metrics(pbs_config.chain)?;
@@ -56,6 +84,31 @@ async fn main() -> Result<()> {
             info!("shutting down");
         }
     }
+    Ok(())
+}
+
+/// Run the Signer service
+async fn run_signer_service() -> Result<()> {
+    let _guard = initialize_tracing_log(SIGNER_SERVICE_NAME, LogsSettings::from_env_config()?);
+    let config = StartSignerConfig::load_from_env()?;
+    let server = SigningService::run(config);
+
+    tokio::select! {
+        maybe_err = server => {
+            if let Err(err) = maybe_err {
+                error!(%err, "signing server unexpectedly stopped");
+                eprintln!("signing server unexpectedly stopped: {err}");
+            }
+        },
+        _ = wait_for_signal() => {
+            info!("shutting down");
+        }
+    }
 
     Ok(())
+}
+
+async fn run_init(config_path: PathBuf, output_path: PathBuf) -> Result<()> {
+    print_logo();
+    handle_docker_init(config_path, output_path).await
 }

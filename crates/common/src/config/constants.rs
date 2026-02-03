@@ -14,15 +14,19 @@ pub const METRICS_PORT_ENV: &str = "CB_METRICS_PORT";
 pub const LOGS_DIR_ENV: &str = "CB_LOGS_DIR";
 pub const LOGS_DIR_DEFAULT: &str = "/var/logs/commit-boost";
 
-pub const CB_IMAGE_DEFAULT: &str = "ghcr.io/commit-boost/commit-boost:latest";
+///////////////////////// PBS /////////////////////////
+
+pub const PBS_IMAGE_DEFAULT: &str = "ghcr.io/commit-boost/pbs:latest";
+pub const PBS_SERVICE_NAME: &str = "pbs";
 
 /// Where to receive BuilderAPI calls from beacon node
 pub const PBS_ENDPOINT_ENV: &str = "CB_PBS_ENDPOINT";
 
 pub const MUX_PATH_ENV: &str = "CB_MUX_PATH";
 
-pub const CB_MODULE_NAME: &str = "commit-boost";
-pub const PBS_SERVICE_NAME: &str = "pbs";
+///////////////////////// SIGNER /////////////////////////
+
+pub const SIGNER_IMAGE_DEFAULT: &str = "ghcr.io/commit-boost/signer:latest";
 pub const SIGNER_SERVICE_NAME: &str = "signer";
 
 /// Where the signer module should open the server

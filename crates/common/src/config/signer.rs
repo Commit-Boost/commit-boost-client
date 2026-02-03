@@ -4,6 +4,7 @@ use std::{
     path::PathBuf,
 };
 
+use docker_image::DockerImage;
 use eyre::{OptionExt, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use tonic::transport::{Certificate, Identity};
@@ -16,7 +17,9 @@ use super::{
     load_optional_env_var, utils::load_env_var,
 };
 use crate::{
-    config::{DIRK_CA_CERT_ENV, DIRK_CERT_ENV, DIRK_DIR_SECRETS_ENV, DIRK_KEY_ENV},
+    config::{
+        DIRK_CA_CERT_ENV, DIRK_CERT_ENV, DIRK_DIR_SECRETS_ENV, DIRK_KEY_ENV, SIGNER_IMAGE_DEFAULT,
+    },
     signer::{ProxyStore, SignerLoader},
     types::{Chain, ModuleId},
     utils::{default_host, default_u16, default_u32},
@@ -31,6 +34,10 @@ pub struct SignerConfig {
     /// Port to listen for signer API calls on
     #[serde(default = "default_u16::<SIGNER_PORT_DEFAULT>")]
     pub port: u16,
+
+    /// Docker image of the module
+    #[serde(default = "default_signer_image")]
+    pub docker_image: String,
 
     /// Number of JWT auth failures before rate limiting an endpoint
     /// If set to 0, no rate limiting will be applied
@@ -53,8 +60,19 @@ impl SignerConfig {
         // Port must be positive
         ensure!(self.port > 0, "Port must be positive");
 
+        // The Docker tag must parse
+        ensure!(!self.docker_image.is_empty(), "Docker image is empty");
+        ensure!(
+            DockerImage::parse(&self.docker_image).is_ok(),
+            format!("Invalid Docker image: {}", self.docker_image)
+        );
+
         Ok(())
     }
+}
+
+fn default_signer_image() -> String {
+    SIGNER_IMAGE_DEFAULT.to_string()
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

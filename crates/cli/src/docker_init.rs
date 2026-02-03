@@ -298,7 +298,7 @@ fn create_pbs_service(service_config: &mut ServiceCreationInfo) -> eyre::Result<
     volumes.extend(get_log_volume(&cb_config.logs, PBS_SERVICE_NAME));
     let pbs_service = Service {
         container_name: Some("cb_pbs".to_owned()),
-        image: Some(cb_config.docker_image.clone()),
+        image: Some(cb_config.pbs.docker_image.clone()),
         ports: Ports::Short(ports),
         volumes,
         environment: Environment::KvPair(envs),
@@ -437,7 +437,7 @@ fn create_signer_service_local(
     let signer_networks = vec![SIGNER_NETWORK.to_owned()];
     let signer_service = Service {
         container_name: Some("cb_signer".to_owned()),
-        image: Some(cb_config.docker_image.clone()),
+        image: Some(signer_config.docker_image.clone()),
         networks: Networks::Simple(signer_networks),
         ports: Ports::Short(ports),
         volumes,
@@ -556,7 +556,7 @@ fn create_signer_service_dirk(
     let signer_networks = vec![SIGNER_NETWORK.to_owned()];
     let signer_service = Service {
         container_name: Some("cb_signer".to_owned()),
-        image: Some(cb_config.docker_image.clone()),
+        image: Some(signer_config.docker_image.clone()),
         networks: Networks::Simple(signer_networks),
         ports: Ports::Short(ports),
         volumes,

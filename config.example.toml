@@ -7,12 +7,11 @@
 # A custom object, e.g., chain = { genesis_time_secs = 1695902400, slot_time_secs = 12, genesis_fork_version = "0x01017000" }.
 chain = "Holesky"
 
-# Docker image to use for the Commit-Boost services.
-# OPTIONAL, DEFAULT: ghcr.io/commit-boost/commit-boost:latest
-docker_image = "ghcr.io/commit-boost/commit-boost:latest"
-
 # Configuration for the PBS module
 [pbs]
+# Docker image to use for the PBS module.
+# OPTIONAL, DEFAULT: ghcr.io/commit-boost/pbs:latest
+docker_image = "ghcr.io/commit-boost/pbs:latest"
 # Whether to enable the PBS module to request signatures from the Signer module (not used in the default PBS image)
 # OPTIONAL, DEFAULT: false
 with_signer = false

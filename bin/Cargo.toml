@@ -19,9 +19,5 @@ tree_hash.workspace = true
 tree_hash_derive.workspace = true
 
 [[bin]]
-name = "commit-boost-cli"
-path = "cli.rs"
-
-[[bin]]
 name = "commit-boost"
 path = "commit-boost.rs"

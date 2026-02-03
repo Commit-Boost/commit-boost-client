@@ -19,8 +19,7 @@ jobs:
           - arm64
         name:
           - commit-boost-cli
-          - commit-boost-pbs
-          - commit-boost-signer
+          - commit-boost
         include:
           - target: amd64
             package-suffix: x86-64
@@ -28,10 +27,8 @@ jobs:
             package-suffix: arm64
           - name: commit-boost-cli
             target-crate: cli
-          - name: commit-boost-pbs
-            target-crate: pbs
-          - name: commit-boost-signer
-            target-crate: signer
+          - name: commit-boost
+            target-crate: commit-boost
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code

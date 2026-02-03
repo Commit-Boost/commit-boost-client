@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
-use docker_image::DockerImage;
-use eyre::{Result, bail, ensure};
+use eyre::{Result, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::types::{Chain, ChainLoader, ForkVersion, load_chain_from_file};
@@ -37,9 +36,6 @@ pub struct CommitBoostConfig {
     pub metrics: Option<MetricsConfig>,
     #[serde(default)]
     pub logs: LogsSettings,
-    /// Docker image for Commit-Boost services
-    #[serde(default = "default_image")]
-    pub docker_image: String,
 }
 
 impl CommitBoostConfig {
@@ -55,13 +51,6 @@ impl CommitBoostConfig {
                 "validator_registration_batch_size is now obsolete on a per-relay basis. Please use validator_registration_batch_size in the [pbs] section instead"
             )
         }
-
-        // The Docker tag must parse
-        ensure!(!self.docker_image.is_empty(), "Docker image is empty");
-        ensure!(
-            DockerImage::parse(&self.docker_image).is_ok(),
-            format!("Invalid Docker image: {}", self.docker_image)
-        );
 
         Ok(())
     }
@@ -118,7 +107,6 @@ impl CommitBoostConfig {
             signer: helper_config.signer,
             metrics: helper_config.metrics,
             logs: helper_config.logs,
-            docker_image: helper_config.docker_image,
         };
 
         Ok(config)
@@ -158,9 +146,4 @@ struct HelperConfig {
     metrics: Option<MetricsConfig>,
     #[serde(default)]
     logs: LogsSettings,
-    docker_image: String,
-}
-
-fn default_image() -> String {
-    CB_IMAGE_DEFAULT.to_string()
 }
