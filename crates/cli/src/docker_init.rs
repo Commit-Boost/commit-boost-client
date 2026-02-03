@@ -111,7 +111,7 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
         // this is ok since the config has already been loaded once
         let filename = spec.file_name().unwrap().to_str().unwrap();
         let chain_spec = ServiceChainSpecInfo {
-            env: get_env_val(CHAIN_SPEC_ENV, &format!("/{}", filename)),
+            env: get_env_val(CHAIN_SPEC_ENV, &format!("/{filename}")),
             volume: Volumes::Simple(format!("{}:/{}:ro", spec.display(), filename)),
         };
         service_config.chain_spec = Some(chain_spec);
