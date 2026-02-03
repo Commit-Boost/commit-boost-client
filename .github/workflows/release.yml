@@ -10,7 +10,7 @@ permissions:
   packages: write
 
 jobs:
-  # Builds the x64 and arm64 binaries for Linux, for all 3 crates, via the Docker builder
+  # Builds the x64 and arm64 binary for Linux via the Docker builder
   build-binaries-linux:
     strategy:
       matrix:
@@ -18,15 +18,12 @@ jobs:
           - amd64
           - arm64
         name:
-          - commit-boost-cli
           - commit-boost
         include:
           - target: amd64
             package-suffix: x86-64
           - target: arm64
             package-suffix: arm64
-          - name: commit-boost-cli
-            target-crate: cli
           - name: commit-boost
             target-crate: commit-boost
     runs-on: ubuntu-latest
@@ -80,7 +77,7 @@ jobs:
           path: |
             ${{ matrix.name }}-${{ github.ref_name }}-linux_${{ matrix.package-suffix }}.tar.gz
 
-  # Builds the arm64 binaries for Darwin, for all 3 crates, natively
+  # Builds the arm64 binary for Darwin natively
   build-binaries-darwin:
     strategy:
       matrix:
@@ -89,9 +86,7 @@ jobs:
           # - x86_64-apple-darwin
           - aarch64-apple-darwin
         name:
-          - commit-boost-cli
-          - commit-boost-pbs
-          - commit-boost-signer
+          - commit-boost
         include:
           # - target: x86_64-apple-darwin
           #   os: macos-latest-large
@@ -170,16 +165,16 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: ./artifacts
-          pattern: "commit-boost-*"
+          pattern: "commit-boost*"
 
       - name: Extract binaries
         run: |
           mkdir -p ./artifacts/bin/linux_amd64
           mkdir -p ./artifacts/bin/linux_arm64
-          tar -xzf ./artifacts/commit-boost-pbs-${{ github.ref_name }}-linux_x86-64/commit-boost-pbs-${{ github.ref_name }}-linux_x86-64.tar.gz -C ./artifacts/bin
-          mv ./artifacts/bin/commit-boost-pbs ./artifacts/bin/linux_amd64/commit-boost-pbs
-          tar -xzf ./artifacts/commit-boost-pbs-${{ github.ref_name }}-linux_arm64/commit-boost-pbs-${{ github.ref_name }}-linux_arm64.tar.gz -C ./artifacts/bin
-          mv ./artifacts/bin/commit-boost-pbs ./artifacts/bin/linux_arm64/commit-boost-pbs
+          tar -xzf ./artifacts/commit-boost-${{ github.ref_name }}-linux_x86-64/commit-boost-${{ github.ref_name }}-linux_x86-64.tar.gz -C ./artifacts/bin
+          mv ./artifacts/bin/commit-boost ./artifacts/bin/linux_amd64/commit-boost
+          tar -xzf ./artifacts/commit-boost-${{ github.ref_name }}-linux_arm64/commit-boost-${{ github.ref_name }}-linux_arm64.tar.gz -C ./artifacts/bin
+          mv ./artifacts/bin/commit-boost ./artifacts/bin/linux_arm64/commit-boost
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -222,16 +217,16 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: ./artifacts
-          pattern: "commit-boost-*"
+          pattern: "commit-boost*"
 
       - name: Extract binaries
         run: |
           mkdir -p ./artifacts/bin/linux_amd64
           mkdir -p ./artifacts/bin/linux_arm64
-          tar -xzf ./artifacts/commit-boost-signer-${{ github.ref_name }}-linux_x86-64/commit-boost-signer-${{ github.ref_name }}-linux_x86-64.tar.gz -C ./artifacts/bin
-          mv ./artifacts/bin/commit-boost-signer ./artifacts/bin/linux_amd64/commit-boost-signer
-          tar -xzf ./artifacts/commit-boost-signer-${{ github.ref_name }}-linux_arm64/commit-boost-signer-${{ github.ref_name }}-linux_arm64.tar.gz -C ./artifacts/bin
-          mv ./artifacts/bin/commit-boost-signer ./artifacts/bin/linux_arm64/commit-boost-signer
+          tar -xzf ./artifacts/commit-boost-${{ github.ref_name }}-linux_x86-64/commit-boost-${{ github.ref_name }}-linux_x86-64.tar.gz -C ./artifacts/bin
+          mv ./artifacts/bin/commit-boost ./artifacts/bin/linux_amd64/commit-boost
+          tar -xzf ./artifacts/commit-boost-${{ github.ref_name }}-linux_arm64/commit-boost-${{ github.ref_name }}-linux_arm64.tar.gz -C ./artifacts/bin
+          mv ./artifacts/bin/commit-boost ./artifacts/bin/linux_arm64/commit-boost
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -272,7 +267,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: ./artifacts
-          pattern: "commit-boost-*"
+          pattern: "commit-boost*"
 
       - name: Finalize Release
         uses: softprops/action-gh-release@v2
