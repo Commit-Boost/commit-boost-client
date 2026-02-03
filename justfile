@@ -16,22 +16,9 @@ clippy:
 # ===================================
 
 [doc("""
-  Builds the commit-boost-cli binary to './build/<version>'.
-""")]
-build-cli version: \
-  (_docker-build-binary version "cli")
-
-[doc("""
-  Builds amd64 and arm64 binaries for the commit-boost-cli crate to './build/<version>/<platform>', where '<platform>' is
-  the OS / arch platform of the binary (linux_amd64 and linux_arm64).
-""")]
-build-cli-multiarch version: \
-  (_docker-build-binary-multiarch version "cli")
-
-[doc("""
   Builds the commit-boost binary to './build/<version>'.
 """)]
-build-cb-bin version: \
+build-bin version: \
   (_docker-build-binary version "commit-boost")
 
 [doc("""
@@ -39,7 +26,7 @@ build-cb-bin version: \
   OS / arch platform of the binary (linux_amd64 and linux_arm64).
   Used when creating the pbs Docker image.
 """)]
-build-cb-bin-multiarch version: \
+build-bin-multiarch version: \
   (_docker-build-binary-multiarch version "commit-boost")
 
 [doc("""
@@ -54,7 +41,7 @@ build-pbs-img version: \
   Builds the commit-boost binary to './build/<version>' and creates a Docker image named 'commit-boost/pbs:<version>'.
 """)]
 build-pbs version: \
-  (build-cb-bin version) \
+  (build-bin version) \
   (build-pbs-img version)
 
 [doc("""
@@ -73,7 +60,7 @@ build-pbs-img-multiarch version local-docker-registry: \
   Used for testing multiarch images locally instead of using a public registry like GHCR or Docker Hub.
 """)]
 build-pbs-multiarch version local-docker-registry: \
-  (build-cb-bin-multiarch version) \
+  (build-bin-multiarch version) \
   (build-pbs-img-multiarch version local-docker-registry)
 
 [doc("""
@@ -88,7 +75,7 @@ build-signer-img version: \
   Builds the commit-boost binary to './build/<version>' and creates a Docker image named 'commit-boost/signer:<version>'.
 """)]
 build-signer version: \
-  (build-cb-bin version) \
+  (build-bin version) \
   (build-signer-img version)
 
 [doc("""
@@ -107,7 +94,7 @@ build-signer-img-multiarch version local-docker-registry: \
   Used for testing multiarch images locally instead of using a public registry like GHCR or Docker Hub.
 """)]
 build-signer-multiarch version local-docker-registry: \
-  (build-cb-bin-multiarch version) \
+  (build-bin-multiarch version) \
   (build-signer-img-multiarch version local-docker-registry)
 
 [doc("""
@@ -117,8 +104,7 @@ build-signer-multiarch version local-docker-registry: \
   'commit-boost/signer:<version>'.
 """)]
 build-all version: \
-  (build-cli version) \
-  (build-cb-bin version) \
+  (build-bin version) \
   (build-pbs-img version) \
   (build-signer-img version)
 
@@ -131,8 +117,7 @@ build-all version: \
   Used for testing multiarch images locally instead of using a public registry like GHCR or Docker Hub.
 """)]
 build-all-multiarch version local-docker-registry: \
-  (build-cli-multiarch version) \
-  (build-cb-bin-multiarch version) \
+  (build-bin-multiarch version) \
   (build-pbs-img-multiarch version local-docker-registry) \
   (build-signer-img-multiarch version local-docker-registry)
 
@@ -147,7 +132,7 @@ _create-docker-builder:
 # Builds a binary for a specific crate and version
 _docker-build-binary version crate: _create-docker-builder
   export PLATFORM=$(docker buildx inspect --bootstrap | awk -F': ' '/Platforms/ {print $2}' | cut -d',' -f1 | xargs | tr '/' '_'); \
-  docker buildx build --rm --platform=local -f provisioning/build.Dockerfile --output "build/{{version}}/$PLATFORM" --target output --build-arg TARGET_CRATE=commit-boost-{{crate}} .
+  docker buildx build --rm --platform=local -f provisioning/build.Dockerfile --output "build/{{version}}/$PLATFORM" --target output --build-arg TARGET_CRATE=commit-boost .
 
 # Builds a Docker image for a specific crate and version
 _docker-build-image version crate: _create-docker-builder
@@ -155,7 +140,7 @@ _docker-build-image version crate: _create-docker-builder
 
 # Builds multiple binaries (for Linux amd64 and arm64 architectures) for a specific crate and version
 _docker-build-binary-multiarch version crate: _create-docker-builder
-  docker buildx build --rm --platform=linux/amd64,linux/arm64 -f provisioning/build.Dockerfile --output build/{{version}} --target output --build-arg TARGET_CRATE=commit-boost-{{crate}} .
+  docker buildx build --rm --platform=linux/amd64,linux/arm64 -f provisioning/build.Dockerfile --output build/{{version}} --target output --build-arg TARGET_CRATE=commit-boost .
 
 # Builds a multi-architecture (Linux amd64 and arm64) Docker manifest for a specific crate and version.
 # Uploads to the custom Docker registry (such as '192.168.1.10:5000') instead of a public registry like GHCR or Docker Hub.

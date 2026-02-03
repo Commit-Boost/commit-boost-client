@@ -35,7 +35,7 @@ enum Commands {
     /// Run the Signer service
     Signer,
 
-    /// Generate the starting docker-compose file (the old CLI binary)
+    /// Generate the starting docker-compose files and environment files
     Init {
         /// Path to config file
         #[arg(long("config"))]
