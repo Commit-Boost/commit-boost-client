@@ -62,9 +62,13 @@ block_validation_mode = "standard"
 # Execution Layer RPC url to use for extra validation
 # OPTIONAL
 # rpc_url = "https://ethereum-holesky-rpc.publicnode.com"
-# URL of the SSV API server to use, if you have a mux that targets an SSV node operator
+# URL of your local SSV node API endpoint, if you have a mux that targets an SSV node operator
+# OPTIONAL, DEFAULT: "http://localhost:16000/v1/"
+# ssv_node_api_url = "http://localhost:16000/v1/"
+# URL of the public SSV API server, if you have a mux that targets an SSV node operator. This is used as
+# a fallback if the user's own SSV node is not reachable.
 # OPTIONAL, DEFAULT: "https://api.ssv.network/api/v4/"
-# ssv_api_url = "https://api.ssv.network/api/v4/"
+# ssv_public_api_url = "https://api.ssv.network/api/v4/"
 # Timeout for any HTTP requests sent from the PBS module to other services, in seconds
 # OPTIONAL, DEFAULT: 10
 http_timeout_seconds = 10
@@ -208,6 +212,9 @@ jwt_auth_fail_timeout_seconds = 300
 # Path to the CA certificate that signed the Dirk server certificate
 # OPTIONAL
 # ca_cert_path = "/path/to/ca.crt"
+# Limits the maximum size of a decoded gRPC response
+# OPTIONAL. Default: 4MB
+# max_response_size_bytes = 4194304
 
 # Add one entry like this for each Dirk host
 # [[signer.dirk.hosts]]

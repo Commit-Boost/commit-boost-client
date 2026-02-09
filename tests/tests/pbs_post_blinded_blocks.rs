@@ -1,4 +1,4 @@
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{collections::HashSet, path::PathBuf, sync::Arc, time::Duration};
 
 use cb_common::{
     config::BlockValidationMode,
@@ -29,6 +29,8 @@ async fn test_submit_block_v1() -> Result<()> {
         1,
         BlockValidationMode::Standard,
         StatusCode::OK,
+        false,
+        false,
     )
     .await?;
     let signed_blinded_block = load_test_signed_blinded_block();
@@ -52,9 +54,52 @@ async fn test_submit_block_v2() -> Result<()> {
         1,
         BlockValidationMode::Standard,
         StatusCode::ACCEPTED,
+        false,
+        false,
     )
     .await?;
     assert_eq!(res.bytes().await?.len(), 0);
+    Ok(())
+}
+
+// Test that when submitting a block using v2 to a relay that does not support
+// v2, PBS falls back to v1 and successfully submits the block.
+#[tokio::test]
+async fn test_submit_block_v2_without_relay_support() -> Result<()> {
+    let res = submit_block_impl(
+        3804,
+        BuilderApiVersion::V2,
+        HashSet::from([EncodingType::Json]),
+        HashSet::from([EncodingType::Ssz, EncodingType::Json]),
+        EncodingType::Json,
+        1,
+        BlockValidationMode::Standard,
+        StatusCode::ACCEPTED,
+        true,
+        false,
+    )
+    .await?;
+    assert_eq!(res.bytes().await?.len(), 0);
+    Ok(())
+}
+
+// Test that when submitting a block using v2 to a relay that returns 404s
+// for both v1 and v2, PBS doesn't loop forever.
+#[tokio::test]
+async fn test_submit_block_on_broken_relay() -> Result<()> {
+    let _res = submit_block_impl(
+        3806,
+        BuilderApiVersion::V2,
+        HashSet::from([EncodingType::Json]),
+        HashSet::from([EncodingType::Ssz, EncodingType::Json]),
+        EncodingType::Json,
+        1,
+        BlockValidationMode::Standard,
+        StatusCode::BAD_GATEWAY,
+        true,
+        true,
+    )
+    .await?;
     Ok(())
 }
 
@@ -69,6 +114,8 @@ async fn test_submit_block_v1_ssz() -> Result<()> {
         1,
         BlockValidationMode::Standard,
         StatusCode::OK,
+        false,
+        false,
     )
     .await?;
     let signed_blinded_block = load_test_signed_blinded_block();
@@ -93,6 +140,8 @@ async fn test_submit_block_v2_ssz() -> Result<()> {
         1,
         BlockValidationMode::Standard,
         StatusCode::ACCEPTED,
+        false,
+        false,
     )
     .await?;
     assert_eq!(res.bytes().await?.len(), 0);
@@ -112,6 +161,8 @@ async fn test_submit_block_v1_ssz_into_json() -> Result<()> {
         2,
         BlockValidationMode::Standard,
         StatusCode::OK,
+        false,
+        false,
     )
     .await?;
     let signed_blinded_block = load_test_signed_blinded_block();
@@ -138,6 +189,8 @@ async fn test_submit_block_v2_ssz_into_json() -> Result<()> {
         2,
         BlockValidationMode::Standard,
         StatusCode::ACCEPTED,
+        false,
+        false,
     )
     .await?;
     assert_eq!(res.bytes().await?.len(), 0);
@@ -157,6 +210,8 @@ async fn test_submit_block_v1_multitype_ssz() -> Result<()> {
         1,
         BlockValidationMode::Standard,
         StatusCode::OK,
+        false,
+        false,
     )
     .await?;
     let signed_blinded_block = load_test_signed_blinded_block();
@@ -183,6 +238,8 @@ async fn test_submit_block_v1_multitype_json() -> Result<()> {
         2,
         BlockValidationMode::Standard,
         StatusCode::OK,
+        false,
+        false,
     )
     .await?;
     let signed_blinded_block = load_test_signed_blinded_block();
@@ -207,6 +264,8 @@ async fn test_submit_block_v1_light() -> Result<()> {
         1,
         BlockValidationMode::None,
         StatusCode::OK,
+        false,
+        false,
     )
     .await?;
     let signed_blinded_block = load_test_signed_blinded_block();
@@ -230,6 +289,8 @@ async fn test_submit_block_v2_light() -> Result<()> {
         1,
         BlockValidationMode::None,
         StatusCode::ACCEPTED,
+        false,
+        false,
     )
     .await?;
     assert_eq!(res.bytes().await?.len(), 0);
@@ -247,6 +308,8 @@ async fn test_submit_block_v1_ssz_light() -> Result<()> {
         1,
         BlockValidationMode::None,
         StatusCode::OK,
+        false,
+        false,
     )
     .await?;
     let signed_blinded_block = load_test_signed_blinded_block();
@@ -271,6 +334,8 @@ async fn test_submit_block_v2_ssz_light() -> Result<()> {
         1,
         BlockValidationMode::None,
         StatusCode::ACCEPTED,
+        false,
+        false,
     )
     .await?;
     assert_eq!(res.bytes().await?.len(), 0);
@@ -290,6 +355,8 @@ async fn test_submit_block_v1_ssz_into_json_light() -> Result<()> {
         2,
         BlockValidationMode::None,
         StatusCode::BAD_GATEWAY,
+        false,
+        false,
     )
     .await?;
     Ok(())
@@ -308,6 +375,8 @@ async fn test_submit_block_v2_ssz_into_json_light() -> Result<()> {
         2,
         BlockValidationMode::Standard,
         StatusCode::ACCEPTED,
+        false,
+        false,
     )
     .await?;
     assert_eq!(res.bytes().await?.len(), 0);
@@ -327,6 +396,8 @@ async fn test_submit_block_v1_multitype_ssz_light() -> Result<()> {
         1,
         BlockValidationMode::None,
         StatusCode::OK,
+        false,
+        false,
     )
     .await?;
     let signed_blinded_block = load_test_signed_blinded_block();
@@ -353,6 +424,8 @@ async fn test_submit_block_v1_multitype_json_light() -> Result<()> {
         2,
         BlockValidationMode::None,
         StatusCode::OK,
+        false,
+        false,
     )
     .await?;
     let signed_blinded_block = load_test_signed_blinded_block();
@@ -379,7 +452,7 @@ async fn test_submit_block_too_large() -> Result<()> {
     tokio::spawn(start_mock_relay_service(mock_state.clone(), pbs_port + 1));
 
     let config = to_pbs_config(chain, get_pbs_static_config(pbs_port), relays);
-    let state = PbsState::new(config);
+    let state = PbsState::new(config, PathBuf::new());
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
     // leave some time to start servers
@@ -412,6 +485,8 @@ async fn submit_block_impl(
     expected_try_count: u64,
     mode: BlockValidationMode,
     expected_code: StatusCode,
+    remove_v2_support: bool,
+    force_404s: bool,
 ) -> Result<Response> {
     // Setup test environment
     setup_test_env();
@@ -421,17 +496,23 @@ async fn submit_block_impl(
     let relay_port = pbs_port + 1;
 
     // Run a mock relay
-    let mut mock_state = MockRelayState::new(chain, signer);
-    mock_state.supported_content_types = Arc::new(relay_types);
-    let mock_state = Arc::new(mock_state);
     let mock_relay = generate_mock_relay(relay_port, pubkey)?;
+    let mut mock_relay_state = MockRelayState::new(chain, signer);
+    mock_relay_state.supported_content_types = Arc::new(relay_types);
+    if remove_v2_support {
+        mock_relay_state = mock_relay_state.with_no_submit_block_v2();
+    }
+    if force_404s {
+        mock_relay_state = mock_relay_state.with_not_found_for_submit_block();
+    }
+    let mock_state = Arc::new(mock_relay_state);
     tokio::spawn(start_mock_relay_service(mock_state.clone(), relay_port));
 
     // Run the PBS service
     let mut pbs_config = get_pbs_static_config(pbs_port);
     pbs_config.block_validation_mode = mode;
     let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
-    let state = PbsState::new(config);
+    let state = PbsState::new(config, PathBuf::new());
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
     // leave some time to start servers
@@ -463,7 +544,8 @@ async fn submit_block_impl(
                 .await?
         }
     };
-    assert_eq!(mock_state.received_submit_block(), expected_try_count);
+    let expected_count = if force_404s { 0 } else { expected_try_count };
+    assert_eq!(mock_state.received_submit_block(), expected_count);
     assert_eq!(res.status(), expected_code);
     Ok(res)
 }
