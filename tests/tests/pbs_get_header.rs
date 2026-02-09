@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use alloy::primitives::{B256, U256};
 use cb_common::{
@@ -37,7 +37,7 @@ async fn test_get_header() -> Result<()> {
 
     // Run the PBS service
     let config = to_pbs_config(chain, get_pbs_static_config(pbs_port), vec![mock_relay.clone()]);
-    let state = PbsState::new(config);
+    let state = PbsState::new(config, PathBuf::new());
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
     // leave some time to start servers
@@ -83,7 +83,7 @@ async fn test_get_header_returns_204_if_relay_down() -> Result<()> {
 
     // Run the PBS service
     let config = to_pbs_config(chain, get_pbs_static_config(pbs_port), vec![mock_relay.clone()]);
-    let state = PbsState::new(config);
+    let state = PbsState::new(config, PathBuf::new());
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
     // leave some time to start servers
@@ -115,7 +115,7 @@ async fn test_get_header_returns_400_if_request_is_invalid() -> Result<()> {
 
     // Run the PBS service
     let config = to_pbs_config(chain, get_pbs_static_config(pbs_port), vec![mock_relay.clone()]);
-    let state = PbsState::new(config);
+    let state = PbsState::new(config, PathBuf::new());
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
     // leave some time to start servers

@@ -1,6 +1,9 @@
-use std::sync::{
-    Arc,
-    atomic::{AtomicU64, Ordering},
+use std::{
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use async_trait::async_trait;
@@ -70,7 +73,8 @@ impl BuilderApi<MyBuilderState> for MyBuilderApi {
         let mut data = state.data.clone();
         data.inc_amount = extra_config.inc_amount;
 
-        Ok(PbsState::new(pbs_config).with_data(data))
+        let empty_config_path = PathBuf::new();
+        Ok(PbsState::new(pbs_config, empty_config_path).with_data(data))
     }
 
     fn extra_routes() -> Option<Router<PbsStateGuard<MyBuilderState>>> {
@@ -94,7 +98,8 @@ async fn main() -> Result<()> {
     let _guard = initialize_tracing_log(PBS_MODULE_NAME, LogsSettings::from_env_config()?)?;
 
     let custom_state = MyBuilderState::from_config(extra);
-    let state = PbsState::new(pbs_config).with_data(custom_state);
+    let empty_config_path = PathBuf::new();
+    let state = PbsState::new(pbs_config, empty_config_path).with_data(custom_state);
 
     PbsService::register_metric(Box::new(CHECK_RECEIVED_COUNTER.clone()));
     PbsService::init_metrics(chain)?;

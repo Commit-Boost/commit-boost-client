@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use cb_common::{
     config::{MuxConfig, MuxKeysLoader, PbsMuxes},
@@ -98,7 +98,7 @@ async fn test_auto_refresh() -> Result<()> {
     config.registry_muxes = Some(registry_muxes);
 
     // Run PBS service
-    let state = PbsState::new(config);
+    let state = PbsState::new(config, PathBuf::new());
     let pbs_server = tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
     info!("Started PBS server with pubkey {default_pubkey}");
 
