@@ -108,6 +108,7 @@ async fn submit_block_with_timeout(
     let mut remaining_timeout_ms = timeout_ms;
     let mut retry = 0;
     let mut backoff = Duration::from_millis(250);
+    let mut request_api_version = proposal_info.api_version;
 
     loop {
         let start_request = Instant::now();
@@ -117,10 +118,20 @@ async fn submit_block_with_timeout(
             &relay,
             remaining_timeout_ms,
             retry,
+            request_api_version,
         )
         .await
         {
-            Ok(response) => return Ok(response),
+            Ok(response) => {
+                // If the original request was for v2 but we had to fall back to v1, return a v2
+                // response
+                if request_api_version == BuilderApiVersion::V1 &&
+                    proposal_info.api_version != request_api_version
+                {
+                    return Ok(None);
+                }
+                return Ok(response);
+            }
 
             Err(err) if err.should_retry() => {
                 tokio::time::sleep(backoff).await;
@@ -135,13 +146,14 @@ async fn submit_block_with_timeout(
             }
 
             Err(err)
-                if err.is_not_found() && proposal_info.api_version == BuilderApiVersion::V2 =>
+                if err.is_not_found() && matches!(request_api_version, BuilderApiVersion::V2) =>
             {
                 warn!(
                     relay_id = relay.id.as_ref(),
                     "relay does not support v2 endpoint, retrying with v1"
                 );
                 url = Arc::new(relay.submit_block_url(BuilderApiVersion::V1)?);
+                request_api_version = BuilderApiVersion::V1;
             }
 
             Err(err) => return Err(err),
@@ -160,6 +172,7 @@ async fn send_submit_block(
     relay: &RelayClient,
     timeout_ms: u64,
     retry: u32,
+    api_version: BuilderApiVersion,
 ) -> Result<Option<SubmitBlindedBlockResponse>, PbsError> {
     // Send the request
     let block_response = send_submit_block_impl(
@@ -169,7 +182,7 @@ async fn send_submit_block(
         (*proposal_info.headers).clone(),
         &proposal_info.signed_blinded_block,
         retry,
-        proposal_info.api_version,
+        api_version,
     )
     .await?;
     let block_response = match block_response {

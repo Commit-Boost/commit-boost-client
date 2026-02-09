@@ -54,6 +54,8 @@ pub struct MockRelayState {
     pub signer: BlsSecretKey,
     pub supported_content_types: Arc<HashSet<EncodingType>>,
     large_body: bool,
+    supports_submit_block_v2: bool,
+    use_not_found_for_submit_block: bool,
     received_get_header: Arc<AtomicU64>,
     received_get_status: Arc<AtomicU64>,
     received_register_validator: Arc<AtomicU64>,
@@ -77,6 +79,12 @@ impl MockRelayState {
     pub fn large_body(&self) -> bool {
         self.large_body
     }
+    pub fn supports_submit_block_v2(&self) -> bool {
+        self.supports_submit_block_v2
+    }
+    pub fn use_not_found_for_submit_block(&self) -> bool {
+        self.use_not_found_for_submit_block
+    }
     pub fn set_response_override(&self, status: StatusCode) {
         *self.response_override.write().unwrap() = Some(status);
     }
@@ -88,6 +96,8 @@ impl MockRelayState {
             chain,
             signer,
             large_body: false,
+            supports_submit_block_v2: true,
+            use_not_found_for_submit_block: false,
             received_get_header: Default::default(),
             received_get_status: Default::default(),
             received_register_validator: Default::default(),
@@ -102,6 +112,14 @@ impl MockRelayState {
     pub fn with_large_body(self) -> Self {
         Self { large_body: true, ..self }
     }
+
+    pub fn with_no_submit_block_v2(self) -> Self {
+        Self { supports_submit_block_v2: false, ..self }
+    }
+
+    pub fn with_not_found_for_submit_block(self) -> Self {
+        Self { use_not_found_for_submit_block: true, ..self }
+    }
 }
 
 pub fn mock_relay_app_router(state: Arc<MockRelayState>) -> Router {
@@ -111,7 +129,11 @@ pub fn mock_relay_app_router(state: Arc<MockRelayState>) -> Router {
         .route(REGISTER_VALIDATOR_PATH, post(handle_register_validator))
         .route(SUBMIT_BLOCK_PATH, post(handle_submit_block_v1));
 
-    let v2_builder_routes = Router::new().route(SUBMIT_BLOCK_PATH, post(handle_submit_block_v2));
+    let v2_builder_routes = if state.supports_submit_block_v2 {
+        Router::new().route(SUBMIT_BLOCK_PATH, post(handle_submit_block_v2))
+    } else {
+        Router::new()
+    };
 
     let builder_router_v1 = Router::new().nest(BUILDER_V1_API_PATH, v1_builder_routes);
     let builder_router_v2 = Router::new().nest(BUILDER_V2_API_PATH, v2_builder_routes);
@@ -223,6 +245,9 @@ async fn handle_submit_block_v1(
     State(state): State<Arc<MockRelayState>>,
     raw_request: RawRequest,
 ) -> Response {
+    if state.use_not_found_for_submit_block() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
     state.received_submit_block.fetch_add(1, Ordering::Relaxed);
     let accept_types = get_accept_types(&headers)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("error parsing accept header: {e}")));
@@ -310,6 +335,9 @@ async fn handle_submit_block_v2(
     headers: HeaderMap,
     State(state): State<Arc<MockRelayState>>,
 ) -> Response {
+    if state.use_not_found_for_submit_block() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
     state.received_submit_block.fetch_add(1, Ordering::Relaxed);
     let content_type = get_content_type(&headers);
     if !state.supported_content_types.contains(&content_type) {

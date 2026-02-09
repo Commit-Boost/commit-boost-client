@@ -26,6 +26,8 @@ async fn test_submit_block_v1() -> Result<()> {
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         EncodingType::Json,
         1,
+        false,
+        false,
     )
     .await?;
     assert_eq!(res.status(), StatusCode::OK);
@@ -43,16 +45,57 @@ async fn test_submit_block_v1() -> Result<()> {
 #[tokio::test]
 async fn test_submit_block_v2() -> Result<()> {
     let res = submit_block_impl(
-        3810,
+        3802,
         BuilderApiVersion::V2,
         HashSet::from([EncodingType::Json]),
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         EncodingType::Json,
         1,
+        false,
+        false,
     )
     .await?;
     assert_eq!(res.status(), StatusCode::ACCEPTED);
     assert_eq!(res.bytes().await?.len(), 0);
+    Ok(())
+}
+
+// Test that when submitting a block using v2 to a relay that does not support
+// v2, PBS falls back to v1 and successfully submits the block.
+#[tokio::test]
+async fn test_submit_block_v2_without_relay_support() -> Result<()> {
+    let res = submit_block_impl(
+        3804,
+        BuilderApiVersion::V2,
+        HashSet::from([EncodingType::Json]),
+        HashSet::from([EncodingType::Ssz, EncodingType::Json]),
+        EncodingType::Json,
+        1,
+        true,
+        false,
+    )
+    .await?;
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
+    assert_eq!(res.bytes().await?.len(), 0);
+    Ok(())
+}
+
+// Test that when submitting a block using v2 to a relay that returns 404s
+// for both v1 and v2, PBS doesn't loop forever.
+#[tokio::test]
+async fn test_submit_block_on_broken_relay() -> Result<()> {
+    let res = submit_block_impl(
+        3806,
+        BuilderApiVersion::V2,
+        HashSet::from([EncodingType::Json]),
+        HashSet::from([EncodingType::Ssz, EncodingType::Json]),
+        EncodingType::Json,
+        1,
+        true,
+        true,
+    )
+    .await?;
+    assert_eq!(res.status(), StatusCode::BAD_GATEWAY);
     Ok(())
 }
 
@@ -65,6 +108,8 @@ async fn test_submit_block_v1_ssz() -> Result<()> {
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         EncodingType::Ssz,
         1,
+        false,
+        false,
     )
     .await?;
     assert_eq!(res.status(), StatusCode::OK);
@@ -89,6 +134,8 @@ async fn test_submit_block_v2_ssz() -> Result<()> {
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         EncodingType::Ssz,
         1,
+        false,
+        false,
     )
     .await?;
     assert_eq!(res.status(), StatusCode::ACCEPTED);
@@ -107,6 +154,8 @@ async fn test_submit_block_v1_ssz_into_json() -> Result<()> {
         HashSet::from([EncodingType::Json]),
         EncodingType::Ssz,
         2,
+        false,
+        false,
     )
     .await?;
     assert_eq!(res.status(), StatusCode::OK);
@@ -133,6 +182,8 @@ async fn test_submit_block_v2_ssz_into_json() -> Result<()> {
         HashSet::from([EncodingType::Json]),
         EncodingType::Ssz,
         2,
+        false,
+        false,
     )
     .await?;
     assert_eq!(res.status(), StatusCode::ACCEPTED);
@@ -151,6 +202,8 @@ async fn test_submit_block_v1_multitype_ssz() -> Result<()> {
         HashSet::from([EncodingType::Ssz]),
         EncodingType::Ssz,
         1,
+        false,
+        false,
     )
     .await?;
     assert_eq!(res.status(), StatusCode::OK);
@@ -177,6 +230,8 @@ async fn test_submit_block_v1_multitype_json() -> Result<()> {
         HashSet::from([EncodingType::Json]),
         EncodingType::Ssz,
         2,
+        false,
+        false,
     )
     .await?;
     assert_eq!(res.status(), StatusCode::OK);
@@ -229,6 +284,7 @@ async fn test_submit_block_too_large() -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn submit_block_impl(
     pbs_port: u16,
     api_version: BuilderApiVersion,
@@ -236,6 +292,8 @@ async fn submit_block_impl(
     relay_types: HashSet<EncodingType>,
     serialization_mode: EncodingType,
     expected_try_count: u64,
+    remove_v2_support: bool,
+    force_404s: bool,
 ) -> Result<Response> {
     // Setup test environment
     setup_test_env();
@@ -245,10 +303,16 @@ async fn submit_block_impl(
     let relay_port = pbs_port + 1;
 
     // Run a mock relay
-    let mut mock_state = MockRelayState::new(chain, signer);
-    mock_state.supported_content_types = Arc::new(relay_types);
-    let mock_state = Arc::new(mock_state);
     let mock_relay = generate_mock_relay(relay_port, pubkey)?;
+    let mut mock_relay_state = MockRelayState::new(chain, signer);
+    mock_relay_state.supported_content_types = Arc::new(relay_types);
+    if remove_v2_support {
+        mock_relay_state = mock_relay_state.with_no_submit_block_v2();
+    }
+    if force_404s {
+        mock_relay_state = mock_relay_state.with_not_found_for_submit_block();
+    }
+    let mock_state = Arc::new(mock_relay_state);
     tokio::spawn(start_mock_relay_service(mock_state.clone(), relay_port));
 
     // Run the PBS service
@@ -285,6 +349,7 @@ async fn submit_block_impl(
                 .await?
         }
     };
-    assert_eq!(mock_state.received_submit_block(), expected_try_count);
+    let expected_count = if force_404s { 0 } else { expected_try_count };
+    assert_eq!(mock_state.received_submit_block(), expected_count);
     Ok(res)
 }
