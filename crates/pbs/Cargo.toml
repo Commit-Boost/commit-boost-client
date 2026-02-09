@@ -17,6 +17,7 @@ eyre.workspace = true
 futures.workspace = true
 headers.workspace = true
 lazy_static.workspace = true
+notify.workspace = true
 parking_lot.workspace = true
 prometheus.workspace = true
 reqwest.workspace = true
