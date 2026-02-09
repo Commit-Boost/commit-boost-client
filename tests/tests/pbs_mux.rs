@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 
 use cb_common::{
     config::{HTTP_TIMEOUT_SECONDS_DEFAULT, MUXER_HTTP_MAX_LENGTH, RuntimeMuxConfig},
@@ -186,7 +186,7 @@ async fn test_mux() -> Result<()> {
     config.mux_lookup = Some(HashMap::from([(validator_pubkey.clone(), mux)]));
 
     // Run PBS service
-    let state = PbsState::new(config);
+    let state = PbsState::new(config, PathBuf::new());
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
     // leave some time to start servers
