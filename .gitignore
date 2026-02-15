@@ -16,3 +16,11 @@ targets.json
 .idea/
 logs
 .vscode/
+
+# Nix
+.direnv/
+.devenv/
+devenv.*
+devenv.lock
+.devenv.flake.nix
+.envrc
