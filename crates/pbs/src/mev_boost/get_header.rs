@@ -27,7 +27,7 @@ use futures::future::join_all;
 use parking_lot::RwLock;
 use reqwest::{StatusCode, header::USER_AGENT};
 use tokio::time::sleep;
-use tracing::{Instrument, debug, error, warn};
+use tracing::{Instrument, debug, error, info, warn};
 use tree_hash::TreeHash;
 use url::Url;
 
@@ -119,7 +119,8 @@ pub async fn get_header<S: BuilderApiState>(
     }
 
     let results = join_all(handles).await;
-    let mut relay_bids = Vec::with_capacity(relays.len());
+    let mut relay_bids: Vec<(&str, GetHeaderResponse)> = Vec::with_capacity(relays.len());
+    let mut best_value = U256::ZERO;
     for (i, res) in results.into_iter().enumerate() {
         let relay_id = relays[i].id.as_str();
 
@@ -131,7 +132,8 @@ pub async fn get_header<S: BuilderApiState>(
                     .unwrap_or_default();
                 RELAY_HEADER_VALUE.with_label_values(&[relay_id]).set(value_gwei);
 
-                relay_bids.push(res)
+                best_value = best_value.max(*res.data.message.value());
+                relay_bids.push((relay_id, res))
             }
             Ok(_) => {}
             Err(err) if err.is_timeout() => error!(err = "Timed Out", relay_id),
@@ -139,7 +141,25 @@ pub async fn get_header<S: BuilderApiState>(
         }
     }
 
-    let max_bid = relay_bids.into_iter().max_by_key(|bid| *bid.value());
+    // Log auction participants and pick the winner
+    let mut max_bid = None;
+    for (relay_id, bid) in relay_bids {
+        let value = *bid.value();
+        let delta = best_value.saturating_sub(value);
+        let selected = value == best_value;
+        info!(
+            relay_id,
+            value = %value,
+            value_eth = format_ether(value),
+            value_delta = %delta,
+            selected,
+            block_hash = %bid.block_hash(),
+            "Auction participant"
+        );
+        if selected && max_bid.is_none() {
+            max_bid = Some(bid);
+        }
+    }
 
     Ok(max_bid)
 }
