@@ -228,10 +228,9 @@ impl KnownChain {
 
     pub fn slot_time_sec(&self) -> u64 {
         match self {
-            KnownChain::Mainnet |
-            KnownChain::Holesky |
-            KnownChain::Sepolia |
-            KnownChain::Hoodi => 12,
+            KnownChain::Mainnet | KnownChain::Holesky | KnownChain::Sepolia | KnownChain::Hoodi => {
+                12
+            }
         }
     }
 
