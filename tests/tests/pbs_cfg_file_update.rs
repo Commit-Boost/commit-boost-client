@@ -59,7 +59,8 @@ async fn test_cfg_file_update() -> Result<()> {
                                              * or anything close to it */
         extra_validation_enabled: false,
         rpc_url: None,
-        ssv_api_url: Url::parse("http://example.com").unwrap(),
+        ssv_node_api_url: Url::parse("http://example.com").unwrap(),
+        ssv_public_api_url: Url::parse("http://example.com").unwrap(),
         http_timeout_seconds: 10,
         register_validator_retry_limit: 3,
         validator_registration_batch_size: None,
