@@ -346,8 +346,8 @@ impl<'de> Deserialize<'de> for Chain {
     }
 }
 
-/// Returns seconds_per_slot and genesis_fork_version from a spec, such as
-/// returned by /eth/v1/config/spec ref: https://ethereum.github.io/beacon-APIs/#/Config/getSpec
+/// Returns seconds_per_slot, genesis_fork_version, fulu_fork_epoch, and
+/// deposit_chain_id from a spec, such as returned by /eth/v1/config/spec ref: https://ethereum.github.io/beacon-APIs/#/Config/getSpec
 /// Try to load two formats:
 /// - JSON as return the getSpec endpoint, either with or without the `data`
 ///   field
@@ -527,6 +527,28 @@ mod tests {
             genesis_fork_version: KnownChain::Hoodi.genesis_fork_version(),
             fulu_fork_slot: KnownChain::Hoodi.fulu_fork_slot(),
             chain_id: KnownChain::Hoodi.id(),
+        })
+    }
+
+    #[test]
+    fn test_spec_kurtosis_data_json() {
+        let a = env!("CARGO_MANIFEST_DIR");
+        let mut path = PathBuf::from(a);
+
+        path.pop();
+        path.pop();
+        path.push("tests/data/kurtosis_spec.json");
+
+        let s = format!("chain = {{ genesis_time_secs = 1, path = {path:?}}}");
+
+        let decoded: MockConfig = toml::from_str(&s).unwrap();
+        assert_eq!(decoded.chain.slot_time_sec(), 12);
+        assert_eq!(decoded.chain, Chain::Custom {
+            genesis_time_secs: 1,
+            slot_time_secs: 12,
+            genesis_fork_version: hex!("0x10000038"),
+            fulu_fork_slot: 0,
+            chain_id: 3151908,
         })
     }
 }
