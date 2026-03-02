@@ -145,7 +145,7 @@ pub struct StartSignerConfig {
 
 impl StartSignerConfig {
     pub fn load_from_env() -> Result<Self> {
-        let config = CommitBoostConfig::from_env_path()?;
+        let (config, _) = CommitBoostConfig::from_env_path()?;
 
         let jwts = load_jwt_secrets()?;
 

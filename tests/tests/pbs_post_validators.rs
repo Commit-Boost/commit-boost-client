@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use alloy::rpc::types::beacon::relay::ValidatorRegistration;
 use cb_common::{
@@ -31,7 +31,7 @@ async fn test_register_validators() -> Result<()> {
 
     // Run the PBS service
     let config = to_pbs_config(chain, get_pbs_static_config(pbs_port), relays);
-    let state = PbsState::new(config);
+    let state = PbsState::new(config, PathBuf::new());
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
     // leave some time to start servers
@@ -80,7 +80,7 @@ async fn test_register_validators_does_not_retry_on_429() -> Result<()> {
 
     // Run the PBS service
     let config = to_pbs_config(chain, get_pbs_static_config(pbs_port), relays);
-    let state = PbsState::new(config);
+    let state = PbsState::new(config, PathBuf::new());
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state.clone()));
 
     // Leave some time to start servers
@@ -135,7 +135,7 @@ async fn test_register_validators_retries_on_500() -> Result<()> {
     pbs_config.register_validator_retry_limit = 3;
 
     let config = to_pbs_config(chain, pbs_config, relays);
-    let state = PbsState::new(config);
+    let state = PbsState::new(config, PathBuf::new());
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state.clone()));
 
     tokio::time::sleep(Duration::from_millis(100)).await;

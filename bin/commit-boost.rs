@@ -67,10 +67,10 @@ async fn main() -> Result<()> {
 /// Run the PBS service
 async fn run_pbs_service() -> Result<()> {
     let _guard = initialize_tracing_log(PBS_SERVICE_NAME, LogsSettings::from_env_config()?);
-    let pbs_config = load_pbs_config().await?;
+    let (pbs_config, config_path) = load_pbs_config(None).await?;
 
     PbsService::init_metrics(pbs_config.chain)?;
-    let state = PbsState::new(pbs_config);
+    let state = PbsState::new(pbs_config, config_path);
     let server = PbsService::run::<_, DefaultBuilderApi>(state);
 
     tokio::select! {
@@ -111,4 +111,20 @@ async fn run_signer_service() -> Result<()> {
 async fn run_init(config_path: PathBuf, output_path: PathBuf) -> Result<()> {
     print_logo();
     handle_docker_init(config_path, output_path).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn version_has_v_prefix() {
+        assert!(VERSION.starts_with('v'), "VERSION should start with 'v', got: {VERSION}");
+    }
+
+    #[test]
+    fn parse_init_subcommand() {
+        Cli::try_parse_from(["commit-boost", "init", "--config", "/tmp/config.toml"])
+            .expect("should parse init subcommand");
+    }
 }

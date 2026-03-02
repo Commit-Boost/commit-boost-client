@@ -82,7 +82,7 @@ pub fn load_commit_module_config<T: DeserializeOwned>() -> Result<StartCommitMod
     }
 
     // load module config including the extra data (if any)
-    let cb_config: StubConfig<T> = load_file_from_env(CONFIG_ENV)?;
+    let (cb_config, _): (StubConfig<T>, _) = load_file_from_env(CONFIG_ENV)?;
 
     // find all matching modules config
     let matches: Vec<ThisModuleConfig<T>> = cb_config
@@ -148,7 +148,7 @@ pub fn load_builder_module_config<T: DeserializeOwned>() -> eyre::Result<StartBu
     }
 
     // load module config including the extra data (if any)
-    let cb_config: StubConfig<T> = load_file_from_env(CONFIG_ENV)?;
+    let (cb_config, _): (StubConfig<T>, _) = load_file_from_env(CONFIG_ENV)?;
 
     // find all matching modules config
     let matches: Vec<ThisModuleConfig<T>> = cb_config
