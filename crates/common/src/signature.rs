@@ -176,7 +176,6 @@ mod tests {
         assert_eq!(compute_domain(Chain::Mainnet, domain), Chain::Mainnet.builder_domain());
         assert_eq!(compute_domain(Chain::Holesky, domain), Chain::Holesky.builder_domain());
         assert_eq!(compute_domain(Chain::Sepolia, domain), Chain::Sepolia.builder_domain());
-        assert_eq!(compute_domain(Chain::Helder, domain), Chain::Helder.builder_domain());
         assert_eq!(compute_domain(Chain::Hoodi, domain), Chain::Hoodi.builder_domain());
     }
 }
