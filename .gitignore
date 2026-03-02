@@ -17,3 +17,11 @@ targets.json
 logs
 .vscode/
 certs/
+
+# Nix
+.direnv/
+.devenv/
+devenv.*
+devenv.lock
+.devenv.flake.nix
+.envrc

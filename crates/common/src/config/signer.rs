@@ -244,7 +244,7 @@ pub struct StartSignerConfig {
 
 impl StartSignerConfig {
     pub fn load_from_env() -> Result<Self> {
-        let config = CommitBoostConfig::from_env_path()?;
+        let (config, _) = CommitBoostConfig::from_env_path()?;
 
         let (admin_secret, jwt_secrets) = load_jwt_secrets()?;
 
@@ -434,7 +434,7 @@ mod tests {
             chain: Chain::Hoodi,
             relays: vec![],
             pbs: StaticPbsConfig {
-                docker_image: String::from(""),
+                docker_image: String::from("cb-fake-repo/fake-cb:latest"),
                 pbs_config: PbsConfig {
                     host: Ipv4Addr::new(127, 0, 0, 1),
                     port: 0,
@@ -452,7 +452,8 @@ mod tests {
                     register_validator_retry_limit: 3,
                     validator_registration_batch_size: None,
                     mux_registry_refresh_interval_seconds: 5,
-                    ssv_api_url: Url::parse("https://example.net").unwrap(),
+                    ssv_node_api_url: Url::parse("https://example.net").unwrap(),
+                    ssv_public_api_url: Url::parse("https://example.net").unwrap(),
                 },
                 with_signer: true,
             },
