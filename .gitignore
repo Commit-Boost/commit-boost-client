@@ -21,3 +21,10 @@ logs
 __pycache__/
 *.pyc
 .pytest_cache/
+# Nix
+.direnv/
+.devenv/
+devenv.*
+devenv.lock
+.devenv.flake.nix
+.envrc
