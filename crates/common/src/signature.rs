@@ -107,10 +107,6 @@ mod tests {
             Chain::Sepolia.builder_domain()
         );
         assert_eq!(
-            compute_domain(Chain::Helder, APPLICATION_BUILDER_DOMAIN),
-            Chain::Helder.builder_domain()
-        );
-        assert_eq!(
             compute_domain(Chain::Hoodi, APPLICATION_BUILDER_DOMAIN),
             Chain::Hoodi.builder_domain()
         );
