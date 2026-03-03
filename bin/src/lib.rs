@@ -24,3 +24,6 @@ pub mod prelude {
     }
     pub use tree_hash_derive::TreeHash;
 }
+
+/// Version string with a leading 'v'
+pub const VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"));

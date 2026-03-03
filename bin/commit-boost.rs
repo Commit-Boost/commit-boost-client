@@ -13,15 +13,12 @@ use clap::{Parser, Subcommand};
 use eyre::Result;
 use tracing::{error, info};
 
-/// Version string with a leading 'v'
-const VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"));
-
 /// Long about string for the CLI
 const LONG_ABOUT: &str = "Commit-Boost allows Ethereum validators to safely run MEV-Boost and community-built commitment protocols";
 
 /// Subcommands and global arguments for the module
 #[derive(Parser, Debug)]
-#[command(name = "Commit-Boost", version = VERSION, about, long_about = LONG_ABOUT)]
+#[command(name = "Commit-Boost", version = commit_boost::VERSION, about, long_about = LONG_ABOUT)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -115,6 +112,8 @@ async fn run_init(config_path: PathBuf, output_path: PathBuf) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use commit_boost::VERSION;
+
     use super::*;
 
     #[test]
