@@ -150,6 +150,25 @@ jobs:
           path: |
             ${{ matrix.name }}-${{ github.ref_name }}-darwin_${{ matrix.package-suffix }}.tar.gz
 
+  # Signs the binaries
+  sign-binaries:
+    needs:
+      - build-binaries-linux
+      - build-binaries-darwin
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+          pattern: "commit-boost*"
+
+      - name: Sign binaries
+        uses: sigstore/gh-action-sigstore-python@v3.2.0
+        with:
+          upload-signing-artifacts: true
+          release-signing-artifacts: true
+
   # Builds the PBS Docker image
   build-and-push-pbs-docker:
     needs: [build-binaries-linux]
