@@ -8,6 +8,7 @@ on:
 permissions:
   contents: write
   packages: write
+  id-token: write
 
 jobs:
   # Builds the x64 and arm64 binary for Linux via the Docker builder
@@ -166,8 +167,14 @@ jobs:
       - name: Sign binaries
         uses: sigstore/gh-action-sigstore-python@v3.2.0
         with:
-          upload-signing-artifacts: true
-          release-signing-artifacts: true
+          inputs: ./artifacts/**/*.tar.gz
+
+      - name: Upload signatures
+        uses: actions/upload-artifact@v4
+        with:
+          name: signatures-${{ github.ref_name }}
+          path: |
+            ./artifacts/**/*.sigstore.json
 
   # Builds the PBS Docker image
   build-and-push-pbs-docker:
@@ -278,15 +285,22 @@ jobs:
     needs:
       - build-binaries-linux
       - build-binaries-darwin
+      - sign-binaries
       - build-and-push-pbs-docker
       - build-and-push-signer-docker
     runs-on: ubuntu-latest
     steps:
-      - name: Download artifacts
+      - name: Download binaries
         uses: actions/download-artifact@v4
         with:
           path: ./artifacts
           pattern: "commit-boost*"
+
+      - name: Download signatures
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+          pattern: "signatures-${{ github.ref_name }}*"
 
       - name: Finalize Release
         uses: softprops/action-gh-release@v2
