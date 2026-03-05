@@ -37,3 +37,4 @@ We value your input and appreciate all suggestions to help make this project bet
 ### Resolving an issue
 We welcome PRs from any community member. Before making a large change, it is usually a good idea to first open an issue describing the change to solicit feedback and guidance.
 This will increase the likelihood of the PR getting merged.
+
