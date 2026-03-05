@@ -39,6 +39,9 @@ jobs:
         run: |
           echo "Releasing commit: $(git rev-parse HEAD)"
 
+      - name: Set lowercase owner
+        run: echo "OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -58,8 +61,8 @@ jobs:
           context: .
           push: false
           platforms: linux/amd64,linux/arm64
-          cache-from: type=registry,ref=ghcr.io/commit-boost/buildcache:${{ matrix.target-crate}}
-          cache-to: type=registry,ref=ghcr.io/commit-boost/buildcache:${{ matrix.target-crate }},mode=max
+          cache-from: type=registry,ref=ghcr.io/${{ env.OWNER }}/buildcache:${{ matrix.target-crate}}
+          cache-to: type=registry,ref=ghcr.io/${{ env.OWNER }}/buildcache:${{ matrix.target-crate }},mode=max
           file: provisioning/build.Dockerfile
           outputs: type=local,dest=build
           build-args: |
@@ -202,6 +205,9 @@ jobs:
           tar -xzf ./artifacts/commit-boost-${{ github.ref_name }}-linux_arm64/commit-boost-${{ github.ref_name }}-linux_arm64.tar.gz -C ./artifacts/bin
           mv ./artifacts/bin/commit-boost ./artifacts/bin/linux_arm64/commit-boost
 
+      - name: Set lowercase owner
+        run: echo "OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -224,8 +230,8 @@ jobs:
           build-args: |
             BINARIES_PATH=./artifacts/bin
           tags: |
-            ghcr.io/commit-boost/pbs:${{ github.ref_name }}
-            ${{ !contains(github.ref_name, 'rc') && 'ghcr.io/commit-boost/pbs:latest' || '' }}
+            ghcr.io/${{ env.OWNER }}/pbs:${{ github.ref_name }}
+            ${{ !contains(github.ref_name, 'rc') && format('ghcr.io/{0}/pbs:latest', env.OWNER) || '' }}
           file: provisioning/pbs.Dockerfile
 
   # Builds the Signer Docker image
@@ -254,6 +260,9 @@ jobs:
           tar -xzf ./artifacts/commit-boost-${{ github.ref_name }}-linux_arm64/commit-boost-${{ github.ref_name }}-linux_arm64.tar.gz -C ./artifacts/bin
           mv ./artifacts/bin/commit-boost ./artifacts/bin/linux_arm64/commit-boost
 
+      - name: Set lowercase owner
+        run: echo "OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -276,8 +285,8 @@ jobs:
           build-args: |
             BINARIES_PATH=./artifacts/bin
           tags: |
-            ghcr.io/commit-boost/signer:${{ github.ref_name }}
-            ${{ !contains(github.ref_name, 'rc') && 'ghcr.io/commit-boost/signer:latest' || '' }}
+            ghcr.io/${{ env.OWNER }}/signer:${{ github.ref_name }}
+            ${{ !contains(github.ref_name, 'rc') && format('ghcr.io/{0}/signer:latest', env.OWNER) || '' }}
           file: provisioning/signer.Dockerfile
 
   # Creates a draft release on GitHub with the binaries
