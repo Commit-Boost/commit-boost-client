@@ -166,3 +166,39 @@ clean:
 # Runs the suite of tests for all commit-boost crates.
 test:
     cargo test --all-features
+
+# =================
+# === Kurtosis ===
+# =================
+
+# Tear down and clean up all enclaves
+clean-kurtosis:
+  kurtosis clean -a
+
+# Clean all enclaves and restart the testnet
+restart-kurtosis:
+  just clean-kurtosis
+  kurtosis run github.com/ethpandaops/ethereum-package \
+    --enclave CB-Testnet \
+    --args-file provisioning/kurtosis-config.yml
+
+# Build local docker images and restart testnet
+build-kurtosis:
+  just build-all kurtosis
+  just restart-kurtosis
+
+# Inspect running enclave
+inspect-kurtosis:
+  kurtosis enclave inspect CB-Testnet
+
+# Tail logs for a specific service: just logs-kurtosis <service>
+logs-kurtosis service:
+  kurtosis service logs CB-Testnet {{service}} --follow
+
+# Shell into a specific service: just shell-kurtosis <service>
+shell-kurtosis service:
+  kurtosis service shell CB-Testnet {{service}}
+
+# Dump enclave state to disk for post-mortem
+dump-kurtosis:
+  kurtosis enclave dump CB-Testnet ./kurtosis-dump
