@@ -1626,6 +1626,8 @@ dependencies = [
  "eyre",
  "indexmap 2.11.4",
  "serde_yaml",
+ "tempfile",
+ "toml",
 ]
 
 [[package]]
@@ -1920,6 +1922,8 @@ dependencies = [
  "color-eyre",
  "eyre",
  "predicates",
+ "serde_yaml",
+ "tempfile",
  "tokio",
  "tracing",
  "tree_hash",

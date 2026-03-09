@@ -11,6 +11,13 @@ fmt-check:
 clippy:
   cargo +{{toolchain}} clippy --all-features --no-deps -- -D warnings
 
+# Everything needed to run before pushing
+checklist:
+  cargo check
+  just fmt
+  just clippy
+  just test
+
 # ===================================
 # === Build Commands for Services ===
 # ===================================

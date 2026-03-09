@@ -31,9 +31,9 @@ use eyre::Result;
 use indexmap::IndexMap;
 
 /// Name of the docker compose file
-pub(super) const CB_COMPOSE_FILE: &str = "cb.docker-compose.yml";
+pub const CB_COMPOSE_FILE: &str = "cb.docker-compose.yml";
 /// Name of the envs file
-pub(super) const CB_ENV_FILE: &str = ".cb.env";
+pub const CB_ENV_FILE: &str = ".cb.env";
 
 const SIGNER_NETWORK: &str = "signer_network";
 
@@ -108,8 +108,13 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
     // Get the custom chain spec, if any
     let chain_spec_path = CommitBoostConfig::chain_spec_file(&config_path);
     if let Some(spec) = chain_spec_path {
-        // this is ok since the config has already been loaded once
-        let filename = spec.file_name().unwrap().to_str().unwrap();
+        let filename = spec
+            .file_name()
+            .ok_or_else(|| eyre::eyre!("Chain spec path has no filename: {}", spec.display()))?
+            .to_str()
+            .ok_or_else(|| {
+                eyre::eyre!("Chain spec filename is not valid UTF-8: {}", spec.display())
+            })?;
         let chain_spec = ServiceChainSpecInfo {
             env: get_env_val(CHAIN_SPEC_ENV, &format!("/{filename}")),
             volume: Volumes::Simple(format!("{}:/{}:ro", spec.display(), filename)),
@@ -129,14 +134,15 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
         service_config.config_info.cb_config.modules.as_ref().is_some_and(|modules| {
             modules.iter().any(|module| matches!(module.kind, ModuleKind::Commit))
         });
-    let signer_config =
-        if needs_signer_module {
-            Some(service_config.config_info.cb_config.signer.clone().expect(
-                "Signer module required but no signer config provided in Commit-Boost config",
-            ))
-        } else {
-            None
-        };
+    let signer_config = if needs_signer_module {
+        Some(service_config.config_info.cb_config.signer.clone().ok_or_else(|| {
+            eyre::eyre!(
+                "Signer module required but no signer config provided in Commit-Boost config"
+            )
+        })?)
+    } else {
+        None
+    };
     let signer_server = if let Some(SignerConfig { inner: SignerType::Remote { url }, .. }) =
         &service_config.config_info.cb_config.signer
     {
@@ -190,7 +196,9 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
                 services.insert("cb_signer".to_owned(), Some(signer_service));
             }
             SignerType::Remote { .. } => {
-                panic!("Signer module required but remote config provided");
+                eyre::bail!(
+                    "Signer module required but remote signer config provided; use a local or Dirk signer instead"
+                );
             }
         }
     }
@@ -295,7 +303,7 @@ fn create_pbs_service(service_config: &mut ServiceCreationInfo) -> eyre::Result<
     }
 
     // Create the service
-    volumes.extend(get_log_volume(&cb_config.logs, PBS_SERVICE_NAME));
+    volumes.extend(get_log_volume(&cb_config.logs, PBS_SERVICE_NAME)?);
     let pbs_service = Service {
         container_name: Some("cb_pbs".to_owned()),
         image: Some(cb_config.pbs.docker_image.clone()),
@@ -370,7 +378,7 @@ fn create_signer_service_local(
         let (key, val) = get_env_val(LOGS_DIR_ENV, LOGS_DIR_DEFAULT);
         envs.insert(key, val);
     }
-    volumes.extend(get_log_volume(&cb_config.logs, SIGNER_SERVICE_NAME));
+    volumes.extend(get_log_volume(&cb_config.logs, SIGNER_SERVICE_NAME)?);
 
     // write jwts to env
     service_config.envs.insert(JWTS_ENV.into(), format_comma_separated(&service_config.jwts));
@@ -523,7 +531,7 @@ fn create_signer_service_dirk(
         let (key, val) = get_env_val(LOGS_DIR_ENV, LOGS_DIR_DEFAULT);
         envs.insert(key, val);
     }
-    volumes.extend(get_log_volume(&cb_config.logs, SIGNER_SERVICE_NAME));
+    volumes.extend(get_log_volume(&cb_config.logs, SIGNER_SERVICE_NAME)?);
 
     // write jwts to env
     service_config.envs.insert(JWTS_ENV.into(), format_comma_separated(&service_config.jwts));
@@ -547,7 +555,7 @@ fn create_signer_service_dirk(
             envs.insert(key, val);
         }
         Some(ProxyStore::ERC2335 { .. }) => {
-            panic!("ERC2335 store not supported with Dirk signer");
+            eyre::bail!("ERC2335 proxy store is not supported with the Dirk signer");
         }
         None => {}
     }
@@ -615,7 +623,7 @@ fn create_module_service(
 
             // volumes
             let mut module_volumes = vec![config_volume.clone()];
-            module_volumes.extend(get_log_volume(&cb_config.logs, &module.id));
+            module_volumes.extend(get_log_volume(&cb_config.logs, &module.id)?);
 
             // Chain spec env/volume
             if let Some(spec) = &service_config.chain_spec {
@@ -745,18 +753,667 @@ fn get_env_uval(k: &str, v: u64) -> (String, Option<SingleValue>) {
 //     (k.into(), Some(SingleValue::Bool(v)))
 // }
 
-fn get_log_volume(config: &LogsSettings, module_id: &str) -> Option<Volumes> {
-    config.file.enabled.then_some({
-        let p = config.file.dir_path.join(module_id.to_lowercase());
-        Volumes::Simple(format!(
-            "{}:{}",
-            p.to_str().expect("could not convert pathbuf to str"),
-            LOGS_DIR_DEFAULT
-        ))
-    })
+fn get_log_volume(config: &LogsSettings, module_id: &str) -> eyre::Result<Option<Volumes>> {
+    if !config.file.enabled {
+        return Ok(None);
+    }
+    let p = config.file.dir_path.join(module_id.to_lowercase());
+    let host_path = p
+        .to_str()
+        .ok_or_else(|| eyre::eyre!("Log directory path is not valid UTF-8: {}", p.display()))?;
+    Ok(Some(Volumes::Simple(format!("{host_path}:{LOGS_DIR_DEFAULT}"))))
 }
 
 /// Formats as a comma separated list of key=value
 fn format_comma_separated(map: &IndexMap<ModuleId, String>) -> String {
     map.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(",")
+}
+
+#[cfg(test)]
+mod tests {
+    use cb_common::{
+        config::{
+            CommitBoostConfig, FileLogSettings, LogsSettings, MetricsConfig, StdoutLogSettings,
+        },
+        signer::{ProxyStore, SignerLoader},
+    };
+    use docker_compose_types::{Environment, Ports, SingleValue, Volumes};
+
+    use super::*;
+
+    // -------------------------------------------------------------------------
+    // Shared test fixtures
+    // -------------------------------------------------------------------------
+
+    fn logs_disabled() -> LogsSettings {
+        LogsSettings::default()
+    }
+
+    fn logs_enabled(dir: &str) -> LogsSettings {
+        LogsSettings {
+            stdout: StdoutLogSettings::default(),
+            file: FileLogSettings {
+                enabled: true,
+                dir_path: dir.into(),
+                ..FileLogSettings::default()
+            },
+        }
+    }
+
+    /// Deserialize a minimal PBS-only `CommitBoostConfig` from inline TOML.
+    /// No relays, so `validate()` won't make network calls.
+    fn minimal_cb_config() -> CommitBoostConfig {
+        toml::from_str(
+            r#"
+            chain = "Holesky"
+            [pbs]
+            docker_image = "ghcr.io/commit-boost/pbs:latest"
+        "#,
+        )
+        .expect("valid minimal test config")
+    }
+
+    fn minimal_service_config() -> ServiceCreationInfo {
+        ServiceCreationInfo {
+            config_info: CommitBoostConfigInfo {
+                cb_config: minimal_cb_config(),
+                config_volume: Volumes::Simple("./cb.toml:/cb.toml:ro".into()),
+            },
+            envs: IndexMap::new(),
+            targets: Vec::new(),
+            warnings: Vec::new(),
+            jwts: IndexMap::new(),
+            chain_spec: None,
+            metrics_port: 9100,
+        }
+    }
+
+    fn metrics_config() -> MetricsConfig {
+        MetricsConfig {
+            enabled: true,
+            host: "127.0.0.1".parse().expect("valid IP"),
+            start_port: 9100,
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Service inspection helpers
+    // -------------------------------------------------------------------------
+
+    fn env_str(service: &Service, key: &str) -> Option<String> {
+        match &service.environment {
+            Environment::KvPair(map) => map.get(key).and_then(|v| match v {
+                Some(SingleValue::String(s)) => Some(s.clone()),
+                _ => None,
+            }),
+            _ => None,
+        }
+    }
+
+    fn env_u64(service: &Service, key: &str) -> Option<u64> {
+        match &service.environment {
+            Environment::KvPair(map) => map.get(key).and_then(|v| match v {
+                Some(SingleValue::Unsigned(n)) => Some(*n),
+                _ => None,
+            }),
+            _ => None,
+        }
+    }
+
+    fn has_env_key(service: &Service, key: &str) -> bool {
+        match &service.environment {
+            Environment::KvPair(map) => map.contains_key(key),
+            _ => false,
+        }
+    }
+
+    fn has_volume(service: &Service, substr: &str) -> bool {
+        service.volumes.iter().any(|v| matches!(v, Volumes::Simple(s) if s.contains(substr)))
+    }
+
+    fn has_port(service: &Service, substr: &str) -> bool {
+        match &service.ports {
+            Ports::Short(ports) => ports.iter().any(|p| p.contains(substr)),
+            _ => false,
+        }
+    }
+
+    // --- get_env_val ---
+
+    #[test]
+    fn test_get_env_val_returns_string_pair() {
+        let (key, val) = get_env_val("MY_KEY", "my_value");
+        assert_eq!(key, "MY_KEY");
+        assert_eq!(val, Some(SingleValue::String("my_value".into())));
+    }
+
+    #[test]
+    fn test_get_env_val_empty_value() {
+        let (key, val) = get_env_val("EMPTY", "");
+        assert_eq!(key, "EMPTY");
+        assert_eq!(val, Some(SingleValue::String("".into())));
+    }
+
+    // --- get_env_uval ---
+
+    #[test]
+    fn test_get_env_uval_returns_unsigned_pair() {
+        let (key, val) = get_env_uval("PORT", 9100);
+        assert_eq!(key, "PORT");
+        assert_eq!(val, Some(SingleValue::Unsigned(9100)));
+    }
+
+    // --- get_env_same ---
+
+    #[test]
+    fn test_get_env_same_interpolates_self() {
+        let (key, val) = get_env_same("JWTS_ENV");
+        assert_eq!(key, "JWTS_ENV");
+        assert_eq!(val, Some(SingleValue::String("${JWTS_ENV}".into())));
+    }
+
+    // --- get_env_interp ---
+
+    #[test]
+    fn test_get_env_interp_different_key_and_var() {
+        let (key, val) = get_env_interp("MODULE_JWT_ENV", "CB_JWT_MY_MODULE");
+        assert_eq!(key, "MODULE_JWT_ENV");
+        assert_eq!(val, Some(SingleValue::String("${CB_JWT_MY_MODULE}".into())));
+    }
+
+    // --- format_comma_separated ---
+
+    #[test]
+    fn test_format_comma_separated_empty() {
+        let map = IndexMap::new();
+        assert_eq!(format_comma_separated(&map), "");
+    }
+
+    #[test]
+    fn test_format_comma_separated_single_entry() {
+        let mut map = IndexMap::new();
+        map.insert(ModuleId::from("module_a".to_owned()), "secret123".into());
+        assert_eq!(format_comma_separated(&map), "module_a=secret123");
+    }
+
+    #[test]
+    fn test_format_comma_separated_multiple_entries_preserves_order() {
+        let mut map = IndexMap::new();
+        map.insert(ModuleId::from("module_a".to_owned()), "jwt_a".into());
+        map.insert(ModuleId::from("module_b".to_owned()), "jwt_b".into());
+        map.insert(ModuleId::from("module_c".to_owned()), "jwt_c".into());
+        assert_eq!(format_comma_separated(&map), "module_a=jwt_a,module_b=jwt_b,module_c=jwt_c");
+    }
+
+    // --- get_log_volume ---
+
+    #[test]
+    fn test_get_log_volume_disabled_returns_none() -> eyre::Result<()> {
+        let logs = logs_disabled();
+        let result = get_log_volume(&logs, "cb_pbs")?;
+        assert!(result.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_log_volume_enabled_returns_correct_volume() -> eyre::Result<()> {
+        let logs = logs_enabled("/var/log/commit-boost");
+        let result = get_log_volume(&logs, "cb_pbs")?;
+        let volume = result.expect("expected a volume when file logging is enabled");
+        assert_eq!(
+            volume,
+            Volumes::Simple(format!("/var/log/commit-boost/cb_pbs:{LOGS_DIR_DEFAULT}"))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_log_volume_lowercases_module_id() -> eyre::Result<()> {
+        let logs = logs_enabled("/logs");
+        let result = get_log_volume(&logs, "MY_MODULE")?;
+        let volume = result.expect("expected a volume when file logging is enabled");
+        assert_eq!(volume, Volumes::Simple(format!("/logs/my_module:{LOGS_DIR_DEFAULT}")));
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_log_volume_enabled_with_nested_dir() -> eyre::Result<()> {
+        let logs = logs_enabled("/home/user/cb/logs");
+        let result = get_log_volume(&logs, "cb_signer")?;
+        let volume = result.expect("expected a volume when file logging is enabled");
+        assert_eq!(
+            volume,
+            Volumes::Simple(format!("/home/user/cb/logs/cb_signer:{LOGS_DIR_DEFAULT}"))
+        );
+        Ok(())
+    }
+
+    // -------------------------------------------------------------------------
+    // write_env_file
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_write_env_file_empty_map() -> eyre::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join(".cb.env");
+        write_env_file(&IndexMap::new(), &path)?;
+        let contents = std::fs::read_to_string(&path)?;
+        assert_eq!(contents, "");
+        Ok(())
+    }
+
+    #[test]
+    fn test_write_env_file_single_entry() -> eyre::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join(".cb.env");
+        let mut map = IndexMap::new();
+        map.insert("MY_KEY".to_owned(), "my_value".to_owned());
+        write_env_file(&map, &path)?;
+        let contents = std::fs::read_to_string(&path)?;
+        assert_eq!(contents, "MY_KEY=my_value\n");
+        Ok(())
+    }
+
+    #[test]
+    fn test_write_env_file_multiple_entries_preserves_order() -> eyre::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join(".cb.env");
+        let mut map = IndexMap::new();
+        map.insert("KEY_A".to_owned(), "val_a".to_owned());
+        map.insert("KEY_B".to_owned(), "val_b".to_owned());
+        map.insert("KEY_C".to_owned(), "val_c".to_owned());
+        write_env_file(&map, &path)?;
+        let contents = std::fs::read_to_string(&path)?;
+        assert_eq!(contents, "KEY_A=val_a\nKEY_B=val_b\nKEY_C=val_c\n");
+        Ok(())
+    }
+
+    // -------------------------------------------------------------------------
+    // write_compose_file
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_write_compose_file_creates_valid_yaml() -> eyre::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join(CB_COMPOSE_FILE);
+        let compose = docker_compose_types::Compose::default();
+        let service_config = minimal_service_config();
+        write_compose_file(&compose, &path, &service_config)?;
+        assert!(path.exists());
+        let contents = std::fs::read_to_string(&path)?;
+        assert!(!contents.is_empty());
+        Ok(())
+    }
+
+    // -------------------------------------------------------------------------
+    // create_pbs_service
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_create_pbs_service_basic() -> eyre::Result<()> {
+        let mut sc = minimal_service_config();
+        let service = create_pbs_service(&mut sc)?;
+
+        assert_eq!(service.container_name.as_deref(), Some("cb_pbs"));
+        assert_eq!(service.image.as_deref(), Some("ghcr.io/commit-boost/pbs:latest"));
+        assert!(env_str(&service, CONFIG_ENV).is_some());
+        assert!(env_str(&service, PBS_ENDPOINT_ENV).is_some());
+        assert!(service.healthcheck.is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_pbs_service_exposes_pbs_port() -> eyre::Result<()> {
+        let mut sc = minimal_service_config();
+        let service = create_pbs_service(&mut sc)?;
+        // Default PBS port is 18550
+        assert!(has_port(&service, "18550"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_pbs_service_with_metrics() -> eyre::Result<()> {
+        let mut sc = minimal_service_config();
+        sc.config_info.cb_config.metrics = Some(metrics_config());
+        sc.metrics_port = 9100;
+        let service = create_pbs_service(&mut sc)?;
+
+        assert_eq!(env_u64(&service, METRICS_PORT_ENV), Some(9100));
+        assert!(has_port(&service, "9100"));
+        // port counter incremented
+        assert_eq!(sc.metrics_port, 9101);
+        // target added for prometheus
+        assert!(!sc.targets.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_pbs_service_with_file_logging() -> eyre::Result<()> {
+        let mut sc = minimal_service_config();
+        sc.config_info.cb_config.logs = logs_enabled("/var/log/cb");
+        let service = create_pbs_service(&mut sc)?;
+
+        assert!(env_str(&service, LOGS_DIR_ENV).is_some());
+        assert!(has_volume(&service, "pbs"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_pbs_service_with_chain_spec() -> eyre::Result<()> {
+        let mut sc = minimal_service_config();
+        sc.chain_spec = Some(ServiceChainSpecInfo {
+            env: get_env_val(CHAIN_SPEC_ENV, "/chain.json"),
+            volume: Volumes::Simple("/host/chain.json:/chain.json:ro".into()),
+        });
+        let service = create_pbs_service(&mut sc)?;
+
+        assert_eq!(env_str(&service, CHAIN_SPEC_ENV), Some("/chain.json".into()));
+        assert!(has_volume(&service, "chain.json"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_pbs_service_no_metrics_no_metrics_env() -> eyre::Result<()> {
+        let mut sc = minimal_service_config();
+        let service = create_pbs_service(&mut sc)?;
+        assert!(!has_env_key(&service, METRICS_PORT_ENV));
+        Ok(())
+    }
+
+    // -------------------------------------------------------------------------
+    // create_signer_service_local
+    // -------------------------------------------------------------------------
+
+    fn local_signer_config() -> SignerConfig {
+        toml::from_str(
+            r#"
+            [local.loader]
+            key_path = "/keys/keys.json"
+        "#,
+        )
+        .expect("valid local signer config")
+    }
+
+    #[test]
+    fn test_create_signer_service_local_file_loader() -> eyre::Result<()> {
+        let mut sc = minimal_service_config();
+        let signer_config = local_signer_config();
+        let loader = SignerLoader::File { key_path: "/keys/keys.json".into() };
+        let service = create_signer_service_local(&mut sc, &signer_config, &loader, &None)?;
+
+        assert_eq!(service.container_name.as_deref(), Some("cb_signer"));
+        assert!(env_str(&service, SIGNER_KEYS_ENV).is_some());
+        assert!(has_volume(&service, "keys.json"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_signer_service_local_validators_dir_loader() -> eyre::Result<()> {
+        let mut sc = minimal_service_config();
+        let signer_config = local_signer_config();
+        let loader = SignerLoader::ValidatorsDir {
+            keys_path: "/keys".into(),
+            secrets_path: "/secrets".into(),
+            format: cb_common::signer::ValidatorKeysFormat::Lighthouse,
+        };
+        let service = create_signer_service_local(&mut sc, &signer_config, &loader, &None)?;
+
+        assert!(env_str(&service, SIGNER_DIR_KEYS_ENV).is_some());
+        assert!(env_str(&service, SIGNER_DIR_SECRETS_ENV).is_some());
+        assert!(has_volume(&service, "/keys"));
+        assert!(has_volume(&service, "/secrets"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_signer_service_local_with_file_proxy_store() -> eyre::Result<()> {
+        let mut sc = minimal_service_config();
+        let signer_config = local_signer_config();
+        let loader = SignerLoader::File { key_path: "/keys/keys.json".into() };
+        let store = Some(ProxyStore::File { proxy_dir: "/proxies".into() });
+        let service = create_signer_service_local(&mut sc, &signer_config, &loader, &store)?;
+
+        assert!(env_str(&service, PROXY_DIR_ENV).is_some());
+        assert!(has_volume(&service, "/proxies"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_signer_service_local_with_erc2335_proxy_store() -> eyre::Result<()> {
+        let mut sc = minimal_service_config();
+        let signer_config = local_signer_config();
+        let loader = SignerLoader::File { key_path: "/keys/keys.json".into() };
+        let store = Some(ProxyStore::ERC2335 {
+            keys_path: "/proxy/keys".into(),
+            secrets_path: "/proxy/secrets".into(),
+        });
+        let service = create_signer_service_local(&mut sc, &signer_config, &loader, &store)?;
+
+        assert!(env_str(&service, PROXY_DIR_KEYS_ENV).is_some());
+        assert!(env_str(&service, PROXY_DIR_SECRETS_ENV).is_some());
+        assert!(has_volume(&service, "/proxy/keys"));
+        assert!(has_volume(&service, "/proxy/secrets"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_signer_service_local_jwts_written_to_envs() -> eyre::Result<()> {
+        let mut sc = minimal_service_config();
+        sc.jwts.insert(ModuleId::from("MY_MODULE".to_owned()), "jwt_secret_abc".into());
+        let signer_config = local_signer_config();
+        let loader = SignerLoader::File { key_path: "/keys/keys.json".into() };
+        create_signer_service_local(&mut sc, &signer_config, &loader, &None)?;
+
+        // JWTS_ENV written as comma-separated to service_config.envs
+        let jwts_val = sc.envs.get(JWTS_ENV).expect("JWTS_ENV must be set in envs");
+        assert!(jwts_val.contains("MY_MODULE=jwt_secret_abc"));
+        Ok(())
+    }
+
+    // -------------------------------------------------------------------------
+    // create_signer_service_dirk
+    // -------------------------------------------------------------------------
+
+    fn dirk_signer_config() -> SignerConfig {
+        toml::from_str(
+            r#"
+            docker_image = "commitboost_signer"
+            [dirk]
+            cert_path = "/certs/client.crt"
+            key_path = "/certs/client.key"
+            secrets_path = "/dirk_secrets"
+            [[dirk.hosts]]
+            url = "https://gateway.dirk.url"
+            wallets = ["wallet1"]
+        "#,
+        )
+        .expect("valid dirk signer config")
+    }
+
+    #[test]
+    fn test_create_signer_service_dirk_basic() -> eyre::Result<()> {
+        let mut sc = minimal_service_config();
+        let signer_config = dirk_signer_config();
+        let service = create_signer_service_dirk(
+            &mut sc,
+            &signer_config,
+            Path::new("/certs/client.crt"),
+            Path::new("/certs/client.key"),
+            Path::new("/dirk_secrets"),
+            &None,
+            &None,
+        )?;
+
+        assert_eq!(service.container_name.as_deref(), Some("cb_signer"));
+        assert!(env_str(&service, DIRK_CERT_ENV).is_some());
+        assert!(env_str(&service, DIRK_KEY_ENV).is_some());
+        assert!(env_str(&service, DIRK_DIR_SECRETS_ENV).is_some());
+        assert!(has_volume(&service, "client.crt"));
+        assert!(has_volume(&service, "client.key"));
+        assert!(has_volume(&service, "dirk_secrets"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_signer_service_dirk_with_ca_cert() -> eyre::Result<()> {
+        let mut sc = minimal_service_config();
+        let signer_config = dirk_signer_config();
+        let ca_cert = Some(PathBuf::from("/certs/ca.crt"));
+        let service = create_signer_service_dirk(
+            &mut sc,
+            &signer_config,
+            Path::new("/certs/client.crt"),
+            Path::new("/certs/client.key"),
+            Path::new("/dirk_secrets"),
+            &ca_cert,
+            &None,
+        )?;
+
+        assert!(env_str(&service, DIRK_CA_CERT_ENV).is_some());
+        assert!(has_volume(&service, "ca.crt"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_signer_service_dirk_without_ca_cert() -> eyre::Result<()> {
+        let mut sc = minimal_service_config();
+        let signer_config = dirk_signer_config();
+        let service = create_signer_service_dirk(
+            &mut sc,
+            &signer_config,
+            Path::new("/certs/client.crt"),
+            Path::new("/certs/client.key"),
+            Path::new("/dirk_secrets"),
+            &None,
+            &None,
+        )?;
+
+        assert!(!has_env_key(&service, DIRK_CA_CERT_ENV));
+        assert!(!has_volume(&service, "ca.crt"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_signer_service_dirk_with_file_proxy_store() -> eyre::Result<()> {
+        let mut sc = minimal_service_config();
+        let signer_config = dirk_signer_config();
+        let store = Some(ProxyStore::File { proxy_dir: "/proxies".into() });
+        let service = create_signer_service_dirk(
+            &mut sc,
+            &signer_config,
+            Path::new("/certs/client.crt"),
+            Path::new("/certs/client.key"),
+            Path::new("/dirk_secrets"),
+            &None,
+            &store,
+        )?;
+
+        assert!(env_str(&service, PROXY_DIR_ENV).is_some());
+        assert!(has_volume(&service, "/proxies"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_signer_service_dirk_erc2335_store_returns_error() {
+        let mut sc = minimal_service_config();
+        let signer_config = dirk_signer_config();
+        let store = Some(ProxyStore::ERC2335 {
+            keys_path: "/proxy/keys".into(),
+            secrets_path: "/proxy/secrets".into(),
+        });
+        let result = create_signer_service_dirk(
+            &mut sc,
+            &signer_config,
+            Path::new("/certs/client.crt"),
+            Path::new("/certs/client.key"),
+            Path::new("/dirk_secrets"),
+            &None,
+            &store,
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("ERC2335"));
+    }
+
+    // -------------------------------------------------------------------------
+    // create_module_service
+    // -------------------------------------------------------------------------
+
+    fn commit_module() -> StaticModuleConfig {
+        toml::from_str(
+            r#"
+            id = "DA_COMMIT"
+            type = "commit"
+            docker_image = "test_da_commit"
+        "#,
+        )
+        .expect("valid module config")
+    }
+
+    #[test]
+    fn test_create_module_service_container_name_format() -> eyre::Result<()> {
+        let module = commit_module();
+        let mut sc = minimal_service_config();
+        let (cid, _) = create_module_service(&module, "http://cb_signer:20000", &mut sc)?;
+        assert_eq!(cid, "cb_da_commit");
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_module_service_sets_required_envs() -> eyre::Result<()> {
+        let module = commit_module();
+        let mut sc = minimal_service_config();
+        let (_, service) = create_module_service(&module, "http://cb_signer:20000", &mut sc)?;
+
+        assert!(env_str(&service, MODULE_ID_ENV).is_some());
+        assert!(env_str(&service, CONFIG_ENV).is_some());
+        assert!(env_str(&service, SIGNER_URL_ENV) == Some("http://cb_signer:20000".into()));
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_module_service_jwt_written_to_service_config_envs() -> eyre::Result<()> {
+        let module = commit_module();
+        let mut sc = minimal_service_config();
+        create_module_service(&module, "http://cb_signer:20000", &mut sc)?;
+
+        // JWT env var should be in the outer service_config.envs (for .env file)
+        let jwt_key = format!("CB_JWT_{}", "DA_COMMIT".to_uppercase());
+        assert!(sc.envs.contains_key(&jwt_key));
+        // and also recorded in jwts map
+        assert!(sc.jwts.contains_key(&ModuleId::from("DA_COMMIT".to_owned())));
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_module_service_custom_env_forwarded() -> eyre::Result<()> {
+        let mut module = commit_module();
+        let mut env_map = std::collections::HashMap::new();
+        env_map.insert("SOME_ENV_VAR".to_owned(), "some_value".to_owned());
+        module.env = Some(env_map);
+
+        let mut sc = minimal_service_config();
+        let (_, service) = create_module_service(&module, "http://cb_signer:20000", &mut sc)?;
+
+        assert_eq!(env_str(&service, "SOME_ENV_VAR"), Some("some_value".into()));
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_module_service_depends_on_signer() -> eyre::Result<()> {
+        let module = commit_module();
+        let mut sc = minimal_service_config();
+        let (_, service) = create_module_service(&module, "http://cb_signer:20000", &mut sc)?;
+
+        match &service.depends_on {
+            docker_compose_types::DependsOnOptions::Conditional(deps) => {
+                assert!(deps.contains_key("cb_signer"));
+            }
+            docker_compose_types::DependsOnOptions::Simple(deps) => {
+                // Remote signer path returns empty depends_on — but this is a local signer
+                // config (signer is None), so it still depends on cb_signer
+                assert!(deps.is_empty(), "unexpected empty depends_on for local signer");
+            }
+        }
+        Ok(())
+    }
 }

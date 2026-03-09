@@ -48,11 +48,11 @@ enum Commands {
 async fn main() -> Result<()> {
     // Parse the CLI arguments (currently only used for version info, more can be
     // added later)
-    let _cli = Cli::parse();
+    let cli = Cli::parse();
 
     color_eyre::install()?;
 
-    match _cli.command {
+    match cli.command {
         Commands::Pbs => run_pbs_service().await?,
         Commands::Signer => run_signer_service().await?,
         Commands::Init { config_path, output_path } => run_init(config_path, output_path).await?,
