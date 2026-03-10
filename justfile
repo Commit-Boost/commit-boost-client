@@ -174,38 +174,59 @@ clean:
 test:
     cargo test --all-features
 
+# =====================
+# === Test Coverage ===
+# =====================
+
+# Generate an HTML test coverage report and open it in the browser.
+# Recompiles the workspace with LLVM coverage instrumentation, runs all tests,
+# and writes the report to target/llvm-cov/html/index.html.
+# Incremental recompilation works normally — no need to clean between runs.
+# If results look wrong after upgrading cargo-llvm-cov, run `just coverage-clean` first.
+# Requires: cargo install cargo-llvm-cov && rustup component add llvm-tools-preview
+coverage:
+  cargo llvm-cov --all-features --html --open
+
+# Print a quick coverage summary to the terminal without opening a browser.
+coverage-summary:
+  cargo llvm-cov --all-features --summary-only
+
+# Remove all coverage instrumentation artifacts produced by cargo-llvm-cov.
+coverage-clean:
+  cargo llvm-cov clean --workspace
+
 # =================
 # === Kurtosis ===
 # =================
 
 # Tear down and clean up all enclaves
-clean-kurtosis:
+kurtosis-clean:
   kurtosis clean -a
 
 # Clean all enclaves and restart the testnet
-restart-kurtosis:
-  just clean-kurtosis
+kurtosis-restart:
+  just kurtosis-clean
   kurtosis run github.com/ethpandaops/ethereum-package \
     --enclave CB-Testnet \
     --args-file provisioning/kurtosis-config.yml
 
 # Build local docker images and restart testnet
-build-kurtosis:
+kurtosis-build:
   just build-all kurtosis
-  just restart-kurtosis
+  just kurtosis-restart
 
 # Inspect running enclave
-inspect-kurtosis:
+kurtosis-inspect:
   kurtosis enclave inspect CB-Testnet
 
-# Tail logs for a specific service: just logs-kurtosis <service>
-logs-kurtosis service:
+# Tail logs for a specific service: just kurtosis-logs <service>
+kurtosis-logs service:
   kurtosis service logs CB-Testnet {{service}} --follow
 
-# Shell into a specific service: just shell-kurtosis <service>
-shell-kurtosis service:
+# Shell into a specific service: just kurtosis-shell <service>
+kurtosis-shell service:
   kurtosis service shell CB-Testnet {{service}}
 
 # Dump enclave state to disk for post-mortem
-dump-kurtosis:
+kurtosis-dump:
   kurtosis enclave dump CB-Testnet ./kurtosis-dump
