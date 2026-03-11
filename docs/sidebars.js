@@ -82,11 +82,6 @@ const sidebars = {
       label: 'X (Twitter)',
       href: 'https://x.com/Commit_Boost',
     },
-    {
-      type: 'link',
-      label: 'Telegram',
-      href: 'https://t.me/+Pcs9bykxK3BiMzk5',
-    },
   ],
 
   // But you can create a sidebar manually

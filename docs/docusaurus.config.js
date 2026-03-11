@@ -99,10 +99,6 @@ const config = {
                 label: 'X (Twitter)',
                 href: 'https://x.com/Commit_Boost',
               },
-              {
-                label: 'Telegram',
-                href: 'https://t.me/+Pcs9bykxK3BiMzk5',
-              },
             ],
           },
         ],
