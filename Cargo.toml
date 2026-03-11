@@ -28,6 +28,7 @@ bimap = { version = "0.6.3", features = ["serde"] }
 blsful = "^2.5"
 blst = "^0.3.15"
 bytes = "1.10.1"
+criterion = { version = "0.5", features = ["html_reports"] }
 cb-cli = { path = "crates/cli" }
 cb-common = { path = "crates/common" }
 cb-metrics = { path = "crates/metrics" }

@@ -195,6 +195,45 @@ coverage-summary:
 coverage-clean:
   cargo llvm-cov clean --workspace
 
+# =======================
+# === Microbenchmarks ===
+# =======================
+#
+# Development Loop:
+#   1. Run the current bench:  just bench dev
+#   2. Update code
+#   3. Re-run the bench, logging the diff from the last run:  just bench dev
+
+# Regression Test:
+#   1. Save a baseline on the main branch:  just bench main
+#   2. On a PR branch, compare against it:  just bench-compare main
+
+[doc("""
+  Install tools required by the bench-* commands.
+  - cargo-criterion: CLI runner for Criterion benchmarks with richer output
+  - critcmp:         baseline diffing tool used by bench-compare
+""")]
+bench-install-tools:
+  cargo install cargo-criterion critcmp
+
+[doc("""
+  Run microbenchmarks and save results as a named baseline. Example: just bench main
+
+  Compares against the last benchmark run of any kind, not the previous save of
+  this baseline name. Useful for tracking incremental changes since your last run.
+  For accurate baseline comparisons, use bench-compare instead.
+""")]
+bench baseline:
+  cargo bench --package cb-bench-micro -- --save-baseline {{baseline}}
+
+[doc("""
+  Run microbenchmarks, save results as "current", then diff against a named baseline.
+  Example: just bench-compare main
+""")]
+bench-compare baseline:
+  cargo bench --package cb-bench-micro -- --save-baseline current
+  critcmp {{baseline}} current
+
 # =================
 # === Kurtosis ===
 # =================
