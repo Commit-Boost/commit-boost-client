@@ -2,7 +2,10 @@ use std::time::{Duration, Instant};
 
 use alloy::primitives::Address;
 use eyre::WrapErr;
-use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
+use reqwest::{
+    Identity,
+    header::{AUTHORIZATION, HeaderMap, HeaderValue},
+};
 use serde::Deserialize;
 use url::Url;
 
@@ -16,6 +19,7 @@ use super::{
 };
 use crate::{
     DEFAULT_REQUEST_TIMEOUT,
+    config::ClientAuthConfig,
     constants::SIGNER_JWT_EXPIRATION,
     signer::EcdsaSignature,
     types::{BlsPublicKey, BlsSignature, Jwt, ModuleId},
@@ -35,7 +39,12 @@ pub struct SignerClient {
 
 impl SignerClient {
     /// Create a new SignerClient
-    pub fn new(signer_server_url: Url, jwt_secret: Jwt, module_id: ModuleId) -> eyre::Result<Self> {
+    pub fn new(
+        signer_server_url: Url,
+        jwt_secret: Jwt,
+        module_id: ModuleId,
+        client_auth: Option<ClientAuthConfig>,
+    ) -> eyre::Result<Self> {
         let jwt = create_jwt(&module_id, &jwt_secret)?;
 
         let mut auth_value =
@@ -45,10 +54,18 @@ impl SignerClient {
         let mut headers = HeaderMap::new();
         headers.insert(AUTHORIZATION, auth_value);
 
-        let client = reqwest::Client::builder()
-            .timeout(DEFAULT_REQUEST_TIMEOUT)
-            .default_headers(headers)
-            .build()?;
+        let mut client =
+            reqwest::Client::builder().timeout(DEFAULT_REQUEST_TIMEOUT).default_headers(headers);
+
+        if let Some(ClientAuthConfig { cert_path, key_path }) = client_auth {
+            let cert = std::fs::read_to_string(cert_path)?;
+            let key = std::fs::read_to_string(key_path)?;
+            let buffer = format!("{cert}\n{key}");
+            let identity = Identity::from_pem(buffer.as_bytes())?;
+            client = client.identity(identity);
+        }
+
+        let client = client.build()?;
 
         Ok(Self {
             url: signer_server_url,

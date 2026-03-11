@@ -7,6 +7,7 @@ use toml::Table;
 use crate::{
     commit::client::SignerClient,
     config::{
+        SignerConfig, SignerType,
         constants::{CONFIG_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, SIGNER_URL_ENV},
         load_env_var,
         utils::load_file_from_env,
@@ -79,6 +80,7 @@ pub fn load_commit_module_config<T: DeserializeOwned>() -> Result<StartCommitMod
     struct StubConfig<U> {
         chain: Chain,
         modules: Vec<ThisModule<U>>,
+        signer: Option<SignerConfig>,
     }
 
     // load module config including the extra data (if any)
@@ -101,7 +103,16 @@ pub fn load_commit_module_config<T: DeserializeOwned>() -> Result<StartCommitMod
         .find(|m| m.static_config.id == module_id)
         .wrap_err(format!("failed to find module for {module_id}"))?;
 
-    let signer_client = SignerClient::new(signer_server_url, module_jwt, module_id)?;
+    let client_auth = if let Some(signer) = cb_config.signer {
+        match signer.inner {
+            SignerType::Remote { url: _, client_auth } => client_auth,
+            _ => None,
+        }
+    } else {
+        None
+    };
+
+    let signer_client = SignerClient::new(signer_server_url, module_jwt, module_id, client_auth)?;
 
     Ok(StartCommitModuleConfig {
         id: module_config.static_config.id,

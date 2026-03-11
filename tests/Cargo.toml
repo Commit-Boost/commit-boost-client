@@ -26,3 +26,4 @@ url.workspace = true
 
 [dev-dependencies]
 cb-common = { path = "../crates/common", features = ["testing-flags"] }
+rcgen.workspace = true
