@@ -7,8 +7,8 @@
 //! selection. This is wall-clock timing — useful for local development feedback
 //! and catching latency regressions across relay counts.
 //!
-//! Criterion runs each benchmark hundreds of times, applies statistical analysis,
-//! and reports mean ± standard deviation. Results are saved to
+//! Criterion runs each benchmark hundreds of times, applies statistical
+//! analysis, and reports mean ± standard deviation. Results are saved to
 //! `target/criterion/` as HTML reports (open `report/index.html`).
 //!
 //! # Running
@@ -29,9 +29,12 @@
 //!
 //! # What is NOT measured
 //!
-//! - PBS HTTP server overhead (we call `get_header()` directly, bypassing axum routing)
-//! - Mock relay startup time (servers are started once in setup, before timing begins)
-//! - `HeaderMap` allocation (created once in setup, cloned cheaply per iteration)
+//! - PBS HTTP server overhead (we call `get_header()` directly, bypassing axum
+//!   routing)
+//! - Mock relay startup time (servers are started once in setup, before timing
+//!   begins)
+//! - `HeaderMap` allocation (created once in setup, cloned cheaply per
+//!   iteration)
 
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
@@ -73,7 +76,8 @@ fn bench_get_header(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
 
     // Start all mock relays once and build one PbsState per relay-count variant.
-    // All relays share the same MockRelayState (and therefore the same signing key).
+    // All relays share the same MockRelayState (and therefore the same signing
+    // key).
     let (states, params) = rt.block_on(async {
         let signer = random_secret();
         let pubkey = signer.public_key();
@@ -108,8 +112,9 @@ fn bench_get_header(c: &mut Criterion) {
         (states, params)
     });
 
-    // Empty HeaderMap matches what the PBS route handler receives for requests without
-    // custom headers. Created once here to avoid measuring its allocation per iteration.
+    // Empty HeaderMap matches what the PBS route handler receives for requests
+    // without custom headers. Created once here to avoid measuring its
+    // allocation per iteration.
     let headers = HeaderMap::new();
 
     // A BenchmarkGroup groups related functions so Criterion produces a single
@@ -142,7 +147,8 @@ fn bench_get_header(c: &mut Criterion) {
     group.finish();
 }
 
-// criterion_group! registers bench_get_header as a benchmark group named "benches".
-// criterion_main! generates the main() entry point that Criterion uses to run them.
+// criterion_group! registers bench_get_header as a benchmark group named
+// "benches". criterion_main! generates the main() entry point that Criterion
+// uses to run them.
 criterion_group!(benches, bench_get_header);
 criterion_main!(benches);
