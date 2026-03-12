@@ -48,9 +48,9 @@ jobs:
           fi
 
       - name: Validate version is strictly increasing
+        env:
+          NEW_VERSION: ${{ steps.version.outputs.new }}
         run: |
-          NEW_VERSION="${{ steps.version.outputs.new }}"
-
           # Get the latest tag; if none exist yet, skip the comparison
           LATEST_TAG=$(git tag --list 'v*' --sort=-version:refname | head -n1)
           if [ -z "$LATEST_TAG" ]; then
@@ -87,8 +87,9 @@ jobs:
           git config user.email "commit-boost-release-bot[bot]@users.noreply.github.com"
 
       - name: Create and push tag
+        env:
+          VERSION: ${{ steps.version.outputs.new }}
         run: |
-          VERSION="${{ steps.version.outputs.new }}"
           git tag "$VERSION" HEAD
           git push origin "$VERSION"
           # Branch fast-forwarding happens in release.yml after all artifacts
