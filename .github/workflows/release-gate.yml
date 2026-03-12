@@ -33,8 +33,10 @@ jobs:
 
       - name: Extract and validate version
         id: version
+        env:
+          BRANCH_REF: ${{ github.event.pull_request.head.ref }}
         run: |
-          BRANCH="${{ github.event.pull_request.head.ref }}"
+          BRANCH="$BRANCH_REF"
           NEW_VERSION="${BRANCH#release/}"
           echo "new=${NEW_VERSION}" >> $GITHUB_OUTPUT
 
