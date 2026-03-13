@@ -1,3 +1,4 @@
+
 name: Draft Release
 
 on:
@@ -289,7 +290,7 @@ jobs:
             ${{ !contains(github.ref_name, 'rc') && format('ghcr.io/{0}/signer:latest', env.OWNER) || '' }}
           file: provisioning/signer.Dockerfile
 
-  # Creates a draft release on GitHub with the binaries
+  # Creates a release on GitHub with the binaries
   finalize-release:
     needs:
       - build-binaries-linux
@@ -299,6 +300,17 @@ jobs:
       - build-and-push-signer-docker
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
       - name: Download binaries
         uses: actions/download-artifact@v4
         with:
@@ -315,12 +327,13 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: ./artifacts/**/*
-          draft: true
+          draft: false
           prerelease: ${{ contains(github.ref_name, '-rc') }}
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
+          generate_release_notes: true
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
   # Fast-forwards stable (full release) or beta (RC) to the new tag.
   # Runs after all artifacts are built and the draft release is created,
