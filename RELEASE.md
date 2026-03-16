@@ -31,13 +31,8 @@ Once testing is complete and signoffs are collected:
 
 1. Create a branch named `release/vX.Y.Z` and update `CHANGELOG.md` with final release notes.
 2. Open a PR targeting `main`. Get two approvals and merge.
-3. CI creates the tag, fast-forwards `stable`, builds and signs artifacts, and creates a draft release.
-4. Open the draft release on GitHub:
-   - Click **Generate release notes** and add a plain-language summary at the top
-   - Call out any breaking config changes explicitly
-   - Insert the [binary verification boilerplate text](#verifying-release-artifacts)
-   - Set as **latest release** (not pre-release)
-   - Publish
+3. CI creates the tag, fast-forwards `stable`, builds and signs artifacts, and creates the release.
+4. Verify the [binary was correctly signed](#verifying-release-artifacts).
 5. Update the community.
 
 ## If the pipeline fails
