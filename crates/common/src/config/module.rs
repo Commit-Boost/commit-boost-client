@@ -14,7 +14,7 @@ use crate::{
     types::{Chain, Jwt, ModuleId},
 };
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, Copy)]
 pub enum ModuleKind {
     #[serde(alias = "commit")]
     Commit,

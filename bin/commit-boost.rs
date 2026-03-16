@@ -74,7 +74,6 @@ async fn run_pbs_service() -> Result<()> {
         maybe_err = server => {
             if let Err(err) = maybe_err {
                 error!(%err, "PBS service unexpectedly stopped");
-                eprintln!("PBS service unexpectedly stopped: {err}");
             }
         },
         _ = wait_for_signal() => {
@@ -94,7 +93,6 @@ async fn run_signer_service() -> Result<()> {
         maybe_err = server => {
             if let Err(err) = maybe_err {
                 error!(%err, "signing server unexpectedly stopped");
-                eprintln!("signing server unexpectedly stopped: {err}");
             }
         },
         _ = wait_for_signal() => {
