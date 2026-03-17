@@ -425,10 +425,41 @@ pub fn load_module_signing_configs(
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroUsize;
+
     use alloy::primitives::{Uint, b256};
 
     use super::*;
     use crate::config::{LogsSettings, ModuleKind, PbsConfig, StaticModuleConfig, StaticPbsConfig};
+
+    // Wrapper needed because TOML requires a top-level struct (can't serialize
+    // a bare enum).
+    #[derive(Serialize, Deserialize, Debug)]
+    struct TlsWrapper {
+        tls_mode: TlsMode,
+    }
+
+    fn make_local_signer_config(tls_mode: TlsMode) -> SignerConfig {
+        SignerConfig {
+            host: Ipv4Addr::new(127, 0, 0, 1),
+            port: 20000,
+            docker_image: SIGNER_IMAGE_DEFAULT.to_string(),
+            jwt_auth_fail_limit: 3,
+            jwt_auth_fail_timeout_seconds: 300,
+            tls_mode,
+            reverse_proxy: ReverseProxyHeaderSetup::None,
+            inner: SignerType::Local {
+                loader: SignerLoader::File { key_path: PathBuf::from("/keys.json") },
+                store: None,
+            },
+        }
+    }
+
+    async fn get_config_with_signer(tls_mode: TlsMode) -> CommitBoostConfig {
+        let mut cfg = get_base_config().await;
+        cfg.signer = Some(make_local_signer_config(tls_mode));
+        cfg
+    }
 
     async fn get_base_config() -> CommitBoostConfig {
         CommitBoostConfig {
@@ -706,5 +737,182 @@ mod tests {
             assert!(format!("{:?}", e).contains("Signing ID cannot be zero"));
         }
         Ok(())
+    }
+
+    // ── TlsMode serde ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_tls_mode_insecure_roundtrip() -> Result<()> {
+        let original = TlsWrapper { tls_mode: TlsMode::Insecure };
+        let toml_str = toml::to_string(&original)?;
+        let parsed: TlsWrapper = toml::from_str(&toml_str)?;
+        assert!(matches!(parsed.tls_mode, TlsMode::Insecure));
+        Ok(())
+    }
+
+    #[test]
+    fn test_tls_mode_certificate_roundtrip() -> Result<()> {
+        let path = PathBuf::from("/certs");
+        let original = TlsWrapper { tls_mode: TlsMode::Certificate(path.clone()) };
+        let toml_str = toml::to_string(&original)?;
+        let parsed: TlsWrapper = toml::from_str(&toml_str)?;
+        match parsed.tls_mode {
+            TlsMode::Certificate(p) => assert_eq!(p, path),
+            TlsMode::Insecure => panic!("Expected Certificate variant"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_tls_mode_insecure_from_toml() -> Result<()> {
+        let toml_str = r#"
+            [tls_mode]
+            type = "insecure"
+        "#;
+        let parsed: TlsWrapper = toml::from_str(toml_str)?;
+        assert!(matches!(parsed.tls_mode, TlsMode::Insecure));
+        Ok(())
+    }
+
+    #[test]
+    fn test_tls_mode_certificate_from_toml() -> Result<()> {
+        let toml_str = r#"
+            [tls_mode]
+            type = "certificate"
+            path = "/custom/certs"
+        "#;
+        let parsed: TlsWrapper = toml::from_str(toml_str)?;
+        match parsed.tls_mode {
+            TlsMode::Certificate(p) => assert_eq!(p, PathBuf::from("/custom/certs")),
+            TlsMode::Insecure => panic!("Expected Certificate variant"),
+        }
+        Ok(())
+    }
+
+    // ── signer_uses_tls ───────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_signer_uses_tls_no_signer() {
+        let cfg = get_base_config().await;
+        assert!(!cfg.signer_uses_tls());
+    }
+
+    #[tokio::test]
+    async fn test_signer_uses_tls_insecure() {
+        let cfg = get_config_with_signer(TlsMode::Insecure).await;
+        assert!(!cfg.signer_uses_tls());
+    }
+
+    #[tokio::test]
+    async fn test_signer_uses_tls_certificate() {
+        let cfg = get_config_with_signer(TlsMode::Certificate(PathBuf::from("/certs"))).await;
+        assert!(cfg.signer_uses_tls());
+    }
+
+    // ── signer_certs_path ─────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_signer_certs_path_no_signer() {
+        let cfg = get_base_config().await;
+        assert!(cfg.signer_certs_path().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_signer_certs_path_insecure() {
+        let cfg = get_config_with_signer(TlsMode::Insecure).await;
+        assert!(cfg.signer_certs_path().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_signer_certs_path_certificate() {
+        let certs_path = PathBuf::from("/my/certs");
+        let cfg = get_config_with_signer(TlsMode::Certificate(certs_path.clone())).await;
+        assert_eq!(cfg.signer_certs_path(), Some(&certs_path));
+    }
+
+    // ── signer_server_url ─────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_signer_server_url_no_signer_uses_default_port() {
+        let cfg = get_base_config().await;
+        assert_eq!(cfg.signer_server_url(12345), "http://cb_signer:12345");
+    }
+
+    #[tokio::test]
+    async fn test_signer_server_url_insecure_uses_http() {
+        let cfg = get_config_with_signer(TlsMode::Insecure).await;
+        assert_eq!(cfg.signer_server_url(9999), "http://cb_signer:20000");
+    }
+
+    #[tokio::test]
+    async fn test_signer_server_url_certificate_uses_https() {
+        let cfg = get_config_with_signer(TlsMode::Certificate(PathBuf::from("/certs"))).await;
+        assert_eq!(cfg.signer_server_url(9999), "https://cb_signer:20000");
+    }
+
+    #[tokio::test]
+    async fn test_signer_server_url_remote_returned_as_is() {
+        let remote_url = Url::parse("https://remote-signer.example.com:8080").unwrap();
+        let mut cfg = get_base_config().await;
+        cfg.signer = Some(SignerConfig {
+            host: Ipv4Addr::new(127, 0, 0, 1),
+            port: 20000,
+            docker_image: SIGNER_IMAGE_DEFAULT.to_string(),
+            jwt_auth_fail_limit: 3,
+            jwt_auth_fail_timeout_seconds: 300,
+            tls_mode: TlsMode::Insecure,
+            reverse_proxy: ReverseProxyHeaderSetup::None,
+            inner: SignerType::Remote { url: remote_url.clone() },
+        });
+        assert_eq!(cfg.signer_server_url(9999), remote_url.to_string());
+    }
+
+    // ── ReverseProxyHeaderSetup Display ──────────────────────────────────────
+
+    #[test]
+    fn test_reverse_proxy_display_none() {
+        assert_eq!(ReverseProxyHeaderSetup::None.to_string(), "None");
+    }
+
+    #[test]
+    fn test_reverse_proxy_display_unique() {
+        let rp = ReverseProxyHeaderSetup::Unique { header: "X-Forwarded-For".to_string() };
+        assert_eq!(rp.to_string(), r#""X-Forwarded-For (unique)""#);
+    }
+
+    #[test]
+    fn test_reverse_proxy_display_rightmost_1st() {
+        let rp = ReverseProxyHeaderSetup::Rightmost {
+            header: "X-Real-IP".to_string(),
+            trusted_count: NonZeroUsize::new(1).unwrap(),
+        };
+        assert_eq!(rp.to_string(), r#""X-Real-IP (1st from the right)""#);
+    }
+
+    #[test]
+    fn test_reverse_proxy_display_rightmost_2nd() {
+        let rp = ReverseProxyHeaderSetup::Rightmost {
+            header: "X-Real-IP".to_string(),
+            trusted_count: NonZeroUsize::new(2).unwrap(),
+        };
+        assert_eq!(rp.to_string(), r#""X-Real-IP (2nd from the right)""#);
+    }
+
+    #[test]
+    fn test_reverse_proxy_display_rightmost_3rd() {
+        let rp = ReverseProxyHeaderSetup::Rightmost {
+            header: "X-Real-IP".to_string(),
+            trusted_count: NonZeroUsize::new(3).unwrap(),
+        };
+        assert_eq!(rp.to_string(), r#""X-Real-IP (3rd from the right)""#);
+    }
+
+    #[test]
+    fn test_reverse_proxy_display_rightmost_nth() {
+        let rp = ReverseProxyHeaderSetup::Rightmost {
+            header: "CF-Connecting-IP".to_string(),
+            trusted_count: NonZeroUsize::new(5).unwrap(),
+        };
+        assert_eq!(rp.to_string(), r#""CF-Connecting-IP (5th from the right)""#);
     }
 }

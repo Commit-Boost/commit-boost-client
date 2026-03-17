@@ -835,6 +835,7 @@ mod tests {
     use cb_common::{
         config::{
             CommitBoostConfig, FileLogSettings, LogsSettings, MetricsConfig, StdoutLogSettings,
+            TlsMode,
         },
         signer::{ProxyStore, SignerLoader},
     };
@@ -1476,6 +1477,243 @@ mod tests {
                 assert!(deps.is_empty(), "unexpected empty depends_on for local signer");
             }
         }
+        Ok(())
+    }
+
+    // -------------------------------------------------------------------------
+    // Helpers for TLS tests
+    // -------------------------------------------------------------------------
+
+    fn local_signer_config_with_tls(certs_path: PathBuf) -> SignerConfig {
+        let mut config = local_signer_config();
+        config.tls_mode = TlsMode::Certificate(certs_path);
+        config
+    }
+
+    /// Returns a `ServiceCreationInfo` whose CB config has `pbs.with_signer =
+    /// true` and a local signer with `TlsMode::Certificate(certs_path)`.
+    fn service_config_with_tls(certs_path: PathBuf) -> ServiceCreationInfo {
+        let mut sc = minimal_service_config();
+        sc.config_info.cb_config.pbs.with_signer = true;
+        sc.config_info.cb_config.signer = Some(local_signer_config_with_tls(certs_path));
+        sc
+    }
+
+    // -------------------------------------------------------------------------
+    // create_cert_binding
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_create_cert_binding_volume_string() {
+        let certs_path = Path::new("/my/certs");
+        let vol = create_cert_binding(certs_path);
+        let expected = format!(
+            "/my/certs/{}:{}/{}:ro",
+            SIGNER_TLS_CERTIFICATE_NAME,
+            SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
+            SIGNER_TLS_CERTIFICATE_NAME
+        );
+        assert_eq!(vol, Volumes::Simple(expected));
+    }
+
+    // -------------------------------------------------------------------------
+    // add_tls_certs_volume
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_add_tls_certs_volume_happy_path() -> eyre::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let certs_path = dir.path();
+        std::fs::write(certs_path.join(SIGNER_TLS_CERTIFICATE_NAME), b"cert")?;
+        std::fs::write(certs_path.join(SIGNER_TLS_KEY_NAME), b"key")?;
+
+        let mut volumes = vec![];
+        add_tls_certs_volume(&mut volumes, certs_path)?;
+
+        assert_eq!(volumes.len(), 2);
+        assert!(
+            matches!(&volumes[0], Volumes::Simple(s) if s.contains(SIGNER_TLS_CERTIFICATE_NAME))
+        );
+        assert!(matches!(&volumes[1], Volumes::Simple(s) if s.contains(SIGNER_TLS_KEY_NAME)));
+        Ok(())
+    }
+
+    #[test]
+    fn test_add_tls_certs_volume_missing_cert_returns_error() -> eyre::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let certs_path = dir.path();
+        std::fs::write(certs_path.join(SIGNER_TLS_KEY_NAME), b"key")?;
+
+        let result = add_tls_certs_volume(&mut vec![], certs_path);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("certificate or key not found"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_add_tls_certs_volume_missing_key_returns_error() -> eyre::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let certs_path = dir.path();
+        std::fs::write(certs_path.join(SIGNER_TLS_CERTIFICATE_NAME), b"cert")?;
+
+        let result = add_tls_certs_volume(&mut vec![], certs_path);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("certificate or key not found"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_add_tls_certs_volume_missing_both_returns_error() -> eyre::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let result = add_tls_certs_volume(&mut vec![], dir.path());
+        assert!(result.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_add_tls_certs_volume_creates_missing_directory() -> eyre::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let certs_path = dir.path().join("new_certs_dir");
+        assert!(!certs_path.exists(), "pre-condition: directory must not exist yet");
+
+        let result = add_tls_certs_volume(&mut vec![], &certs_path);
+
+        // Directory created even though cert/key are absent
+        assert!(certs_path.exists(), "directory should have been created");
+        // cert/key still missing → error
+        assert!(result.is_err());
+        Ok(())
+    }
+
+    // -------------------------------------------------------------------------
+    // create_pbs_service – TLS cert volume/env
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_create_pbs_service_with_tls_adds_cert_env_and_volume() -> eyre::Result<()> {
+        let mut sc = service_config_with_tls(PathBuf::from("/my/certs"));
+        let service = create_pbs_service(&mut sc)?;
+
+        assert!(has_env_key(&service, SIGNER_TLS_CERTIFICATES_PATH_ENV));
+        assert!(has_volume(&service, SIGNER_TLS_CERTIFICATE_NAME));
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_pbs_service_without_tls_no_cert_env() -> eyre::Result<()> {
+        let mut sc = minimal_service_config();
+        let service = create_pbs_service(&mut sc)?;
+
+        assert!(!has_env_key(&service, SIGNER_TLS_CERTIFICATES_PATH_ENV));
+        assert!(!has_volume(&service, SIGNER_TLS_CERTIFICATE_NAME));
+        Ok(())
+    }
+
+    // -------------------------------------------------------------------------
+    // create_signer_service_local – TLS cert volumes
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_create_signer_service_local_with_tls_adds_cert_and_key_volumes() -> eyre::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let certs_path = dir.path().to_path_buf();
+        std::fs::write(certs_path.join(SIGNER_TLS_CERTIFICATE_NAME), b"cert")?;
+        std::fs::write(certs_path.join(SIGNER_TLS_KEY_NAME), b"key")?;
+
+        let mut sc = service_config_with_tls(certs_path);
+        let signer_config = sc.config_info.cb_config.signer.clone().unwrap();
+        let loader = SignerLoader::File { key_path: "/keys/keys.json".into() };
+        let service = create_signer_service_local(&mut sc, &signer_config, &loader, &None)?;
+
+        assert!(has_volume(&service, SIGNER_TLS_CERTIFICATE_NAME));
+        assert!(has_volume(&service, SIGNER_TLS_KEY_NAME));
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_signer_service_local_without_tls_no_cert_key_volumes() -> eyre::Result<()> {
+        let mut sc = minimal_service_config();
+        let signer_config = local_signer_config();
+        let loader = SignerLoader::File { key_path: "/keys/keys.json".into() };
+        let service = create_signer_service_local(&mut sc, &signer_config, &loader, &None)?;
+
+        // SIGNER_TLS_CERTIFICATES_PATH_ENV is always emitted by the signer service,
+        // but no cert.pem / key.pem volume bindings should exist in insecure mode.
+        assert!(!has_volume(&service, SIGNER_TLS_CERTIFICATE_NAME));
+        assert!(!has_volume(&service, SIGNER_TLS_KEY_NAME));
+        Ok(())
+    }
+
+    // -------------------------------------------------------------------------
+    // create_signer_service_dirk – TLS cert volumes
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_create_signer_service_dirk_with_tls_adds_cert_and_key_volumes() -> eyre::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let certs_path = dir.path().to_path_buf();
+        std::fs::write(certs_path.join(SIGNER_TLS_CERTIFICATE_NAME), b"cert")?;
+        std::fs::write(certs_path.join(SIGNER_TLS_KEY_NAME), b"key")?;
+
+        let mut sc = service_config_with_tls(certs_path);
+        let signer_config = dirk_signer_config();
+        let service = create_signer_service_dirk(
+            &mut sc,
+            &signer_config,
+            Path::new("/certs/client.crt"),
+            Path::new("/certs/client.key"),
+            Path::new("/dirk_secrets"),
+            &None,
+            &None,
+        )?;
+
+        assert!(has_volume(&service, SIGNER_TLS_CERTIFICATE_NAME));
+        assert!(has_volume(&service, SIGNER_TLS_KEY_NAME));
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_signer_service_dirk_without_tls_no_cert_key_volumes() -> eyre::Result<()> {
+        let mut sc = minimal_service_config();
+        let signer_config = dirk_signer_config();
+        let service = create_signer_service_dirk(
+            &mut sc,
+            &signer_config,
+            Path::new("/certs/client.crt"),
+            Path::new("/certs/client.key"),
+            Path::new("/dirk_secrets"),
+            &None,
+            &None,
+        )?;
+
+        assert!(!has_volume(&service, SIGNER_TLS_CERTIFICATE_NAME));
+        assert!(!has_volume(&service, SIGNER_TLS_KEY_NAME));
+        Ok(())
+    }
+
+    // -------------------------------------------------------------------------
+    // create_module_service – TLS cert env/volume
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_create_module_service_with_signer_tls_adds_cert_env_and_volume() -> eyre::Result<()> {
+        let module = commit_module();
+        let mut sc = service_config_with_tls(PathBuf::from("/my/certs"));
+        let (_, service) = create_module_service(&module, "https://cb_signer:20000", &mut sc)?;
+
+        assert!(has_env_key(&service, SIGNER_TLS_CERTIFICATES_PATH_ENV));
+        assert!(has_volume(&service, SIGNER_TLS_CERTIFICATE_NAME));
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_module_service_without_signer_tls_no_cert_env() -> eyre::Result<()> {
+        let module = commit_module();
+        let mut sc = minimal_service_config();
+        let (_, service) = create_module_service(&module, "http://cb_signer:20000", &mut sc)?;
+
+        assert!(!has_env_key(&service, SIGNER_TLS_CERTIFICATES_PATH_ENV));
+        assert!(!has_volume(&service, SIGNER_TLS_CERTIFICATE_NAME));
         Ok(())
     }
 }
