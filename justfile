@@ -11,28 +11,30 @@ fmt-check:
 clippy:
   cargo +{{toolchain}} clippy --all-features --no-deps -- -D warnings
 
+# Everything needed to run before pushing
+checklist:
+  cargo check
+  just fmt
+  just clippy
+  just test
+
 # ===================================
 # === Build Commands for Services ===
 # ===================================
 
 [doc("""
-  Builds the commit-boost-cli binary to './build/<version>'.
+  Builds the commit-boost binary to './build/<version>'.
 """)]
-build-cli version: \
-  (_docker-build-binary version "cli")
+build-bin version: \
+  (_docker-build-binary version "commit-boost")
 
 [doc("""
-  Builds amd64 and arm64 binaries for the commit-boost-cli crate to './build/<version>/<platform>', where '<platform>' is
-  the OS / arch platform of the binary (linux_amd64 and linux_arm64).
+  Builds amd64 and arm64 binaries for the commit-boost crate to './build/<version>/<platform>', where '<platform>' is the
+  OS / arch platform of the binary (linux_amd64 and linux_arm64).
+  Used when creating the pbs Docker image.
 """)]
-build-cli-multiarch version: \
-  (_docker-build-binary-multiarch version "cli")
-
-[doc("""
-  Builds the commit-boost-pbs binary to './build/<version>'.
-""")]
-build-pbs-bin version: \
-  (_docker-build-binary version "pbs")
+build-bin-multiarch version: \
+  (_docker-build-binary-multiarch version "commit-boost")
 
 [doc("""
   Creates a Docker image named 'commit-boost/pbs:<version>' and loads it to the local Docker repository.
@@ -43,19 +45,11 @@ build-pbs-img version: \
   (_docker-build-image version "pbs")
 
 [doc("""
-  Builds the commit-boost-pbs binary to './build/<version>' and creates a Docker image named 'commit-boost/pbs:<version>'.
+  Builds the commit-boost binary to './build/<version>' and creates a Docker image named 'commit-boost/pbs:<version>'.
 """)]
 build-pbs version: \
-  (build-pbs-bin version) \
+  (build-bin version) \
   (build-pbs-img version)
-
-[doc("""
-  Builds amd64 and arm64 binaries for the commit-boost-pbs crate to './build/<version>/<platform>', where '<platform>' is the
-  OS / arch platform of the binary (linux_amd64 and linux_arm64).
-  Used when creating the pbs Docker image.
-""")]
-build-pbs-bin-multiarch version: \
-  (_docker-build-binary-multiarch version "pbs")
 
 [doc("""
   Creates a multiarch Docker image manifest named 'commit-boost/pbs:<version>' and pushes it to a custom Docker registry
@@ -66,21 +60,15 @@ build-pbs-img-multiarch version local-docker-registry: \
   (_docker-build-image-multiarch version "pbs" local-docker-registry)
 
 [doc("""
-  Builds amd64 and arm64 binaries for the commit-boost-pbs crate to './build/<version>/<platform>', where '<platform>' is the
+  Builds amd64 and arm64 binaries for the commit-boost crate to './build/<version>/<platform>', where '<platform>' is the
   OS / arch platform of the binary (linux_amd64 and linux_arm64).
   Creates a multiarch Docker image manifest named 'commit-boost/pbs:<version>' and pushes it to a custom Docker registry
   (such as '192.168.1.10:5000').
   Used for testing multiarch images locally instead of using a public registry like GHCR or Docker Hub.
 """)]
 build-pbs-multiarch version local-docker-registry: \
-  (build-pbs-bin-multiarch version) \
+  (build-bin-multiarch version) \
   (build-pbs-img-multiarch version local-docker-registry)
-
-[doc("""
-  Builds the commit-boost-signer binary to './build/<version>'.
-""")]
-build-signer-bin version: \
-  (_docker-build-binary version "signer")
 
 [doc("""
   Creates a Docker image named 'commit-boost/signer:<version>' and loads it to the local Docker repository.
@@ -91,19 +79,11 @@ build-signer-img version: \
   (_docker-build-image version "signer")
 
 [doc("""
-  Builds the commit-boost-signer binary to './build/<version>' and creates a Docker image named 'commit-boost/signer:<version>'.
+  Builds the commit-boost binary to './build/<version>' and creates a Docker image named 'commit-boost/signer:<version>'.
 """)]
 build-signer version: \
-  (build-signer-bin version) \
+  (build-bin version) \
   (build-signer-img version)
-
-[doc("""
-  Builds amd64 and arm64 binaries for the commit-boost-signer crate to './build/<version>/<platform>', where '<platform>' is 
-  the OS / arch platform of the binary (linux_amd64 and linux_arm64).
-  Used when creating the signer Docker image.
-""")]
-build-signer-bin-multiarch version: \
-  (_docker-build-binary-multiarch version "signer")
 
 [doc("""
   Creates a multiarch Docker image manifest named 'commit-boost/signer:<version>' and pushes it to a custom Docker registry
@@ -114,14 +94,14 @@ build-signer-img-multiarch version local-docker-registry: \
   (_docker-build-image-multiarch version "signer" local-docker-registry)
 
 [doc("""
-  Builds amd64 and arm64 binaries for the commit-boost-signer crate to './build/<version>/<platform>', where '<platform>' is
+  Builds amd64 and arm64 binaries for the commit-boost crate to './build/<version>/<platform>', where '<platform>' is
   the OS / arch platform of the binary (linux_amd64 and linux_arm64).
   Creates a multiarch Docker image manifest named 'commit-boost/signer:<version>' and pushes it to a custom Docker registry
   (such as '192.168.1.10:5000').
   Used for testing multiarch images locally instead of using a public registry like GHCR or Docker Hub.
 """)]
 build-signer-multiarch version local-docker-registry: \
-  (build-signer-bin-multiarch version) \
+  (build-bin-multiarch version) \
   (build-signer-img-multiarch version local-docker-registry)
 
 [doc("""
@@ -131,9 +111,9 @@ build-signer-multiarch version local-docker-registry: \
   'commit-boost/signer:<version>'.
 """)]
 build-all version: \
-  (build-cli version) \
-  (build-pbs version) \
-  (build-signer version)
+  (build-bin version) \
+  (build-pbs-img version) \
+  (build-signer-img version)
 
 [doc("""
   Builds amd64 and arm64 flavors of the CLI, PBS, and Signer binaries and Docker images for the specified version.
@@ -144,9 +124,9 @@ build-all version: \
   Used for testing multiarch images locally instead of using a public registry like GHCR or Docker Hub.
 """)]
 build-all-multiarch version local-docker-registry: \
-  (build-cli-multiarch version) \
-  (build-pbs-multiarch version local-docker-registry) \
-  (build-signer-multiarch version local-docker-registry)
+  (build-bin-multiarch version) \
+  (build-pbs-img-multiarch version local-docker-registry) \
+  (build-signer-img-multiarch version local-docker-registry)
 
 # ===============================
 # === Builder Implementations ===
@@ -159,7 +139,7 @@ _create-docker-builder:
 # Builds a binary for a specific crate and version
 _docker-build-binary version crate: _create-docker-builder
   export PLATFORM=$(docker buildx inspect --bootstrap | awk -F': ' '/Platforms/ {print $2}' | cut -d',' -f1 | xargs | tr '/' '_'); \
-  docker buildx build --rm --platform=local -f provisioning/build.Dockerfile --output "build/{{version}}/$PLATFORM" --target output --build-arg TARGET_CRATE=commit-boost-{{crate}} .
+  docker buildx build --rm --platform=local -f provisioning/build.Dockerfile --output "build/{{version}}/$PLATFORM" --target output --build-arg TARGET_CRATE=commit-boost .
 
 # Builds a Docker image for a specific crate and version
 _docker-build-image version crate: _create-docker-builder
@@ -167,7 +147,7 @@ _docker-build-image version crate: _create-docker-builder
 
 # Builds multiple binaries (for Linux amd64 and arm64 architectures) for a specific crate and version
 _docker-build-binary-multiarch version crate: _create-docker-builder
-  docker buildx build --rm --platform=linux/amd64,linux/arm64 -f provisioning/build.Dockerfile --output build/{{version}} --target output --build-arg TARGET_CRATE=commit-boost-{{crate}} .
+  docker buildx build --rm --platform=linux/amd64,linux/arm64 -f provisioning/build.Dockerfile --output build/{{version}} --target output --build-arg TARGET_CRATE=commit-boost .
 
 # Builds a multi-architecture (Linux amd64 and arm64) Docker manifest for a specific crate and version.
 # Uploads to the custom Docker registry (such as '192.168.1.10:5000') instead of a public registry like GHCR or Docker Hub.
@@ -193,3 +173,99 @@ clean:
 # Runs the suite of tests for all commit-boost crates.
 test:
     cargo test --all-features
+
+# =====================
+# === Test Coverage ===
+# =====================
+
+# Generate an HTML test coverage report and open it in the browser.
+# Recompiles the workspace with LLVM coverage instrumentation, runs all tests,
+# and writes the report to target/llvm-cov/html/index.html.
+# Incremental recompilation works normally — no need to clean between runs.
+# If results look wrong after upgrading cargo-llvm-cov, run `just coverage-clean` first.
+# Requires: cargo install cargo-llvm-cov && rustup component add llvm-tools-preview
+coverage:
+  cargo llvm-cov --all-features --html --open
+
+# Print a quick coverage summary to the terminal without opening a browser.
+coverage-summary:
+  cargo llvm-cov --all-features --summary-only
+
+# Remove all coverage instrumentation artifacts produced by cargo-llvm-cov.
+coverage-clean:
+  cargo llvm-cov clean --workspace
+
+# =======================
+# === Microbenchmarks ===
+# =======================
+#
+# Development Loop:
+#   1. Run the current bench:  just bench dev
+#   2. Update code
+#   3. Re-run the bench, logging the diff from the last run:  just bench dev
+
+# Regression Test:
+#   1. Save a baseline on the main branch:  just bench main
+#   2. On a PR branch, compare against it:  just bench-compare main
+
+[doc("""
+  Install tools required by the bench-* commands.
+  - cargo-criterion: CLI runner for Criterion benchmarks with richer output
+  - critcmp:         baseline diffing tool used by bench-compare
+""")]
+bench-install-tools:
+  cargo install cargo-criterion critcmp
+
+[doc("""
+  Run microbenchmarks and save results as a named baseline. Example: just bench main
+
+  Compares against the last benchmark run of any kind, not the previous save of
+  this baseline name. Useful for tracking incremental changes since your last run.
+  For accurate baseline comparisons, use bench-compare instead.
+""")]
+bench baseline:
+  cargo bench --package cb-bench-micro -- --save-baseline {{baseline}}
+
+[doc("""
+  Run microbenchmarks, save results as "current", then diff against a named baseline.
+  Example: just bench-compare main
+""")]
+bench-compare baseline:
+  cargo bench --package cb-bench-micro -- --save-baseline current
+  critcmp {{baseline}} current
+
+# =================
+# === Kurtosis ===
+# =================
+
+# Tear down and clean up all enclaves
+kurtosis-clean:
+  kurtosis clean -a
+
+# Clean all enclaves and restart the testnet
+kurtosis-restart:
+  just kurtosis-clean
+  kurtosis run github.com/ethpandaops/ethereum-package \
+    --enclave CB-Testnet \
+    --args-file provisioning/kurtosis-config.yml
+
+# Build local docker images and restart testnet
+kurtosis-build:
+  just build-all kurtosis
+  just kurtosis-restart
+
+# Inspect running enclave
+kurtosis-inspect:
+  kurtosis enclave inspect CB-Testnet
+
+# Tail logs for a specific service: just kurtosis-logs <service>
+kurtosis-logs service:
+  kurtosis service logs CB-Testnet {{service}} --follow
+
+# Shell into a specific service: just kurtosis-shell <service>
+kurtosis-shell service:
+  kurtosis service shell CB-Testnet {{service}}
+
+# Dump enclave state to disk for post-mortem
+kurtosis-dump:
+  kurtosis enclave dump CB-Testnet ./kurtosis-dump

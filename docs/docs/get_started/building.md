@@ -14,15 +14,15 @@ The build system assumes that you've added your user account to the `docker` gro
 
 The Docker builder is built into the project's `justfile` which is used to invoke many facets of Commit Boost development. To use it, you'll need to install [Just](https://github.com/casey/just) on your system.
 
-Use `just --list` to show all of the actions - there are many. The `justfile` provides granular actions, called "recipes", for building just the binaries of a specific crate (such as the CLI, `pbs`, or `signer`), as well as actions to build the Docker images for the PBS and Signer modules.
+Use `just --list` to show all of the actions - there are many. The `justfile` provides granular actions, called "recipes", for building just the binaries of a specific crate (such as the CLI, `pbs`, or `signer`), as well as actions to build the Docker images for the PBS and Signer services.
 
 Below is a brief summary of the relevant ones for building the Commit-Boost artifacts:
 
-- `build-all <version>` will build the `commit-boost-cli`, `commit-boost-pbs`, and `commit-boost-signer` binaries for your local system architecture. It will also create Docker images called `commit-boost/pbs:<version>` and `commit-boost/signer:<version>` and load them into your local Docker registry for use.
-- `build-cli-bin <version>`, `build-pbs-bin <version>`, and `build-signer-bin <version>` can be used to create the `commit-boost-cli`, `commit-boost-pbs`, and `commit-boost-signer` binaries, respectively.
-- `build-pbs-img <version>` and `build-signer-img <version>` can be used to create the Docker images for the PBS and Signer modules, respectively.
+- `build-all <version>` will build the `commit-boost` binary for your local system architecture. It will also create Docker images called `commit-boost/pbs:<version>` and `commit-boost/signer:<version>` and load them into your local Docker registry for use.
+- `build-bin <version>` can be used to create the `commit-boost` binary itself.
+- `build-pbs-img <version>` and `build-signer-img <version>` can be used to create the Docker images for the PBS and Signer services, respectively.
 
-The `version` provided will be used to house the output binaries in `./build/<version>`, and act as the version tag for the Docker images when they're added to your local system or uploaded to your local Docker repository.
+The `version` provided will be used to house the output binaries in `./build/<version>`, and act as the version tag for the Docker images when they're added to your local system or uploaded to your local Docker repository. For example, using `$(git rev-parse --short HEAD)` will set the version to the current commit hash.
 
 If you're interested in building the binaries and/or Docker images for multiple architectures (currently Linux `amd64` and `arm64`), use the variants of those recipes that have the `-multiarch` suffix. Note that building a multiarch Docker image manifest will require the use of a [custom Docker registry](https://www.digitalocean.com/community/tutorials/how-to-set-up-a-private-docker-registry-on-ubuntu-20-04), as the local registry built into Docker does not have multiarch manifest support.
 
@@ -81,31 +81,25 @@ git submodule update --init --recursive
 
 Your build environment should now be ready to use.
 
-### Building the CLI
+### Building the Binary
 
-To build the CLI, run:
-
-```
-cargo build --release --bin commit-boost-cli
-```
-
-This will create a binary in `./target/release/commit-boost-cli`. Confirm that it works:
+To build the binary, run:
 
 ```
-./target/release/commit-boost-cli --version
+just build-bin <version>
+```
+
+This will create a binary in `build/<version>/<OS and arch>`, for example `build/206658b/linux_amd64/`. Confirm that it works:
+
+```
+./build/<version>/<OS and arch>/commit-boost --version
 ```
 
 You can now use this to generate the Docker Compose file to drive the other modules if desired. See the [configuration](./configuration.md) guide for more information.
 
-### Building the PBS Module
+### Verifying the PBS Service
 
-To build PBS, run:
-
-```
-cargo build --release --bin commit-boost-pbs
-```
-
-This will create a binary in `./target/release/commit-boost-pbs`. To verify it works, create [a TOML configuration](./configuration.md) for the PBS module (e.g., `cb-config.toml`).
+To verify the PBS service works, create [a TOML configuration](./configuration.md) for the PBS module (e.g., `cb-config.toml`).
 
 As a quick example, we'll use this configuration that connects to the Flashbots relay on the Hoodi network:
 
@@ -134,7 +128,7 @@ secrets_path = "/tmp/secrets"
 Set the path to it in the `CB_CONFIG` environment variable and run the binary:
 
 ```
-CB_CONFIG=cb-config.toml ./target/release/commit-boost-pbs
+CB_CONFIG=cb-config.toml ./build/<version>/<OS and arch>/commit-boost pbs
 ```
 
 If it works, you should see output like this:
@@ -146,17 +140,11 @@ If it works, you should see output like this:
 2025-05-07T21:09:17.896196Z  INFO : relay check successful method=/eth/v1/builder/status req_id=5c405c33-0496-42ea-a35d-a7a01dbba356
 ```
 
-If you do, then the binary works.
+If you do, then the PBS service works.
 
-### Building the Signer Module
+### Verifying the Signer Module
 
-To build the Signer, run:
-
-```
-cargo build --release --bin commit-boost-signer
-```
-
-This will create a binary in `./target/release/commit-boost-signer`. To verify it works, create [a TOML configuration](./configuration.md) for the Signer module (e.g., `cb-config.toml`). We'll use the example in the PBS build section above.
+To verify the Signer service works, create [a TOML configuration](./configuration.md) for the Signer module (e.g., `cb-config.toml`). We'll use the example in the PBS section above.
 
 The signer needs the following environment variables set:
 
@@ -167,7 +155,7 @@ Set these values, create the `keys` and `secrets` directories listed in the conf
 
 ```
 mkdir -p /tmp/keys && mkdir -p /tmp/secrets
-CB_CONFIG=cb-config.toml CB_JWTS="test_jwts=dummy" ./target/release/commit-boost-signer
+CB_CONFIG=cb-config.toml CB_JWTS="test_jwts=dummy" ./build/<version>/<OS and arch>/commit-boost signer
 ```
 
 You should see output like this:

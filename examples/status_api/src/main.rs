@@ -95,7 +95,7 @@ async fn main() -> Result<()> {
 
     let (pbs_config, extra) = load_pbs_custom_config::<ExtraConfig>().await?;
     let chain = pbs_config.chain;
-    let _guard = initialize_tracing_log(PBS_MODULE_NAME, LogsSettings::from_env_config()?)?;
+    let _guard = initialize_tracing_log(PBS_SERVICE_NAME, LogsSettings::from_env_config()?)?;
 
     let custom_state = MyBuilderState::from_config(extra);
     let empty_config_path = PathBuf::new();

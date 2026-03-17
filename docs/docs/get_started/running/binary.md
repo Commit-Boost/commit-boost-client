@@ -57,7 +57,7 @@ Modules might also have additional envs required, which should be detailed by th
 After creating the `cb-config.toml` file, setup the required envs and run the binary. For example:
 
 ```bash
-CB_CONFIG=./cb-config.toml commit-boost-pbs
+CB_CONFIG=./cb-config.toml commit-boost pbs
 ```
 
 ## Security

@@ -11,13 +11,15 @@ use tonic::transport::{Certificate, Identity};
 use url::Url;
 
 use super::{
-    CommitBoostConfig, SIGNER_ENDPOINT_ENV, SIGNER_IMAGE_DEFAULT,
-    SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT, SIGNER_JWT_AUTH_FAIL_LIMIT_ENV,
-    SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT, SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_ENV,
-    SIGNER_PORT_DEFAULT, load_jwt_secrets, load_optional_env_var, utils::load_env_var,
+    CommitBoostConfig, SIGNER_ENDPOINT_ENV, SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT,
+    SIGNER_JWT_AUTH_FAIL_LIMIT_ENV, SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT,
+    SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_ENV, SIGNER_PORT_DEFAULT, load_jwt_secrets,
+    load_optional_env_var, utils::load_env_var,
 };
 use crate::{
-    config::{DIRK_CA_CERT_ENV, DIRK_CERT_ENV, DIRK_DIR_SECRETS_ENV, DIRK_KEY_ENV},
+    config::{
+        DIRK_CA_CERT_ENV, DIRK_CERT_ENV, DIRK_DIR_SECRETS_ENV, DIRK_KEY_ENV, SIGNER_IMAGE_DEFAULT,
+    },
     signer::{ProxyStore, SignerLoader},
     types::{Chain, ModuleId},
     utils::{default_host, default_u16, default_u32},
@@ -32,6 +34,7 @@ pub struct SignerConfig {
     /// Port to listen for signer API calls on
     #[serde(default = "default_u16::<SIGNER_PORT_DEFAULT>")]
     pub port: u16,
+
     /// Docker image of the module
     #[serde(default = "default_signer_image")]
     pub docker_image: String,

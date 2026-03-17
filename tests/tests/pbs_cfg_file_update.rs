@@ -28,7 +28,7 @@ async fn test_cfg_file_update() -> Result<()> {
     let pubkey = signer.public_key();
 
     let chain = Chain::Hoodi;
-    let pbs_port = 3720;
+    let pbs_port = 3730;
 
     // Start relay 1
     let relay1_port = pbs_port + 1;
@@ -69,7 +69,7 @@ async fn test_cfg_file_update() -> Result<()> {
     let cb_config = CommitBoostConfig {
         chain,
         pbs: StaticPbsConfig {
-            docker_image: String::new(),
+            docker_image: "cb-fake-repo/cb-fake-image:latest".to_string(),
             pbs_config: pbs_config.clone(),
             with_signer: false,
         },
@@ -120,7 +120,11 @@ async fn test_cfg_file_update() -> Result<()> {
     // Update the config to only have relay 2
     let cb_config = CommitBoostConfig {
         chain,
-        pbs: StaticPbsConfig { docker_image: String::new(), pbs_config, with_signer: false },
+        pbs: StaticPbsConfig {
+            docker_image: "cb-fake-repo/cb-fake-image:latest".to_string(),
+            pbs_config,
+            with_signer: false,
+        },
         muxes: None,
         modules: None,
         signer: None,

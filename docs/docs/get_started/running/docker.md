@@ -3,13 +3,13 @@ description: Run Commit-Boost with Docker
 ---
 
 # Docker
-The Commit-Boost CLI generates a dynamic `docker-compose.yml` file using the provided `.toml` config file. This is the recommended approach as Docker provides sandboxing of the containers from the rest of your system.
+The Commit-Boost program generates a dynamic `docker-compose.yml` file using the provided `.toml` config file. This is the recommended approach as Docker provides sandboxing of the containers from the rest of your system.
 
 ## Init
 
 First run:
 ```bash
-commit-boost-cli init --config cb-config.toml
+commit-boost init --config cb-config.toml
 ```
 This will create up to three files:
 - `cb.docker-compose.yml` which contains the full setup of the Commit-Boost services.
@@ -73,9 +73,9 @@ Note that there are many more parameters that Commit-Boost supports, but they ar
 The relays here are placeholder for the sake of the example; for a list of actual relays, visit [the EthStaker relay list](https://github.com/eth-educators/ethstaker-guides/blob/main/MEV-relay-list.md).
 
 
-### Commit-Boost CLI Output
+### Commit-Boost Init Output
 
-Run `commit-boost-cli init --config cb-config.toml` with the above configuration, the CLI will produce the following Docker Compose file:
+Run `commit-boost init --config cb-config.toml` with the above configuration, the program will produce the following Docker Compose file:
 
 ```
 services:
@@ -102,14 +102,14 @@ This will run the PBS service in a container named `cb_pbs`.
 
 ### Configuration File Volume
 
-The CLI creates a read-only volume binding for the config file, which the PBS service needs to run. The Docker compose file that it creates with the `init` command, `cb.docker-compose.yml`, will be placed into your current working directory when you run the CLI. The volume source will be specified as a *relative path* to that working directory, so it's ideal if the config file is directly within your working directory (or a subdirectory). If you need to specify an absolute path for the config file, you can adjust the `volumes` entry within the Docker compose file manually after its creation.
+The program creates a read-only volume binding for the config file, which the PBS service needs to run. The Docker compose file that it creates with the `init` command, `cb.docker-compose.yml`, will be placed into your current working directory when you run the program. The volume source will be specified as a *relative path* to that working directory, so it's ideal if the config file is directly within your working directory (or a subdirectory). If you need to specify an absolute path for the config file, you can adjust the `volumes` entry within the Docker compose file manually after its creation.
 
 Since this is a volume, the PBS service container will reload the file from disk any time it's restarted. That means you can change the file any time after the Docker compose file is created to tweak PBS's parameters, but it also means the config file must stay in the same location; if you move it, the PBS container won't be able to mount it anymore and fail to start unless you manually adjust the volume's source location.
 
 
 ### Networking
 
-The CLI will force the PBS service to bind to `0.0.0.0` within Docker's internal network so other Docker containers can access it, but it will only expose the API port (default `18550`) to `127.0.0.1` on your host machine. That way any processes running on the same machine can access it on that port. If you want to open the port for access across your entire network, not just your local machine, you can add the line:
+The program will force the PBS service to bind to `0.0.0.0` within Docker's internal network so other Docker containers can access it, but it will only expose the API port (default `18550`) to `127.0.0.1` on your host machine. That way any processes running on the same machine can access it on that port. If you want to open the port for access across your entire network, not just your local machine, you can add the line:
 
 ```
 host = "0.0.0.0"
@@ -124,7 +124,7 @@ to the `[pbs]` section in the configuration. This will cause the resulting `port
 
 though you will need to add an entry to your local machine's firewall software (if applicable) for other machines to access it.
 
-Currently, the CLI will always export the PBS service's API port in one of these two ways. If you don't want to expose it at all, so it can only be accessed by other Docker containers running within Docker's internal network, you will need to manually remove the `ports` entry from the Docker compose file after it's been created:
+Currently, the program will always export the PBS service's API port in one of these two ways. If you don't want to expose it at all, so it can only be accessed by other Docker containers running within Docker's internal network, you will need to manually remove the `ports` entry from the Docker compose file after it's been created:
 
 ```
     ports: []
@@ -177,9 +177,9 @@ The relays here are placeholder for the sake of the example; for a list of actua
 In this scenario there are two folders in the same directory as the configuration file (the working directory): `keys` and `secrets`. These correspond to the folders containing the [EIP-2335 keystores](../configuration.md#local-signer) and secrets in Lighthouse format. For your own keys, adjust the `format` parameter within the configuration and directory paths accordingly.
 
 
-### Commit-Boost CLI Output
+### Commit-Boost Init Output
 
-Run `commit-boost-cli init --config cb-config.toml` with the above configuration, the CLI will produce two files:
+Run `commit-boost init --config cb-config.toml` with the above configuration, the program will produce two files:
 
 - `cb.docker-compose.yml`
 - `.cb.env`
@@ -261,7 +261,7 @@ CB_JWT_DA_COMMIT=mwDSSr7chwy9eFf7RhedBoyBtrwFUjSQ
 CB_JWTS=DA_COMMIT=mwDSSr7chwy9eFf7RhedBoyBtrwFUjSQ
 ```
 
-The Signer service needs JWT authentication from each of its modules. The CLI creates these and embeds them into the containers via environment variables automatically for convenience. This is demonstrated for the Signer module within the `environment` compose block: the `CB_JWTS: ${CB_JWTS}` forwards the `CB_JWTS` environment variable that's present when running Docker compose. The CLI requests that you do so via the command `docker compose --env-file "./.cb.env" -f "./cb.docker-compose.yml" up -d`; the `--env-file "./.cb.env"` handles loading the CLI's JWT output into this environment variable.
+The Signer service needs JWT authentication from each of its modules. The program creates these and embeds them into the containers via environment variables automatically for convenience. This is demonstrated for the Signer module within the `environment` compose block: the `CB_JWTS: ${CB_JWTS}` forwards the `CB_JWTS` environment variable that's present when running Docker compose. The program requests that you do so via the command `docker compose --env-file "./.cb.env" -f "./cb.docker-compose.yml" up -d`; the `--env-file "./.cb.env"` handles loading the program's JWT output into this environment variable.
 
 Similarly, for the `cb_da_commit` module, the `CB_SIGNER_JWT: ${CB_JWT_DA_COMMIT}` line within its `environment` block will set the JWT that it should use to authenticate with the Signer service.
 
@@ -273,7 +273,7 @@ As with the PBS-only example, the configuration file is placed into a read-only 
 
 ### Networking
 
-The CLI will force both the PBS and Signer API endpoints to bind to `0.0.0.0` within Docker's internal network so other Docker containers can access them, but it will only expose the API port (default `18550` for PBS and `20000` for the Signer) to `127.0.0.1` on your host machine. That way any processes running on the same machine can access them on their respective ports. If you want to open the ports for access across your entire network, not just your local machine, you can add the line:
+The program will force both the PBS and Signer API endpoints to bind to `0.0.0.0` within Docker's internal network so other Docker containers can access them, but it will only expose the API port (default `18550` for PBS and `20000` for the Signer) to `127.0.0.1` on your host machine. That way any processes running on the same machine can access them on their respective ports. If you want to open the ports for access across your entire network, not just your local machine, you can add the line:
 
 ```
 host = "0.0.0.0"
@@ -296,7 +296,7 @@ to both the `[pbs]` and `[signer]` sections in the configuration. This will caus
 
 though you will need to add entries to your local machine's firewall software (if applicable) for other machines to access them.
 
-Currently, the CLI will always export the PBS and Signer services' API ports in one of these two ways. If you don't want to expose them at all, so they can only be accessed by other Docker containers running within Docker's internal network, you will need to manually remove the `ports` entries from the Docker compose files after they've been created:
+Currently, the program will always export the PBS and Signer services' API ports in one of these two ways. If you don't want to expose them at all, so they can only be accessed by other Docker containers running within Docker's internal network, you will need to manually remove the `ports` entries from the Docker compose files after they've been created:
 
 ```
     ports: []
