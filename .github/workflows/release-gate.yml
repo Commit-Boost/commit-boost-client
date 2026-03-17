@@ -1,0 +1,96 @@
+name: Release Gate
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+jobs:
+  release-gate:
+    name: Tag and update release branches
+    runs-on: ubuntu-latest
+    # Only run when a release/ branch is merged (not just closed)
+    if: |
+      github.event.pull_request.merged == true &&
+      startsWith(github.event.pull_request.head.ref, 'release/v')
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          # Full history required for version comparison against existing tags
+          # and for the fast-forward push to stable/beta.
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Extract and validate version
+        id: version
+        env:
+          BRANCH_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          BRANCH="$BRANCH_REF"
+          NEW_VERSION="${BRANCH#release/}"
+          echo "new=${NEW_VERSION}" >> $GITHUB_OUTPUT
+
+          # Determine if this is an RC
+          if echo "$NEW_VERSION" | grep -qE '\-rc[0-9]+$'; then
+            echo "is_rc=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_rc=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Validate version is strictly increasing
+        env:
+          NEW_VERSION: ${{ steps.version.outputs.new }}
+        run: |
+          # Get the latest tag; if none exist yet, skip the comparison
+          LATEST_TAG=$(git tag --list 'v*' --sort=-version:refname | head -n1)
+          if [ -z "$LATEST_TAG" ]; then
+            echo "No existing tags found — skipping version comparison"
+            exit 0
+          fi
+
+          LATEST_VERSION="${LATEST_TAG#v}"
+
+          python3 - <<EOF
+          import sys
+          from packaging.version import Version
+
+          def normalize(v):
+              # Convert vX.Y.Z-rcQ → X.Y.ZrcQ (PEP 440)
+              return v.replace("-rc", "rc")
+
+          new    = Version(normalize("$NEW_VERSION"))
+          latest = Version(normalize("$LATEST_VERSION"))
+
+          print(f"Latest tag : {latest}")
+          print(f"New version: {new}")
+
+          if new <= latest:
+              print(f"\n❌ {new} is not strictly greater than current {latest}")
+              sys.exit(1)
+
+          print(f"\n✅ Version order is valid")
+          EOF
+
+      - name: Configure git
+        run: |
+          git config user.name  "commit-boost-release-bot[bot]"
+          git config user.email "commit-boost-release-bot[bot]@users.noreply.github.com"
+
+      - name: Create and push tag
+        env:
+          VERSION: ${{ steps.version.outputs.new }}
+        run: |
+          git tag "$VERSION" HEAD
+          git push origin "$VERSION"
+          # Branch fast-forwarding happens in release.yml after all artifacts
+          # are successfully built. stable/beta are never touched if the build fails.
