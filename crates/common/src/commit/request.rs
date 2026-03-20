@@ -319,6 +319,29 @@ mod tests {
     }
 
     #[test]
+    fn test_reload_request_jwt_secrets_present() {
+        let data = r#"{"jwt_secrets": "module_a=secret1,module_b=secret2"}"#;
+        let req: ReloadRequest = serde_json::from_str(data).unwrap();
+        let secrets = req.jwt_secrets.expect("should have secrets");
+        assert_eq!(secrets.get(&ModuleId("module_a".into())), Some(&"secret1".to_string()));
+        assert_eq!(secrets.get(&ModuleId("module_b".into())), Some(&"secret2".to_string()));
+    }
+
+    #[test]
+    fn test_reload_request_jwt_secrets_absent() {
+        let data = r#"{}"#;
+        let req: ReloadRequest = serde_json::from_str(data).unwrap();
+        assert!(req.jwt_secrets.is_none());
+    }
+
+    #[test]
+    fn test_reload_request_jwt_secrets_invalid_format() {
+        // Missing '=' separator — decode_string_to_map should fail
+        let data = r#"{"jwt_secrets": "bad_value_no_equals"}"#;
+        assert!(serde_json::from_str::<ReloadRequest>(data).is_err());
+    }
+
+    #[test]
     fn test_decode_response_proxy_map() {
         let data = r#"{
             "keys": [

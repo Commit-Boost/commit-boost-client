@@ -344,7 +344,6 @@ fn create_signer_service_local(
     let mut envs = IndexMap::from([
         get_env_val(CONFIG_ENV, CONFIG_DEFAULT),
         get_env_same(JWTS_ENV),
-        get_env_same(JWTS_ENV),
         get_env_same(ADMIN_JWT_ENV),
         get_env_val(SIGNER_TLS_CERTIFICATES_PATH_ENV, SIGNER_TLS_CERTIFICATES_PATH_DEFAULT),
     ]);

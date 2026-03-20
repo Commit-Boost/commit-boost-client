@@ -572,8 +572,14 @@ pub fn bls_pubkey_from_hex_unchecked(hex: &str) -> BlsPublicKey {
 mod test {
     use alloy::primitives::keccak256;
 
-    use super::{create_jwt, decode_jwt, validate_jwt};
-    use crate::types::{Jwt, ModuleId};
+    use super::{
+        create_admin_jwt, create_jwt, decode_admin_jwt, decode_jwt, random_jwt_secret,
+        validate_admin_jwt, validate_jwt,
+    };
+    use crate::{
+        constants::SIGNER_JWT_EXPIRATION,
+        types::{Jwt, JwtAdminClaims, ModuleId},
+    };
 
     #[test]
     fn test_jwt_validation_no_payload_hash() {
@@ -636,5 +642,147 @@ mod test {
         let response = validate_jwt(invalid_jwt, "secret", "/test/route", Some(&payload_bytes));
         assert!(response.is_err());
         assert_eq!(response.unwrap_err().to_string(), "InvalidSignature");
+    }
+
+    // ── validate_jwt: route and secret errors ────────────────────────────────
+
+    #[test]
+    fn test_validate_jwt_wrong_route() {
+        let jwt = create_jwt(&ModuleId("MOD".into()), "secret", "/correct/route", None).unwrap();
+        let err = validate_jwt(jwt, "secret", "/wrong/route", None).unwrap_err();
+        assert!(err.to_string().contains("Token route does not match"));
+    }
+
+    #[test]
+    fn test_validate_jwt_wrong_secret() {
+        let jwt = create_jwt(&ModuleId("MOD".into()), "correct_secret", "/route", None).unwrap();
+        let err = validate_jwt(jwt, "wrong_secret", "/route", None).unwrap_err();
+        assert_eq!(err.to_string(), "InvalidSignature");
+    }
+
+    // ── validate_jwt: payload hash mismatch branches ─────────────────────────
+
+    #[test]
+    fn test_validate_jwt_payload_hash_mismatch() {
+        let payload_a = b"payload_a";
+        let payload_b = b"payload_b";
+        let jwt = create_jwt(&ModuleId("MOD".into()), "secret", "/route", Some(payload_a)).unwrap();
+        let err = validate_jwt(jwt, "secret", "/route", Some(payload_b)).unwrap_err();
+        assert!(err.to_string().contains("Payload hash does not match"));
+    }
+
+    #[test]
+    fn test_validate_jwt_hash_present_but_no_payload_provided() {
+        let payload = b"some payload";
+        let jwt = create_jwt(&ModuleId("MOD".into()), "secret", "/route", Some(payload)).unwrap();
+        let err = validate_jwt(jwt, "secret", "/route", None).unwrap_err();
+        assert!(
+            err.to_string().contains("JWT contains a payload hash but no payload was provided")
+        );
+    }
+
+    #[test]
+    fn test_validate_jwt_no_hash_but_payload_provided() {
+        let jwt = create_jwt(&ModuleId("MOD".into()), "secret", "/route", None).unwrap();
+        let err = validate_jwt(jwt, "secret", "/route", Some(b"unexpected")).unwrap_err();
+        assert!(err.to_string().contains("JWT does not contain a payload hash"));
+    }
+
+    // ── admin JWT roundtrip ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_admin_jwt_roundtrip_no_payload() {
+        let jwt = create_admin_jwt("admin_secret".into(), "/admin/route", None).unwrap();
+        let claims = decode_admin_jwt(jwt.clone()).unwrap();
+        assert!(claims.admin);
+        assert_eq!(claims.route, "/admin/route");
+        assert!(claims.payload_hash.is_none());
+        validate_admin_jwt(jwt, "admin_secret", "/admin/route", None).unwrap();
+    }
+
+    #[test]
+    fn test_admin_jwt_roundtrip_with_payload() {
+        let payload = b"admin payload";
+        let jwt = create_admin_jwt("admin_secret".into(), "/admin/route", Some(payload)).unwrap();
+        let claims = decode_admin_jwt(jwt.clone()).unwrap();
+        assert!(claims.admin);
+        assert_eq!(claims.payload_hash, Some(keccak256(payload)));
+        validate_admin_jwt(jwt, "admin_secret", "/admin/route", Some(payload)).unwrap();
+    }
+
+    // ── validate_admin_jwt: route, secret, admin flag errors ─────────────────
+
+    #[test]
+    fn test_validate_admin_jwt_wrong_route() {
+        let jwt = create_admin_jwt("admin_secret".into(), "/correct/route", None).unwrap();
+        let err = validate_admin_jwt(jwt, "admin_secret", "/wrong/route", None).unwrap_err();
+        assert!(err.to_string().contains("Token route does not match"));
+    }
+
+    #[test]
+    fn test_validate_admin_jwt_wrong_secret() {
+        let jwt = create_admin_jwt("correct_secret".into(), "/route", None).unwrap();
+        let err = validate_admin_jwt(jwt, "wrong_secret", "/route", None).unwrap_err();
+        assert_eq!(err.to_string(), "InvalidSignature");
+    }
+
+    #[test]
+    fn test_validate_admin_jwt_admin_false() {
+        // Craft a JWT whose claims have admin: false — something create_admin_jwt
+        // never produces — to exercise the explicit admin flag guard.
+        let claims = JwtAdminClaims {
+            admin: false,
+            route: "/route".into(),
+            exp: jsonwebtoken::get_current_timestamp() + SIGNER_JWT_EXPIRATION,
+            payload_hash: None,
+        };
+        let token = jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret(b"secret"),
+        )
+        .unwrap();
+        let jwt = Jwt::from(token);
+        let err = validate_admin_jwt(jwt, "secret", "/route", None).unwrap_err();
+        assert!(err.to_string().contains("Token is not admin"));
+    }
+
+    // ── validate_admin_jwt: payload hash mismatch branches ───────────────────
+
+    #[test]
+    fn test_validate_admin_jwt_payload_hash_mismatch() {
+        let payload_a = b"admin_payload_a";
+        let payload_b = b"admin_payload_b";
+        let jwt = create_admin_jwt("secret".into(), "/route", Some(payload_a)).unwrap();
+        let err = validate_admin_jwt(jwt, "secret", "/route", Some(payload_b)).unwrap_err();
+        assert!(err.to_string().contains("Payload hash does not match"));
+    }
+
+    #[test]
+    fn test_validate_admin_jwt_hash_present_but_no_payload_provided() {
+        let payload = b"admin payload";
+        let jwt = create_admin_jwt("secret".into(), "/route", Some(payload)).unwrap();
+        let err = validate_admin_jwt(jwt, "secret", "/route", None).unwrap_err();
+        assert!(
+            err.to_string().contains("JWT contains a payload hash but no payload was provided")
+        );
+    }
+
+    #[test]
+    fn test_validate_admin_jwt_no_hash_but_payload_provided() {
+        let jwt = create_admin_jwt("secret".into(), "/route", None).unwrap();
+        let err = validate_admin_jwt(jwt, "secret", "/route", Some(b"unexpected")).unwrap_err();
+        assert!(err.to_string().contains("JWT does not contain a payload hash"));
+    }
+
+    // ── random_jwt_secret ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_random_jwt_secret() {
+        let secret = random_jwt_secret();
+        assert_eq!(secret.len(), 32);
+        assert!(secret.chars().all(|c| c.is_ascii_alphanumeric()));
+        // Two calls should produce distinct values with overwhelming probability.
+        assert_ne!(secret, random_jwt_secret());
     }
 }

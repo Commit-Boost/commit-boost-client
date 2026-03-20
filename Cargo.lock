@@ -1825,6 +1825,7 @@ dependencies = [
  "serde_yaml",
  "sha2 0.10.9",
  "ssz_types",
+ "tempfile",
  "thiserror 2.0.17",
  "tokio",
  "toml",
