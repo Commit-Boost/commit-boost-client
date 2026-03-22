@@ -1,4 +1,4 @@
-toolchain := "nightly-2025-06-26"
+toolchain := "nightly-2026-01-01"
 
 fmt:
   rustup toolchain install {{toolchain}} > /dev/null 2>&1 && \
@@ -17,6 +17,7 @@ checklist:
   just fmt
   just clippy
   just test
+  cargo audit
 
 # ===================================
 # === Build Commands for Services ===

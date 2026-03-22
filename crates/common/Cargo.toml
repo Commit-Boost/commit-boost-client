@@ -52,6 +52,7 @@ tree_hash.workspace = true
 tree_hash_derive.workspace = true
 unicode-normalization.workspace = true
 url.workspace = true
+reqwest-eventsource = "=0.5.0"
 
 [dev-dependencies]
   tempfile.workspace = true
