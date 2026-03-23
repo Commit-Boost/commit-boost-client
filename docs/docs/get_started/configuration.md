@@ -9,6 +9,27 @@ Commit-Boost needs a configuration file detailing all the services that you want
 - For a full explanation of all the fields, check out [here](https://github.com/Commit-Boost/commit-boost-client/blob/main/config.example.toml).
 - For some additional examples on config presets, check out [here](https://github.com/Commit-Boost/commit-boost-client/tree/main/configs).
 
+## Validation
+
+The PBS service can be configured to perform various levels of validation against both builder bid requests and unblinded blocks returned by relays. This allows the user to trade-off between speed and safety.
+
+For requesting builder bids, you can specify the `header_validation_mode` setting within the `[pbs]` configuration section. It has three modes:
+
+- `header_validation_mode = "none"`: The bids returned by the relay will not undergo any validation, and they will only be partially decoded to check the fork version and the value. The bid with the highest value will still be returned, but the PBS service won't check to confirm whether or not the bid is actually legal. We recommend that this only gets used when you absolutely trust each relay you've configured.
+
+- `header_validation_mode = "standard"`: The bids returned by the relay will be fully decoded and validated against the expected request (such as a matching parent hash, correct relay signature, and so on). This takes a small amount of extra computing power but ensures any invalid bids will be ignored.
+
+- `header_validation_mode = "extra"`: Performs all of the `standard` validation, plus ensures the block number is correct and the block's gas limit is legal. Requires the `rpc_url` parameter to be set, so the PBS service can query an Execution Client to confirm those details.
+
+For submitting signed blinded blocks and retrieving unblinded blocks, you can specify the `block_validation_mode` setting:
+
+- `block_validation_mode = "none"`: The unblinded blocks returned by the relay will not undergo any validation, and they will only be partially decoded to check that the fork version is correct. The unblinded block won't be checked to verify that it matches the original blinded block you submitted. We recommend that this only gets used when you absolutely trust each relay you've configured.
+
+  Blocks will be returned directly from the relay to the Beacon Node, and may not necessarily be in a format the Beacon Node requested.  For example, if the Beacon Node sends the signed blinded block as SSZ, but the relay only accepts JSON, it will return the unblinded block to the Beacon Node as JSON rather than having the PBS service re-encode it into SSZ. Whether or not this is supported is an implementation detail of the particular Beacon Node you're using.
+
+- `block_validation_mode = "standard"`: The unblinded blocks returned by the relay will be fully decoded and validated to ensure they match the original request, and are valid according to the rules of the Beacon Chain. This takes a small amount of extra computing power but ensures the block was properly unblinded.
+
+
 ## Minimal PBS Setup on Hoodi
 
 ```toml

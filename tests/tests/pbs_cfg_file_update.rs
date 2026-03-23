@@ -2,7 +2,10 @@ use std::{collections::HashSet, net::Ipv4Addr, sync::Arc, time::Duration};
 
 use alloy::primitives::U256;
 use cb_common::{
-    config::{CommitBoostConfig, LogsSettings, PbsConfig, RelayConfig, StaticPbsConfig},
+    config::{
+        BlockValidationMode, CommitBoostConfig, HeaderValidationMode, LogsSettings, PbsConfig,
+        RelayConfig, StaticPbsConfig,
+    },
     pbs::RelayEntry,
     signer::random_secret,
     types::Chain,
@@ -58,7 +61,8 @@ async fn test_cfg_file_update() -> Result<()> {
         min_bid_wei: U256::ZERO,
         late_in_slot_time_ms: u64::MAX / 2, /* serde gets very upset about serializing u64::MAX
                                              * or anything close to it */
-        extra_validation_enabled: false,
+        block_validation_mode: BlockValidationMode::Standard,
+        header_validation_mode: HeaderValidationMode::Standard,
         rpc_url: None,
         ssv_node_api_url: Url::parse("http://example.com").unwrap(),
         ssv_public_api_url: Url::parse("http://example.com").unwrap(),

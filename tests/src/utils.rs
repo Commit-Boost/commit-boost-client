@@ -7,9 +7,10 @@ use std::{
 use alloy::primitives::U256;
 use cb_common::{
     config::{
-        PbsConfig, PbsModuleConfig, RelayConfig, SIGNER_IMAGE_DEFAULT,
-        SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT, SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT,
-        SIGNER_PORT_DEFAULT, SignerConfig, SignerType, StartSignerConfig,
+        BlockValidationMode, HeaderValidationMode, PbsConfig, PbsModuleConfig, RelayConfig,
+        SIGNER_IMAGE_DEFAULT, SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT,
+        SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT, SIGNER_PORT_DEFAULT, SignerConfig,
+        SignerType, StartSignerConfig,
     },
     pbs::{RelayClient, RelayEntry},
     signer::SignerLoader,
@@ -78,7 +79,8 @@ pub fn get_pbs_static_config(port: u16) -> PbsConfig {
         skip_sigverify: false,
         min_bid_wei: U256::ZERO,
         late_in_slot_time_ms: u64::MAX,
-        extra_validation_enabled: false,
+        header_validation_mode: HeaderValidationMode::Standard,
+        block_validation_mode: BlockValidationMode::Standard,
         ssv_node_api_url: Url::parse("http://localhost:0").unwrap(),
         ssv_public_api_url: Url::parse("http://localhost:0").unwrap(),
         rpc_url: None,

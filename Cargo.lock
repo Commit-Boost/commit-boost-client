@@ -1675,6 +1675,7 @@ dependencies = [
  "axum-extra",
  "cb-common",
  "cb-metrics",
+ "ethereum_serde_utils 0.7.0",
  "ethereum_ssz",
  "eyre",
  "futures",
@@ -1690,6 +1691,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tree_hash",
+ "types",
  "url",
  "uuid 1.18.1",
 ]

@@ -26,21 +26,33 @@ pub type PayloadAndBlobs = lh_eth2::types::ExecutionPayloadAndBlobs<MainnetEthSp
 pub type SubmitBlindedBlockResponse = lh_types::ForkVersionedResponse<PayloadAndBlobs>;
 
 pub type ExecutionPayloadHeader = lh_types::ExecutionPayloadHeader<MainnetEthSpec>;
+pub type ExecutionPayloadHeaderBellatrix =
+    lh_types::ExecutionPayloadHeaderBellatrix<MainnetEthSpec>;
+pub type ExecutionPayloadHeaderCapella = lh_types::ExecutionPayloadHeaderCapella<MainnetEthSpec>;
+pub type ExecutionPayloadHeaderDeneb = lh_types::ExecutionPayloadHeaderDeneb<MainnetEthSpec>;
 pub type ExecutionPayloadHeaderElectra = lh_types::ExecutionPayloadHeaderElectra<MainnetEthSpec>;
 pub type ExecutionPayloadHeaderFulu = lh_types::ExecutionPayloadHeaderFulu<MainnetEthSpec>;
+pub type ExecutionPayloadHeaderGloas = lh_types::ExecutionPayloadHeaderGloas<MainnetEthSpec>;
 pub type ExecutionPayloadHeaderRef<'a> = lh_types::ExecutionPayloadHeaderRef<'a, MainnetEthSpec>;
 pub type ExecutionPayload = lh_types::ExecutionPayload<MainnetEthSpec>;
 pub type ExecutionPayloadElectra = lh_types::ExecutionPayloadElectra<MainnetEthSpec>;
 pub type ExecutionPayloadFulu = lh_types::ExecutionPayloadFulu<MainnetEthSpec>;
 pub type SignedBuilderBid = lh_types::builder_bid::SignedBuilderBid<MainnetEthSpec>;
 pub type BuilderBid = lh_types::builder_bid::BuilderBid<MainnetEthSpec>;
+pub type BuilderBidBellatrix = lh_types::builder_bid::BuilderBidBellatrix<MainnetEthSpec>;
+pub type BuilderBidCapella = lh_types::builder_bid::BuilderBidCapella<MainnetEthSpec>;
+pub type BuilderBidDeneb = lh_types::builder_bid::BuilderBidDeneb<MainnetEthSpec>;
 pub type BuilderBidElectra = lh_types::builder_bid::BuilderBidElectra<MainnetEthSpec>;
+pub type BuilderBidFulu = lh_types::builder_bid::BuilderBidFulu<MainnetEthSpec>;
+pub type BuilderBidGloas = lh_types::builder_bid::BuilderBidGloas<MainnetEthSpec>;
 
 /// Response object of GET
 /// `/eth/v1/builder/header/{slot}/{parent_hash}/{pubkey}`
 pub type GetHeaderResponse = lh_types::ForkVersionedResponse<SignedBuilderBid>;
 
 pub type KzgCommitments = lh_types::beacon_block_body::KzgCommitments<MainnetEthSpec>;
+
+pub type Uint256 = lh_types::Uint256;
 
 /// Response params of GET
 /// `/eth/v1/builder/header/{slot}/{parent_hash}/{pubkey}`
