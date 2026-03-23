@@ -41,7 +41,7 @@ pub struct CommitBoostConfig {
 impl CommitBoostConfig {
     /// Validate config
     pub async fn validate(&self) -> Result<()> {
-        self.pbs.pbs_config.validate(self.chain).await?;
+        self.pbs.validate(self.chain).await?;
         if let Some(signer) = &self.signer {
             signer.validate().await?;
         }
@@ -127,6 +127,43 @@ impl CommitBoostConfig {
             }
             Err(_) => None,
         }
+    }
+
+    /// Helper to return if the signer module is needed based on the config
+    pub fn needs_signer_module(&self) -> bool {
+        self.pbs.with_signer ||
+            self.modules.as_ref().is_some_and(|modules| {
+                modules.iter().any(|module| matches!(module.kind, ModuleKind::Commit))
+            })
+    }
+
+    /// Helper to return if signer uses TLS
+    pub fn signer_uses_tls(&self) -> bool {
+        self.signer
+            .as_ref()
+            .is_some_and(|signer_config| matches!(signer_config.tls_mode, TlsMode::Certificate(_)))
+    }
+
+    /// Helper to return signer's server URL
+    pub fn signer_server_url(&self, default_port: u16) -> String {
+        if let Some(SignerConfig { inner: SignerType::Remote { url }, .. }) = &self.signer {
+            url.to_string()
+        } else {
+            let signer_http_prefix = if self.signer_uses_tls() { "https" } else { "http" };
+            let port = self.signer.as_ref().map(|s| s.port).unwrap_or(default_port);
+            format!("{signer_http_prefix}://cb_signer:{port}")
+        }
+    }
+
+    /// Helper to return the path to the signer's TLS certificates if any
+    pub fn signer_certs_path(&self) -> Option<&PathBuf> {
+        self.signer
+            .as_ref()
+            .map(|config| match &config.tls_mode {
+                TlsMode::Insecure => None,
+                TlsMode::Certificate(path) => Some(path),
+            })
+            .unwrap_or_default()
     }
 }
 

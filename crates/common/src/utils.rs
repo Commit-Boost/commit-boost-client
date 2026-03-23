@@ -8,7 +8,10 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use alloy::{hex, primitives::U256};
+use alloy::{
+    hex,
+    primitives::{U256, keccak256},
+};
 use axum::{
     extract::{FromRequest, Request},
     http::HeaderValue,
@@ -43,8 +46,14 @@ use tracing_subscriber::{
 use crate::{
     config::LogsSettings,
     constants::SIGNER_JWT_EXPIRATION,
-    pbs::{error::SszValueError, *},
-    types::{BlsPublicKey, Chain, Jwt, JwtClaims, ModuleId},
+    pbs::{
+        BuilderBidBellatrix, BuilderBidCapella, BuilderBidDeneb, BuilderBidElectra, BuilderBidFulu,
+        BuilderBidGloas, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
+        ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,
+        ExecutionPayloadHeaderGloas, ExecutionRequests, HEADER_VERSION_VALUE, KzgCommitments,
+        SignedBlindedBeaconBlock, error::SszValueError,
+    },
+    types::{BlsPublicKey, Chain, Jwt, JwtAdminClaims, JwtClaims, ModuleId},
 };
 
 pub const APPLICATION_JSON: &str = "application/json";
@@ -385,12 +394,19 @@ pub fn print_logo() {
 }
 
 /// Create a JWT for the given module id with expiration
-pub fn create_jwt(module_id: &ModuleId, secret: &str) -> eyre::Result<Jwt> {
+pub fn create_jwt(
+    module_id: &ModuleId,
+    secret: &str,
+    route: &str,
+    payload: Option<&[u8]>,
+) -> eyre::Result<Jwt> {
     jsonwebtoken::encode(
         &jsonwebtoken::Header::default(),
         &JwtClaims {
-            module: module_id.to_string(),
+            module: module_id.clone(),
+            route: route.to_string(),
             exp: jsonwebtoken::get_current_timestamp() + SIGNER_JWT_EXPIRATION,
+            payload_hash: payload.map(keccak256),
         },
         &jsonwebtoken::EncodingKey::from_secret(secret.as_ref()),
     )
@@ -398,36 +414,136 @@ pub fn create_jwt(module_id: &ModuleId, secret: &str) -> eyre::Result<Jwt> {
     .map(Jwt::from)
 }
 
-/// Decode a JWT and return the module id. IMPORTANT: This function does not
-/// validate the JWT, it only obtains the module id from the claims.
-pub fn decode_jwt(jwt: Jwt) -> eyre::Result<ModuleId> {
+// Creates a JWT for module administration
+pub fn create_admin_jwt(
+    admin_secret: String,
+    route: &str,
+    payload: Option<&[u8]>,
+) -> eyre::Result<Jwt> {
+    jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &JwtAdminClaims {
+            admin: true,
+            route: route.to_string(),
+            exp: jsonwebtoken::get_current_timestamp() + SIGNER_JWT_EXPIRATION,
+            payload_hash: payload.map(keccak256),
+        },
+        &jsonwebtoken::EncodingKey::from_secret(admin_secret.as_ref()),
+    )
+    .map_err(Into::into)
+    .map(Jwt::from)
+}
+
+/// Decode a JWT and return the JWT claims. IMPORTANT: This function does not
+/// validate the JWT, it only obtains the claims.
+pub fn decode_jwt(jwt: Jwt) -> eyre::Result<JwtClaims> {
     let mut validation = jsonwebtoken::Validation::default();
     validation.insecure_disable_signature_validation();
 
-    let module = jsonwebtoken::decode::<JwtClaims>(
+    let claims = jsonwebtoken::decode::<JwtClaims>(
         jwt.as_str(),
         &jsonwebtoken::DecodingKey::from_secret(&[]),
         &validation,
     )?
-    .claims
-    .module
-    .into();
+    .claims;
 
-    Ok(module)
+    Ok(claims)
+}
+
+/// Decode an administrator JWT and return the JWT claims. IMPORTANT: This
+/// function does not validate the JWT, it only obtains the claims.
+pub fn decode_admin_jwt(jwt: Jwt) -> eyre::Result<JwtAdminClaims> {
+    let mut validation = jsonwebtoken::Validation::default();
+    validation.insecure_disable_signature_validation();
+
+    let claims = jsonwebtoken::decode::<JwtAdminClaims>(
+        jwt.as_str(),
+        &jsonwebtoken::DecodingKey::from_secret(&[]),
+        &validation,
+    )?
+    .claims;
+
+    Ok(claims)
 }
 
 /// Validate a JWT with the given secret
-pub fn validate_jwt(jwt: Jwt, secret: &str) -> eyre::Result<()> {
+pub fn validate_jwt(
+    jwt: Jwt,
+    secret: &str,
+    route: &str,
+    payload: Option<&[u8]>,
+) -> eyre::Result<()> {
     let mut validation = jsonwebtoken::Validation::default();
     validation.leeway = 10;
 
-    jsonwebtoken::decode::<JwtClaims>(
+    let claims = jsonwebtoken::decode::<JwtClaims>(
         jwt.as_str(),
         &jsonwebtoken::DecodingKey::from_secret(secret.as_ref()),
         &validation,
-    )
-    .map(|_| ())
-    .map_err(From::from)
+    )?
+    .claims;
+
+    // Validate the route
+    if claims.route != route {
+        eyre::bail!("Token route does not match");
+    }
+
+    // Validate the payload hash if provided
+    if let Some(payload_bytes) = payload {
+        if let Some(expected_hash) = claims.payload_hash {
+            let actual_hash = keccak256(payload_bytes);
+            if actual_hash != expected_hash {
+                eyre::bail!("Payload hash does not match");
+            }
+        } else {
+            eyre::bail!("JWT does not contain a payload hash");
+        }
+    } else if claims.payload_hash.is_some() {
+        eyre::bail!("JWT contains a payload hash but no payload was provided");
+    }
+    Ok(())
+}
+
+/// Validate an admin JWT with the given secret
+pub fn validate_admin_jwt(
+    jwt: Jwt,
+    secret: &str,
+    route: &str,
+    payload: Option<&[u8]>,
+) -> eyre::Result<()> {
+    let mut validation = jsonwebtoken::Validation::default();
+    validation.leeway = 10;
+
+    let claims = jsonwebtoken::decode::<JwtAdminClaims>(
+        jwt.as_str(),
+        &jsonwebtoken::DecodingKey::from_secret(secret.as_ref()),
+        &validation,
+    )?
+    .claims;
+
+    if !claims.admin {
+        eyre::bail!("Token is not admin")
+    }
+
+    // Validate the route
+    if claims.route != route {
+        eyre::bail!("Token route does not match");
+    }
+
+    // Validate the payload hash if provided
+    if let Some(payload_bytes) = payload {
+        if let Some(expected_hash) = claims.payload_hash {
+            let actual_hash = keccak256(payload_bytes);
+            if actual_hash != expected_hash {
+                eyre::bail!("Payload hash does not match");
+            }
+        } else {
+            eyre::bail!("JWT does not contain a payload hash");
+        }
+    } else if claims.payload_hash.is_some() {
+        eyre::bail!("JWT contains a payload hash but no payload was provided");
+    }
+    Ok(())
 }
 
 /// Generates a random string
@@ -771,12 +887,17 @@ where
 
 #[cfg(test)]
 mod test {
+    use alloy::primitives::keccak256;
     use axum::http::{HeaderMap, HeaderValue};
     use reqwest::header::ACCEPT;
 
-    use super::{create_jwt, decode_jwt, validate_jwt};
+    use super::{
+        create_admin_jwt, create_jwt, decode_admin_jwt, decode_jwt, random_jwt_secret,
+        validate_admin_jwt, validate_jwt,
+    };
     use crate::{
-        types::{Jwt, ModuleId},
+        constants::SIGNER_JWT_EXPIRATION,
+        types::{Jwt, JwtAdminClaims, ModuleId},
         utils::{
             APPLICATION_JSON, APPLICATION_OCTET_STREAM, EncodingType, WILDCARD, get_accept_types,
         },
@@ -785,23 +906,27 @@ mod test {
     const APPLICATION_TEXT: &str = "application/text";
 
     #[test]
-    fn test_jwt_validation() {
+    fn test_jwt_validation_no_payload_hash() {
         // Check valid JWT
-        let jwt = create_jwt(&ModuleId("DA_COMMIT".to_string()), "secret").unwrap();
-        let module_id = decode_jwt(jwt.clone()).unwrap();
+        let jwt =
+            create_jwt(&ModuleId("DA_COMMIT".to_string()), "secret", "/test/route", None).unwrap();
+        let claims = decode_jwt(jwt.clone()).unwrap();
+        let module_id = claims.module;
+        let payload_hash = claims.payload_hash;
         assert_eq!(module_id, ModuleId("DA_COMMIT".to_string()));
-        let response = validate_jwt(jwt, "secret");
+        assert!(payload_hash.is_none());
+        let response = validate_jwt(jwt, "secret", "/test/route", None);
         assert!(response.is_ok());
 
         // Check expired JWT
-        let expired_jwt = Jwt::from("eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3NDI5OTU5NDYsIm1vZHVsZSI6IkRBX0NPTU1JVCJ9.iiq4Z2ed2hk3c3c-cn2QOQJWE5XUOc5BoaIPT-I8q-s".to_string());
-        let response = validate_jwt(expired_jwt, "secret");
+        let expired_jwt = Jwt::from("eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3NTgyOTkxNzIsIm1vZHVsZSI6IkRBX0NPTU1JVCIsInJvdXRlIjoiL3Rlc3Qvcm91dGUiLCJwYXlsb2FkX2hhc2giOm51bGx9._OBsNC67KLkk6f6ZQ2_CDbhYUJ2OtZ9egKAmi1L-ymA".to_string());
+        let response = validate_jwt(expired_jwt, "secret", "/test/route", None);
         assert!(response.is_err());
         assert_eq!(response.unwrap_err().to_string(), "ExpiredSignature");
 
         // Check invalid signature JWT
-        let invalid_jwt = Jwt::from("eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3NDI5OTU5NDYsIm1vZHVsZSI6IkRBX0NPTU1JVCJ9.w9WYdDNzgDjYTvjBkk4GGzywGNBYPxnzU2uJWzPUT1s".to_string());
-        let response = validate_jwt(invalid_jwt, "secret");
+        let invalid_jwt = Jwt::from("eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3NTgyOTkxMzQsIm1vZHVsZSI6IkRBX0NPTU1JVCIsInJvdXRlIjoiL3Rlc3Qvcm91dGUiLCJwYXlsb2FkX2hhc2giOm51bGx9.58QXayg2XeX5lXhIPw-a8kl04DWBEj5wBsqsedTeClo".to_string());
+        let response = validate_jwt(invalid_jwt, "secret", "/test/route", None);
         assert!(response.is_err());
         assert_eq!(response.unwrap_err().to_string(), "InvalidSignature");
     }
@@ -900,5 +1025,184 @@ mod test {
         headers.append(ACCEPT, HeaderValue::from_str(&header_string).unwrap());
         let result = get_accept_types(&headers);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_jwt_validation_with_payload() {
+        // Pretend payload
+        let payload = serde_json::json!({
+            "data": "test"
+        });
+        let payload_bytes = serde_json::to_vec(&payload).unwrap();
+
+        // Check valid JWT
+        let jwt = create_jwt(
+            &ModuleId("DA_COMMIT".to_string()),
+            "secret",
+            "/test/route",
+            Some(&payload_bytes),
+        )
+        .unwrap();
+        let claims = decode_jwt(jwt.clone()).unwrap();
+        let module_id = claims.module;
+        let payload_hash = claims.payload_hash;
+        assert_eq!(module_id, ModuleId("DA_COMMIT".to_string()));
+        assert_eq!(payload_hash, Some(keccak256(&payload_bytes)));
+        let response = validate_jwt(jwt, "secret", "/test/route", Some(&payload_bytes));
+        assert!(response.is_ok());
+
+        // Check expired JWT
+        let expired_jwt = Jwt::from("eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3NTgyOTgzNDQsIm1vZHVsZSI6IkRBX0NPTU1JVCIsInJvdXRlIjoiL3Rlc3Qvcm91dGUiLCJwYXlsb2FkX2hhc2giOiIweGFmODk2MjY0MzUzNTFmYzIwMDBkYmEwM2JiNTlhYjcyZWE0ODJiOWEwMDBmZWQzNmNkMjBlMDU0YjE2NjZmZjEifQ.PYrSxLXadKBgYZlmLam8RBSL32I1T_zAxlZpG6xnnII".to_string());
+        let response = validate_jwt(expired_jwt, "secret", "/test/route", Some(&payload_bytes));
+        assert!(response.is_err());
+        assert_eq!(response.unwrap_err().to_string(), "ExpiredSignature");
+
+        // Check invalid signature JWT
+        let invalid_jwt = Jwt::from("eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3NTgyOTkwMDAsIm1vZHVsZSI6IkRBX0NPTU1JVCIsInJvdXRlIjoiL3Rlc3Qvcm91dGUiLCJwYXlsb2FkX2hhc2giOiIweGFmODk2MjY0MzUzNTFmYzIwMDBkYmEwM2JiNTlhYjcyZWE0ODJiOWEwMDBmZWQzNmNkMjBlMDU0YjE2NjZmZjEifQ.mnC-AexkLlR9l98SJbln3DmV6r9XyHYdbjcUVcWdi_8".to_string());
+        let response = validate_jwt(invalid_jwt, "secret", "/test/route", Some(&payload_bytes));
+        assert!(response.is_err());
+        assert_eq!(response.unwrap_err().to_string(), "InvalidSignature");
+    }
+
+    // ── validate_jwt: route and secret errors ────────────────────────────────
+
+    #[test]
+    fn test_validate_jwt_wrong_route() {
+        let jwt = create_jwt(&ModuleId("MOD".into()), "secret", "/correct/route", None).unwrap();
+        let err = validate_jwt(jwt, "secret", "/wrong/route", None).unwrap_err();
+        assert!(err.to_string().contains("Token route does not match"));
+    }
+
+    #[test]
+    fn test_validate_jwt_wrong_secret() {
+        let jwt = create_jwt(&ModuleId("MOD".into()), "correct_secret", "/route", None).unwrap();
+        let err = validate_jwt(jwt, "wrong_secret", "/route", None).unwrap_err();
+        assert_eq!(err.to_string(), "InvalidSignature");
+    }
+
+    // ── validate_jwt: payload hash mismatch branches ─────────────────────────
+
+    #[test]
+    fn test_validate_jwt_payload_hash_mismatch() {
+        let payload_a = b"payload_a";
+        let payload_b = b"payload_b";
+        let jwt = create_jwt(&ModuleId("MOD".into()), "secret", "/route", Some(payload_a)).unwrap();
+        let err = validate_jwt(jwt, "secret", "/route", Some(payload_b)).unwrap_err();
+        assert!(err.to_string().contains("Payload hash does not match"));
+    }
+
+    #[test]
+    fn test_validate_jwt_hash_present_but_no_payload_provided() {
+        let payload = b"some payload";
+        let jwt = create_jwt(&ModuleId("MOD".into()), "secret", "/route", Some(payload)).unwrap();
+        let err = validate_jwt(jwt, "secret", "/route", None).unwrap_err();
+        assert!(
+            err.to_string().contains("JWT contains a payload hash but no payload was provided")
+        );
+    }
+
+    #[test]
+    fn test_validate_jwt_no_hash_but_payload_provided() {
+        let jwt = create_jwt(&ModuleId("MOD".into()), "secret", "/route", None).unwrap();
+        let err = validate_jwt(jwt, "secret", "/route", Some(b"unexpected")).unwrap_err();
+        assert!(err.to_string().contains("JWT does not contain a payload hash"));
+    }
+
+    // ── admin JWT roundtrip ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_admin_jwt_roundtrip_no_payload() {
+        let jwt = create_admin_jwt("admin_secret".into(), "/admin/route", None).unwrap();
+        let claims = decode_admin_jwt(jwt.clone()).unwrap();
+        assert!(claims.admin);
+        assert_eq!(claims.route, "/admin/route");
+        assert!(claims.payload_hash.is_none());
+        validate_admin_jwt(jwt, "admin_secret", "/admin/route", None).unwrap();
+    }
+
+    #[test]
+    fn test_admin_jwt_roundtrip_with_payload() {
+        let payload = b"admin payload";
+        let jwt = create_admin_jwt("admin_secret".into(), "/admin/route", Some(payload)).unwrap();
+        let claims = decode_admin_jwt(jwt.clone()).unwrap();
+        assert!(claims.admin);
+        assert_eq!(claims.payload_hash, Some(keccak256(payload)));
+        validate_admin_jwt(jwt, "admin_secret", "/admin/route", Some(payload)).unwrap();
+    }
+
+    // ── validate_admin_jwt: route, secret, admin flag errors ─────────────────
+
+    #[test]
+    fn test_validate_admin_jwt_wrong_route() {
+        let jwt = create_admin_jwt("admin_secret".into(), "/correct/route", None).unwrap();
+        let err = validate_admin_jwt(jwt, "admin_secret", "/wrong/route", None).unwrap_err();
+        assert!(err.to_string().contains("Token route does not match"));
+    }
+
+    #[test]
+    fn test_validate_admin_jwt_wrong_secret() {
+        let jwt = create_admin_jwt("correct_secret".into(), "/route", None).unwrap();
+        let err = validate_admin_jwt(jwt, "wrong_secret", "/route", None).unwrap_err();
+        assert_eq!(err.to_string(), "InvalidSignature");
+    }
+
+    #[test]
+    fn test_validate_admin_jwt_admin_false() {
+        // Craft a JWT whose claims have admin: false — something create_admin_jwt
+        // never produces — to exercise the explicit admin flag guard.
+        let claims = JwtAdminClaims {
+            admin: false,
+            route: "/route".into(),
+            exp: jsonwebtoken::get_current_timestamp() + SIGNER_JWT_EXPIRATION,
+            payload_hash: None,
+        };
+        let token = jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret(b"secret"),
+        )
+        .unwrap();
+        let jwt = Jwt::from(token);
+        let err = validate_admin_jwt(jwt, "secret", "/route", None).unwrap_err();
+        assert!(err.to_string().contains("Token is not admin"));
+    }
+
+    // ── validate_admin_jwt: payload hash mismatch branches ───────────────────
+
+    #[test]
+    fn test_validate_admin_jwt_payload_hash_mismatch() {
+        let payload_a = b"admin_payload_a";
+        let payload_b = b"admin_payload_b";
+        let jwt = create_admin_jwt("secret".into(), "/route", Some(payload_a)).unwrap();
+        let err = validate_admin_jwt(jwt, "secret", "/route", Some(payload_b)).unwrap_err();
+        assert!(err.to_string().contains("Payload hash does not match"));
+    }
+
+    #[test]
+    fn test_validate_admin_jwt_hash_present_but_no_payload_provided() {
+        let payload = b"admin payload";
+        let jwt = create_admin_jwt("secret".into(), "/route", Some(payload)).unwrap();
+        let err = validate_admin_jwt(jwt, "secret", "/route", None).unwrap_err();
+        assert!(
+            err.to_string().contains("JWT contains a payload hash but no payload was provided")
+        );
+    }
+
+    #[test]
+    fn test_validate_admin_jwt_no_hash_but_payload_provided() {
+        let jwt = create_admin_jwt("secret".into(), "/route", None).unwrap();
+        let err = validate_admin_jwt(jwt, "secret", "/route", Some(b"unexpected")).unwrap_err();
+        assert!(err.to_string().contains("JWT does not contain a payload hash"));
+    }
+
+    // ── random_jwt_secret ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_random_jwt_secret() {
+        let secret = random_jwt_secret();
+        assert_eq!(secret.len(), 32);
+        assert!(secret.chars().all(|c| c.is_ascii_alphanumeric()));
+        // Two calls should produce distinct values with overwhelming probability.
+        assert_ne!(secret, random_jwt_secret());
     }
 }

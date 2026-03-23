@@ -17,7 +17,7 @@ pub const LOGS_DIR_DEFAULT: &str = "/var/logs/commit-boost";
 ///////////////////////// PBS /////////////////////////
 
 pub const PBS_IMAGE_DEFAULT: &str = "ghcr.io/commit-boost/pbs:latest";
-pub const PBS_MODULE_NAME: &str = "pbs";
+pub const PBS_SERVICE_NAME: &str = "pbs";
 
 /// Where to receive BuilderAPI calls from beacon node
 pub const PBS_ENDPOINT_ENV: &str = "CB_PBS_ENDPOINT";
@@ -27,7 +27,7 @@ pub const MUX_PATH_ENV: &str = "CB_MUX_PATH";
 ///////////////////////// SIGNER /////////////////////////
 
 pub const SIGNER_IMAGE_DEFAULT: &str = "ghcr.io/commit-boost/signer:latest";
-pub const SIGNER_MODULE_NAME: &str = "signer";
+pub const SIGNER_SERVICE_NAME: &str = "signer";
 
 /// Where the signer module should open the server
 pub const SIGNER_ENDPOINT_ENV: &str = "CB_SIGNER_ENDPOINT";
@@ -44,7 +44,14 @@ pub const SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT: u32 = 5 * 60;
 
 /// Comma separated list module_id=jwt_secret
 pub const JWTS_ENV: &str = "CB_JWTS";
+pub const ADMIN_JWT_ENV: &str = "CB_SIGNER_ADMIN_JWT";
 
+/// Path to the certificates folder where the cert.pem and key.pem files are
+/// stored/generated
+pub const SIGNER_TLS_CERTIFICATES_PATH_ENV: &str = "CB_SIGNER_TLS_CERTIFICATES";
+pub const SIGNER_TLS_CERTIFICATES_PATH_DEFAULT: &str = "/certs";
+pub const SIGNER_TLS_CERTIFICATE_NAME: &str = "cert.pem";
+pub const SIGNER_TLS_KEY_NAME: &str = "key.pem";
 /// Path to json file with plaintext keys (testing only)
 pub const SIGNER_KEYS_ENV: &str = "CB_SIGNER_LOADER_FILE";
 pub const SIGNER_DEFAULT: &str = "/keys.json";

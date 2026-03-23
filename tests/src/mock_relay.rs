@@ -189,7 +189,7 @@ async fn handle_get_header(
             });
 
             let object_root = message.tree_hash_root();
-            let signature = sign_builder_root(state.chain, &state.signer, object_root);
+            let signature = sign_builder_root(state.chain, &state.signer, &object_root);
             let response = SignedBuilderBid { message, signature };
             if content_type == EncodingType::Ssz {
                 response.as_ssz_bytes()

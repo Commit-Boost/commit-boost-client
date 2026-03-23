@@ -14,7 +14,7 @@ use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
     mock_relay::{MockRelayState, start_mock_relay_service},
     mock_validator::MockValidator,
-    utils::{generate_mock_relay, get_pbs_static_config, setup_test_env, to_pbs_config},
+    utils::{generate_mock_relay, get_pbs_config, setup_test_env, to_pbs_config},
 };
 use eyre::Result;
 use lh_types::ForkName;
@@ -32,7 +32,7 @@ async fn test_cfg_file_update() -> Result<()> {
     let pubkey = signer.public_key();
 
     let chain = Chain::Hoodi;
-    let pbs_port = 3720;
+    let pbs_port = 3730;
 
     // Start relay 1
     let relay1_port = pbs_port + 1;
@@ -74,7 +74,7 @@ async fn test_cfg_file_update() -> Result<()> {
     let cb_config = CommitBoostConfig {
         chain,
         pbs: StaticPbsConfig {
-            docker_image: String::new(),
+            docker_image: "cb-fake-repo/cb-fake-image:latest".to_string(),
             pbs_config: pbs_config.clone(),
             with_signer: false,
         },
@@ -107,7 +107,7 @@ async fn test_cfg_file_update() -> Result<()> {
     std::fs::write(config_path.clone(), config_toml.as_bytes())?;
 
     // Run the PBS service
-    let config = to_pbs_config(chain, get_pbs_static_config(pbs_port), vec![relay1.clone()]);
+    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![relay1.clone()]);
     let state = PbsState::new(config, config_path.clone());
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
@@ -125,7 +125,11 @@ async fn test_cfg_file_update() -> Result<()> {
     // Update the config to only have relay 2
     let cb_config = CommitBoostConfig {
         chain,
-        pbs: StaticPbsConfig { docker_image: String::new(), pbs_config, with_signer: false },
+        pbs: StaticPbsConfig {
+            docker_image: "cb-fake-repo/cb-fake-image:latest".to_string(),
+            pbs_config,
+            with_signer: false,
+        },
         muxes: None,
         modules: None,
         signer: None,

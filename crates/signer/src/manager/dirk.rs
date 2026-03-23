@@ -1,6 +1,9 @@
 use std::{collections::HashMap, io::Write, path::PathBuf};
 
-use alloy::{hex, primitives::B256};
+use alloy::{
+    hex,
+    primitives::{B256, aliases::B32},
+};
 use blsful::inner_types::{Field, G2Affine, G2Projective, Group, Scalar};
 use cb_common::{
     commit::request::{ConsensusProxyMap, ProxyDelegation, SignedProxyDelegation},
@@ -8,7 +11,7 @@ use cb_common::{
     constants::COMMIT_BOOST_DOMAIN,
     signature::compute_domain,
     signer::ProxyStore,
-    types::{BlsPublicKey, BlsSignature, Chain, ModuleId},
+    types::{self, BlsPublicKey, BlsSignature, Chain, ModuleId, SignatureRequestInfo},
 };
 use eyre::{OptionExt, bail};
 use futures::{FutureExt, StreamExt, future::join_all, stream::FuturesUnordered};
@@ -151,6 +154,11 @@ impl DirkManager {
         })
     }
 
+    /// Get the chain config for the manager
+    pub fn get_chain(&self) -> Chain {
+        self.chain
+    }
+
     /// Set the proxy store to use for storing proxy delegations
     pub fn with_proxy_store(self, store: ProxyStore) -> eyre::Result<Self> {
         if let ProxyStore::ERC2335 { .. } = store {
@@ -199,14 +207,16 @@ impl DirkManager {
     pub async fn request_consensus_signature(
         &self,
         pubkey: &BlsPublicKey,
-        object_root: B256,
+        object_root: &B256,
+        signature_request_info: Option<&SignatureRequestInfo>,
     ) -> Result<BlsSignature, SignerModuleError> {
         match self.consensus_accounts.get(pubkey) {
             Some(Account::Simple(account)) => {
-                self.request_simple_signature(account, object_root).await
+                self.request_simple_signature(account, object_root, signature_request_info).await
             }
             Some(Account::Distributed(account)) => {
-                self.request_distributed_signature(account, object_root).await
+                self.request_distributed_signature(account, object_root, signature_request_info)
+                    .await
             }
             None => Err(SignerModuleError::UnknownConsensusSigner(pubkey.serialize().to_vec())),
         }
@@ -216,14 +226,16 @@ impl DirkManager {
     pub async fn request_proxy_signature(
         &self,
         pubkey: &BlsPublicKey,
-        object_root: B256,
+        object_root: &B256,
+        signature_request_info: Option<&SignatureRequestInfo>,
     ) -> Result<BlsSignature, SignerModuleError> {
         match self.proxy_accounts.get(pubkey) {
             Some(ProxyAccount { inner: Account::Simple(account), .. }) => {
-                self.request_simple_signature(account, object_root).await
+                self.request_simple_signature(account, object_root, signature_request_info).await
             }
             Some(ProxyAccount { inner: Account::Distributed(account), .. }) => {
-                self.request_distributed_signature(account, object_root).await
+                self.request_distributed_signature(account, object_root, signature_request_info)
+                    .await
             }
             None => Err(SignerModuleError::UnknownProxySigner(pubkey.serialize().to_vec())),
         }
@@ -233,13 +245,28 @@ impl DirkManager {
     async fn request_simple_signature(
         &self,
         account: &SimpleAccount,
-        object_root: B256,
+        object_root: &B256,
+        signature_request_info: Option<&SignatureRequestInfo>,
     ) -> Result<BlsSignature, SignerModuleError> {
-        let domain = compute_domain(self.chain, COMMIT_BOOST_DOMAIN);
+        let domain = compute_domain(self.chain, &B32::from(COMMIT_BOOST_DOMAIN));
+
+        let data = match signature_request_info {
+            Some(SignatureRequestInfo { module_signing_id, nonce }) => {
+                types::PropCommitSigningInfo {
+                    data: *object_root,
+                    module_signing_id: *module_signing_id,
+                    nonce: *nonce,
+                    chain_id: self.chain.id(),
+                }
+                .tree_hash_root()
+                .to_vec()
+            }
+            None => object_root.to_vec(),
+        };
 
         let response = SignerClient::new(account.connection.clone())
             .sign(SignRequest {
-                data: object_root.to_vec(),
+                data,
                 domain: domain.to_vec(),
                 id: Some(sign_request::Id::PublicKey(account.public_key.serialize().to_vec())),
             })
@@ -263,17 +290,34 @@ impl DirkManager {
     async fn request_distributed_signature(
         &self,
         account: &DistributedAccount,
-        object_root: B256,
+        object_root: &B256,
+        signature_request_info: Option<&SignatureRequestInfo>,
     ) -> Result<BlsSignature, SignerModuleError> {
         let mut partials = Vec::with_capacity(account.participants.len());
         let mut requests = Vec::with_capacity(account.participants.len());
 
+        let data = match signature_request_info {
+            Some(SignatureRequestInfo { module_signing_id, nonce }) => {
+                types::PropCommitSigningInfo {
+                    data: *object_root,
+                    module_signing_id: *module_signing_id,
+                    nonce: *nonce,
+                    chain_id: self.chain.id(),
+                }
+                .tree_hash_root()
+                .to_vec()
+            }
+            None => object_root.to_vec(),
+        };
+
         for (id, channel) in account.participants.iter() {
+            let data_copy = data.clone();
             let request = async move {
                 SignerClient::new(channel.clone())
                     .sign(SignRequest {
-                        data: object_root.to_vec(),
-                        domain: compute_domain(self.chain, COMMIT_BOOST_DOMAIN).to_vec(),
+                        data: data_copy,
+                        domain: compute_domain(self.chain, &B32::from(COMMIT_BOOST_DOMAIN))
+                            .to_vec(),
                         id: Some(sign_request::Id::Account(account.name.clone())),
                     })
                     .map(|res| (res, *id))
@@ -349,7 +393,7 @@ impl DirkManager {
             proxy: proxy_account.inner.public_key().clone(),
         };
         let delegation_signature =
-            self.request_consensus_signature(&consensus, message.tree_hash_root()).await?;
+            self.request_consensus_signature(&consensus, &message.tree_hash_root(), None).await?;
 
         let delegation = SignedProxyDelegation { message, signature: delegation_signature };
 

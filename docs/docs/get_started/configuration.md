@@ -379,7 +379,71 @@ Delegation signatures will be stored in files with the format `<proxy_dir>/deleg
 
 A full example of a config file with Dirk can be found [here](https://github.com/Commit-Boost/commit-boost-client/blob/main/examples/configs/dirk_signer.toml).
 
-## Custom Module
+
+### TLS
+
+By default, the Signer service runs in **insecure** mode, so its API service uses HTTP without any TLS encryption. This is sufficient for testing or if you're running locally within your machine's isolated Docker network and only intend to access it within the confines of your machine. However, for larger production setups, it's recommended to enable TLS - especially for traffic that spans across multiple machines.
+
+The Signer service in TLS mode supports **TLS 1.2** and **TLS 1.3**. Older protocol versions are not supported.
+
+To enable TLS, you must first create a **certificate / key pair**. We **strongly advise** using a well-known Certificate Authority to create and sign the certificate, such as [Let's Encrypt](https://letsencrypt.org/getting-started/) (a free service) or [Bluehost](https://www.bluehost.com/help/article/how-to-set-up-an-ssl-certificate-for-website-security) (free but requires an account). We do not recommend using a self-signed ceriticate / key pair for production environments.
+
+When configuring TLS support, the Signer service expects a single folder (which you can specify) that contains the following two files:
+- `cert.pem`: The SSL certificate file signed by a certificate authority, in PEM format
+- `key.pem`: The private key corresponding to `cert.pem` that will be used for signing TLS traffic, in PEM format
+
+Specifying it is done within Commit-Boost's configuration file using the `[signer.tls_mode]` table as follows:
+
+```toml
+[pbs]
+...
+with_signer = true
+
+[signer]
+port = 20000
+...
+
+[signer.tls_mode]
+type = "certificate"
+path = "path/to/your/cert/folder"
+```
+
+Where `path` is the aforementioned folder. It defaults to `./certs` but can be replaced with whichever directory your certificate and private key file reside in, as long as they're readable by the Signer service (or its Docker container, if using Docker).
+
+### Rate limit
+
+The Signer service implements a rate limit system of 3 failed authentications every 5 minutes. These values can be modified in the config file:
+
+```toml
+[signer]
+...
+jwt_auth_fail_limit = 3 # The amount of failed requests allowed
+jwt_auth_fail_timeout_seconds = 300 # The time window in seconds
+```
+
+The rate limit is applied to the IP address of the client making the request. By default, the IP is extracted directly from the TCP connection. If you're running the Signer service behind a reverse proxy (e.g. Nginx), you can configure it to extract the IP from a custom HTTP header instead. There're two options:
+
+- unique: Provides an HTTP header that contains the IP. This header is expected to appear only once in the request. This is common when using `X-Real-IP`, `True-Client-IP`, etc. If a request has multiple values for this header, it will be considered invalid and rejected.
+- `rightmost`: Provides an HTTP header that contains a comma-separated list of IPs. The nth rightmost IP in the list is used. If the header appears multiple times, the last occurrence is used. This is common when using `X-Forwarded-For`.
+
+Examples:
+
+```toml
+[signer.reverse_proxy]
+type = "unique"
+header = "X-Real-IP"
+```
+
+```toml
+[signer.reverse_proxy]
+type = "rightmost"
+header = "X-Forwarded-For"
+trusted_count = 1
+```
+
+Note: `trusted_count` is the number of trusted proxies in front of the Signer service, but the last proxy won't add its address, so the number of skipped IPs is `trusted_count - 1`. See [MDN docs](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Forwarded-For#trusted_proxy_count) for more info.
+
+## Custom module
 
 We currently provide a test module that needs to be built locally. To build the module, run:
 
@@ -417,15 +481,17 @@ enabled = true
 id = "DA_COMMIT"
 type = "commit"
 docker_image = "test_da_commit"
+signing_id = "0x6a33a23ef26a4836979edff86c493a69b26ccf0b4a16491a815a13787657431b"
 sleep_secs = 5
 ```
 
 A few things to note:
 
 - We now added a `signer` section which will be used to create the Signer service.
-- There is now a `[[modules]]` section which at a minimum needs to specify the module `id`, `type` and `docker_image`. Additional parameters needed for the business logic of the module will also be here,
+- There is now a `[[modules]]` section which at a minimum needs to specify the module `id`, `type` and `docker_image`. For modules with type `commit`, which will be used to access the Signer service and request signatures for proposer commitments, you will also need to specify the module's unique `signing_id` (see [the proposer commitment documentation](../developing/prop-commit-signing.md)). Additional parameters needed for the business logic of the module will also be here.
 
 To learn more about developing modules, check out [here](/category/developing).
+
 
 ## Vouch
 
@@ -472,6 +538,15 @@ Commit-Boost supports hot-reloading the configuration file. This means that you 
 ```bash
 docker compose -f cb.docker-compose.yml exec cb_signer curl -X POST http://localhost:20000/reload
 ```
+
+### Signer module reload
+
+The signer module takes 2 optional parameters in the JSON body:
+
+- `jwt_secrets`: a string with a comma-separated list of `<MODULE_ID>=<JWT_SECRET>` for all modules.
+- `admin_secret`: a string with the secret for the signer admin JWT.
+
+Parameters that are not provided will not be updated; they will be regenerated using their original on-disk data as though the signer service was being restarted. Note that any changes you made with calls to `/revoke_jwt` or `/reload` will be reverted, so make sure you provide any modifications again as part of this call.
 
 ### Notes
 

@@ -26,7 +26,7 @@ use cb_tests::{
     mock_ssv_public::{PublicSsvMockState, TEST_HTTP_TIMEOUT, create_mock_public_ssv_server},
     mock_validator::MockValidator,
     utils::{
-        bls_pubkey_from_hex_unchecked, generate_mock_relay, get_pbs_static_config, setup_test_env,
+        bls_pubkey_from_hex_unchecked, generate_mock_relay, get_pbs_config, setup_test_env,
         to_pbs_config,
     },
 };
@@ -219,7 +219,7 @@ async fn test_mux() -> Result<()> {
 
     // Register all relays in PBS config
     let relays = vec![default_relay.clone()];
-    let mut config = to_pbs_config(chain, get_pbs_static_config(pbs_port), relays);
+    let mut config = to_pbs_config(chain, get_pbs_config(pbs_port), relays);
     config.all_relays = vec![mux_relay_1.clone(), mux_relay_2.clone(), default_relay.clone()];
 
     // Configure mux for two relays
@@ -366,7 +366,7 @@ async fn test_ssv_multi_with_node() -> Result<()> {
     };
 
     // Set up the PBS config
-    let mut pbs_config = get_pbs_static_config(pbs_port);
+    let mut pbs_config = get_pbs_config(pbs_port);
     pbs_config.ssv_node_api_url = ssv_node_url.clone();
     pbs_config.ssv_public_api_url = ssv_public_url.clone();
     pbs_config.mux_registry_refresh_interval_seconds = 1; // Refresh the mux every second
@@ -464,7 +464,7 @@ async fn test_ssv_multi_with_public() -> Result<()> {
     };
 
     // Set up the PBS config
-    let mut pbs_config = get_pbs_static_config(pbs_port);
+    let mut pbs_config = get_pbs_config(pbs_port);
     pbs_config.ssv_node_api_url = ssv_node_url.clone();
     pbs_config.ssv_public_api_url = ssv_public_url.clone();
     pbs_config.mux_registry_refresh_interval_seconds = 1; // Refresh the mux every second

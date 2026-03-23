@@ -11,19 +11,21 @@ use alloy::{
     primitives::{U256, utils::format_ether},
     providers::{Provider, ProviderBuilder},
 };
+use docker_image::DockerImage;
 use eyre::{Result, ensure};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use url::Url;
 
 use super::{
     CommitBoostConfig, HTTP_TIMEOUT_SECONDS_DEFAULT, PBS_ENDPOINT_ENV, RuntimeMuxConfig,
-    constants::PBS_IMAGE_DEFAULT, load_optional_env_var,
+    load_optional_env_var,
 };
 use crate::{
     commit::client::SignerClient,
     config::{
-        CONFIG_ENV, MODULE_JWT_ENV, MuxKeysLoader, PBS_MODULE_NAME, PbsMuxes, SIGNER_URL_ENV,
-        load_env_var, load_file_from_env,
+        CONFIG_ENV, MODULE_JWT_ENV, MuxKeysLoader, PBS_IMAGE_DEFAULT, PBS_SERVICE_NAME, PbsMuxes,
+        SIGNER_TLS_CERTIFICATE_NAME, SIGNER_TLS_CERTIFICATES_PATH_ENV, SIGNER_URL_ENV,
+        SignerConfig, TlsMode, load_env_var, load_file_from_env,
     },
     pbs::{
         DEFAULT_PBS_PORT, DEFAULT_REGISTRY_REFRESH_SECONDS, DefaultTimeout, LATE_IN_SLOT_TIME_MS,
@@ -212,18 +214,16 @@ impl PbsConfig {
         }
 
         if let Some(rpc_url) = &self.rpc_url {
-            // TODO: remove this once we support chain ids for custom chains
-            if !matches!(chain, Chain::Custom { .. }) {
-                let provider = ProviderBuilder::new().connect_http(rpc_url.clone());
-                let chain_id = provider.get_chain_id().await?;
-                ensure!(
-                    chain_id == chain.id(),
-                    "Rpc url is for the wrong chain, expected: {} ({:?}) got {}",
-                    chain.id(),
-                    chain,
-                    chain_id
-                );
-            }
+            let provider = ProviderBuilder::new().connect_http(rpc_url.clone());
+            let chain_id = provider.get_chain_id().await?;
+            let chain_id_big = U256::from(chain_id);
+            ensure!(
+                chain_id_big == chain.id(),
+                "Rpc url is for the wrong chain, expected: {} ({:?}) got {}",
+                chain.id(),
+                chain,
+                chain_id_big
+            );
         }
 
         ensure!(
@@ -247,6 +247,21 @@ pub struct StaticPbsConfig {
     /// Whether to enable the signer client
     #[serde(default = "default_bool::<false>")]
     pub with_signer: bool,
+}
+
+impl StaticPbsConfig {
+    /// Validate static pbs config
+    pub async fn validate(&self, chain: Chain) -> Result<()> {
+        // The Docker tag must parse
+        ensure!(!self.docker_image.is_empty(), "Docker image is empty");
+        ensure!(
+            DockerImage::parse(&self.docker_image).is_ok(),
+            format!("Invalid Docker image: {}", self.docker_image)
+        );
+
+        // Validate the inner pbs config
+        self.pbs_config.validate(chain).await
+    }
 }
 
 /// Runtime config for the pbs module
@@ -363,12 +378,13 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
         chain: Chain,
         relays: Vec<RelayConfig>,
         pbs: CustomPbsConfig<U>,
+        signer: SignerConfig,
         muxes: Option<PbsMuxes>,
     }
 
     // load module config including the extra data (if any)
     let (cb_config, _): (StubConfig<T>, _) = load_file_from_env(CONFIG_ENV)?;
-    cb_config.pbs.static_config.pbs_config.validate(cb_config.chain).await?;
+    cb_config.pbs.static_config.validate(cb_config.chain).await?;
 
     // use endpoint from env if set, otherwise use default host and port
     let endpoint = if let Some(endpoint) = load_optional_env_var(PBS_ENDPOINT_ENV) {
@@ -419,10 +435,20 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
         // if custom pbs requires a signer client, load jwt
         let module_jwt = Jwt(load_env_var(MODULE_JWT_ENV)?);
         let signer_server_url = load_env_var(SIGNER_URL_ENV)?.parse()?;
+        let certs_path = match cb_config.signer.tls_mode {
+            TlsMode::Insecure => None,
+            TlsMode::Certificate(path) => Some(
+                load_env_var(SIGNER_TLS_CERTIFICATES_PATH_ENV)
+                    .map(PathBuf::from)
+                    .unwrap_or(path)
+                    .join(SIGNER_TLS_CERTIFICATE_NAME),
+            ),
+        };
         Some(SignerClient::new(
             signer_server_url,
+            certs_path,
             module_jwt,
-            ModuleId(PBS_MODULE_NAME.to_string()),
+            ModuleId(PBS_SERVICE_NAME.to_string()),
         )?)
     } else {
         None

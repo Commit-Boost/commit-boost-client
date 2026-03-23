@@ -1,10 +1,11 @@
 use std::path::PathBuf;
 
-use alloy::primitives::{B256, Bytes, b256, hex};
+use alloy::primitives::{B256, Bytes, U256, aliases::B32, b256, hex};
 use derive_more::{Deref, Display, From, Into};
 use eyre::{Context, bail};
 use lh_types::ForkName;
 use serde::{Deserialize, Serialize};
+use tree_hash_derive::TreeHash;
 
 use crate::{constants::APPLICATION_BUILDER_DOMAIN, signature::compute_domain};
 
@@ -26,7 +27,17 @@ pub struct Jwt(pub String);
 #[derive(Debug, Serialize, Deserialize)]
 pub struct JwtClaims {
     pub exp: u64,
-    pub module: String,
+    pub module: ModuleId,
+    pub route: String,
+    pub payload_hash: Option<B256>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct JwtAdminClaims {
+    pub exp: u64,
+    pub admin: bool,
+    pub route: String,
+    pub payload_hash: Option<B256>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -40,7 +51,7 @@ pub enum Chain {
         slot_time_secs: u64,
         genesis_fork_version: ForkVersion,
         fulu_fork_slot: u64,
-        chain_id: u64,
+        chain_id: U256,
     },
 }
 
@@ -103,7 +114,9 @@ impl std::fmt::Debug for Chain {
 }
 
 impl Chain {
-    pub fn id(&self) -> u64 {
+    // Chain IDs are 256-bit unsigned integers because they need to support
+    // Keccak256 hashes
+    pub fn id(&self) -> U256 {
         match self {
             Chain::Mainnet => KnownChain::Mainnet.id(),
             Chain::Holesky => KnownChain::Holesky.id(),
@@ -119,7 +132,7 @@ impl Chain {
             Chain::Holesky => KnownChain::Holesky.builder_domain(),
             Chain::Sepolia => KnownChain::Sepolia.builder_domain(),
             Chain::Hoodi => KnownChain::Hoodi.builder_domain(),
-            Chain::Custom { .. } => compute_domain(*self, APPLICATION_BUILDER_DOMAIN),
+            Chain::Custom { .. } => compute_domain(*self, &B32::from(APPLICATION_BUILDER_DOMAIN)),
         }
     }
 
@@ -182,12 +195,12 @@ pub enum KnownChain {
 
 // Constants
 impl KnownChain {
-    pub fn id(&self) -> u64 {
+    pub fn id(&self) -> U256 {
         match self {
-            KnownChain::Mainnet => 1,
-            KnownChain::Holesky => 17000,
-            KnownChain::Sepolia => 11155111,
-            KnownChain::Hoodi => 560048,
+            KnownChain::Mainnet => U256::from(1),
+            KnownChain::Holesky => U256::from(17000),
+            KnownChain::Sepolia => U256::from(11155111),
+            KnownChain::Hoodi => U256::from(560048),
         }
     }
 
@@ -272,7 +285,7 @@ pub enum ChainLoader {
         slot_time_secs: u64,
         genesis_fork_version: Bytes,
         fulu_fork_slot: u64,
-        chain_id: u64,
+        chain_id: U256,
     },
 }
 
@@ -346,13 +359,38 @@ impl<'de> Deserialize<'de> for Chain {
     }
 }
 
+/// Structure for signatures used in Beacon chain operations
+#[derive(Default, Debug, TreeHash)]
+pub struct SigningData {
+    pub object_root: B256,
+    pub signing_domain: B256,
+}
+
+/// Structure for signatures used for proposer commitments in Commit Boost.
+/// The signing root of this struct must be used as the object_root of a
+/// SigningData for signatures.
+#[derive(Default, Debug, TreeHash)]
+pub struct PropCommitSigningInfo {
+    pub data: B256,
+    pub module_signing_id: B256,
+    pub nonce: u64, // As per https://eips.ethereum.org/EIPS/eip-2681
+    pub chain_id: U256,
+}
+
+/// Information about a signature request, including the module signing ID and
+/// nonce.
+pub struct SignatureRequestInfo {
+    pub module_signing_id: B256,
+    pub nonce: u64,
+}
+
 /// Returns seconds_per_slot, genesis_fork_version, fulu_fork_epoch, and
 /// deposit_chain_id from a spec, such as returned by /eth/v1/config/spec ref: https://ethereum.github.io/beacon-APIs/#/Config/getSpec
 /// Try to load two formats:
 /// - JSON as return the getSpec endpoint, either with or without the `data`
 ///   field
 /// - YAML as used e.g. in Kurtosis/Ethereum Package
-pub fn load_chain_from_file(path: PathBuf) -> eyre::Result<(u64, ForkVersion, u64, u64)> {
+pub fn load_chain_from_file(path: PathBuf) -> eyre::Result<(u64, ForkVersion, u64, U256)> {
     #[derive(Deserialize)]
     #[serde(rename_all = "UPPERCASE")]
     struct QuotedSpecFile {
@@ -363,12 +401,12 @@ pub fn load_chain_from_file(path: PathBuf) -> eyre::Result<(u64, ForkVersion, u6
         slots_per_epoch: u64,
         #[serde(with = "serde_utils::quoted_u64")]
         fulu_fork_epoch: u64,
-        #[serde(with = "serde_utils::quoted_u64")]
-        deposit_chain_id: u64,
+        #[serde(with = "serde_utils::quoted_u256")]
+        deposit_chain_id: U256,
     }
 
     impl QuotedSpecFile {
-        fn to_chain(&self) -> eyre::Result<(u64, ForkVersion, u64, u64)> {
+        fn to_chain(&self) -> eyre::Result<(u64, ForkVersion, u64, U256)> {
             let genesis_fork_version: ForkVersion =
                 self.genesis_fork_version.as_ref().try_into()?;
             let fulu_fork_slot = self.fulu_fork_epoch.saturating_mul(self.slots_per_epoch);
@@ -388,11 +426,11 @@ pub fn load_chain_from_file(path: PathBuf) -> eyre::Result<(u64, ForkVersion, u6
         genesis_fork_version: u32,
         slots_per_epoch: Option<u64>,
         fulu_fork_epoch: u64,
-        deposit_chain_id: u64,
+        deposit_chain_id: U256,
     }
 
     impl SpecFile {
-        fn to_chain(&self) -> (u64, ForkVersion, u64, u64) {
+        fn to_chain(&self) -> (u64, ForkVersion, u64, U256) {
             let genesis_fork_version: ForkVersion = self.genesis_fork_version.to_be_bytes();
             let fulu_fork_slot =
                 self.fulu_fork_epoch.saturating_mul(self.slots_per_epoch.unwrap_or(32));
@@ -432,14 +470,14 @@ mod tests {
 
     #[test]
     fn test_load_custom() {
-        let s = r#"chain = { genesis_time_secs = 1, slot_time_secs = 2, genesis_fork_version = "0x01000000", fulu_fork_slot = 1, chain_id = 123 }"#;
+        let s = r#"chain = { genesis_time_secs = 1, slot_time_secs = 2, genesis_fork_version = "0x01000000", fulu_fork_slot = 1, chain_id = "123" }"#;
         let decoded: MockConfig = toml::from_str(s).unwrap();
         assert_eq!(decoded.chain, Chain::Custom {
             genesis_time_secs: 1,
             slot_time_secs: 2,
             genesis_fork_version: [1, 0, 0, 0],
             fulu_fork_slot: 1,
-            chain_id: 123,
+            chain_id: U256::from(123),
         })
     }
 
@@ -548,7 +586,7 @@ mod tests {
             slot_time_secs: 12,
             genesis_fork_version: hex!("0x10000038"),
             fulu_fork_slot: 0,
-            chain_id: 3151908,
+            chain_id: U256::from(3151908),
         })
     }
 }

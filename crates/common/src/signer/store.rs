@@ -244,14 +244,14 @@ impl ProxyStore {
                                         serde_json::from_str(&file_content)?;
                                     let signer =
                                         EcdsaSigner::new_from_bytes(&key_and_delegation.secret)?;
-                                    let pubkey = signer.address();
+                                    let address = signer.address();
                                     let proxy_signer = EcdsaProxySigner {
                                         signer,
                                         delegation: key_and_delegation.delegation,
                                     };
 
-                                    proxy_signers.ecdsa_signers.insert(pubkey, proxy_signer);
-                                    ecdsa_map.entry(module_id.clone()).or_default().push(pubkey);
+                                    proxy_signers.ecdsa_signers.insert(address, proxy_signer);
+                                    ecdsa_map.entry(module_id.clone()).or_default().push(address);
                                 }
                             }
                         }
@@ -564,7 +564,8 @@ mod test {
             delegator: consensus_signer.pubkey(),
             proxy: proxy_signer.pubkey(),
         };
-        let signature = consensus_signer.sign(Chain::Mainnet, message.tree_hash_root()).await;
+        let signature =
+            consensus_signer.sign(Chain::Mainnet, &message.tree_hash_root(), None).await;
         let delegation = SignedProxyDelegationBls { signature: signature.clone(), message };
         let proxy_signer = BlsProxySigner { signer: proxy_signer, delegation };
 
@@ -679,7 +680,8 @@ mod test {
             delegator: consensus_signer.pubkey(),
             proxy: proxy_signer.pubkey(),
         };
-        let signature = consensus_signer.sign(Chain::Mainnet, message.tree_hash_root()).await;
+        let signature =
+            consensus_signer.sign(Chain::Mainnet, &message.tree_hash_root(), None).await;
         let delegation = SignedProxyDelegationBls { signature, message };
         let proxy_signer = BlsProxySigner { signer: proxy_signer, delegation };
 
