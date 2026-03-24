@@ -94,13 +94,13 @@ impl LocalSigningManager {
     pub async fn create_proxy_bls(
         &mut self,
         module_id: ModuleId,
-        delegator: BlsPublicKey,
+        delegator: &BlsPublicKey,
     ) -> Result<SignedProxyDelegationBls, SignerModuleError> {
         let signer = BlsSigner::new_random();
         let proxy_pubkey = signer.pubkey();
 
         let message = ProxyDelegationBls { delegator: delegator.clone(), proxy: proxy_pubkey };
-        let signature = self.sign_consensus(&delegator, &message.tree_hash_root(), None).await?;
+        let signature = self.sign_consensus(delegator, &message.tree_hash_root(), None).await?;
         let delegation = SignedProxyDelegationBls { signature, message };
         let proxy_signer = BlsProxySigner { signer, delegation: delegation.clone() };
 
@@ -113,13 +113,13 @@ impl LocalSigningManager {
     pub async fn create_proxy_ecdsa(
         &mut self,
         module_id: ModuleId,
-        delegator: BlsPublicKey,
+        delegator: &BlsPublicKey,
     ) -> Result<SignedProxyDelegationEcdsa, SignerModuleError> {
         let signer = EcdsaSigner::new_random();
         let proxy_address = signer.address();
 
         let message = ProxyDelegationEcdsa { delegator: delegator.clone(), proxy: proxy_address };
-        let signature = self.sign_consensus(&delegator, &message.tree_hash_root(), None).await?;
+        let signature = self.sign_consensus(delegator, &message.tree_hash_root(), None).await?;
         let delegation = SignedProxyDelegationEcdsa { signature, message };
         let proxy_signer = EcdsaProxySigner { signer, delegation: delegation.clone() };
 
@@ -351,7 +351,7 @@ mod tests {
             let (mut signing_manager, consensus_pk) = init_signing_manager();
 
             let signed_delegation =
-                signing_manager.create_proxy_bls(MODULE_ID.clone(), consensus_pk).await.unwrap();
+                signing_manager.create_proxy_bls(MODULE_ID.clone(), &consensus_pk).await.unwrap();
 
             let validation_result = signed_delegation.validate(CHAIN);
 
@@ -372,7 +372,7 @@ mod tests {
             let (mut signing_manager, consensus_pk) = init_signing_manager();
 
             let mut signed_delegation =
-                signing_manager.create_proxy_bls(MODULE_ID.clone(), consensus_pk).await.unwrap();
+                signing_manager.create_proxy_bls(MODULE_ID.clone(), &consensus_pk).await.unwrap();
 
             signed_delegation.signature = BlsSignature::test_random();
 
@@ -386,7 +386,7 @@ mod tests {
             let (mut signing_manager, consensus_pk) = init_signing_manager();
 
             let signed_delegation =
-                signing_manager.create_proxy_bls(MODULE_ID.clone(), consensus_pk).await.unwrap();
+                signing_manager.create_proxy_bls(MODULE_ID.clone(), &consensus_pk).await.unwrap();
             let proxy_pk = signed_delegation.message.proxy;
 
             let data_root = B256::random();
@@ -433,7 +433,7 @@ mod tests {
             let (mut signing_manager, consensus_pk) = init_signing_manager();
 
             let signed_delegation =
-                signing_manager.create_proxy_ecdsa(MODULE_ID.clone(), consensus_pk).await.unwrap();
+                signing_manager.create_proxy_ecdsa(MODULE_ID.clone(), &consensus_pk).await.unwrap();
 
             let validation_result = signed_delegation.validate(CHAIN);
 
@@ -454,7 +454,7 @@ mod tests {
             let (mut signing_manager, consensus_pk) = init_signing_manager();
 
             let mut signed_delegation =
-                signing_manager.create_proxy_ecdsa(MODULE_ID.clone(), consensus_pk).await.unwrap();
+                signing_manager.create_proxy_ecdsa(MODULE_ID.clone(), &consensus_pk).await.unwrap();
 
             signed_delegation.signature = BlsSignature::test_random();
 
@@ -468,7 +468,7 @@ mod tests {
             let (mut signing_manager, consensus_pk) = init_signing_manager();
 
             let signed_delegation =
-                signing_manager.create_proxy_ecdsa(MODULE_ID.clone(), consensus_pk).await.unwrap();
+                signing_manager.create_proxy_ecdsa(MODULE_ID.clone(), &consensus_pk).await.unwrap();
             let proxy_pk = signed_delegation.message.proxy;
 
             let data_root = B256::random();

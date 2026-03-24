@@ -46,12 +46,10 @@ pub struct ModuleSigningConfig {
 
 impl ModuleSigningConfig {
     pub fn validate(&self) -> Result<()> {
-        // Ensure the JWT secret is not empty
         if self.jwt_secret.is_empty() {
             bail!("JWT secret cannot be empty");
         }
 
-        // Ensure the signing ID is a valid B256
         if self.signing_id.is_zero() {
             bail!("Signing ID cannot be zero");
         }
@@ -249,7 +247,6 @@ impl StartSignerConfig {
 
         let (admin_secret, jwt_secrets) = load_jwt_secrets()?;
 
-        // Load the module signing configs
         let mod_signing_configs = load_module_signing_configs(&config, &jwt_secrets)
             .wrap_err("Failed to load module signing configs")?;
 
@@ -380,22 +377,18 @@ pub fn load_module_signing_configs(
     let mut seen_jwt_secrets = HashMap::new();
     let mut seen_signing_ids = HashMap::new();
     for module in modules {
-        // Validate the module ID
         ensure!(!module.id.is_empty(), "Module ID cannot be empty");
 
-        // Make sure it hasn't been used yet
         ensure!(
             !mod_signing_configs.contains_key(&module.id),
             "Duplicate module config detected: ID {} is already used",
             module.id
         );
 
-        // Make sure the JWT secret is present
         let jwt_secret = match jwt_secrets.get(&module.id) {
             Some(secret) => secret.clone(),
             None => bail!("JWT secret for module {} is missing", module.id),
         };
-        // Create the module signing config and validate it
         let module_signing_config = ModuleSigningConfig {
             module_name: module.id.clone(),
             jwt_secret,
@@ -405,7 +398,6 @@ pub fn load_module_signing_configs(
             .validate()
             .wrap_err(format!("Invalid signing config for module {}", module.id))?;
 
-        // Check for duplicates in JWT secrets and signing IDs
         if let Some(existing_module) =
             seen_jwt_secrets.insert(module_signing_config.jwt_secret.clone(), &module.id)
         {
@@ -444,7 +436,7 @@ mod tests {
 
     fn make_local_signer_config(tls_mode: TlsMode) -> SignerConfig {
         SignerConfig {
-            host: Ipv4Addr::new(127, 0, 0, 1),
+            host: Ipv4Addr::LOCALHOST,
             port: 20000,
             docker_image: SIGNER_IMAGE_DEFAULT.to_string(),
             jwt_auth_fail_limit: 3,
@@ -471,7 +463,7 @@ mod tests {
             pbs: StaticPbsConfig {
                 docker_image: String::from("cb-fake-repo/fake-cb:latest"),
                 pbs_config: PbsConfig {
-                    host: Ipv4Addr::new(127, 0, 0, 1),
+                    host: Ipv4Addr::LOCALHOST,
                     port: 0,
                     relay_check: false,
                     wait_all_registrations: false,
