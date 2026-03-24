@@ -180,7 +180,11 @@ pub async fn get_header<S: BuilderApiState>(
             [EncodingType::Ssz.content_type(), EncodingType::Json.content_type()].join(",")
         }
     };
-    send_headers.insert(ACCEPT, HeaderValue::from_str(&accept_types).unwrap());
+    send_headers.insert(
+        ACCEPT,
+        HeaderValue::from_str(&accept_types)
+            .map_err(|e| PbsError::GeneralRequest(format!("invalid accept header value: {e}")))?,
+    );
 
     // Send requests to all relays concurrently
     let slot = params.slot as i64;
@@ -379,7 +383,9 @@ async fn send_one_get_header(
 ) -> Result<(u64, Option<CompoundGetHeaderResponse>), PbsError> {
     match request_info.validation.mode {
         HeaderValidationMode::None => {
-            // No validation so do some light processing and forward the response directly
+            // Minimal processing: extract fork and value, forward response bytes directly.
+            // Expensive crypto/structural validation is skipped (sigverify, parent hash,
+            // timestamp), but the min_bid check is applied.
             let (start_request_time, get_header_response) = send_get_header_light(
                 &relay,
                 url,
@@ -393,6 +399,14 @@ async fn send_one_get_header(
             match get_header_response {
                 None => Ok((start_request_time, None)),
                 Some(res) => {
+                    let min_bid = request_info.validation.min_bid_wei;
+                    if res.value < min_bid {
+                        return Err(PbsError::Validation(ValidationError::BidTooLow {
+                            min: min_bid,
+                            got: res.value,
+                        }));
+                    }
+
                     // Make sure the response is encoded in one of the accepted
                     // types since we're passing the raw response directly to the client
                     if !request_info.accepted_types.contains(&res.encoding_type) {
@@ -540,8 +554,10 @@ async fn send_get_header_full(
     Ok((start_request_time, Some(get_header_response)))
 }
 
-/// Send and decode a light get_header response, only extracting the fork and
-/// value from the builder bid.
+/// Send a get_header request and decode only the fork and bid value from the
+/// response, leaving the raw bytes intact for direct forwarding to the caller.
+/// Used in `HeaderValidationMode::None` where expensive crypto/structural
+/// checks are skipped.
 async fn send_get_header_light(
     relay: &RelayClient,
     url: Arc<Url>,
@@ -857,7 +873,7 @@ mod tests {
     use cb_common::{
         pbs::*,
         signature::sign_builder_message,
-        types::{BlsSecretKey, Chain},
+        types::{BlsPublicKeyBytes, BlsSecretKey, BlsSignature, Chain},
         utils::{TestRandomSeed, timestamp_of_slot_start_sec},
     };
     use ssz::Encode;

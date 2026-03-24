@@ -18,10 +18,10 @@ use axum::{
 use cb_common::{
     pbs::{
         BUILDER_V1_API_PATH, BUILDER_V2_API_PATH, BlobsBundle, BuilderBid, BuilderBidElectra,
-        ExecutionPayloadElectra, ExecutionPayloadHeaderElectra, ExecutionRequests, ForkName,
-        GET_HEADER_PATH, GET_STATUS_PATH, GetHeaderParams, GetHeaderResponse, GetPayloadInfo,
-        PayloadAndBlobs, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH, SignedBuilderBid,
-        SubmitBlindedBlockResponse,
+        BuilderBidFulu, ExecutionPayloadElectra, ExecutionPayloadHeaderElectra,
+        ExecutionPayloadHeaderFulu, ExecutionRequests, ForkName, GET_HEADER_PATH, GET_STATUS_PATH,
+        GetHeaderParams, GetHeaderResponse, GetPayloadInfo, PayloadAndBlobs,
+        REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH, SignedBuilderBid, SubmitBlindedBlockResponse,
     },
     signature::sign_builder_root,
     types::{BlsSecretKey, Chain},
@@ -61,6 +61,7 @@ pub struct MockRelayState {
     received_register_validator: Arc<AtomicU64>,
     received_submit_block: Arc<AtomicU64>,
     response_override: RwLock<Option<StatusCode>>,
+    bid_value: RwLock<U256>,
 }
 
 impl MockRelayState {
@@ -103,10 +104,18 @@ impl MockRelayState {
             received_register_validator: Default::default(),
             received_submit_block: Default::default(),
             response_override: RwLock::new(None),
+            bid_value: RwLock::new(U256::from(10)),
             supported_content_types: Arc::new(
                 [EncodingType::Json, EncodingType::Ssz].iter().cloned().collect(),
             ),
         }
+    }
+
+    /// Override the bid value returned by this relay. Defaults to
+    /// `U256::from(10)`.
+    pub fn with_bid_value(self, value: U256) -> Self {
+        *self.bid_value.write().unwrap() = value;
+        self
     }
 
     pub fn with_large_body(self) -> Self {
@@ -168,8 +177,9 @@ async fn handle_get_header(
             .into_response();
     };
 
+    let bid_value = *state.bid_value.read().unwrap();
+
     let data = match consensus_version_header {
-        // Add Fusaka and other forks here when necessary
         ForkName::Electra => {
             let mut header = ExecutionPayloadHeaderElectra {
                 parent_hash: parent_hash.into(),
@@ -177,26 +187,53 @@ async fn handle_get_header(
                 timestamp: timestamp_of_slot_start_sec(0, state.chain),
                 ..ExecutionPayloadHeaderElectra::test_random()
             };
-
             header.block_hash.0[0] = 1;
 
             let message = BuilderBid::Electra(BuilderBidElectra {
                 header,
                 blob_kzg_commitments: Default::default(),
                 execution_requests: ExecutionRequests::default(),
-                value: U256::from(10),
+                value: bid_value,
                 pubkey: state.signer.public_key().into(),
             });
-
             let object_root = message.tree_hash_root();
             let signature = sign_builder_root(state.chain, &state.signer, &object_root);
             let response = SignedBuilderBid { message, signature };
             if content_type == EncodingType::Ssz {
                 response.as_ssz_bytes()
             } else {
-                // Return JSON for everything else; this is fine for the mock
                 let versioned_response = GetHeaderResponse {
                     version: ForkName::Electra,
+                    data: response,
+                    metadata: Default::default(),
+                };
+                serde_json::to_vec(&versioned_response).unwrap()
+            }
+        }
+        ForkName::Fulu => {
+            let mut header = ExecutionPayloadHeaderFulu {
+                parent_hash: parent_hash.into(),
+                block_hash: Default::default(),
+                timestamp: timestamp_of_slot_start_sec(0, state.chain),
+                ..ExecutionPayloadHeaderFulu::test_random()
+            };
+            header.block_hash.0[0] = 1;
+
+            let message = BuilderBid::Fulu(BuilderBidFulu {
+                header,
+                blob_kzg_commitments: Default::default(),
+                execution_requests: ExecutionRequests::default(),
+                value: bid_value,
+                pubkey: state.signer.public_key().into(),
+            });
+            let object_root = message.tree_hash_root();
+            let signature = sign_builder_root(state.chain, &state.signer, &object_root);
+            let response = SignedBuilderBid { message, signature };
+            if content_type == EncodingType::Ssz {
+                response.as_ssz_bytes()
+            } else {
+                let versioned_response = GetHeaderResponse {
+                    version: ForkName::Fulu,
                     data: response,
                     metadata: Default::default(),
                 };

@@ -886,18 +886,22 @@ where
 #[cfg(test)]
 mod test {
     use alloy::primitives::keccak256;
-    use axum::http::{HeaderMap, HeaderValue};
-    use reqwest::header::ACCEPT;
+    use axum::http::{HeaderMap, HeaderName, HeaderValue};
+    use bytes::Bytes;
+    use reqwest::header::{ACCEPT, CONTENT_TYPE};
 
     use super::{
-        create_admin_jwt, create_jwt, decode_admin_jwt, decode_jwt, random_jwt_secret,
-        validate_admin_jwt, validate_jwt,
+        BodyDeserializeError, CONSENSUS_VERSION_HEADER, create_admin_jwt, create_jwt,
+        decode_admin_jwt, decode_jwt, deserialize_body, get_consensus_version_header,
+        get_content_type, random_jwt_secret, validate_admin_jwt, validate_jwt,
     };
     use crate::{
         constants::SIGNER_JWT_EXPIRATION,
+        pbs::error::SszValueError,
         types::{Jwt, JwtAdminClaims, ModuleId},
         utils::{
-            APPLICATION_JSON, APPLICATION_OCTET_STREAM, EncodingType, WILDCARD, get_accept_types,
+            APPLICATION_JSON, APPLICATION_OCTET_STREAM, EncodingType, ForkName, WILDCARD,
+            get_accept_types, get_bid_value_from_signed_builder_bid_ssz,
         },
     };
 
@@ -1202,5 +1206,216 @@ mod test {
         assert!(secret.chars().all(|c| c.is_ascii_alphanumeric()));
         // Two calls should produce distinct values with overwhelming probability.
         assert_ne!(secret, random_jwt_secret());
+    }
+
+    // ── get_content_type ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_content_type_missing_defaults_to_json() {
+        let headers = HeaderMap::new();
+        assert_eq!(get_content_type(&headers), EncodingType::Json);
+    }
+
+    #[test]
+    fn test_content_type_json() {
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_TYPE, HeaderValue::from_str(APPLICATION_JSON).unwrap());
+        assert_eq!(get_content_type(&headers), EncodingType::Json);
+    }
+
+    #[test]
+    fn test_content_type_ssz() {
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_TYPE, HeaderValue::from_str(APPLICATION_OCTET_STREAM).unwrap());
+        assert_eq!(get_content_type(&headers), EncodingType::Ssz);
+    }
+
+    #[test]
+    fn test_content_type_unknown_defaults_to_json() {
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_TYPE, HeaderValue::from_str("application/xml").unwrap());
+        assert_eq!(get_content_type(&headers), EncodingType::Json);
+    }
+
+    // ── get_consensus_version_header ─────────────────────────────────────────
+
+    #[test]
+    fn test_consensus_version_header_electra() {
+        let mut headers = HeaderMap::new();
+        let name = HeaderName::try_from(CONSENSUS_VERSION_HEADER).unwrap();
+        headers.insert(name, HeaderValue::from_str("electra").unwrap());
+        assert_eq!(get_consensus_version_header(&headers), Some(ForkName::Electra));
+    }
+
+    #[test]
+    fn test_consensus_version_header_missing() {
+        let headers = HeaderMap::new();
+        assert_eq!(get_consensus_version_header(&headers), None);
+    }
+
+    #[test]
+    fn test_consensus_version_header_invalid() {
+        let mut headers = HeaderMap::new();
+        let name = HeaderName::try_from(CONSENSUS_VERSION_HEADER).unwrap();
+        headers.insert(name, HeaderValue::from_str("not_a_fork").unwrap());
+        assert_eq!(get_consensus_version_header(&headers), None);
+    }
+
+    // ── EncodingType ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_encoding_type_from_str_variants() {
+        use std::str::FromStr;
+        assert_eq!(EncodingType::from_str(APPLICATION_JSON).unwrap(), EncodingType::Json);
+        assert_eq!(EncodingType::from_str(APPLICATION_OCTET_STREAM).unwrap(), EncodingType::Ssz);
+        // empty string defaults to JSON per the impl
+        assert_eq!(EncodingType::from_str("").unwrap(), EncodingType::Json);
+        assert!(EncodingType::from_str("application/xml").is_err());
+    }
+
+    #[test]
+    fn test_encoding_type_display() {
+        assert_eq!(EncodingType::Json.to_string(), APPLICATION_JSON);
+        assert_eq!(EncodingType::Ssz.to_string(), APPLICATION_OCTET_STREAM);
+    }
+
+    // ── get_bid_value_from_signed_builder_bid_ssz ────────────────────────────
+
+    #[test]
+    fn test_ssz_value_extraction_unsupported_fork() {
+        let dummy_bytes = vec![0u8; 1000];
+        let err =
+            get_bid_value_from_signed_builder_bid_ssz(&dummy_bytes, ForkName::Altair).unwrap_err();
+        assert!(matches!(err, SszValueError::UnsupportedFork { .. }));
+    }
+
+    #[test]
+    fn test_ssz_value_extraction_truncated_payload() {
+        // A payload that is far too short for any supported fork's value offset
+        let tiny_bytes = vec![0u8; 4];
+        let err =
+            get_bid_value_from_signed_builder_bid_ssz(&tiny_bytes, ForkName::Electra).unwrap_err();
+        assert!(matches!(err, SszValueError::InvalidPayloadLength { .. }));
+    }
+
+    /// Per-fork positive tests: construct a `SignedBuilderBid` with a known
+    /// value for each supported fork, SSZ-encode it, and verify
+    /// `get_bid_value_from_signed_builder_bid_ssz` round-trips correctly.
+    #[test]
+    fn test_ssz_value_extraction_with_known_bid() {
+        use alloy::primitives::U256;
+        use ssz::Encode;
+
+        use crate::{
+            pbs::{
+                BuilderBid, BuilderBidBellatrix, BuilderBidCapella, BuilderBidDeneb,
+                BuilderBidElectra, BuilderBidFulu, ExecutionPayloadHeaderBellatrix,
+                ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
+                ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu, ExecutionRequests,
+                SignedBuilderBid,
+            },
+            types::{BlsPublicKeyBytes, BlsSignature},
+            utils::TestRandomSeed,
+        };
+
+        // Distinctive value — large enough that endianness bugs produce a
+        // different number and zero-matches are impossible.
+        let known_value = U256::from(0x0102_0304_0506_0708_u64);
+        let pubkey = BlsPublicKeyBytes::test_random();
+        let sig = BlsSignature::test_random();
+
+        // ── Bellatrix ────────────────────────────────────────────────────────
+        {
+            let message = BuilderBid::Bellatrix(BuilderBidBellatrix {
+                header: ExecutionPayloadHeaderBellatrix::test_random(),
+                value: known_value,
+                pubkey,
+            });
+            let bid = SignedBuilderBid { message, signature: sig.clone() };
+            let got =
+                get_bid_value_from_signed_builder_bid_ssz(&bid.as_ssz_bytes(), ForkName::Bellatrix)
+                    .expect("Bellatrix extraction failed");
+            assert_eq!(got, known_value, "Bellatrix: value mismatch");
+        }
+
+        // ── Capella ──────────────────────────────────────────────────────────
+        {
+            let message = BuilderBid::Capella(BuilderBidCapella {
+                header: ExecutionPayloadHeaderCapella::test_random(),
+                value: known_value,
+                pubkey,
+            });
+            let bid = SignedBuilderBid { message, signature: sig.clone() };
+            let got =
+                get_bid_value_from_signed_builder_bid_ssz(&bid.as_ssz_bytes(), ForkName::Capella)
+                    .expect("Capella extraction failed");
+            assert_eq!(got, known_value, "Capella: value mismatch");
+        }
+
+        // ── Deneb ────────────────────────────────────────────────────────────
+        {
+            let message = BuilderBid::Deneb(BuilderBidDeneb {
+                header: ExecutionPayloadHeaderDeneb::test_random(),
+                blob_kzg_commitments: Default::default(),
+                value: known_value,
+                pubkey,
+            });
+            let bid = SignedBuilderBid { message, signature: sig.clone() };
+            let got =
+                get_bid_value_from_signed_builder_bid_ssz(&bid.as_ssz_bytes(), ForkName::Deneb)
+                    .expect("Deneb extraction failed");
+            assert_eq!(got, known_value, "Deneb: value mismatch");
+        }
+
+        // ── Electra ──────────────────────────────────────────────────────────
+        {
+            let message = BuilderBid::Electra(BuilderBidElectra {
+                header: ExecutionPayloadHeaderElectra::test_random(),
+                blob_kzg_commitments: Default::default(),
+                execution_requests: ExecutionRequests::default(),
+                value: known_value,
+                pubkey,
+            });
+            let bid = SignedBuilderBid { message, signature: sig.clone() };
+            let got =
+                get_bid_value_from_signed_builder_bid_ssz(&bid.as_ssz_bytes(), ForkName::Electra)
+                    .expect("Electra extraction failed");
+            assert_eq!(got, known_value, "Electra: value mismatch");
+        }
+
+        // ── Fulu ─────────────────────────────────────────────────────────────
+        {
+            let message = BuilderBid::Fulu(BuilderBidFulu {
+                header: ExecutionPayloadHeaderFulu::test_random(),
+                blob_kzg_commitments: Default::default(),
+                execution_requests: ExecutionRequests::default(),
+                value: known_value,
+                pubkey,
+            });
+            let bid = SignedBuilderBid { message, signature: sig };
+            let got =
+                get_bid_value_from_signed_builder_bid_ssz(&bid.as_ssz_bytes(), ForkName::Fulu)
+                    .expect("Fulu extraction failed");
+            assert_eq!(got, known_value, "Fulu: value mismatch");
+        }
+    }
+
+    // ── deserialize_body error paths ─────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_deserialize_body_missing_content_type() {
+        let headers = HeaderMap::new();
+        let body = Bytes::from_static(b"{}");
+        let err = deserialize_body(&headers, body).await.unwrap_err();
+        assert!(matches!(err, BodyDeserializeError::UnsupportedMediaType));
+    }
+
+    #[tokio::test]
+    async fn test_deserialize_body_ssz_missing_version_header() {
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_TYPE, HeaderValue::from_str(APPLICATION_OCTET_STREAM).unwrap());
+        let body = Bytes::from_static(b"\x00\x01\x02\x03");
+        let err = deserialize_body(&headers, body).await.unwrap_err();
+        assert!(matches!(err, BodyDeserializeError::MissingVersionHeader));
     }
 }
