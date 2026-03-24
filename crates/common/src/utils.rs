@@ -419,7 +419,6 @@ pub fn decode_admin_jwt(jwt: Jwt) -> eyre::Result<JwtAdminClaims> {
     Ok(claims)
 }
 
-/// Validate a JWT with the given secret
 pub fn validate_jwt(
     jwt: Jwt,
     secret: &str,
@@ -457,7 +456,6 @@ pub fn validate_jwt(
     Ok(())
 }
 
-/// Validate an admin JWT with the given secret
 pub fn validate_admin_jwt(
     jwt: Jwt,
     secret: &str,

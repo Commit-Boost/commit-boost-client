@@ -137,14 +137,12 @@ impl CommitBoostConfig {
             })
     }
 
-    /// Helper to return if signer uses TLS
     pub fn signer_uses_tls(&self) -> bool {
         self.signer
             .as_ref()
             .is_some_and(|signer_config| matches!(signer_config.tls_mode, TlsMode::Certificate(_)))
     }
 
-    /// Helper to return signer's server URL
     pub fn signer_server_url(&self, default_port: u16) -> String {
         if let Some(SignerConfig { inner: SignerType::Remote { url }, .. }) = &self.signer {
             url.to_string()
@@ -155,7 +153,6 @@ impl CommitBoostConfig {
         }
     }
 
-    /// Helper to return the path to the signer's TLS certificates if any
     pub fn signer_certs_path(&self) -> Option<&PathBuf> {
         self.signer
             .as_ref()

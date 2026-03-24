@@ -42,7 +42,6 @@ use parking_lot::RwLock as ParkingRwLock;
 use rustls::crypto::{CryptoProvider, aws_lc_rs};
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
-use uuid::Uuid;
 
 use crate::{
     error::SignerModuleError,
@@ -396,9 +395,7 @@ async fn handle_get_pubkeys(
     Extension(module_id): Extension<ModuleId>,
     State(state): State<SigningState>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
-    let req_id = Uuid::new_v4();
-
-    debug!(event = "get_pubkeys", ?req_id, "New request");
+    debug!(event = "get_pubkeys", ?module_id, "New request");
 
     let keys = state
         .manager
@@ -418,12 +415,10 @@ async fn handle_request_signature_bls(
     State(state): State<SigningState>,
     Json(request): Json<SignConsensusRequest>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
-    let req_id = Uuid::new_v4();
-    debug!(event = "bls_request_signature", ?module_id, %request, ?req_id, "New request");
+    debug!(event = "bls_request_signature", ?module_id, %request, "New request");
     handle_request_signature_bls_impl(
         module_id,
         state,
-        req_id,
         false,
         request.pubkey,
         request.object_root,
@@ -439,12 +434,10 @@ async fn handle_request_signature_proxy_bls(
     State(state): State<SigningState>,
     Json(request): Json<SignProxyRequest<BlsPublicKey>>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
-    let req_id = Uuid::new_v4();
-    debug!(event = "proxy_bls_request_signature", ?module_id, %request, ?req_id, "New request");
+    debug!(event = "proxy_bls_request_signature", ?module_id, %request, "New request");
     handle_request_signature_bls_impl(
         module_id,
         state,
-        req_id,
         true,
         request.proxy,
         request.object_root,
@@ -457,7 +450,6 @@ async fn handle_request_signature_proxy_bls(
 async fn handle_request_signature_bls_impl(
     module_id: ModuleId,
     state: SigningState,
-    req_id: Uuid,
     is_proxy: bool,
     signing_pubkey: BlsPublicKey,
     object_root: B256,
@@ -467,17 +459,17 @@ async fn handle_request_signature_bls_impl(
         error!(
             event = "proxy_bls_request_signature",
             ?module_id,
-            ?req_id,
+            %signing_pubkey,
+            %object_root,
+            nonce,
             "Module signing ID not found"
         );
         return Err(SignerModuleError::RequestError("Module signing ID not found".to_string()));
     };
 
-    let chain_id: U256;
-    match &*state.manager.read().await {
+    let (chain_id, signature) = match &*state.manager.read().await {
         SigningManager::Local(local_manager) => {
-            chain_id = local_manager.get_chain().id();
-            if is_proxy {
+            let sig = if is_proxy {
                 local_manager
                     .sign_proxy_bls(
                         &signing_pubkey,
@@ -493,11 +485,11 @@ async fn handle_request_signature_bls_impl(
                         Some(&SignatureRequestInfo { module_signing_id: signing_id, nonce }),
                     )
                     .await
-            }
+            };
+            (local_manager.get_chain().id(), sig)
         }
         SigningManager::Dirk(dirk_manager) => {
-            chain_id = dirk_manager.get_chain().id();
-            if is_proxy {
+            let sig = if is_proxy {
                 dirk_manager
                     .request_proxy_signature(
                         &signing_pubkey,
@@ -513,24 +505,26 @@ async fn handle_request_signature_bls_impl(
                         Some(&SignatureRequestInfo { module_signing_id: signing_id, nonce }),
                     )
                     .await
-            }
+            };
+            (dirk_manager.get_chain().id(), sig)
         }
-    }
-    .map(|sig| {
-        Json(BlsSignResponse::new(
-            signing_pubkey.clone(),
-            object_root,
-            signing_id,
-            nonce,
-            chain_id,
-            sig,
-        ))
-        .into_response()
-    })
-    .map_err(|err| {
-        error!(event = "request_signature", ?module_id, ?req_id, "{err}");
-        err
-    })
+    };
+
+    signature
+        .inspect_err(|err| {
+            error!(event = "request_signature", ?module_id, %signing_pubkey, %object_root, nonce, "{err}")
+        })
+        .map(|sig| {
+            Json(BlsSignResponse::new(
+                signing_pubkey.clone(),
+                object_root,
+                signing_id,
+                nonce,
+                chain_id,
+                sig,
+            ))
+            .into_response()
+        })
 }
 
 /// Validates an ECDSA key signature request using a proxy key and returns the
@@ -540,23 +534,22 @@ async fn handle_request_signature_proxy_ecdsa(
     State(state): State<SigningState>,
     Json(request): Json<SignProxyRequest<Address>>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
-    let req_id = Uuid::new_v4();
     let Some(signing_id) = state.jwts.read().get(&module_id).map(|m| m.signing_id) else {
         error!(
             event = "proxy_ecdsa_request_signature",
             ?module_id,
-            ?req_id,
+            proxy = %request.proxy,
+            object_root = %request.object_root,
+            nonce = request.nonce,
             "Module signing ID not found"
         );
         return Err(SignerModuleError::RequestError("Module signing ID not found".to_string()));
     };
-    debug!(event = "proxy_ecdsa_request_signature", ?module_id, %request, ?req_id, "New request");
+    debug!(event = "proxy_ecdsa_request_signature", ?module_id, %request, "New request");
 
-    let chain_id: U256;
-    match &*state.manager.read().await {
+    let (chain_id, signature) = match &*state.manager.read().await {
         SigningManager::Local(local_manager) => {
-            chain_id = local_manager.get_chain().id();
-            local_manager
+            let sig = local_manager
                 .sign_proxy_ecdsa(
                     &request.proxy,
                     &request.object_root,
@@ -565,34 +558,35 @@ async fn handle_request_signature_proxy_ecdsa(
                         nonce: request.nonce,
                     }),
                 )
-                .await
+                .await;
+            (local_manager.get_chain().id(), sig)
         }
         SigningManager::Dirk(_) => {
-            chain_id = U256::ZERO; // Dirk does not support ECDSA proxy signing
+            // Dirk does not support ECDSA proxy signing
             error!(
                 event = "request_signature",
                 ?module_id,
-                ?req_id,
+                proxy = %request.proxy,
+                object_root = %request.object_root,
+                nonce = request.nonce,
                 "ECDSA proxy sign request not supported with Dirk"
             );
-            Err(SignerModuleError::DirkNotSupported)
+            (U256::ZERO, Err(SignerModuleError::DirkNotSupported))
         }
-    }
-    .map(|sig| {
-        Json(EcdsaSignResponse::new(
-            request.proxy,
-            request.object_root,
-            signing_id,
-            request.nonce,
-            chain_id,
-            sig,
-        ))
-        .into_response()
-    })
-    .map_err(|err| {
-        error!(event = "request_signature", ?module_id, ?req_id, "{err}");
-        err
-    })
+    };
+    signature
+        .inspect_err(|err| error!(event = "request_signature", ?module_id, proxy = %request.proxy, object_root = %request.object_root, nonce = request.nonce, "{err}"))
+        .map(|sig| {
+            Json(EcdsaSignResponse::new(
+                request.proxy,
+                request.object_root,
+                signing_id,
+                request.nonce,
+                chain_id,
+                sig,
+            ))
+            .into_response()
+        })
 }
 
 async fn handle_generate_proxy(
@@ -600,25 +594,23 @@ async fn handle_generate_proxy(
     State(state): State<SigningState>,
     Json(request): Json<GenerateProxyRequest>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
-    let req_id = Uuid::new_v4();
-
-    debug!(event = "generate_proxy", ?module_id, scheme=?request.scheme, pubkey=%request.consensus_pubkey, ?req_id, "New request");
+    debug!(event = "generate_proxy", ?module_id, scheme=?request.scheme, pubkey=%request.consensus_pubkey, "New request");
 
     let mut manager = state.manager.write().await;
     let res = match &mut *manager {
         SigningManager::Local(local_manager) => match request.scheme {
             EncryptionScheme::Bls => local_manager
-                .create_proxy_bls(module_id.clone(), request.consensus_pubkey)
+                .create_proxy_bls(module_id.clone(), &request.consensus_pubkey)
                 .await
                 .map(|proxy_delegation| Json(proxy_delegation).into_response()),
             EncryptionScheme::Ecdsa => local_manager
-                .create_proxy_ecdsa(module_id.clone(), request.consensus_pubkey)
+                .create_proxy_ecdsa(module_id.clone(), &request.consensus_pubkey)
                 .await
                 .map(|proxy_delegation| Json(proxy_delegation).into_response()),
         },
         SigningManager::Dirk(dirk_manager) => match request.scheme {
             EncryptionScheme::Bls => dirk_manager
-                .generate_proxy_key(&module_id, request.consensus_pubkey)
+                .generate_proxy_key(&module_id, &request.consensus_pubkey)
                 .await
                 .map(|proxy_delegation| Json(proxy_delegation).into_response()),
             EncryptionScheme::Ecdsa => {
@@ -629,7 +621,7 @@ async fn handle_generate_proxy(
     };
 
     if let Err(err) = &res {
-        error!(event = "generate_proxy", module_id=?module_id, ?req_id, "{err}");
+        error!(event = "generate_proxy", ?module_id, scheme=?request.scheme, pubkey=%request.consensus_pubkey, "{err}");
     }
 
     res
@@ -639,15 +631,13 @@ async fn handle_reload(
     State(state): State<SigningState>,
     Json(request): Json<ReloadRequest>,
 ) -> Result<impl IntoResponse, SignerModuleError> {
-    let req_id = Uuid::new_v4();
-
-    debug!(event = "reload", ?req_id, "New request");
+    debug!(event = "reload", "New request");
 
     // Regenerate the config
     let config = match StartSignerConfig::load_from_env() {
         Ok(config) => config,
         Err(err) => {
-            error!(event = "reload", ?req_id, error = ?err, "Failed to reload config");
+            error!(event = "reload", error = ?err, "Failed to reload config");
             return Err(SignerModuleError::Internal("failed to reload config".to_string()));
         }
     };
@@ -656,7 +646,7 @@ async fn handle_reload(
     let new_manager = match start_manager(config).await {
         Ok(manager) => manager,
         Err(err) => {
-            error!(event = "reload", ?req_id, error = ?err, "Failed to reload manager");
+            error!(event = "reload", error = ?err, "Failed to reload manager");
             return Err(SignerModuleError::Internal("failed to reload config".to_string()));
         }
     };
@@ -676,7 +666,7 @@ async fn handle_reload(
                 let error_message = format!(
                     "Module {module_id} signing ID not found in commit-boost config, cannot reload"
                 );
-                error!(event = "reload", ?req_id, module_id = %module_id, error = %error_message);
+                error!(event = "reload", module_id = %module_id, error = %error_message);
                 return Err(SignerModuleError::RequestError(error_message));
             }
         }

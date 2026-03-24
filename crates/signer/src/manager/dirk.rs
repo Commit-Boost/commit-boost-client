@@ -372,9 +372,9 @@ impl DirkManager {
     pub async fn generate_proxy_key(
         &mut self,
         module: &ModuleId,
-        consensus: BlsPublicKey,
+        consensus: &BlsPublicKey,
     ) -> Result<SignedProxyDelegation<BlsPublicKey>, SignerModuleError> {
-        let proxy_account = match self.consensus_accounts.get(&consensus) {
+        let proxy_account = match self.consensus_accounts.get(consensus) {
             Some(Account::Simple(account)) => {
                 self.generate_simple_proxy_account(account, module).await?
             }
@@ -393,7 +393,7 @@ impl DirkManager {
             proxy: proxy_account.inner.public_key().clone(),
         };
         let delegation_signature =
-            self.request_consensus_signature(&consensus, &message.tree_hash_root(), None).await?;
+            self.request_consensus_signature(consensus, &message.tree_hash_root(), None).await?;
 
         let delegation = SignedProxyDelegation { message, signature: delegation_signature };
 
