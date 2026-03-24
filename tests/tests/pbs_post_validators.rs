@@ -5,7 +5,7 @@ use cb_common::{
     signer::random_secret,
     types::{BlsPublicKey, Chain},
 };
-use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
+use cb_pbs::{PbsService, PbsState};
 use cb_tests::{
     mock_relay::{MockRelayState, start_mock_relay_service},
     mock_validator::MockValidator,
@@ -32,7 +32,7 @@ async fn test_register_validators() -> Result<()> {
     // Run the PBS service
     let config = to_pbs_config(chain, get_pbs_config(pbs_port), relays);
     let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::spawn(PbsService::run::<()>(state));
 
     // leave some time to start servers
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -81,7 +81,7 @@ async fn test_register_validators_does_not_retry_on_429() -> Result<()> {
     // Run the PBS service
     let config = to_pbs_config(chain, get_pbs_config(pbs_port), relays);
     let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state.clone()));
+    tokio::spawn(PbsService::run::<()>(state.clone()));
 
     // Leave some time to start servers
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -136,7 +136,7 @@ async fn test_register_validators_retries_on_500() -> Result<()> {
 
     let config = to_pbs_config(chain, pbs_config, relays);
     let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state.clone()));
+    tokio::spawn(PbsService::run::<()>(state.clone()));
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 

@@ -4,14 +4,14 @@ use reqwest::StatusCode;
 use tracing::{error, info, trace};
 
 use crate::{
-    api::BuilderApi,
     constants::REGISTER_VALIDATOR_ENDPOINT_TAG,
     error::PbsClientError,
     metrics::BEACON_NODE_STATUS,
+    mev_boost,
     state::{BuilderApiState, PbsStateGuard},
 };
 
-pub async fn handle_register_validator<S: BuilderApiState, A: BuilderApi<S>>(
+pub async fn handle_register_validator<S: BuilderApiState>(
     State(state): State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
     Json(registrations): Json<Vec<serde_json::Value>>,
@@ -24,7 +24,7 @@ pub async fn handle_register_validator<S: BuilderApiState, A: BuilderApi<S>>(
 
     info!(ua, num_registrations = registrations.len(), "new request");
 
-    if let Err(err) = A::register_validator(registrations, req_headers, state).await {
+    if let Err(err) = mev_boost::register_validator(registrations, req_headers, state).await {
         error!(%err, "all relays failed registration");
 
         let err = PbsClientError::NoResponse;

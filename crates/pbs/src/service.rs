@@ -20,7 +20,6 @@ use tracing::{debug, info, warn};
 use url::Url;
 
 use crate::{
-    api::BuilderApi,
     metrics::PBS_METRICS_REGISTRY,
     routes::create_app_router,
     state::{BuilderApiState, PbsState, PbsStateGuard},
@@ -29,7 +28,7 @@ use crate::{
 pub struct PbsService;
 
 impl PbsService {
-    pub async fn run<S: BuilderApiState, A: BuilderApi<S>>(state: PbsState<S>) -> Result<()> {
+    pub async fn run<S: BuilderApiState>(state: PbsState<S>) -> Result<()> {
         let addr = state.config.endpoint;
         info!(version = COMMIT_BOOST_VERSION, commit_hash = COMMIT_BOOST_COMMIT, ?addr, chain =? state.config.chain, "starting PBS service");
 
@@ -43,7 +42,7 @@ impl PbsService {
 
         let config_path = state.config_path.clone();
         let state: Arc<RwLock<PbsState<S>>> = RwLock::new(state).into();
-        let app = create_app_router::<S, A>(state.clone());
+        let app = create_app_router::<S>(state.clone());
         let listener = TcpListener::bind(addr).await?;
 
         let task =

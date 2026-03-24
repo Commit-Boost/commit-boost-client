@@ -1,4 +1,3 @@
-mod api;
 mod constants;
 mod error;
 mod metrics;
@@ -8,7 +7,6 @@ mod service;
 mod state;
 mod utils;
 
-pub use api::*;
 pub use constants::*;
 pub use mev_boost::*;
 pub use service::PbsService;

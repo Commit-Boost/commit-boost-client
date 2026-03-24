@@ -1,7 +1,7 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use cb_common::{signer::random_secret, types::Chain};
-use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
+use cb_pbs::{PbsService, PbsState};
 use cb_tests::{
     mock_relay::{MockRelayState, start_mock_relay_service},
     mock_validator::MockValidator,
@@ -32,7 +32,7 @@ async fn test_get_status() -> Result<()> {
 
     let config = to_pbs_config(chain, get_pbs_config(pbs_port), relays.clone());
     let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::spawn(PbsService::run::<()>(state));
 
     // leave some time to start servers
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -65,7 +65,7 @@ async fn test_get_status_returns_502_if_relay_down() -> Result<()> {
 
     let config = to_pbs_config(chain, get_pbs_config(pbs_port), relays.clone());
     let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::spawn(PbsService::run::<()>(state));
 
     // leave some time to start servers
     tokio::time::sleep(Duration::from_millis(100)).await;

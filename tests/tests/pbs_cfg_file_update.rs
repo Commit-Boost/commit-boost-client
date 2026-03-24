@@ -10,7 +10,7 @@ use cb_common::{
     signer::random_secret,
     types::Chain,
 };
-use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
+use cb_pbs::{PbsService, PbsState};
 use cb_tests::{
     mock_relay::{MockRelayState, start_mock_relay_service},
     mock_validator::MockValidator,
@@ -109,7 +109,7 @@ async fn test_cfg_file_update() -> Result<()> {
     // Run the PBS service
     let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![relay1.clone()]);
     let state = PbsState::new(config, config_path.clone());
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::spawn(PbsService::run::<()>(state));
 
     // leave some time to start servers - extra time for the file watcher
     tokio::time::sleep(Duration::from_millis(1000)).await;

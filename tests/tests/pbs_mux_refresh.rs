@@ -6,7 +6,7 @@ use cb_common::{
     signer::random_secret,
     types::Chain,
 };
-use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
+use cb_pbs::{PbsService, PbsState};
 use cb_tests::{
     mock_relay::{MockRelayState, start_mock_relay_service},
     mock_ssv_public::{PublicSsvMockState, create_mock_public_ssv_server},
@@ -100,7 +100,7 @@ async fn test_auto_refresh() -> Result<()> {
 
     // Run PBS service
     let state = PbsState::new(config, PathBuf::new());
-    let pbs_server = tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    let pbs_server = tokio::spawn(PbsService::run::<()>(state));
     info!("Started PBS server with pubkey {default_pubkey}");
 
     // Wait for the server to start

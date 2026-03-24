@@ -4,14 +4,14 @@ use reqwest::StatusCode;
 use tracing::{error, info};
 
 use crate::{
-    api::BuilderApi,
     constants::STATUS_ENDPOINT_TAG,
     error::PbsClientError,
     metrics::BEACON_NODE_STATUS,
+    mev_boost,
     state::{BuilderApiState, PbsStateGuard},
 };
 
-pub async fn handle_get_status<S: BuilderApiState, A: BuilderApi<S>>(
+pub async fn handle_get_status<S: BuilderApiState>(
     req_headers: HeaderMap,
     State(state): State<PbsStateGuard<S>>,
 ) -> Result<impl IntoResponse, PbsClientError> {
@@ -21,7 +21,7 @@ pub async fn handle_get_status<S: BuilderApiState, A: BuilderApi<S>>(
 
     info!(ua, relay_check = state.config.pbs_config.relay_check, "new request");
 
-    match A::get_status(req_headers, state).await {
+    match mev_boost::get_status(req_headers, state).await {
         Ok(_) => {
             info!("relay check successful");
 

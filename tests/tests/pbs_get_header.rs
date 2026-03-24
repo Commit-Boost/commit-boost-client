@@ -12,7 +12,7 @@ use cb_common::{
         get_consensus_version_header, timestamp_of_slot_start_sec,
     },
 };
-use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
+use cb_pbs::{PbsService, PbsState};
 use cb_tests::{
     mock_relay::{MockRelayState, start_mock_relay_service},
     mock_validator::MockValidator,
@@ -252,7 +252,7 @@ async fn test_get_header_impl(
     pbs_config.rpc_url = rpc_url;
     let config = to_pbs_config(chain, pbs_config, vec![mock_relay.clone()]);
     let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::spawn(PbsService::run::<()>(state));
 
     // leave some time to start servers
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -323,7 +323,7 @@ async fn test_get_header_returns_204_if_relay_down() -> Result<()> {
     // Run the PBS service
     let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay.clone()]);
     let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::spawn(PbsService::run::<()>(state));
 
     // leave some time to start servers
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -355,7 +355,7 @@ async fn test_get_header_returns_400_if_request_is_invalid() -> Result<()> {
     // Run the PBS service
     let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay.clone()]);
     let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::spawn(PbsService::run::<()>(state));
 
     // leave some time to start servers
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -460,7 +460,7 @@ async fn test_get_header_ssz_bid_value_round_trip() -> Result<()> {
         pbs_config.min_bid_wei = U256::ZERO;
         let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
         let state = PbsState::new(config, PathBuf::new());
-        tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+        tokio::spawn(PbsService::run::<()>(state));
 
         tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -671,7 +671,7 @@ async fn test_get_header_none_mode_bypasses_pubkey_validation() -> Result<()> {
         pbs_config.header_validation_mode = mode;
         let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
         let state = PbsState::new(config, PathBuf::new());
-        tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+        tokio::spawn(PbsService::run::<()>(state));
 
         tokio::time::sleep(Duration::from_millis(100)).await;
 

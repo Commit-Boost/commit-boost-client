@@ -4,13 +4,14 @@ use reqwest::StatusCode;
 use tracing::{error, info};
 
 use crate::{
-    BuilderApi, RELOAD_ENDPOINT_TAG,
+    RELOAD_ENDPOINT_TAG,
     error::PbsClientError,
     metrics::BEACON_NODE_STATUS,
+    mev_boost,
     state::{BuilderApiState, PbsStateGuard},
 };
 
-pub async fn handle_reload<S: BuilderApiState, A: BuilderApi<S>>(
+pub async fn handle_reload<S: BuilderApiState>(
     req_headers: HeaderMap,
     State(state): State<PbsStateGuard<S>>,
 ) -> Result<impl IntoResponse, PbsClientError> {
@@ -20,7 +21,7 @@ pub async fn handle_reload<S: BuilderApiState, A: BuilderApi<S>>(
 
     info!(ua, relay_check = prev_state.config.pbs_config.relay_check);
 
-    match A::reload(prev_state).await {
+    match mev_boost::reload(prev_state).await {
         Ok(new_state) => {
             info!("config reload successful");
 

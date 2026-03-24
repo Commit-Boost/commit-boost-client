@@ -18,8 +18,8 @@ pub mod prelude {
     };
     pub use cb_metrics::provider::MetricsProvider;
     pub use cb_pbs::{
-        BuilderApi, BuilderApiState, DefaultBuilderApi, PbsService, PbsState, PbsStateGuard,
-        get_header, get_status, register_validator, submit_block,
+        BuilderApiState, PbsService, PbsState, PbsStateGuard, get_header, get_status,
+        register_validator, submit_block,
     };
     // The TreeHash derive macro requires tree_hash as import
     pub mod tree_hash {

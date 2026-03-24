@@ -7,7 +7,7 @@ use cb_common::{
     types::Chain,
     utils::{EncodingType, ForkName},
 };
-use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
+use cb_pbs::{PbsService, PbsState};
 use cb_tests::{
     mock_relay::{MockRelayState, start_mock_relay_service},
     mock_validator::{MockValidator, load_test_signed_blinded_block},
@@ -453,7 +453,7 @@ async fn test_submit_block_too_large() -> Result<()> {
 
     let config = to_pbs_config(chain, get_pbs_config(pbs_port), relays);
     let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::spawn(PbsService::run::<()>(state));
 
     // leave some time to start servers
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -513,7 +513,7 @@ async fn submit_block_impl(
     pbs_config.block_validation_mode = mode;
     let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
     let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::spawn(PbsService::run::<()>(state));
 
     // leave some time to start servers
     tokio::time::sleep(Duration::from_millis(100)).await;

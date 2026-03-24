@@ -19,7 +19,7 @@ use cb_common::{
     types::Chain,
     utils::{EncodingType, ForkName, ResponseReadError, set_ignore_content_length},
 };
-use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
+use cb_pbs::{PbsService, PbsState};
 use cb_tests::{
     mock_relay::{MockRelayState, start_mock_relay_service},
     mock_ssv_node::{SsvNodeMockState, create_mock_ssv_node_server},
@@ -235,7 +235,7 @@ async fn test_mux() -> Result<()> {
 
     // Run PBS service
     let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::spawn(PbsService::run::<()>(state));
 
     // leave some time to start servers
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -379,7 +379,7 @@ async fn test_ssv_multi_with_node() -> Result<()> {
 
     // Run PBS service
     let state = PbsState::new(config, PathBuf::new());
-    let pbs_server = tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    let pbs_server = tokio::spawn(PbsService::run::<()>(state));
     info!("Started PBS server with pubkey {pubkey}");
 
     // Wait for the server to start
@@ -477,7 +477,7 @@ async fn test_ssv_multi_with_public() -> Result<()> {
 
     // Run PBS service
     let state = PbsState::new(config, PathBuf::new());
-    let pbs_server = tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    let pbs_server = tokio::spawn(PbsService::run::<()>(state));
     info!("Started PBS server with pubkey {pubkey}");
 
     // Wait for the server to start

@@ -18,30 +18,30 @@ use tracing::{error, info, trace};
 
 use crate::{
     CompoundSubmitBlockResponse,
-    api::BuilderApi,
     constants::SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG,
     error::PbsClientError,
     metrics::BEACON_NODE_STATUS,
+    mev_boost,
     state::{BuilderApiState, PbsStateGuard},
 };
 
-pub async fn handle_submit_block_v1<S: BuilderApiState, A: BuilderApi<S>>(
+pub async fn handle_submit_block_v1<S: BuilderApiState>(
     state: State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
     raw_request: RawRequest,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    handle_submit_block_impl::<S, A>(state, req_headers, raw_request, BuilderApiVersion::V1).await
+    handle_submit_block_impl::<S>(state, req_headers, raw_request, BuilderApiVersion::V1).await
 }
 
-pub async fn handle_submit_block_v2<S: BuilderApiState, A: BuilderApi<S>>(
+pub async fn handle_submit_block_v2<S: BuilderApiState>(
     state: State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
     raw_request: RawRequest,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    handle_submit_block_impl::<S, A>(state, req_headers, raw_request, BuilderApiVersion::V2).await
+    handle_submit_block_impl::<S>(state, req_headers, raw_request, BuilderApiVersion::V2).await
 }
 
-async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
+async fn handle_submit_block_impl<S: BuilderApiState>(
     State(state): State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
     raw_request: RawRequest,
@@ -72,7 +72,14 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
 
     info!(ua, ms_into_slot = now.saturating_sub(slot_start_ms), "new request");
 
-    match A::submit_block(signed_blinded_block, req_headers, state, api_version, accept_types).await
+    match mev_boost::submit_block(
+        signed_blinded_block,
+        req_headers,
+        state,
+        api_version,
+        accept_types,
+    )
+    .await
     {
         Ok(res) => match res {
             crate::CompoundSubmitBlockResponse::EmptyBody => {

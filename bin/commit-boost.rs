@@ -7,7 +7,7 @@ use cb_common::{
     },
     utils::{initialize_tracing_log, print_logo, wait_for_signal},
 };
-use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
+use cb_pbs::{PbsService, PbsState};
 use cb_signer::service::SigningService;
 use clap::{Parser, Subcommand};
 use eyre::Result;
@@ -68,7 +68,7 @@ async fn run_pbs_service() -> Result<()> {
 
     PbsService::init_metrics(pbs_config.chain)?;
     let state = PbsState::new(pbs_config, config_path);
-    let server = PbsService::run::<_, DefaultBuilderApi>(state);
+    let server = PbsService::run(state);
 
     tokio::select! {
         maybe_err = server => {

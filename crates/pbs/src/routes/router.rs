@@ -21,37 +21,36 @@ use super::{
 };
 use crate::{
     MAX_SIZE_REGISTER_VALIDATOR_REQUEST, MAX_SIZE_SUBMIT_BLOCK_RESPONSE,
-    api::BuilderApi,
     routes::submit_block::handle_submit_block_v2,
     state::{BuilderApiState, PbsStateGuard},
 };
 
-pub fn create_app_router<S: BuilderApiState, A: BuilderApi<S>>(state: PbsStateGuard<S>) -> Router {
+pub fn create_app_router<S: BuilderApiState>(state: PbsStateGuard<S>) -> Router {
     // DefaultBodyLimit is 2Mib by default, so we only increase it for a few routes
     // that may need more
 
     let v1_builder_routes = Router::new()
-        .route(GET_HEADER_PATH, get(handle_get_header::<S, A>))
-        .route(GET_STATUS_PATH, get(handle_get_status::<S, A>))
+        .route(GET_HEADER_PATH, get(handle_get_header::<S>))
+        .route(GET_STATUS_PATH, get(handle_get_status::<S>))
         .route(
             REGISTER_VALIDATOR_PATH,
-            post(handle_register_validator::<S, A>)
+            post(handle_register_validator::<S>)
                 .route_layer(DefaultBodyLimit::max(MAX_SIZE_REGISTER_VALIDATOR_REQUEST)),
         )
         .route(
             SUBMIT_BLOCK_PATH,
-            post(handle_submit_block_v1::<S, A>)
+            post(handle_submit_block_v1::<S>)
                 .route_layer(DefaultBodyLimit::max(MAX_SIZE_SUBMIT_BLOCK_RESPONSE)),
         ); // header is smaller than the response but err on the safe side
     let v2_builder_routes = Router::new().route(
         SUBMIT_BLOCK_PATH,
-        post(handle_submit_block_v2::<S, A>)
+        post(handle_submit_block_v2::<S>)
             .route_layer(DefaultBodyLimit::max(MAX_SIZE_SUBMIT_BLOCK_RESPONSE)),
     );
     let v1_builder_router = Router::new().nest(BUILDER_V1_API_PATH, v1_builder_routes);
     let v2_builder_router = Router::new().nest(BUILDER_V2_API_PATH, v2_builder_routes);
-    let reload_router = Router::new().route(RELOAD_PATH, post(handle_reload::<S, A>));
-    let builder_api =
+    let reload_router = Router::new().route(RELOAD_PATH, post(handle_reload::<S>));
+    let app =
         Router::new().merge(v1_builder_router).merge(v2_builder_router).merge(reload_router).layer(
             TraceLayer::new_for_http().on_response(
                 |response: &Response, latency: std::time::Duration, _: &tracing::Span| {
@@ -59,12 +58,6 @@ pub fn create_app_router<S: BuilderApiState, A: BuilderApi<S>>(state: PbsStateGu
                 },
             ),
         );
-
-    let app = if let Some(extra_routes) = A::extra_routes() {
-        builder_api.merge(extra_routes)
-    } else {
-        builder_api
-    };
 
     app.layer(middleware::from_fn(tracing_middleware)).with_state(state)
 }

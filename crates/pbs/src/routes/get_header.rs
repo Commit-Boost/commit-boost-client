@@ -16,14 +16,14 @@ use tracing::{error, info};
 
 use crate::{
     CompoundGetHeaderResponse,
-    api::BuilderApi,
     constants::GET_HEADER_ENDPOINT_TAG,
     error::PbsClientError,
     metrics::BEACON_NODE_STATUS,
+    mev_boost,
     state::{BuilderApiState, PbsStateGuard},
 };
 
-pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
+pub async fn handle_get_header<S: BuilderApiState>(
     State(state): State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
     Path(params): Path<GetHeaderParams>,
@@ -45,7 +45,7 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
 
     info!(ua, ms_into_slot, "new request");
 
-    match A::get_header(params, req_headers, state, accept_types).await {
+    match mev_boost::get_header(params, req_headers, state, accept_types).await {
         Ok(res) => {
             if let Some(max_bid) = res {
                 BEACON_NODE_STATUS.with_label_values(&["200", GET_HEADER_ENDPOINT_TAG]).inc();
