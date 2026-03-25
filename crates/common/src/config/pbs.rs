@@ -378,7 +378,7 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
         chain: Chain,
         relays: Vec<RelayConfig>,
         pbs: CustomPbsConfig<U>,
-        signer: SignerConfig,
+        signer: Option<SignerConfig>,
         muxes: Option<PbsMuxes>,
     }
 
@@ -435,7 +435,11 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
         // if custom pbs requires a signer client, load jwt
         let module_jwt = Jwt(load_env_var(MODULE_JWT_ENV)?);
         let signer_server_url = load_env_var(SIGNER_URL_ENV)?.parse()?;
-        let certs_path = match cb_config.signer.tls_mode {
+        let certs_path = match cb_config
+            .signer
+            .ok_or_else(|| eyre::eyre!("with_signer = true but no [signer] section in config"))?
+            .tls_mode
+        {
             TlsMode::Insecure => None,
             TlsMode::Certificate(path) => Some(
                 load_env_var(SIGNER_TLS_CERTIFICATES_PATH_ENV)
