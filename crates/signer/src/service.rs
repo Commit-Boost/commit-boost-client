@@ -177,15 +177,14 @@ impl SigningService {
                             break;
                         }
                         Err(e) => {
+                            if attempts >= 3 {
+                                return Err(eyre::eyre!(
+                                    "Exceeded maximum attempts to install AWS-LC as default TLS provider: {e:?}"
+                                ));
+                            }
                             error!(
                                 "Failed to install AWS-LC as default TLS provider: {e:?}. Retrying..."
                             );
-                            if attempts >= 3 {
-                                error!(
-                                    "Exceeded maximum attempts to install AWS-LC as default TLS provider"
-                                );
-                                break;
-                            }
                             attempts += 1;
                         }
                     }
