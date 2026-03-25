@@ -248,7 +248,6 @@ async fn jwt_auth(
     let path = parts.uri.path();
     let bytes = to_bytes(body, REQUEST_MAX_BODY_LENGTH).await.map_err(|e| {
         error!("Failed to read request body: {e}");
-        mark_jwt_failure(&state, client_ip);
         SignerModuleError::RequestError(e.to_string())
     })?;
 
@@ -360,7 +359,6 @@ async fn admin_auth(
     let path = parts.uri.path();
     let bytes = to_bytes(body, REQUEST_MAX_BODY_LENGTH).await.map_err(|e| {
         error!("Failed to read request body: {e}");
-        mark_jwt_failure(&state, client_ip);
         SignerModuleError::RequestError(e.to_string())
     })?;
 
