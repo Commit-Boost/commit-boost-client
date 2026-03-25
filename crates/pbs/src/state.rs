@@ -7,39 +7,22 @@ use cb_common::{
 };
 use parking_lot::RwLock;
 
-pub trait BuilderApiState: Clone + Sync + Send + 'static {}
-impl BuilderApiState for () {}
+pub type PbsStateGuard = Arc<RwLock<PbsState>>;
 
-pub type PbsStateGuard<S> = Arc<RwLock<PbsState<S>>>;
-
-/// Config for the Pbs module. It can be extended by adding extra data to the
-/// state for modules that need it
-// TODO: consider remove state from the PBS module altogether
+/// Config for the Pbs module.
 #[derive(Clone)]
-pub struct PbsState<S: BuilderApiState = ()> {
+pub struct PbsState {
     /// Config data for the Pbs service
     pub config: Arc<PbsModuleConfig>,
     /// Path of the config file, for watching changes
     pub config_path: Arc<PathBuf>,
-    /// Opaque extra data for library use
-    pub data: S,
 }
 
-impl PbsState<()> {
+impl PbsState {
     pub fn new(config: PbsModuleConfig, config_path: PathBuf) -> Self {
-        Self { config: Arc::new(config), config_path: Arc::new(config_path), data: () }
+        Self { config: Arc::new(config), config_path: Arc::new(config_path) }
     }
 
-    pub fn with_data<S: BuilderApiState>(self, data: S) -> PbsState<S> {
-        PbsState { data, config: self.config, config_path: self.config_path }
-    }
-}
-
-impl<S> PbsState<S>
-where
-    S: BuilderApiState,
-{
-    // Getters
     pub fn pbs_config(&self) -> &PbsConfig {
         &self.config.pbs_config
     }

@@ -36,20 +36,18 @@
 //! - `HeaderMap` allocation (created once in setup, cloned cheaply per
 //!   iteration)
 
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::HashSet, path::PathBuf, sync::Arc};
 
 use alloy::primitives::B256;
 use axum::http::HeaderMap;
-use cb_common::{pbs::GetHeaderParams, signer::random_secret, types::Chain};
+use cb_common::{pbs::GetHeaderParams, signer::random_secret, types::Chain, utils::EncodingType};
 use cb_pbs::{PbsState, get_header};
 use cb_tests::{
-    mock_relay::{MockRelayState, start_mock_relay_service},
-    utils::{generate_mock_relay, get_pbs_static_config, to_pbs_config},
+    mock_relay::{MockRelayState, start_mock_relay_service_with_listener},
+    utils::{generate_mock_relay, get_free_listener, get_pbs_config, to_pbs_config},
 };
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 
-// Ports 19201–19205 are reserved for the microbenchmark mock relays.
-const BASE_PORT: u16 = 19200;
 const CHAIN: Chain = Chain::Hoodi;
 const MAX_RELAYS: usize = 5;
 const RELAY_COUNTS: [usize; 3] = [1, 3, MAX_RELAYS];
@@ -77,34 +75,34 @@ fn bench_get_header(c: &mut Criterion) {
 
     // Start all mock relays once and build one PbsState per relay-count variant.
     // All relays share the same MockRelayState (and therefore the same signing
-    // key).
+    // key). Each relay gets its own OS-assigned port via get_free_listener() so
+    // there is no TOCTOU race and no hardcoded port reservations.
     let (states, params) = rt.block_on(async {
         let signer = random_secret();
         let pubkey = signer.public_key();
         let mock_state = Arc::new(MockRelayState::new(CHAIN, signer));
 
-        let relay_clients: Vec<_> = (0..MAX_RELAYS)
-            .map(|i| {
-                let port = BASE_PORT + 1 + i as u16;
-                tokio::spawn(start_mock_relay_service(mock_state.clone(), port));
-                generate_mock_relay(port, pubkey.clone()).expect("relay client")
-            })
-            .collect();
+        let mut relay_clients = Vec::with_capacity(MAX_RELAYS);
+        for _ in 0..MAX_RELAYS {
+            let listener = get_free_listener().await;
+            let port = listener.local_addr().unwrap().port();
+            tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), listener));
+            relay_clients.push(generate_mock_relay(port, pubkey.clone()).expect("relay client"));
+        }
 
-        // Give all servers time to bind before benchmarking starts.
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        // Give all servers time to start accepting before benchmarking begins.
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
         let params = GetHeaderParams { slot: 0, parent_hash: B256::ZERO, pubkey };
 
         // Port 0 here is the port the PBS service itself would bind to for incoming
         // validator requests. We call get_header() as a function directly, so no
         // PBS server is started and this port is never used. The actual relay
-        // endpoints are carried inside the RelayClient objects (ports 19201–19205).
+        // endpoints are carried inside the RelayClient objects.
         let states: Vec<PbsState> = RELAY_COUNTS
             .iter()
             .map(|&n| {
-                let config =
-                    to_pbs_config(CHAIN, get_pbs_static_config(0), relay_clients[..n].to_vec());
+                let config = to_pbs_config(CHAIN, get_pbs_config(0), relay_clients[..n].to_vec());
                 PbsState::new(config, PathBuf::new())
             })
             .collect();
@@ -138,6 +136,7 @@ fn bench_get_header(c: &mut Criterion) {
                     black_box(params.clone()),
                     black_box(headers.clone()),
                     black_box(state.clone()),
+                    black_box(HashSet::from([EncodingType::Json, EncodingType::Ssz])),
                 ))
                 .expect("get_header failed")
             })

@@ -12,9 +12,11 @@ use cb_common::{
 };
 use cb_pbs::{PbsService, PbsState};
 use cb_tests::{
-    mock_relay::{MockRelayState, start_mock_relay_service},
+    mock_relay::{MockRelayState, start_mock_relay_service_with_listener},
     mock_validator::MockValidator,
-    utils::{generate_mock_relay, get_pbs_config, setup_test_env, to_pbs_config},
+    utils::{
+        generate_mock_relay, get_free_listener, get_pbs_config, setup_test_env, to_pbs_config,
+    },
 };
 use eyre::Result;
 use lh_types::ForkName;
@@ -32,20 +34,23 @@ async fn test_cfg_file_update() -> Result<()> {
     let pubkey = signer.public_key();
 
     let chain = Chain::Hoodi;
-    let pbs_port = 3730;
+    let pbs_listener = get_free_listener().await;
+    let relay1_listener = get_free_listener().await;
+    let relay2_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr().unwrap().port();
+    let relay1_port = relay1_listener.local_addr().unwrap().port();
+    let relay2_port = relay2_listener.local_addr().unwrap().port();
 
     // Start relay 1
-    let relay1_port = pbs_port + 1;
     let relay1 = generate_mock_relay(relay1_port, pubkey.clone())?;
     let relay1_state = Arc::new(MockRelayState::new(chain, signer.clone()));
-    tokio::spawn(start_mock_relay_service(relay1_state.clone(), relay1_port));
+    tokio::spawn(start_mock_relay_service_with_listener(relay1_state.clone(), relay1_listener));
 
     // Start relay 2
-    let relay2_port = relay1_port + 1;
     let relay2 = generate_mock_relay(relay2_port, pubkey.clone())?;
     let relay2_id = relay2.id.clone().to_string();
     let relay2_state = Arc::new(MockRelayState::new(chain, signer));
-    tokio::spawn(start_mock_relay_service(relay2_state.clone(), relay2_port));
+    tokio::spawn(start_mock_relay_service_with_listener(relay2_state.clone(), relay2_listener));
 
     // Make a config with relay 1 only
     let pbs_config = PbsConfig {
@@ -109,7 +114,7 @@ async fn test_cfg_file_update() -> Result<()> {
     // Run the PBS service
     let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![relay1.clone()]);
     let state = PbsState::new(config, config_path.clone());
-    tokio::spawn(PbsService::run::<()>(state));
+    tokio::spawn(PbsService::run_with_listener(state, pbs_listener));
 
     // leave some time to start servers - extra time for the file watcher
     tokio::time::sleep(Duration::from_millis(1000)).await;

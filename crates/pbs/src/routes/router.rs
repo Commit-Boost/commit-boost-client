@@ -21,35 +21,34 @@ use super::{
 };
 use crate::{
     MAX_SIZE_REGISTER_VALIDATOR_REQUEST, MAX_SIZE_SUBMIT_BLOCK_RESPONSE,
-    routes::submit_block::handle_submit_block_v2,
-    state::{BuilderApiState, PbsStateGuard},
+    routes::submit_block::handle_submit_block_v2, state::PbsStateGuard,
 };
 
-pub fn create_app_router<S: BuilderApiState>(state: PbsStateGuard<S>) -> Router {
+pub fn create_app_router(state: PbsStateGuard) -> Router {
     // DefaultBodyLimit is 2Mib by default, so we only increase it for a few routes
     // that may need more
 
     let v1_builder_routes = Router::new()
-        .route(GET_HEADER_PATH, get(handle_get_header::<S>))
-        .route(GET_STATUS_PATH, get(handle_get_status::<S>))
+        .route(GET_HEADER_PATH, get(handle_get_header))
+        .route(GET_STATUS_PATH, get(handle_get_status))
         .route(
             REGISTER_VALIDATOR_PATH,
-            post(handle_register_validator::<S>)
+            post(handle_register_validator)
                 .route_layer(DefaultBodyLimit::max(MAX_SIZE_REGISTER_VALIDATOR_REQUEST)),
         )
         .route(
             SUBMIT_BLOCK_PATH,
-            post(handle_submit_block_v1::<S>)
+            post(handle_submit_block_v1)
                 .route_layer(DefaultBodyLimit::max(MAX_SIZE_SUBMIT_BLOCK_RESPONSE)),
         ); // header is smaller than the response but err on the safe side
     let v2_builder_routes = Router::new().route(
         SUBMIT_BLOCK_PATH,
-        post(handle_submit_block_v2::<S>)
+        post(handle_submit_block_v2)
             .route_layer(DefaultBodyLimit::max(MAX_SIZE_SUBMIT_BLOCK_RESPONSE)),
     );
     let v1_builder_router = Router::new().nest(BUILDER_V1_API_PATH, v1_builder_routes);
     let v2_builder_router = Router::new().nest(BUILDER_V2_API_PATH, v2_builder_routes);
-    let reload_router = Router::new().route(RELOAD_PATH, post(handle_reload::<S>));
+    let reload_router = Router::new().route(RELOAD_PATH, post(handle_reload));
     let app =
         Router::new().merge(v1_builder_router).merge(v2_builder_router).merge(reload_router).layer(
             TraceLayer::new_for_http().on_response(

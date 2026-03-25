@@ -22,13 +22,23 @@ use url::Url;
 use crate::{
     metrics::PBS_METRICS_REGISTRY,
     routes::create_app_router,
-    state::{BuilderApiState, PbsState, PbsStateGuard},
+    state::{PbsState, PbsStateGuard},
 };
 
 pub struct PbsService;
 
 impl PbsService {
-    pub async fn run<S: BuilderApiState>(state: PbsState<S>) -> Result<()> {
+    pub async fn run(state: PbsState) -> Result<()> {
+        let listener = TcpListener::bind(state.config.endpoint).await?;
+        Self::run_with_listener(state, listener).await
+    }
+
+    /// Like [`run`], but accepts a pre-bound [`TcpListener`].
+    ///
+    /// Useful in tests where the caller binds the socket with port 0 to get
+    /// an OS-assigned port and then passes the listener here, eliminating the
+    /// TOCTOU race that would otherwise exist between port discovery and bind.
+    pub async fn run_with_listener(state: PbsState, listener: TcpListener) -> Result<()> {
         let addr = state.config.endpoint;
         info!(version = COMMIT_BOOST_VERSION, commit_hash = COMMIT_BOOST_COMMIT, ?addr, chain =? state.config.chain, "starting PBS service");
 
@@ -41,9 +51,8 @@ impl PbsService {
         });
 
         let config_path = state.config_path.clone();
-        let state: Arc<RwLock<PbsState<S>>> = RwLock::new(state).into();
-        let app = create_app_router::<S>(state.clone());
-        let listener = TcpListener::bind(addr).await?;
+        let state: Arc<RwLock<PbsState>> = RwLock::new(state).into();
+        let app = create_app_router(state.clone());
 
         let task =
             tokio::spawn(
@@ -130,7 +139,7 @@ impl PbsService {
         MetricsProvider::load_and_run(network, PBS_METRICS_REGISTRY.clone())
     }
 
-    async fn refresh_registry_muxes<S: BuilderApiState>(state: PbsStateGuard<S>) {
+    async fn refresh_registry_muxes(state: PbsStateGuard) {
         // Read-only portion
         let mut new_pubkeys = HashMap::new();
         let mut removed_pubkeys = HashSet::new();

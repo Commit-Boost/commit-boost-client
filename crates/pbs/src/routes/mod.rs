@@ -5,8 +5,74 @@ mod router;
 mod status;
 mod submit_block;
 
+use alloy::primitives::U256;
+use cb_common::{
+    pbs::{GetHeaderResponse, SubmitBlindedBlockResponse},
+    utils::EncodingType,
+};
+pub use get_header::get_header;
 use get_header::handle_get_header;
+use lh_types::ForkName;
 use register_validator::handle_register_validator;
 pub use router::create_app_router;
 use status::handle_get_status;
 use submit_block::handle_submit_block_v1;
+
+/// Enum that handles different GetHeader response types based on the level of
+/// validation required
+pub enum CompoundGetHeaderResponse {
+    /// Standard response type, fully parsing the response from a relay into a
+    /// complete response struct
+    Full(Box<GetHeaderResponse>),
+
+    /// Light response type, only extracting the fork and value from the builder
+    /// bid with the entire (undecoded) payload for forwarding
+    Light(LightGetHeaderResponse),
+}
+
+/// Core details of a GetHeaderResponse, used for light processing when
+/// validation mode is set to none.
+#[derive(Clone)]
+pub struct LightGetHeaderResponse {
+    /// The fork name for the bid
+    pub version: ForkName,
+
+    /// The bid value in wei
+    pub value: U256,
+
+    /// The raw bytes of the response, for forwarding to the caller
+    pub raw_bytes: Vec<u8>,
+
+    /// The format the response bytes are encoded with
+    pub encoding_type: EncodingType,
+}
+
+/// Enum that handles different SubmitBlock response types based on the level of
+/// validation required
+pub enum CompoundSubmitBlockResponse {
+    /// Standard response type, fully parsing the response from a relay into a
+    /// complete response struct
+    Full(Box<SubmitBlindedBlockResponse>),
+
+    /// Light response type, only extracting the fork from the response with the
+    /// entire (undecoded) payload for forwarding
+    Light(LightSubmitBlockResponse),
+
+    /// Response with no body, used for v2 requests when the relay does not
+    /// return any content intentionally
+    EmptyBody,
+}
+
+/// Core details of a SubmitBlockResponse, used for light processing when
+/// validation mode is set to none.
+#[derive(Clone, Debug)]
+pub struct LightSubmitBlockResponse {
+    /// The fork name for the bid
+    pub version: ForkName,
+
+    /// The raw bytes of the response, for forwarding to the caller
+    pub raw_bytes: Vec<u8>,
+
+    /// The format the response bytes are encoded with
+    pub encoding_type: EncodingType,
+}

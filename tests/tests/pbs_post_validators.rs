@@ -7,9 +7,11 @@ use cb_common::{
 };
 use cb_pbs::{PbsService, PbsState};
 use cb_tests::{
-    mock_relay::{MockRelayState, start_mock_relay_service},
+    mock_relay::{MockRelayState, start_mock_relay_service_with_listener},
     mock_validator::MockValidator,
-    utils::{generate_mock_relay, get_pbs_config, setup_test_env, to_pbs_config},
+    utils::{
+        generate_mock_relay, get_free_listener, get_pbs_config, setup_test_env, to_pbs_config,
+    },
 };
 use eyre::Result;
 use reqwest::StatusCode;
@@ -22,17 +24,20 @@ async fn test_register_validators() -> Result<()> {
     let pubkey: BlsPublicKey = signer.public_key();
 
     let chain = Chain::Holesky;
-    let pbs_port = 4000;
+    let pbs_listener = get_free_listener().await;
+    let relay_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr().unwrap().port();
+    let relay_port = relay_listener.local_addr().unwrap().port();
 
     // Run a mock relay
-    let relays = vec![generate_mock_relay(pbs_port + 1, pubkey)?];
+    let relays = vec![generate_mock_relay(relay_port, pubkey)?];
     let mock_state = Arc::new(MockRelayState::new(chain, signer));
-    tokio::spawn(start_mock_relay_service(mock_state.clone(), pbs_port + 1));
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
 
     // Run the PBS service
     let config = to_pbs_config(chain, get_pbs_config(pbs_port), relays);
     let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run::<()>(state));
+    tokio::spawn(PbsService::run_with_listener(state, pbs_listener));
 
     // leave some time to start servers
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -68,20 +73,23 @@ async fn test_register_validators_does_not_retry_on_429() -> Result<()> {
     let pubkey: BlsPublicKey = signer.public_key();
 
     let chain = Chain::Holesky;
-    let pbs_port = 4200;
+    let pbs_listener = get_free_listener().await;
+    let relay_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr().unwrap().port();
+    let relay_port = relay_listener.local_addr().unwrap().port();
 
     // Set up mock relay state and override response to 429
     let mock_state = Arc::new(MockRelayState::new(chain, signer));
     mock_state.set_response_override(StatusCode::TOO_MANY_REQUESTS);
 
     // Run a mock relay
-    let relays = vec![generate_mock_relay(pbs_port + 1, pubkey)?];
-    tokio::spawn(start_mock_relay_service(mock_state.clone(), pbs_port + 1));
+    let relays = vec![generate_mock_relay(relay_port, pubkey)?];
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
 
     // Run the PBS service
     let config = to_pbs_config(chain, get_pbs_config(pbs_port), relays);
     let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run::<()>(state.clone()));
+    tokio::spawn(PbsService::run_with_listener(state.clone(), pbs_listener));
 
     // Leave some time to start servers
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -121,14 +129,17 @@ async fn test_register_validators_retries_on_500() -> Result<()> {
     let pubkey: BlsPublicKey = signer.public_key();
 
     let chain = Chain::Holesky;
-    let pbs_port = 4300;
+    let pbs_listener = get_free_listener().await;
+    let relay_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr().unwrap().port();
+    let relay_port = relay_listener.local_addr().unwrap().port();
 
     // Set up internal mock relay with 500 response override
     let mock_state = Arc::new(MockRelayState::new(chain, signer));
     mock_state.set_response_override(StatusCode::INTERNAL_SERVER_ERROR); // 500
 
-    let relays = vec![generate_mock_relay(pbs_port + 1, pubkey)?];
-    tokio::spawn(start_mock_relay_service(mock_state.clone(), pbs_port + 1));
+    let relays = vec![generate_mock_relay(relay_port, pubkey)?];
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
 
     // Set retry limit to 3
     let mut pbs_config = get_pbs_config(pbs_port);
@@ -136,7 +147,7 @@ async fn test_register_validators_retries_on_500() -> Result<()> {
 
     let config = to_pbs_config(chain, pbs_config, relays);
     let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run::<()>(state.clone()));
+    tokio::spawn(PbsService::run_with_listener(state.clone(), pbs_listener));
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 

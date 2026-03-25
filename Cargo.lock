@@ -1880,7 +1880,6 @@ name = "cb-pbs"
 version = "0.9.3"
 dependencies = [
  "alloy",
- "async-trait",
  "axum 0.8.8",
  "axum-extra",
  "cb-common",

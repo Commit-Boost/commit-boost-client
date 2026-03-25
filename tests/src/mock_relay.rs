@@ -40,11 +40,17 @@ use tracing::{debug, error};
 use tree_hash::TreeHash;
 
 pub async fn start_mock_relay_service(state: Arc<MockRelayState>, port: u16) -> eyre::Result<()> {
-    let app = mock_relay_app_router(state);
-
     let socket = SocketAddr::new("0.0.0.0".parse()?, port);
     let listener = TcpListener::bind(socket).await?;
+    start_mock_relay_service_with_listener(state, listener).await
+}
 
+/// Like [`start_mock_relay_service`], but accepts a pre-bound [`TcpListener`].
+pub async fn start_mock_relay_service_with_listener(
+    state: Arc<MockRelayState>,
+    listener: TcpListener,
+) -> eyre::Result<()> {
+    let app = mock_relay_app_router(state);
     axum::serve(listener, app).await?;
     Ok(())
 }
