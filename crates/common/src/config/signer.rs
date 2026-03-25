@@ -92,10 +92,12 @@ impl Display for ReverseProxyHeaderSetup {
                 write!(f, "\"{header} (unique)\"")
             }
             ReverseProxyHeaderSetup::Rightmost { header, trusted_count } => {
-                let suffix = match trusted_count.get() % 10 {
-                    1 => "st",
-                    2 => "nd",
-                    3 => "rd",
+                let n = trusted_count.get();
+                let suffix = match (n % 100, n % 10) {
+                    (11..=13, _) => "th",
+                    (_, 1) => "st",
+                    (_, 2) => "nd",
+                    (_, 3) => "rd",
                     _ => "th",
                 };
                 write!(f, "\"{header} ({trusted_count}{suffix} from the right)\"")
