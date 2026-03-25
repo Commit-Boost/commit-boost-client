@@ -273,38 +273,40 @@ async fn jwt_auth(
 /// Checks if the incoming request needs to be rate limited due to previous JWT
 /// authentication failures
 fn check_jwt_rate_limit(state: &SigningState, client_ip: &IpAddr) -> Result<(), SignerModuleError> {
-    let mut failures = state.jwt_auth_failures.write();
+    let failures = state.jwt_auth_failures.read();
 
     // Ignore clients that don't have any failures
-    if let Some(failure_info) = failures.get(client_ip) {
-        // If the last failure was more than the timeout ago, remove this entry so it's
-        // eligible again
-        let elapsed = failure_info.last_failure.elapsed();
-        if elapsed > state.jwt_auth_fail_timeout {
-            debug!("Removing {client_ip} from JWT auth failure list");
-            failures.remove(client_ip);
-            return Ok(());
-        }
+    let Some(failure_info) = failures.get(client_ip) else {
+        debug!("Client {client_ip} has no JWT auth failures, no rate limit applied");
+        return Ok(());
+    };
 
-        // If the failure threshold hasn't been met yet, don't rate limit
-        if failure_info.failure_count < state.jwt_auth_fail_limit {
-            debug!(
-                "Client {client_ip} has {}/{} JWT auth failures, no rate limit applied",
-                failure_info.failure_count, state.jwt_auth_fail_limit
-            );
-            return Ok(());
-        }
+    let elapsed = failure_info.last_failure.elapsed();
 
-        // Rate limit the request
-        let remaining = state.jwt_auth_fail_timeout.saturating_sub(elapsed);
-        warn!(
-            "Client {client_ip} is rate limited for {remaining:?} more seconds due to JWT auth failures"
-        );
-        return Err(SignerModuleError::RateLimited(remaining.as_secs_f64()));
+    // If the last failure was more than the timeout ago, remove this entry so it's
+    // eligible again
+    if elapsed > state.jwt_auth_fail_timeout {
+        drop(failures);
+        debug!("Removing {client_ip} from JWT auth failure list");
+        state.jwt_auth_failures.write().remove(client_ip);
+        return Ok(());
     }
 
-    debug!("Client {client_ip} has no JWT auth failures, no rate limit applied");
-    Ok(())
+    // If the failure threshold hasn't been met yet, don't rate limit
+    if failure_info.failure_count < state.jwt_auth_fail_limit {
+        debug!(
+            "Client {client_ip} has {}/{} JWT auth failures, no rate limit applied",
+            failure_info.failure_count, state.jwt_auth_fail_limit
+        );
+        return Ok(());
+    }
+
+    // Rate limit the request
+    let remaining = state.jwt_auth_fail_timeout.saturating_sub(elapsed);
+    warn!(
+        "Client {client_ip} is rate limited for {remaining:?} more seconds due to JWT auth failures"
+    );
+    Err(SignerModuleError::RateLimited(remaining.as_secs_f64()))
 }
 
 /// Checks if a request can successfully authenticate with the JWT secret
