@@ -44,7 +44,7 @@ Your module has the option of using **Nonces** for each of its signature request
 
 If you want to use them within your module, your module (or whatever remote backend system it connects to) **will be responsible** for storing, comparing, validating, and otherwise using the nonces. Commit-Boost's signer service by itself **does not** store nonces or track which ones have already been used by a given module.
 
-In terms of implementation, the nonce format conforms to the specification in [EIP-2681](https://eips.ethereum.org/EIPS/eip-2681). It is an unsigned 64-bit big-endian integer, with a minimum value of 0 and a maximum value of `2^64-2`. We recommend using `2^64-1` as a signifier indicating that your module doesn't use nonces, rather than using 0 for such a purpose.
+In terms of implementation, the nonce format conforms to the specification in [EIP-2681](https://eips.ethereum.org/EIPS/eip-2681). It is an unsigned 64-bit integer, with a minimum value of 0 and a maximum value of `2^64-2`. The field is required and is always mixed into the signing root. Modules that do not use nonces for replay protection should always send `0`; modules that do should use a monotonically increasing value per key.
 
 
 ## Structure of a Signature
@@ -63,7 +63,7 @@ where, for the sub-tree in blue:
 
 - `Signing ID` is your module's 32-byte signing ID. The signer service will load this for your module from its configuration file.
 
-- `Nonce` is the nonce value for the signature request. While this value must be present, it can be effectively ignored by setting it to some arbitrary value if your module does not track nonces. Conforming with the tree specification, it must be added as a 256-bit unsigned little-endian integer. Most libraries will be able to do this conversion automatically if you specify the field as the language's primitive for 64-bit unsigned integers (e.g., `uint64`, `u64`, `ulong`, etc.).
+- `Nonce` is the nonce value for the signature request. This field is required. Modules that do not use replay protection should always send `0`; modules that do should use a monotonically increasing value per key. Conforming with the tree specification, it must be added as a 256-bit unsigned little-endian integer. Most libraries will be able to do this conversion automatically if you specify the field as the language's primitive for 64-bit unsigned integers (e.g., `uint64`, `u64`, `ulong`, etc.).
 
 - `Chain ID` is the ID of the chain that the Signer service is currently configured to use, as indicated by the [Commit-Boost configuration file](../get_started/configuration.md). This must also be a 256-bit unsigned little-endian integer.
 
