@@ -165,10 +165,18 @@ pub fn verify_proposer_commitment_signature_ecdsa(
 #[cfg(test)]
 mod tests {
 
-    use alloy::primitives::aliases::B32;
+    use alloy::primitives::{U256, aliases::B32};
 
-    use super::compute_domain;
-    use crate::{constants::APPLICATION_BUILDER_DOMAIN, types::Chain};
+    use super::{compute_domain, sign_builder_message, verify_signed_message};
+    use crate::{
+        constants::APPLICATION_BUILDER_DOMAIN,
+        pbs::{
+            BlindedBeaconBlockElectra, BuilderBid, BuilderBidElectra,
+            ExecutionPayloadHeaderElectra, ExecutionRequests,
+        },
+        types::{BlsSecretKey, Chain},
+        utils::TestRandomSeed,
+    };
 
     #[test]
     fn test_builder_domains() {
@@ -177,5 +185,49 @@ mod tests {
         assert_eq!(compute_domain(Chain::Holesky, domain), Chain::Holesky.builder_domain());
         assert_eq!(compute_domain(Chain::Sepolia, domain), Chain::Sepolia.builder_domain());
         assert_eq!(compute_domain(Chain::Hoodi, domain), Chain::Hoodi.builder_domain());
+    }
+
+    #[test]
+    fn test_builder_bid_sign_and_verify() {
+        let secret_key = BlsSecretKey::test_random();
+        let pubkey = secret_key.public_key();
+
+        let message = BuilderBid::Electra(BuilderBidElectra {
+            header: ExecutionPayloadHeaderElectra::test_random(),
+            blob_kzg_commitments: Default::default(),
+            execution_requests: ExecutionRequests::default(),
+            value: U256::from(10),
+            pubkey: pubkey.clone().into(),
+        });
+
+        let sig = sign_builder_message(Chain::Mainnet, &secret_key, &message);
+
+        assert!(verify_signed_message(
+            Chain::Mainnet,
+            &pubkey,
+            &message,
+            &sig,
+            None,
+            &B32::from(APPLICATION_BUILDER_DOMAIN),
+        ));
+    }
+
+    #[test]
+    fn test_blinded_block_sign_and_verify() {
+        let secret_key = BlsSecretKey::test_random();
+        let pubkey = secret_key.public_key();
+
+        let block = BlindedBeaconBlockElectra::test_random();
+
+        let sig = sign_builder_message(Chain::Mainnet, &secret_key, &block);
+
+        assert!(verify_signed_message(
+            Chain::Mainnet,
+            &pubkey,
+            &block,
+            &sig,
+            None,
+            &B32::from(APPLICATION_BUILDER_DOMAIN),
+        ));
     }
 }
