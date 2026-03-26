@@ -12,7 +12,7 @@ use tracing::{debug, error, info};
 use crate::{
     constants::{MAX_SIZE_DEFAULT, STATUS_ENDPOINT_TAG, TIMEOUT_ERROR_CODE_STR},
     error::PbsClientError,
-    metrics::{BEACON_NODE_STATUS, RELAY_LATENCY, RELAY_STATUS_CODE},
+    metrics::{BEACON_NODE_STATUS, RELAY_STATUS_CODE},
     state::{PbsState, PbsStateGuard},
 };
 
@@ -50,7 +50,7 @@ pub async fn handle_get_status(
 /// Implements https://ethereum.github.io/builder-specs/#/Builder/status
 /// Broadcasts a status check to all relays and returns 200 if at least one
 /// relay returns 200
-pub(crate) async fn get_status(req_headers: HeaderMap, state: PbsState) -> eyre::Result<()> {
+async fn get_status(req_headers: HeaderMap, state: PbsState) -> eyre::Result<()> {
     // If no relay check, return early
     if !state.config.pbs_config.relay_check {
         Ok(())
@@ -95,12 +95,8 @@ async fn send_relay_check(relay: &RelayClient, headers: HeaderMap) -> Result<(),
         }
     };
     let request_latency = start_request.elapsed();
-    RELAY_LATENCY
-        .with_label_values(&[STATUS_ENDPOINT_TAG, &relay.id])
-        .observe(request_latency.as_secs_f64());
-
     let code = res.status();
-    RELAY_STATUS_CODE.with_label_values(&[code.as_str(), STATUS_ENDPOINT_TAG, &relay.id]).inc();
+    super::record_relay_metrics(STATUS_ENDPOINT_TAG, &relay.id, code, request_latency);
 
     if !code.is_success() {
         let response_bytes = read_chunked_body_with_max(res, MAX_SIZE_DEFAULT).await?;

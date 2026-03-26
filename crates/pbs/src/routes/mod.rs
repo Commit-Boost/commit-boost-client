@@ -5,6 +5,8 @@ mod router;
 mod status;
 mod submit_block;
 
+use std::time::Duration;
+
 use alloy::primitives::U256;
 use cb_common::{
     pbs::{GetHeaderResponse, SubmitBlindedBlockResponse},
@@ -17,6 +19,20 @@ use register_validator::handle_register_validator;
 pub use router::create_app_router;
 use status::handle_get_status;
 use submit_block::handle_submit_block_v1;
+
+use crate::metrics::{RELAY_LATENCY, RELAY_STATUS_CODE};
+
+/// Records the HTTP status code and request latency metrics for a relay
+/// endpoint interaction.
+pub(crate) fn record_relay_metrics(
+    endpoint: &str,
+    relay_id: &str,
+    code: reqwest::StatusCode,
+    latency: Duration,
+) {
+    RELAY_STATUS_CODE.with_label_values(&[code.as_str(), endpoint, relay_id]).inc();
+    RELAY_LATENCY.with_label_values(&[endpoint, relay_id]).observe(latency.as_secs_f64());
+}
 
 /// Enum that handles different GetHeader response types based on the level of
 /// validation required

@@ -4,288 +4,76 @@ use std::{
     time::{Duration, Instant},
 };
 
-use alloy::{eips::eip7594::CELLS_PER_EXT_BLOB, primitives::B256};
-use axum::{
-    extract::State,
-    http::{HeaderMap, HeaderValue},
-    response::IntoResponse,
-};
+use axum::http::HeaderMap;
 use cb_common::{
     config::BlockValidationMode,
     pbs::{
-        BlindedBeaconBlock, BlobsBundle, BuilderApiVersion, ForkName, ForkVersionDecode,
-        GetPayloadInfo, HEADER_START_TIME_UNIX_MS, KzgCommitments, PayloadAndBlobs, RelayClient,
-        SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
+        BlindedBeaconBlock, BuilderApiVersion, ForkName, RelayClient, SignedBlindedBeaconBlock,
+        SubmitBlindedBlockResponse,
         error::{PbsError, ValidationError},
     },
     utils::{
-        CONSENSUS_VERSION_HEADER, EncodingType, RawRequest, deserialize_body, get_accept_types,
-        get_consensus_version_header, get_user_agent, get_user_agent_with_version,
-        read_chunked_body_with_max, timestamp_of_slot_start_millis, utcnow_ms,
+        CONSENSUS_VERSION_HEADER, EncodingType, get_consensus_version_header,
+        read_chunked_body_with_max,
     },
 };
-use futures::{FutureExt, future::select_ok};
-use reqwest::{
-    StatusCode,
-    header::{ACCEPT, CONTENT_TYPE, USER_AGENT},
-};
-use serde::Deserialize;
+use reqwest::{StatusCode, header::CONTENT_TYPE};
 use ssz::Encode;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, warn};
 use url::Url;
 
+use super::validation::{
+    decode_json_payload, decode_ssz_payload, get_light_info_from_json, validate_unblinded_block,
+};
 use crate::{
     CompoundSubmitBlockResponse, LightSubmitBlockResponse, TIMEOUT_ERROR_CODE_STR,
     constants::{MAX_SIZE_SUBMIT_BLOCK_RESPONSE, SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG},
-    error::PbsClientError,
-    metrics::{BEACON_NODE_STATUS, RELAY_LATENCY, RELAY_STATUS_CODE},
-    state::{PbsState, PbsStateGuard},
+    metrics::RELAY_STATUS_CODE,
 };
-
-pub async fn handle_submit_block_v1(
-    state: State<PbsStateGuard>,
-    req_headers: HeaderMap,
-    raw_request: RawRequest,
-) -> Result<impl IntoResponse, PbsClientError> {
-    handle_submit_block_impl(state, req_headers, raw_request, BuilderApiVersion::V1).await
-}
-
-pub async fn handle_submit_block_v2(
-    state: State<PbsStateGuard>,
-    req_headers: HeaderMap,
-    raw_request: RawRequest,
-) -> Result<impl IntoResponse, PbsClientError> {
-    handle_submit_block_impl(state, req_headers, raw_request, BuilderApiVersion::V2).await
-}
-
-async fn handle_submit_block_impl(
-    State(state): State<PbsStateGuard>,
-    req_headers: HeaderMap,
-    raw_request: RawRequest,
-    api_version: BuilderApiVersion,
-) -> Result<impl IntoResponse, PbsClientError> {
-    let signed_blinded_block =
-        Arc::new(deserialize_body(&req_headers, raw_request.body_bytes).await?);
-    tracing::Span::current().record("slot", signed_blinded_block.slot().as_u64() as i64);
-    tracing::Span::current()
-        .record("block_hash", tracing::field::debug(signed_blinded_block.block_hash()));
-    tracing::Span::current().record("block_number", signed_blinded_block.block_number());
-    tracing::Span::current()
-        .record("parent_hash", tracing::field::debug(signed_blinded_block.parent_hash()));
-
-    let state = state.read().clone();
-
-    let now = utcnow_ms();
-    let slot = signed_blinded_block.slot();
-    let block_hash = signed_blinded_block.block_hash();
-    let slot_start_ms = timestamp_of_slot_start_millis(slot.into(), state.config.chain);
-    let ua = get_user_agent(&req_headers);
-    let accept_types = get_accept_types(&req_headers).map_err(|e| {
-        error!(%e, "error parsing accept header");
-        PbsClientError::DecodeError(format!("error parsing accept header: {e}"))
-    })?;
-    let accepts_ssz = accept_types.contains(&EncodingType::Ssz);
-    let accepts_json = accept_types.contains(&EncodingType::Json);
-
-    info!(ua, ms_into_slot = now.saturating_sub(slot_start_ms), "new request");
-
-    match submit_block(signed_blinded_block, req_headers, state, api_version, accept_types).await {
-        Ok(res) => match res {
-            crate::CompoundSubmitBlockResponse::EmptyBody => {
-                info!("received unblinded block (v2)");
-
-                // Note: this doesn't provide consensus_version_header because it doesn't pass
-                // the body through, and there's no content-type header since the body is empty.
-                BEACON_NODE_STATUS
-                    .with_label_values(&["202", SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG])
-                    .inc();
-                Ok((StatusCode::ACCEPTED, "").into_response())
-            }
-            CompoundSubmitBlockResponse::Light(payload_and_blobs) => {
-                trace!(?payload_and_blobs);
-                info!("received unblinded block (v1, unvalidated)");
-
-                BEACON_NODE_STATUS
-                    .with_label_values(&["200", SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG])
-                    .inc();
-
-                // Create the headers
-                let consensus_version_header =
-                    match HeaderValue::from_str(&payload_and_blobs.version.to_string()) {
-                        Ok(consensus_version_header) => {
-                            Ok::<HeaderValue, PbsClientError>(consensus_version_header)
-                        }
-                        Err(e) => {
-                            return Err(PbsClientError::RelayError(format!(
-                                "error decoding consensus version from relay payload: {e}"
-                            )));
-                        }
-                    }?;
-                let content_type = payload_and_blobs.encoding_type.content_type();
-                let content_type_header = HeaderValue::from_str(content_type).unwrap();
-
-                // Build response
-                let mut res = payload_and_blobs.raw_bytes.into_response();
-                res.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
-                res.headers_mut().insert(CONTENT_TYPE, content_type_header);
-                info!("sending response as {} (light)", content_type);
-                Ok(res)
-            }
-            CompoundSubmitBlockResponse::Full(payload_and_blobs) => {
-                trace!(?payload_and_blobs);
-                info!("received unblinded block (v1)");
-
-                BEACON_NODE_STATUS
-                    .with_label_values(&["200", SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG])
-                    .inc();
-
-                // Try SSZ
-                if accepts_ssz {
-                    let mut response = payload_and_blobs.data.as_ssz_bytes().into_response();
-
-                    // This won't actually fail since the string is a const
-                    let content_type_header =
-                        HeaderValue::from_str(EncodingType::Ssz.content_type()).unwrap();
-                    response.headers_mut().insert(CONTENT_TYPE, content_type_header);
-                    response.headers_mut().insert(
-                        CONSENSUS_VERSION_HEADER,
-                        HeaderValue::from_str(&payload_and_blobs.version.to_string()).unwrap(),
-                    );
-                    info!("sending response as SSZ");
-                    return Ok(response);
-                }
-
-                // Handle JSON
-                if accepts_json {
-                    Ok((StatusCode::OK, axum::Json(payload_and_blobs)).into_response())
-                } else {
-                    // This shouldn't ever happen but the compiler needs it
-                    Err(PbsClientError::DecodeError(
-                        "no viable accept types in request".to_string(),
-                    ))
-                }
-            }
-        },
-
-        Err(err) => {
-            error!(%err, %block_hash, "CRITICAL: no payload received from relays. Check previous logs or use the Relay Data API");
-
-            let err = PbsClientError::NoPayload;
-            BEACON_NODE_STATUS
-                .with_label_values(&[err.status_code().as_str(), SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG])
-                .inc();
-            Err(err)
-        }
-    }
-}
-
-// ── Relay logic ──────────────────────────────────────────────────────────────
 
 /// Info about a proposal submission request.
 /// Sent from submit_block to the submit_block_with_timeout function.
 #[derive(Clone)]
-struct ProposalInfo {
+pub struct ProposalInfo {
     /// The signed blinded block to submit
-    signed_blinded_block: Arc<SignedBlindedBeaconBlock>,
+    pub signed_blinded_block: Arc<SignedBlindedBeaconBlock>,
 
     /// Common baseline of headers to send with each request
-    headers: Arc<HeaderMap>,
+    pub headers: Arc<HeaderMap>,
 
     /// The version of the submit_block route being used
-    api_version: BuilderApiVersion,
+    pub api_version: BuilderApiVersion,
 
     /// How to validate the block returned by the relay
-    validation_mode: BlockValidationMode,
+    pub validation_mode: BlockValidationMode,
 
     /// The accepted encoding types from the original request
-    accepted_types: HashSet<EncodingType>,
+    pub accepted_types: HashSet<EncodingType>,
 }
 
-/// Used interally to provide info and context about a submit_block request and
+/// Used internally to provide info and context about a submit_block request and
 /// its response
-struct SubmitBlockResponseInfo {
+pub struct SubmitBlockResponseInfo {
     /// The raw body of the response
-    response_bytes: Vec<u8>,
+    pub response_bytes: Vec<u8>,
 
     /// The content type the response is encoded with
-    content_type: EncodingType,
+    pub content_type: EncodingType,
 
     /// Which fork the response bid is for (if provided as a header, rather than
     /// part of the body)
-    fork: Option<ForkName>,
+    pub fork: Option<ForkName>,
 
     /// The status code of the response, for logging
-    code: StatusCode,
+    pub code: StatusCode,
 
     /// The round-trip latency of the request
-    request_latency: Duration,
-}
-
-/// Implements https://ethereum.github.io/builder-specs/#/Builder/submitBlindedBlock and
-/// https://ethereum.github.io/builder-specs/#/Builder/submitBlindedBlockV2. Use `api_version` to
-/// distinguish between the two.
-pub(crate) async fn submit_block(
-    signed_blinded_block: Arc<SignedBlindedBeaconBlock>,
-    req_headers: HeaderMap,
-    state: PbsState,
-    api_version: BuilderApiVersion,
-    accepted_types: HashSet<EncodingType>,
-) -> eyre::Result<CompoundSubmitBlockResponse> {
-    debug!(?req_headers, "received headers");
-
-    // prepare headers
-    let mut send_headers = HeaderMap::new();
-    send_headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(utcnow_ms()));
-    send_headers.insert(USER_AGENT, get_user_agent_with_version(&req_headers)?);
-
-    // Create the Accept headers for requests
-    let mode = state.pbs_config().block_validation_mode;
-    let accept_types = match mode {
-        BlockValidationMode::None => {
-            // No validation mode, so only request what the user wants because the response
-            // will be forwarded directly
-            accepted_types.iter().map(|t| t.content_type()).collect::<Vec<&str>>().join(",")
-        }
-        _ => {
-            // We're unpacking the body, so request both types since we can handle both
-            [EncodingType::Ssz.content_type(), EncodingType::Json.content_type()].join(",")
-        }
-    };
-    send_headers.insert(ACCEPT, HeaderValue::from_str(&accept_types).unwrap());
-
-    // Send requests to all relays concurrently
-    let proposal_info = Arc::new(ProposalInfo {
-        signed_blinded_block,
-        headers: Arc::new(send_headers),
-        api_version,
-        validation_mode: mode,
-        accepted_types,
-    });
-    let mut handles = Vec::with_capacity(state.all_relays().len());
-    for relay in state.all_relays().iter() {
-        handles.push(
-            tokio::spawn(submit_block_with_timeout(
-                proposal_info.clone(),
-                relay.clone(),
-                state.pbs_config().timeout_get_payload_ms,
-            ))
-            .map(|join_result| match join_result {
-                Ok(res) => res,
-                Err(err) => Err(PbsError::TokioJoinError(err)),
-            }),
-        );
-    }
-
-    let results = select_ok(handles).await;
-    match results {
-        Ok((res, _)) => Ok(res),
-        Err(err) => Err(err.into()),
-    }
+    pub request_latency: Duration,
 }
 
 /// Submit blinded block to relay, retry connection errors until the
 /// given timeout has passed
-async fn submit_block_with_timeout(
+pub async fn submit_block_with_timeout(
     proposal_info: Arc<ProposalInfo>,
     relay: RelayClient,
     timeout_ms: u64,
@@ -560,7 +348,7 @@ async fn send_submit_block_light(
 /// Sends the actual HTTP request to the relay's submit_block endpoint,
 /// returning the response (if applicable), the round-trip time, and the
 /// encoding type used for the body (if any). Used by send_submit_block.
-async fn send_submit_block_impl(
+pub async fn send_submit_block_impl(
     relay: &RelayClient,
     url: Arc<Url>,
     timeout_ms: u64,
@@ -630,12 +418,12 @@ async fn send_submit_block_impl(
     // Log the response code and latency
     let code = res.status();
     let request_latency = start_request.elapsed();
-    RELAY_LATENCY
-        .with_label_values(&[SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG, &relay.id])
-        .observe(request_latency.as_secs_f64());
-    RELAY_STATUS_CODE
-        .with_label_values(&[code.as_str(), SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG, &relay.id])
-        .inc();
+    super::super::record_relay_metrics(
+        SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG,
+        &relay.id,
+        code,
+        request_latency,
+    );
 
     // If this was API v2 and succeeded then we can just return here
     if api_version != BuilderApiVersion::V1 {
@@ -725,153 +513,4 @@ async fn send_submit_block_impl(
     let fork = get_consensus_version_header(res.headers());
     let response_bytes = read_chunked_body_with_max(res, MAX_SIZE_SUBMIT_BLOCK_RESPONSE).await?;
     Ok(SubmitBlockResponseInfo { response_bytes, content_type, fork, code, request_latency })
-}
-
-/// Decode a JSON-encoded submit_block response
-fn decode_json_payload(response_bytes: &[u8]) -> Result<SubmitBlindedBlockResponse, PbsError> {
-    match serde_json::from_slice::<SubmitBlindedBlockResponse>(response_bytes) {
-        Ok(parsed) => Ok(parsed),
-        Err(err) => Err(PbsError::JsonDecode {
-            err,
-            raw: String::from_utf8_lossy(response_bytes).into_owned(),
-        }),
-    }
-}
-
-/// Get the fork name from a submit_block JSON response (used for light
-/// processing)
-fn get_light_info_from_json(response_bytes: &[u8]) -> Result<ForkName, PbsError> {
-    #[derive(Deserialize)]
-    struct LightSubmitBlockResponse {
-        version: ForkName,
-    }
-
-    match serde_json::from_slice::<LightSubmitBlockResponse>(response_bytes) {
-        Ok(parsed) => Ok(parsed.version),
-        Err(err) => Err(PbsError::JsonDecode {
-            err,
-            raw: String::from_utf8_lossy(response_bytes).into_owned(),
-        }),
-    }
-}
-
-/// Decode an SSZ-encoded submit_block response
-fn decode_ssz_payload(
-    response_bytes: &[u8],
-    fork: ForkName,
-) -> Result<SubmitBlindedBlockResponse, PbsError> {
-    let data = PayloadAndBlobs::from_ssz_bytes_by_fork(response_bytes, fork).map_err(|e| {
-        PbsError::RelayResponse {
-            error_msg: (format!("error decoding relay payload: {e:?}")).to_string(),
-            code: 200,
-        }
-    })?;
-    Ok(SubmitBlindedBlockResponse { version: fork, data, metadata: Default::default() })
-}
-
-fn validate_unblinded_block(
-    expected_block_hash: B256,
-    got_block_hash: B256,
-    expected_commitments: &KzgCommitments,
-    blobs_bundle: &BlobsBundle,
-    fork_name: ForkName,
-) -> Result<(), PbsError> {
-    match fork_name {
-        ForkName::Base |
-        ForkName::Altair |
-        ForkName::Bellatrix |
-        ForkName::Capella |
-        ForkName::Deneb |
-        ForkName::Gloas => Err(PbsError::Validation(ValidationError::UnsupportedFork)),
-        ForkName::Electra => validate_unblinded_block_electra(
-            expected_block_hash,
-            got_block_hash,
-            expected_commitments,
-            blobs_bundle,
-        ),
-        ForkName::Fulu => validate_unblinded_block_fulu(
-            expected_block_hash,
-            got_block_hash,
-            expected_commitments,
-            blobs_bundle,
-        ),
-    }
-}
-
-fn validate_unblinded_block_electra(
-    expected_block_hash: B256,
-    got_block_hash: B256,
-    expected_commitments: &KzgCommitments,
-    blobs_bundle: &BlobsBundle,
-) -> Result<(), PbsError> {
-    if expected_block_hash != got_block_hash {
-        return Err(PbsError::Validation(ValidationError::BlockHashMismatch {
-            expected: expected_block_hash,
-            got: got_block_hash,
-        }));
-    }
-
-    if expected_commitments.len() != blobs_bundle.blobs.len() ||
-        expected_commitments.len() != blobs_bundle.commitments.len() ||
-        expected_commitments.len() != blobs_bundle.proofs.len()
-    {
-        return Err(PbsError::Validation(ValidationError::KzgCommitments {
-            expected_blobs: expected_commitments.len(),
-            got_blobs: blobs_bundle.blobs.len(),
-            got_commitments: blobs_bundle.commitments.len(),
-            got_proofs: blobs_bundle.proofs.len(),
-        }));
-    }
-
-    for (i, comm) in expected_commitments.iter().enumerate() {
-        // this is safe since we already know they are the same length
-        if *comm != blobs_bundle.commitments[i] {
-            return Err(PbsError::Validation(ValidationError::KzgMismatch {
-                expected: format!("{comm}"),
-                got: format!("{}", blobs_bundle.commitments[i]),
-                index: i,
-            }));
-        }
-    }
-
-    Ok(())
-}
-
-fn validate_unblinded_block_fulu(
-    expected_block_hash: B256,
-    got_block_hash: B256,
-    expected_commitments: &KzgCommitments,
-    blobs_bundle: &BlobsBundle,
-) -> Result<(), PbsError> {
-    if expected_block_hash != got_block_hash {
-        return Err(PbsError::Validation(ValidationError::BlockHashMismatch {
-            expected: expected_block_hash,
-            got: got_block_hash,
-        }));
-    }
-
-    if expected_commitments.len() != blobs_bundle.blobs.len() ||
-        expected_commitments.len() != blobs_bundle.commitments.len() ||
-        expected_commitments.len() * CELLS_PER_EXT_BLOB != blobs_bundle.proofs.len()
-    {
-        return Err(PbsError::Validation(ValidationError::KzgCommitments {
-            expected_blobs: expected_commitments.len(),
-            got_blobs: blobs_bundle.blobs.len(),
-            got_commitments: blobs_bundle.commitments.len(),
-            got_proofs: blobs_bundle.proofs.len(),
-        }));
-    }
-
-    for (i, comm) in expected_commitments.iter().enumerate() {
-        // this is safe since we already know they are the same length
-        if *comm != blobs_bundle.commitments[i] {
-            return Err(PbsError::Validation(ValidationError::KzgMismatch {
-                expected: format!("{comm}"),
-                got: format!("{}", blobs_bundle.commitments[i]),
-                index: i,
-            }));
-        }
-    }
-
-    Ok(())
 }

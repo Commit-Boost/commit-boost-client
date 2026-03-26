@@ -45,7 +45,7 @@ pub async fn handle_reload(
 
 /// Reload the PBS state with the latest configuration in the config file
 /// Returns 200 if successful or 500 if failed
-pub(crate) async fn reload(state: PbsState) -> eyre::Result<PbsState> {
+async fn reload(state: PbsState) -> eyre::Result<PbsState> {
     let (pbs_config, config_path) = load_pbs_config(None).await?;
     let new_state = PbsState::new(pbs_config, config_path);
 

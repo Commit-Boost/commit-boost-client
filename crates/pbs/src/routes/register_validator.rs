@@ -26,7 +26,7 @@ use url::Url;
 use crate::{
     constants::{MAX_SIZE_DEFAULT, REGISTER_VALIDATOR_ENDPOINT_TAG, TIMEOUT_ERROR_CODE_STR},
     error::PbsClientError,
-    metrics::{BEACON_NODE_STATUS, RELAY_LATENCY, RELAY_STATUS_CODE},
+    metrics::{BEACON_NODE_STATUS, RELAY_STATUS_CODE},
     state::{PbsState, PbsStateGuard},
 };
 
@@ -63,7 +63,7 @@ pub async fn handle_register_validator(
 
 /// Implements https://ethereum.github.io/builder-specs/#/Builder/registerValidator
 /// Returns 200 if at least one relay returns 200, else 503
-pub(crate) async fn register_validator(
+async fn register_validator(
     registrations: Vec<serde_json::Value>,
     req_headers: HeaderMap,
     state: PbsState,
@@ -217,14 +217,8 @@ async fn send_register_validator(
         }
     };
     let request_latency = start_request.elapsed();
-    RELAY_LATENCY
-        .with_label_values(&[REGISTER_VALIDATOR_ENDPOINT_TAG, &relay.id])
-        .observe(request_latency.as_secs_f64());
-
     let code = res.status();
-    RELAY_STATUS_CODE
-        .with_label_values(&[code.as_str(), REGISTER_VALIDATOR_ENDPOINT_TAG, &relay.id])
-        .inc();
+    super::record_relay_metrics(REGISTER_VALIDATOR_ENDPOINT_TAG, &relay.id, code, request_latency);
 
     if !code.is_success() {
         let response_bytes = read_chunked_body_with_max(res, MAX_SIZE_DEFAULT).await?;
