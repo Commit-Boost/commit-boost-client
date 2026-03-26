@@ -22,7 +22,7 @@ use cb_common::{
 use parking_lot::RwLock;
 use reqwest::{StatusCode, header::CONTENT_TYPE};
 use tokio::time::sleep;
-use tracing::{Instrument, debug, error, warn};
+use tracing::{Instrument, debug, error, info, warn};
 use url::Url;
 
 use super::{
@@ -369,7 +369,7 @@ async fn send_get_header_full(
     };
 
     // Log and return
-    debug!(
+    info!(
         relay_id = info.relay_id.as_ref(),
         header_size_bytes = info.response_bytes.len(),
         latency = ?info.request_latency,
@@ -416,7 +416,7 @@ async fn send_get_header_light(
     };
 
     // Log and return
-    debug!(
+    info!(
         relay_id = info.relay_id.as_ref(),
         header_size_bytes = info.response_bytes.len(),
         latency = ?info.request_latency,

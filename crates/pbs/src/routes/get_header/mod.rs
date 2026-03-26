@@ -3,7 +3,7 @@ mod validation;
 
 use std::{collections::HashSet, sync::Arc};
 
-use alloy::primitives::U256;
+use alloy::primitives::{U256, utils::format_ether};
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, HeaderValue},
@@ -65,7 +65,7 @@ pub async fn handle_get_header(
                     CompoundGetHeaderResponse::Light(light_bid) => {
                         // Light validation mode, so just forward the raw response
                         info!(
-                            value_eth = alloy::primitives::utils::format_ether(light_bid.value),
+                            value_eth = format_ether(light_bid.value),
                             "received header (unvalidated)"
                         );
 
@@ -94,7 +94,7 @@ pub async fn handle_get_header(
                     }
                     CompoundGetHeaderResponse::Full(max_bid) => {
                         // Full validation mode, so respond based on requester accept types
-                        info!(value_eth = alloy::primitives::utils::format_ether(*max_bid.data.message.value()), block_hash =% max_bid.block_hash(), "received header");
+                        info!(value_eth = format_ether(*max_bid.data.message.value()), block_hash =% max_bid.block_hash(), "received header");
 
                         // Handle SSZ
                         if accepts_ssz {
@@ -288,7 +288,7 @@ pub async fn get_header(
                 let value_gwei = (value / U256::from(1_000_000_000)).try_into().unwrap_or_default();
                 RELAY_HEADER_VALUE.with_label_values(&[relay_id]).set(value_gwei);
 
-                relay_bids.push(res)
+                relay_bids.push((relay_id, res))
             }
             Ok(_) => {}
             Err(err) if err.is_timeout() => error!(err = "Timed Out", relay_id),
@@ -296,10 +296,26 @@ pub async fn get_header(
         }
     }
 
-    let max_bid = relay_bids.into_iter().max_by_key(|bid| match bid {
+    let max_bid = relay_bids.into_iter().max_by_key(|(_, bid)| match bid {
         CompoundGetHeaderResponse::Full(full) => *full.value(),
         CompoundGetHeaderResponse::Light(light) => light.value,
     });
 
-    Ok(max_bid)
+    if let Some((winning_relay_id, ref bid)) = max_bid {
+        match bid {
+            CompoundGetHeaderResponse::Full(full) => info!(
+                relay_id = winning_relay_id,
+                value_eth = format_ether(*full.value()),
+                block_hash = %full.block_hash(),
+                "auction winner"
+            ),
+            CompoundGetHeaderResponse::Light(light) => info!(
+                relay_id = winning_relay_id,
+                value_eth = format_ether(light.value),
+                "auction winner (unvalidated)"
+            ),
+        }
+    }
+
+    Ok(max_bid.map(|(_, bid)| bid))
 }
