@@ -1520,11 +1520,10 @@ mod tests {
         config
     }
 
-    /// Returns a `ServiceCreationInfo` whose CB config has `pbs.with_signer =
-    /// true` and a local signer with `TlsMode::Certificate(certs_path)`.
+    /// Returns a `ServiceCreationInfo` whose CB config has a local signer with
+    /// `TlsMode::Certificate(certs_path)`.
     fn service_config_with_tls(certs_path: PathBuf) -> ServiceCreationInfo {
         let mut sc = minimal_service_config();
-        sc.config_info.cb_config.pbs.with_signer = true;
         sc.config_info.cb_config.signer = Some(local_signer_config_with_tls(certs_path));
         sc
     }
@@ -1620,12 +1619,15 @@ mod tests {
     // -------------------------------------------------------------------------
 
     #[test]
-    fn test_create_pbs_service_with_tls_adds_cert_env_and_volume() -> eyre::Result<()> {
+    fn test_create_pbs_service_with_tls_but_no_commit_module_no_cert() -> eyre::Result<()> {
+        // PBS no longer connects to the signer directly; only commit modules do.
+        // Even when the signer is configured with TLS, the cert env/volume must
+        // NOT be injected into the PBS container unless a Commit module is present.
         let mut sc = service_config_with_tls(PathBuf::from("/my/certs"));
         let service = create_pbs_service(&mut sc)?;
 
-        assert!(has_env_key(&service, SIGNER_TLS_CERTIFICATES_PATH_ENV));
-        assert!(has_volume(&service, SIGNER_TLS_CERTIFICATE_NAME));
+        assert!(!has_env_key(&service, SIGNER_TLS_CERTIFICATES_PATH_ENV));
+        assert!(!has_volume(&service, SIGNER_TLS_CERTIFICATE_NAME));
         Ok(())
     }
 

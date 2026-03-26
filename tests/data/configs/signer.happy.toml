@@ -2,7 +2,6 @@ chain = "Hoodi"
 
 [pbs]
 docker_image = "ghcr.io/commit-boost/pbs:latest"
-with_signer = true
 host = "127.0.0.1"
 port = 18550
 relay_check = true

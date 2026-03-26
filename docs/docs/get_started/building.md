@@ -108,7 +108,6 @@ chain = "Hoodi"
 
 [pbs]
 port = 18550
-with_signer = true
 
 [[relays]]
 url = "https://0xafa4c6985aa049fb79dd37010438cfebeb0f2bd42b115b89dd678dab0670c1de38da0c4e9138c9290a398ecd9a0b3110@boost-relay-hoodi.flashbots.net"

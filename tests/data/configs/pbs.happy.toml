@@ -14,7 +14,6 @@ timeout_get_header_ms = 950
 timeout_get_payload_ms = 4000
 timeout_register_validator_ms = 3000
 wait_all_registrations = true
-with_signer = false
 
 
 [[relays]]

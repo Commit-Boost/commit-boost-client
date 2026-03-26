@@ -81,7 +81,6 @@ async fn test_cfg_file_update() -> Result<()> {
         pbs: StaticPbsConfig {
             docker_image: "cb-fake-repo/cb-fake-image:latest".to_string(),
             pbs_config: pbs_config.clone(),
-            with_signer: false,
         },
         muxes: None,
         modules: None,
@@ -133,7 +132,6 @@ async fn test_cfg_file_update() -> Result<()> {
         pbs: StaticPbsConfig {
             docker_image: "cb-fake-repo/cb-fake-image:latest".to_string(),
             pbs_config,
-            with_signer: false,
         },
         muxes: None,
         modules: None,

@@ -107,7 +107,7 @@ pub fn get_pbs_config(port: u16) -> PbsConfig {
 }
 
 pub fn get_pbs_static_config(pbs_config: PbsConfig) -> StaticPbsConfig {
-    StaticPbsConfig { docker_image: String::from(""), pbs_config, with_signer: true }
+    StaticPbsConfig { docker_image: String::from(""), pbs_config }
 }
 
 pub fn get_commit_boost_config(pbs_static_config: StaticPbsConfig) -> CommitBoostConfig {
@@ -132,7 +132,6 @@ pub fn to_pbs_config(
         chain,
         endpoint: SocketAddr::new(pbs_config.host.into(), pbs_config.port),
         pbs_config: Arc::new(pbs_config),
-        signer_client: None,
         all_relays: relays.clone(),
         relays,
         registry_muxes: None,

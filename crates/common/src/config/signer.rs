@@ -485,7 +485,6 @@ mod tests {
                     ssv_node_api_url: Url::parse("https://example.net").unwrap(),
                     ssv_public_api_url: Url::parse("https://example.net").unwrap(),
                 },
-                with_signer: true,
             },
             muxes: None,
             modules: Some(vec![]),

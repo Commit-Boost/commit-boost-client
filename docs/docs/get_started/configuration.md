@@ -63,8 +63,6 @@ To start a local Signer Service, you need to include its parameters in the confi
 ```toml
 [pbs]
 ...
-with_signer = true
-
 [signer]
 port = 20000
 
@@ -97,8 +95,6 @@ We currently support Lighthouse, Prysm, Teku, Lodestar, and Nimbus's keystores s
 ```toml
 [pbs]
 ...
-with_signer = true
-
 [signer]
 port = 20000
 
@@ -129,8 +125,6 @@ secrets_path = "secrets"
 ```toml
 [pbs]
 ...
-with_signer = true
-
 [signer]
 port = 20000
 
@@ -161,8 +155,6 @@ secrets_path = "secrets/password.txt"
 ```toml
 [pbs]
 ...
-with_signer = true
-
 [signer]
 port = 20000
 
@@ -192,8 +184,6 @@ secrets_path = "secrets"
 ```toml
 [pbs]
 ...
-with_signer = true
-
 [signer]
 port = 20000
 
@@ -228,8 +218,6 @@ All keys have the same password stored in `secrets/password.txt`
   ```toml
   [pbs]
   ...
-  with_signer = true
-
   [signer]
   port = 20000
 
@@ -397,8 +385,6 @@ Specifying it is done within Commit-Boost's configuration file using the `[signe
 ```toml
 [pbs]
 ...
-with_signer = true
-
 [signer]
 port = 20000
 ...
