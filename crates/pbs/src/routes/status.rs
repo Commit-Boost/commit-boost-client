@@ -1,19 +1,24 @@
+use std::time::{Duration, Instant};
+
 use axum::{extract::State, http::HeaderMap, response::IntoResponse};
-use cb_common::utils::get_user_agent;
-use reqwest::StatusCode;
-use tracing::{error, info};
+use cb_common::{
+    pbs::{RelayClient, error::PbsError},
+    utils::{get_user_agent, get_user_agent_with_version, read_chunked_body_with_max},
+};
+use futures::future::select_ok;
+use reqwest::{StatusCode, header::USER_AGENT};
+use tracing::{debug, error, info};
 
 use crate::{
-    api::BuilderApi,
-    constants::STATUS_ENDPOINT_TAG,
+    constants::{MAX_SIZE_DEFAULT, STATUS_ENDPOINT_TAG, TIMEOUT_ERROR_CODE_STR},
     error::PbsClientError,
-    metrics::BEACON_NODE_STATUS,
-    state::{BuilderApiState, PbsStateGuard},
+    metrics::{BEACON_NODE_STATUS, RELAY_STATUS_CODE},
+    state::{PbsState, PbsStateGuard},
 };
 
-pub async fn handle_get_status<S: BuilderApiState, A: BuilderApi<S>>(
+pub async fn handle_get_status(
     req_headers: HeaderMap,
-    State(state): State<PbsStateGuard<S>>,
+    State(state): State<PbsStateGuard>,
 ) -> Result<impl IntoResponse, PbsClientError> {
     let state = state.read().clone();
 
@@ -21,7 +26,7 @@ pub async fn handle_get_status<S: BuilderApiState, A: BuilderApi<S>>(
 
     info!(ua, relay_check = state.config.pbs_config.relay_check, "new request");
 
-    match A::get_status(req_headers, state).await {
+    match get_status(req_headers, state).await {
         Ok(_) => {
             info!("relay check successful");
 
@@ -38,4 +43,73 @@ pub async fn handle_get_status<S: BuilderApiState, A: BuilderApi<S>>(
             Err(err)
         }
     }
+}
+
+// ── Relay logic ──────────────────────────────────────────────────────────────
+
+/// Implements https://ethereum.github.io/builder-specs/#/Builder/status
+/// Broadcasts a status check to all relays and returns 200 if at least one
+/// relay returns 200
+async fn get_status(req_headers: HeaderMap, state: PbsState) -> eyre::Result<()> {
+    // If no relay check, return early
+    if !state.config.pbs_config.relay_check {
+        Ok(())
+    } else {
+        // prepare headers
+        let mut send_headers = HeaderMap::new();
+        send_headers.insert(USER_AGENT, get_user_agent_with_version(&req_headers)?);
+
+        let relays = state.all_relays();
+        let mut handles = Vec::with_capacity(relays.len());
+        for relay in relays {
+            handles.push(Box::pin(send_relay_check(relay, send_headers.clone())));
+        }
+
+        // return ok if at least one relay returns 200
+        let results = select_ok(handles).await;
+        match results {
+            Ok(_) => Ok(()),
+            Err(err) => Err(err.into()),
+        }
+    }
+}
+
+async fn send_relay_check(relay: &RelayClient, headers: HeaderMap) -> Result<(), PbsError> {
+    let url = relay.get_status_url()?;
+
+    let start_request = Instant::now();
+    let res = match relay
+        .client
+        .get(url)
+        .timeout(Duration::from_secs(30))
+        .headers(headers)
+        .send()
+        .await
+    {
+        Ok(res) => res,
+        Err(err) => {
+            RELAY_STATUS_CODE
+                .with_label_values(&[TIMEOUT_ERROR_CODE_STR, STATUS_ENDPOINT_TAG, &relay.id])
+                .inc();
+            return Err(err.into());
+        }
+    };
+    let request_latency = start_request.elapsed();
+    let code = res.status();
+    super::record_relay_metrics(STATUS_ENDPOINT_TAG, &relay.id, code, request_latency);
+
+    if !code.is_success() {
+        let response_bytes = read_chunked_body_with_max(res, MAX_SIZE_DEFAULT).await?;
+        let err = PbsError::RelayResponse {
+            error_msg: String::from_utf8_lossy(&response_bytes).into_owned(),
+            code: code.as_u16(),
+        };
+
+        error!(relay_id = relay.id.as_ref(),%err, "status failed");
+        return Err(err);
+    };
+
+    debug!(relay_id = relay.id.as_ref(),?code, latency = ?request_latency, "status passed");
+
+    Ok(())
 }

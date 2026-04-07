@@ -131,10 +131,9 @@ impl CommitBoostConfig {
 
     /// Helper to return if the signer module is needed based on the config
     pub fn needs_signer_module(&self) -> bool {
-        self.pbs.with_signer ||
-            self.modules.as_ref().is_some_and(|modules| {
-                modules.iter().any(|module| matches!(module.kind, ModuleKind::Commit))
-            })
+        self.modules.as_ref().is_some_and(|modules| {
+            modules.iter().any(|module| matches!(module.kind, ModuleKind::Commit))
+        })
     }
 
     pub fn signer_uses_tls(&self) -> bool {

@@ -84,6 +84,10 @@ impl<T: ProxyId> fmt::Display for SignedProxyDelegation<T> {
 pub struct SignConsensusRequest {
     pub pubkey: BlsPublicKey,
     pub object_root: B256,
+    /// Replay-protection nonce mixed into the signing root via
+    /// `PropCommitSigningInfo`. Modules that do not track nonces should
+    /// send `0`. Modules that do track nonces should use a monotonically
+    /// increasing value per key to prevent signature reuse.
     pub nonce: u64,
 }
 
@@ -93,7 +97,7 @@ impl SignConsensusRequest {
     }
 
     pub fn builder(pubkey: BlsPublicKey) -> Self {
-        Self::new(pubkey, B256::ZERO, u64::MAX - 1)
+        Self::new(pubkey, B256::ZERO, 0)
     }
 
     pub fn with_root<R: Into<B256>>(self, object_root: R) -> Self {
@@ -125,6 +129,10 @@ impl Display for SignConsensusRequest {
 pub struct SignProxyRequest<T: ProxyId> {
     pub proxy: T,
     pub object_root: B256,
+    /// Replay-protection nonce mixed into the signing root via
+    /// `PropCommitSigningInfo`. Modules that do not track nonces should
+    /// send `0`. Modules that do track nonces should use a monotonically
+    /// increasing value per key to prevent signature reuse.
     pub nonce: u64,
 }
 
@@ -134,7 +142,7 @@ impl<T: ProxyId> SignProxyRequest<T> {
     }
 
     pub fn builder(proxy: T) -> Self {
-        Self::new(proxy, B256::ZERO, u64::MAX - 1)
+        Self::new(proxy, B256::ZERO, 0)
     }
 
     pub fn with_root<R: Into<B256>>(self, object_root: R) -> Self {

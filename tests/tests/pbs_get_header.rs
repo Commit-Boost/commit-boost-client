@@ -12,11 +12,13 @@ use cb_common::{
         get_consensus_version_header, timestamp_of_slot_start_sec,
     },
 };
-use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
+use cb_pbs::{PbsService, PbsState};
 use cb_tests::{
-    mock_relay::{MockRelayState, start_mock_relay_service},
+    mock_relay::{MockRelayState, start_mock_relay_service_with_listener},
     mock_validator::MockValidator,
-    utils::{generate_mock_relay, get_pbs_config, setup_test_env, to_pbs_config},
+    utils::{
+        generate_mock_relay, get_free_listener, get_pbs_config, setup_test_env, to_pbs_config,
+    },
 };
 use eyre::Result;
 use lh_types::{ForkVersionDecode, beacon_response::EmptyMetadata};
@@ -29,7 +31,6 @@ use url::Url;
 #[tokio::test]
 async fn test_get_header() -> Result<()> {
     test_get_header_impl(
-        3200,
         HashSet::from([EncodingType::Json]),
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         1,
@@ -47,7 +48,6 @@ async fn test_get_header() -> Result<()> {
 #[tokio::test]
 async fn test_get_header_ssz() -> Result<()> {
     test_get_header_impl(
-        3202,
         HashSet::from([EncodingType::Ssz]),
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         1,
@@ -67,7 +67,6 @@ async fn test_get_header_ssz() -> Result<()> {
 #[tokio::test]
 async fn test_get_header_ssz_into_json() -> Result<()> {
     test_get_header_impl(
-        3204,
         HashSet::from([EncodingType::Ssz]),
         HashSet::from([EncodingType::Json]),
         1,
@@ -86,7 +85,6 @@ async fn test_get_header_ssz_into_json() -> Result<()> {
 #[tokio::test]
 async fn test_get_header_multitype_ssz() -> Result<()> {
     test_get_header_impl(
-        3206,
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         HashSet::from([EncodingType::Ssz]),
         1,
@@ -105,7 +103,6 @@ async fn test_get_header_multitype_ssz() -> Result<()> {
 #[tokio::test]
 async fn test_get_header_multitype_json() -> Result<()> {
     test_get_header_impl(
-        3208,
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         HashSet::from([EncodingType::Json]),
         1,
@@ -125,7 +122,6 @@ async fn test_get_header_multitype_json() -> Result<()> {
 #[tokio::test]
 async fn test_get_header_light() -> Result<()> {
     test_get_header_impl(
-        3210,
         HashSet::from([EncodingType::Json]),
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         1,
@@ -143,7 +139,6 @@ async fn test_get_header_light() -> Result<()> {
 #[tokio::test]
 async fn test_get_header_ssz_light() -> Result<()> {
     test_get_header_impl(
-        3212,
         HashSet::from([EncodingType::Ssz]),
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         1,
@@ -163,7 +158,6 @@ async fn test_get_header_ssz_light() -> Result<()> {
 #[tokio::test]
 async fn test_get_header_ssz_into_json_light() -> Result<()> {
     test_get_header_impl(
-        3214,
         HashSet::from([EncodingType::Ssz]),
         HashSet::from([EncodingType::Json]),
         1,
@@ -182,7 +176,6 @@ async fn test_get_header_ssz_into_json_light() -> Result<()> {
 #[tokio::test]
 async fn test_get_header_multitype_ssz_light() -> Result<()> {
     test_get_header_impl(
-        3216,
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         HashSet::from([EncodingType::Ssz]),
         1,
@@ -201,7 +194,6 @@ async fn test_get_header_multitype_ssz_light() -> Result<()> {
 #[tokio::test]
 async fn test_get_header_multitype_json_light() -> Result<()> {
     test_get_header_impl(
-        3218,
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         HashSet::from([EncodingType::Json]),
         1,
@@ -221,7 +213,6 @@ async fn test_get_header_multitype_json_light() -> Result<()> {
 /// fine; if the parent block fetch fails the relay response is still returned
 /// (extra validation is skipped with a warning).
 async fn test_get_header_impl(
-    pbs_port: u16,
     accept_types: HashSet<EncodingType>,
     relay_types: HashSet<EncodingType>,
     expected_try_count: u64,
@@ -237,13 +228,16 @@ async fn test_get_header_impl(
     let signer = random_secret();
     let pubkey = signer.public_key();
     let chain = Chain::Holesky;
-    let relay_port = pbs_port + 1;
+    let pbs_listener = get_free_listener().await;
+    let relay_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr().unwrap().port();
+    let relay_port = relay_listener.local_addr().unwrap().port();
 
     let mut mock_state = MockRelayState::new(chain, signer).with_bid_value(bid_value);
     mock_state.supported_content_types = Arc::new(relay_types);
     let mock_state = Arc::new(mock_state);
     let mock_relay = generate_mock_relay(relay_port, pubkey)?;
-    tokio::spawn(start_mock_relay_service(mock_state.clone(), relay_port));
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
 
     // Run the PBS service
     let mut pbs_config = get_pbs_config(pbs_port);
@@ -252,7 +246,7 @@ async fn test_get_header_impl(
     pbs_config.rpc_url = rpc_url;
     let config = to_pbs_config(chain, pbs_config, vec![mock_relay.clone()]);
     let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::spawn(PbsService::run_with_listener(state, pbs_listener));
 
     // leave some time to start servers
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -310,20 +304,24 @@ async fn test_get_header_returns_204_if_relay_down() -> Result<()> {
     let pubkey = signer.public_key();
 
     let chain = Chain::Holesky;
-    let pbs_port = 3300;
-    let relay_port = pbs_port + 1;
+    let pbs_listener = get_free_listener().await;
+    let relay_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr().unwrap().port();
+    let relay_port = relay_listener.local_addr().unwrap().port();
 
     // Create a mock relay client
     let mock_state = Arc::new(MockRelayState::new(chain, signer));
     let mock_relay = generate_mock_relay(relay_port, pubkey)?;
 
     // Don't start the relay
-    // tokio::spawn(start_mock_relay_service(mock_state.clone(), relay_port));
+    // tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(),
+    // relay_listener));
+    drop(relay_listener);
 
     // Run the PBS service
     let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay.clone()]);
     let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::spawn(PbsService::run_with_listener(state, pbs_listener));
 
     // leave some time to start servers
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -344,18 +342,20 @@ async fn test_get_header_returns_400_if_request_is_invalid() -> Result<()> {
     let pubkey = signer.public_key();
 
     let chain = Chain::Holesky;
-    let pbs_port = 3400;
-    let relay_port = pbs_port + 1;
+    let pbs_listener = get_free_listener().await;
+    let relay_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr().unwrap().port();
+    let relay_port = relay_listener.local_addr().unwrap().port();
 
     // Run a mock relay
     let mock_state = Arc::new(MockRelayState::new(chain, signer));
     let mock_relay = generate_mock_relay(relay_port, pubkey.clone())?;
-    tokio::spawn(start_mock_relay_service(mock_state.clone(), relay_port));
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
 
     // Run the PBS service
     let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay.clone()]);
     let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::spawn(PbsService::run_with_listener(state, pbs_listener));
 
     // leave some time to start servers
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -394,14 +394,13 @@ async fn test_get_header_all_modes_enforce_min_bid() -> Result<()> {
     // handled gracefully (extra validation is skipped with a warning).
     let fake_rpc: Url = "http://127.0.0.1:1".parse()?;
 
-    for (pbs_port, mode, rpc_url) in [
-        (3500u16, HeaderValidationMode::Standard, None),
-        (3502u16, HeaderValidationMode::None, None),
-        (3504u16, HeaderValidationMode::Extra, Some(fake_rpc.clone())),
+    for (mode, rpc_url) in [
+        (HeaderValidationMode::Standard, None),
+        (HeaderValidationMode::None, None),
+        (HeaderValidationMode::Extra, Some(fake_rpc.clone())),
     ] {
         // Bid below min → all modes reject (204).
         test_get_header_impl(
-            pbs_port,
             HashSet::from([EncodingType::Json]),
             HashSet::from([EncodingType::Json]),
             1,
@@ -416,7 +415,6 @@ async fn test_get_header_all_modes_enforce_min_bid() -> Result<()> {
 
         // Bid above min → all modes accept (200).
         test_get_header_impl(
-            pbs_port + 100,
             HashSet::from([EncodingType::Json]),
             HashSet::from([EncodingType::Json]),
             1,
@@ -447,12 +445,15 @@ async fn test_get_header_ssz_bid_value_round_trip() -> Result<()> {
     // Use a distinctive value so accidental zero-matches are impossible.
     let relay_bid = U256::from(999_888_777u64);
 
-    for (pbs_port, fork_name) in [(3508u16, ForkName::Electra), (3510u16, ForkName::Fulu)] {
-        let relay_port = pbs_port + 1;
+    for fork_name in [ForkName::Electra, ForkName::Fulu] {
+        let pbs_listener = get_free_listener().await;
+        let relay_listener = get_free_listener().await;
+        let pbs_port = pbs_listener.local_addr().unwrap().port();
+        let relay_port = relay_listener.local_addr().unwrap().port();
         let mock_state =
             Arc::new(MockRelayState::new(chain, signer.clone()).with_bid_value(relay_bid));
         let mock_relay = generate_mock_relay(relay_port, pubkey.clone())?;
-        tokio::spawn(start_mock_relay_service(mock_state.clone(), relay_port));
+        tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
 
         let mut pbs_config = get_pbs_config(pbs_port);
         // None mode: PBS forwards the raw SSZ bytes without re-encoding.
@@ -460,7 +461,7 @@ async fn test_get_header_ssz_bid_value_round_trip() -> Result<()> {
         pbs_config.min_bid_wei = U256::ZERO;
         let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
         let state = PbsState::new(config, PathBuf::new());
-        tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+        tokio::spawn(PbsService::run_with_listener(state, pbs_listener));
 
         tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -490,9 +491,10 @@ async fn test_get_header_unsupported_fork_returns_400() -> Result<()> {
     let signer = random_secret();
     let chain = Chain::Holesky;
 
-    let relay_port = 3512u16;
+    let relay_listener = get_free_listener().await;
+    let relay_port = relay_listener.local_addr().unwrap().port();
     let mock_state = Arc::new(MockRelayState::new(chain, signer.clone()));
-    tokio::spawn(start_mock_relay_service(mock_state, relay_port));
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state, relay_listener));
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -625,7 +627,6 @@ async fn test_get_header_bid_validation_matrix() -> Result<()> {
 
     for (i, &(fork, encoding, mode, relay_bid, expected_status)) in cases.iter().enumerate() {
         test_get_header_impl(
-            3900u16 + (i as u16 * 2),
             HashSet::from([encoding]),
             HashSet::from([encoding]),
             1,
@@ -656,22 +657,25 @@ async fn test_get_header_none_mode_bypasses_pubkey_validation() -> Result<()> {
     let signer = random_secret();
     let wrong_pubkey = random_secret().public_key();
 
-    for (pbs_port, mode, expected_status) in [
-        (3504u16, HeaderValidationMode::Standard, StatusCode::NO_CONTENT),
-        (3506u16, HeaderValidationMode::None, StatusCode::OK),
+    for (mode, expected_status) in [
+        (HeaderValidationMode::Standard, StatusCode::NO_CONTENT),
+        (HeaderValidationMode::None, StatusCode::OK),
     ] {
-        let relay_port = pbs_port + 1;
+        let pbs_listener = get_free_listener().await;
+        let relay_listener = get_free_listener().await;
+        let pbs_port = pbs_listener.local_addr().unwrap().port();
+        let relay_port = relay_listener.local_addr().unwrap().port();
         let mock_state = Arc::new(MockRelayState::new(chain, signer.clone()));
         // Register with `wrong_pubkey` — PBS will expect this key but the relay
         // embeds `signer.public_key()`, causing a mismatch in Standard mode.
         let mock_relay = generate_mock_relay(relay_port, wrong_pubkey.clone())?;
-        tokio::spawn(start_mock_relay_service(mock_state.clone(), relay_port));
+        tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
 
         let mut pbs_config = get_pbs_config(pbs_port);
         pbs_config.header_validation_mode = mode;
         let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
         let state = PbsState::new(config, PathBuf::new());
-        tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+        tokio::spawn(PbsService::run_with_listener(state, pbs_listener));
 
         tokio::time::sleep(Duration::from_millis(100)).await;
 

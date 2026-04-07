@@ -1,4 +1,7 @@
-use std::sync::Arc;
+mod relay;
+mod validation;
+
+use std::{collections::HashSet, sync::Arc};
 
 use axum::{
     extract::State,
@@ -6,45 +9,53 @@ use axum::{
     response::IntoResponse,
 };
 use cb_common::{
-    pbs::{BuilderApiVersion, GetPayloadInfo},
+    config::BlockValidationMode,
+    pbs::{
+        BuilderApiVersion, GetPayloadInfo, HEADER_START_TIME_UNIX_MS, SignedBlindedBeaconBlock,
+        error::PbsError,
+    },
     utils::{
-        CONSENSUS_VERSION_HEADER, EncodingType, RawRequest, deserialize_body, get_accept_types,
-        get_user_agent, timestamp_of_slot_start_millis, utcnow_ms,
+        CONSENSUS_VERSION_HEADER, EncodingType, deserialize_body, get_accept_types, get_user_agent,
+        get_user_agent_with_version, timestamp_of_slot_start_millis, utcnow_ms,
     },
 };
-use reqwest::{StatusCode, header::CONTENT_TYPE};
+use futures::{FutureExt, future::select_ok};
+use relay::{ProposalInfo, submit_block_with_timeout};
+use reqwest::{
+    StatusCode,
+    header::{ACCEPT, CONTENT_TYPE, USER_AGENT},
+};
 use ssz::Encode;
-use tracing::{error, info, trace};
+use tracing::{debug, error, info, trace};
 
+use super::CompoundSubmitBlockResponse;
 use crate::{
-    CompoundSubmitBlockResponse,
-    api::BuilderApi,
     constants::SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG,
     error::PbsClientError,
     metrics::BEACON_NODE_STATUS,
-    state::{BuilderApiState, PbsStateGuard},
+    state::{PbsState, PbsStateGuard},
 };
 
-pub async fn handle_submit_block_v1<S: BuilderApiState, A: BuilderApi<S>>(
-    state: State<PbsStateGuard<S>>,
+pub async fn handle_submit_block_v1(
+    state: State<PbsStateGuard>,
     req_headers: HeaderMap,
-    raw_request: RawRequest,
+    raw_request: cb_common::utils::RawRequest,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    handle_submit_block_impl::<S, A>(state, req_headers, raw_request, BuilderApiVersion::V1).await
+    handle_submit_block_impl(state, req_headers, raw_request, BuilderApiVersion::V1).await
 }
 
-pub async fn handle_submit_block_v2<S: BuilderApiState, A: BuilderApi<S>>(
-    state: State<PbsStateGuard<S>>,
+pub async fn handle_submit_block_v2(
+    state: State<PbsStateGuard>,
     req_headers: HeaderMap,
-    raw_request: RawRequest,
+    raw_request: cb_common::utils::RawRequest,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    handle_submit_block_impl::<S, A>(state, req_headers, raw_request, BuilderApiVersion::V2).await
+    handle_submit_block_impl(state, req_headers, raw_request, BuilderApiVersion::V2).await
 }
 
-async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
-    State(state): State<PbsStateGuard<S>>,
+async fn handle_submit_block_impl(
+    State(state): State<PbsStateGuard>,
     req_headers: HeaderMap,
-    raw_request: RawRequest,
+    raw_request: cb_common::utils::RawRequest,
     api_version: BuilderApiVersion,
 ) -> Result<impl IntoResponse, PbsClientError> {
     let signed_blinded_block =
@@ -72,8 +83,7 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
 
     info!(ua, ms_into_slot = now.saturating_sub(slot_start_ms), "new request");
 
-    match A::submit_block(signed_blinded_block, req_headers, state, api_version, accept_types).await
-    {
+    match submit_block(signed_blinded_block, req_headers, state, api_version, accept_types).await {
         Ok(res) => match res {
             crate::CompoundSubmitBlockResponse::EmptyBody => {
                 info!("received unblinded block (v2)");
@@ -160,5 +170,69 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
                 .inc();
             Err(err)
         }
+    }
+}
+
+// ── Relay logic ──────────────────────────────────────────────────────────────
+
+/// Implements https://ethereum.github.io/builder-specs/#/Builder/submitBlindedBlock and
+/// https://ethereum.github.io/builder-specs/#/Builder/submitBlindedBlockV2. Use `api_version` to
+/// distinguish between the two.
+pub(crate) async fn submit_block(
+    signed_blinded_block: Arc<SignedBlindedBeaconBlock>,
+    req_headers: HeaderMap,
+    state: PbsState,
+    api_version: BuilderApiVersion,
+    accepted_types: HashSet<EncodingType>,
+) -> eyre::Result<CompoundSubmitBlockResponse> {
+    debug!(?req_headers, "received headers");
+
+    // prepare headers
+    let mut send_headers = HeaderMap::new();
+    send_headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(utcnow_ms()));
+    send_headers.insert(USER_AGENT, get_user_agent_with_version(&req_headers)?);
+
+    // Create the Accept headers for requests
+    let mode = state.pbs_config().block_validation_mode;
+    let accept_types_str = match mode {
+        BlockValidationMode::None => {
+            // No validation mode, so only request what the user wants because the response
+            // will be forwarded directly
+            accepted_types.iter().map(|t| t.content_type()).collect::<Vec<&str>>().join(",")
+        }
+        _ => {
+            // We're unpacking the body, so request both types since we can handle both
+            [EncodingType::Ssz.content_type(), EncodingType::Json.content_type()].join(",")
+        }
+    };
+    send_headers.insert(ACCEPT, HeaderValue::from_str(&accept_types_str).unwrap());
+
+    // Send requests to all relays concurrently
+    let proposal_info = Arc::new(ProposalInfo {
+        signed_blinded_block,
+        headers: Arc::new(send_headers),
+        api_version,
+        validation_mode: mode,
+        accepted_types,
+    });
+    let mut handles = Vec::with_capacity(state.all_relays().len());
+    for relay in state.all_relays().iter() {
+        handles.push(
+            tokio::spawn(submit_block_with_timeout(
+                proposal_info.clone(),
+                relay.clone(),
+                state.pbs_config().timeout_get_payload_ms,
+            ))
+            .map(|join_result| match join_result {
+                Ok(res) => res,
+                Err(err) => Err(PbsError::TokioJoinError(err)),
+            }),
+        );
+    }
+
+    let results = select_ok(handles).await;
+    match results {
+        Ok((res, _)) => Ok(res),
+        Err(err) => Err(err.into()),
     }
 }

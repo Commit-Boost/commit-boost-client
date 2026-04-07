@@ -21,17 +21,12 @@ use super::{
     load_optional_env_var,
 };
 use crate::{
-    commit::client::SignerClient,
-    config::{
-        CONFIG_ENV, MODULE_JWT_ENV, MuxKeysLoader, PBS_IMAGE_DEFAULT, PBS_SERVICE_NAME, PbsMuxes,
-        SIGNER_TLS_CERTIFICATE_NAME, SIGNER_TLS_CERTIFICATES_PATH_ENV, SIGNER_URL_ENV,
-        SignerConfig, TlsMode, load_env_var, load_file_from_env,
-    },
+    config::{CONFIG_ENV, MuxKeysLoader, PBS_IMAGE_DEFAULT, PbsMuxes, load_file_from_env},
     pbs::{
         DEFAULT_PBS_PORT, DEFAULT_REGISTRY_REFRESH_SECONDS, DefaultTimeout, LATE_IN_SLOT_TIME_MS,
         REGISTER_VALIDATOR_RETRY_LIMIT, RelayClient, RelayEntry,
     },
-    types::{BlsPublicKey, Chain, Jwt, ModuleId},
+    types::{BlsPublicKey, Chain},
     utils::{
         WEI_PER_ETH, as_eth_str, default_bool, default_host, default_u16, default_u32, default_u64,
         default_u256,
@@ -244,9 +239,6 @@ pub struct StaticPbsConfig {
     /// Config of pbs module
     #[serde(flatten)]
     pub pbs_config: PbsConfig,
-    /// Whether to enable the signer client
-    #[serde(default = "default_bool::<false>")]
-    pub with_signer: bool,
 }
 
 impl StaticPbsConfig {
@@ -279,8 +271,6 @@ pub struct PbsModuleConfig {
     /// URL) DO NOT use this for get_header calls, use `relays` or `mux_lookup`
     /// instead
     pub all_relays: Vec<RelayClient>,
-    /// Signer client to call Signer API
-    pub signer_client: Option<SignerClient>,
     /// List of raw mux details configured, if any
     pub registry_muxes: Option<HashMap<MuxKeysLoader, RuntimeMuxConfig>>,
     /// Lookup of pubkey to mux config
@@ -355,7 +345,6 @@ pub async fn load_pbs_config(config_path: Option<PathBuf>) -> Result<(PbsModuleC
             pbs_config: Arc::new(config.pbs.pbs_config),
             relays: relay_clients,
             all_relays,
-            signer_client: None,
             registry_muxes,
             mux_lookup,
         },
@@ -378,7 +367,6 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
         chain: Chain,
         relays: Vec<RelayConfig>,
         pbs: CustomPbsConfig<U>,
-        signer: SignerConfig,
         muxes: Option<PbsMuxes>,
     }
 
@@ -431,29 +419,6 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
 
     let all_relays = all_relays.into_values().collect();
 
-    let signer_client = if cb_config.pbs.static_config.with_signer {
-        // if custom pbs requires a signer client, load jwt
-        let module_jwt = Jwt(load_env_var(MODULE_JWT_ENV)?);
-        let signer_server_url = load_env_var(SIGNER_URL_ENV)?.parse()?;
-        let certs_path = match cb_config.signer.tls_mode {
-            TlsMode::Insecure => None,
-            TlsMode::Certificate(path) => Some(
-                load_env_var(SIGNER_TLS_CERTIFICATES_PATH_ENV)
-                    .map(PathBuf::from)
-                    .unwrap_or(path)
-                    .join(SIGNER_TLS_CERTIFICATE_NAME),
-            ),
-        };
-        Some(SignerClient::new(
-            signer_server_url,
-            certs_path,
-            module_jwt,
-            ModuleId(PBS_SERVICE_NAME.to_string()),
-        )?)
-    } else {
-        None
-    };
-
     Ok((
         PbsModuleConfig {
             chain: cb_config.chain,
@@ -461,7 +426,6 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
             pbs_config: Arc::new(cb_config.pbs.static_config.pbs_config),
             relays: relay_clients,
             all_relays,
-            signer_client,
             registry_muxes,
             mux_lookup,
         },

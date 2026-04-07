@@ -177,15 +177,14 @@ impl SigningService {
                             break;
                         }
                         Err(e) => {
+                            if attempts >= 3 {
+                                return Err(eyre::eyre!(
+                                    "Exceeded maximum attempts to install AWS-LC as default TLS provider: {e:?}"
+                                ));
+                            }
                             error!(
                                 "Failed to install AWS-LC as default TLS provider: {e:?}. Retrying..."
                             );
-                            if attempts >= 3 {
-                                error!(
-                                    "Exceeded maximum attempts to install AWS-LC as default TLS provider"
-                                );
-                                break;
-                            }
                             attempts += 1;
                         }
                     }
@@ -249,7 +248,6 @@ async fn jwt_auth(
     let path = parts.uri.path();
     let bytes = to_bytes(body, REQUEST_MAX_BODY_LENGTH).await.map_err(|e| {
         error!("Failed to read request body: {e}");
-        mark_jwt_failure(&state, client_ip);
         SignerModuleError::RequestError(e.to_string())
     })?;
 
@@ -274,38 +272,40 @@ async fn jwt_auth(
 /// Checks if the incoming request needs to be rate limited due to previous JWT
 /// authentication failures
 fn check_jwt_rate_limit(state: &SigningState, client_ip: &IpAddr) -> Result<(), SignerModuleError> {
-    let mut failures = state.jwt_auth_failures.write();
+    let failures = state.jwt_auth_failures.read();
 
     // Ignore clients that don't have any failures
-    if let Some(failure_info) = failures.get(client_ip) {
-        // If the last failure was more than the timeout ago, remove this entry so it's
-        // eligible again
-        let elapsed = failure_info.last_failure.elapsed();
-        if elapsed > state.jwt_auth_fail_timeout {
-            debug!("Removing {client_ip} from JWT auth failure list");
-            failures.remove(client_ip);
-            return Ok(());
-        }
+    let Some(failure_info) = failures.get(client_ip) else {
+        debug!("Client {client_ip} has no JWT auth failures, no rate limit applied");
+        return Ok(());
+    };
 
-        // If the failure threshold hasn't been met yet, don't rate limit
-        if failure_info.failure_count < state.jwt_auth_fail_limit {
-            debug!(
-                "Client {client_ip} has {}/{} JWT auth failures, no rate limit applied",
-                failure_info.failure_count, state.jwt_auth_fail_limit
-            );
-            return Ok(());
-        }
+    let elapsed = failure_info.last_failure.elapsed();
 
-        // Rate limit the request
-        let remaining = state.jwt_auth_fail_timeout.saturating_sub(elapsed);
-        warn!(
-            "Client {client_ip} is rate limited for {remaining:?} more seconds due to JWT auth failures"
-        );
-        return Err(SignerModuleError::RateLimited(remaining.as_secs_f64()));
+    // If the last failure was more than the timeout ago, remove this entry so it's
+    // eligible again
+    if elapsed > state.jwt_auth_fail_timeout {
+        drop(failures);
+        debug!("Removing {client_ip} from JWT auth failure list");
+        state.jwt_auth_failures.write().remove(client_ip);
+        return Ok(());
     }
 
-    debug!("Client {client_ip} has no JWT auth failures, no rate limit applied");
-    Ok(())
+    // If the failure threshold hasn't been met yet, don't rate limit
+    if failure_info.failure_count < state.jwt_auth_fail_limit {
+        debug!(
+            "Client {client_ip} has {}/{} JWT auth failures, no rate limit applied",
+            failure_info.failure_count, state.jwt_auth_fail_limit
+        );
+        return Ok(());
+    }
+
+    // Rate limit the request
+    let remaining = state.jwt_auth_fail_timeout.saturating_sub(elapsed);
+    warn!(
+        "Client {client_ip} is rate limited for {remaining:?} more seconds due to JWT auth failures"
+    );
+    Err(SignerModuleError::RateLimited(remaining.as_secs_f64()))
 }
 
 /// Checks if a request can successfully authenticate with the JWT secret
@@ -359,7 +359,6 @@ async fn admin_auth(
     let path = parts.uri.path();
     let bytes = to_bytes(body, REQUEST_MAX_BODY_LENGTH).await.map_err(|e| {
         error!("Failed to read request body: {e}");
-        mark_jwt_failure(&state, client_ip);
         SignerModuleError::RequestError(e.to_string())
     })?;
 
@@ -633,7 +632,6 @@ async fn handle_reload(
 ) -> Result<impl IntoResponse, SignerModuleError> {
     debug!(event = "reload", "New request");
 
-    // Regenerate the config
     let config = match StartSignerConfig::load_from_env() {
         Ok(config) => config,
         Err(err) => {
@@ -642,7 +640,6 @@ async fn handle_reload(
         }
     };
 
-    // Start a new manager with the updated config
     let new_manager = match start_manager(config).await {
         Ok(manager) => manager,
         Err(err) => {
@@ -651,17 +648,24 @@ async fn handle_reload(
         }
     };
 
-    // Update the JWT configs if provided in the request
+    apply_reload(state, request, new_manager).await
+}
+
+/// Applies a reload request to the signing state. Separated from
+/// `handle_reload` so the business logic can be tested without requiring a
+/// live environment (config file, env vars, keystore on disk).
+async fn apply_reload(
+    state: SigningState,
+    request: ReloadRequest,
+    new_manager: SigningManager,
+) -> Result<StatusCode, SignerModuleError> {
+    // Update the JWT configs if provided in the request. Only the provided
+    // modules are updated; omitted modules keep their existing secrets.
     if let Some(jwt_secrets) = request.jwt_secrets {
         let mut jwt_configs = state.jwts.write();
-        let mut new_configs = HashMap::new();
         for (module_id, jwt_secret) in jwt_secrets {
-            if let Some(signing_id) = jwt_configs.get(&module_id).map(|cfg| cfg.signing_id) {
-                new_configs.insert(module_id.clone(), ModuleSigningConfig {
-                    module_name: module_id,
-                    jwt_secret,
-                    signing_id,
-                });
+            if let Some(cfg) = jwt_configs.get_mut(&module_id) {
+                cfg.jwt_secret = jwt_secret;
             } else {
                 let error_message = format!(
                     "Module {module_id} signing ID not found in commit-boost config, cannot reload"
@@ -670,10 +674,8 @@ async fn handle_reload(
                 return Err(SignerModuleError::RequestError(error_message));
             }
         }
-        *jwt_configs = new_configs;
     }
 
-    // Update the rest of the state once everything has passed
     if let Some(admin_secret) = request.admin_secret {
         *state.admin_secret.write() = admin_secret;
     }
@@ -721,5 +723,158 @@ async fn start_manager(config: StartSignerConfig) -> eyre::Result<SigningManager
             }
             Ok(SigningManager::Local(manager))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use alloy::primitives::b256;
+    use parking_lot::RwLock as ParkingRwLock;
+
+    use super::*;
+    use crate::manager::local::LocalSigningManager;
+
+    fn make_signing_config(
+        module_name: &str,
+        secret: &str,
+        signing_id: B256,
+    ) -> ModuleSigningConfig {
+        ModuleSigningConfig {
+            module_name: ModuleId(module_name.to_string()),
+            jwt_secret: secret.to_string(),
+            signing_id,
+        }
+    }
+
+    fn make_state(jwts: HashMap<ModuleId, ModuleSigningConfig>) -> SigningState {
+        SigningState {
+            manager: Arc::new(RwLock::new(SigningManager::Local(
+                LocalSigningManager::new(Chain::Holesky, None).unwrap(),
+            ))),
+            jwts: Arc::new(ParkingRwLock::new(jwts)),
+            admin_secret: Arc::new(ParkingRwLock::new("admin".to_string())),
+            jwt_auth_failures: Arc::new(ParkingRwLock::new(HashMap::new())),
+            jwt_auth_fail_limit: 3,
+            jwt_auth_fail_timeout: Duration::from_secs(60),
+            reverse_proxy: ReverseProxyHeaderSetup::None,
+        }
+    }
+
+    fn empty_manager() -> SigningManager {
+        SigningManager::Local(LocalSigningManager::new(Chain::Holesky, None).unwrap())
+    }
+
+    /// Partial reload must update only the provided modules and leave omitted
+    /// modules with their existing secrets.
+    #[tokio::test]
+    async fn test_partial_reload_preserves_omitted_modules() {
+        let module_a = ModuleId("module-a".to_string());
+        let module_b = ModuleId("module-b".to_string());
+        let signing_id_a =
+            b256!("0101010101010101010101010101010101010101010101010101010101010101");
+        let signing_id_b =
+            b256!("0202020202020202020202020202020202020202020202020202020202020202");
+
+        let state = make_state(HashMap::from([
+            (module_a.clone(), make_signing_config("module-a", "secret-a", signing_id_a)),
+            (module_b.clone(), make_signing_config("module-b", "secret-b", signing_id_b)),
+        ]));
+
+        let request = ReloadRequest {
+            jwt_secrets: Some(HashMap::from([(module_a.clone(), "rotated-secret-a".to_string())])),
+            admin_secret: None,
+        };
+
+        let result = apply_reload(state.clone(), request, empty_manager()).await;
+        assert!(result.is_ok(), "apply_reload should succeed");
+
+        let jwts = state.jwts.read();
+        assert_eq!(
+            jwts[&module_a].jwt_secret, "rotated-secret-a",
+            "module_a secret should be updated"
+        );
+        assert_eq!(
+            jwts[&module_b].jwt_secret, "secret-b",
+            "module_b secret must be preserved when omitted"
+        );
+    }
+
+    /// A full reload (all modules provided) should update every module.
+    #[tokio::test]
+    async fn test_full_reload_updates_all_modules() {
+        let module_a = ModuleId("module-a".to_string());
+        let module_b = ModuleId("module-b".to_string());
+        let signing_id_a =
+            b256!("0101010101010101010101010101010101010101010101010101010101010101");
+        let signing_id_b =
+            b256!("0202020202020202020202020202020202020202020202020202020202020202");
+
+        let state = make_state(HashMap::from([
+            (module_a.clone(), make_signing_config("module-a", "secret-a", signing_id_a)),
+            (module_b.clone(), make_signing_config("module-b", "secret-b", signing_id_b)),
+        ]));
+
+        let request = ReloadRequest {
+            jwt_secrets: Some(HashMap::from([
+                (module_a.clone(), "new-secret-a".to_string()),
+                (module_b.clone(), "new-secret-b".to_string()),
+            ])),
+            admin_secret: None,
+        };
+
+        apply_reload(state.clone(), request, empty_manager()).await.unwrap();
+
+        let jwts = state.jwts.read();
+        assert_eq!(jwts[&module_a].jwt_secret, "new-secret-a");
+        assert_eq!(jwts[&module_b].jwt_secret, "new-secret-b");
+    }
+
+    /// Reload with an unknown module ID in jwt_secrets should return an error
+    /// and leave the existing state unchanged.
+    #[tokio::test]
+    async fn test_reload_unknown_module_returns_error() {
+        let module_a = ModuleId("module-a".to_string());
+        let signing_id_a =
+            b256!("0101010101010101010101010101010101010101010101010101010101010101");
+
+        let state = make_state(HashMap::from([(
+            module_a.clone(),
+            make_signing_config("module-a", "secret-a", signing_id_a),
+        )]));
+
+        let request = ReloadRequest {
+            jwt_secrets: Some(HashMap::from([(
+                ModuleId("unknown-module".to_string()),
+                "some-secret".to_string(),
+            )])),
+            admin_secret: None,
+        };
+
+        let result = apply_reload(state.clone(), request, empty_manager()).await;
+        assert!(result.is_err(), "unknown module should return an error");
+
+        // Existing module must be untouched
+        let jwts = state.jwts.read();
+        assert_eq!(jwts[&module_a].jwt_secret, "secret-a");
+    }
+
+    /// Reload with no jwt_secrets should leave all module secrets unchanged.
+    #[tokio::test]
+    async fn test_reload_without_jwt_secrets_preserves_all() {
+        let module_a = ModuleId("module-a".to_string());
+        let signing_id_a =
+            b256!("0101010101010101010101010101010101010101010101010101010101010101");
+
+        let state = make_state(HashMap::from([(
+            module_a.clone(),
+            make_signing_config("module-a", "secret-a", signing_id_a),
+        )]));
+
+        let request = ReloadRequest { jwt_secrets: None, admin_secret: None };
+
+        apply_reload(state.clone(), request, empty_manager()).await.unwrap();
+
+        let jwts = state.jwts.read();
+        assert_eq!(jwts[&module_a].jwt_secret, "secret-a");
     }
 }

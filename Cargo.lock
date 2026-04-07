@@ -1880,7 +1880,6 @@ name = "cb-pbs"
 version = "0.9.3"
 dependencies = [
  "alloy",
- "async-trait",
  "axum 0.8.8",
  "axum-extra",
  "cb-common",
@@ -6651,23 +6650,6 @@ name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
-
-[[package]]
-name = "status_api"
-version = "0.9.3"
-dependencies = [
- "async-trait",
- "axum 0.8.8",
- "color-eyre",
- "commit-boost",
- "eyre",
- "lazy_static",
- "prometheus",
- "reqwest 0.12.28",
- "serde",
- "tokio",
- "tracing",
-]
 
 [[package]]
 name = "strsim"

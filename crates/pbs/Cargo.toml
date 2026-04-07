@@ -7,7 +7,6 @@ version.workspace = true
 
 [dependencies]
 alloy.workspace = true
-async-trait.workspace = true
 axum.workspace = true
 axum-extra.workspace = true
 cb-common.workspace = true

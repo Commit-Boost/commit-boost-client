@@ -63,8 +63,6 @@ To start a local Signer Service, you need to include its parameters in the confi
 ```toml
 [pbs]
 ...
-with_signer = true
-
 [signer]
 port = 20000
 
@@ -97,8 +95,6 @@ We currently support Lighthouse, Prysm, Teku, Lodestar, and Nimbus's keystores s
 ```toml
 [pbs]
 ...
-with_signer = true
-
 [signer]
 port = 20000
 
@@ -129,8 +125,6 @@ secrets_path = "secrets"
 ```toml
 [pbs]
 ...
-with_signer = true
-
 [signer]
 port = 20000
 
@@ -161,8 +155,6 @@ secrets_path = "secrets/password.txt"
 ```toml
 [pbs]
 ...
-with_signer = true
-
 [signer]
 port = 20000
 
@@ -192,8 +184,6 @@ secrets_path = "secrets"
 ```toml
 [pbs]
 ...
-with_signer = true
-
 [signer]
 port = 20000
 
@@ -228,8 +218,6 @@ All keys have the same password stored in `secrets/password.txt`
   ```toml
   [pbs]
   ...
-  with_signer = true
-
   [signer]
   port = 20000
 
@@ -397,8 +385,6 @@ Specifying it is done within Commit-Boost's configuration file using the `[signe
 ```toml
 [pbs]
 ...
-with_signer = true
-
 [signer]
 port = 20000
 ...
@@ -550,8 +536,7 @@ Parameters that are not provided will not be updated; they will be regenerated u
 
 ### Notes
 
-- The hot reload feature is available for both the PBS service (both default and custom) and Signer service.
+- The hot reload feature is available for both the PBS service and Signer service.
 - Changes related to listening hosts and ports will not been applied, as it requires the server to be restarted.
 - If running in Docker containers, changes in `volumes` will not be applied, as it requires the container to be recreated. Be careful if changing a path to a local file as it may not be accessible from the container.
-- Custom PBS modules may override the default behaviour of the hot reload feature to parse extra configuration fields. Check the [examples](https://github.com/Commit-Boost/commit-boost-client/blob/main/examples/status_api/src/main.rs) for more details.
 - In case the reload fails (most likely because of some misconfigured option), the server will return a 500 error and the previous configuration will be kept.

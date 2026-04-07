@@ -27,6 +27,18 @@ pub fn get_local_address(port: u16) -> String {
     format!("http://0.0.0.0:{port}")
 }
 
+/// Bind to port 0 and let the OS assign an unused ephemeral port.
+///
+/// The returned listener keeps the port reserved. Pass it to
+/// [`PbsService::run_with_listener`] or
+/// [`start_mock_relay_service_with_listener`] so the socket is never released
+/// between allocation and use (zero TOCTOU race). Extract the port with
+/// `listener.local_addr().unwrap().port()` when you need the number for config
+/// or client construction.
+pub async fn get_free_listener() -> tokio::net::TcpListener {
+    tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap()
+}
+
 static SYNC_SETUP: Once = Once::new();
 pub fn setup_test_env() {
     SYNC_SETUP.call_once(|| {
@@ -95,7 +107,7 @@ pub fn get_pbs_config(port: u16) -> PbsConfig {
 }
 
 pub fn get_pbs_static_config(pbs_config: PbsConfig) -> StaticPbsConfig {
-    StaticPbsConfig { docker_image: String::from(""), pbs_config, with_signer: true }
+    StaticPbsConfig { docker_image: String::from(""), pbs_config }
 }
 
 pub fn get_commit_boost_config(pbs_static_config: StaticPbsConfig) -> CommitBoostConfig {
@@ -120,7 +132,6 @@ pub fn to_pbs_config(
         chain,
         endpoint: SocketAddr::new(pbs_config.host.into(), pbs_config.port),
         pbs_config: Arc::new(pbs_config),
-        signer_client: None,
         all_relays: relays.clone(),
         relays,
         registry_muxes: None,
