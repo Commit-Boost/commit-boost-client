@@ -9,8 +9,8 @@ use tree_hash::TreeHash;
 
 use crate::{
     constants::COMMIT_BOOST_DOMAIN,
-    signature::compute_domain,
-    types::{self, Chain, SignatureRequestInfo},
+    signature::compute_prop_commit_signing_root,
+    types::{Chain, SignatureRequestInfo},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -91,21 +91,12 @@ impl EcdsaSigner {
     ) -> Result<EcdsaSignature, alloy::signers::Error> {
         match self {
             EcdsaSigner::Local(sk) => {
-                let signing_domain = compute_domain(chain, &B32::from(COMMIT_BOOST_DOMAIN));
-                let signing_root = match signature_request_info {
-                    Some(SignatureRequestInfo { module_signing_id, nonce }) => {
-                        let object_root = types::PropCommitSigningInfo {
-                            data: *object_root,
-                            module_signing_id: *module_signing_id,
-                            nonce: *nonce,
-                            chain_id: chain.id(),
-                        }
-                        .tree_hash_root();
-                        types::SigningData { object_root, signing_domain }.tree_hash_root()
-                    }
-                    None => types::SigningData { object_root: *object_root, signing_domain }
-                        .tree_hash_root(),
-                };
+                let signing_root = compute_prop_commit_signing_root(
+                    chain,
+                    object_root,
+                    signature_request_info,
+                    &B32::from(COMMIT_BOOST_DOMAIN),
+                );
                 sk.sign_hash_sync(&signing_root).map(EcdsaSignature::from)
             }
         }
@@ -139,6 +130,7 @@ mod test {
     };
 
     use super::*;
+    use crate::{signature::compute_domain, types};
 
     #[tokio::test]
     async fn test_ecdsa_signer_noncommit() {
