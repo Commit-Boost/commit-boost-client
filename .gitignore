@@ -16,6 +16,7 @@ targets.json
 .idea/
 logs
 .vscode/
+certs/
 
 # Nix
 .direnv/

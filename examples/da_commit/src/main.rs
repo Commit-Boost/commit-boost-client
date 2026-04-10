@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use alloy::primitives::Address;
+use alloy::primitives::{Address, B256, b256};
 use commit_boost::prelude::*;
 use eyre::{OptionExt, Result};
 use lazy_static::lazy_static;
@@ -8,6 +8,13 @@ use prometheus::{IntCounter, Registry};
 use serde::Deserialize;
 use tokio::time::sleep;
 use tracing::{error, info};
+
+// This is the signing ID used for the DA Commit module.
+// Signatures produced by the signer service will incorporate this ID as part of
+// the signature, preventing other modules from using the same signature for
+// different purposes.
+pub const DA_COMMIT_SIGNING_ID: B256 =
+    b256!("0x6a33a23ef26a4836979edff86c493a69b26ccf0b4a16491a815a13787657431b");
 
 // You can define custom metrics and a custom registry for the business logic of
 // your module. These will be automatically scaped by the Prometheus server
@@ -25,6 +32,7 @@ struct Datagram {
 
 struct DaCommitService {
     config: StartCommitModuleConfig<ExtraConfig>,
+    nonce: u64,
 }
 
 // Extra configurations parameters can be set here and will be automatically
@@ -84,26 +92,65 @@ impl DaCommitService {
     ) -> Result<()> {
         let datagram = Datagram { data };
 
-        let request = SignConsensusRequest::builder(pubkey).with_msg(&datagram);
-        let signature = self.config.signer_client.request_consensus_signature(request).await?;
+        // Request a signature directly from a BLS key
+        let request = SignConsensusRequest::builder(pubkey.clone()).with_msg(&datagram);
+        let response = self.config.signer_client.request_consensus_signature(request).await?;
+        info!("Proposer commitment (consensus): {}", response.signature);
+        if verify_proposer_commitment_signature_bls(
+            self.config.chain,
+            &pubkey,
+            &datagram,
+            &response.signature,
+            &DA_COMMIT_SIGNING_ID,
+            self.nonce,
+        ) {
+            info!("Signature verified successfully");
+        } else {
+            error!("Signature verification failed");
+        }
+        self.nonce += 1;
 
-        info!("Proposer commitment (consensus): {}", signature);
-
-        let proxy_request_bls = SignProxyRequest::builder(proxy_bls).with_msg(&datagram);
-        let proxy_signature_bls =
+        // Request a signature from a proxy BLS key
+        let proxy_request_bls = SignProxyRequest::builder(proxy_bls.clone()).with_msg(&datagram);
+        let proxy_response_bls =
             self.config.signer_client.request_proxy_signature_bls(proxy_request_bls).await?;
+        info!("Proposer commitment (proxy BLS): {}", proxy_response_bls.signature);
+        if verify_proposer_commitment_signature_bls(
+            self.config.chain,
+            &proxy_bls,
+            &datagram,
+            &proxy_response_bls.signature,
+            &DA_COMMIT_SIGNING_ID,
+            self.nonce,
+        ) {
+            info!("Signature verified successfully");
+        } else {
+            error!("Signature verification failed");
+        }
+        self.nonce += 1;
 
-        info!("Proposer commitment (proxy BLS): {}", proxy_signature_bls);
-
+        // If ECDSA keys are enabled, request a signature from a proxy ECDSA key
         if let Some(proxy_ecdsa) = proxy_ecdsa {
             let proxy_request_ecdsa = SignProxyRequest::builder(proxy_ecdsa).with_msg(&datagram);
-            let proxy_signature_ecdsa = self
+            let proxy_response_ecdsa = self
                 .config
                 .signer_client
                 .request_proxy_signature_ecdsa(proxy_request_ecdsa)
                 .await?;
-            info!("Proposer commitment (proxy ECDSA): {}", proxy_signature_ecdsa);
+            info!("Proposer commitment (proxy ECDSA): {}", proxy_response_ecdsa.signature);
+            match verify_proposer_commitment_signature_ecdsa(
+                self.config.chain,
+                &proxy_ecdsa,
+                &datagram,
+                &proxy_response_ecdsa.signature,
+                &DA_COMMIT_SIGNING_ID,
+                self.nonce,
+            ) {
+                Ok(_) => info!("Signature verified successfully"),
+                Err(err) => error!(%err, "Signature verification failed"),
+            };
         }
+        self.nonce += 1;
 
         SIG_RECEIVED_COUNTER.inc();
 
@@ -131,7 +178,7 @@ async fn main() -> Result<()> {
                 "Starting module with custom data"
             );
 
-            let mut service = DaCommitService { config };
+            let mut service = DaCommitService { config, nonce: 0 };
 
             if let Err(err) = service.run().await {
                 error!(%err, "Service failed");
