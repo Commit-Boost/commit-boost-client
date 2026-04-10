@@ -17,6 +17,7 @@ checklist:
   just fmt
   just clippy
   just test
+  cargo audit
 
 # ===================================
 # === Build Commands for Services ===

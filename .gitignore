@@ -16,6 +16,7 @@ targets.json
 .idea/
 logs
 .vscode/
+certs/
 
 # Python (release scripts under .github/workflows/release/)
 __pycache__/

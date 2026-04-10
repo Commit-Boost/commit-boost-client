@@ -11,7 +11,7 @@ use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
     mock_relay::{MockRelayState, start_mock_relay_service},
     mock_validator::MockValidator,
-    utils::{generate_mock_relay, get_pbs_static_config, setup_test_env, to_pbs_config},
+    utils::{generate_mock_relay, get_pbs_config, setup_test_env, to_pbs_config},
 };
 use eyre::Result;
 use reqwest::StatusCode;
@@ -102,7 +102,7 @@ async fn test_cfg_file_update() -> Result<()> {
     std::fs::write(config_path.clone(), config_toml.as_bytes())?;
 
     // Run the PBS service
-    let config = to_pbs_config(chain, get_pbs_static_config(pbs_port), vec![relay1.clone()]);
+    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![relay1.clone()]);
     let state = PbsState::new(config, config_path.clone());
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 

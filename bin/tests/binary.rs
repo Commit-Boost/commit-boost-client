@@ -23,6 +23,7 @@ key_path = "/keys/keys.json"
 id = "DA_COMMIT"
 type = "commit"
 docker_image = "test_da_commit"
+signing_id = "0x6a33a23ef26a4836979edff86c493a69b26ccf0b4a16491a815a13787657431b"
 "#;
 
 // ---------------------------------------------------------------------------
