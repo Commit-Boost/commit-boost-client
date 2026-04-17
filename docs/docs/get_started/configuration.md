@@ -487,8 +487,8 @@ sleep_secs = 5
 
 A few things to note:
 
-- We now added a `signer` section which will be used to create the Signer service.
-- There is now a `[[modules]]` section which at a minimum needs to specify the module `id`, `type` and `docker_image`. For modules with type `commit`, which will be used to access the Signer service and request signatures for proposer commitments, you will also need to specify the module's unique `signing_id` (see [the proposer commitment documentation](../developing/prop-commit-signing.md)). Additional parameters needed for the business logic of the module will also be here.
+- We now added a `signer` section which will be used to create the Signer module.
+- There is now a `[[modules]]` section which at a minimum needs to specify the module `id`, `type` and `docker_image`. For modules with type `commit`, which will be used to access the Signer service and request signatures for preconfs, you will also need to specify the module's unique `signing_id` (see [the propser commitment documentation](../developing/prop-commit-signing.md)). Additional parameters needed for the business logic of the module will also be here.
 
 To learn more about developing modules, check out [here](/category/developing).
 
@@ -541,12 +541,39 @@ docker compose -f cb.docker-compose.yml exec cb_signer curl -X POST http://local
 
 ### Signer module reload
 
-The signer module takes 2 optional parameters in the JSON body:
+When the signer receives a reload request it re-reads the configuration file and environment variables, rebuilding its internal state to match:
 
-- `jwt_secrets`: a string with a comma-separated list of `<MODULE_ID>=<JWT_SECRET>` for all modules.
-- `admin_secret`: a string with the secret for the signer admin JWT.
+- **New modules** added to the config are registered with the signer.
+- **Removed modules** are dropped from the signer's access list.
+- **JWT secrets and admin secret** are reset to their current values from the environment variables.
+- Any runtime changes from previous `/revoke_jwt` or `/reload` calls are reverted.
 
-Parameters that are not provided will not be updated; they will be regenerated using their original on-disk data as though the signer service was being restarted. Note that any changes you made with calls to `/revoke_jwt` or `/reload` will be reverted, so make sure you provide any modifications again as part of this call.
+The request body accepts 2 optional override parameters, applied on top of the config:
+
+- `jwt_secrets`: a comma-separated list of `<MODULE_ID>=<JWT_SECRET>` pairs to override specific module secrets. Only modules present in the config can be overridden.
+- `admin_secret`: a string to override the admin JWT secret.
+
+If the body is empty, the signer state is simply synced to match the config.
+
+#### Common patterns
+
+**Add a new module without restarting:**
+1. Add the `[[modules]]` entry to `cb-config.toml`.
+2. Set the new module's JWT secret in the signer's environment (`CB_SIGNER_JWT_SECRETS`).
+3. Send `POST /reload` with an empty body. The signer picks up the new module from config.
+4. Start the new module container with the matching JWT secret.
+
+**Rotate a JWT secret remotely:**
+Send `POST /reload` with the new secret in the body. The module must already exist in the config. This is useful for scripted rotation without SSH access to edit config files.
+
+**Revoke a compromised module immediately:**
+Send `POST /revoke_jwt` with the module ID. This removes the module from the signer's access list without touching the config. The next `/reload` will restore the module if it is still in the config, so remove it from config as well if the revocation should be permanent.
+
+#### Footguns
+
+- **Body overrides are not persisted.** If the signer crashes or restarts after a body-based secret rotation, it falls back to the config/environment values. The module container will still have the rotated secret and authentication will fail. To avoid this, update the environment variable to match after rotating via the body.
+- **Reload reverts revocations.** If you revoke a module with `/revoke_jwt` but leave it in the config, the next `/reload` without a body override will re-add it from the config baseline. Always remove revoked modules from the config to make the revocation permanent.
+- **Override validation is strict.** If the body references a module ID that does not exist in the config, the entire reload request is rejected and no changes are applied. This prevents typos from silently failing.
 
 ### Notes
 

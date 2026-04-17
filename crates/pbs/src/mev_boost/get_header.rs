@@ -35,7 +35,7 @@ use reqwest::{
 };
 use serde::Deserialize;
 use tokio::time::sleep;
-use tracing::{Instrument, debug, error, warn};
+use tracing::{Instrument, debug, error, info, warn};
 use tree_hash::TreeHash;
 use url::Url;
 
@@ -228,7 +228,7 @@ pub async fn get_header<S: BuilderApiState>(
                 let value_gwei = (value / U256::from(1_000_000_000)).try_into().unwrap_or_default();
                 RELAY_HEADER_VALUE.with_label_values(&[relay_id]).set(value_gwei);
 
-                relay_bids.push(res)
+                relay_bids.push((relay_id, res))
             }
             Ok(_) => {}
             Err(err) if err.is_timeout() => error!(err = "Timed Out", relay_id),
@@ -236,12 +236,32 @@ pub async fn get_header<S: BuilderApiState>(
         }
     }
 
-    let max_bid = relay_bids.into_iter().max_by_key(|bid| match bid {
+    let max_bid = relay_bids.into_iter().max_by_key(|(_, bid)| match bid {
         CompoundGetHeaderResponse::Full(full) => *full.value(),
         CompoundGetHeaderResponse::Light(light) => light.value,
     });
 
-    Ok(max_bid)
+    if let Some((winning_relay_id, ref bid)) = max_bid {
+        match bid {
+            CompoundGetHeaderResponse::Full(full) => {
+                info!(
+                    relay_id = winning_relay_id,
+                    value_eth = format_ether(*full.value()),
+                    block_hash = %full.block_hash(),
+                    "auction winner"
+                );
+            }
+            CompoundGetHeaderResponse::Light(light) => {
+                info!(
+                    relay_id = winning_relay_id,
+                    value_eth = format_ether(light.value),
+                    "auction winner (light mode, no block_hash available)"
+                );
+            }
+        }
+    }
+
+    Ok(max_bid.map(|(_, bid)| bid))
 }
 
 /// Fetch the parent block from the RPC URL for extra validation of the header.
@@ -541,7 +561,7 @@ async fn send_get_header_full(
     };
 
     // Log and return
-    debug!(
+    info!(
         relay_id = info.relay_id.as_ref(),
         header_size_bytes = info.response_bytes.len(),
         latency = ?info.request_latency,
@@ -696,7 +716,7 @@ async fn send_get_header_impl(
                 return Err(PbsError::RelayResponse {
                     error_msg: format!("unsupported content type: {header_str}"),
                     code: code.as_u16(),
-                })
+                });
             }
         },
     };
@@ -704,6 +724,7 @@ async fn send_get_header_impl(
     // Decode the body
     let fork = get_consensus_version_header(res.headers());
     let response_bytes = read_chunked_body_with_max(res, MAX_SIZE_GET_HEADER_RESPONSE).await?;
+
     Ok((
         start_request_time,
         Some(GetHeaderResponseInfo {

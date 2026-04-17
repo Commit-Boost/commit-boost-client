@@ -497,6 +497,8 @@ fn create_signer_service_dirk(
     let mut envs = IndexMap::from([
         get_env_val(CONFIG_ENV, CONFIG_DEFAULT),
         get_env_same(JWTS_ENV),
+        get_env_same(ADMIN_JWT_ENV),
+        get_env_val(SIGNER_TLS_CERTIFICATES_PATH_ENV, SIGNER_TLS_CERTIFICATES_PATH_DEFAULT),
         get_env_val(DIRK_CERT_ENV, DIRK_CERT_DEFAULT),
         get_env_val(DIRK_KEY_ENV, DIRK_KEY_DEFAULT),
         get_env_val(DIRK_DIR_SECRETS_ENV, DIRK_DIR_SECRETS_DEFAULT),
@@ -548,6 +550,7 @@ fn create_signer_service_dirk(
 
     // write jwts to env
     service_config.envs.insert(JWTS_ENV.into(), format_comma_separated(&service_config.jwts));
+    service_config.envs.insert(ADMIN_JWT_ENV.into(), random_jwt_secret());
 
     // CA cert volume and env
     if let Some(ca_cert_path) = ca_cert_path {
@@ -589,8 +592,8 @@ fn create_signer_service_dirk(
         environment: Environment::KvPair(envs),
         healthcheck: Some(Healthcheck {
             test: Some(HealthcheckTest::Single(format!(
-                "curl -f http://localhost:{}/status",
-                signer_config.port,
+                "curl -k -f {}/status",
+                cb_config.signer_server_url(SIGNER_PORT_DEFAULT),
             ))),
             interval: Some("30s".into()),
             timeout: Some("5s".into()),
@@ -930,6 +933,13 @@ mod tests {
 
     fn has_volume(service: &Service, substr: &str) -> bool {
         service.volumes.iter().any(|v| matches!(v, Volumes::Simple(s) if s.contains(substr)))
+    }
+
+    fn get_healthcheck_cmd(service: &Service) -> Option<String> {
+        service.healthcheck.as_ref().and_then(|hc| match &hc.test {
+            Some(HealthcheckTest::Single(cmd)) => Some(cmd.clone()),
+            _ => None,
+        })
     }
 
     fn has_port(service: &Service, substr: &str) -> bool {
@@ -1309,9 +1319,30 @@ mod tests {
         assert!(env_str(&service, DIRK_CERT_ENV).is_some());
         assert!(env_str(&service, DIRK_KEY_ENV).is_some());
         assert!(env_str(&service, DIRK_DIR_SECRETS_ENV).is_some());
+        assert!(has_env_key(&service, ADMIN_JWT_ENV));
+        assert!(has_env_key(&service, SIGNER_TLS_CERTIFICATES_PATH_ENV));
         assert!(has_volume(&service, "client.crt"));
         assert!(has_volume(&service, "client.key"));
         assert!(has_volume(&service, "dirk_secrets"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_signer_service_dirk_generates_admin_jwt() -> eyre::Result<()> {
+        let mut sc = minimal_service_config();
+        let signer_config = dirk_signer_config();
+        create_signer_service_dirk(
+            &mut sc,
+            &signer_config,
+            Path::new("/certs/client.crt"),
+            Path::new("/certs/client.key"),
+            Path::new("/dirk_secrets"),
+            &None,
+            &None,
+        )?;
+
+        let admin_jwt = sc.envs.get(ADMIN_JWT_ENV).expect("ADMIN_JWT_ENV must be set");
+        assert!(!admin_jwt.is_empty(), "admin JWT secret must not be empty");
         Ok(())
     }
 
@@ -1687,6 +1718,50 @@ mod tests {
 
         assert!(!has_volume(&service, SIGNER_TLS_CERTIFICATE_NAME));
         assert!(!has_volume(&service, SIGNER_TLS_KEY_NAME));
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_signer_service_dirk_healthcheck_uses_https_with_tls() -> eyre::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let certs_path = dir.path().to_path_buf();
+        std::fs::write(certs_path.join(SIGNER_TLS_CERTIFICATE_NAME), b"cert")?;
+        std::fs::write(certs_path.join(SIGNER_TLS_KEY_NAME), b"key")?;
+
+        let mut sc = service_config_with_tls(certs_path);
+        let signer_config = dirk_signer_config();
+        let service = create_signer_service_dirk(
+            &mut sc,
+            &signer_config,
+            Path::new("/certs/client.crt"),
+            Path::new("/certs/client.key"),
+            Path::new("/dirk_secrets"),
+            &None,
+            &None,
+        )?;
+
+        let cmd = get_healthcheck_cmd(&service).expect("healthcheck must be set");
+        assert!(cmd.contains("https://"), "healthcheck must use https with TLS: {cmd}");
+        assert!(cmd.contains("-k"), "healthcheck must use -k flag for self-signed certs: {cmd}");
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_signer_service_dirk_healthcheck_uses_http_without_tls() -> eyre::Result<()> {
+        let mut sc = minimal_service_config();
+        let signer_config = dirk_signer_config();
+        let service = create_signer_service_dirk(
+            &mut sc,
+            &signer_config,
+            Path::new("/certs/client.crt"),
+            Path::new("/certs/client.key"),
+            Path::new("/dirk_secrets"),
+            &None,
+            &None,
+        )?;
+
+        let cmd = get_healthcheck_cmd(&service).expect("healthcheck must be set");
+        assert!(cmd.contains("http://"), "healthcheck must use http without TLS: {cmd}");
         Ok(())
     }
 

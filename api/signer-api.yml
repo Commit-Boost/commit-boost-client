@@ -86,7 +86,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [pubkey, object_root]
+              required: [pubkey, object_root, nonce]
               properties:
                 pubkey:
                   description: The 48-byte BLS public key, with optional `0x` prefix, of the proposer key that you want to request a signature from.
@@ -234,7 +234,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [proxy, object_root]
+              required: [proxy, object_root, nonce]
               properties:
                 proxy:
                   description: The 48-byte BLS public key (for `proxy_bls` mode) or the 20-byte Ethereum address (for `proxy_ecdsa` mode), with optional `0x` prefix, of the proxy key that you want to request a signature from.
@@ -382,7 +382,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [proxy, object_root]
+              required: [proxy, object_root, nonce]
               properties:
                 proxy:
                   description: The 20-byte Ethereum address, with optional `0x` prefix, of the proxy key that you want to request a signature from.
@@ -695,7 +695,12 @@ components:
           $ref: "#/components/schemas/EcdsaSignature"
     Nonce:
       type: integer
-      description: If your module tracks nonces per signature (e.g., to prevent replay attacks), this is the unique nonce to use for the signature. It should be an unsigned 64-bit integer in big-endian format. It must be between 0 and 2^64-2, inclusive. If your module doesn't use nonces, we suggest setting this to 2^64-1 instead of 0 because 0 is a legal nonce and will cause complications with your module if you ever want to use a nonce in the future.
+      description: |
+        Replay-protection nonce, always mixed into the signing root via `PropCommitSigningInfo`. It
+        must be an unsigned 64-bit integer between 0 and 2^64-2 (18446744073709551614), inclusive.
+
+        Modules that track nonces for replay protection should use a monotonically increasing value
+        per key. Modules that do not use replay protection should always send `0`.
       minimum: 0
-      maximum: 18446744073709551614 // 2^64-2
+      maximum: 18446744073709551614
       example: 1
