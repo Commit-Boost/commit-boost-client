@@ -103,8 +103,7 @@ fn bench_get_header(c: &mut Criterion) {
         let states: Vec<PbsState> = RELAY_COUNTS
             .iter()
             .map(|&n| {
-                let config =
-                    to_pbs_config(CHAIN, get_pbs_config(0), relay_clients[..n].to_vec());
+                let config = to_pbs_config(CHAIN, get_pbs_config(0), relay_clients[..n].to_vec());
                 PbsState::new(config, PathBuf::new())
             })
             .collect();
