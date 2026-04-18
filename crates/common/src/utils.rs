@@ -21,9 +21,10 @@ use bytes::Bytes;
 use futures::StreamExt;
 use headers_accept::Accept;
 use lazy_static::lazy_static;
+use lh_bls::Signature;
 pub use lh_types::ForkName;
 use lh_types::{
-    BeaconBlock, Signature,
+    BeaconBlock,
     test_utils::{SeedableRng, TestRandom, XorShiftRng},
 };
 use rand::{Rng, distr::Alphanumeric};
@@ -48,10 +49,10 @@ use crate::{
     constants::SIGNER_JWT_EXPIRATION,
     pbs::{
         BuilderBidBellatrix, BuilderBidCapella, BuilderBidDeneb, BuilderBidElectra, BuilderBidFulu,
-        BuilderBidGloas, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
+        ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
         ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,
-        ExecutionPayloadHeaderGloas, ExecutionRequests, HEADER_VERSION_VALUE, KzgCommitments,
-        SignedBlindedBeaconBlock, error::SszValueError,
+        ExecutionRequests, HEADER_VERSION_VALUE, KzgCommitments, SignedBlindedBeaconBlock,
+        error::SszValueError,
     },
     types::{BlsPublicKey, Chain, Jwt, JwtAdminClaims, JwtClaims, ModuleId},
 };
@@ -72,7 +73,6 @@ lazy_static! {
             ForkName::Deneb,
             ForkName::Electra,
             ForkName::Fulu,
-            ForkName::Gloas,
         ];
         for fork in forks {
             let offset = get_ssz_value_offset_for_fork(fork).unwrap(); // If there isn't a supported fork, this needs to be updated prior to release so panicking is fine
@@ -824,16 +824,6 @@ fn get_ssz_value_offset_for_fork(fork: ForkName) -> Option<usize> {
             )
         }
 
-        ForkName::Gloas => {
-            // Message goes header -> blob_kzg_commitments -> execution_requests -> value ->
-            // pubkey
-            Some(
-                get_message_offset::<BuilderBidGloas>() +
-                    <ExecutionPayloadHeaderGloas as ssz::Decode>::ssz_fixed_len() +
-                    <KzgCommitments as ssz::Decode>::ssz_fixed_len() +
-                    <ExecutionRequests as ssz::Decode>::ssz_fixed_len(),
-            )
-        }
         _ => None,
     }
 }

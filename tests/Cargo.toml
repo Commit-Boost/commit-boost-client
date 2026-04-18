@@ -13,6 +13,7 @@ cb-signer.workspace = true
 ethereum_ssz.workspace = true
 eyre.workspace = true
 jsonwebtoken.workspace = true
+lh_eth2.workspace = true
 lh_types.workspace = true
 rcgen.workspace = true
 reqwest.workspace = true

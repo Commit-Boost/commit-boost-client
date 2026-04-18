@@ -14,7 +14,7 @@ use cb_tests::{
     utils::{generate_mock_relay, get_pbs_config, setup_test_env, to_pbs_config},
 };
 use eyre::Result;
-use lh_types::beacon_response::ForkVersionDecode;
+use lh_types::ForkVersionDecode;
 use reqwest::{Response, StatusCode};
 use tracing::info;
 

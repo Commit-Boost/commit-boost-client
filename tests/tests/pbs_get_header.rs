@@ -19,7 +19,8 @@ use cb_tests::{
     utils::{generate_mock_relay, get_pbs_config, setup_test_env, to_pbs_config},
 };
 use eyre::Result;
-use lh_types::{ForkVersionDecode, beacon_response::EmptyMetadata};
+use lh_eth2::EmptyMetadata;
+use lh_types::ForkVersionDecode;
 use reqwest::StatusCode;
 use tracing::info;
 use tree_hash::TreeHash;
