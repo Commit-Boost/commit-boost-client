@@ -15,8 +15,8 @@ use cb_common::{
         error::{PbsError, ValidationError},
     },
     utils::{
-        CONSENSUS_VERSION_HEADER, EncodingType, get_consensus_version_header,
-        get_user_agent_with_version, read_chunked_body_with_max, utcnow_ms,
+        CONSENSUS_VERSION_HEADER, EncodingType, get_user_agent_with_version,
+        parse_response_encoding_and_fork, read_chunked_body_with_max, utcnow_ms,
     },
 };
 use futures::{FutureExt, future::select_ok};
@@ -173,8 +173,8 @@ async fn submit_block_with_timeout(
                 // The caller (routes/submit_block.rs) serialises Full/Light responses
                 // with the caller's negotiated encoding, independent of which endpoint
                 // the relay actually served.
-                if request_api_version == BuilderApiVersion::V1 &&
-                    proposal_info.api_version != request_api_version
+                if request_api_version == BuilderApiVersion::V1
+                    && proposal_info.api_version != request_api_version
                 {
                     warn!(
                         relay_id = relay.id.as_ref(),
@@ -571,34 +571,12 @@ async fn send_submit_block_impl(
         return Err(err);
     }
 
-    // We're on v1 so decode the payload normally - get the content type
-    let content_type = match res.headers().get(CONTENT_TYPE) {
-        None => {
-            // Assume a missing content type means JSON; shouldn't happen in practice with
-            // any respectable HTTP server but just in case
-            EncodingType::Json
-        }
-        Some(header_value) => match header_value.to_str().map_err(|e| PbsError::RelayResponse {
-            error_msg: format!("cannot decode content-type header: {e}").to_string(),
-            code: (code.as_u16()),
-        })? {
-            header_str if header_str.eq_ignore_ascii_case(&EncodingType::Ssz.to_string()) => {
-                EncodingType::Ssz
-            }
-            header_str if header_str.eq_ignore_ascii_case(&EncodingType::Json.to_string()) => {
-                EncodingType::Json
-            }
-            header_str => {
-                return Err(PbsError::RelayResponse {
-                    error_msg: format!("unsupported content type: {header_str}"),
-                    code: code.as_u16(),
-                })
-            }
-        },
-    };
+    // We're on v1 so decode the payload normally. Parse Content-Type
+    // (tolerating MIME parameters per RFC 7231 §3.1.1.1) and
+    // Eth-Consensus-Version headers
+    let (content_type, fork) = parse_response_encoding_and_fork(res.headers(), code.as_u16())?;
 
     // Decode the body
-    let fork = get_consensus_version_header(res.headers());
     let response_bytes = read_chunked_body_with_max(res, MAX_SIZE_SUBMIT_BLOCK_RESPONSE).await?;
     Ok(SubmitBlockResponseInfo { response_bytes, content_type, fork, code, request_latency })
 }
@@ -653,12 +631,12 @@ fn validate_unblinded_block(
     fork_name: ForkName,
 ) -> Result<(), PbsError> {
     match fork_name {
-        ForkName::Base |
-        ForkName::Altair |
-        ForkName::Bellatrix |
-        ForkName::Capella |
-        ForkName::Deneb |
-        ForkName::Gloas => Err(PbsError::Validation(ValidationError::UnsupportedFork)),
+        ForkName::Base
+        | ForkName::Altair
+        | ForkName::Bellatrix
+        | ForkName::Capella
+        | ForkName::Deneb
+        | ForkName::Gloas => Err(PbsError::Validation(ValidationError::UnsupportedFork)),
         ForkName::Electra => validate_unblinded_block_electra(
             expected_block_hash,
             got_block_hash,
@@ -687,9 +665,9 @@ fn validate_unblinded_block_electra(
         }));
     }
 
-    if expected_commitments.len() != blobs_bundle.blobs.len() ||
-        expected_commitments.len() != blobs_bundle.commitments.len() ||
-        expected_commitments.len() != blobs_bundle.proofs.len()
+    if expected_commitments.len() != blobs_bundle.blobs.len()
+        || expected_commitments.len() != blobs_bundle.commitments.len()
+        || expected_commitments.len() != blobs_bundle.proofs.len()
     {
         return Err(PbsError::Validation(ValidationError::KzgCommitments {
             expected_blobs: expected_commitments.len(),
@@ -726,9 +704,9 @@ fn validate_unblinded_block_fulu(
         }));
     }
 
-    if expected_commitments.len() != blobs_bundle.blobs.len() ||
-        expected_commitments.len() != blobs_bundle.commitments.len() ||
-        expected_commitments.len() * CELLS_PER_EXT_BLOB != blobs_bundle.proofs.len()
+    if expected_commitments.len() != blobs_bundle.blobs.len()
+        || expected_commitments.len() != blobs_bundle.commitments.len()
+        || expected_commitments.len() * CELLS_PER_EXT_BLOB != blobs_bundle.proofs.len()
     {
         return Err(PbsError::Validation(ValidationError::KzgCommitments {
             expected_blobs: expected_commitments.len(),

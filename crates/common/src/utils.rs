@@ -27,6 +27,7 @@ use lh_types::{
     BeaconBlock,
     test_utils::{SeedableRng, TestRandom, XorShiftRng},
 };
+use mediatype::MediaType;
 use rand::{Rng, distr::Alphanumeric};
 use reqwest::{
     Response,
@@ -129,8 +130,8 @@ pub async fn read_chunked_body_with_max(
     }
 
     // Break if content length is provided but it's too big
-    if let Some(length) = content_length &&
-        length as usize > max_size
+    if let Some(length) = content_length
+        && length as usize > max_size
     {
         return Err(ResponseReadError::PayloadTooLarge {
             max: max_size,
@@ -651,12 +652,49 @@ impl std::fmt::Display for EncodingType {
 impl FromStr for EncodingType {
     type Err = String;
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value.to_ascii_lowercase().as_str() {
-            APPLICATION_JSON | "" => Ok(EncodingType::Json),
+        // Preserve prior behavior: empty defaults to JSON (used by
+        // `get_content_type` when Content-Type header is absent).
+        if value.is_empty() {
+            return Ok(EncodingType::Json);
+        }
+        // Parse as a media type so we tolerate RFC 7231 §3.1.1.1 parameters
+        // (e.g. `application/json; charset=utf-8`). Compare essence only.
+        let parsed =
+            MediaType::parse(value).map_err(|e| format!("invalid content type {value}: {e}"))?;
+        match parsed.essence().to_string().to_ascii_lowercase().as_str() {
+            APPLICATION_JSON => Ok(EncodingType::Json),
             APPLICATION_OCTET_STREAM => Ok(EncodingType::Ssz),
             _ => Err(format!("unsupported encoding type: {value}")),
         }
     }
+}
+
+/// Parse the Content-Type and Eth-Consensus-Version headers from a relay
+/// response, returning the encoding to use for body decoding and the
+/// optional fork name. Tolerates MIME parameters per RFC 7231 §3.1.1.1 and
+/// defaults to JSON when no Content-Type header is present (matching legacy
+/// relay behavior). `code` is the HTTP status of the response and is echoed
+/// back in any `PbsError::RelayResponse` this function produces, so callers
+/// can surface the original status on decode failure.
+pub fn parse_response_encoding_and_fork(
+    headers: &HeaderMap,
+    code: u16,
+) -> Result<(EncodingType, Option<ForkName>), crate::pbs::error::PbsError> {
+    use crate::pbs::error::PbsError;
+    let content_type = match headers.get(CONTENT_TYPE) {
+        // Assume missing Content-Type means JSON; shouldn't happen in
+        // practice but just in case.
+        None => EncodingType::Json,
+        Some(hv) => {
+            let header_str = hv.to_str().map_err(|e| PbsError::RelayResponse {
+                error_msg: format!("cannot decode content-type header: {e}"),
+                code,
+            })?;
+            EncodingType::from_str(header_str)
+                .map_err(|msg| PbsError::RelayResponse { error_msg: msg, code })?
+        }
+    };
+    Ok((content_type, get_consensus_version_header(headers)))
 }
 
 pub enum BodyDeserializeError {
@@ -780,25 +818,25 @@ fn get_ssz_value_offset_for_fork(fork: ForkName) -> Option<usize> {
         ForkName::Bellatrix => {
             // Message goes header -> value -> pubkey
             Some(
-                get_message_offset::<BuilderBidBellatrix>() +
-                    <ExecutionPayloadHeaderBellatrix as ssz::Decode>::ssz_fixed_len(),
+                get_message_offset::<BuilderBidBellatrix>()
+                    + <ExecutionPayloadHeaderBellatrix as ssz::Decode>::ssz_fixed_len(),
             )
         }
 
         ForkName::Capella => {
             // Message goes header -> value -> pubkey
             Some(
-                get_message_offset::<BuilderBidCapella>() +
-                    <ExecutionPayloadHeaderCapella as ssz::Decode>::ssz_fixed_len(),
+                get_message_offset::<BuilderBidCapella>()
+                    + <ExecutionPayloadHeaderCapella as ssz::Decode>::ssz_fixed_len(),
             )
         }
 
         ForkName::Deneb => {
             // Message goes header -> blob_kzg_commitments -> value -> pubkey
             Some(
-                get_message_offset::<BuilderBidDeneb>() +
-                    <ExecutionPayloadHeaderDeneb as ssz::Decode>::ssz_fixed_len() +
-                    <KzgCommitments as ssz::Decode>::ssz_fixed_len(),
+                get_message_offset::<BuilderBidDeneb>()
+                    + <ExecutionPayloadHeaderDeneb as ssz::Decode>::ssz_fixed_len()
+                    + <KzgCommitments as ssz::Decode>::ssz_fixed_len(),
             )
         }
 
@@ -806,10 +844,10 @@ fn get_ssz_value_offset_for_fork(fork: ForkName) -> Option<usize> {
             // Message goes header -> blob_kzg_commitments -> execution_requests -> value ->
             // pubkey
             Some(
-                get_message_offset::<BuilderBidElectra>() +
-                    <ExecutionPayloadHeaderElectra as ssz::Decode>::ssz_fixed_len() +
-                    <KzgCommitments as ssz::Decode>::ssz_fixed_len() +
-                    <ExecutionRequests as ssz::Decode>::ssz_fixed_len(),
+                get_message_offset::<BuilderBidElectra>()
+                    + <ExecutionPayloadHeaderElectra as ssz::Decode>::ssz_fixed_len()
+                    + <KzgCommitments as ssz::Decode>::ssz_fixed_len()
+                    + <ExecutionRequests as ssz::Decode>::ssz_fixed_len(),
             )
         }
 
@@ -817,10 +855,10 @@ fn get_ssz_value_offset_for_fork(fork: ForkName) -> Option<usize> {
             // Message goes header -> blob_kzg_commitments -> execution_requests -> value ->
             // pubkey
             Some(
-                get_message_offset::<BuilderBidFulu>() +
-                    <ExecutionPayloadHeaderFulu as ssz::Decode>::ssz_fixed_len() +
-                    <KzgCommitments as ssz::Decode>::ssz_fixed_len() +
-                    <ExecutionRequests as ssz::Decode>::ssz_fixed_len(),
+                get_message_offset::<BuilderBidFulu>()
+                    + <ExecutionPayloadHeaderFulu as ssz::Decode>::ssz_fixed_len()
+                    + <KzgCommitments as ssz::Decode>::ssz_fixed_len()
+                    + <ExecutionRequests as ssz::Decode>::ssz_fixed_len(),
             )
         }
 
@@ -883,7 +921,8 @@ mod test {
     use super::{
         BodyDeserializeError, CONSENSUS_VERSION_HEADER, create_admin_jwt, create_jwt,
         decode_admin_jwt, decode_jwt, deserialize_body, get_consensus_version_header,
-        get_content_type, random_jwt_secret, validate_admin_jwt, validate_jwt,
+        get_content_type, parse_response_encoding_and_fork, random_jwt_secret, validate_admin_jwt,
+        validate_jwt,
     };
     use crate::{
         constants::SIGNER_JWT_EXPIRATION,
@@ -1261,6 +1300,57 @@ mod test {
         // empty string defaults to JSON per the impl
         assert_eq!(EncodingType::from_str("").unwrap(), EncodingType::Json);
         assert!(EncodingType::from_str("application/xml").is_err());
+    }
+
+    #[test]
+    fn test_encoding_type_from_str_with_mime_params() {
+        // RFC 7231 §3.1.1.1: media-type parameters must be tolerated.
+        // Relays behind proxies routinely add charset= and similar.
+        use std::str::FromStr;
+        assert_eq!(
+            EncodingType::from_str("application/json; charset=utf-8").unwrap(),
+            EncodingType::Json
+        );
+        assert_eq!(
+            EncodingType::from_str("application/octet-stream; boundary=x").unwrap(),
+            EncodingType::Ssz
+        );
+        // Case-insensitivity per RFC 7231: type/subtype are lowercased before
+        // comparison.
+        assert_eq!(EncodingType::from_str("APPLICATION/OCTET-STREAM").unwrap(), EncodingType::Ssz);
+        // Extra whitespace around parameters is tolerated by the MIME parser.
+        assert_eq!(
+            EncodingType::from_str("application/json;charset=utf-8").unwrap(),
+            EncodingType::Json
+        );
+        // Garbage that can't parse as a media type is an error.
+        assert!(EncodingType::from_str("garbage").is_err());
+        // A parseable media type that isn't one we support is an error.
+        assert!(EncodingType::from_str("text/plain").is_err());
+    }
+
+    #[test]
+    fn test_parse_response_encoding_and_fork_tolerates_mime_params() {
+        // Full integration of the helper: missing header defaults to JSON,
+        // present header with params still decodes correctly.
+        let mut headers = HeaderMap::new();
+        let (enc, fork) = parse_response_encoding_and_fork(&headers, 200).unwrap();
+        assert_eq!(enc, EncodingType::Json);
+        assert!(fork.is_none());
+
+        headers.insert(
+            CONTENT_TYPE,
+            HeaderValue::from_str("application/octet-stream; charset=binary").unwrap(),
+        );
+        let (enc, _) = parse_response_encoding_and_fork(&headers, 200).unwrap();
+        assert_eq!(enc, EncodingType::Ssz);
+
+        headers.insert(CONTENT_TYPE, HeaderValue::from_str("application/xml").unwrap());
+        let err = parse_response_encoding_and_fork(&headers, 415).unwrap_err();
+        match err {
+            crate::pbs::error::PbsError::RelayResponse { code, .. } => assert_eq!(code, 415),
+            other => panic!("expected RelayResponse, got {other:?}"),
+        }
     }
 
     #[test]

@@ -22,8 +22,8 @@ use cb_common::{
     signature::verify_signed_message,
     types::{BlsPublicKey, BlsPublicKeyBytes, BlsSignature, Chain},
     utils::{
-        EncodingType, get_bid_value_from_signed_builder_bid_ssz, get_consensus_version_header,
-        get_user_agent_with_version, ms_into_slot, read_chunked_body_with_max,
+        EncodingType, get_bid_value_from_signed_builder_bid_ssz, get_user_agent_with_version,
+        ms_into_slot, parse_response_encoding_and_fork, read_chunked_body_with_max,
         timestamp_of_slot_start_sec, utcnow_ms,
     },
 };
@@ -31,7 +31,7 @@ use futures::future::join_all;
 use parking_lot::RwLock;
 use reqwest::{
     StatusCode,
-    header::{ACCEPT, CONTENT_TYPE, USER_AGENT},
+    header::{ACCEPT, USER_AGENT},
 };
 use serde::Deserialize;
 use tokio::time::sleep;
@@ -694,34 +694,11 @@ async fn send_get_header_impl(
         }
     }
 
-    // Get the content type
-    let content_type = match res.headers().get(CONTENT_TYPE) {
-        None => {
-            // Assume a missing content type means JSON; shouldn't happen in practice with
-            // any respectable HTTP server but just in case
-            EncodingType::Json
-        }
-        Some(header_value) => match header_value.to_str().map_err(|e| PbsError::RelayResponse {
-            error_msg: format!("cannot decode content-type header: {e}").to_string(),
-            code: (code.as_u16()),
-        })? {
-            header_str if header_str.eq_ignore_ascii_case(&EncodingType::Ssz.to_string()) => {
-                EncodingType::Ssz
-            }
-            header_str if header_str.eq_ignore_ascii_case(&EncodingType::Json.to_string()) => {
-                EncodingType::Json
-            }
-            header_str => {
-                return Err(PbsError::RelayResponse {
-                    error_msg: format!("unsupported content type: {header_str}"),
-                    code: code.as_u16(),
-                });
-            }
-        },
-    };
+    // Parse Content-Type (tolerating MIME parameters per RFC 7231 §3.1.1.1)
+    // and Eth-Consensus-Version headers in one shot.
+    let (content_type, fork) = parse_response_encoding_and_fork(res.headers(), code.as_u16())?;
 
     // Decode the body
-    let fork = get_consensus_version_header(res.headers());
     let response_bytes = read_chunked_body_with_max(res, MAX_SIZE_GET_HEADER_RESPONSE).await?;
 
     Ok((

@@ -5,6 +5,7 @@ use std::{
         Arc, RwLock,
         atomic::{AtomicU64, Ordering},
     },
+    time::Duration,
 };
 
 use alloy::{primitives::U256, rpc::types::beacon::relay::ValidatorRegistration};
@@ -266,6 +267,14 @@ async fn handle_get_header(
 
 async fn handle_get_status(State(state): State<Arc<MockRelayState>>) -> impl IntoResponse {
     state.received_get_status.fetch_add(1, Ordering::Relaxed);
+    // Production `get_status` dispatches relays concurrently via `select_ok`,
+    // which cancels losing futures as soon as any relay returns OK. On a
+    // loaded runner this can abort a sibling relay's reqwest send before
+    // its handler is entered, so the test-side counter only reaches 1. A
+    // tiny response delay (counter already bumped above) guarantees every
+    // concurrent request lands in a handler before any response is written,
+    // eliminating the flake without altering production behavior.
+    tokio::time::sleep(Duration::from_millis(20)).await;
     StatusCode::OK
 }
 
