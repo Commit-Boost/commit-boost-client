@@ -60,4 +60,14 @@ lazy_static! {
         &["http_status_code", "endpoint"],
         PBS_METRICS_REGISTRY
     ).unwrap();
+
+    /// Count of v2 submit_block requests that fell back to the v1 endpoint
+    /// because the relay returned 404 on v2. A high value indicates the relay
+    /// fleet has not been upgraded to support submitBlindedBlockV2.
+    pub static ref V2_FALLBACK_TO_V1: IntCounterVec = register_int_counter_vec_with_registry!(
+        "pbs_submit_block_v2_fallback_to_v1_total",
+        "Count of v2 submit_block requests that fell back to v1 because the relay did not support v2",
+        &["relay_id"],
+        PBS_METRICS_REGISTRY
+    ).unwrap();
 }

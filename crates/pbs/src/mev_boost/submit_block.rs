@@ -32,7 +32,7 @@ use url::Url;
 use crate::{
     CompoundSubmitBlockResponse, LightSubmitBlockResponse, TIMEOUT_ERROR_CODE_STR,
     constants::{MAX_SIZE_SUBMIT_BLOCK_RESPONSE, SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG},
-    metrics::{RELAY_LATENCY, RELAY_STATUS_CODE},
+    metrics::{RELAY_LATENCY, RELAY_STATUS_CODE, V2_FALLBACK_TO_V1},
     state::{BuilderApiState, PbsState},
 };
 
@@ -164,12 +164,23 @@ async fn submit_block_with_timeout(
         .await
         {
             Ok(response) => {
-                // If the original request was for v2 but we had to fall back to v1, return a v2
-                // response
+                // If the original request was for v2 but we had to fall back to v1, the
+                // V1 response body (execution payload + blobs bundle) MUST be forwarded
+                // back to the beacon node so the proposer can broadcast. Returning an
+                // empty 202 here would cause silent block loss because the BN never
+                // receives the unblinded payload.
+                //
+                // The caller (routes/submit_block.rs) serialises Full/Light responses
+                // with the caller's negotiated encoding, independent of which endpoint
+                // the relay actually served.
                 if request_api_version == BuilderApiVersion::V1 &&
                     proposal_info.api_version != request_api_version
                 {
-                    return Ok(CompoundSubmitBlockResponse::EmptyBody);
+                    warn!(
+                        relay_id = relay.id.as_ref(),
+                        "v2 submit_block fell back to v1; forwarding v1 payload to beacon node"
+                    );
+                    V2_FALLBACK_TO_V1.with_label_values(&[relay.id.as_ref()]).inc();
                 }
                 return Ok(response);
             }
@@ -218,9 +229,15 @@ async fn send_submit_block(
     match proposal_info.validation_mode {
         BlockValidationMode::None => {
             // No validation so do some light processing and forward the response directly
-            let response =
-                send_submit_block_light(proposal_info.clone(), url, relay, timeout_ms, retry)
-                    .await?;
+            let response = send_submit_block_light(
+                proposal_info.clone(),
+                url,
+                relay,
+                timeout_ms,
+                retry,
+                api_version,
+            )
+            .await?;
             match response {
                 None => Ok(CompoundSubmitBlockResponse::EmptyBody),
                 Some(res) => {
@@ -363,6 +380,7 @@ async fn send_submit_block_light(
     relay: &RelayClient,
     timeout_ms: u64,
     retry: u32,
+    api_version: BuilderApiVersion,
 ) -> Result<Option<LightSubmitBlockResponse>, PbsError> {
     // Send the request
     let block_response = send_submit_block_impl(
@@ -372,12 +390,15 @@ async fn send_submit_block_light(
         (*proposal_info.headers).clone(),
         &proposal_info.signed_blinded_block,
         retry,
-        proposal_info.api_version,
+        api_version,
     )
     .await?;
 
-    // If this is not v1, there's no body to decode
-    if proposal_info.api_version != BuilderApiVersion::V1 {
+    // v2 responses have no body to decode. Use the endpoint version we actually
+    // dispatched to (api_version), not the original proposal_info.api_version,
+    // because the caller may have fallen back from v2 to v1 — in which case we
+    // DO have a body that must be forwarded to the beacon node.
+    if api_version != BuilderApiVersion::V1 {
         return Ok(None);
     }
 

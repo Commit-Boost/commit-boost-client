@@ -63,7 +63,9 @@ async fn test_submit_block_v2() -> Result<()> {
 }
 
 // Test that when submitting a block using v2 to a relay that does not support
-// v2, PBS falls back to v1 and successfully submits the block.
+// v2, PBS falls back to v1 and forwards the v1 response body to the beacon
+// node (a 200 with the execution payload), rather than swallowing the payload
+// and replying 202 with an empty body — which would cause silent block loss.
 #[tokio::test]
 async fn test_submit_block_v2_without_relay_support() -> Result<()> {
     let res = submit_block_impl(
@@ -73,12 +75,44 @@ async fn test_submit_block_v2_without_relay_support() -> Result<()> {
         EncodingType::Json,
         1,
         BlockValidationMode::Standard,
-        StatusCode::ACCEPTED,
+        StatusCode::OK,
         true,
         false,
     )
     .await?;
-    assert_eq!(res.bytes().await?.len(), 0);
+    // Payload must be forwarded so the BN can broadcast.
+    let signed_blinded_block = load_test_signed_blinded_block();
+    let response_body = serde_json::from_slice::<SubmitBlindedBlockResponse>(&res.bytes().await?)?;
+    assert_eq!(
+        response_body.data.execution_payload.block_hash(),
+        signed_blinded_block.block_hash().into(),
+        "v2->v1 fallback must forward the execution payload to the BN"
+    );
+    Ok(())
+}
+
+// Same guarantee as above, but exercising the unvalidated (light) path.
+// In BlockValidationMode::None the v1 body is passed through as raw bytes;
+// the v2->v1 fallback must still deliver those bytes to the beacon node.
+#[tokio::test]
+async fn test_submit_block_v2_without_relay_support_light() -> Result<()> {
+    let res = submit_block_impl(
+        BuilderApiVersion::V2,
+        HashSet::from([EncodingType::Json]),
+        HashSet::from([EncodingType::Ssz, EncodingType::Json]),
+        EncodingType::Json,
+        1,
+        BlockValidationMode::None,
+        StatusCode::OK,
+        true,
+        false,
+    )
+    .await?;
+    let body = res.bytes().await?;
+    assert!(!body.is_empty(), "v2->v1 fallback (light) must forward a non-empty body");
+    // Body is a raw forwarded v1 response — should decode as
+    // SubmitBlindedBlockResponse.
+    let _: SubmitBlindedBlockResponse = serde_json::from_slice(&body)?;
     Ok(())
 }
 
