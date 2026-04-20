@@ -130,8 +130,8 @@ pub async fn read_chunked_body_with_max(
     }
 
     // Break if content length is provided but it's too big
-    if let Some(length) = content_length
-        && length as usize > max_size
+    if let Some(length) = content_length &&
+        length as usize > max_size
     {
         return Err(ResponseReadError::PayloadTooLarge {
             max: max_size,
@@ -818,25 +818,25 @@ fn get_ssz_value_offset_for_fork(fork: ForkName) -> Option<usize> {
         ForkName::Bellatrix => {
             // Message goes header -> value -> pubkey
             Some(
-                get_message_offset::<BuilderBidBellatrix>()
-                    + <ExecutionPayloadHeaderBellatrix as ssz::Decode>::ssz_fixed_len(),
+                get_message_offset::<BuilderBidBellatrix>() +
+                    <ExecutionPayloadHeaderBellatrix as ssz::Decode>::ssz_fixed_len(),
             )
         }
 
         ForkName::Capella => {
             // Message goes header -> value -> pubkey
             Some(
-                get_message_offset::<BuilderBidCapella>()
-                    + <ExecutionPayloadHeaderCapella as ssz::Decode>::ssz_fixed_len(),
+                get_message_offset::<BuilderBidCapella>() +
+                    <ExecutionPayloadHeaderCapella as ssz::Decode>::ssz_fixed_len(),
             )
         }
 
         ForkName::Deneb => {
             // Message goes header -> blob_kzg_commitments -> value -> pubkey
             Some(
-                get_message_offset::<BuilderBidDeneb>()
-                    + <ExecutionPayloadHeaderDeneb as ssz::Decode>::ssz_fixed_len()
-                    + <KzgCommitments as ssz::Decode>::ssz_fixed_len(),
+                get_message_offset::<BuilderBidDeneb>() +
+                    <ExecutionPayloadHeaderDeneb as ssz::Decode>::ssz_fixed_len() +
+                    <KzgCommitments as ssz::Decode>::ssz_fixed_len(),
             )
         }
 
@@ -844,10 +844,10 @@ fn get_ssz_value_offset_for_fork(fork: ForkName) -> Option<usize> {
             // Message goes header -> blob_kzg_commitments -> execution_requests -> value ->
             // pubkey
             Some(
-                get_message_offset::<BuilderBidElectra>()
-                    + <ExecutionPayloadHeaderElectra as ssz::Decode>::ssz_fixed_len()
-                    + <KzgCommitments as ssz::Decode>::ssz_fixed_len()
-                    + <ExecutionRequests as ssz::Decode>::ssz_fixed_len(),
+                get_message_offset::<BuilderBidElectra>() +
+                    <ExecutionPayloadHeaderElectra as ssz::Decode>::ssz_fixed_len() +
+                    <KzgCommitments as ssz::Decode>::ssz_fixed_len() +
+                    <ExecutionRequests as ssz::Decode>::ssz_fixed_len(),
             )
         }
 
@@ -855,10 +855,10 @@ fn get_ssz_value_offset_for_fork(fork: ForkName) -> Option<usize> {
             // Message goes header -> blob_kzg_commitments -> execution_requests -> value ->
             // pubkey
             Some(
-                get_message_offset::<BuilderBidFulu>()
-                    + <ExecutionPayloadHeaderFulu as ssz::Decode>::ssz_fixed_len()
-                    + <KzgCommitments as ssz::Decode>::ssz_fixed_len()
-                    + <ExecutionRequests as ssz::Decode>::ssz_fixed_len(),
+                get_message_offset::<BuilderBidFulu>() +
+                    <ExecutionPayloadHeaderFulu as ssz::Decode>::ssz_fixed_len() +
+                    <KzgCommitments as ssz::Decode>::ssz_fixed_len() +
+                    <ExecutionRequests as ssz::Decode>::ssz_fixed_len(),
             )
         }
 

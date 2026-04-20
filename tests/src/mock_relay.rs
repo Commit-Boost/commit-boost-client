@@ -63,6 +63,12 @@ pub struct MockRelayState {
     large_body: bool,
     supports_submit_block_v2: bool,
     use_not_found_for_submit_block: bool,
+    /// If set, `handle_submit_block_v1`/`v2` short-circuits with this status
+    /// when the inbound request carries `Content-Type:
+    /// application/octet-stream`. The counter is still incremented before
+    /// the short-circuit so tests can observe the attempt. Used to drive C3
+    /// (retry-as-JSON) tests.
+    submit_block_ssz_status_override: Option<StatusCode>,
     received_get_header: Arc<AtomicU64>,
     received_get_status: Arc<AtomicU64>,
     received_register_validator: Arc<AtomicU64>,
@@ -93,6 +99,9 @@ impl MockRelayState {
     pub fn use_not_found_for_submit_block(&self) -> bool {
         self.use_not_found_for_submit_block
     }
+    pub fn submit_block_ssz_status_override(&self) -> Option<StatusCode> {
+        self.submit_block_ssz_status_override
+    }
     pub fn set_response_override(&self, status: StatusCode) {
         *self.response_override.write().unwrap() = Some(status);
     }
@@ -106,6 +115,7 @@ impl MockRelayState {
             large_body: false,
             supports_submit_block_v2: true,
             use_not_found_for_submit_block: false,
+            submit_block_ssz_status_override: None,
             received_get_header: Default::default(),
             received_get_status: Default::default(),
             received_register_validator: Default::default(),
@@ -135,6 +145,14 @@ impl MockRelayState {
 
     pub fn with_not_found_for_submit_block(self) -> Self {
         Self { use_not_found_for_submit_block: true, ..self }
+    }
+
+    /// Make `handle_submit_block_v1`/`v2` respond with `status` whenever the
+    /// request comes in as SSZ (`Content-Type: application/octet-stream`).
+    /// JSON requests still go through the normal happy path, which lets a
+    /// single test cover the SSZ→JSON retry behavior.
+    pub fn with_submit_block_ssz_status(self, status: StatusCode) -> Self {
+        Self { submit_block_ssz_status_override: Some(status), ..self }
     }
 }
 
@@ -301,6 +319,14 @@ async fn handle_submit_block_v1(
         return StatusCode::NOT_FOUND.into_response();
     }
     state.received_submit_block.fetch_add(1, Ordering::Relaxed);
+    // Short-circuit SSZ requests with an overridden status so tests can
+    // drive the PBS SSZ→JSON retry logic. JSON requests still take the
+    // normal path so a single mock run can exercise both attempts.
+    if let Some(status) = state.submit_block_ssz_status_override() &&
+        get_content_type(&headers) == EncodingType::Ssz
+    {
+        return (status, "forced ssz override").into_response();
+    }
     let accept_types = get_accept_types(&headers)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("error parsing accept header: {e}")));
     if let Err(e) = accept_types {
@@ -391,6 +417,13 @@ async fn handle_submit_block_v2(
         return StatusCode::NOT_FOUND.into_response();
     }
     state.received_submit_block.fetch_add(1, Ordering::Relaxed);
+    // See comment in `handle_submit_block_v1`. Override SSZ with the
+    // injected status so C3 tests can assert retry / no-retry behavior.
+    if let Some(status) = state.submit_block_ssz_status_override() &&
+        get_content_type(&headers) == EncodingType::Ssz
+    {
+        return (status, "forced ssz override").into_response();
+    }
     let content_type = get_content_type(&headers);
     if !state.supported_content_types.contains(&content_type) {
         return (StatusCode::NOT_ACCEPTABLE, "No acceptable content type found".to_string())

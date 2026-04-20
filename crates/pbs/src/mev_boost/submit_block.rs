@@ -173,8 +173,8 @@ async fn submit_block_with_timeout(
                 // The caller (routes/submit_block.rs) serialises Full/Light responses
                 // with the caller's negotiated encoding, independent of which endpoint
                 // the relay actually served.
-                if request_api_version == BuilderApiVersion::V1
-                    && proposal_info.api_version != request_api_version
+                if request_api_version == BuilderApiVersion::V1 &&
+                    proposal_info.api_version != request_api_version
                 {
                     warn!(
                         relay_id = relay.id.as_ref(),
@@ -472,12 +472,17 @@ async fn send_submit_block_impl(
         }
     };
 
-    // If we got a client error, retry with JSON - the spec says that this should be
-    // a 406 or 415, but we're a little more permissive here
-    if res.status().is_client_error() {
+    // Retry as JSON only on the two status codes the builder-spec defines as
+    // "media type is the problem": 406 Not Acceptable and 415 Unsupported
+    // Media Type (RFC 7231 §6.5.13). Any other 4xx (400 malformed, 401/403
+    // auth, 409 conflict, 429 rate limit, etc.) is orthogonal to encoding
+    // and MUST surface unchanged — retrying pollutes observability, doubles
+    // load on the relay, and can mask real errors behind a JSON-path reply.
+    if matches!(res.status(), StatusCode::NOT_ACCEPTABLE | StatusCode::UNSUPPORTED_MEDIA_TYPE,) {
         warn!(
             relay_id = relay.id.as_ref(),
-            "relay does not support SSZ, resubmitting block with JSON content-type"
+            status = %res.status(),
+            "relay rejected SSZ content-type, resubmitting block with JSON content-type"
         );
         res = match relay
             .client
@@ -631,12 +636,12 @@ fn validate_unblinded_block(
     fork_name: ForkName,
 ) -> Result<(), PbsError> {
     match fork_name {
-        ForkName::Base
-        | ForkName::Altair
-        | ForkName::Bellatrix
-        | ForkName::Capella
-        | ForkName::Deneb
-        | ForkName::Gloas => Err(PbsError::Validation(ValidationError::UnsupportedFork)),
+        ForkName::Base |
+        ForkName::Altair |
+        ForkName::Bellatrix |
+        ForkName::Capella |
+        ForkName::Deneb |
+        ForkName::Gloas => Err(PbsError::Validation(ValidationError::UnsupportedFork)),
         ForkName::Electra => validate_unblinded_block_electra(
             expected_block_hash,
             got_block_hash,
@@ -665,9 +670,9 @@ fn validate_unblinded_block_electra(
         }));
     }
 
-    if expected_commitments.len() != blobs_bundle.blobs.len()
-        || expected_commitments.len() != blobs_bundle.commitments.len()
-        || expected_commitments.len() != blobs_bundle.proofs.len()
+    if expected_commitments.len() != blobs_bundle.blobs.len() ||
+        expected_commitments.len() != blobs_bundle.commitments.len() ||
+        expected_commitments.len() != blobs_bundle.proofs.len()
     {
         return Err(PbsError::Validation(ValidationError::KzgCommitments {
             expected_blobs: expected_commitments.len(),
@@ -704,9 +709,9 @@ fn validate_unblinded_block_fulu(
         }));
     }
 
-    if expected_commitments.len() != blobs_bundle.blobs.len()
-        || expected_commitments.len() != blobs_bundle.commitments.len()
-        || expected_commitments.len() * CELLS_PER_EXT_BLOB != blobs_bundle.proofs.len()
+    if expected_commitments.len() != blobs_bundle.blobs.len() ||
+        expected_commitments.len() != blobs_bundle.commitments.len() ||
+        expected_commitments.len() * CELLS_PER_EXT_BLOB != blobs_bundle.proofs.len()
     {
         return Err(PbsError::Validation(ValidationError::KzgCommitments {
             expected_blobs: expected_commitments.len(),
