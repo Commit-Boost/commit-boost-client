@@ -43,13 +43,13 @@ use axum::http::HeaderMap;
 use cb_common::{pbs::GetHeaderParams, signer::random_secret, types::Chain, utils::EncodingType};
 use cb_pbs::{PbsState, get_header};
 use cb_tests::{
-    mock_relay::{MockRelayState, start_mock_relay_service},
-    utils::{generate_mock_relay, get_pbs_config, to_pbs_config},
+    mock_relay::{MockRelayState, start_mock_relay_service_with_listener},
+    utils::{generate_mock_relay, get_free_listener, get_pbs_config, to_pbs_config},
 };
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 
-// Ports 19201–19205 are reserved for the microbenchmark mock relays.
-const BASE_PORT: u16 = 19200;
+// Mock relay ports are allocated dynamically via get_free_listener() so that
+// parallel test/bench runs don't collide on hardcoded ports.
 const CHAIN: Chain = Chain::Hoodi;
 const MAX_RELAYS: usize = 5;
 const RELAY_COUNTS: [usize; 3] = [1, 3, MAX_RELAYS];
@@ -83,10 +83,23 @@ fn bench_get_header(c: &mut Criterion) {
         let pubkey = signer.public_key();
         let mock_state = Arc::new(MockRelayState::new(CHAIN, signer));
 
-        let relay_clients: Vec<_> = (0..MAX_RELAYS)
-            .map(|i| {
-                let port = BASE_PORT + 1 + i as u16;
-                tokio::spawn(start_mock_relay_service(mock_state.clone(), port));
+        // Allocate all listeners upfront so each port is reserved until the
+        // server takes ownership — avoids TOCTOU bind races.
+        let listeners: Vec<_> = {
+            let mut v = Vec::with_capacity(MAX_RELAYS);
+            for _ in 0..MAX_RELAYS {
+                v.push(get_free_listener().await);
+            }
+            v
+        };
+        let ports: Vec<u16> = listeners.iter().map(|l| l.local_addr().unwrap().port()).collect();
+
+        let relay_clients: Vec<_> = listeners
+            .into_iter()
+            .enumerate()
+            .map(|(i, listener)| {
+                let port = ports[i];
+                tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), listener));
                 generate_mock_relay(port, pubkey.clone()).expect("relay client")
             })
             .collect();

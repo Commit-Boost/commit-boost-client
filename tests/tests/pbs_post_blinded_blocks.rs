@@ -9,9 +9,11 @@ use cb_common::{
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
-    mock_relay::{MockRelayState, start_mock_relay_service},
+    mock_relay::{MockRelayState, start_mock_relay_service_with_listener},
     mock_validator::{MockValidator, load_test_signed_blinded_block},
-    utils::{generate_mock_relay, get_pbs_config, setup_test_env, to_pbs_config},
+    utils::{
+        generate_mock_relay, get_free_listener, get_pbs_config, setup_test_env, to_pbs_config,
+    },
 };
 use eyre::Result;
 use lh_types::ForkVersionDecode;
@@ -21,7 +23,6 @@ use tracing::info;
 #[tokio::test]
 async fn test_submit_block_v1() -> Result<()> {
     let res = submit_block_impl(
-        3800,
         BuilderApiVersion::V1,
         HashSet::from([EncodingType::Json]),
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
@@ -46,7 +47,6 @@ async fn test_submit_block_v1() -> Result<()> {
 #[tokio::test]
 async fn test_submit_block_v2() -> Result<()> {
     let res = submit_block_impl(
-        3802,
         BuilderApiVersion::V2,
         HashSet::from([EncodingType::Json]),
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
@@ -67,7 +67,6 @@ async fn test_submit_block_v2() -> Result<()> {
 #[tokio::test]
 async fn test_submit_block_v2_without_relay_support() -> Result<()> {
     let res = submit_block_impl(
-        3804,
         BuilderApiVersion::V2,
         HashSet::from([EncodingType::Json]),
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
@@ -88,7 +87,6 @@ async fn test_submit_block_v2_without_relay_support() -> Result<()> {
 #[tokio::test]
 async fn test_submit_block_on_broken_relay() -> Result<()> {
     let _res = submit_block_impl(
-        3806,
         BuilderApiVersion::V2,
         HashSet::from([EncodingType::Json]),
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
@@ -106,7 +104,6 @@ async fn test_submit_block_on_broken_relay() -> Result<()> {
 #[tokio::test]
 async fn test_submit_block_v1_ssz() -> Result<()> {
     let res = submit_block_impl(
-        3808,
         BuilderApiVersion::V1,
         HashSet::from([EncodingType::Ssz]),
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
@@ -132,7 +129,6 @@ async fn test_submit_block_v1_ssz() -> Result<()> {
 #[tokio::test]
 async fn test_submit_block_v2_ssz() -> Result<()> {
     let res = submit_block_impl(
-        3810,
         BuilderApiVersion::V2,
         HashSet::from([EncodingType::Ssz]),
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
@@ -153,7 +149,6 @@ async fn test_submit_block_v2_ssz() -> Result<()> {
 #[tokio::test]
 async fn test_submit_block_v1_ssz_into_json() -> Result<()> {
     let res = submit_block_impl(
-        3812,
         BuilderApiVersion::V1,
         HashSet::from([EncodingType::Ssz]),
         HashSet::from([EncodingType::Json]),
@@ -181,7 +176,6 @@ async fn test_submit_block_v1_ssz_into_json() -> Result<()> {
 #[tokio::test]
 async fn test_submit_block_v2_ssz_into_json() -> Result<()> {
     let res = submit_block_impl(
-        3814,
         BuilderApiVersion::V2,
         HashSet::from([EncodingType::Ssz]),
         HashSet::from([EncodingType::Json]),
@@ -202,7 +196,6 @@ async fn test_submit_block_v2_ssz_into_json() -> Result<()> {
 #[tokio::test]
 async fn test_submit_block_v1_multitype_ssz() -> Result<()> {
     let res = submit_block_impl(
-        3816,
         BuilderApiVersion::V1,
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         HashSet::from([EncodingType::Ssz]),
@@ -230,7 +223,6 @@ async fn test_submit_block_v1_multitype_ssz() -> Result<()> {
 #[tokio::test]
 async fn test_submit_block_v1_multitype_json() -> Result<()> {
     let res = submit_block_impl(
-        3818,
         BuilderApiVersion::V1,
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         HashSet::from([EncodingType::Json]),
@@ -256,7 +248,6 @@ async fn test_submit_block_v1_multitype_json() -> Result<()> {
 #[tokio::test]
 async fn test_submit_block_v1_light() -> Result<()> {
     let res = submit_block_impl(
-        3820,
         BuilderApiVersion::V1,
         HashSet::from([EncodingType::Json]),
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
@@ -281,7 +272,6 @@ async fn test_submit_block_v1_light() -> Result<()> {
 #[tokio::test]
 async fn test_submit_block_v2_light() -> Result<()> {
     let res = submit_block_impl(
-        3822,
         BuilderApiVersion::V2,
         HashSet::from([EncodingType::Json]),
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
@@ -300,7 +290,6 @@ async fn test_submit_block_v2_light() -> Result<()> {
 #[tokio::test]
 async fn test_submit_block_v1_ssz_light() -> Result<()> {
     let res = submit_block_impl(
-        3824,
         BuilderApiVersion::V1,
         HashSet::from([EncodingType::Ssz]),
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
@@ -326,7 +315,6 @@ async fn test_submit_block_v1_ssz_light() -> Result<()> {
 #[tokio::test]
 async fn test_submit_block_v2_ssz_light() -> Result<()> {
     let res = submit_block_impl(
-        3826,
         BuilderApiVersion::V2,
         HashSet::from([EncodingType::Ssz]),
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
@@ -347,7 +335,6 @@ async fn test_submit_block_v2_ssz_light() -> Result<()> {
 #[tokio::test]
 async fn test_submit_block_v1_ssz_into_json_light() -> Result<()> {
     submit_block_impl(
-        3828,
         BuilderApiVersion::V1,
         HashSet::from([EncodingType::Ssz]),
         HashSet::from([EncodingType::Json]),
@@ -367,7 +354,6 @@ async fn test_submit_block_v1_ssz_into_json_light() -> Result<()> {
 #[tokio::test]
 async fn test_submit_block_v2_ssz_into_json_light() -> Result<()> {
     let res = submit_block_impl(
-        3830,
         BuilderApiVersion::V2,
         HashSet::from([EncodingType::Ssz]),
         HashSet::from([EncodingType::Json]),
@@ -388,7 +374,6 @@ async fn test_submit_block_v2_ssz_into_json_light() -> Result<()> {
 #[tokio::test]
 async fn test_submit_block_v1_multitype_ssz_light() -> Result<()> {
     let res = submit_block_impl(
-        3832,
         BuilderApiVersion::V1,
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         HashSet::from([EncodingType::Ssz]),
@@ -416,7 +401,6 @@ async fn test_submit_block_v1_multitype_ssz_light() -> Result<()> {
 #[tokio::test]
 async fn test_submit_block_v1_multitype_json_light() -> Result<()> {
     let res = submit_block_impl(
-        3834,
         BuilderApiVersion::V1,
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         HashSet::from([EncodingType::Json]),
@@ -445,14 +429,18 @@ async fn test_submit_block_too_large() -> Result<()> {
     let pubkey = signer.public_key();
 
     let chain = Chain::Holesky;
-    let pbs_port = 3836;
+    let pbs_listener = get_free_listener().await;
+    let relay_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr().unwrap().port();
+    let relay_port = relay_listener.local_addr().unwrap().port();
 
-    let relays = vec![generate_mock_relay(pbs_port + 1, pubkey)?];
+    let relays = vec![generate_mock_relay(relay_port, pubkey)?];
     let mock_state = Arc::new(MockRelayState::new(chain, signer).with_large_body());
-    tokio::spawn(start_mock_relay_service(mock_state.clone(), pbs_port + 1));
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
 
     let config = to_pbs_config(chain, get_pbs_config(pbs_port), relays);
     let state = PbsState::new(config, PathBuf::new());
+    drop(pbs_listener);
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
     // leave some time to start servers
@@ -477,7 +465,6 @@ async fn test_submit_block_too_large() -> Result<()> {
 
 #[allow(clippy::too_many_arguments)]
 async fn submit_block_impl(
-    pbs_port: u16,
     api_version: BuilderApiVersion,
     accept_types: HashSet<EncodingType>,
     relay_types: HashSet<EncodingType>,
@@ -493,7 +480,10 @@ async fn submit_block_impl(
     let signer = random_secret();
     let pubkey = signer.public_key();
     let chain = Chain::Holesky;
-    let relay_port = pbs_port + 1;
+    let pbs_listener = get_free_listener().await;
+    let relay_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr().unwrap().port();
+    let relay_port = relay_listener.local_addr().unwrap().port();
 
     // Run a mock relay
     let mock_relay = generate_mock_relay(relay_port, pubkey)?;
@@ -506,13 +496,14 @@ async fn submit_block_impl(
         mock_relay_state = mock_relay_state.with_not_found_for_submit_block();
     }
     let mock_state = Arc::new(mock_relay_state);
-    tokio::spawn(start_mock_relay_service(mock_state.clone(), relay_port));
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
 
     // Run the PBS service
     let mut pbs_config = get_pbs_config(pbs_port);
     pbs_config.block_validation_mode = mode;
     let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
     let state = PbsState::new(config, PathBuf::new());
+    drop(pbs_listener);
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
     // leave some time to start servers

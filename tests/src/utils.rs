@@ -27,6 +27,18 @@ pub fn get_local_address(port: u16) -> String {
     format!("http://0.0.0.0:{port}")
 }
 
+/// Bind to port 0 and let the OS assign an unused ephemeral port.
+///
+/// The returned listener keeps the port reserved. Pass it to
+/// [`start_mock_relay_service_with_listener`] so the socket is never released
+/// between allocation and use (zero TOCTOU race). For servers that bind
+/// internally (e.g. `PbsService::run`), read the port with
+/// `listener.local_addr().unwrap().port()`, then `drop` the listener
+/// immediately before starting the server.
+pub async fn get_free_listener() -> tokio::net::TcpListener {
+    tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap()
+}
+
 static SYNC_SETUP: Once = Once::new();
 pub fn setup_test_env() {
     SYNC_SETUP.call_once(|| {
