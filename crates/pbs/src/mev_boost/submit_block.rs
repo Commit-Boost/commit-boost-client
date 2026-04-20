@@ -1,5 +1,4 @@
 use std::{
-    collections::HashSet,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -15,8 +14,9 @@ use cb_common::{
         error::{PbsError, ValidationError},
     },
     utils::{
-        CONSENSUS_VERSION_HEADER, EncodingType, get_user_agent_with_version,
-        parse_response_encoding_and_fork, read_chunked_body_with_max, utcnow_ms,
+        CONSENSUS_VERSION_HEADER, EncodingType, OUTBOUND_ACCEPT, build_outbound_accept,
+        get_user_agent_with_version, parse_response_encoding_and_fork, read_chunked_body_with_max,
+        utcnow_ms,
     },
 };
 use futures::{FutureExt, future::select_ok};
@@ -52,8 +52,9 @@ struct ProposalInfo {
     /// How to validate the block returned by the relay
     validation_mode: BlockValidationMode,
 
-    /// The accepted encoding types from the original request
-    accepted_types: HashSet<EncodingType>,
+    /// The accepted encoding types from the original request, ordered by
+    /// descending caller preference (q-value).
+    accepted_types: Vec<EncodingType>,
 }
 
 /// Used interally to provide info and context about a submit_block request and
@@ -84,7 +85,7 @@ pub async fn submit_block<S: BuilderApiState>(
     req_headers: HeaderMap,
     state: PbsState<S>,
     api_version: BuilderApiVersion,
-    accepted_types: HashSet<EncodingType>,
+    accepted_types: Vec<EncodingType>,
 ) -> eyre::Result<CompoundSubmitBlockResponse> {
     debug!(?req_headers, "received headers");
 
@@ -97,13 +98,14 @@ pub async fn submit_block<S: BuilderApiState>(
     let mode = state.pbs_config().block_validation_mode;
     let accept_types = match mode {
         BlockValidationMode::None => {
-            // No validation mode, so only request what the user wants because the response
-            // will be forwarded directly
-            accepted_types.iter().map(|t| t.content_type()).collect::<Vec<&str>>().join(",")
+            // No validation mode, so forward the caller's preference verbatim
+            // (still q-ordered) — the relay's response is passed through.
+            build_outbound_accept(&accepted_types)
         }
         _ => {
-            // We're unpacking the body, so request both types since we can handle both
-            [EncodingType::Ssz.content_type(), EncodingType::Json.content_type()].join(",")
+            // We're unpacking the body, so use the documented, deterministic
+            // preference: SSZ first (wire-efficient), JSON fallback.
+            OUTBOUND_ACCEPT.to_string()
         }
     };
     send_headers.insert(ACCEPT, HeaderValue::from_str(&accept_types).unwrap());

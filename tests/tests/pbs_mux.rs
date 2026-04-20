@@ -262,7 +262,7 @@ async fn test_mux() -> Result<()> {
     let mock_validator = MockValidator::new(pbs_port)?;
     info!("Sending get header with default");
     assert_eq!(
-        mock_validator.do_get_header(None, HashSet::new(), ForkName::Electra).await?.status(),
+        mock_validator.do_get_header(None, Vec::new(), ForkName::Electra).await?.status(),
         StatusCode::OK
     );
     assert_eq!(mock_state.received_get_header(), 1); // only default relay was used
@@ -271,7 +271,7 @@ async fn test_mux() -> Result<()> {
     info!("Sending get header with mux");
     assert_eq!(
         mock_validator
-            .do_get_header(Some(validator_pubkey), HashSet::new(), ForkName::Electra)
+            .do_get_header(Some(validator_pubkey), Vec::new(), ForkName::Electra)
             .await?
             .status(),
         StatusCode::OK
@@ -294,7 +294,7 @@ async fn test_mux() -> Result<()> {
         mock_validator
             .do_submit_block_v1(
                 None,
-                HashSet::from([EncodingType::Json]),
+                vec![EncodingType::Json],
                 EncodingType::Json,
                 ForkName::Electra
             )
@@ -310,7 +310,7 @@ async fn test_mux() -> Result<()> {
         mock_validator
             .do_submit_block_v2(
                 None,
-                HashSet::from([EncodingType::Json]),
+                vec![EncodingType::Json],
                 EncodingType::Json,
                 ForkName::Electra
             )
@@ -417,9 +417,8 @@ async fn test_ssv_multi_with_node() -> Result<()> {
     // relay only since it hasn't been seen in the mux yet
     let mock_validator = MockValidator::new(pbs_port)?;
     info!("Sending get header");
-    let res = mock_validator
-        .do_get_header(Some(pubkey2.clone()), HashSet::new(), ForkName::Electra)
-        .await?;
+    let res =
+        mock_validator.do_get_header(Some(pubkey2.clone()), Vec::new(), ForkName::Electra).await?;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(relay_state.received_get_header(), 1); // pubkey2 was loaded from the SSV node 
 
@@ -525,9 +524,8 @@ async fn test_ssv_multi_with_public() -> Result<()> {
     // relay only since it hasn't been seen in the mux yet
     let mock_validator = MockValidator::new(pbs_port)?;
     info!("Sending get header");
-    let res = mock_validator
-        .do_get_header(Some(pubkey2.clone()), HashSet::new(), ForkName::Electra)
-        .await?;
+    let res =
+        mock_validator.do_get_header(Some(pubkey2.clone()), Vec::new(), ForkName::Electra).await?;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(relay_state.received_get_header(), 1); // pubkey2 was loaded from the SSV public API 
 

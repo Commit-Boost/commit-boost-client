@@ -1,5 +1,4 @@
 use std::{
-    collections::HashSet,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -22,9 +21,10 @@ use cb_common::{
     signature::verify_signed_message,
     types::{BlsPublicKey, BlsPublicKeyBytes, BlsSignature, Chain},
     utils::{
-        EncodingType, get_bid_value_from_signed_builder_bid_ssz, get_user_agent_with_version,
-        ms_into_slot, parse_response_encoding_and_fork, read_chunked_body_with_max,
-        timestamp_of_slot_start_sec, utcnow_ms,
+        EncodingType, OUTBOUND_ACCEPT, build_outbound_accept,
+        get_bid_value_from_signed_builder_bid_ssz, get_user_agent_with_version, ms_into_slot,
+        parse_response_encoding_and_fork, read_chunked_body_with_max, timestamp_of_slot_start_sec,
+        utcnow_ms,
     },
 };
 use futures::future::join_all;
@@ -67,8 +67,9 @@ struct RequestInfo {
     /// Context for validating the header returned by the relay
     validation: ValidationContext,
 
-    /// The accepted encoding types from the original request
-    accepted_types: HashSet<EncodingType>,
+    /// The accepted encoding types from the original request, ordered by
+    /// descending caller preference (q-value).
+    accepted_types: Vec<EncodingType>,
 }
 
 /// Used interally to provide info and context about a get_header request and
@@ -116,7 +117,7 @@ pub async fn get_header<S: BuilderApiState>(
     params: GetHeaderParams,
     req_headers: HeaderMap,
     state: PbsState<S>,
-    accepted_types: HashSet<EncodingType>,
+    accepted_types: Vec<EncodingType>,
 ) -> eyre::Result<Option<CompoundGetHeaderResponse>> {
     let parent_block = Arc::new(RwLock::new(None));
     let extra_validation_enabled =
@@ -171,13 +172,14 @@ pub async fn get_header<S: BuilderApiState>(
     let mode = state.pbs_config().header_validation_mode;
     let accept_types = match mode {
         HeaderValidationMode::None => {
-            // No validation mode, so only request what the user wants because the response
-            // will be forwarded directly
-            accepted_types.iter().map(|t| t.content_type()).collect::<Vec<&str>>().join(",")
+            // No validation mode, so forward the caller's preference verbatim
+            // (still q-ordered) — the relay's response is passed through.
+            build_outbound_accept(&accepted_types)
         }
         _ => {
-            // We're unpacking the body, so request both types since we can handle both
-            [EncodingType::Ssz.content_type(), EncodingType::Json.content_type()].join(",")
+            // We're unpacking the body, so use the documented, deterministic
+            // preference: SSZ first (wire-efficient), JSON fallback.
+            OUTBOUND_ACCEPT.to_string()
         }
     };
     send_headers.insert(

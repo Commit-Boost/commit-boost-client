@@ -24,7 +24,7 @@ use tracing::info;
 async fn test_submit_block_v1() -> Result<()> {
     let res = submit_block_impl(
         BuilderApiVersion::V1,
-        HashSet::from([EncodingType::Json]),
+        vec![EncodingType::Json],
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         EncodingType::Json,
         1,
@@ -48,7 +48,7 @@ async fn test_submit_block_v1() -> Result<()> {
 async fn test_submit_block_v2() -> Result<()> {
     let res = submit_block_impl(
         BuilderApiVersion::V2,
-        HashSet::from([EncodingType::Json]),
+        vec![EncodingType::Json],
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         EncodingType::Json,
         1,
@@ -70,7 +70,7 @@ async fn test_submit_block_v2() -> Result<()> {
 async fn test_submit_block_v2_without_relay_support() -> Result<()> {
     let res = submit_block_impl(
         BuilderApiVersion::V2,
-        HashSet::from([EncodingType::Json]),
+        vec![EncodingType::Json],
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         EncodingType::Json,
         1,
@@ -98,7 +98,7 @@ async fn test_submit_block_v2_without_relay_support() -> Result<()> {
 async fn test_submit_block_v2_without_relay_support_light() -> Result<()> {
     let res = submit_block_impl(
         BuilderApiVersion::V2,
-        HashSet::from([EncodingType::Json]),
+        vec![EncodingType::Json],
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         EncodingType::Json,
         1,
@@ -122,7 +122,7 @@ async fn test_submit_block_v2_without_relay_support_light() -> Result<()> {
 async fn test_submit_block_on_broken_relay() -> Result<()> {
     let _res = submit_block_impl(
         BuilderApiVersion::V2,
-        HashSet::from([EncodingType::Json]),
+        vec![EncodingType::Json],
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         EncodingType::Json,
         1,
@@ -139,7 +139,7 @@ async fn test_submit_block_on_broken_relay() -> Result<()> {
 async fn test_submit_block_v1_ssz() -> Result<()> {
     let res = submit_block_impl(
         BuilderApiVersion::V1,
-        HashSet::from([EncodingType::Ssz]),
+        vec![EncodingType::Ssz],
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         EncodingType::Ssz,
         1,
@@ -164,7 +164,7 @@ async fn test_submit_block_v1_ssz() -> Result<()> {
 async fn test_submit_block_v2_ssz() -> Result<()> {
     let res = submit_block_impl(
         BuilderApiVersion::V2,
-        HashSet::from([EncodingType::Ssz]),
+        vec![EncodingType::Ssz],
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         EncodingType::Ssz,
         1,
@@ -184,7 +184,7 @@ async fn test_submit_block_v2_ssz() -> Result<()> {
 async fn test_submit_block_v1_ssz_into_json() -> Result<()> {
     let res = submit_block_impl(
         BuilderApiVersion::V1,
-        HashSet::from([EncodingType::Ssz]),
+        vec![EncodingType::Ssz],
         HashSet::from([EncodingType::Json]),
         EncodingType::Ssz,
         2,
@@ -211,7 +211,7 @@ async fn test_submit_block_v1_ssz_into_json() -> Result<()> {
 async fn test_submit_block_v2_ssz_into_json() -> Result<()> {
     let res = submit_block_impl(
         BuilderApiVersion::V2,
-        HashSet::from([EncodingType::Ssz]),
+        vec![EncodingType::Ssz],
         HashSet::from([EncodingType::Json]),
         EncodingType::Ssz,
         2,
@@ -231,7 +231,7 @@ async fn test_submit_block_v2_ssz_into_json() -> Result<()> {
 async fn test_submit_block_v1_multitype_ssz() -> Result<()> {
     let res = submit_block_impl(
         BuilderApiVersion::V1,
-        HashSet::from([EncodingType::Ssz, EncodingType::Json]),
+        vec![EncodingType::Ssz, EncodingType::Json],
         HashSet::from([EncodingType::Ssz]),
         EncodingType::Ssz,
         1,
@@ -258,7 +258,7 @@ async fn test_submit_block_v1_multitype_ssz() -> Result<()> {
 async fn test_submit_block_v1_multitype_json() -> Result<()> {
     let res = submit_block_impl(
         BuilderApiVersion::V1,
-        HashSet::from([EncodingType::Ssz, EncodingType::Json]),
+        vec![EncodingType::Ssz, EncodingType::Json],
         HashSet::from([EncodingType::Json]),
         EncodingType::Ssz,
         2,
@@ -283,7 +283,7 @@ async fn test_submit_block_v1_multitype_json() -> Result<()> {
 async fn test_submit_block_v1_light() -> Result<()> {
     let res = submit_block_impl(
         BuilderApiVersion::V1,
-        HashSet::from([EncodingType::Json]),
+        vec![EncodingType::Json],
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         EncodingType::Json,
         1,
@@ -307,7 +307,7 @@ async fn test_submit_block_v1_light() -> Result<()> {
 async fn test_submit_block_v2_light() -> Result<()> {
     let res = submit_block_impl(
         BuilderApiVersion::V2,
-        HashSet::from([EncodingType::Json]),
+        vec![EncodingType::Json],
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         EncodingType::Json,
         1,
@@ -325,7 +325,7 @@ async fn test_submit_block_v2_light() -> Result<()> {
 async fn test_submit_block_v1_ssz_light() -> Result<()> {
     let res = submit_block_impl(
         BuilderApiVersion::V1,
-        HashSet::from([EncodingType::Ssz]),
+        vec![EncodingType::Ssz],
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         EncodingType::Ssz,
         1,
@@ -350,7 +350,7 @@ async fn test_submit_block_v1_ssz_light() -> Result<()> {
 async fn test_submit_block_v2_ssz_light() -> Result<()> {
     let res = submit_block_impl(
         BuilderApiVersion::V2,
-        HashSet::from([EncodingType::Ssz]),
+        vec![EncodingType::Ssz],
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         EncodingType::Ssz,
         1,
@@ -370,7 +370,7 @@ async fn test_submit_block_v2_ssz_light() -> Result<()> {
 async fn test_submit_block_v1_ssz_into_json_light() -> Result<()> {
     submit_block_impl(
         BuilderApiVersion::V1,
-        HashSet::from([EncodingType::Ssz]),
+        vec![EncodingType::Ssz],
         HashSet::from([EncodingType::Json]),
         EncodingType::Ssz,
         2,
@@ -389,7 +389,7 @@ async fn test_submit_block_v1_ssz_into_json_light() -> Result<()> {
 async fn test_submit_block_v2_ssz_into_json_light() -> Result<()> {
     let res = submit_block_impl(
         BuilderApiVersion::V2,
-        HashSet::from([EncodingType::Ssz]),
+        vec![EncodingType::Ssz],
         HashSet::from([EncodingType::Json]),
         EncodingType::Ssz,
         2,
@@ -409,7 +409,7 @@ async fn test_submit_block_v2_ssz_into_json_light() -> Result<()> {
 async fn test_submit_block_v1_multitype_ssz_light() -> Result<()> {
     let res = submit_block_impl(
         BuilderApiVersion::V1,
-        HashSet::from([EncodingType::Ssz, EncodingType::Json]),
+        vec![EncodingType::Ssz, EncodingType::Json],
         HashSet::from([EncodingType::Ssz]),
         EncodingType::Ssz,
         1,
@@ -436,7 +436,7 @@ async fn test_submit_block_v1_multitype_ssz_light() -> Result<()> {
 async fn test_submit_block_v1_multitype_json_light() -> Result<()> {
     let res = submit_block_impl(
         BuilderApiVersion::V1,
-        HashSet::from([EncodingType::Ssz, EncodingType::Json]),
+        vec![EncodingType::Ssz, EncodingType::Json],
         HashSet::from([EncodingType::Json]),
         EncodingType::Ssz,
         2,
@@ -483,12 +483,7 @@ async fn test_submit_block_too_large() -> Result<()> {
     let mock_validator = MockValidator::new(pbs_port)?;
     info!("Sending submit block");
     let res = mock_validator
-        .do_submit_block_v1(
-            None,
-            HashSet::from([EncodingType::Json]),
-            EncodingType::Json,
-            ForkName::Electra,
-        )
+        .do_submit_block_v1(None, vec![EncodingType::Json], EncodingType::Json, ForkName::Electra)
         .await;
 
     // response size exceeds max size: max: 20971520
@@ -500,7 +495,7 @@ async fn test_submit_block_too_large() -> Result<()> {
 #[allow(clippy::too_many_arguments)]
 async fn submit_block_impl(
     api_version: BuilderApiVersion,
-    accept_types: HashSet<EncodingType>,
+    accept_types: Vec<EncodingType>,
     relay_types: HashSet<EncodingType>,
     serialization_mode: EncodingType,
     expected_try_count: u64,
@@ -617,7 +612,7 @@ async fn submit_block_ssz_override(
     let signed_blinded_block = load_test_signed_blinded_block();
     let mock_validator = MockValidator::new(pbs_port)?;
     // The BN sends SSZ; PBS forwards SSZ first, that's what our override hits.
-    let accept_types = HashSet::from([EncodingType::Ssz, EncodingType::Json]);
+    let accept_types = vec![EncodingType::Ssz, EncodingType::Json];
     let res = match api_version {
         BuilderApiVersion::V1 => {
             mock_validator

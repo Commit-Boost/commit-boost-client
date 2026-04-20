@@ -1,4 +1,4 @@
-use std::{collections::HashSet, net::Ipv4Addr, sync::Arc, time::Duration};
+use std::{net::Ipv4Addr, sync::Arc, time::Duration};
 
 use alloy::primitives::U256;
 use cb_common::{
@@ -123,7 +123,7 @@ async fn test_cfg_file_update() -> Result<()> {
     // Send a get header request - should go to relay 1 only
     let mock_validator = MockValidator::new(pbs_port)?;
     info!("Sending get header");
-    let res = mock_validator.do_get_header(None, HashSet::new(), ForkName::Fulu).await?;
+    let res = mock_validator.do_get_header(None, Vec::new(), ForkName::Fulu).await?;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(relay1_state.received_get_header(), 1);
     assert_eq!(relay2_state.received_get_header(), 0);
@@ -165,7 +165,7 @@ async fn test_cfg_file_update() -> Result<()> {
 
     // Send another get header request - should go to relay 2 only
     info!("Sending get header after config update");
-    let res = mock_validator.do_get_header(None, HashSet::new(), ForkName::Fulu).await?;
+    let res = mock_validator.do_get_header(None, Vec::new(), ForkName::Fulu).await?;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(relay1_state.received_get_header(), 1); // no change
     assert_eq!(relay2_state.received_get_header(), 1); // incremented

@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use alloy::{primitives::B256, rpc::types::beacon::relay::ValidatorRegistration};
 use cb_common::{
     pbs::{BuilderApiVersion, RelayClient, SignedBlindedBeaconBlock},
@@ -29,7 +27,7 @@ impl MockValidator {
     pub async fn do_get_header(
         &self,
         pubkey: Option<BlsPublicKey>,
-        accept: HashSet<EncodingType>,
+        accept: Vec<EncodingType>,
         fork_name: ForkName,
     ) -> eyre::Result<Response> {
         let default_pubkey = bls_pubkey_from_hex(
@@ -79,7 +77,7 @@ impl MockValidator {
     pub async fn do_submit_block_v1(
         &self,
         signed_blinded_block_opt: Option<SignedBlindedBeaconBlock>,
-        accept: HashSet<EncodingType>,
+        accept: Vec<EncodingType>,
         content_type: EncodingType,
         fork_name: ForkName,
     ) -> eyre::Result<Response> {
@@ -96,7 +94,7 @@ impl MockValidator {
     pub async fn do_submit_block_v2(
         &self,
         signed_blinded_block_opt: Option<SignedBlindedBeaconBlock>,
-        accept: HashSet<EncodingType>,
+        accept: Vec<EncodingType>,
         content_type: EncodingType,
         fork_name: ForkName,
     ) -> eyre::Result<Response> {
@@ -113,7 +111,7 @@ impl MockValidator {
     async fn do_submit_block_impl(
         &self,
         signed_blinded_block_opt: Option<SignedBlindedBeaconBlock>,
-        accept: HashSet<EncodingType>,
+        accept: Vec<EncodingType>,
         content_type: EncodingType,
         fork_name: ForkName,
         api_version: BuilderApiVersion,
@@ -131,6 +129,8 @@ impl MockValidator {
             0 => None,
             1 => Some(accept.into_iter().next().unwrap().to_string()),
             _ => {
+                // Ordered: first-listed is highest preference. Server honors
+                // RFC 9110 §12.5.1 (first-listed wins at equal q).
                 let accept_strings: Vec<String> =
                     accept.into_iter().map(|e| e.to_string()).collect();
                 Some(accept_strings.join(", "))

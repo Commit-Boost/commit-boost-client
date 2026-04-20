@@ -1,4 +1,4 @@
-use std::{collections::HashSet, sync::Arc};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use axum::{Router, http::HeaderMap};
@@ -24,7 +24,7 @@ pub trait BuilderApi<S: BuilderApiState>: 'static {
         params: GetHeaderParams,
         req_headers: HeaderMap,
         state: PbsState<S>,
-        accepted_types: HashSet<EncodingType>,
+        accepted_types: Vec<EncodingType>,
     ) -> eyre::Result<Option<CompoundGetHeaderResponse>> {
         mev_boost::get_header(params, req_headers, state, accepted_types).await
     }
@@ -41,7 +41,7 @@ pub trait BuilderApi<S: BuilderApiState>: 'static {
         req_headers: HeaderMap,
         state: PbsState<S>,
         api_version: BuilderApiVersion,
-        accepted_types: HashSet<EncodingType>,
+        accepted_types: Vec<EncodingType>,
     ) -> eyre::Result<CompoundSubmitBlockResponse> {
         mev_boost::submit_block(
             signed_blinded_block,

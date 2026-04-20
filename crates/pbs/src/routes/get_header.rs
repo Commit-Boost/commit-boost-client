@@ -8,6 +8,7 @@ use cb_common::{
     pbs::{GetHeaderInfo, GetHeaderParams},
     utils::{
         CONSENSUS_VERSION_HEADER, EncodingType, get_accept_types, get_user_agent, ms_into_slot,
+        preferred_encoding,
     },
 };
 use reqwest::{StatusCode, header::CONTENT_TYPE};
@@ -40,8 +41,12 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
         error!(%e, "error parsing accept header");
         PbsClientError::DecodeError(format!("error parsing accept header: {e}"))
     })?;
-    let accepts_ssz = accept_types.contains(&EncodingType::Ssz);
-    let accepts_json = accept_types.contains(&EncodingType::Json);
+    // Honor caller q-value preference: pick the highest-priority encoding that
+    // we can actually produce. Server preference for tiebreaks is SSZ first.
+    let response_encoding =
+        preferred_encoding(&accept_types, &[EncodingType::Ssz, EncodingType::Json]);
+    let accepts_ssz = response_encoding == Some(EncodingType::Ssz);
+    let accepts_json = response_encoding == Some(EncodingType::Json);
 
     info!(ua, ms_into_slot, "new request");
 

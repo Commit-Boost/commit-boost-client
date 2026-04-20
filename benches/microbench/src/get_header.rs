@@ -36,7 +36,7 @@
 //! - `HeaderMap` allocation (created once in setup, cloned cheaply per
 //!   iteration)
 
-use std::{collections::HashSet, path::PathBuf, sync::Arc, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use alloy::primitives::B256;
 use axum::http::HeaderMap;
@@ -150,7 +150,7 @@ fn bench_get_header(c: &mut Criterion) {
                     black_box(params.clone()),
                     black_box(headers.clone()),
                     black_box(state.clone()),
-                    black_box(HashSet::from([EncodingType::Json, EncodingType::Ssz])),
+                    black_box(vec![EncodingType::Json, EncodingType::Ssz]),
                 ))
                 .expect("get_header failed")
             })

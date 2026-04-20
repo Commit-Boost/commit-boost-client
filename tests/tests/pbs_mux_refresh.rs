@@ -122,7 +122,7 @@ async fn test_auto_refresh() -> Result<()> {
     let mock_validator = MockValidator::new(pbs_port)?;
     info!("Sending get header");
     let res = mock_validator
-        .do_get_header(Some(new_mux_pubkey.clone()), HashSet::new(), ForkName::Electra)
+        .do_get_header(Some(new_mux_pubkey.clone()), Vec::new(), ForkName::Electra)
         .await?;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(default_relay_state.received_get_header(), 1); // default relay was used
@@ -152,7 +152,7 @@ async fn test_auto_refresh() -> Result<()> {
 
     // Try to run a get_header on the new pubkey - now it should use the mux relay
     let res = mock_validator
-        .do_get_header(Some(new_mux_pubkey.clone()), HashSet::new(), ForkName::Electra)
+        .do_get_header(Some(new_mux_pubkey.clone()), Vec::new(), ForkName::Electra)
         .await?;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(default_relay_state.received_get_header(), 1); // default relay was not used here
@@ -161,7 +161,7 @@ async fn test_auto_refresh() -> Result<()> {
     // Now try to do a get_header with the old pubkey - it should only use the
     // default relay
     let res = mock_validator
-        .do_get_header(Some(default_pubkey.clone()), HashSet::new(), ForkName::Electra)
+        .do_get_header(Some(default_pubkey.clone()), Vec::new(), ForkName::Electra)
         .await?;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(default_relay_state.received_get_header(), 2); // default relay was used
@@ -180,7 +180,7 @@ async fn test_auto_refresh() -> Result<()> {
     // Try to do a get_header with the removed pubkey - it should only use the
     // default relay
     let res = mock_validator
-        .do_get_header(Some(existing_mux_pubkey.clone()), HashSet::new(), ForkName::Electra)
+        .do_get_header(Some(existing_mux_pubkey.clone()), Vec::new(), ForkName::Electra)
         .await?;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(default_relay_state.received_get_header(), 3); // default relay was used

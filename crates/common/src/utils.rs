@@ -1,7 +1,7 @@
 #[cfg(feature = "testing-flags")]
 use std::cell::Cell;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     fmt::Display,
     net::Ipv4Addr,
     str::FromStr,
@@ -27,7 +27,7 @@ use lh_types::{
     BeaconBlock,
     test_utils::{SeedableRng, TestRandom, XorShiftRng},
 };
-use mediatype::MediaType;
+use mediatype::{MediaType, ReadParams};
 use rand::{Rng, distr::Alphanumeric};
 use reqwest::{
     Response,
@@ -565,38 +565,108 @@ pub fn get_user_agent_with_version(req_headers: &HeaderMap) -> eyre::Result<Head
     Ok(HeaderValue::from_str(&format!("commit-boost/{HEADER_VERSION_VALUE} {ua}"))?)
 }
 
-/// Parse the ACCEPT header to get the type of response to encode the body with,
-/// defaulting to JSON if missing. Returns an error if malformed or unsupported
-/// types are requested. Supports requests with multiple ACCEPT headers or
-/// headers with multiple media types.
-pub fn get_accept_types(req_headers: &HeaderMap) -> eyre::Result<HashSet<EncodingType>> {
-    let mut accepted_types = HashSet::new();
-    let mut unsupported_type = false;
+/// Deterministic outbound `Accept` header used when PBS asks a relay for a
+/// response it will itself decode (validation mode On/Extra). SSZ is preferred
+/// for wire efficiency. Emitted verbatim so packet captures and support
+/// tickets are reproducible.
+pub const OUTBOUND_ACCEPT: &str = "application/octet-stream;q=1.0,application/json;q=0.9";
+
+/// Parse the ACCEPT header into a q-value ordered list of supported
+/// [`EncodingType`]s (highest preference first, deduplicated), defaulting to
+/// the request's Content-Type when no Accept header is present. Returns an
+/// error only if every media type in the header is malformed or unsupported.
+/// Supports requests with multiple ACCEPT headers or headers with multiple
+/// media types. `q=0` entries are treated as explicit rejections per
+/// RFC 7231 §5.3.1 and are skipped.
+///
+/// The returned order honors the RFC 9110 §12.5.1 precedence rules already
+/// applied by `headers_accept::Accept::media_types()` (specificity, then
+/// q-value, then original order).
+pub fn get_accept_types(req_headers: &HeaderMap) -> eyre::Result<Vec<EncodingType>> {
+    let mut ordered: Vec<EncodingType> = Vec::new();
+    let mut saw_any = false;
+    let mut had_supported = false;
     for header in req_headers.get_all(ACCEPT).iter() {
         let accept = Accept::from_str(header.to_str()?)
             .map_err(|e| eyre::eyre!("invalid accept header: {e}"))?;
         for mt in accept.media_types() {
-            match mt.essence().to_string().as_str() {
-                APPLICATION_OCTET_STREAM => {
-                    accepted_types.insert(EncodingType::Ssz);
-                }
-                APPLICATION_JSON | WILDCARD => {
-                    accepted_types.insert(EncodingType::Json);
-                }
-                _ => unsupported_type = true,
+            saw_any = true;
+
+            // Skip q=0 entries — RFC 7231 §5.3.1: "A request without any Accept
+            // header field implies that the user agent will accept any media
+            // type in response.  When a header field is present ... a value of
+            // 0 means 'not acceptable'."
+            if let Some(q) = mt.get_param(mediatype::names::Q) &&
+                q.as_str().parse::<f32>().is_ok_and(|v| v <= 0.0)
+            {
+                continue;
+            }
+
+            let parsed = match mt.essence().to_string().as_str() {
+                APPLICATION_OCTET_STREAM => Some(EncodingType::Ssz),
+                APPLICATION_JSON | WILDCARD => Some(EncodingType::Json),
+                _ => None,
             };
+            if let Some(enc) = parsed {
+                had_supported = true;
+                if !ordered.contains(&enc) {
+                    ordered.push(enc);
+                }
+            }
         }
     }
 
-    if accepted_types.is_empty() {
-        if unsupported_type {
+    if ordered.is_empty() {
+        if saw_any && !had_supported {
             return Err(eyre::eyre!("unsupported accept type"));
         }
 
-        // No accept header so just return the same type as the content type
-        accepted_types.insert(get_content_type(req_headers));
+        // No accept header (or only q=0 rejections): fall back to the request
+        // Content-Type, which mirrors the historical behavior.
+        ordered.push(get_content_type(req_headers));
     }
-    Ok(accepted_types)
+    Ok(ordered)
+}
+
+/// Pick the caller's highest-preference encoding from a list of types the
+/// server can actually produce. `accepts` is expected to be pre-ordered by
+/// descending preference (as returned by [`get_accept_types`]). Returns
+/// `None` if no overlap exists.
+pub fn preferred_encoding(
+    accepts: &[EncodingType],
+    supported: &[EncodingType],
+) -> Option<EncodingType> {
+    accepts.iter().copied().find(|a| supported.contains(a))
+}
+
+/// Compute the q-value for the `index`-th preferred encoding when building an
+/// outbound `Accept` header. The first entry gets q=1.0, each subsequent entry
+/// decreases by 0.1, and the value is clamped to a minimum of 0.1 so we never
+/// emit q=0 (which per RFC 7231 §5.3.1 means "not acceptable").
+fn accept_q_value_for_index(index: usize) -> f32 {
+    // `as i32` would silently wrap for large indices (e.g. usize::MAX → -1),
+    // which would invert the clamp. Saturate the cast explicitly.
+    let idx = i32::try_from(index).unwrap_or(i32::MAX);
+    let step = 10_i32.saturating_sub(idx).max(1);
+    step as f32 / 10.0
+}
+
+/// Format a single `Accept` header entry as `"<media-type>;q=<x.x>"`.
+fn format_accept_entry(enc: EncodingType, q: f32) -> String {
+    format!("{};q={:.1}", enc.content_type(), q)
+}
+
+/// Build an `Accept` header string that mirrors the caller's preference order
+/// so the relay sees the same priority the beacon node asked us for. Each
+/// subsequent entry receives a q-value 0.1 lower than the previous one,
+/// starting at 1.0. Returns an empty string for an empty preference list.
+pub fn build_outbound_accept(preferred: &[EncodingType]) -> String {
+    preferred
+        .iter()
+        .enumerate()
+        .map(|(i, enc)| format_accept_entry(*enc, accept_q_value_for_index(i)))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 /// Parse CONTENT TYPE header to get the encoding type of the body, defaulting
@@ -919,10 +989,11 @@ mod test {
     use reqwest::header::{ACCEPT, CONTENT_TYPE};
 
     use super::{
-        BodyDeserializeError, CONSENSUS_VERSION_HEADER, create_admin_jwt, create_jwt,
-        decode_admin_jwt, decode_jwt, deserialize_body, get_consensus_version_header,
-        get_content_type, parse_response_encoding_and_fork, random_jwt_secret, validate_admin_jwt,
-        validate_jwt,
+        BodyDeserializeError, CONSENSUS_VERSION_HEADER, OUTBOUND_ACCEPT, accept_q_value_for_index,
+        build_outbound_accept, create_admin_jwt, create_jwt, decode_admin_jwt, decode_jwt,
+        deserialize_body, format_accept_entry, get_consensus_version_header, get_content_type,
+        parse_response_encoding_and_fork, preferred_encoding, random_jwt_secret,
+        validate_admin_jwt, validate_jwt,
     };
     use crate::{
         constants::SIGNER_JWT_EXPIRATION,
@@ -967,8 +1038,7 @@ mod test {
     fn test_missing_accept_header() {
         let headers = HeaderMap::new();
         let result = get_accept_types(&headers).unwrap();
-        assert_eq!(result.len(), 1);
-        assert!(result.contains(&EncodingType::Json));
+        assert_eq!(result, vec![EncodingType::Json]);
     }
 
     /// Test accepting JSON
@@ -977,8 +1047,7 @@ mod test {
         let mut headers = HeaderMap::new();
         headers.append(ACCEPT, HeaderValue::from_str(APPLICATION_JSON).unwrap());
         let result = get_accept_types(&headers).unwrap();
-        assert_eq!(result.len(), 1);
-        assert!(result.contains(&EncodingType::Json));
+        assert_eq!(result, vec![EncodingType::Json]);
     }
 
     /// Test accepting SSZ
@@ -987,8 +1056,7 @@ mod test {
         let mut headers = HeaderMap::new();
         headers.append(ACCEPT, HeaderValue::from_str(APPLICATION_OCTET_STREAM).unwrap());
         let result = get_accept_types(&headers).unwrap();
-        assert_eq!(result.len(), 1);
-        assert!(result.contains(&EncodingType::Ssz));
+        assert_eq!(result, vec![EncodingType::Ssz]);
     }
 
     /// Test accepting wildcards
@@ -997,20 +1065,18 @@ mod test {
         let mut headers = HeaderMap::new();
         headers.append(ACCEPT, HeaderValue::from_str(WILDCARD).unwrap());
         let result = get_accept_types(&headers).unwrap();
-        assert_eq!(result.len(), 1);
-        assert!(result.contains(&EncodingType::Json));
+        assert_eq!(result, vec![EncodingType::Json]);
     }
 
-    /// Test accepting one header with multiple values
+    /// Test accepting one header with multiple values (order preserved,
+    /// first listed wins at equal q)
     #[test]
     fn test_accept_header_multiple_values() {
         let header_string = format!("{APPLICATION_JSON}, {APPLICATION_OCTET_STREAM}");
         let mut headers = HeaderMap::new();
         headers.append(ACCEPT, HeaderValue::from_str(&header_string).unwrap());
         let result = get_accept_types(&headers).unwrap();
-        assert_eq!(result.len(), 2);
-        assert!(result.contains(&EncodingType::Json));
-        assert!(result.contains(&EncodingType::Ssz));
+        assert_eq!(result, vec![EncodingType::Json, EncodingType::Ssz]);
     }
 
     /// Test accepting multiple headers
@@ -1020,9 +1086,9 @@ mod test {
         headers.append(ACCEPT, HeaderValue::from_str(APPLICATION_JSON).unwrap());
         headers.append(ACCEPT, HeaderValue::from_str(APPLICATION_OCTET_STREAM).unwrap());
         let result = get_accept_types(&headers).unwrap();
-        assert_eq!(result.len(), 2);
         assert!(result.contains(&EncodingType::Json));
         assert!(result.contains(&EncodingType::Ssz));
+        assert_eq!(result.len(), 2);
     }
 
     /// Test accepting one header with multiple values, including a type that
@@ -1034,9 +1100,7 @@ mod test {
         let mut headers = HeaderMap::new();
         headers.append(ACCEPT, HeaderValue::from_str(&header_string).unwrap());
         let result = get_accept_types(&headers).unwrap();
-        assert_eq!(result.len(), 2);
-        assert!(result.contains(&EncodingType::Json));
-        assert!(result.contains(&EncodingType::Ssz));
+        assert_eq!(result, vec![EncodingType::Json, EncodingType::Ssz]);
     }
 
     /// Test rejecting an unknown accept type
@@ -1056,6 +1120,123 @@ mod test {
         headers.append(ACCEPT, HeaderValue::from_str(&header_string).unwrap());
         let result = get_accept_types(&headers);
         assert!(result.is_err());
+    }
+
+    /// q-values are honored: JSON@1.0 should outrank SSZ@0.1 regardless of
+    /// byte order in the header.
+    #[test]
+    fn test_accept_header_q_value_ordering() {
+        let mut headers = HeaderMap::new();
+        headers.append(
+            ACCEPT,
+            HeaderValue::from_str("application/json;q=1.0, application/octet-stream;q=0.1")
+                .unwrap(),
+        );
+        assert_eq!(get_accept_types(&headers).unwrap(), vec![
+            EncodingType::Json,
+            EncodingType::Ssz
+        ]);
+
+        let mut headers = HeaderMap::new();
+        headers.append(
+            ACCEPT,
+            HeaderValue::from_str("application/octet-stream;q=0.1, application/json;q=1.0")
+                .unwrap(),
+        );
+        assert_eq!(get_accept_types(&headers).unwrap(), vec![
+            EncodingType::Json,
+            EncodingType::Ssz
+        ]);
+    }
+
+    /// q=0 is an explicit rejection per RFC 7231 §5.3.1 and must be dropped.
+    #[test]
+    fn test_accept_header_q_zero_rejected() {
+        let mut headers = HeaderMap::new();
+        headers.append(
+            ACCEPT,
+            HeaderValue::from_str("application/json, application/octet-stream;q=0").unwrap(),
+        );
+        assert_eq!(get_accept_types(&headers).unwrap(), vec![EncodingType::Json]);
+    }
+
+    /// An Accept header containing only q=0 for every supported type is a
+    /// deliberate "I accept nothing" and must error (so the route can return
+    /// 406 Not Acceptable per RFC 7231 §5.3.1 and §6.5.6).
+    #[test]
+    fn test_accept_header_only_q_zero_errors() {
+        let mut headers = HeaderMap::new();
+        headers.append(
+            ACCEPT,
+            HeaderValue::from_str("application/json;q=0, application/octet-stream;q=0").unwrap(),
+        );
+        assert!(get_accept_types(&headers).is_err());
+    }
+
+    /// `preferred_encoding` picks the caller's first choice that the server
+    /// can actually produce.
+    #[test]
+    fn test_preferred_encoding_picks_highest_q_match() {
+        let accepts = [EncodingType::Json, EncodingType::Ssz];
+        let supported = [EncodingType::Ssz, EncodingType::Json];
+        assert_eq!(preferred_encoding(&accepts, &supported), Some(EncodingType::Json));
+
+        let accepts = [EncodingType::Ssz];
+        let supported = [EncodingType::Json];
+        assert_eq!(preferred_encoding(&accepts, &supported), None);
+    }
+
+    /// Outbound Accept should be deterministic and q-ordered to match caller
+    /// preference.
+    #[test]
+    fn test_build_outbound_accept_deterministic() {
+        let s = build_outbound_accept(&[EncodingType::Ssz, EncodingType::Json]);
+        assert_eq!(s, "application/octet-stream;q=1.0,application/json;q=0.9");
+
+        let s = build_outbound_accept(&[EncodingType::Json, EncodingType::Ssz]);
+        assert_eq!(s, "application/json;q=1.0,application/octet-stream;q=0.9");
+
+        // Stable across repeats
+        for _ in 0..100 {
+            assert_eq!(
+                build_outbound_accept(&[EncodingType::Ssz, EncodingType::Json]),
+                "application/octet-stream;q=1.0,application/json;q=0.9"
+            );
+        }
+    }
+    /// Snapshot test: constant emits exactly what we document in
+    /// OUTBOUND_ACCEPT.
+    #[test]
+    fn test_outbound_accept_constant_snapshot() {
+        assert_eq!(OUTBOUND_ACCEPT, "application/octet-stream;q=1.0,application/json;q=0.9");
+    }
+
+    /// q-value ladder: first entry is 1.0, each subsequent entry drops by 0.1.
+    #[test]
+    fn test_accept_q_value_for_index_ladder() {
+        assert!((accept_q_value_for_index(0) - 1.0).abs() < f32::EPSILON);
+        assert!((accept_q_value_for_index(1) - 0.9).abs() < f32::EPSILON);
+        assert!((accept_q_value_for_index(5) - 0.5).abs() < f32::EPSILON);
+        assert!((accept_q_value_for_index(9) - 0.1).abs() < f32::EPSILON);
+    }
+
+    /// Clamp at 0.1: we never emit q=0 (which per RFC 7231 §5.3.1 would mean
+    /// "not acceptable").
+    #[test]
+    fn test_accept_q_value_for_index_clamps_to_minimum() {
+        assert!((accept_q_value_for_index(10) - 0.1).abs() < f32::EPSILON);
+        assert!((accept_q_value_for_index(100) - 0.1).abs() < f32::EPSILON);
+        // Even an adversarial usize::MAX must not underflow or drop to zero.
+        assert!((accept_q_value_for_index(usize::MAX) - 0.1).abs() < f32::EPSILON);
+    }
+
+    /// Entry formatter emits the spec-shaped string.
+    #[test]
+    fn test_format_accept_entry_shape() {
+        assert_eq!(format_accept_entry(EncodingType::Ssz, 1.0), "application/octet-stream;q=1.0");
+        assert_eq!(format_accept_entry(EncodingType::Json, 0.9), "application/json;q=0.9");
+        // One decimal place, even when the value has more precision.
+        assert_eq!(format_accept_entry(EncodingType::Json, 0.12345), "application/json;q=0.1");
     }
 
     #[test]

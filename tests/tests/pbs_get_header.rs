@@ -32,7 +32,7 @@ use url::Url;
 #[tokio::test]
 async fn test_get_header() -> Result<()> {
     test_get_header_impl(
-        HashSet::from([EncodingType::Json]),
+        vec![EncodingType::Json],
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         1,
         HeaderValidationMode::Standard,
@@ -49,7 +49,7 @@ async fn test_get_header() -> Result<()> {
 #[tokio::test]
 async fn test_get_header_ssz() -> Result<()> {
     test_get_header_impl(
-        HashSet::from([EncodingType::Ssz]),
+        vec![EncodingType::Ssz],
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         1,
         HeaderValidationMode::Standard,
@@ -68,7 +68,7 @@ async fn test_get_header_ssz() -> Result<()> {
 #[tokio::test]
 async fn test_get_header_ssz_into_json() -> Result<()> {
     test_get_header_impl(
-        HashSet::from([EncodingType::Ssz]),
+        vec![EncodingType::Ssz],
         HashSet::from([EncodingType::Json]),
         1,
         HeaderValidationMode::Standard,
@@ -86,7 +86,7 @@ async fn test_get_header_ssz_into_json() -> Result<()> {
 #[tokio::test]
 async fn test_get_header_multitype_ssz() -> Result<()> {
     test_get_header_impl(
-        HashSet::from([EncodingType::Ssz, EncodingType::Json]),
+        vec![EncodingType::Ssz, EncodingType::Json],
         HashSet::from([EncodingType::Ssz]),
         1,
         HeaderValidationMode::Standard,
@@ -104,7 +104,7 @@ async fn test_get_header_multitype_ssz() -> Result<()> {
 #[tokio::test]
 async fn test_get_header_multitype_json() -> Result<()> {
     test_get_header_impl(
-        HashSet::from([EncodingType::Ssz, EncodingType::Json]),
+        vec![EncodingType::Ssz, EncodingType::Json],
         HashSet::from([EncodingType::Json]),
         1,
         HeaderValidationMode::Standard,
@@ -123,7 +123,7 @@ async fn test_get_header_multitype_json() -> Result<()> {
 #[tokio::test]
 async fn test_get_header_light() -> Result<()> {
     test_get_header_impl(
-        HashSet::from([EncodingType::Json]),
+        vec![EncodingType::Json],
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         1,
         HeaderValidationMode::None,
@@ -140,7 +140,7 @@ async fn test_get_header_light() -> Result<()> {
 #[tokio::test]
 async fn test_get_header_ssz_light() -> Result<()> {
     test_get_header_impl(
-        HashSet::from([EncodingType::Ssz]),
+        vec![EncodingType::Ssz],
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         1,
         HeaderValidationMode::None,
@@ -159,7 +159,7 @@ async fn test_get_header_ssz_light() -> Result<()> {
 #[tokio::test]
 async fn test_get_header_ssz_into_json_light() -> Result<()> {
     test_get_header_impl(
-        HashSet::from([EncodingType::Ssz]),
+        vec![EncodingType::Ssz],
         HashSet::from([EncodingType::Json]),
         1,
         HeaderValidationMode::None,
@@ -177,7 +177,7 @@ async fn test_get_header_ssz_into_json_light() -> Result<()> {
 #[tokio::test]
 async fn test_get_header_multitype_ssz_light() -> Result<()> {
     test_get_header_impl(
-        HashSet::from([EncodingType::Ssz, EncodingType::Json]),
+        vec![EncodingType::Ssz, EncodingType::Json],
         HashSet::from([EncodingType::Ssz]),
         1,
         HeaderValidationMode::None,
@@ -195,7 +195,7 @@ async fn test_get_header_multitype_ssz_light() -> Result<()> {
 #[tokio::test]
 async fn test_get_header_multitype_json_light() -> Result<()> {
     test_get_header_impl(
-        HashSet::from([EncodingType::Ssz, EncodingType::Json]),
+        vec![EncodingType::Ssz, EncodingType::Json],
         HashSet::from([EncodingType::Json]),
         1,
         HeaderValidationMode::None,
@@ -214,7 +214,7 @@ async fn test_get_header_multitype_json_light() -> Result<()> {
 /// fine; if the parent block fetch fails the relay response is still returned
 /// (extra validation is skipped with a warning).
 async fn test_get_header_impl(
-    accept_types: HashSet<EncodingType>,
+    accept_types: Vec<EncodingType>,
     relay_types: HashSet<EncodingType>,
     expected_try_count: u64,
     mode: HeaderValidationMode,
@@ -331,7 +331,7 @@ async fn test_get_header_returns_204_if_relay_down() -> Result<()> {
 
     let mock_validator = MockValidator::new(pbs_port)?;
     info!("Sending get header");
-    let res = mock_validator.do_get_header(None, HashSet::new(), ForkName::Electra).await?;
+    let res = mock_validator.do_get_header(None, Vec::new(), ForkName::Electra).await?;
 
     assert_eq!(res.status(), StatusCode::NO_CONTENT); // 204 error
     assert_eq!(mock_state.received_get_header(), 0); // no header received
@@ -405,7 +405,7 @@ async fn test_get_header_all_modes_enforce_min_bid() -> Result<()> {
     ] {
         // Bid below min → all modes reject (204).
         test_get_header_impl(
-            HashSet::from([EncodingType::Json]),
+            vec![EncodingType::Json],
             HashSet::from([EncodingType::Json]),
             1,
             mode,
@@ -419,7 +419,7 @@ async fn test_get_header_all_modes_enforce_min_bid() -> Result<()> {
 
         // Bid above min → all modes accept (200).
         test_get_header_impl(
-            HashSet::from([EncodingType::Json]),
+            vec![EncodingType::Json],
             HashSet::from([EncodingType::Json]),
             1,
             mode,
@@ -471,9 +471,7 @@ async fn test_get_header_ssz_bid_value_round_trip() -> Result<()> {
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         let mock_validator = MockValidator::new(pbs_port)?;
-        let res = mock_validator
-            .do_get_header(None, HashSet::from([EncodingType::Ssz]), fork_name)
-            .await?;
+        let res = mock_validator.do_get_header(None, vec![EncodingType::Ssz], fork_name).await?;
         assert_eq!(res.status(), StatusCode::OK, "fork {fork_name}: expected 200");
 
         let bytes = res.bytes().await?;
@@ -506,9 +504,7 @@ async fn test_get_header_unsupported_fork_returns_400() -> Result<()> {
     // Point MockValidator directly at the relay (no PBS in the path).
     let direct = MockValidator::new(relay_port)?;
     for unsupported_fork in [ForkName::Base, ForkName::Altair] {
-        let res = direct
-            .do_get_header(None, HashSet::from([EncodingType::Json]), unsupported_fork)
-            .await?;
+        let res = direct.do_get_header(None, vec![EncodingType::Json], unsupported_fork).await?;
         assert_eq!(
             res.status(),
             StatusCode::BAD_REQUEST,
@@ -632,7 +628,7 @@ async fn test_get_header_bid_validation_matrix() -> Result<()> {
 
     for (i, &(fork, encoding, mode, relay_bid, expected_status)) in cases.iter().enumerate() {
         test_get_header_impl(
-            HashSet::from([encoding]),
+            vec![encoding],
             HashSet::from([encoding]),
             1,
             mode,
@@ -686,7 +682,7 @@ async fn test_get_header_none_mode_bypasses_pubkey_validation() -> Result<()> {
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         let mock_validator = MockValidator::new(pbs_port)?;
-        let res = mock_validator.do_get_header(None, HashSet::new(), ForkName::Electra).await?;
+        let res = mock_validator.do_get_header(None, Vec::new(), ForkName::Electra).await?;
         assert_eq!(res.status(), expected_status, "unexpected status for mode {mode:?}");
     }
     Ok(())
