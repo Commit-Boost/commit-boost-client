@@ -69,6 +69,13 @@ pub struct MockRelayState {
     /// the short-circuit so tests can observe the attempt. Used to drive C3
     /// (retry-as-JSON) tests.
     submit_block_ssz_status_override: Option<StatusCode>,
+    /// If set, this literal string is sent as the outgoing `Content-Type`
+    /// header on `handle_get_header` and `handle_submit_block_v1` responses
+    /// instead of the canonical `application/json` / `application/octet-stream`
+    /// value. The body is still serialized according to the encoding that was
+    /// negotiated via `Accept`. Used to exercise PBS tolerance of
+    /// MIME-parameter suffixes like `application/octet-stream; charset=binary`.
+    response_content_type_override: Option<String>,
     received_get_header: Arc<AtomicU64>,
     received_get_status: Arc<AtomicU64>,
     received_register_validator: Arc<AtomicU64>,
@@ -102,6 +109,9 @@ impl MockRelayState {
     pub fn submit_block_ssz_status_override(&self) -> Option<StatusCode> {
         self.submit_block_ssz_status_override
     }
+    pub fn response_content_type_override(&self) -> Option<&str> {
+        self.response_content_type_override.as_deref()
+    }
     pub fn set_response_override(&self, status: StatusCode) {
         *self.response_override.write().unwrap() = Some(status);
     }
@@ -116,6 +126,7 @@ impl MockRelayState {
             supports_submit_block_v2: true,
             use_not_found_for_submit_block: false,
             submit_block_ssz_status_override: None,
+            response_content_type_override: None,
             received_get_header: Default::default(),
             received_get_status: Default::default(),
             received_register_validator: Default::default(),
@@ -153,6 +164,15 @@ impl MockRelayState {
     /// single test cover the SSZ→JSON retry behavior.
     pub fn with_submit_block_ssz_status(self, status: StatusCode) -> Self {
         Self { submit_block_ssz_status_override: Some(status), ..self }
+    }
+
+    /// Make the relay advertise `raw_content_type` as the `Content-Type`
+    /// header on `get_header` and `submit_block_v1` responses. The body is
+    /// still encoded via the negotiated [`EncodingType`] — only the header
+    /// string changes. Use this to drive PBS tolerance of MIME-parameter
+    /// suffixes (e.g. `application/octet-stream; charset=binary`).
+    pub fn with_response_content_type(self, raw_content_type: impl Into<String>) -> Self {
+        Self { response_content_type_override: Some(raw_content_type.into()), ..self }
     }
 }
 
@@ -277,7 +297,11 @@ async fn handle_get_header(
     let mut response = (StatusCode::OK, data).into_response();
     let consensus_version_header =
         HeaderValue::from_str(&consensus_version_header.to_string()).unwrap();
-    let content_type_header = HeaderValue::from_str(&content_type.to_string()).unwrap();
+    let content_type_str = state
+        .response_content_type_override()
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| content_type.to_string());
+    let content_type_header = HeaderValue::from_str(&content_type_str).unwrap();
     response.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
     response.headers_mut().insert(CONTENT_TYPE, content_type_header);
     response
@@ -404,7 +428,11 @@ async fn handle_submit_block_v1(
             HeaderValue::from_str(&consensus_version_header.to_string()).unwrap();
         response.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
     }
-    let content_type_header = HeaderValue::from_str(&response_content_type.to_string()).unwrap();
+    let content_type_str = state
+        .response_content_type_override()
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| response_content_type.to_string());
+    let content_type_header = HeaderValue::from_str(&content_type_str).unwrap();
     response.headers_mut().insert(CONTENT_TYPE, content_type_header);
     response
 }

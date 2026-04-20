@@ -717,3 +717,56 @@ async fn test_submit_block_v2_ssz_does_not_retry_on_400() -> Result<()> {
     assert_eq!(attempts, 1);
     Ok(())
 }
+
+/// PBS must accept relay `Content-Type: application/octet-stream;
+/// charset=binary` on `submit_block` responses. The audit fix for C2 switched
+/// `EncodingType::from_str` to parse via the `mediatype` crate; this test
+/// exercises the full relay→PBS→BN path to guard against regressions on the
+/// v1 submit path.
+#[tokio::test]
+async fn test_submit_block_tolerates_mime_params_in_content_type() -> Result<()> {
+    setup_test_env();
+    let signer = random_secret();
+    let pubkey = signer.public_key();
+    let chain = Chain::Holesky;
+    let pbs_listener = get_free_listener().await;
+    let relay_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr().unwrap().port();
+    let relay_port = relay_listener.local_addr().unwrap().port();
+
+    let mock_relay = generate_mock_relay(relay_port, pubkey)?;
+    let mut mock_relay_state = MockRelayState::new(chain, signer)
+        .with_response_content_type("application/octet-stream; charset=binary");
+    mock_relay_state.supported_content_types = Arc::new(HashSet::from([EncodingType::Ssz]));
+    let mock_state = Arc::new(mock_relay_state);
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
+
+    let pbs_config = get_pbs_config(pbs_port);
+    let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
+    let state = PbsState::new(config, PathBuf::new());
+    drop(pbs_listener);
+    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let signed_blinded_block = load_test_signed_blinded_block();
+    let mock_validator = MockValidator::new(pbs_port)?;
+    let res = mock_validator
+        .do_submit_block_v1(
+            Some(signed_blinded_block.clone()),
+            vec![EncodingType::Ssz],
+            EncodingType::Ssz,
+            ForkName::Electra,
+        )
+        .await?;
+    assert_eq!(res.status(), StatusCode::OK, "PBS should tolerate `; charset=binary` MIME param");
+    assert_eq!(mock_state.received_submit_block(), 1);
+
+    let bytes = res.bytes().await?;
+    let response_body = PayloadAndBlobs::from_ssz_bytes_by_fork(&bytes, ForkName::Electra).unwrap();
+    assert_eq!(
+        response_body.execution_payload.block_hash(),
+        signed_blinded_block.block_hash().into()
+    );
+    Ok(())
+}

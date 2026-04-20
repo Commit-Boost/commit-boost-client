@@ -1,4 +1,4 @@
-use std::{collections::HashSet, path::PathBuf, sync::Arc, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use cb_common::{
     config::{MuxConfig, MuxKeysLoader, PbsMuxes},

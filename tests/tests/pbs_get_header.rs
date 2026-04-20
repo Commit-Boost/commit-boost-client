@@ -644,6 +644,89 @@ async fn test_get_header_bid_validation_matrix() -> Result<()> {
     Ok(())
 }
 
+/// PBS must accept relay `Content-Type` values that include MIME parameters
+/// (e.g. `application/octet-stream; charset=binary`). The audit fix for C2
+/// switched `EncodingType::from_str` to parse via the `mediatype` crate;
+/// this test exercises the full relay→PBS→BN path to guard against
+/// regressions at the wire boundary.
+#[tokio::test]
+async fn test_get_header_tolerates_mime_params_in_content_type() -> Result<()> {
+    setup_test_env();
+    let signer = random_secret();
+    let pubkey = signer.public_key();
+    let chain = Chain::Holesky;
+    let pbs_listener = get_free_listener().await;
+    let relay_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr().unwrap().port();
+    let relay_port = relay_listener.local_addr().unwrap().port();
+
+    let mut mock_state = MockRelayState::new(chain, signer)
+        .with_response_content_type("application/octet-stream; charset=binary");
+    mock_state.supported_content_types = Arc::new(HashSet::from([EncodingType::Ssz]));
+    let mock_state = Arc::new(mock_state);
+    let mock_relay = generate_mock_relay(relay_port, pubkey)?;
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
+
+    let pbs_config = get_pbs_config(pbs_port);
+    let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
+    let state = PbsState::new(config, PathBuf::new());
+    drop(pbs_listener);
+    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let mock_validator = MockValidator::new(pbs_port)?;
+    let res =
+        mock_validator.do_get_header(None, vec![EncodingType::Ssz], ForkName::Electra).await?;
+    assert_eq!(res.status(), StatusCode::OK, "PBS should tolerate `; charset=binary` MIME param");
+    assert_eq!(mock_state.received_get_header(), 1);
+
+    let fork = get_consensus_version_header(res.headers()).expect("missing fork version header");
+    let bytes = res.bytes().await?;
+    let data = SignedBuilderBid::from_ssz_bytes_by_fork(&bytes, fork).unwrap();
+    assert_eq!(data.message.header().block_hash().0[0], 1);
+    Ok(())
+}
+
+/// Same guarantee on the JSON path: `application/json; charset=utf-8` (the
+/// value some production relays actually emit) must be accepted as JSON.
+#[tokio::test]
+async fn test_get_header_tolerates_json_charset_param() -> Result<()> {
+    setup_test_env();
+    let signer = random_secret();
+    let pubkey = signer.public_key();
+    let chain = Chain::Holesky;
+    let pbs_listener = get_free_listener().await;
+    let relay_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr().unwrap().port();
+    let relay_port = relay_listener.local_addr().unwrap().port();
+
+    let mut mock_state = MockRelayState::new(chain, signer)
+        .with_response_content_type("application/json; charset=utf-8");
+    mock_state.supported_content_types = Arc::new(HashSet::from([EncodingType::Json]));
+    let mock_state = Arc::new(mock_state);
+    let mock_relay = generate_mock_relay(relay_port, pubkey)?;
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
+
+    let pbs_config = get_pbs_config(pbs_port);
+    let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
+    let state = PbsState::new(config, PathBuf::new());
+    drop(pbs_listener);
+    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let mock_validator = MockValidator::new(pbs_port)?;
+    let res =
+        mock_validator.do_get_header(None, vec![EncodingType::Json], ForkName::Electra).await?;
+    assert_eq!(res.status(), StatusCode::OK, "PBS should tolerate `; charset=utf-8` MIME param");
+    assert_eq!(mock_state.received_get_header(), 1);
+
+    let body: GetHeaderResponse = serde_json::from_slice(&res.bytes().await?)?;
+    assert_eq!(body.data.message.header().block_hash().0[0], 1);
+    Ok(())
+}
+
 /// Standard mode rejects a bid whose embedded pubkey does not match the relay's
 /// configured pubkey; None mode forwards it unchecked, proving the bypass works
 /// for the signature/pubkey validation check.
