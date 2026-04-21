@@ -567,6 +567,13 @@ pub fn get_user_agent_with_version(req_headers: &HeaderMap) -> eyre::Result<Head
 /// tickets are reproducible.
 pub const OUTBOUND_ACCEPT: &str = "application/octet-stream;q=1.0,application/json;q=0.9";
 
+/// Default encoding used when the caller does not express a format
+/// preference. This covers both `Accept: */*` (see `get_accept_types`) and
+/// a missing Content-Type header on inbound or relay responses (see
+/// `parse_response_encoding_and_fork` and `deserialize_body`). Keeping the
+/// policy in one place prevents drift between those sites.
+pub const NO_PREFERENCE_DEFAULT: EncodingType = EncodingType::Json;
+
 /// Encodings the original requester is willing to accept, in descending
 /// preference order.
 ///
@@ -646,7 +653,8 @@ pub fn get_accept_types(req_headers: &HeaderMap) -> eyre::Result<AcceptedEncodin
 
             let parsed = match mt.essence().to_string().as_str() {
                 APPLICATION_OCTET_STREAM => Some(EncodingType::Ssz),
-                APPLICATION_JSON | WILDCARD => Some(EncodingType::Json),
+                APPLICATION_JSON => Some(EncodingType::Json),
+                WILDCARD => Some(NO_PREFERENCE_DEFAULT),
                 _ => None,
             };
             if let Some(enc) = parsed {
@@ -780,9 +788,8 @@ pub fn parse_response_encoding_and_fork(
 ) -> Result<(EncodingType, Option<ForkName>), crate::pbs::error::PbsError> {
     use crate::pbs::error::PbsError;
     let content_type = match headers.get(CONTENT_TYPE) {
-        // Assume missing Content-Type means JSON; shouldn't happen in
-        // practice but just in case.
-        None => EncodingType::Json,
+        // No Content-Type: apply the shared no-preference default
+        None => NO_PREFERENCE_DEFAULT,
         Some(hv) => {
             let header_str = hv.to_str().map_err(|e| PbsError::RelayResponse {
                 error_msg: format!("cannot decode content-type header: {e}"),
@@ -1010,8 +1017,9 @@ mod test {
         pbs::error::SszValueError,
         types::{Jwt, JwtAdminClaims, ModuleId},
         utils::{
-            APPLICATION_JSON, APPLICATION_OCTET_STREAM, EncodingType, ForkName, WILDCARD,
-            get_accept_types, get_bid_value_from_signed_builder_bid_ssz,
+            APPLICATION_JSON, APPLICATION_OCTET_STREAM, EncodingType, ForkName,
+            NO_PREFERENCE_DEFAULT, WILDCARD, get_accept_types,
+            get_bid_value_from_signed_builder_bid_ssz,
         },
     };
 
@@ -1069,13 +1077,15 @@ mod test {
         assert_eq!(result, AcceptedEncodings::single(EncodingType::Ssz));
     }
 
-    /// Test accepting wildcards
+    /// Wildcard `Accept: */*` resolves to the `NO_PREFERENCE_DEFAULT`
+    /// policy. Separate from the explicit
+    /// `Accept: application/json` path to keep the two intents distinct.
     #[test]
     fn test_accept_header_wildcard() {
         let mut headers = HeaderMap::new();
         headers.append(ACCEPT, HeaderValue::from_str(WILDCARD).unwrap());
         let result = get_accept_types(&headers).unwrap();
-        assert_eq!(result, AcceptedEncodings::single(EncodingType::Json));
+        assert_eq!(result, AcceptedEncodings::single(NO_PREFERENCE_DEFAULT));
     }
 
     /// Test accepting one header with multiple values (order preserved,
@@ -1306,7 +1316,7 @@ mod test {
         headers.append(ACCEPT, HeaderValue::from_str(&header_string).unwrap());
         assert_eq!(get_accept_types(&headers).unwrap(), AcceptedEncodings {
             primary: EncodingType::Json,
-            fallback: Some(EncodingType::Ssz),
+            fallback: Some(EncodingType::Ssz)
         });
     }
 
