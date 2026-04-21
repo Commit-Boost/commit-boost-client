@@ -828,26 +828,29 @@ pub async fn deserialize_body(
     headers: &HeaderMap,
     body: Bytes,
 ) -> Result<SignedBlindedBeaconBlock, BodyDeserializeError> {
-    if headers.contains_key(CONTENT_TYPE) {
-        return match get_content_type(headers) {
-            EncodingType::Json => serde_json::from_slice::<SignedBlindedBeaconBlock>(&body)
-                .map_err(BodyDeserializeError::SerdeJsonError),
-            EncodingType::Ssz => {
-                // Get the version header
-                match get_consensus_version_header(headers) {
-                    Some(version) => {
-                        SignedBlindedBeaconBlock::from_ssz_bytes_with(&body, |bytes| {
-                            BeaconBlock::from_ssz_bytes_for_fork(bytes, version)
-                        })
-                        .map_err(BodyDeserializeError::SszDecodeError)
-                    }
-                    None => Err(BodyDeserializeError::MissingVersionHeader),
-                }
-            }
-        };
-    }
+    // Determine the encoding to decode with. Precedence:
+    //   - Content-Type absent     → NO_PREFERENCE_DEFAULT
+    //   - Content-Type recognized → use it.
+    //   - Content-Type present but unrecognized → UnsupportedMediaType.
+    let encoding = match headers.get(CONTENT_TYPE) {
+        None => NO_PREFERENCE_DEFAULT,
+        Some(hv) => {
+            let value = hv.to_str().map_err(|_| BodyDeserializeError::UnsupportedMediaType)?;
+            EncodingType::from_str(value).map_err(|_| BodyDeserializeError::UnsupportedMediaType)?
+        }
+    };
 
-    Err(BodyDeserializeError::UnsupportedMediaType)
+    match encoding {
+        EncodingType::Json => serde_json::from_slice::<SignedBlindedBeaconBlock>(&body)
+            .map_err(BodyDeserializeError::SerdeJsonError),
+        EncodingType::Ssz => match get_consensus_version_header(headers) {
+            Some(version) => SignedBlindedBeaconBlock::from_ssz_bytes_with(&body, |bytes| {
+                BeaconBlock::from_ssz_bytes_for_fork(bytes, version)
+            })
+            .map_err(BodyDeserializeError::SszDecodeError),
+            None => Err(BodyDeserializeError::MissingVersionHeader),
+        },
+    }
 }
 
 #[cfg(unix)]
@@ -1818,10 +1821,28 @@ mod test {
 
     // ── deserialize_body error paths ─────────────────────────────────────────
 
+    /// Missing Content-Type falls back to the `NO_PREFERENCE_DEFAULT` (JSON)
+    /// path, matching pre-PR behavior. Garbage body reaches the JSON
+    /// decoder and errors as `SerdeJsonError`, proving the default kicked
+    /// in (vs. bailing early with `UnsupportedMediaType`).
     #[tokio::test]
-    async fn test_deserialize_body_missing_content_type() {
+    async fn test_deserialize_body_missing_content_type_falls_back_to_json() {
         let headers = HeaderMap::new();
-        let body = Bytes::from_static(b"{}");
+        let body = Bytes::from_static(b"not json");
+        let err = deserialize_body(&headers, body).await.unwrap_err();
+        assert!(
+            matches!(err, BodyDeserializeError::SerdeJsonError(_)),
+            "expected SerdeJsonError (JSON decode attempted), got: {err}"
+        );
+    }
+
+    /// Present-but-unrecognized Content-Type still bails as
+    /// `UnsupportedMediaType`; the fallback only covers *missing* headers.
+    #[tokio::test]
+    async fn test_deserialize_body_unrecognized_content_type() {
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/plain"));
+        let body = Bytes::from_static(b"hi");
         let err = deserialize_body(&headers, body).await.unwrap_err();
         assert!(matches!(err, BodyDeserializeError::UnsupportedMediaType));
     }
