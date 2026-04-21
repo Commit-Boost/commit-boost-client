@@ -16,3 +16,6 @@ serde_yaml.workspace = true
 [dev-dependencies]
 tempfile.workspace = true
 toml.workspace = true
+
+[lints]
+workspace = true

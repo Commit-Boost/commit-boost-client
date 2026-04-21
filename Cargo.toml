@@ -2,6 +2,9 @@
 members = ["benches/*", "bin", "crates/*", "examples/da_commit", "examples/status_api", "tests"]
 resolver = "2"
 
+[workspace.lints.rust]
+dead_code = "warn"
+
 [workspace.package]
 edition = "2024"
 rust-version = "1.91"

@@ -58,4 +58,7 @@ url.workspace = true
 reqwest-eventsource.workspace = true
 
 [dev-dependencies]
-  tempfile.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

@@ -31,3 +31,6 @@ url.workspace = true
 [dev-dependencies]
 tracing-test.workspace = true
 cb-common = { path = "../crates/common", features = ["testing-flags"] }
+
+[lints]
+workspace = true

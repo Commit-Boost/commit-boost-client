@@ -17,3 +17,6 @@ tokio.workspace = true
 name = "get_header"
 harness = false
 path = "src/get_header.rs"
+
+[lints]
+workspace = true
