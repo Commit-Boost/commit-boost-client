@@ -341,28 +341,10 @@ async fn send_submit_block_full(
         return Ok(None);
     }
 
-    // Decode the payload based on content type.
-    // The v1 guard above ensures `content_type` is Some
-    let content_type = block_response.content_type.ok_or_else(|| PbsError::RelayResponse {
-        error_msg: "v1 submit_block response missing Content-Type".to_string(),
-        code: block_response.code.as_u16(),
-    })?;
-    let decoded_response = match content_type {
-        EncodingType::Json => decode_json_payload(&block_response.response_bytes)?,
-        EncodingType::Ssz => {
-            let fork = match block_response.fork {
-                Some(fork) => fork,
-                None => {
-                    return Err(PbsError::RelayResponse {
-                        error_msg: "missing fork version header in SSZ submit_block response"
-                            .to_string(),
-                        code: block_response.code.as_u16(),
-                    });
-                }
-            };
-            decode_ssz_payload(&block_response.response_bytes, fork)?
-        }
-    };
+    // Decode the payload based on content type. The v1 guard above ensures
+    // `content_type` is Some.
+    let decoded_response =
+        decode_by_encoding(&block_response, decode_json_payload, decode_ssz_payload)?;
 
     // Log and return
     debug!(
@@ -407,24 +389,13 @@ async fn send_submit_block_light(
     }
 
     // Decode the payload based on content type. The v1 guard above ensures
-    // `content_type` is Some (v2 paths return None and early-exit).
-    let content_type = block_response.content_type.ok_or_else(|| PbsError::RelayResponse {
-        error_msg: "v1 submit_block response missing Content-Type".to_string(),
-        code: block_response.code.as_u16(),
-    })?;
-    let fork = match content_type {
-        EncodingType::Json => get_light_info_from_json(&block_response.response_bytes)?,
-        EncodingType::Ssz => match block_response.fork {
-            Some(fork) => fork,
-            None => {
-                return Err(PbsError::RelayResponse {
-                    error_msg: "missing fork version header in SSZ submit_block response"
-                        .to_string(),
-                    code: block_response.code.as_u16(),
-                });
-            }
-        },
-    };
+    // `content_type` is Some.
+    let fork =
+        decode_by_encoding(&block_response, get_light_info_from_json, |_bytes, fork| Ok(fork))?;
+    // `content_type` is guaranteed Some on v1 per decode_by_encoding.
+    let encoding_type = block_response.content_type.expect(
+        "v1 submit_block response carries Content-Type; decode_by_encoding already enforced this",
+    );
 
     // Log and return
     debug!(
@@ -437,9 +408,34 @@ async fn send_submit_block_light(
 
     Ok(Some(LightSubmitBlockResponse {
         version: fork,
-        encoding_type: content_type,
+        encoding_type,
         raw_bytes: block_response.response_bytes,
     }))
+}
+
+/// Dispatch a v1 submit_block response to the appropriate decoder based on the
+/// negotiated content-type. Caller guarantees `content_type` is Some (v2
+/// paths early-exit before reaching decode); an absent Content-Type on v1 is
+/// treated as a protocol violation. SSZ additionally requires a fork header.
+fn decode_by_encoding<T>(
+    info: &SubmitBlockResponseInfo,
+    on_json: impl FnOnce(&[u8]) -> Result<T, PbsError>,
+    on_ssz: impl FnOnce(&[u8], ForkName) -> Result<T, PbsError>,
+) -> Result<T, PbsError> {
+    let content_type = info.content_type.ok_or_else(|| PbsError::RelayResponse {
+        error_msg: "v1 submit_block response missing Content-Type".to_string(),
+        code: info.code.as_u16(),
+    })?;
+    match content_type {
+        EncodingType::Json => on_json(&info.response_bytes),
+        EncodingType::Ssz => {
+            let fork = info.fork.ok_or_else(|| PbsError::RelayResponse {
+                error_msg: "missing fork version header in SSZ submit_block response".to_string(),
+                code: info.code.as_u16(),
+            })?;
+            on_ssz(&info.response_bytes, fork)
+        }
+    }
 }
 
 /// Sends the actual HTTP request to the relay's submit_block endpoint,

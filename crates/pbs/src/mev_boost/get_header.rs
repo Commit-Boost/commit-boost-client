@@ -547,17 +547,7 @@ async fn send_get_header_full(
     };
 
     // Decode the response
-    let get_header_response = match info.content_type {
-        EncodingType::Json => decode_json_payload(&info.response_bytes)?,
-        EncodingType::Ssz => {
-            let fork = info.fork.ok_or(PbsError::RelayResponse {
-                error_msg: "relay did not provide consensus version header for ssz payload"
-                    .to_string(),
-                code: info.code.as_u16(),
-            })?;
-            decode_ssz_payload(&info.response_bytes, fork)?
-        }
-    };
+    let get_header_response = decode_by_encoding(&info, decode_json_payload, decode_ssz_payload)?;
 
     // Log and return
     info!(
@@ -594,17 +584,9 @@ async fn send_get_header_light(
     };
 
     // Decode the value / fork from the response
-    let (fork, value) = match info.content_type {
-        EncodingType::Json => get_light_info_from_json(&info.response_bytes)?,
-        EncodingType::Ssz => {
-            let fork = info.fork.ok_or(PbsError::RelayResponse {
-                error_msg: "relay did not provide consensus version header for ssz payload"
-                    .to_string(),
-                code: info.code.as_u16(),
-            })?;
-            (fork, get_bid_value_from_signed_builder_bid_ssz(&info.response_bytes, fork)?)
-        }
-    };
+    let (fork, value) = decode_by_encoding(&info, get_light_info_from_json, |bytes, fork| {
+        Ok((fork, get_bid_value_from_signed_builder_bid_ssz(bytes, fork)?))
+    })?;
 
     // Log and return
     debug!(
@@ -625,6 +607,28 @@ async fn send_get_header_light(
             encoding_type: info.content_type,
         }),
     ))
+}
+
+/// Dispatch a get_header response to the appropriate decoder based on the
+/// negotiated content-type. SSZ requires a fork header; its absence is a
+/// protocol violation reported as `PbsError::RelayResponse`. Callers supply
+/// the format-specific decoders, keeping the encoding branch in one place.
+fn decode_by_encoding<T>(
+    info: &GetHeaderResponseInfo,
+    on_json: impl FnOnce(&[u8]) -> Result<T, PbsError>,
+    on_ssz: impl FnOnce(&[u8], ForkName) -> Result<T, PbsError>,
+) -> Result<T, PbsError> {
+    match info.content_type {
+        EncodingType::Json => on_json(&info.response_bytes),
+        EncodingType::Ssz => {
+            let fork = info.fork.ok_or_else(|| PbsError::RelayResponse {
+                error_msg: "relay did not provide consensus version header for ssz payload"
+                    .to_string(),
+                code: info.code.as_u16(),
+            })?;
+            on_ssz(&info.response_bytes, fork)
+        }
+    }
 }
 
 /// Sends a get_header request to a relay, returning the response, the time the
