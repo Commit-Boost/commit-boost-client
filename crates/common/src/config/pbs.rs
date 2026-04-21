@@ -322,7 +322,7 @@ pub async fn load_pbs_config(config_path: Option<PathBuf>) -> Result<(PbsModuleC
     // Validate the muxes and build the lookup tables
     let (mux_lookup, registry_muxes) = match config.muxes {
         Some(muxes) => {
-            let (mux_lookup, registry_muxes): (_, _) =
+            let (mux_lookup, registry_muxes) =
                 muxes.validate_and_fill(config.chain, &config.pbs.pbs_config).await?;
             (Some(mux_lookup), Some(registry_muxes))
         }
@@ -404,7 +404,7 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
     // Validate the muxes and build the lookup tables
     let (mux_lookup, registry_muxes) = match cb_config.muxes {
         Some(muxes) => {
-            let (mux_lookup, registry_muxes): (_, _) = muxes
+            let (mux_lookup, registry_muxes) = muxes
                 .validate_and_fill(cb_config.chain, &cb_config.pbs.static_config.pbs_config)
                 .await?;
             (Some(mux_lookup), Some(registry_muxes))
