@@ -133,7 +133,7 @@ fn test_init_compose_file_pbs_service_structure() {
     // Config file must be mounted inside the container.
     let volumes = pbs["volumes"].as_sequence().expect("volumes is a list");
     assert!(
-        volumes.iter().any(|v| v.as_str().map_or(false, |s| s.ends_with(":/cb-config.toml:ro"))),
+        volumes.iter().any(|v| v.as_str().is_some_and(|s| s.ends_with(":/cb-config.toml:ro"))),
         "config must be mounted at /cb-config.toml"
     );
 
@@ -145,7 +145,7 @@ fn test_init_compose_file_pbs_service_structure() {
     // Port 18550 must be exposed.
     let ports = pbs["ports"].as_sequence().expect("ports is a list");
     assert!(
-        ports.iter().any(|p| p.as_str().map_or(false, |s| s.contains("18550"))),
+        ports.iter().any(|p| p.as_str().is_some_and(|s| s.contains("18550"))),
         "port 18550 must be exposed"
     );
 

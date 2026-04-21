@@ -70,8 +70,6 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
     // Honor caller q-value preference: pick the highest-priority encoding that
     // we can actually produce. Server preference for tiebreaks is SSZ first.
     let response_encoding = accept_types.preferred(&[EncodingType::Ssz, EncodingType::Json]);
-    let accepts_ssz = response_encoding == Some(EncodingType::Ssz);
-    let accepts_json = response_encoding == Some(EncodingType::Json);
 
     info!(ua, ms_into_slot = now.saturating_sub(slot_start_ms), "new request");
 
@@ -126,28 +124,29 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
                     .with_label_values(&["200", SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG])
                     .inc();
 
-                // Try SSZ
-                if accepts_ssz {
-                    let mut response = payload_and_blobs.data.as_ssz_bytes().into_response();
-
-                    let content_type_header = EncodingType::Ssz.content_type_header().clone();
-                    response.headers_mut().insert(CONTENT_TYPE, content_type_header);
-                    response.headers_mut().insert(
-                        CONSENSUS_VERSION_HEADER,
-                        HeaderValue::from_str(&payload_and_blobs.version.to_string()).unwrap(),
-                    );
-                    info!("sending response as SSZ");
-                    return Ok(response);
-                }
-
-                // Handle JSON
-                if accepts_json {
-                    Ok((StatusCode::OK, axum::Json(payload_and_blobs)).into_response())
-                } else {
-                    // This shouldn't ever happen but the compiler needs it
-                    Err(PbsClientError::DecodeError(
+                // Three arms: no viable encoding (unreachable in practice —
+                // `get_accept_types` errors earlier if the caller offers
+                // nothing we support), SSZ, or JSON.
+                match response_encoding {
+                    None => Err(PbsClientError::DecodeError(
                         "no viable accept types in request".to_string(),
-                    ))
+                    )),
+                    Some(EncodingType::Ssz) => {
+                        let mut response = payload_and_blobs.data.as_ssz_bytes().into_response();
+
+                        let content_type_header = EncodingType::Ssz.content_type_header().clone();
+                        response.headers_mut().insert(CONTENT_TYPE, content_type_header);
+                        response.headers_mut().insert(
+                            CONSENSUS_VERSION_HEADER,
+                            HeaderValue::from_str(&payload_and_blobs.version.to_string()).unwrap(),
+                        );
+                        info!("sending response as SSZ");
+                        Ok(response)
+                    }
+                    Some(EncodingType::Json) => {
+                        info!("sending response as JSON");
+                        Ok((StatusCode::OK, axum::Json(payload_and_blobs)).into_response())
+                    }
                 }
             }
         },

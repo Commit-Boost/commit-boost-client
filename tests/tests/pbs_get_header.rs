@@ -213,6 +213,7 @@ async fn test_get_header_multitype_json_light() -> Result<()> {
 /// requires a non-None rpc_url to start in that mode. A non-existent address is
 /// fine; if the parent block fetch fails the relay response is still returned
 /// (extra validation is skipped with a warning).
+#[allow(clippy::too_many_arguments)]
 async fn test_get_header_impl(
     accept_types: Vec<EncodingType>,
     relay_types: HashSet<EncodingType>,
