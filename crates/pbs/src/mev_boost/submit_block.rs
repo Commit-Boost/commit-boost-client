@@ -36,8 +36,6 @@ use crate::{
     state::{BuilderApiState, PbsState},
 };
 
-/// Info about a proposal submission request.
-/// Sent from submit_block to the submit_block_with_timeout function.
 #[derive(Clone)]
 struct ProposalInfo {
     /// The signed blinded block to submit
@@ -57,8 +55,6 @@ struct ProposalInfo {
     accepted_types: Vec<EncodingType>,
 }
 
-/// Used interally to provide info and context about a submit_block request and
-/// its response
 struct SubmitBlockResponseInfo {
     /// The raw body of the response
     response_bytes: Vec<u8>,

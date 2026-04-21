@@ -692,19 +692,13 @@ pub fn get_consensus_version_header(req_headers: &HeaderMap) -> Option<ForkName>
     .ok()
 }
 
-/// Enum for types that can be used to encode incoming request bodies or
-/// outgoing response bodies
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EncodingType {
-    /// Body is UTF-8 encoded as JSON
     Json,
-
-    /// Body is raw bytes representing an SSZ object
     Ssz,
 }
 
 impl EncodingType {
-    /// Get the content type string for the encoding type
     pub fn content_type(&self) -> &str {
         match self {
             EncodingType::Json => APPLICATION_JSON,

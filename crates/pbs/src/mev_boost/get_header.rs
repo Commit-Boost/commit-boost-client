@@ -72,8 +72,6 @@ struct RequestInfo {
     accepted_types: Vec<EncodingType>,
 }
 
-/// Used interally to provide info and context about a get_header request and
-/// its response
 struct GetHeaderResponseInfo {
     /// ID of the relay the response came from
     relay_id: Arc<String>,
