@@ -1,7 +1,6 @@
 #[cfg(feature = "testing-flags")]
 use std::cell::Cell;
 use std::{
-    collections::HashMap,
     fmt::Display,
     net::Ipv4Addr,
     str::FromStr,
@@ -17,7 +16,6 @@ use axum::http::HeaderValue;
 use bytes::Bytes;
 use futures::StreamExt;
 use headers_accept::Accept;
-use lazy_static::lazy_static;
 use lh_bls::Signature;
 pub use lh_types::ForkName;
 use lh_types::{
@@ -61,24 +59,6 @@ pub const WILDCARD: &str = "*/*";
 
 const MILLIS_PER_SECOND: u64 = 1_000;
 pub const CONSENSUS_VERSION_HEADER: &str = "Eth-Consensus-Version";
-
-lazy_static! {
-    static ref SSZ_VALUE_OFFSETS_BY_FORK: HashMap<ForkName, usize> = {
-        let mut map: HashMap<ForkName, usize> = HashMap::new();
-        let forks = [
-            ForkName::Bellatrix,
-            ForkName::Capella,
-            ForkName::Deneb,
-            ForkName::Electra,
-            ForkName::Fulu,
-        ];
-        for fork in forks {
-            let offset = get_ssz_value_offset_for_fork(fork).unwrap(); // If there isn't a supported fork, this needs to be updated prior to release so panicking is fine
-            map.insert(fork, offset);
-        }
-        map
-    };
-}
 
 #[derive(Debug, Error)]
 pub enum ResponseReadError {
@@ -978,8 +958,7 @@ pub fn get_bid_value_from_signed_builder_bid_ssz(
     response_bytes: &[u8],
     fork: ForkName,
 ) -> Result<U256, SszValueError> {
-    let value_offset = SSZ_VALUE_OFFSETS_BY_FORK
-        .get(&fork)
+    let value_offset = get_ssz_value_offset_for_fork(fork)
         .ok_or(SszValueError::UnsupportedFork { name: fork.to_string() })?;
 
     // Sanity check the response length so we don't panic trying to slice it
@@ -992,7 +971,7 @@ pub fn get_bid_value_from_signed_builder_bid_ssz(
     }
 
     // Extract the value bytes and convert to U256
-    let value_bytes = &response_bytes[*value_offset..end_offset];
+    let value_bytes = &response_bytes[value_offset..end_offset];
     let value = U256::from_le_slice(value_bytes);
     Ok(value)
 }
