@@ -14,9 +14,9 @@ use cb_common::{
         error::{PbsError, ValidationError},
     },
     utils::{
-        CONSENSUS_VERSION_HEADER, EncodingType, OUTBOUND_ACCEPT, build_outbound_accept,
-        get_user_agent_with_version, parse_response_encoding_and_fork, read_chunked_body_with_max,
-        utcnow_ms,
+        AcceptedEncodings, CONSENSUS_VERSION_HEADER, EncodingType, OUTBOUND_ACCEPT,
+        build_outbound_accept, get_user_agent_with_version, parse_response_encoding_and_fork,
+        read_chunked_body_with_max, utcnow_ms,
     },
 };
 use futures::{FutureExt, future::select_ok};
@@ -42,7 +42,7 @@ struct ProposalInfo {
     signed_blinded_block: Arc<SignedBlindedBeaconBlock>,
 
     /// Common baseline of headers to send with each request
-    headers: Arc<HeaderMap>,
+    headers: HeaderMap,
 
     /// The version of the submit_block route being used
     api_version: BuilderApiVersion,
@@ -52,7 +52,7 @@ struct ProposalInfo {
 
     /// The accepted encoding types from the original request, ordered by
     /// descending caller preference (q-value).
-    accepted_types: Vec<EncodingType>,
+    accepted_types: AcceptedEncodings,
 }
 
 struct SubmitBlockResponseInfo {
@@ -81,7 +81,7 @@ pub async fn submit_block<S: BuilderApiState>(
     req_headers: HeaderMap,
     state: PbsState<S>,
     api_version: BuilderApiVersion,
-    accepted_types: Vec<EncodingType>,
+    accepted_types: AcceptedEncodings,
 ) -> eyre::Result<CompoundSubmitBlockResponse> {
     debug!(?req_headers, "received headers");
 
@@ -96,7 +96,7 @@ pub async fn submit_block<S: BuilderApiState>(
         BlockValidationMode::None => {
             // No validation mode, so forward the caller's preference verbatim
             // (still q-ordered) — the relay's response is passed through.
-            build_outbound_accept(&accepted_types)
+            build_outbound_accept(accepted_types)
         }
         _ => {
             // We're unpacking the body, so use the documented, deterministic
@@ -109,7 +109,7 @@ pub async fn submit_block<S: BuilderApiState>(
     // Send requests to all relays concurrently
     let proposal_info = Arc::new(ProposalInfo {
         signed_blinded_block,
-        headers: Arc::new(send_headers),
+        headers: send_headers,
         api_version,
         validation_mode: mode,
         accepted_types,
@@ -241,7 +241,7 @@ async fn send_submit_block(
                 Some(res) => {
                     // Make sure the response is encoded in one of the accepted
                     // types since we're passing the raw response directly to the client
-                    if !proposal_info.accepted_types.contains(&res.encoding_type) {
+                    if !proposal_info.accepted_types.contains(res.encoding_type) {
                         return Err(PbsError::RelayResponse {
                             error_msg: format!(
                                 "relay returned unsupported encoding type for submit_block in no-validation mode: {:?}",
@@ -328,7 +328,7 @@ async fn send_submit_block_full(
         relay,
         url,
         timeout_ms,
-        (*proposal_info.headers).clone(),
+        proposal_info.headers.clone(),
         &proposal_info.signed_blinded_block,
         retry,
         api_version,
@@ -385,7 +385,7 @@ async fn send_submit_block_light(
         relay,
         url,
         timeout_ms,
-        (*proposal_info.headers).clone(),
+        proposal_info.headers.clone(),
         &proposal_info.signed_blinded_block,
         retry,
         api_version,

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use axum::{
+    body::Bytes,
     extract::State,
     http::{HeaderMap, HeaderValue},
     response::IntoResponse,
@@ -8,8 +9,8 @@ use axum::{
 use cb_common::{
     pbs::{BuilderApiVersion, GetPayloadInfo},
     utils::{
-        CONSENSUS_VERSION_HEADER, EncodingType, RawRequest, deserialize_body, get_accept_types,
-        get_user_agent, preferred_encoding, timestamp_of_slot_start_millis, utcnow_ms,
+        CONSENSUS_VERSION_HEADER, EncodingType, deserialize_body, get_accept_types, get_user_agent,
+        timestamp_of_slot_start_millis, utcnow_ms,
     },
 };
 use reqwest::{StatusCode, header::CONTENT_TYPE};
@@ -28,27 +29,26 @@ use crate::{
 pub async fn handle_submit_block_v1<S: BuilderApiState, A: BuilderApi<S>>(
     state: State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
-    raw_request: RawRequest,
+    body_bytes: Bytes,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    handle_submit_block_impl::<S, A>(state, req_headers, raw_request, BuilderApiVersion::V1).await
+    handle_submit_block_impl::<S, A>(state, req_headers, body_bytes, BuilderApiVersion::V1).await
 }
 
 pub async fn handle_submit_block_v2<S: BuilderApiState, A: BuilderApi<S>>(
     state: State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
-    raw_request: RawRequest,
+    body_bytes: Bytes,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    handle_submit_block_impl::<S, A>(state, req_headers, raw_request, BuilderApiVersion::V2).await
+    handle_submit_block_impl::<S, A>(state, req_headers, body_bytes, BuilderApiVersion::V2).await
 }
 
 async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
     State(state): State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
-    raw_request: RawRequest,
+    body_bytes: Bytes,
     api_version: BuilderApiVersion,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    let signed_blinded_block =
-        Arc::new(deserialize_body(&req_headers, raw_request.body_bytes).await?);
+    let signed_blinded_block = Arc::new(deserialize_body(&req_headers, body_bytes).await?);
     tracing::Span::current().record("slot", signed_blinded_block.slot().as_u64() as i64);
     tracing::Span::current()
         .record("block_hash", tracing::field::debug(signed_blinded_block.block_hash()));
@@ -69,8 +69,7 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
     })?;
     // Honor caller q-value preference: pick the highest-priority encoding that
     // we can actually produce. Server preference for tiebreaks is SSZ first.
-    let response_encoding =
-        preferred_encoding(&accept_types, &[EncodingType::Ssz, EncodingType::Json]);
+    let response_encoding = accept_types.preferred(&[EncodingType::Ssz, EncodingType::Json]);
     let accepts_ssz = response_encoding == Some(EncodingType::Ssz);
     let accepts_json = response_encoding == Some(EncodingType::Json);
 

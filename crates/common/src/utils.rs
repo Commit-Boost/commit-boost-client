@@ -12,11 +12,7 @@ use alloy::{
     hex,
     primitives::{U256, keccak256},
 };
-use axum::{
-    extract::{FromRequest, Request},
-    http::HeaderValue,
-    response::{IntoResponse, Response as AxumResponse},
-};
+use axum::http::HeaderValue;
 use bytes::Bytes;
 use futures::StreamExt;
 use headers_accept::Accept;
@@ -571,19 +567,65 @@ pub fn get_user_agent_with_version(req_headers: &HeaderMap) -> eyre::Result<Head
 /// tickets are reproducible.
 pub const OUTBOUND_ACCEPT: &str = "application/octet-stream;q=1.0,application/json;q=0.9";
 
-/// Parse the ACCEPT header into a q-value ordered list of supported
-/// [`EncodingType`]s (highest preference first, deduplicated), defaulting to
-/// the request's Content-Type when no Accept header is present. Returns an
-/// error only if every media type in the header is malformed or unsupported.
-/// Supports requests with multiple ACCEPT headers or headers with multiple
-/// media types. `q=0` entries are treated as explicit rejections per
-/// RFC 7231 §5.3.1 and are skipped.
+/// Encodings the original requester is willing to accept, in descending
+/// preference order.
+///
+/// The builder spec defines exactly two media types (SSZ and JSON), so after
+/// dedup the accepted set is at most one primary plus one optional fallback.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AcceptedEncodings {
+    /// Caller's highest-preference encoding.
+    pub primary: EncodingType,
+    /// Second-choice encoding, if the caller provided one.
+    pub fallback: Option<EncodingType>,
+}
+
+impl AcceptedEncodings {
+    pub const fn single(primary: EncodingType) -> Self {
+        Self { primary, fallback: None }
+    }
+
+    pub fn contains(self, enc: EncodingType) -> bool {
+        self.primary == enc || self.fallback == Some(enc)
+    }
+
+    /// Iterate in preference order: primary first, then fallback (if any).
+    pub fn iter(self) -> impl Iterator<Item = EncodingType> {
+        std::iter::once(self.primary).chain(self.fallback)
+    }
+
+    /// Pick the caller's highest-preference encoding that the server supports.
+    /// Returns `None` if no overlap exists.
+    pub fn preferred(self, supported: &[EncodingType]) -> Option<EncodingType> {
+        self.iter().find(|a| supported.contains(a))
+    }
+}
+
+impl IntoIterator for AcceptedEncodings {
+    type Item = EncodingType;
+    type IntoIter =
+        std::iter::Chain<std::iter::Once<EncodingType>, std::option::IntoIter<EncodingType>>;
+    fn into_iter(self) -> Self::IntoIter {
+        std::iter::once(self.primary).chain(self.fallback)
+    }
+}
+
+/// Parse the ACCEPT header into a q-value ordered [`AcceptedEncodings`]
+/// (highest preference first, deduplicated), defaulting to the request's
+/// Content-Type when no Accept header is present. Returns an error only if
+/// every media type in the header is malformed or unsupported. Supports
+/// requests with multiple ACCEPT headers or headers with multiple media
+/// types. `q=0` entries are treated as explicit rejections per RFC 7231
+/// §5.3.1 and are skipped.
 ///
 /// The returned order honors the RFC 9110 §12.5.1 precedence rules already
 /// applied by `headers_accept::Accept::media_types()` (specificity, then
 /// q-value, then original order).
-pub fn get_accept_types(req_headers: &HeaderMap) -> eyre::Result<Vec<EncodingType>> {
-    let mut ordered: Vec<EncodingType> = Vec::new();
+pub fn get_accept_types(req_headers: &HeaderMap) -> eyre::Result<AcceptedEncodings> {
+    // Only two supported media types, so the ordered set is at most two
+    // entries: primary + optional fallback.
+    let mut primary: Option<EncodingType> = None;
+    let mut fallback: Option<EncodingType> = None;
     let mut saw_any = false;
     let mut had_supported = false;
     for header in req_headers.get_all(ACCEPT).iter() {
@@ -609,34 +651,26 @@ pub fn get_accept_types(req_headers: &HeaderMap) -> eyre::Result<Vec<EncodingTyp
             };
             if let Some(enc) = parsed {
                 had_supported = true;
-                if !ordered.contains(&enc) {
-                    ordered.push(enc);
+                match primary {
+                    None => primary = Some(enc),
+                    Some(p) if p != enc && fallback.is_none() => fallback = Some(enc),
+                    _ => {}
                 }
             }
         }
     }
 
-    if ordered.is_empty() {
-        if saw_any && !had_supported {
-            return Err(eyre::eyre!("unsupported accept type"));
-        }
-
-        // No accept header (or only q=0 rejections): fall back to the request
-        // Content-Type, which mirrors the historical behavior.
-        ordered.push(get_content_type(req_headers));
+    if let Some(primary) = primary {
+        return Ok(AcceptedEncodings { primary, fallback });
     }
-    Ok(ordered)
-}
 
-/// Pick the caller's highest-preference encoding from a list of types the
-/// server can actually produce. `accepts` is expected to be pre-ordered by
-/// descending preference (as returned by [`get_accept_types`]). Returns
-/// `None` if no overlap exists.
-pub fn preferred_encoding(
-    accepts: &[EncodingType],
-    supported: &[EncodingType],
-) -> Option<EncodingType> {
-    accepts.iter().copied().find(|a| supported.contains(a))
+    if saw_any && !had_supported {
+        return Err(eyre::eyre!("unsupported accept type"));
+    }
+
+    // No accept header (or only q=0 rejections): fall back to the request
+    // Content-Type, which mirrors the historical behavior.
+    Ok(AcceptedEncodings::single(get_content_type(req_headers)))
 }
 
 /// Compute the q-value for the `index`-th preferred encoding when building an
@@ -659,12 +693,12 @@ fn format_accept_entry(enc: EncodingType, q: f32) -> String {
 /// Build an `Accept` header string that mirrors the caller's preference order
 /// so the relay sees the same priority the beacon node asked us for. Each
 /// subsequent entry receives a q-value 0.1 lower than the previous one,
-/// starting at 1.0. Returns an empty string for an empty preference list.
-pub fn build_outbound_accept(preferred: &[EncodingType]) -> String {
+/// starting at 1.0.
+pub fn build_outbound_accept(preferred: AcceptedEncodings) -> String {
     preferred
         .iter()
         .enumerate()
-        .map(|(i, enc)| format_accept_entry(*enc, accept_q_value_for_index(i)))
+        .map(|(i, enc)| format_accept_entry(enc, accept_q_value_for_index(i)))
         .collect::<Vec<_>>()
         .join(",")
 }
@@ -807,24 +841,6 @@ pub async fn deserialize_body(
     }
 
     Err(BodyDeserializeError::UnsupportedMediaType)
-}
-
-#[must_use]
-#[derive(Debug, Clone, Default)]
-pub struct RawRequest {
-    pub body_bytes: Bytes,
-}
-
-impl<S> FromRequest<S> for RawRequest
-where
-    S: Send + Sync,
-{
-    type Rejection = AxumResponse;
-
-    async fn from_request(req: Request, _state: &S) -> Result<Self, Self::Rejection> {
-        let bytes = Bytes::from_request(req, _state).await.map_err(IntoResponse::into_response)?;
-        Ok(Self { body_bytes: bytes })
-    }
 }
 
 #[cfg(unix)]
@@ -983,11 +999,11 @@ mod test {
     use reqwest::header::{ACCEPT, CONTENT_TYPE};
 
     use super::{
-        BodyDeserializeError, CONSENSUS_VERSION_HEADER, OUTBOUND_ACCEPT, accept_q_value_for_index,
-        build_outbound_accept, create_admin_jwt, create_jwt, decode_admin_jwt, decode_jwt,
-        deserialize_body, format_accept_entry, get_consensus_version_header, get_content_type,
-        parse_response_encoding_and_fork, preferred_encoding, random_jwt_secret,
-        validate_admin_jwt, validate_jwt,
+        AcceptedEncodings, BodyDeserializeError, CONSENSUS_VERSION_HEADER, OUTBOUND_ACCEPT,
+        accept_q_value_for_index, build_outbound_accept, create_admin_jwt, create_jwt,
+        decode_admin_jwt, decode_jwt, deserialize_body, format_accept_entry,
+        get_consensus_version_header, get_content_type, parse_response_encoding_and_fork,
+        random_jwt_secret, validate_admin_jwt, validate_jwt,
     };
     use crate::{
         constants::SIGNER_JWT_EXPIRATION,
@@ -1032,7 +1048,7 @@ mod test {
     fn test_missing_accept_header() {
         let headers = HeaderMap::new();
         let result = get_accept_types(&headers).unwrap();
-        assert_eq!(result, vec![EncodingType::Json]);
+        assert_eq!(result, AcceptedEncodings::single(EncodingType::Json));
     }
 
     /// Test accepting JSON
@@ -1041,7 +1057,7 @@ mod test {
         let mut headers = HeaderMap::new();
         headers.append(ACCEPT, HeaderValue::from_str(APPLICATION_JSON).unwrap());
         let result = get_accept_types(&headers).unwrap();
-        assert_eq!(result, vec![EncodingType::Json]);
+        assert_eq!(result, AcceptedEncodings::single(EncodingType::Json));
     }
 
     /// Test accepting SSZ
@@ -1050,7 +1066,7 @@ mod test {
         let mut headers = HeaderMap::new();
         headers.append(ACCEPT, HeaderValue::from_str(APPLICATION_OCTET_STREAM).unwrap());
         let result = get_accept_types(&headers).unwrap();
-        assert_eq!(result, vec![EncodingType::Ssz]);
+        assert_eq!(result, AcceptedEncodings::single(EncodingType::Ssz));
     }
 
     /// Test accepting wildcards
@@ -1059,7 +1075,7 @@ mod test {
         let mut headers = HeaderMap::new();
         headers.append(ACCEPT, HeaderValue::from_str(WILDCARD).unwrap());
         let result = get_accept_types(&headers).unwrap();
-        assert_eq!(result, vec![EncodingType::Json]);
+        assert_eq!(result, AcceptedEncodings::single(EncodingType::Json));
     }
 
     /// Test accepting one header with multiple values (order preserved,
@@ -1070,7 +1086,10 @@ mod test {
         let mut headers = HeaderMap::new();
         headers.append(ACCEPT, HeaderValue::from_str(&header_string).unwrap());
         let result = get_accept_types(&headers).unwrap();
-        assert_eq!(result, vec![EncodingType::Json, EncodingType::Ssz]);
+        assert_eq!(result, AcceptedEncodings {
+            primary: EncodingType::Json,
+            fallback: Some(EncodingType::Ssz)
+        });
     }
 
     /// Test accepting multiple headers
@@ -1080,9 +1099,9 @@ mod test {
         headers.append(ACCEPT, HeaderValue::from_str(APPLICATION_JSON).unwrap());
         headers.append(ACCEPT, HeaderValue::from_str(APPLICATION_OCTET_STREAM).unwrap());
         let result = get_accept_types(&headers).unwrap();
-        assert!(result.contains(&EncodingType::Json));
-        assert!(result.contains(&EncodingType::Ssz));
-        assert_eq!(result.len(), 2);
+        assert!(result.contains(EncodingType::Json));
+        assert!(result.contains(EncodingType::Ssz));
+        assert!(result.fallback.is_some());
     }
 
     /// Test accepting one header with multiple values, including a type that
@@ -1094,7 +1113,10 @@ mod test {
         let mut headers = HeaderMap::new();
         headers.append(ACCEPT, HeaderValue::from_str(&header_string).unwrap());
         let result = get_accept_types(&headers).unwrap();
-        assert_eq!(result, vec![EncodingType::Json, EncodingType::Ssz]);
+        assert_eq!(result, AcceptedEncodings {
+            primary: EncodingType::Json,
+            fallback: Some(EncodingType::Ssz)
+        });
     }
 
     /// Test rejecting an unknown accept type
@@ -1126,10 +1148,10 @@ mod test {
             HeaderValue::from_str("application/json;q=1.0, application/octet-stream;q=0.1")
                 .unwrap(),
         );
-        assert_eq!(get_accept_types(&headers).unwrap(), vec![
-            EncodingType::Json,
-            EncodingType::Ssz
-        ]);
+        assert_eq!(get_accept_types(&headers).unwrap(), AcceptedEncodings {
+            primary: EncodingType::Json,
+            fallback: Some(EncodingType::Ssz)
+        });
 
         let mut headers = HeaderMap::new();
         headers.append(
@@ -1137,10 +1159,10 @@ mod test {
             HeaderValue::from_str("application/octet-stream;q=0.1, application/json;q=1.0")
                 .unwrap(),
         );
-        assert_eq!(get_accept_types(&headers).unwrap(), vec![
-            EncodingType::Json,
-            EncodingType::Ssz
-        ]);
+        assert_eq!(get_accept_types(&headers).unwrap(), AcceptedEncodings {
+            primary: EncodingType::Json,
+            fallback: Some(EncodingType::Ssz)
+        });
     }
 
     /// q=0 is an explicit rejection per RFC 7231 §5.3.1 and must be dropped.
@@ -1151,7 +1173,10 @@ mod test {
             ACCEPT,
             HeaderValue::from_str("application/json, application/octet-stream;q=0").unwrap(),
         );
-        assert_eq!(get_accept_types(&headers).unwrap(), vec![EncodingType::Json]);
+        assert_eq!(
+            get_accept_types(&headers).unwrap(),
+            AcceptedEncodings::single(EncodingType::Json)
+        );
     }
 
     /// An Accept header containing only q=0 for every supported type is a
@@ -1167,37 +1192,163 @@ mod test {
         assert!(get_accept_types(&headers).is_err());
     }
 
-    /// `preferred_encoding` picks the caller's first choice that the server
-    /// can actually produce.
+    /// `AcceptedEncodings::preferred` picks the caller's first choice that
+    /// the server can actually produce.
     #[test]
     fn test_preferred_encoding_picks_highest_q_match() {
-        let accepts = [EncodingType::Json, EncodingType::Ssz];
+        let accepts =
+            AcceptedEncodings { primary: EncodingType::Json, fallback: Some(EncodingType::Ssz) };
         let supported = [EncodingType::Ssz, EncodingType::Json];
-        assert_eq!(preferred_encoding(&accepts, &supported), Some(EncodingType::Json));
+        assert_eq!(accepts.preferred(&supported), Some(EncodingType::Json));
 
-        let accepts = [EncodingType::Ssz];
+        let accepts = AcceptedEncodings::single(EncodingType::Ssz);
         let supported = [EncodingType::Json];
-        assert_eq!(preferred_encoding(&accepts, &supported), None);
+        assert_eq!(accepts.preferred(&supported), None);
     }
 
     /// Outbound Accept should be deterministic and q-ordered to match caller
     /// preference.
     #[test]
     fn test_build_outbound_accept_deterministic() {
-        let s = build_outbound_accept(&[EncodingType::Ssz, EncodingType::Json]);
-        assert_eq!(s, "application/octet-stream;q=1.0,application/json;q=0.9");
-
-        let s = build_outbound_accept(&[EncodingType::Json, EncodingType::Ssz]);
-        assert_eq!(s, "application/json;q=1.0,application/octet-stream;q=0.9");
+        let ssz_then_json =
+            AcceptedEncodings { primary: EncodingType::Ssz, fallback: Some(EncodingType::Json) };
+        let json_then_ssz =
+            AcceptedEncodings { primary: EncodingType::Json, fallback: Some(EncodingType::Ssz) };
+        assert_eq!(
+            build_outbound_accept(ssz_then_json),
+            "application/octet-stream;q=1.0,application/json;q=0.9"
+        );
+        assert_eq!(
+            build_outbound_accept(json_then_ssz),
+            "application/json;q=1.0,application/octet-stream;q=0.9"
+        );
 
         // Stable across repeats
         for _ in 0..100 {
             assert_eq!(
-                build_outbound_accept(&[EncodingType::Ssz, EncodingType::Json]),
+                build_outbound_accept(ssz_then_json),
                 "application/octet-stream;q=1.0,application/json;q=0.9"
             );
         }
     }
+
+    /// `AcceptedEncodings::single` produces a primary with no fallback.
+    #[test]
+    fn test_accepted_encodings_single() {
+        let a = AcceptedEncodings::single(EncodingType::Ssz);
+        assert_eq!(a.primary, EncodingType::Ssz);
+        assert_eq!(a.fallback, None);
+    }
+
+    /// `contains` checks both primary and fallback.
+    #[test]
+    fn test_accepted_encodings_contains() {
+        let only_ssz = AcceptedEncodings::single(EncodingType::Ssz);
+        assert!(only_ssz.contains(EncodingType::Ssz));
+        assert!(!only_ssz.contains(EncodingType::Json));
+
+        let both =
+            AcceptedEncodings { primary: EncodingType::Ssz, fallback: Some(EncodingType::Json) };
+        assert!(both.contains(EncodingType::Ssz));
+        assert!(both.contains(EncodingType::Json));
+    }
+
+    /// `iter` yields primary first, then fallback if present. Single-value
+    /// instances yield exactly one element.
+    #[test]
+    fn test_accepted_encodings_iter_order() {
+        let both =
+            AcceptedEncodings { primary: EncodingType::Json, fallback: Some(EncodingType::Ssz) };
+        assert_eq!(both.iter().collect::<Vec<_>>(), vec![EncodingType::Json, EncodingType::Ssz]);
+
+        let only = AcceptedEncodings::single(EncodingType::Ssz);
+        assert_eq!(only.iter().collect::<Vec<_>>(), vec![EncodingType::Ssz]);
+    }
+
+    /// `IntoIterator` matches `iter`: preference order preserved, fallback
+    /// included only when present.
+    #[test]
+    fn test_accepted_encodings_into_iterator() {
+        let both =
+            AcceptedEncodings { primary: EncodingType::Ssz, fallback: Some(EncodingType::Json) };
+        let collected: Vec<_> = both.into_iter().collect();
+        assert_eq!(collected, vec![EncodingType::Ssz, EncodingType::Json]);
+
+        let only = AcceptedEncodings::single(EncodingType::Json);
+        let collected: Vec<_> = only.into_iter().collect();
+        assert_eq!(collected, vec![EncodingType::Json]);
+    }
+
+    /// Duplicate media types in an Accept header are deduplicated — the
+    /// second occurrence of `primary` must not populate `fallback`.
+    #[test]
+    fn test_accept_header_duplicate_dedups() {
+        let header_string = format!("{APPLICATION_JSON}, {APPLICATION_JSON}");
+        let mut headers = HeaderMap::new();
+        headers.append(ACCEPT, HeaderValue::from_str(&header_string).unwrap());
+        assert_eq!(
+            get_accept_types(&headers).unwrap(),
+            AcceptedEncodings::single(EncodingType::Json)
+        );
+    }
+
+    /// Once primary and fallback are filled, further supported entries must
+    /// not overwrite fallback. (Belt-and-suspenders — only two supported
+    /// variants exist today, so this is mostly a guard against future
+    /// regressions if a third variant is added.)
+    #[test]
+    fn test_accept_header_third_supported_entry_ignored() {
+        // Repeat SSZ to simulate a third supported-but-duplicate entry
+        // landing after primary+fallback are already set.
+        let header_string =
+            format!("{APPLICATION_JSON}, {APPLICATION_OCTET_STREAM}, {APPLICATION_JSON}");
+        let mut headers = HeaderMap::new();
+        headers.append(ACCEPT, HeaderValue::from_str(&header_string).unwrap());
+        assert_eq!(get_accept_types(&headers).unwrap(), AcceptedEncodings {
+            primary: EncodingType::Json,
+            fallback: Some(EncodingType::Ssz),
+        });
+    }
+
+    /// Unsupported media types interleaved with supported ones must not
+    /// occupy the primary or fallback slots.
+    #[test]
+    fn test_accept_header_unsupported_does_not_fill_fallback() {
+        let header_string = format!("{APPLICATION_TEXT}, {APPLICATION_JSON}");
+        let mut headers = HeaderMap::new();
+        headers.append(ACCEPT, HeaderValue::from_str(&header_string).unwrap());
+        // `saw_any = true` and `had_supported = true`, so we return the
+        // supported type as primary with no fallback.
+        assert_eq!(
+            get_accept_types(&headers).unwrap(),
+            AcceptedEncodings::single(EncodingType::Json)
+        );
+    }
+
+    /// `build_outbound_accept` on a single-value `AcceptedEncodings` emits
+    /// exactly one entry at q=1.0 (no trailing comma, no orphan fallback).
+    #[test]
+    fn test_build_outbound_accept_single_value() {
+        let only_ssz = AcceptedEncodings::single(EncodingType::Ssz);
+        assert_eq!(build_outbound_accept(only_ssz), "application/octet-stream;q=1.0");
+
+        let only_json = AcceptedEncodings::single(EncodingType::Json);
+        assert_eq!(build_outbound_accept(only_json), "application/json;q=1.0");
+    }
+
+    /// `preferred` walks the caller's preference order and returns the
+    /// first supported match — not the server's first choice.
+    #[test]
+    fn test_preferred_respects_caller_order_over_server_order() {
+        // Caller prefers JSON first. Server lists SSZ first. Caller wins.
+        let accepts =
+            AcceptedEncodings { primary: EncodingType::Json, fallback: Some(EncodingType::Ssz) };
+        assert_eq!(
+            accepts.preferred(&[EncodingType::Ssz, EncodingType::Json]),
+            Some(EncodingType::Json)
+        );
+    }
+
     /// Snapshot test: constant emits exactly what we document in
     /// OUTBOUND_ACCEPT.
     #[test]

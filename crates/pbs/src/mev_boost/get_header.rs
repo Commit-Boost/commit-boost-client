@@ -21,7 +21,7 @@ use cb_common::{
     signature::verify_signed_message,
     types::{BlsPublicKey, BlsPublicKeyBytes, BlsSignature, Chain},
     utils::{
-        EncodingType, OUTBOUND_ACCEPT, build_outbound_accept,
+        AcceptedEncodings, EncodingType, OUTBOUND_ACCEPT, build_outbound_accept,
         get_bid_value_from_signed_builder_bid_ssz, get_user_agent_with_version, ms_into_slot,
         parse_response_encoding_and_fork, read_chunked_body_with_max, timestamp_of_slot_start_sec,
         utcnow_ms,
@@ -69,7 +69,7 @@ struct RequestInfo {
 
     /// The accepted encoding types from the original request, ordered by
     /// descending caller preference (q-value).
-    accepted_types: Vec<EncodingType>,
+    accepted_types: AcceptedEncodings,
 }
 
 struct GetHeaderResponseInfo {
@@ -115,7 +115,7 @@ pub async fn get_header<S: BuilderApiState>(
     params: GetHeaderParams,
     req_headers: HeaderMap,
     state: PbsState<S>,
-    accepted_types: Vec<EncodingType>,
+    accepted_types: AcceptedEncodings,
 ) -> eyre::Result<Option<CompoundGetHeaderResponse>> {
     let parent_block = Arc::new(RwLock::new(None));
     let extra_validation_enabled =
@@ -172,7 +172,7 @@ pub async fn get_header<S: BuilderApiState>(
         HeaderValidationMode::None => {
             // No validation mode, so forward the caller's preference verbatim
             // (still q-ordered) — the relay's response is passed through.
-            build_outbound_accept(&accepted_types)
+            build_outbound_accept(accepted_types)
         }
         _ => {
             // We're unpacking the body, so use the documented, deterministic
@@ -429,7 +429,7 @@ async fn send_one_get_header(
 
                     // Make sure the response is encoded in one of the accepted
                     // types since we're passing the raw response directly to the client
-                    if !request_info.accepted_types.contains(&res.encoding_type) {
+                    if !request_info.accepted_types.contains(res.encoding_type) {
                         return Err(PbsError::RelayResponse {
                             error_msg: format!(
                                 "relay returned unsupported encoding type for get_header in no-validation mode: {:?}",

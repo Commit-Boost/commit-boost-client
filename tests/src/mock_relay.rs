@@ -27,9 +27,8 @@ use cb_common::{
     signature::sign_builder_root,
     types::{BlsSecretKey, Chain},
     utils::{
-        CONSENSUS_VERSION_HEADER, EncodingType, RawRequest, TestRandomSeed, deserialize_body,
-        get_accept_types, get_consensus_version_header, get_content_type,
-        timestamp_of_slot_start_sec,
+        CONSENSUS_VERSION_HEADER, EncodingType, TestRandomSeed, deserialize_body, get_accept_types,
+        get_consensus_version_header, get_content_type, timestamp_of_slot_start_sec,
     },
 };
 use cb_pbs::MAX_SIZE_SUBMIT_BLOCK_RESPONSE;
@@ -210,11 +209,11 @@ async fn handle_get_header(
         get_consensus_version_header(&headers).unwrap_or(ForkName::Electra);
 
     let content_type = if state.supported_content_types.contains(&EncodingType::Ssz) &&
-        accept_types.contains(&EncodingType::Ssz)
+        accept_types.contains(EncodingType::Ssz)
     {
         EncodingType::Ssz
     } else if state.supported_content_types.contains(&EncodingType::Json) &&
-        accept_types.contains(&EncodingType::Json)
+        accept_types.contains(EncodingType::Json)
     {
         EncodingType::Json
     } else {
@@ -337,7 +336,7 @@ async fn handle_register_validator(
 async fn handle_submit_block_v1(
     headers: HeaderMap,
     State(state): State<Arc<MockRelayState>>,
-    raw_request: RawRequest,
+    body_bytes: axum::body::Bytes,
 ) -> Response {
     if state.use_not_found_for_submit_block() {
         return StatusCode::NOT_FOUND.into_response();
@@ -359,11 +358,11 @@ async fn handle_submit_block_v1(
     let accept_types = accept_types.unwrap();
     let consensus_version_header = get_consensus_version_header(&headers);
     let response_content_type = if state.supported_content_types.contains(&EncodingType::Ssz) &&
-        accept_types.contains(&EncodingType::Ssz)
+        accept_types.contains(EncodingType::Ssz)
     {
         EncodingType::Ssz
     } else if state.supported_content_types.contains(&EncodingType::Json) &&
-        accept_types.contains(&EncodingType::Json)
+        accept_types.contains(EncodingType::Json)
     {
         EncodingType::Json
     } else {
@@ -382,7 +381,7 @@ async fn handle_submit_block_v1(
         vec![1u8; 1 + MAX_SIZE_SUBMIT_BLOCK_RESPONSE]
     } else {
         let mut execution_payload = ExecutionPayloadElectra::test_random();
-        let submit_block = deserialize_body(&headers, raw_request.body_bytes).await.map_err(|e| {
+        let submit_block = deserialize_body(&headers, body_bytes).await.map_err(|e| {
             error!(%e, "failed to deserialize signed blinded block");
             (StatusCode::BAD_REQUEST, format!("failed to deserialize body: {e}"))
         });
