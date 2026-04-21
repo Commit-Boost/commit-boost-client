@@ -59,8 +59,9 @@ struct SubmitBlockResponseInfo {
     /// The raw body of the response
     response_bytes: Vec<u8>,
 
-    /// The content type the response is encoded with
-    content_type: EncodingType,
+    /// The content type the response is encoded with. `None` on v2
+    /// ACCEPTED/OK paths where no body is returned.
+    content_type: Option<EncodingType>,
 
     /// Which fork the response bid is for (if provided as a header, rather than
     /// part of the body)
@@ -340,8 +341,13 @@ async fn send_submit_block_full(
         return Ok(None);
     }
 
-    // Decode the payload based on content type
-    let decoded_response = match block_response.content_type {
+    // Decode the payload based on content type.
+    // The v1 guard above ensures `content_type` is Some
+    let content_type = block_response.content_type.ok_or_else(|| PbsError::RelayResponse {
+        error_msg: "v1 submit_block response missing Content-Type".to_string(),
+        code: block_response.code.as_u16(),
+    })?;
+    let decoded_response = match content_type {
         EncodingType::Json => decode_json_payload(&block_response.response_bytes)?,
         EncodingType::Ssz => {
             let fork = match block_response.fork {
@@ -400,8 +406,13 @@ async fn send_submit_block_light(
         return Ok(None);
     }
 
-    // Decode the payload based on content type
-    let fork = match block_response.content_type {
+    // Decode the payload based on content type. The v1 guard above ensures
+    // `content_type` is Some (v2 paths return None and early-exit).
+    let content_type = block_response.content_type.ok_or_else(|| PbsError::RelayResponse {
+        error_msg: "v1 submit_block response missing Content-Type".to_string(),
+        code: block_response.code.as_u16(),
+    })?;
+    let fork = match content_type {
         EncodingType::Json => get_light_info_from_json(&block_response.response_bytes)?,
         EncodingType::Ssz => match block_response.fork {
             Some(fork) => fork,
@@ -426,7 +437,7 @@ async fn send_submit_block_light(
 
     Ok(Some(LightSubmitBlockResponse {
         version: fork,
-        encoding_type: block_response.content_type,
+        encoding_type: content_type,
         raw_bytes: block_response.response_bytes,
     }))
 }
@@ -529,7 +540,7 @@ async fn send_submit_block_impl(
             StatusCode::ACCEPTED => {
                 return Ok(SubmitBlockResponseInfo {
                     response_bytes: Vec::new(),
-                    content_type: EncodingType::Json, // dummy value
+                    content_type: None,
                     fork: None,
                     code,
                     request_latency,
@@ -542,7 +553,7 @@ async fn send_submit_block_impl(
                 );
                 return Ok(SubmitBlockResponseInfo {
                     response_bytes: Vec::new(),
-                    content_type: EncodingType::Json, // dummy value
+                    content_type: None,
                     fork: None,
                     code,
                     request_latency,
@@ -581,7 +592,13 @@ async fn send_submit_block_impl(
 
     // Decode the body
     let response_bytes = read_chunked_body_with_max(res, MAX_SIZE_SUBMIT_BLOCK_RESPONSE).await?;
-    Ok(SubmitBlockResponseInfo { response_bytes, content_type, fork, code, request_latency })
+    Ok(SubmitBlockResponseInfo {
+        response_bytes,
+        content_type: Some(content_type),
+        fork,
+        code,
+        request_latency,
+    })
 }
 
 /// Decode a JSON-encoded submit_block response
