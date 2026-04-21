@@ -108,14 +108,14 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
                             )));
                         }
                     }?;
-                let content_type = payload_and_blobs.encoding_type.content_type();
-                let content_type_header = HeaderValue::from_str(content_type).unwrap();
+                let content_type_header =
+                    payload_and_blobs.encoding_type.content_type_header().clone();
 
                 // Build response
                 let mut res = payload_and_blobs.raw_bytes.into_response();
                 res.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
                 res.headers_mut().insert(CONTENT_TYPE, content_type_header);
-                info!("sending response as {} (light)", content_type);
+                info!("sending response as {} (light)", payload_and_blobs.encoding_type);
                 Ok(res)
             }
             CompoundSubmitBlockResponse::Full(payload_and_blobs) => {
@@ -130,9 +130,7 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
                 if accepts_ssz {
                     let mut response = payload_and_blobs.data.as_ssz_bytes().into_response();
 
-                    // This won't actually fail since the string is a const
-                    let content_type_header =
-                        HeaderValue::from_str(EncodingType::Ssz.content_type()).unwrap();
+                    let content_type_header = EncodingType::Ssz.content_type_header().clone();
                     response.headers_mut().insert(CONTENT_TYPE, content_type_header);
                     response.headers_mut().insert(
                         CONSENSUS_VERSION_HEADER,

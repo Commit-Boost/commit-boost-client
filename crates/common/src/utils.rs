@@ -5,6 +5,7 @@ use std::{
     fmt::Display,
     net::Ipv4Addr,
     str::FromStr,
+    sync::LazyLock,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -745,6 +746,22 @@ impl EncodingType {
         match self {
             EncodingType::Json => APPLICATION_JSON,
             EncodingType::Ssz => APPLICATION_OCTET_STREAM,
+        }
+    }
+
+    /// Pre-built `Content-Type` header for this encoding. `HeaderValue` is
+    /// not `const`-constructible in stable Rust, so the values are
+    /// lazy-initialized once per process via `LazyLock` from static ASCII
+    /// strings. Callers can clone the returned reference cheaply (the
+    /// underlying bytes are shared).
+    pub fn content_type_header(&self) -> &'static HeaderValue {
+        static JSON_HEADER: LazyLock<HeaderValue> =
+            LazyLock::new(|| HeaderValue::from_static(APPLICATION_JSON));
+        static SSZ_HEADER: LazyLock<HeaderValue> =
+            LazyLock::new(|| HeaderValue::from_static(APPLICATION_OCTET_STREAM));
+        match self {
+            EncodingType::Json => &JSON_HEADER,
+            EncodingType::Ssz => &SSZ_HEADER,
         }
     }
 }

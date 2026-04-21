@@ -63,16 +63,15 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
                         let consensus_version_header =
                             HeaderValue::from_str(&light_bid.version.to_string())
                                 .expect("fork name is always a valid header value");
-                        let content_type = light_bid.encoding_type.content_type();
-                        let content_type_header = HeaderValue::from_str(content_type)
-                            .expect("content type is a static ASCII string");
+                        let content_type_header =
+                            light_bid.encoding_type.content_type_header().clone();
 
                         // Build response
                         let mut res = light_bid.raw_bytes.into_response();
                         res.headers_mut()
                             .insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
                         res.headers_mut().insert(CONTENT_TYPE, content_type_header);
-                        info!("sending response as {} (light)", content_type);
+                        info!("sending response as {} (light)", light_bid.encoding_type);
                         Ok(res)
                     }
                     CompoundGetHeaderResponse::Full(max_bid) => {
@@ -94,8 +93,7 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
                                     HeaderValue::from_str(&max_bid.version.to_string())
                                         .expect("fork name is always a valid header value");
                                 let content_type_header =
-                                    HeaderValue::from_str(EncodingType::Ssz.content_type())
-                                        .expect("content type is a static ASCII string");
+                                    EncodingType::Ssz.content_type_header().clone();
 
                                 let mut res = max_bid.data.as_ssz_bytes().into_response();
                                 res.headers_mut()
