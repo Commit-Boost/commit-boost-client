@@ -43,8 +43,6 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
     // Honor caller q-value preference: pick the highest-priority encoding that
     // we can actually produce. Server preference for tiebreaks is SSZ first.
     let response_encoding = accept_types.preferred(&[EncodingType::Ssz, EncodingType::Json]);
-    let accepts_ssz = response_encoding == Some(EncodingType::Ssz);
-    let accepts_json = response_encoding == Some(EncodingType::Json);
 
     info!(ua, ms_into_slot, "new request");
 
@@ -60,20 +58,14 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
                             "received header (unvalidated)"
                         );
 
-                        // Create the headers
+                        // ForkName::to_string() always yields valid ASCII,
+                        // so HeaderValue::from_str cannot fail here.
                         let consensus_version_header =
-                            match HeaderValue::from_str(&light_bid.version.to_string()) {
-                                Ok(consensus_version_header) => {
-                                    Ok::<HeaderValue, PbsClientError>(consensus_version_header)
-                                }
-                                Err(e) => {
-                                    return Err(PbsClientError::RelayError(format!(
-                                        "error decoding consensus version from relay payload: {e}"
-                                    )));
-                                }
-                            }?;
+                            HeaderValue::from_str(&light_bid.version.to_string())
+                                .expect("fork name is always a valid header value");
                         let content_type = light_bid.encoding_type.content_type();
-                        let content_type_header = HeaderValue::from_str(content_type).unwrap();
+                        let content_type_header = HeaderValue::from_str(content_type)
+                            .expect("content type is a static ASCII string");
 
                         // Build response
                         let mut res = light_bid.raw_bytes.into_response();
@@ -87,48 +79,35 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
                         // Full validation mode, so respond based on requester accept types
                         info!(value_eth = format_ether(*max_bid.data.message.value()), block_hash =% max_bid.block_hash(), "received header");
 
-                        // Handle SSZ
-                        if accepts_ssz {
-                            let mut res = max_bid.data.as_ssz_bytes().into_response();
-                            let consensus_version_header = match HeaderValue::from_str(
-                                &max_bid.version.to_string(),
-                            ) {
-                                Ok(consensus_version_header) => {
-                                    Ok::<HeaderValue, PbsClientError>(consensus_version_header)
-                                }
-                                Err(e) => {
-                                    if accepts_json {
-                                        info!("sending response as JSON");
-                                        return Ok(
-                                            (StatusCode::OK, axum::Json(max_bid)).into_response()
-                                        );
-                                    } else {
-                                        return Err(PbsClientError::RelayError(format!(
-                                            "error decoding consensus version from relay payload: {e}"
-                                        )));
-                                    }
-                                }
-                            }?;
-
-                            // This won't actually fail since the string is a const
-                            let content_type_header =
-                                HeaderValue::from_str(EncodingType::Ssz.content_type()).unwrap();
-
-                            res.headers_mut()
-                                .insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
-                            res.headers_mut().insert(CONTENT_TYPE, content_type_header);
-                            info!("sending response as SSZ");
-                            return Ok(res);
-                        }
-
-                        // Handle JSON
-                        if accepts_json {
-                            Ok((StatusCode::OK, axum::Json(max_bid)).into_response())
-                        } else {
-                            // This shouldn't ever happen but the compiler needs it
-                            Err(PbsClientError::DecodeError(
+                        // Three arms: no viable encoding (unreachable in
+                        // practice — `get_accept_types` errors earlier if
+                        // the caller offers nothing we support), SSZ, or JSON.
+                        match response_encoding {
+                            None => Err(PbsClientError::DecodeError(
                                 "no viable accept types in request".to_string(),
-                            ))
+                            )),
+                            Some(EncodingType::Ssz) => {
+                                // ForkName::to_string() always yields valid
+                                // ASCII, so HeaderValue::from_str cannot
+                                // fail here.
+                                let consensus_version_header =
+                                    HeaderValue::from_str(&max_bid.version.to_string())
+                                        .expect("fork name is always a valid header value");
+                                let content_type_header =
+                                    HeaderValue::from_str(EncodingType::Ssz.content_type())
+                                        .expect("content type is a static ASCII string");
+
+                                let mut res = max_bid.data.as_ssz_bytes().into_response();
+                                res.headers_mut()
+                                    .insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
+                                res.headers_mut().insert(CONTENT_TYPE, content_type_header);
+                                info!("sending response as SSZ");
+                                Ok(res)
+                            }
+                            Some(EncodingType::Json) => {
+                                info!("sending response as JSON");
+                                Ok((StatusCode::OK, axum::Json(max_bid)).into_response())
+                            }
                         }
                     }
                 }
