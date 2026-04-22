@@ -34,7 +34,7 @@ If you don't want to use the Docker builder, you can compile the Commit-Boost ar
 
 Requirements:
 
-- Rust 1.91+
+- Rust 1.89+
 - GCC (or another C compiler of your choice)
 - OpenSSL development libraries
 - Protobuf Compiler (`protoc`)

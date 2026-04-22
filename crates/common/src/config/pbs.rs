@@ -24,8 +24,7 @@ use crate::{
     commit::client::SignerClient,
     config::{
         CONFIG_ENV, MODULE_JWT_ENV, MuxKeysLoader, PBS_IMAGE_DEFAULT, PBS_SERVICE_NAME, PbsMuxes,
-        SIGNER_TLS_CERTIFICATE_NAME, SIGNER_TLS_CERTIFICATES_PATH_ENV, SIGNER_URL_ENV,
-        SignerConfig, TlsMode, load_env_var, load_file_from_env,
+        SIGNER_URL_ENV, load_env_var, load_file_from_env,
     },
     pbs::{
         DEFAULT_PBS_PORT, DEFAULT_REGISTRY_REFRESH_SECONDS, DefaultTimeout, LATE_IN_SLOT_TIME_MS,
@@ -183,16 +182,18 @@ impl PbsConfig {
         }
 
         if let Some(rpc_url) = &self.rpc_url {
-            let provider = ProviderBuilder::new().connect_http(rpc_url.clone());
-            let chain_id = provider.get_chain_id().await?;
-            let chain_id_big = U256::from(chain_id);
-            ensure!(
-                chain_id_big == chain.id(),
-                "Rpc url is for the wrong chain, expected: {} ({:?}) got {}",
-                chain.id(),
-                chain,
-                chain_id_big
-            );
+            // TODO: remove this once we support chain ids for custom chains
+            if !matches!(chain, Chain::Custom { .. }) {
+                let provider = ProviderBuilder::new().connect_http(rpc_url.clone());
+                let chain_id = provider.get_chain_id().await?;
+                ensure!(
+                    chain_id == chain.id(),
+                    "Rpc url is for the wrong chain, expected: {} ({:?}) got {}",
+                    chain.id(),
+                    chain,
+                    chain_id
+                );
+            }
         }
 
         ensure!(
@@ -347,7 +348,6 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
         chain: Chain,
         relays: Vec<RelayConfig>,
         pbs: CustomPbsConfig<U>,
-        signer: Option<SignerConfig>,
         muxes: Option<PbsMuxes>,
     }
 
@@ -404,22 +404,8 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
         // if custom pbs requires a signer client, load jwt
         let module_jwt = Jwt(load_env_var(MODULE_JWT_ENV)?);
         let signer_server_url = load_env_var(SIGNER_URL_ENV)?.parse()?;
-        let certs_path = match cb_config
-            .signer
-            .ok_or_else(|| eyre::eyre!("with_signer = true but no [signer] section in config"))?
-            .tls_mode
-        {
-            TlsMode::Insecure => None,
-            TlsMode::Certificate(path) => Some(
-                load_env_var(SIGNER_TLS_CERTIFICATES_PATH_ENV)
-                    .map(PathBuf::from)
-                    .unwrap_or(path)
-                    .join(SIGNER_TLS_CERTIFICATE_NAME),
-            ),
-        };
         Some(SignerClient::new(
             signer_server_url,
-            certs_path,
             module_jwt,
             ModuleId(PBS_SERVICE_NAME.to_string()),
         )?)

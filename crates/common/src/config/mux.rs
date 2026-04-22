@@ -330,7 +330,7 @@ where
 
         offset += limit;
 
-        if offset.is_multiple_of(1000) {
+        if offset % 1000 == 0 {
             debug!("fetched {offset} keys");
         }
     }

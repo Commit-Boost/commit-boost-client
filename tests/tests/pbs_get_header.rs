@@ -12,7 +12,7 @@ use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
     mock_relay::{MockRelayState, start_mock_relay_service},
     mock_validator::MockValidator,
-    utils::{generate_mock_relay, get_pbs_config, setup_test_env, to_pbs_config},
+    utils::{generate_mock_relay, get_pbs_static_config, setup_test_env, to_pbs_config},
 };
 use eyre::Result;
 use lh_types::ForkName;
@@ -36,7 +36,7 @@ async fn test_get_header() -> Result<()> {
     tokio::spawn(start_mock_relay_service(mock_state.clone(), relay_port));
 
     // Run the PBS service
-    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay.clone()]);
+    let config = to_pbs_config(chain, get_pbs_static_config(pbs_port), vec![mock_relay.clone()]);
     let state = PbsState::new(config, PathBuf::new());
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
@@ -59,7 +59,7 @@ async fn test_get_header() -> Result<()> {
     assert_eq!(res.data.message.header().timestamp(), timestamp_of_slot_start_sec(0, chain));
     assert_eq!(
         res.data.signature,
-        sign_builder_root(chain, &mock_state.signer, &res.data.message.tree_hash_root())
+        sign_builder_root(chain, &mock_state.signer, res.data.message.tree_hash_root())
     );
     Ok(())
 }
@@ -82,7 +82,7 @@ async fn test_get_header_returns_204_if_relay_down() -> Result<()> {
     // tokio::spawn(start_mock_relay_service(mock_state.clone(), relay_port));
 
     // Run the PBS service
-    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay.clone()]);
+    let config = to_pbs_config(chain, get_pbs_static_config(pbs_port), vec![mock_relay.clone()]);
     let state = PbsState::new(config, PathBuf::new());
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
@@ -114,7 +114,7 @@ async fn test_get_header_returns_400_if_request_is_invalid() -> Result<()> {
     tokio::spawn(start_mock_relay_service(mock_state.clone(), relay_port));
 
     // Run the PBS service
-    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay.clone()]);
+    let config = to_pbs_config(chain, get_pbs_static_config(pbs_port), vec![mock_relay.clone()]);
     let state = PbsState::new(config, PathBuf::new());
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 

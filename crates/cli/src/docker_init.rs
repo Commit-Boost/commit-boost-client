@@ -6,17 +6,16 @@ use std::{
 
 use cb_common::{
     config::{
-        ADMIN_JWT_ENV, CHAIN_SPEC_ENV, CONFIG_DEFAULT, CONFIG_ENV, CommitBoostConfig,
-        DIRK_CA_CERT_DEFAULT, DIRK_CA_CERT_ENV, DIRK_CERT_DEFAULT, DIRK_CERT_ENV,
-        DIRK_DIR_SECRETS_DEFAULT, DIRK_DIR_SECRETS_ENV, DIRK_KEY_DEFAULT, DIRK_KEY_ENV, JWTS_ENV,
-        LOGS_DIR_DEFAULT, LOGS_DIR_ENV, LogsSettings, METRICS_PORT_ENV, MODULE_ID_ENV,
-        MODULE_JWT_ENV, ModuleKind, PBS_ENDPOINT_ENV, PBS_SERVICE_NAME, PROXY_DIR_DEFAULT,
-        PROXY_DIR_ENV, PROXY_DIR_KEYS_DEFAULT, PROXY_DIR_KEYS_ENV, PROXY_DIR_SECRETS_DEFAULT,
+        CHAIN_SPEC_ENV, CONFIG_DEFAULT, CONFIG_ENV, CommitBoostConfig, DIRK_CA_CERT_DEFAULT,
+        DIRK_CA_CERT_ENV, DIRK_CERT_DEFAULT, DIRK_CERT_ENV, DIRK_DIR_SECRETS_DEFAULT,
+        DIRK_DIR_SECRETS_ENV, DIRK_KEY_DEFAULT, DIRK_KEY_ENV, JWTS_ENV, LOGS_DIR_DEFAULT,
+        LOGS_DIR_ENV, LogsSettings, METRICS_PORT_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, ModuleKind,
+        PBS_ENDPOINT_ENV, PBS_SERVICE_NAME, PROXY_DIR_DEFAULT, PROXY_DIR_ENV,
+        PROXY_DIR_KEYS_DEFAULT, PROXY_DIR_KEYS_ENV, PROXY_DIR_SECRETS_DEFAULT,
         PROXY_DIR_SECRETS_ENV, SIGNER_DEFAULT, SIGNER_DIR_KEYS_DEFAULT, SIGNER_DIR_KEYS_ENV,
         SIGNER_DIR_SECRETS_DEFAULT, SIGNER_DIR_SECRETS_ENV, SIGNER_ENDPOINT_ENV, SIGNER_KEYS_ENV,
-        SIGNER_PORT_DEFAULT, SIGNER_SERVICE_NAME, SIGNER_TLS_CERTIFICATE_NAME,
-        SIGNER_TLS_CERTIFICATES_PATH_DEFAULT, SIGNER_TLS_CERTIFICATES_PATH_ENV,
-        SIGNER_TLS_KEY_NAME, SIGNER_URL_ENV, SignerConfig, SignerType, StaticModuleConfig,
+        SIGNER_PORT_DEFAULT, SIGNER_SERVICE_NAME, SIGNER_URL_ENV, SignerConfig, SignerType,
+        StaticModuleConfig,
     },
     pbs::{BUILDER_V1_API_PATH, GET_STATUS_PATH},
     signer::{ProxyStore, SignerLoader},
@@ -131,7 +130,10 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
         .as_ref()
         .map(|m| m.start_port)
         .unwrap_or_default();
-    let needs_signer_module = service_config.config_info.cb_config.needs_signer_module();
+    let needs_signer_module = service_config.config_info.cb_config.pbs.with_signer ||
+        service_config.config_info.cb_config.modules.as_ref().is_some_and(|modules| {
+            modules.iter().any(|module| matches!(module.kind, ModuleKind::Commit))
+        });
     let signer_config = if needs_signer_module {
         Some(service_config.config_info.cb_config.signer.clone().ok_or_else(|| {
             eyre::eyre!(
@@ -141,21 +143,26 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
     } else {
         None
     };
-    let signer_server_url =
-        service_config.config_info.cb_config.signer_server_url(SIGNER_PORT_DEFAULT);
-
-    // Warn if the certificates path is not set for a TLS signer
-    if service_config.config_info.cb_config.signer_certs_path().is_none() {
-        service_config.warnings.push(
-            "Signer TLS mode is set to Insecure, using HTTP instead of HTTPS for signer communication".to_string(),
-        );
-    }
+    let signer_server = if let Some(SignerConfig { inner: SignerType::Remote { url }, .. }) =
+        &service_config.config_info.cb_config.signer
+    {
+        url.to_string()
+    } else {
+        let signer_port = service_config
+            .config_info
+            .cb_config
+            .signer
+            .as_ref()
+            .map(|s| s.port)
+            .unwrap_or(SIGNER_PORT_DEFAULT);
+        format!("http://cb_signer:{signer_port}")
+    };
 
     // setup modules
     if let Some(ref modules_config) = service_config.config_info.cb_config.modules {
         for module in modules_config.clone() {
             let (module_cid, module_service) =
-                create_module_service(&module, signer_server_url.as_str(), &mut service_config)?;
+                create_module_service(&module, signer_server.as_str(), &mut service_config)?;
             services.insert(module_cid, Some(module_service));
         }
     };
@@ -289,24 +296,14 @@ fn create_pbs_service(service_config: &mut ServiceCreationInfo) -> eyre::Result<
         service_config.metrics_port += 1;
     }
 
-    // Logging env/volume
+    // Logging
     if cb_config.logs.file.enabled {
         let (key, val) = get_env_val(LOGS_DIR_ENV, LOGS_DIR_DEFAULT);
         envs.insert(key, val);
     }
-    volumes.extend(get_log_volume(&cb_config.logs, PBS_SERVICE_NAME)?);
-
-    // Certs env/volume
-    if cb_config.needs_signer_module() &&
-        let Some(certs_path) = cb_config.signer_certs_path()
-    {
-        volumes.push(create_cert_binding(certs_path));
-        let (key, val) =
-            get_env_val(SIGNER_TLS_CERTIFICATES_PATH_ENV, SIGNER_TLS_CERTIFICATES_PATH_DEFAULT);
-        envs.insert(key, val);
-    }
 
     // Create the service
+    volumes.extend(get_log_volume(&cb_config.logs, PBS_SERVICE_NAME)?);
     let pbs_service = Service {
         container_name: Some("cb_pbs".to_owned()),
         image: Some(cb_config.pbs.docker_image.clone()),
@@ -341,12 +338,8 @@ fn create_signer_service_local(
     let cb_config = &service_config.config_info.cb_config;
     let config_volume = &service_config.config_info.config_volume;
     let metrics_port = service_config.metrics_port;
-    let mut envs = IndexMap::from([
-        get_env_val(CONFIG_ENV, CONFIG_DEFAULT),
-        get_env_same(JWTS_ENV),
-        get_env_same(ADMIN_JWT_ENV),
-        get_env_val(SIGNER_TLS_CERTIFICATES_PATH_ENV, SIGNER_TLS_CERTIFICATES_PATH_DEFAULT),
-    ]);
+    let mut envs =
+        IndexMap::from([get_env_val(CONFIG_ENV, CONFIG_DEFAULT), get_env_same(JWTS_ENV)]);
     let mut volumes = vec![config_volume.clone()];
 
     // Bind the API to 0.0.0.0
@@ -380,7 +373,7 @@ fn create_signer_service_local(
         service_config.metrics_port += 1;
     }
 
-    // Logging envs/volume
+    // Logging
     if cb_config.logs.file.enabled {
         let (key, val) = get_env_val(LOGS_DIR_ENV, LOGS_DIR_DEFAULT);
         envs.insert(key, val);
@@ -389,7 +382,6 @@ fn create_signer_service_local(
 
     // write jwts to env
     service_config.envs.insert(JWTS_ENV.into(), format_comma_separated(&service_config.jwts));
-    service_config.envs.insert(ADMIN_JWT_ENV.into(), random_jwt_secret());
 
     // Signer loader volumes and envs
     match loader {
@@ -449,11 +441,6 @@ fn create_signer_service_local(
         }
     }
 
-    // Add TLS support if needed
-    if let Some(certs_path) = cb_config.signer_certs_path() {
-        add_tls_certs_volume(&mut volumes, certs_path)?
-    }
-
     // Create the service
     let signer_networks = vec![SIGNER_NETWORK.to_owned()];
     let signer_service = Service {
@@ -465,8 +452,8 @@ fn create_signer_service_local(
         environment: Environment::KvPair(envs),
         healthcheck: Some(Healthcheck {
             test: Some(HealthcheckTest::Single(format!(
-                "curl -k -f {}/status",
-                cb_config.signer_server_url(SIGNER_PORT_DEFAULT),
+                "curl -f http://localhost:{}/status",
+                signer_config.port,
             ))),
             interval: Some("30s".into()),
             timeout: Some("5s".into()),
@@ -497,8 +484,6 @@ fn create_signer_service_dirk(
     let mut envs = IndexMap::from([
         get_env_val(CONFIG_ENV, CONFIG_DEFAULT),
         get_env_same(JWTS_ENV),
-        get_env_same(ADMIN_JWT_ENV),
-        get_env_val(SIGNER_TLS_CERTIFICATES_PATH_ENV, SIGNER_TLS_CERTIFICATES_PATH_DEFAULT),
         get_env_val(DIRK_CERT_ENV, DIRK_CERT_DEFAULT),
         get_env_val(DIRK_KEY_ENV, DIRK_KEY_DEFAULT),
         get_env_val(DIRK_DIR_SECRETS_ENV, DIRK_DIR_SECRETS_DEFAULT),
@@ -541,7 +526,7 @@ fn create_signer_service_dirk(
         service_config.metrics_port += 1;
     }
 
-    // Logging env/volume
+    // Logging
     if cb_config.logs.file.enabled {
         let (key, val) = get_env_val(LOGS_DIR_ENV, LOGS_DIR_DEFAULT);
         envs.insert(key, val);
@@ -550,7 +535,6 @@ fn create_signer_service_dirk(
 
     // write jwts to env
     service_config.envs.insert(JWTS_ENV.into(), format_comma_separated(&service_config.jwts));
-    service_config.envs.insert(ADMIN_JWT_ENV.into(), random_jwt_secret());
 
     // CA cert volume and env
     if let Some(ca_cert_path) = ca_cert_path {
@@ -576,11 +560,6 @@ fn create_signer_service_dirk(
         None => {}
     }
 
-    // Add TLS support if needed
-    if let Some(certs_path) = cb_config.signer_certs_path() {
-        add_tls_certs_volume(&mut volumes, certs_path)?
-    }
-
     // Create the service
     let signer_networks = vec![SIGNER_NETWORK.to_owned()];
     let signer_service = Service {
@@ -592,8 +571,8 @@ fn create_signer_service_dirk(
         environment: Environment::KvPair(envs),
         healthcheck: Some(Healthcheck {
             test: Some(HealthcheckTest::Single(format!(
-                "curl -k -f {}/status",
-                cb_config.signer_server_url(SIGNER_PORT_DEFAULT),
+                "curl -f http://localhost:{}/status",
+                signer_config.port,
             ))),
             interval: Some("30s".into()),
             timeout: Some("5s".into()),
@@ -635,14 +614,6 @@ fn create_module_service(
                 get_env_val(SIGNER_URL_ENV, signer_server),
             ]);
 
-            if cb_config.signer_uses_tls() {
-                let env_val = get_env_val(
-                    SIGNER_TLS_CERTIFICATES_PATH_ENV,
-                    SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
-                );
-                module_envs.insert(env_val.0, env_val.1);
-            }
-
             // Pass on the env variables
             if let Some(envs) = &module.env {
                 for (k, v) in envs {
@@ -653,9 +624,6 @@ fn create_module_service(
             // volumes
             let mut module_volumes = vec![config_volume.clone()];
             module_volumes.extend(get_log_volume(&cb_config.logs, &module.id)?);
-            if let Some(certs_path) = cb_config.signer_certs_path() {
-                module_volumes.push(create_cert_binding(certs_path));
-            }
 
             // Chain spec env/volume
             if let Some(spec) = &service_config.chain_spec {
@@ -781,6 +749,10 @@ fn get_env_uval(k: &str, v: u64) -> (String, Option<SingleValue>) {
     (k.into(), Some(SingleValue::Unsigned(v)))
 }
 
+// fn get_env_bool(k: &str, v: bool) -> (String, Option<SingleValue>) {
+//     (k.into(), Some(SingleValue::Bool(v)))
+// }
+
 fn get_log_volume(config: &LogsSettings, module_id: &str) -> eyre::Result<Option<Volumes>> {
     if !config.file.enabled {
         return Ok(None);
@@ -797,47 +769,11 @@ fn format_comma_separated(map: &IndexMap<ModuleId, String>) -> String {
     map.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(",")
 }
 
-fn create_cert_binding(certs_path: &Path) -> Volumes {
-    Volumes::Simple(format!(
-        "{}:{}/{}:ro",
-        certs_path.join(SIGNER_TLS_CERTIFICATE_NAME).display(),
-        SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
-        SIGNER_TLS_CERTIFICATE_NAME
-    ))
-}
-
-/// Adds the TLS cert and key bindings to the provided volumes list
-fn add_tls_certs_volume(volumes: &mut Vec<Volumes>, certs_path: &Path) -> Result<()> {
-    if !certs_path.try_exists()? {
-        std::fs::create_dir(certs_path)?;
-    }
-
-    if !certs_path.join(SIGNER_TLS_CERTIFICATE_NAME).try_exists()? ||
-        !certs_path.join(SIGNER_TLS_KEY_NAME).try_exists()?
-    {
-        return Err(eyre::eyre!(
-            "Signer TLS certificate or key not found at {}, please provide a valid certificate and key or create them",
-            certs_path.display()
-        ));
-    }
-
-    volumes.push(create_cert_binding(certs_path));
-    volumes.push(Volumes::Simple(format!(
-        "{}:{}/{}:ro",
-        certs_path.join(SIGNER_TLS_KEY_NAME).display(),
-        SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
-        SIGNER_TLS_KEY_NAME
-    )));
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use cb_common::{
         config::{
             CommitBoostConfig, FileLogSettings, LogsSettings, MetricsConfig, StdoutLogSettings,
-            TlsMode,
         },
         signer::{ProxyStore, SignerLoader},
     };
@@ -933,13 +869,6 @@ mod tests {
 
     fn has_volume(service: &Service, substr: &str) -> bool {
         service.volumes.iter().any(|v| matches!(v, Volumes::Simple(s) if s.contains(substr)))
-    }
-
-    fn get_healthcheck_cmd(service: &Service) -> Option<String> {
-        service.healthcheck.as_ref().and_then(|hc| match &hc.test {
-            Some(HealthcheckTest::Single(cmd)) => Some(cmd.clone()),
-            _ => None,
-        })
     }
 
     fn has_port(service: &Service, substr: &str) -> bool {
@@ -1319,30 +1248,9 @@ mod tests {
         assert!(env_str(&service, DIRK_CERT_ENV).is_some());
         assert!(env_str(&service, DIRK_KEY_ENV).is_some());
         assert!(env_str(&service, DIRK_DIR_SECRETS_ENV).is_some());
-        assert!(has_env_key(&service, ADMIN_JWT_ENV));
-        assert!(has_env_key(&service, SIGNER_TLS_CERTIFICATES_PATH_ENV));
         assert!(has_volume(&service, "client.crt"));
         assert!(has_volume(&service, "client.key"));
         assert!(has_volume(&service, "dirk_secrets"));
-        Ok(())
-    }
-
-    #[test]
-    fn test_create_signer_service_dirk_generates_admin_jwt() -> eyre::Result<()> {
-        let mut sc = minimal_service_config();
-        let signer_config = dirk_signer_config();
-        create_signer_service_dirk(
-            &mut sc,
-            &signer_config,
-            Path::new("/certs/client.crt"),
-            Path::new("/certs/client.key"),
-            Path::new("/dirk_secrets"),
-            &None,
-            &None,
-        )?;
-
-        let admin_jwt = sc.envs.get(ADMIN_JWT_ENV).expect("ADMIN_JWT_ENV must be set");
-        assert!(!admin_jwt.is_empty(), "admin JWT secret must not be empty");
         Ok(())
     }
 
@@ -1436,7 +1344,6 @@ mod tests {
             id = "DA_COMMIT"
             type = "commit"
             docker_image = "test_da_commit"
-            signing_id = "0x6a33a23ef26a4836979edff86c493a69b26ccf0b4a16491a815a13787657431b"
         "#,
         )
         .expect("valid module config")
@@ -1507,287 +1414,6 @@ mod tests {
                 assert!(deps.is_empty(), "unexpected empty depends_on for local signer");
             }
         }
-        Ok(())
-    }
-
-    // -------------------------------------------------------------------------
-    // Helpers for TLS tests
-    // -------------------------------------------------------------------------
-
-    fn local_signer_config_with_tls(certs_path: PathBuf) -> SignerConfig {
-        let mut config = local_signer_config();
-        config.tls_mode = TlsMode::Certificate(certs_path);
-        config
-    }
-
-    /// Returns a `ServiceCreationInfo` whose CB config has `pbs.with_signer =
-    /// true` and a local signer with `TlsMode::Certificate(certs_path)`.
-    fn service_config_with_tls(certs_path: PathBuf) -> ServiceCreationInfo {
-        let mut sc = minimal_service_config();
-        sc.config_info.cb_config.pbs.with_signer = true;
-        sc.config_info.cb_config.signer = Some(local_signer_config_with_tls(certs_path));
-        sc
-    }
-
-    // -------------------------------------------------------------------------
-    // create_cert_binding
-    // -------------------------------------------------------------------------
-
-    #[test]
-    fn test_create_cert_binding_volume_string() {
-        let certs_path = Path::new("/my/certs");
-        let vol = create_cert_binding(certs_path);
-        let expected = format!(
-            "/my/certs/{}:{}/{}:ro",
-            SIGNER_TLS_CERTIFICATE_NAME,
-            SIGNER_TLS_CERTIFICATES_PATH_DEFAULT,
-            SIGNER_TLS_CERTIFICATE_NAME
-        );
-        assert_eq!(vol, Volumes::Simple(expected));
-    }
-
-    // -------------------------------------------------------------------------
-    // add_tls_certs_volume
-    // -------------------------------------------------------------------------
-
-    #[test]
-    fn test_add_tls_certs_volume_happy_path() -> eyre::Result<()> {
-        let dir = tempfile::tempdir()?;
-        let certs_path = dir.path();
-        std::fs::write(certs_path.join(SIGNER_TLS_CERTIFICATE_NAME), b"cert")?;
-        std::fs::write(certs_path.join(SIGNER_TLS_KEY_NAME), b"key")?;
-
-        let mut volumes = vec![];
-        add_tls_certs_volume(&mut volumes, certs_path)?;
-
-        assert_eq!(volumes.len(), 2);
-        assert!(
-            matches!(&volumes[0], Volumes::Simple(s) if s.contains(SIGNER_TLS_CERTIFICATE_NAME))
-        );
-        assert!(matches!(&volumes[1], Volumes::Simple(s) if s.contains(SIGNER_TLS_KEY_NAME)));
-        Ok(())
-    }
-
-    #[test]
-    fn test_add_tls_certs_volume_missing_cert_returns_error() -> eyre::Result<()> {
-        let dir = tempfile::tempdir()?;
-        let certs_path = dir.path();
-        std::fs::write(certs_path.join(SIGNER_TLS_KEY_NAME), b"key")?;
-
-        let result = add_tls_certs_volume(&mut vec![], certs_path);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("certificate or key not found"));
-        Ok(())
-    }
-
-    #[test]
-    fn test_add_tls_certs_volume_missing_key_returns_error() -> eyre::Result<()> {
-        let dir = tempfile::tempdir()?;
-        let certs_path = dir.path();
-        std::fs::write(certs_path.join(SIGNER_TLS_CERTIFICATE_NAME), b"cert")?;
-
-        let result = add_tls_certs_volume(&mut vec![], certs_path);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("certificate or key not found"));
-        Ok(())
-    }
-
-    #[test]
-    fn test_add_tls_certs_volume_missing_both_returns_error() -> eyre::Result<()> {
-        let dir = tempfile::tempdir()?;
-        let result = add_tls_certs_volume(&mut vec![], dir.path());
-        assert!(result.is_err());
-        Ok(())
-    }
-
-    #[test]
-    fn test_add_tls_certs_volume_creates_missing_directory() -> eyre::Result<()> {
-        let dir = tempfile::tempdir()?;
-        let certs_path = dir.path().join("new_certs_dir");
-        assert!(!certs_path.exists(), "pre-condition: directory must not exist yet");
-
-        let result = add_tls_certs_volume(&mut vec![], &certs_path);
-
-        // Directory created even though cert/key are absent
-        assert!(certs_path.exists(), "directory should have been created");
-        // cert/key still missing → error
-        assert!(result.is_err());
-        Ok(())
-    }
-
-    // -------------------------------------------------------------------------
-    // create_pbs_service – TLS cert volume/env
-    // -------------------------------------------------------------------------
-
-    #[test]
-    fn test_create_pbs_service_with_tls_adds_cert_env_and_volume() -> eyre::Result<()> {
-        let mut sc = service_config_with_tls(PathBuf::from("/my/certs"));
-        let service = create_pbs_service(&mut sc)?;
-
-        assert!(has_env_key(&service, SIGNER_TLS_CERTIFICATES_PATH_ENV));
-        assert!(has_volume(&service, SIGNER_TLS_CERTIFICATE_NAME));
-        Ok(())
-    }
-
-    #[test]
-    fn test_create_pbs_service_without_tls_no_cert_env() -> eyre::Result<()> {
-        let mut sc = minimal_service_config();
-        let service = create_pbs_service(&mut sc)?;
-
-        assert!(!has_env_key(&service, SIGNER_TLS_CERTIFICATES_PATH_ENV));
-        assert!(!has_volume(&service, SIGNER_TLS_CERTIFICATE_NAME));
-        Ok(())
-    }
-
-    // -------------------------------------------------------------------------
-    // create_signer_service_local – TLS cert volumes
-    // -------------------------------------------------------------------------
-
-    #[test]
-    fn test_create_signer_service_local_with_tls_adds_cert_and_key_volumes() -> eyre::Result<()> {
-        let dir = tempfile::tempdir()?;
-        let certs_path = dir.path().to_path_buf();
-        std::fs::write(certs_path.join(SIGNER_TLS_CERTIFICATE_NAME), b"cert")?;
-        std::fs::write(certs_path.join(SIGNER_TLS_KEY_NAME), b"key")?;
-
-        let mut sc = service_config_with_tls(certs_path);
-        let signer_config = sc.config_info.cb_config.signer.clone().unwrap();
-        let loader = SignerLoader::File { key_path: "/keys/keys.json".into() };
-        let service = create_signer_service_local(&mut sc, &signer_config, &loader, &None)?;
-
-        assert!(has_volume(&service, SIGNER_TLS_CERTIFICATE_NAME));
-        assert!(has_volume(&service, SIGNER_TLS_KEY_NAME));
-        Ok(())
-    }
-
-    #[test]
-    fn test_create_signer_service_local_without_tls_no_cert_key_volumes() -> eyre::Result<()> {
-        let mut sc = minimal_service_config();
-        let signer_config = local_signer_config();
-        let loader = SignerLoader::File { key_path: "/keys/keys.json".into() };
-        let service = create_signer_service_local(&mut sc, &signer_config, &loader, &None)?;
-
-        // SIGNER_TLS_CERTIFICATES_PATH_ENV is always emitted by the signer service,
-        // but no cert.pem / key.pem volume bindings should exist in insecure mode.
-        assert!(!has_volume(&service, SIGNER_TLS_CERTIFICATE_NAME));
-        assert!(!has_volume(&service, SIGNER_TLS_KEY_NAME));
-        Ok(())
-    }
-
-    // -------------------------------------------------------------------------
-    // create_signer_service_dirk – TLS cert volumes
-    // -------------------------------------------------------------------------
-
-    #[test]
-    fn test_create_signer_service_dirk_with_tls_adds_cert_and_key_volumes() -> eyre::Result<()> {
-        let dir = tempfile::tempdir()?;
-        let certs_path = dir.path().to_path_buf();
-        std::fs::write(certs_path.join(SIGNER_TLS_CERTIFICATE_NAME), b"cert")?;
-        std::fs::write(certs_path.join(SIGNER_TLS_KEY_NAME), b"key")?;
-
-        let mut sc = service_config_with_tls(certs_path);
-        let signer_config = dirk_signer_config();
-        let service = create_signer_service_dirk(
-            &mut sc,
-            &signer_config,
-            Path::new("/certs/client.crt"),
-            Path::new("/certs/client.key"),
-            Path::new("/dirk_secrets"),
-            &None,
-            &None,
-        )?;
-
-        assert!(has_volume(&service, SIGNER_TLS_CERTIFICATE_NAME));
-        assert!(has_volume(&service, SIGNER_TLS_KEY_NAME));
-        Ok(())
-    }
-
-    #[test]
-    fn test_create_signer_service_dirk_without_tls_no_cert_key_volumes() -> eyre::Result<()> {
-        let mut sc = minimal_service_config();
-        let signer_config = dirk_signer_config();
-        let service = create_signer_service_dirk(
-            &mut sc,
-            &signer_config,
-            Path::new("/certs/client.crt"),
-            Path::new("/certs/client.key"),
-            Path::new("/dirk_secrets"),
-            &None,
-            &None,
-        )?;
-
-        assert!(!has_volume(&service, SIGNER_TLS_CERTIFICATE_NAME));
-        assert!(!has_volume(&service, SIGNER_TLS_KEY_NAME));
-        Ok(())
-    }
-
-    #[test]
-    fn test_create_signer_service_dirk_healthcheck_uses_https_with_tls() -> eyre::Result<()> {
-        let dir = tempfile::tempdir()?;
-        let certs_path = dir.path().to_path_buf();
-        std::fs::write(certs_path.join(SIGNER_TLS_CERTIFICATE_NAME), b"cert")?;
-        std::fs::write(certs_path.join(SIGNER_TLS_KEY_NAME), b"key")?;
-
-        let mut sc = service_config_with_tls(certs_path);
-        let signer_config = dirk_signer_config();
-        let service = create_signer_service_dirk(
-            &mut sc,
-            &signer_config,
-            Path::new("/certs/client.crt"),
-            Path::new("/certs/client.key"),
-            Path::new("/dirk_secrets"),
-            &None,
-            &None,
-        )?;
-
-        let cmd = get_healthcheck_cmd(&service).expect("healthcheck must be set");
-        assert!(cmd.contains("https://"), "healthcheck must use https with TLS: {cmd}");
-        assert!(cmd.contains("-k"), "healthcheck must use -k flag for self-signed certs: {cmd}");
-        Ok(())
-    }
-
-    #[test]
-    fn test_create_signer_service_dirk_healthcheck_uses_http_without_tls() -> eyre::Result<()> {
-        let mut sc = minimal_service_config();
-        let signer_config = dirk_signer_config();
-        let service = create_signer_service_dirk(
-            &mut sc,
-            &signer_config,
-            Path::new("/certs/client.crt"),
-            Path::new("/certs/client.key"),
-            Path::new("/dirk_secrets"),
-            &None,
-            &None,
-        )?;
-
-        let cmd = get_healthcheck_cmd(&service).expect("healthcheck must be set");
-        assert!(cmd.contains("http://"), "healthcheck must use http without TLS: {cmd}");
-        Ok(())
-    }
-
-    // -------------------------------------------------------------------------
-    // create_module_service – TLS cert env/volume
-    // -------------------------------------------------------------------------
-
-    #[test]
-    fn test_create_module_service_with_signer_tls_adds_cert_env_and_volume() -> eyre::Result<()> {
-        let module = commit_module();
-        let mut sc = service_config_with_tls(PathBuf::from("/my/certs"));
-        let (_, service) = create_module_service(&module, "https://cb_signer:20000", &mut sc)?;
-
-        assert!(has_env_key(&service, SIGNER_TLS_CERTIFICATES_PATH_ENV));
-        assert!(has_volume(&service, SIGNER_TLS_CERTIFICATE_NAME));
-        Ok(())
-    }
-
-    #[test]
-    fn test_create_module_service_without_signer_tls_no_cert_env() -> eyre::Result<()> {
-        let module = commit_module();
-        let mut sc = minimal_service_config();
-        let (_, service) = create_module_service(&module, "http://cb_signer:20000", &mut sc)?;
-
-        assert!(!has_env_key(&service, SIGNER_TLS_CERTIFICATES_PATH_ENV));
-        assert!(!has_volume(&service, SIGNER_TLS_CERTIFICATE_NAME));
         Ok(())
     }
 }
