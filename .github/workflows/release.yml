@@ -1,4 +1,3 @@
-
 name: Draft Release
 
 on:
@@ -9,10 +8,9 @@ on:
 permissions:
   contents: write
   packages: write
-  id-token: write
 
 jobs:
-  # Builds the x64 and arm64 binary for Linux via the Docker builder
+  # Builds the x64 and arm64 binaries for Linux, for all 3 crates, via the Docker builder
   build-binaries-linux:
     strategy:
       matrix:
@@ -20,14 +18,20 @@ jobs:
           - amd64
           - arm64
         name:
-          - commit-boost
+          - commit-boost-cli
+          - commit-boost-pbs
+          - commit-boost-signer
         include:
           - target: amd64
             package-suffix: x86-64
           - target: arm64
             package-suffix: arm64
-          - name: commit-boost
-            target-crate: commit-boost
+          - name: commit-boost-cli
+            target-crate: cli
+          - name: commit-boost-pbs
+            target-crate: pbs
+          - name: commit-boost-signer
+            target-crate: signer
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -39,9 +43,6 @@ jobs:
       - name: Log commit hash
         run: |
           echo "Releasing commit: $(git rev-parse HEAD)"
-
-      - name: Set lowercase owner
-        run: echo "OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -62,8 +63,8 @@ jobs:
           context: .
           push: false
           platforms: linux/amd64,linux/arm64
-          cache-from: type=registry,ref=ghcr.io/${{ env.OWNER }}/buildcache:${{ matrix.target-crate}}
-          cache-to: type=registry,ref=ghcr.io/${{ env.OWNER }}/buildcache:${{ matrix.target-crate }},mode=max
+          cache-from: type=registry,ref=ghcr.io/commit-boost/buildcache:${{ matrix.target-crate}}
+          cache-to: type=registry,ref=ghcr.io/commit-boost/buildcache:${{ matrix.target-crate }},mode=max
           file: provisioning/build.Dockerfile
           outputs: type=local,dest=build
           build-args: |
@@ -82,7 +83,7 @@ jobs:
           path: |
             ${{ matrix.name }}-${{ github.ref_name }}-linux_${{ matrix.package-suffix }}.tar.gz
 
-  # Builds the arm64 binary for Darwin natively
+  # Builds the arm64 binaries for Darwin, for all 3 crates, natively
   build-binaries-darwin:
     strategy:
       matrix:
@@ -91,7 +92,9 @@ jobs:
           # - x86_64-apple-darwin
           - aarch64-apple-darwin
         name:
-          - commit-boost
+          - commit-boost-cli
+          - commit-boost-pbs
+          - commit-boost-signer
         include:
           # - target: x86_64-apple-darwin
           #   os: macos-latest-large
@@ -155,31 +158,6 @@ jobs:
           path: |
             ${{ matrix.name }}-${{ github.ref_name }}-darwin_${{ matrix.package-suffix }}.tar.gz
 
-  # Signs the binaries
-  sign-binaries:
-    needs:
-      - build-binaries-linux
-      - build-binaries-darwin
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: ./artifacts
-          pattern: "commit-boost*"
-
-      - name: Sign binaries
-        uses: sigstore/gh-action-sigstore-python@a5caf349bc536fbef3668a10ed7f5cd309a4b53d #v3.2.0
-        with:
-          inputs: ./artifacts/**/*.tar.gz
-
-      - name: Upload signatures
-        uses: actions/upload-artifact@v4
-        with:
-          name: signatures-${{ github.ref_name }}
-          path: |
-            ./artifacts/**/*.sigstore.json
-
   # Builds the PBS Docker image
   build-and-push-pbs-docker:
     needs: [build-binaries-linux]
@@ -195,19 +173,16 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: ./artifacts
-          pattern: "commit-boost*"
+          pattern: "commit-boost-*"
 
       - name: Extract binaries
         run: |
           mkdir -p ./artifacts/bin/linux_amd64
           mkdir -p ./artifacts/bin/linux_arm64
-          tar -xzf ./artifacts/commit-boost-${{ github.ref_name }}-linux_x86-64/commit-boost-${{ github.ref_name }}-linux_x86-64.tar.gz -C ./artifacts/bin
-          mv ./artifacts/bin/commit-boost ./artifacts/bin/linux_amd64/commit-boost
-          tar -xzf ./artifacts/commit-boost-${{ github.ref_name }}-linux_arm64/commit-boost-${{ github.ref_name }}-linux_arm64.tar.gz -C ./artifacts/bin
-          mv ./artifacts/bin/commit-boost ./artifacts/bin/linux_arm64/commit-boost
-
-      - name: Set lowercase owner
-        run: echo "OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+          tar -xzf ./artifacts/commit-boost-pbs-${{ github.ref_name }}-linux_x86-64/commit-boost-pbs-${{ github.ref_name }}-linux_x86-64.tar.gz -C ./artifacts/bin
+          mv ./artifacts/bin/commit-boost-pbs ./artifacts/bin/linux_amd64/commit-boost-pbs
+          tar -xzf ./artifacts/commit-boost-pbs-${{ github.ref_name }}-linux_arm64/commit-boost-pbs-${{ github.ref_name }}-linux_arm64.tar.gz -C ./artifacts/bin
+          mv ./artifacts/bin/commit-boost-pbs ./artifacts/bin/linux_arm64/commit-boost-pbs
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -231,8 +206,8 @@ jobs:
           build-args: |
             BINARIES_PATH=./artifacts/bin
           tags: |
-            ghcr.io/${{ env.OWNER }}/pbs:${{ github.ref_name }}
-            ${{ !contains(github.ref_name, 'rc') && format('ghcr.io/{0}/pbs:latest', env.OWNER) || '' }}
+            ghcr.io/commit-boost/pbs:${{ github.ref_name }}
+            ${{ !contains(github.ref_name, 'rc') && 'ghcr.io/commit-boost/pbs:latest' || '' }}
           file: provisioning/pbs.Dockerfile
 
   # Builds the Signer Docker image
@@ -250,19 +225,16 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: ./artifacts
-          pattern: "commit-boost*"
+          pattern: "commit-boost-*"
 
       - name: Extract binaries
         run: |
           mkdir -p ./artifacts/bin/linux_amd64
           mkdir -p ./artifacts/bin/linux_arm64
-          tar -xzf ./artifacts/commit-boost-${{ github.ref_name }}-linux_x86-64/commit-boost-${{ github.ref_name }}-linux_x86-64.tar.gz -C ./artifacts/bin
-          mv ./artifacts/bin/commit-boost ./artifacts/bin/linux_amd64/commit-boost
-          tar -xzf ./artifacts/commit-boost-${{ github.ref_name }}-linux_arm64/commit-boost-${{ github.ref_name }}-linux_arm64.tar.gz -C ./artifacts/bin
-          mv ./artifacts/bin/commit-boost ./artifacts/bin/linux_arm64/commit-boost
-
-      - name: Set lowercase owner
-        run: echo "OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+          tar -xzf ./artifacts/commit-boost-signer-${{ github.ref_name }}-linux_x86-64/commit-boost-signer-${{ github.ref_name }}-linux_x86-64.tar.gz -C ./artifacts/bin
+          mv ./artifacts/bin/commit-boost-signer ./artifacts/bin/linux_amd64/commit-boost-signer
+          tar -xzf ./artifacts/commit-boost-signer-${{ github.ref_name }}-linux_arm64/commit-boost-signer-${{ github.ref_name }}-linux_arm64.tar.gz -C ./artifacts/bin
+          mv ./artifacts/bin/commit-boost-signer ./artifacts/bin/linux_arm64/commit-boost-signer
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -286,122 +258,32 @@ jobs:
           build-args: |
             BINARIES_PATH=./artifacts/bin
           tags: |
-            ghcr.io/${{ env.OWNER }}/signer:${{ github.ref_name }}
-            ${{ !contains(github.ref_name, 'rc') && format('ghcr.io/{0}/signer:latest', env.OWNER) || '' }}
+            ghcr.io/commit-boost/signer:${{ github.ref_name }}
+            ${{ !contains(github.ref_name, 'rc') && 'ghcr.io/commit-boost/signer:latest' || '' }}
           file: provisioning/signer.Dockerfile
 
-  # Creates a release on GitHub with the binaries
+  # Creates a draft release on GitHub with the binaries
   finalize-release:
     needs:
       - build-binaries-linux
       - build-binaries-darwin
-      - sign-binaries
       - build-and-push-pbs-docker
       - build-and-push-signer-docker
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/create-github-app-token@v1
-        id: app-token
-        with:
-          app-id: ${{ secrets.APP_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
-
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          token: ${{ steps.app-token.outputs.token }}
-
-      - name: Download binaries
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: ./artifacts
-          pattern: "commit-boost*"
-
-      - name: Download signatures
-        uses: actions/download-artifact@v4
-        with:
-          path: ./artifacts
-          pattern: "signatures-${{ github.ref_name }}*"
+          pattern: "commit-boost-*"
 
       - name: Finalize Release
         uses: softprops/action-gh-release@v2
         with:
           files: ./artifacts/**/*
-          draft: false
-          prerelease: ${{ contains(github.ref_name, '-rc') }}
+          draft: true
+          prerelease: false
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
-          generate_release_notes: true
         env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-
-  # Fast-forwards stable (full release) or beta (RC) to the new tag.
-  # Runs after all artifacts are built and the draft release is created,
-  # so stable/beta are never touched if any part of the pipeline fails.
-  fast-forward-branch:
-    needs:
-      - finalize-release
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/create-github-app-token@v1
-        id: app-token
-        with:
-          app-id: ${{ secrets.APP_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
-
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ steps.app-token.outputs.token }}
-
-      - name: Configure git
-        run: |
-          git config user.name  "commit-boost-release-bot[bot]"
-          git config user.email "commit-boost-release-bot[bot]@users.noreply.github.com"
-
-      - name: Fast-forward beta branch (RC releases)
-        if: contains(github.ref_name, '-rc')
-        run: |
-          git checkout beta
-          git merge --ff-only "${{ github.ref_name }}"
-          git push origin beta
-
-      - name: Fast-forward stable branch (full releases)
-        if: "!contains(github.ref_name, '-rc')"
-        run: |
-          git checkout stable
-          git merge --ff-only "${{ github.ref_name }}"
-          git push origin stable
-
-  # Deletes the tag if any job in the release pipeline fails.
-  # This keeps the tag and release artifacts in sync — a tag should only
-  # exist if the full pipeline completed successfully.
-  # stable/beta are never touched on failure since fast-forward-branch
-  # only runs after finalize-release succeeds.
-  #
-  # Note: if finalize-release specifically fails, a draft release may already
-  # exist on GitHub pointing at the now-deleted tag and will need manual cleanup.
-  cleanup-on-failure:
-    needs:
-      - build-binaries-linux
-      - build-binaries-darwin
-      - sign-binaries
-      - build-and-push-pbs-docker
-      - build-and-push-signer-docker
-      - finalize-release
-      - fast-forward-branch
-    runs-on: ubuntu-latest
-    if: failure()
-    steps:
-      - uses: actions/create-github-app-token@v1
-        id: app-token
-        with:
-          app-id: ${{ secrets.APP_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
-
-      - uses: actions/checkout@v4
-        with:
-          token: ${{ steps.app-token.outputs.token }}
-
-      - name: Delete tag
-        run: git push origin --delete ${{ github.ref_name }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -16,15 +16,3 @@ targets.json
 .idea/
 logs
 .vscode/
-certs/
-
-# Nix
-.direnv/
-.devenv/
-devenv.*
-devenv.lock
-.devenv.flake.nix
-.envrc
-
-# Generated from testnet
-kurtosis-dump

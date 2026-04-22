@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use alloy::rpc::types::beacon::relay::ValidatorRegistration;
 use cb_common::{
@@ -9,7 +9,7 @@ use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
     mock_relay::{MockRelayState, start_mock_relay_service},
     mock_validator::MockValidator,
-    utils::{generate_mock_relay, get_pbs_config, setup_test_env, to_pbs_config},
+    utils::{generate_mock_relay, get_pbs_static_config, setup_test_env, to_pbs_config},
 };
 use eyre::Result;
 use reqwest::StatusCode;
@@ -30,8 +30,8 @@ async fn test_register_validators() -> Result<()> {
     tokio::spawn(start_mock_relay_service(mock_state.clone(), pbs_port + 1));
 
     // Run the PBS service
-    let config = to_pbs_config(chain, get_pbs_config(pbs_port), relays);
-    let state = PbsState::new(config, PathBuf::new());
+    let config = to_pbs_config(chain, get_pbs_static_config(pbs_port), relays);
+    let state = PbsState::new(config);
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
     // leave some time to start servers
@@ -79,8 +79,8 @@ async fn test_register_validators_does_not_retry_on_429() -> Result<()> {
     tokio::spawn(start_mock_relay_service(mock_state.clone(), pbs_port + 1));
 
     // Run the PBS service
-    let config = to_pbs_config(chain, get_pbs_config(pbs_port), relays);
-    let state = PbsState::new(config, PathBuf::new());
+    let config = to_pbs_config(chain, get_pbs_static_config(pbs_port), relays);
+    let state = PbsState::new(config);
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state.clone()));
 
     // Leave some time to start servers
@@ -131,11 +131,11 @@ async fn test_register_validators_retries_on_500() -> Result<()> {
     tokio::spawn(start_mock_relay_service(mock_state.clone(), pbs_port + 1));
 
     // Set retry limit to 3
-    let mut pbs_config = get_pbs_config(pbs_port);
+    let mut pbs_config = get_pbs_static_config(pbs_port);
     pbs_config.register_validator_retry_limit = 3;
 
     let config = to_pbs_config(chain, pbs_config, relays);
-    let state = PbsState::new(config, PathBuf::new());
+    let state = PbsState::new(config);
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state.clone()));
 
     tokio::time::sleep(Duration::from_millis(100)).await;

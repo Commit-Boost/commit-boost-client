@@ -1,22 +1,21 @@
 use std::{
-    collections::HashMap,
     fmt::{self, Debug, Display},
     str::FromStr,
 };
 
 use alloy::{
     hex,
-    primitives::{Address, B256, aliases::B32},
+    primitives::{Address, B256},
 };
-use serde::{Deserialize, Deserializer, Serialize};
+use derive_more::derive::From;
+use serde::{Deserialize, Serialize};
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    config::decode_string_to_map,
     constants::COMMIT_BOOST_DOMAIN,
     signature::verify_signed_message,
-    types::{BlsPublicKey, BlsSignature, Chain, ModuleId},
+    types::{BlsPublicKey, BlsSignature, Chain},
 };
 
 pub trait ProxyId: Debug + Clone + TreeHash + Display {
@@ -68,8 +67,7 @@ impl<T: ProxyId> SignedProxyDelegation<T> {
             &self.message.delegator,
             &self.message,
             &self.signature,
-            None,
-            &B32::from(COMMIT_BOOST_DOMAIN),
+            COMMIT_BOOST_DOMAIN,
         )
     }
 }
@@ -80,24 +78,53 @@ impl<T: ProxyId> fmt::Display for SignedProxyDelegation<T> {
     }
 }
 
+// TODO(David): This struct shouldn't be visible to module authors
+#[derive(Debug, Clone, Serialize, Deserialize, From)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum SignRequest {
+    Consensus(SignConsensusRequest),
+    ProxyBls(SignProxyRequest<BlsPublicKey>),
+    ProxyEcdsa(SignProxyRequest<Address>),
+}
+
+impl Display for SignRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SignRequest::Consensus(req) => write!(
+                f,
+                "Consensus(pubkey: {}, object_root: {})",
+                req.pubkey,
+                hex::encode_prefixed(req.object_root)
+            ),
+            SignRequest::ProxyBls(req) => write!(
+                f,
+                "BLS(proxy: {}, object_root: {})",
+                req.proxy,
+                hex::encode_prefixed(req.object_root)
+            ),
+            SignRequest::ProxyEcdsa(req) => write!(
+                f,
+                "ECDSA(proxy: {}, object_root: {})",
+                req.proxy,
+                hex::encode_prefixed(req.object_root)
+            ),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignConsensusRequest {
     pub pubkey: BlsPublicKey,
     pub object_root: B256,
-    /// Replay-protection nonce mixed into the signing root via
-    /// `PropCommitSigningInfo`. Modules that do not track nonces should
-    /// send `0`. Modules that do track nonces should use a monotonically
-    /// increasing value per key to prevent signature reuse.
-    pub nonce: u64,
 }
 
 impl SignConsensusRequest {
-    pub fn new(pubkey: BlsPublicKey, object_root: B256, nonce: u64) -> Self {
-        Self { pubkey, object_root, nonce }
+    pub fn new(pubkey: BlsPublicKey, object_root: B256) -> Self {
+        Self { pubkey, object_root }
     }
 
     pub fn builder(pubkey: BlsPublicKey) -> Self {
-        Self::new(pubkey, B256::ZERO, 0)
+        Self::new(pubkey, B256::ZERO)
     }
 
     pub fn with_root<R: Into<B256>>(self, object_root: R) -> Self {
@@ -106,22 +133,6 @@ impl SignConsensusRequest {
 
     pub fn with_msg(self, msg: &impl TreeHash) -> Self {
         self.with_root(msg.tree_hash_root().0)
-    }
-
-    pub fn with_nonce(self, nonce: u64) -> Self {
-        Self { nonce, ..self }
-    }
-}
-
-impl Display for SignConsensusRequest {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Consensus(pubkey: {}, object_root: {}, nonce: {})",
-            self.pubkey,
-            hex::encode_prefixed(self.object_root),
-            self.nonce
-        )
     }
 }
 
@@ -129,20 +140,15 @@ impl Display for SignConsensusRequest {
 pub struct SignProxyRequest<T: ProxyId> {
     pub proxy: T,
     pub object_root: B256,
-    /// Replay-protection nonce mixed into the signing root via
-    /// `PropCommitSigningInfo`. Modules that do not track nonces should
-    /// send `0`. Modules that do track nonces should use a monotonically
-    /// increasing value per key to prevent signature reuse.
-    pub nonce: u64,
 }
 
 impl<T: ProxyId> SignProxyRequest<T> {
-    pub fn new(proxy: T, object_root: B256, nonce: u64) -> Self {
-        Self { proxy, object_root, nonce }
+    pub fn new(proxy: T, object_root: B256) -> Self {
+        Self { proxy, object_root }
     }
 
     pub fn builder(proxy: T) -> Self {
-        Self::new(proxy, B256::ZERO, 0)
+        Self::new(proxy, B256::ZERO)
     }
 
     pub fn with_root<R: Into<B256>>(self, object_root: R) -> Self {
@@ -151,34 +157,6 @@ impl<T: ProxyId> SignProxyRequest<T> {
 
     pub fn with_msg(self, msg: &impl TreeHash) -> Self {
         self.with_root(msg.tree_hash_root().0)
-    }
-
-    pub fn with_nonce(self, nonce: u64) -> Self {
-        Self { nonce, ..self }
-    }
-}
-
-impl Display for SignProxyRequest<BlsPublicKey> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "BLS(proxy: {}, object_root: {}, nonce: {})",
-            self.proxy,
-            hex::encode_prefixed(self.object_root),
-            self.nonce
-        )
-    }
-}
-
-impl Display for SignProxyRequest<Address> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "ECDSA(proxy: {}, object_root: {}, nonce: {})",
-            self.proxy,
-            hex::encode_prefixed(self.object_root),
-            self.nonce
-        )
     }
 }
 
@@ -230,31 +208,6 @@ pub struct GetPubkeysResponse {
     pub keys: Vec<ConsensusProxyMap>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ReloadRequest {
-    #[serde(default, deserialize_with = "deserialize_jwt_secrets")]
-    pub jwt_secrets: Option<HashMap<ModuleId, String>>,
-    pub admin_secret: Option<String>,
-}
-
-pub fn deserialize_jwt_secrets<'de, D>(
-    deserializer: D,
-) -> Result<Option<HashMap<ModuleId, String>>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let raw: String = Deserialize::deserialize(deserializer)?;
-
-    decode_string_to_map(&raw)
-        .map(Some)
-        .map_err(|_| serde::de::Error::custom("Invalid format".to_string()))
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RevokeModuleRequest {
-    pub module_id: ModuleId,
-}
-
 /// Map of consensus pubkeys to proxies
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ConsensusProxyMap {
@@ -274,6 +227,36 @@ mod tests {
 
     use super::*;
     use crate::signer::EcdsaSignature;
+
+    #[test]
+    fn test_decode_request_signature() {
+        let data = r#"{
+            "type": "consensus",
+            "pubkey": "0xa3366b54f28e4bf1461926a3c70cdb0ec432b5c92554ecaae3742d33fb33873990cbed1761c68020e6d3c14d30a22050",
+            "object_root": "0x5c89913beafa0472168e0ec05e349b4ceb9985d25ab9fa8de53a60208c85b3a5"
+        }"#;
+
+        let request: SignRequest = serde_json::from_str(data).unwrap();
+        assert!(matches!(request, SignRequest::Consensus(..)));
+
+        let data = r#"{
+            "type": "proxy_bls",
+            "proxy": "0xa3366b54f28e4bf1461926a3c70cdb0ec432b5c92554ecaae3742d33fb33873990cbed1761c68020e6d3c14d30a22050",
+            "object_root": "0x5c89913beafa0472168e0ec05e349b4ceb9985d25ab9fa8de53a60208c85b3a5"
+        }"#;
+
+        let request: SignRequest = serde_json::from_str(data).unwrap();
+        assert!(matches!(request, SignRequest::ProxyBls(..)));
+
+        let data = r#"{
+            "type": "proxy_ecdsa",
+            "proxy": "0x4ca9939a8311a7cab3dde201b70157285fa81a9d",
+            "object_root": "0x5c89913beafa0472168e0ec05e349b4ceb9985d25ab9fa8de53a60208c85b3a5"
+        }"#;
+
+        let request: SignRequest = serde_json::from_str(data).unwrap();
+        assert!(matches!(request, SignRequest::ProxyEcdsa(..)));
+    }
 
     #[test]
     fn test_decode_response_signature() {
@@ -315,7 +298,7 @@ mod tests {
 
         let _: SignedProxyDelegationBls = serde_json::from_str(data).unwrap();
 
-        let data = r#"{
+        let data = r#"{ 
             "message": {
                 "delegator": "0xa3366b54f28e4bf1461926a3c70cdb0ec432b5c92554ecaae3742d33fb33873990cbed1761c68020e6d3c14d30a22050",
                 "proxy": "0x4ca9939a8311a7cab3dde201b70157285fa81a9d"
@@ -324,29 +307,6 @@ mod tests {
         }"#;
 
         let _: SignedProxyDelegationEcdsa = serde_json::from_str(data).unwrap();
-    }
-
-    #[test]
-    fn test_reload_request_jwt_secrets_present() {
-        let data = r#"{"jwt_secrets": "module_a=secret1,module_b=secret2"}"#;
-        let req: ReloadRequest = serde_json::from_str(data).unwrap();
-        let secrets = req.jwt_secrets.expect("should have secrets");
-        assert_eq!(secrets.get(&ModuleId("module_a".into())), Some(&"secret1".to_string()));
-        assert_eq!(secrets.get(&ModuleId("module_b".into())), Some(&"secret2".to_string()));
-    }
-
-    #[test]
-    fn test_reload_request_jwt_secrets_absent() {
-        let data = r#"{}"#;
-        let req: ReloadRequest = serde_json::from_str(data).unwrap();
-        assert!(req.jwt_secrets.is_none());
-    }
-
-    #[test]
-    fn test_reload_request_jwt_secrets_invalid_format() {
-        // Missing '=' separator — decode_string_to_map should fail
-        let data = r#"{"jwt_secrets": "bad_value_no_equals"}"#;
-        assert!(serde_json::from_str::<ReloadRequest>(data).is_err());
     }
 
     #[test]

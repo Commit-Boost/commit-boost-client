@@ -1,11 +1,12 @@
 [workspace]
 members = ["benches/*", "bin", "crates/*", "examples/da_commit", "examples/status_api", "tests"]
+exclude = ["benches/microbench"]
 resolver = "2"
 
 [workspace.package]
 edition = "2024"
 rust-version = "1.91"
-version = "0.9.3"
+version = "0.9.4"
 
 [workspace.dependencies]
 aes = "0.8"
@@ -19,17 +20,14 @@ alloy = { version = "^1.0.35", features = [
     "ssz",
 ] }
 alloy-primitives = "^1.3.1"
-assert_cmd = "2.1.2"
 async-trait = "0.1.80"
 axum = { version = "0.8.1", features = ["macros"] }
 axum-extra = { version = "0.10.0", features = ["typed-header"] }
-axum-server = { version = "0.7.2", features = ["tls-rustls"] }
 base64 = "0.22.1"
 bimap = { version = "0.6.3", features = ["serde"] }
 blsful = "^2.5"
 blst = "^0.3.15"
 bytes = "1.10.1"
-criterion = { version = "0.5", features = ["html_reports"] }
 cb-cli = { path = "crates/cli" }
 cb-common = { path = "crates/common" }
 cb-metrics = { path = "crates/metrics" }
@@ -38,35 +36,30 @@ cb-signer = { path = "crates/signer" }
 cipher = "0.4"
 clap = { version = "4.5.48", features = ["derive", "env"] }
 color-eyre = "0.6.3"
-const_format = "0.2.34"
 ctr = "0.9.2"
 derive_more = { version = "2.0.1", features = ["deref", "display", "from", "into"] }
 docker-compose-types = "0.16.0"
 docker-image = "0.2.1"
 ethereum_serde_utils = "0.7.0"
-ethereum_ssz = "0.9"
-ethereum_ssz_derive = "0.9"
+ethereum_ssz = "0.10"
+ethereum_ssz_derive = "0.10"
 eyre = "0.6.12"
 futures = "0.3.30"
 headers = "0.4.0"
 indexmap = "2.2.6"
 jsonwebtoken = { version = "9.3.1", default-features = false }
 lazy_static = "1.5.0"
-lh_eth2 = { package = "eth2", git = "https://github.com/sigp/lighthouse", tag = "v8.0.0" }
-lh_eth2_keystore = { package = "eth2_keystore", git = "https://github.com/sigp/lighthouse", tag = "v8.0.0" }
-lh_types = { package = "types", git = "https://github.com/sigp/lighthouse", tag = "v8.0.0" }
-notify = "8.2.0"
+lh_eth2 = { package = "eth2", git = "https://github.com/sigp/lighthouse", tag = "v8.1.3", features = ["events"] }
+lh_eth2_keystore = { package = "eth2_keystore", git = "https://github.com/sigp/lighthouse", tag = "v8.1.3" }
+lh_bls = { package = "bls", git = "https://github.com/sigp/lighthouse", tag = "v8.1.3" }
+lh_types = { package = "types", git = "https://github.com/sigp/lighthouse", tag = "v8.1.3" }
 parking_lot = "0.12.3"
 pbkdf2 = "0.12.2"
-predicates = "3.0.3"
 prometheus = "0.14.0"
 prost = "0.13.4"
 rand = { version = "0.9", features = ["os_rng"] }
 rayon = "1.10.0"
-rcgen = "0.13.2"
-reqwest = { version = "0.12.4", features = ["json", "rustls-tls", "stream"] }
-reqwest-eventsource = "=0.5.0"
-rustls = "0.23.23"
+reqwest = { version = "0.13", features = ["json", "stream"] }
 serde = { version = "1.0.202", features = ["derive"] }
 serde_json = "1.0.117"
 serde_yaml = "0.9.33"
@@ -84,8 +77,8 @@ tracing = "0.1.40"
 tracing-appender = "0.2.3"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 tracing-test = { version = "0.2.5", features = ["no-env-filter"] }
-tree_hash = "^0.10"
-tree_hash_derive = "0.9"
+tree_hash = "0.12"
+tree_hash_derive = "0.12"
 typenum = "1.17.0"
 unicode-normalization = "0.1.24"
 url = { version = "2.5.0", features = ["serde"] }

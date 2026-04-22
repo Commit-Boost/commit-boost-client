@@ -1,6 +1,5 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::collections::HashMap;
 
-use alloy::primitives::B256;
 use eyre::{ContextCompat, Result};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use toml::Table;
@@ -8,7 +7,6 @@ use toml::Table;
 use crate::{
     commit::client::SignerClient,
     config::{
-        SIGNER_TLS_CERTIFICATE_NAME, SIGNER_TLS_CERTIFICATES_PATH_ENV, SignerConfig, TlsMode,
         constants::{CONFIG_ENV, MODULE_ID_ENV, MODULE_JWT_ENV, SIGNER_URL_ENV},
         load_env_var,
         utils::load_file_from_env,
@@ -16,14 +14,14 @@ use crate::{
     types::{Chain, Jwt, ModuleId},
 };
 
-#[derive(Debug, Deserialize, Serialize, Clone, Copy)]
+#[derive(Debug, Deserialize, Serialize)]
 pub enum ModuleKind {
     #[serde(alias = "commit")]
     Commit,
 }
 
 /// Static module config from config file
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct StaticModuleConfig {
     /// Unique id of the module
     pub id: ModuleId,
@@ -36,8 +34,6 @@ pub struct StaticModuleConfig {
     /// Type of the module
     #[serde(rename = "type")]
     pub kind: ModuleKind,
-    /// Signing ID for the module to use when requesting signatures
-    pub signing_id: B256,
 }
 
 /// Runtime config to start a module
@@ -83,11 +79,10 @@ pub fn load_commit_module_config<T: DeserializeOwned>() -> Result<StartCommitMod
     struct StubConfig<U> {
         chain: Chain,
         modules: Vec<ThisModule<U>>,
-        signer: Option<SignerConfig>,
     }
 
     // load module config including the extra data (if any)
-    let (cb_config, _): (StubConfig<T>, _) = load_file_from_env(CONFIG_ENV)?;
+    let cb_config: StubConfig<T> = load_file_from_env(CONFIG_ENV)?;
 
     // find all matching modules config
     let matches: Vec<ThisModuleConfig<T>> = cb_config
@@ -106,16 +101,7 @@ pub fn load_commit_module_config<T: DeserializeOwned>() -> Result<StartCommitMod
         .find(|m| m.static_config.id == module_id)
         .wrap_err(format!("failed to find module for {module_id}"))?;
 
-    let certs_path = match cb_config.signer.context("No [signer] section in config")?.tls_mode {
-        TlsMode::Insecure => None,
-        TlsMode::Certificate(path) => Some(
-            load_env_var(SIGNER_TLS_CERTIFICATES_PATH_ENV)
-                .map(PathBuf::from)
-                .unwrap_or(path)
-                .join(SIGNER_TLS_CERTIFICATE_NAME),
-        ),
-    };
-    let signer_client = SignerClient::new(signer_server_url, certs_path, module_jwt, module_id)?;
+    let signer_client = SignerClient::new(signer_server_url, module_jwt, module_id)?;
 
     Ok(StartCommitModuleConfig {
         id: module_config.static_config.id,
@@ -162,7 +148,7 @@ pub fn load_builder_module_config<T: DeserializeOwned>() -> eyre::Result<StartBu
     }
 
     // load module config including the extra data (if any)
-    let (cb_config, _): (StubConfig<T>, _) = load_file_from_env(CONFIG_ENV)?;
+    let cb_config: StubConfig<T> = load_file_from_env(CONFIG_ENV)?;
 
     // find all matching modules config
     let matches: Vec<ThisModuleConfig<T>> = cb_config

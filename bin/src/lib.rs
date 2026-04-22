@@ -6,11 +6,8 @@ pub mod prelude {
             SignedProxyDelegationBls, SignedProxyDelegationEcdsa,
         },
         config::{
-            LogsSettings, PBS_SERVICE_NAME, StartCommitModuleConfig, load_builder_module_config,
+            LogsSettings, PBS_MODULE_NAME, StartCommitModuleConfig, load_builder_module_config,
             load_commit_module_config, load_pbs_config, load_pbs_custom_config,
-        },
-        signature::{
-            verify_proposer_commitment_signature_bls, verify_proposer_commitment_signature_ecdsa,
         },
         signer::EcdsaSignature,
         types::{BlsPublicKey, BlsSignature, Chain},
@@ -27,6 +24,3 @@ pub mod prelude {
     }
     pub use tree_hash_derive::TreeHash;
 }
-
-/// Version string with a leading 'v'
-pub const VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"));

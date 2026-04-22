@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use cb_common::{
     pbs::{BuilderApiVersion, GetPayloadInfo, SubmitBlindedBlockResponse},
@@ -9,7 +9,7 @@ use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
     mock_relay::{MockRelayState, start_mock_relay_service},
     mock_validator::{MockValidator, load_test_signed_blinded_block},
-    utils::{generate_mock_relay, get_pbs_config, setup_test_env, to_pbs_config},
+    utils::{generate_mock_relay, get_pbs_static_config, setup_test_env, to_pbs_config},
 };
 use eyre::Result;
 use reqwest::{Response, StatusCode};
@@ -70,8 +70,8 @@ async fn test_submit_block_too_large() -> Result<()> {
     let mock_state = Arc::new(MockRelayState::new(chain, signer).with_large_body());
     tokio::spawn(start_mock_relay_service(mock_state.clone(), pbs_port + 1));
 
-    let config = to_pbs_config(chain, get_pbs_config(pbs_port), relays);
-    let state = PbsState::new(config, PathBuf::new());
+    let config = to_pbs_config(chain, get_pbs_static_config(pbs_port), relays);
+    let state = PbsState::new(config);
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
     // leave some time to start servers
@@ -112,8 +112,8 @@ async fn submit_block_impl(
     tokio::spawn(start_mock_relay_service(mock_state.clone(), pbs_port + 1));
 
     // Run the PBS service
-    let config = to_pbs_config(chain, get_pbs_config(pbs_port), relays);
-    let state = PbsState::new(config, PathBuf::new());
+    let config = to_pbs_config(chain, get_pbs_static_config(pbs_port), relays);
+    let state = PbsState::new(config);
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
     // leave some time to start servers

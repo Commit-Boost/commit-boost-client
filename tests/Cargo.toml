@@ -11,15 +11,11 @@ cb-common.workspace = true
 cb-pbs.workspace = true
 cb-signer.workspace = true
 eyre.workspace = true
-jsonwebtoken.workspace = true
 lh_types.workspace = true
-rcgen.workspace = true
 reqwest.workspace = true
-serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
-toml.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 tracing-test.workspace = true
@@ -27,5 +23,4 @@ tree_hash.workspace = true
 url.workspace = true
 
 [dev-dependencies]
-tracing-test.workspace = true
 cb-common = { path = "../crates/common", features = ["testing-flags"] }

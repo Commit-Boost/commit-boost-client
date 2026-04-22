@@ -1,18 +1,15 @@
 use std::{
     collections::HashMap,
     net::{Ipv4Addr, SocketAddr},
-    path::PathBuf,
     sync::{Arc, Once},
 };
 
-use alloy::primitives::{B256, U256};
+use alloy::primitives::U256;
 use cb_common::{
     config::{
-        CommitBoostConfig, LogsSettings, ModuleKind, ModuleSigningConfig, PbsConfig,
-        PbsModuleConfig, RelayConfig, ReverseProxyHeaderSetup, SIGNER_IMAGE_DEFAULT,
+        PbsConfig, PbsModuleConfig, RelayConfig, SIGNER_IMAGE_DEFAULT,
         SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT, SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT,
-        SIGNER_PORT_DEFAULT, SignerConfig, SignerType, StartSignerConfig, StaticModuleConfig,
-        StaticPbsConfig, TlsMode,
+        SIGNER_PORT_DEFAULT, SignerConfig, SignerType, StartSignerConfig,
     },
     pbs::{RelayClient, RelayEntry},
     signer::SignerLoader,
@@ -20,7 +17,6 @@ use cb_common::{
     utils::{bls_pubkey_from_hex, default_host},
 };
 use eyre::Result;
-use rcgen::generate_simple_self_signed;
 use url::Url;
 
 pub fn get_local_address(port: u16) -> String {
@@ -70,7 +66,7 @@ pub fn generate_mock_relay_with_batch_size(
     RelayClient::new(config)
 }
 
-pub fn get_pbs_config(port: u16) -> PbsConfig {
+pub fn get_pbs_static_config(port: u16) -> PbsConfig {
     PbsConfig {
         host: Ipv4Addr::UNSPECIFIED,
         port,
@@ -83,30 +79,12 @@ pub fn get_pbs_config(port: u16) -> PbsConfig {
         min_bid_wei: U256::ZERO,
         late_in_slot_time_ms: u64::MAX,
         extra_validation_enabled: false,
-        ssv_node_api_url: Url::parse("http://localhost:0").unwrap(),
-        ssv_public_api_url: Url::parse("http://localhost:0").unwrap(),
+        ssv_api_url: Url::parse("https://example.net").unwrap(),
         rpc_url: None,
         http_timeout_seconds: 10,
         register_validator_retry_limit: u32::MAX,
         validator_registration_batch_size: None,
         mux_registry_refresh_interval_seconds: 5,
-    }
-}
-
-pub fn get_pbs_static_config(pbs_config: PbsConfig) -> StaticPbsConfig {
-    StaticPbsConfig { docker_image: String::from(""), pbs_config, with_signer: true }
-}
-
-pub fn get_commit_boost_config(pbs_static_config: StaticPbsConfig) -> CommitBoostConfig {
-    CommitBoostConfig {
-        chain: Chain::Hoodi,
-        relays: vec![],
-        pbs: pbs_static_config,
-        muxes: None,
-        modules: Some(vec![]),
-        signer: None,
-        metrics: None,
-        logs: LogsSettings::default(),
     }
 }
 
@@ -127,7 +105,7 @@ pub fn to_pbs_config(
     }
 }
 
-pub fn get_signer_config(loader: SignerLoader, tls: bool) -> SignerConfig {
+pub fn get_signer_config(loader: SignerLoader) -> SignerConfig {
     SignerConfig {
         host: default_host(),
         port: SIGNER_PORT_DEFAULT,
@@ -135,57 +113,26 @@ pub fn get_signer_config(loader: SignerLoader, tls: bool) -> SignerConfig {
         jwt_auth_fail_limit: SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT,
         jwt_auth_fail_timeout_seconds: SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT,
         inner: SignerType::Local { loader, store: None },
-        tls_mode: if tls { TlsMode::Certificate(PathBuf::new()) } else { TlsMode::Insecure },
-        reverse_proxy: ReverseProxyHeaderSetup::None,
     }
 }
 
 pub fn get_start_signer_config(
     signer_config: SignerConfig,
     chain: Chain,
-    mod_signing_configs: &HashMap<ModuleId, ModuleSigningConfig>,
-    admin_secret: String,
+    jwts: HashMap<ModuleId, String>,
 ) -> StartSignerConfig {
-    let tls_certificates = match signer_config.tls_mode {
-        TlsMode::Insecure => None,
-        TlsMode::Certificate(_) => Some(
-            generate_simple_self_signed(vec![signer_config.host.to_string()])
-                .map(|x| {
-                    (
-                        x.cert.pem().as_bytes().to_vec(),
-                        x.key_pair.serialize_pem().as_bytes().to_vec(),
-                    )
-                })
-                .expect("Failed to generate TLS certificate"),
-        ),
-    };
-
     match signer_config.inner {
         SignerType::Local { loader, .. } => StartSignerConfig {
             chain,
             loader: Some(loader),
             store: None,
             endpoint: SocketAddr::new(signer_config.host.into(), signer_config.port),
-            mod_signing_configs: mod_signing_configs.clone(),
-            admin_secret,
+            jwts,
             jwt_auth_fail_limit: signer_config.jwt_auth_fail_limit,
             jwt_auth_fail_timeout_seconds: signer_config.jwt_auth_fail_timeout_seconds,
             dirk: None,
-            tls_certificates,
-            reverse_proxy: ReverseProxyHeaderSetup::None,
         },
         _ => panic!("Only local signers are supported in tests"),
-    }
-}
-
-pub fn create_module_config(id: ModuleId, signing_id: B256) -> StaticModuleConfig {
-    StaticModuleConfig {
-        id,
-        signing_id,
-        docker_image: String::from(""),
-        env: None,
-        env_file: None,
-        kind: ModuleKind::Commit,
     }
 }
 
