@@ -431,12 +431,17 @@ async fn fetch_ssv_pubkeys(
         page += 1;
 
         if fetched < MAX_PER_PAGE {
-            ensure!(
-                pubkeys.len() == response.pagination.total,
-                "expected {} keys, got {}",
-                response.pagination.total,
-                pubkeys.len()
-            );
+            // Past-end page (fetched == 0) returns pagination.total == 0 from the SSV
+            // public API; only assert the total when the page actually carried
+            // data.
+            if fetched > 0 {
+                ensure!(
+                    pubkeys.len() == response.pagination.total,
+                    "expected {} keys, got {}",
+                    response.pagination.total,
+                    pubkeys.len()
+                );
+            }
             break;
         }
     }
