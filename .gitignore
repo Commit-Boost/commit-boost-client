@@ -24,6 +24,3 @@ devenv.*
 devenv.lock
 .devenv.flake.nix
 .envrc
-
-# Generated from testnet
-kurtosis-dump
