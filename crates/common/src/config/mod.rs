@@ -68,7 +68,7 @@ impl CommitBoostConfig {
         let chain = match helper_config.chain {
             ChainLoader::Path { path, genesis_time_secs } => {
                 // check if the file path is overridden by env var
-                let (slot_time_secs, genesis_fork_version, fulu_fork_slot, chain_id) =
+                let (slot_time_secs, genesis_fork_version, fulu_fork_slot) =
                     if let Some(path) = load_optional_env_var(CHAIN_SPEC_ENV) {
                         load_chain_from_file(path.parse()?)?
                     } else {
@@ -79,7 +79,6 @@ impl CommitBoostConfig {
                     slot_time_secs,
                     genesis_fork_version,
                     fulu_fork_slot,
-                    chain_id,
                 }
             }
             ChainLoader::Known(known) => Chain::from(known),
@@ -88,7 +87,6 @@ impl CommitBoostConfig {
                 slot_time_secs,
                 genesis_fork_version,
                 fulu_fork_slot,
-                chain_id,
             } => {
                 let genesis_fork_version: ForkVersion = genesis_fork_version.as_ref().try_into()?;
                 Chain::Custom {
@@ -96,7 +94,6 @@ impl CommitBoostConfig {
                     slot_time_secs,
                     genesis_fork_version,
                     fulu_fork_slot,
-                    chain_id,
                 }
             }
         };
