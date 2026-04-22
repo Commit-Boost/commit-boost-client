@@ -41,15 +41,17 @@ pub struct RuntimeMuxConfig {
     pub relays: Vec<RelayClient>,
 }
 
+/// Lookup tables produced by [`PbsMuxes::validate_and_fill`]:
+/// (pubkey → mux, registry-loader → mux).
+pub type MuxLookups =
+    (HashMap<BlsPublicKey, RuntimeMuxConfig>, HashMap<MuxKeysLoader, RuntimeMuxConfig>);
+
 impl PbsMuxes {
     pub async fn validate_and_fill(
         self,
         chain: Chain,
         default_pbs: &PbsConfig,
-    ) -> eyre::Result<(
-        HashMap<BlsPublicKey, RuntimeMuxConfig>,
-        HashMap<MuxKeysLoader, RuntimeMuxConfig>,
-    )> {
+    ) -> eyre::Result<MuxLookups> {
         let http_timeout = Duration::from_secs(default_pbs.http_timeout_seconds);
 
         let mut muxes = self.muxes;

@@ -23,8 +23,8 @@ use super::{
 use crate::{
     commit::client::SignerClient,
     config::{
-        CONFIG_ENV, MODULE_JWT_ENV, MuxKeysLoader, PBS_IMAGE_DEFAULT, PBS_SERVICE_NAME, PbsMuxes,
-        SIGNER_URL_ENV, load_env_var, load_file_from_env,
+        CONFIG_ENV, MODULE_JWT_ENV, MuxKeysLoader, MuxLookups, PBS_IMAGE_DEFAULT, PBS_SERVICE_NAME,
+        PbsMuxes, SIGNER_URL_ENV, load_env_var, load_file_from_env,
     },
     pbs::{
         DEFAULT_PBS_PORT, DEFAULT_REGISTRY_REFRESH_SECONDS, DefaultTimeout, LATE_IN_SLOT_TIME_MS,
@@ -290,9 +290,9 @@ pub async fn load_pbs_config(config_path: Option<PathBuf>) -> Result<(PbsModuleC
     let mut all_relays = HashMap::with_capacity(relay_clients.len());
 
     // Validate the muxes and build the lookup tables
-    let (mux_lookup, registry_muxes) = match config.muxes {
+    let (mux_lookup, registry_muxes): (Option<_>, Option<_>) = match config.muxes {
         Some(muxes) => {
-            let (mux_lookup, registry_muxes) =
+            let (mux_lookup, registry_muxes): MuxLookups =
                 muxes.validate_and_fill(config.chain, &config.pbs.pbs_config).await?;
             (Some(mux_lookup), Some(registry_muxes))
         }
@@ -371,9 +371,9 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
     let mut all_relays = HashMap::with_capacity(relay_clients.len());
 
     // Validate the muxes and build the lookup tables
-    let (mux_lookup, registry_muxes) = match cb_config.muxes {
+    let (mux_lookup, registry_muxes): (Option<_>, Option<_>) = match cb_config.muxes {
         Some(muxes) => {
-            let (mux_lookup, registry_muxes) = muxes
+            let (mux_lookup, registry_muxes): MuxLookups = muxes
                 .validate_and_fill(cb_config.chain, &cb_config.pbs.static_config.pbs_config)
                 .await?;
             (Some(mux_lookup), Some(registry_muxes))

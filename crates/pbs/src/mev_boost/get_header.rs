@@ -395,8 +395,7 @@ async fn send_one_get_header(
     match &get_header_response.data.message.header() {
         ExecutionPayloadHeaderRef::Bellatrix(_) |
         ExecutionPayloadHeaderRef::Capella(_) |
-        ExecutionPayloadHeaderRef::Deneb(_) |
-        ExecutionPayloadHeaderRef::Gloas(_) => {
+        ExecutionPayloadHeaderRef::Deneb(_) => {
             return Err(PbsError::Validation(ValidationError::UnsupportedFork))
         }
         ExecutionPayloadHeaderRef::Electra(res) => {
