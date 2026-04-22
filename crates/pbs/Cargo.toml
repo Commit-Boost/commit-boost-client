@@ -12,9 +12,13 @@ axum.workspace = true
 axum-extra.workspace = true
 cb-common.workspace = true
 cb-metrics.workspace = true
+ethereum_serde_utils.workspace = true
+ethereum_ssz.workspace = true
 eyre.workspace = true
 futures.workspace = true
+headers.workspace = true
 lazy_static.workspace = true
+lh_types.workspace = true
 notify.workspace = true
 parking_lot.workspace = true
 prometheus.workspace = true
@@ -27,3 +31,6 @@ tracing.workspace = true
 tree_hash.workspace = true
 url.workspace = true
 uuid.workspace = true
+
+[lints]
+workspace = true

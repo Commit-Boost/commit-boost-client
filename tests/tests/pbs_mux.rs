@@ -12,17 +12,17 @@ use cb_common::{
     },
     signer::random_secret,
     types::Chain,
-    utils::{ResponseReadError, set_ignore_content_length},
+    utils::{EncodingType, ForkName, ResponseReadError, set_ignore_content_length},
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
-    mock_relay::{MockRelayState, start_mock_relay_service},
+    mock_relay::{MockRelayState, start_mock_relay_service_with_listener},
     mock_ssv_node::{SsvNodeMockState, create_mock_ssv_node_server},
     mock_ssv_public::{PublicSsvMockState, TEST_HTTP_TIMEOUT, create_mock_public_ssv_server},
     mock_validator::MockValidator,
     utils::{
-        bls_pubkey_from_hex_unchecked, generate_mock_relay, get_pbs_config, setup_test_env,
-        to_pbs_config,
+        bls_pubkey_from_hex_unchecked, generate_mock_relay, get_free_listener, get_pbs_config,
+        setup_test_env, to_pbs_config,
     },
 };
 use eyre::Result;
@@ -36,7 +36,9 @@ use url::Url;
 /// from the public API
 async fn test_ssv_public_network_fetch() -> Result<()> {
     // Start the mock server
-    let port = 30100;
+    let listener = get_free_listener().await;
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
     let server_handle = create_mock_public_ssv_server(port, None).await?;
     let url =
         Url::parse(&format!("http://localhost:{port}/api/v4/test_chain/validators/in_operator/1"))
@@ -74,7 +76,9 @@ async fn test_ssv_public_network_fetch() -> Result<()> {
 /// body is too large
 async fn test_ssv_network_fetch_big_data() -> Result<()> {
     // Start the mock server
-    let port = 30101;
+    let listener = get_free_listener().await;
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
     let server_handle =
         cb_tests::mock_ssv_public::create_mock_public_ssv_server(port, None).await?;
     let url = Url::parse(&format!("http://localhost:{port}/big_data")).unwrap();
@@ -106,7 +110,9 @@ async fn test_ssv_network_fetch_big_data() -> Result<()> {
 /// times out
 async fn test_ssv_network_fetch_timeout() -> Result<()> {
     // Start the mock server
-    let port = 30102;
+    let listener = get_free_listener().await;
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
     let state = PublicSsvMockState {
         validators: Arc::new(RwLock::new(vec![])),
         force_timeout: Arc::new(RwLock::new(true)),
@@ -135,7 +141,9 @@ async fn test_ssv_network_fetch_timeout() -> Result<()> {
 /// content-length header is missing
 async fn test_ssv_network_fetch_big_data_without_content_length() -> Result<()> {
     // Start the mock server
-    let port = 30103;
+    let listener = get_free_listener().await;
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
     set_ignore_content_length(true);
     let server_handle = create_mock_public_ssv_server(port, None).await?;
     let url = Url::parse(&format!("http://localhost:{port}/big_data")).unwrap();
@@ -167,7 +175,9 @@ async fn test_ssv_network_fetch_big_data_without_content_length() -> Result<()> 
 /// from the node API
 async fn test_ssv_node_network_fetch() -> Result<()> {
     // Start the mock server
-    let port = 30104;
+    let listener = get_free_listener().await;
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
     let _server_handle = create_mock_ssv_node_server(port, None).await?;
     let url = Url::parse(&format!("http://localhost:{port}/v1/validators")).unwrap();
     let response = request_ssv_pubkeys_from_ssv_node(
@@ -200,17 +210,24 @@ async fn test_mux() -> Result<()> {
     let pubkey = signer.public_key();
 
     let chain = Chain::Holesky;
-    let pbs_port = 3700;
+    let pbs_listener = get_free_listener().await;
+    let relay_1_listener = get_free_listener().await;
+    let relay_2_listener = get_free_listener().await;
+    let relay_3_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr().unwrap().port();
+    let relay_1_port = relay_1_listener.local_addr().unwrap().port();
+    let relay_2_port = relay_2_listener.local_addr().unwrap().port();
+    let relay_3_port = relay_3_listener.local_addr().unwrap().port();
 
-    let mux_relay_1 = generate_mock_relay(pbs_port + 1, pubkey.clone())?;
-    let mux_relay_2 = generate_mock_relay(pbs_port + 2, pubkey.clone())?;
-    let default_relay = generate_mock_relay(pbs_port + 3, pubkey.clone())?;
+    let mux_relay_1 = generate_mock_relay(relay_1_port, pubkey.clone())?;
+    let mux_relay_2 = generate_mock_relay(relay_2_port, pubkey.clone())?;
+    let default_relay = generate_mock_relay(relay_3_port, pubkey.clone())?;
 
     // Run 3 mock relays
     let mock_state = Arc::new(MockRelayState::new(chain, signer));
-    tokio::spawn(start_mock_relay_service(mock_state.clone(), pbs_port + 1));
-    tokio::spawn(start_mock_relay_service(mock_state.clone(), pbs_port + 2));
-    tokio::spawn(start_mock_relay_service(mock_state.clone(), pbs_port + 3));
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_1_listener));
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_2_listener));
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_3_listener));
 
     // Register all relays in PBS config
     let relays = vec![default_relay.clone()];
@@ -230,6 +247,7 @@ async fn test_mux() -> Result<()> {
 
     // Run PBS service
     let state = PbsState::new(config, PathBuf::new());
+    drop(pbs_listener);
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
     // leave some time to start servers
@@ -238,13 +256,19 @@ async fn test_mux() -> Result<()> {
     // Send default request without specifying a validator key
     let mock_validator = MockValidator::new(pbs_port)?;
     info!("Sending get header with default");
-    assert_eq!(mock_validator.do_get_header(None).await?.status(), StatusCode::OK);
+    assert_eq!(
+        mock_validator.do_get_header(None, Vec::new(), ForkName::Electra).await?.status(),
+        StatusCode::OK
+    );
     assert_eq!(mock_state.received_get_header(), 1); // only default relay was used
 
     // Send request specifying a validator key to use mux
     info!("Sending get header with mux");
     assert_eq!(
-        mock_validator.do_get_header(Some(validator_pubkey)).await?.status(),
+        mock_validator
+            .do_get_header(Some(validator_pubkey), Vec::new(), ForkName::Electra)
+            .await?
+            .status(),
         StatusCode::OK
     );
     assert_eq!(mock_state.received_get_header(), 3); // two mux relays were used
@@ -261,12 +285,34 @@ async fn test_mux() -> Result<()> {
 
     // v1 Submit block requests should go to all relays
     info!("Sending submit block v1");
-    assert_eq!(mock_validator.do_submit_block_v1(None).await?.status(), StatusCode::OK);
+    assert_eq!(
+        mock_validator
+            .do_submit_block_v1(
+                None,
+                vec![EncodingType::Json],
+                EncodingType::Json,
+                ForkName::Electra
+            )
+            .await?
+            .status(),
+        StatusCode::OK
+    );
     assert_eq!(mock_state.received_submit_block(), 3); // default + 2 mux relays were used
 
     // v2 Submit block requests should go to all relays
     info!("Sending submit block v2");
-    assert_eq!(mock_validator.do_submit_block_v2(None).await?.status(), StatusCode::ACCEPTED);
+    assert_eq!(
+        mock_validator
+            .do_submit_block_v2(
+                None,
+                vec![EncodingType::Json],
+                EncodingType::Json,
+                ForkName::Electra
+            )
+            .await?
+            .status(),
+        StatusCode::ACCEPTED
+    );
     assert_eq!(mock_state.received_submit_block(), 6); // default + 2 mux relays were used
 
     Ok(())
@@ -282,10 +328,20 @@ async fn test_ssv_multi_with_node() -> Result<()> {
     let pubkey2 = signer2.public_key();
 
     let chain = Chain::Hoodi;
-    let pbs_port = 3711;
+    let pbs_listener = get_free_listener().await;
+    let ssv_node_listener = get_free_listener().await;
+    let ssv_public_listener = get_free_listener().await;
+    let relay_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr().unwrap().port();
+    let ssv_node_port = ssv_node_listener.local_addr().unwrap().port();
+    let ssv_public_port = ssv_public_listener.local_addr().unwrap().port();
+    let relay_port = relay_listener.local_addr().unwrap().port();
+    // Drop SSV node + public listeners because their mock server helpers bind the
+    // port themselves.
+    drop(ssv_node_listener);
+    drop(ssv_public_listener);
 
     // Start the mock SSV node
-    let ssv_node_port = pbs_port + 1;
     let ssv_node_url = Url::parse(&format!("http://localhost:{ssv_node_port}/v1/"))?;
     let mock_ssv_node_state = SsvNodeMockState {
         validators: Arc::new(RwLock::new(vec![
@@ -298,7 +354,6 @@ async fn test_ssv_multi_with_node() -> Result<()> {
         create_mock_ssv_node_server(ssv_node_port, Some(mock_ssv_node_state.clone())).await?;
 
     // Start the mock SSV public API
-    let ssv_public_port = ssv_node_port + 1;
     let ssv_public_url = Url::parse(&format!("http://localhost:{ssv_public_port}/api/v4/"))?;
     let mock_ssv_public_state = PublicSsvMockState {
         validators: Arc::new(RwLock::new(vec![SSVPublicValidator { pubkey: pubkey.clone() }])),
@@ -308,11 +363,11 @@ async fn test_ssv_multi_with_node() -> Result<()> {
         create_mock_public_ssv_server(ssv_public_port, Some(mock_ssv_public_state.clone())).await?;
 
     // Start a mock relay to be used by the mux
-    let relay_port = ssv_public_port + 1;
     let relay = generate_mock_relay(relay_port, pubkey.clone())?;
     let relay_id = relay.id.clone().to_string();
     let relay_state = Arc::new(MockRelayState::new(chain, signer));
-    let relay_task = tokio::spawn(start_mock_relay_service(relay_state.clone(), relay_port));
+    let relay_task =
+        tokio::spawn(start_mock_relay_service_with_listener(relay_state.clone(), relay_listener));
 
     // Create the registry mux
     let loader = MuxKeysLoader::Registry {
@@ -346,6 +401,7 @@ async fn test_ssv_multi_with_node() -> Result<()> {
 
     // Run PBS service
     let state = PbsState::new(config, PathBuf::new());
+    drop(pbs_listener);
     let pbs_server = tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
     info!("Started PBS server with pubkey {pubkey}");
 
@@ -356,7 +412,8 @@ async fn test_ssv_multi_with_node() -> Result<()> {
     // relay only since it hasn't been seen in the mux yet
     let mock_validator = MockValidator::new(pbs_port)?;
     info!("Sending get header");
-    let res = mock_validator.do_get_header(Some(pubkey2.clone())).await?;
+    let res =
+        mock_validator.do_get_header(Some(pubkey2.clone()), Vec::new(), ForkName::Electra).await?;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(relay_state.received_get_header(), 1); // pubkey2 was loaded from the SSV node 
 
@@ -380,10 +437,20 @@ async fn test_ssv_multi_with_public() -> Result<()> {
     let pubkey2 = signer2.public_key();
 
     let chain = Chain::Hoodi;
-    let pbs_port = 3720;
+    let pbs_listener = get_free_listener().await;
+    let ssv_node_listener = get_free_listener().await;
+    let ssv_public_listener = get_free_listener().await;
+    let relay_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr().unwrap().port();
+    let ssv_node_port = ssv_node_listener.local_addr().unwrap().port();
+    let ssv_public_port = ssv_public_listener.local_addr().unwrap().port();
+    let relay_port = relay_listener.local_addr().unwrap().port();
+    // SSV node is intentionally down — release its reserved port.
+    drop(ssv_node_listener);
+    // SSV public mock helper binds the port itself.
+    drop(ssv_public_listener);
 
     // Start the mock SSV node
-    let ssv_node_port = pbs_port + 1;
     let ssv_node_url = Url::parse(&format!("http://localhost:{ssv_node_port}/v1/"))?;
 
     // Don't start the SSV node server to simulate it being down
@@ -391,7 +458,6 @@ async fn test_ssv_multi_with_public() -> Result<()> {
     // Some(mock_ssv_node_state.clone())).await?;
 
     // Start the mock SSV public API
-    let ssv_public_port = ssv_node_port + 1;
     let ssv_public_url = Url::parse(&format!("http://localhost:{ssv_public_port}/api/v4/"))?;
     let mock_ssv_public_state = PublicSsvMockState {
         validators: Arc::new(RwLock::new(vec![
@@ -404,11 +470,11 @@ async fn test_ssv_multi_with_public() -> Result<()> {
         create_mock_public_ssv_server(ssv_public_port, Some(mock_ssv_public_state.clone())).await?;
 
     // Start a mock relay to be used by the mux
-    let relay_port = ssv_public_port + 1;
     let relay = generate_mock_relay(relay_port, pubkey.clone())?;
     let relay_id = relay.id.clone().to_string();
     let relay_state = Arc::new(MockRelayState::new(chain, signer));
-    let relay_task = tokio::spawn(start_mock_relay_service(relay_state.clone(), relay_port));
+    let relay_task =
+        tokio::spawn(start_mock_relay_service_with_listener(relay_state.clone(), relay_listener));
 
     // Create the registry mux
     let loader = MuxKeysLoader::Registry {
@@ -442,6 +508,7 @@ async fn test_ssv_multi_with_public() -> Result<()> {
 
     // Run PBS service
     let state = PbsState::new(config, PathBuf::new());
+    drop(pbs_listener);
     let pbs_server = tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
     info!("Started PBS server with pubkey {pubkey}");
 
@@ -452,7 +519,8 @@ async fn test_ssv_multi_with_public() -> Result<()> {
     // relay only since it hasn't been seen in the mux yet
     let mock_validator = MockValidator::new(pbs_port)?;
     info!("Sending get header");
-    let res = mock_validator.do_get_header(Some(pubkey2.clone())).await?;
+    let res =
+        mock_validator.do_get_header(Some(pubkey2.clone()), Vec::new(), ForkName::Electra).await?;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(relay_state.received_get_header(), 1); // pubkey2 was loaded from the SSV public API 
 

@@ -630,6 +630,7 @@ async fn handle_reload(
 ) -> Result<impl IntoResponse, SignerModuleError> {
     debug!(event = "reload", "New request");
 
+    // Regenerate the config
     let config = match StartSignerConfig::load_from_env() {
         Ok(config) => config,
         Err(err) => {

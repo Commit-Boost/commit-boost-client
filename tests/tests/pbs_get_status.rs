@@ -3,9 +3,11 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 use cb_common::{signer::random_secret, types::Chain};
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
-    mock_relay::{MockRelayState, start_mock_relay_service},
+    mock_relay::{MockRelayState, start_mock_relay_service_with_listener},
     mock_validator::MockValidator,
-    utils::{generate_mock_relay, get_pbs_config, setup_test_env, to_pbs_config},
+    utils::{
+        generate_mock_relay, get_free_listener, get_pbs_config, setup_test_env, to_pbs_config,
+    },
 };
 use eyre::Result;
 use reqwest::StatusCode;
@@ -18,20 +20,24 @@ async fn test_get_status() -> Result<()> {
     let pubkey = signer.public_key();
 
     let chain = Chain::Holesky;
-    let pbs_port = 3500;
-    let relay_0_port = pbs_port + 1;
-    let relay_1_port = pbs_port + 2;
+    let pbs_listener = get_free_listener().await;
+    let relay_0_listener = get_free_listener().await;
+    let relay_1_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr().unwrap().port();
+    let relay_0_port = relay_0_listener.local_addr().unwrap().port();
+    let relay_1_port = relay_1_listener.local_addr().unwrap().port();
 
     let relays = vec![
         generate_mock_relay(relay_0_port, pubkey.clone())?,
         generate_mock_relay(relay_1_port, pubkey)?,
     ];
     let mock_state = Arc::new(MockRelayState::new(chain, signer));
-    tokio::spawn(start_mock_relay_service(mock_state.clone(), relay_0_port));
-    tokio::spawn(start_mock_relay_service(mock_state.clone(), relay_1_port));
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_0_listener));
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_1_listener));
 
     let config = to_pbs_config(chain, get_pbs_config(pbs_port), relays.clone());
     let state = PbsState::new(config, PathBuf::new());
+    drop(pbs_listener);
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
     // leave some time to start servers
@@ -54,17 +60,22 @@ async fn test_get_status_returns_502_if_relay_down() -> Result<()> {
     let pubkey = signer.public_key();
 
     let chain = Chain::Holesky;
-    let pbs_port = 3600;
-    let relay_port = pbs_port + 1;
+    let pbs_listener = get_free_listener().await;
+    let relay_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr().unwrap().port();
+    let relay_port = relay_listener.local_addr().unwrap().port();
 
     let relays = vec![generate_mock_relay(relay_port, pubkey)?];
     let mock_state = Arc::new(MockRelayState::new(chain, signer));
 
     // Don't start the relay
-    // tokio::spawn(start_mock_relay_service(mock_state.clone(), relay_port));
+    // tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(),
+    // relay_listener));
+    drop(relay_listener);
 
     let config = to_pbs_config(chain, get_pbs_config(pbs_port), relays.clone());
     let state = PbsState::new(config, PathBuf::new());
+    drop(pbs_listener);
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
     // leave some time to start servers

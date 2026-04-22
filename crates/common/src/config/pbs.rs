@@ -38,6 +38,34 @@ use crate::{
     },
 };
 
+/// Header validation modes for get_header responses
+#[derive(Debug, Copy, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum HeaderValidationMode {
+    // Bypass all validation and minimize decoding, which is faster but requires complete trust in
+    // the relays
+    None,
+
+    // Validate the header itself, ensuring that it's for a correct block on the correct chain and
+    // fork. This is the default mode.
+    Standard,
+
+    // Standard header validation, plus validation that the parent block is correct as well
+    Extra,
+}
+
+/// Block validation modes for submit_block responses
+#[derive(Debug, Copy, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BlockValidationMode {
+    // Bypass all validation, which is faster but requires complete trust in the relays
+    None,
+
+    // Validate the block matches the header previously received from get_header and that it's for
+    // the correct chain and fork. This is the default mode.
+    Standard,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RelayConfig {
@@ -122,8 +150,11 @@ pub struct PbsConfig {
     #[serde(default = "default_u64::<LATE_IN_SLOT_TIME_MS>")]
     pub late_in_slot_time_ms: u64,
     /// Enable extra validation of get_header responses
-    #[serde(default = "default_bool::<false>")]
-    pub extra_validation_enabled: bool,
+    #[serde(default = "default_header_validation_mode")]
+    pub header_validation_mode: HeaderValidationMode,
+    /// Enable extra validation of submit_block requests
+    #[serde(default = "default_block_validation_mode")]
+    pub block_validation_mode: BlockValidationMode,
     /// Execution Layer RPC url to use for extra validation
     pub rpc_url: Option<Url>,
     /// URL for the user's own SSV node API endpoint
@@ -175,10 +206,10 @@ impl PbsConfig {
             format!("min bid is too high: {} ETH", format_ether(self.min_bid_wei))
         );
 
-        if self.extra_validation_enabled {
+        if self.header_validation_mode == HeaderValidationMode::Extra {
             ensure!(
                 self.rpc_url.is_some(),
-                "rpc_url is required if extra_validation_enabled is true"
+                "rpc_url is required if header_validation_mode is set to extra"
             );
         }
 
@@ -440,6 +471,16 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
         },
         cb_config.pbs.extra,
     ))
+}
+
+/// Default value for header validation mode
+fn default_header_validation_mode() -> HeaderValidationMode {
+    HeaderValidationMode::Standard
+}
+
+/// Default value for block validation mode
+fn default_block_validation_mode() -> BlockValidationMode {
+    BlockValidationMode::Standard
 }
 
 /// Default URL for the user's SSV node API endpoint (/v1/validators).

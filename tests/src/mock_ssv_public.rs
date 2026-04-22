@@ -30,6 +30,18 @@ pub async fn create_mock_public_ssv_server(
     port: u16,
     state: Option<PublicSsvMockState>,
 ) -> Result<JoinHandle<()>, axum::Error> {
+    let address = SocketAddr::from(([127, 0, 0, 1], port));
+    let listener = TcpListener::bind(address).await.map_err(axum::Error::new)?;
+    create_mock_public_ssv_server_with_listener(listener, state).await
+}
+
+/// Like [`create_mock_public_ssv_server`], but accepts a pre-bound
+/// [`TcpListener`].
+pub async fn create_mock_public_ssv_server_with_listener(
+    listener: TcpListener,
+    state: Option<PublicSsvMockState>,
+) -> Result<JoinHandle<()>, axum::Error> {
+    let port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
     let data = include_str!("../../tests/data/ssv_valid_public.json");
     let response =
         serde_json::from_str::<SSVPublicResponse>(data).expect("failed to parse test data");
@@ -46,8 +58,6 @@ pub async fn create_mock_public_ssv_server(
         .with_state(state)
         .into_make_service();
 
-    let address = SocketAddr::from(([127, 0, 0, 1], port));
-    let listener = TcpListener::bind(address).await.map_err(axum::Error::new)?;
     let server = axum::serve(listener, router).with_graceful_shutdown(async {
         tokio::signal::ctrl_c().await.expect("Failed to listen for shutdown signal");
     });

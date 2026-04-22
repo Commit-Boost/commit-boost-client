@@ -2,13 +2,13 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use axum::{Router, http::HeaderMap};
-use cb_common::pbs::{
-    BuilderApiVersion, GetHeaderParams, GetHeaderResponse, SignedBlindedBeaconBlock,
-    SubmitBlindedBlockResponse,
+use cb_common::{
+    pbs::{BuilderApiVersion, GetHeaderParams, SignedBlindedBeaconBlock},
+    utils::AcceptedEncodings,
 };
 
 use crate::{
-    mev_boost,
+    CompoundGetHeaderResponse, CompoundSubmitBlockResponse, mev_boost,
     state::{BuilderApiState, PbsState, PbsStateGuard},
 };
 
@@ -24,8 +24,9 @@ pub trait BuilderApi<S: BuilderApiState>: 'static {
         params: GetHeaderParams,
         req_headers: HeaderMap,
         state: PbsState<S>,
-    ) -> eyre::Result<Option<GetHeaderResponse>> {
-        mev_boost::get_header(params, req_headers, state).await
+        accepted_types: AcceptedEncodings,
+    ) -> eyre::Result<Option<CompoundGetHeaderResponse>> {
+        mev_boost::get_header(params, req_headers, state, accepted_types).await
     }
 
     /// https://ethereum.github.io/builder-specs/#/Builder/status
@@ -40,8 +41,16 @@ pub trait BuilderApi<S: BuilderApiState>: 'static {
         req_headers: HeaderMap,
         state: PbsState<S>,
         api_version: BuilderApiVersion,
-    ) -> eyre::Result<Option<SubmitBlindedBlockResponse>> {
-        mev_boost::submit_block(signed_blinded_block, req_headers, state, api_version).await
+        accepted_types: AcceptedEncodings,
+    ) -> eyre::Result<CompoundSubmitBlockResponse> {
+        mev_boost::submit_block(
+            signed_blinded_block,
+            req_headers,
+            state,
+            api_version,
+            accepted_types,
+        )
+        .await
     }
 
     /// https://ethereum.github.io/builder-specs/#/Builder/registerValidator

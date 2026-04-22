@@ -1,6 +1,7 @@
 use alloy::primitives::{B256, U256, b256};
+pub use lh_eth2::ForkVersionedResponse;
+pub use lh_types::ForkName;
 use lh_types::{BlindedPayload, ExecPayload, MainnetEthSpec};
-pub use lh_types::{ForkName, ForkVersionedResponse};
 use serde::{Deserialize, Serialize};
 
 use crate::types::BlsPublicKey;
@@ -8,39 +9,48 @@ use crate::types::BlsPublicKey;
 pub const EMPTY_TX_ROOT_HASH: B256 =
     b256!("7ffe241ea60187fdb0187bfa22de35d1f9bed7ab061d9401fd47e34a54fbede1");
 
-pub type ExecutionRequests = lh_types::execution_requests::ExecutionRequests<MainnetEthSpec>;
+pub type ExecutionRequests = lh_types::ExecutionRequests<MainnetEthSpec>;
 
 /// Request object of POST `/eth/v1/builder/blinded_blocks`
-pub type SignedBlindedBeaconBlock =
-    lh_types::signed_beacon_block::SignedBlindedBeaconBlock<MainnetEthSpec>;
+pub type SignedBlindedBeaconBlock = lh_types::SignedBlindedBeaconBlock<MainnetEthSpec>;
 pub type BlindedBeaconBlock<'a> =
-    lh_types::beacon_block::BeaconBlockRef<'a, MainnetEthSpec, BlindedPayload<MainnetEthSpec>>;
+    lh_types::BeaconBlockRef<'a, MainnetEthSpec, BlindedPayload<MainnetEthSpec>>;
 pub type BlindedBeaconBlockElectra =
-    lh_types::beacon_block::BeaconBlockElectra<MainnetEthSpec, BlindedPayload<MainnetEthSpec>>;
+    lh_types::BeaconBlockElectra<MainnetEthSpec, BlindedPayload<MainnetEthSpec>>;
 pub type BlindedBeaconBlockFulu =
-    lh_types::beacon_block::BeaconBlockFulu<MainnetEthSpec, BlindedPayload<MainnetEthSpec>>;
+    lh_types::BeaconBlockFulu<MainnetEthSpec, BlindedPayload<MainnetEthSpec>>;
 
 pub type BlobsBundle = lh_eth2::types::BlobsBundle<MainnetEthSpec>;
 pub type PayloadAndBlobs = lh_eth2::types::ExecutionPayloadAndBlobs<MainnetEthSpec>;
 /// Response object of POST `/eth/v1/builder/blinded_blocks`
-pub type SubmitBlindedBlockResponse = lh_types::ForkVersionedResponse<PayloadAndBlobs>;
+pub type SubmitBlindedBlockResponse = ForkVersionedResponse<PayloadAndBlobs>;
 
 pub type ExecutionPayloadHeader = lh_types::ExecutionPayloadHeader<MainnetEthSpec>;
+pub type ExecutionPayloadHeaderBellatrix =
+    lh_types::ExecutionPayloadHeaderBellatrix<MainnetEthSpec>;
+pub type ExecutionPayloadHeaderCapella = lh_types::ExecutionPayloadHeaderCapella<MainnetEthSpec>;
+pub type ExecutionPayloadHeaderDeneb = lh_types::ExecutionPayloadHeaderDeneb<MainnetEthSpec>;
 pub type ExecutionPayloadHeaderElectra = lh_types::ExecutionPayloadHeaderElectra<MainnetEthSpec>;
 pub type ExecutionPayloadHeaderFulu = lh_types::ExecutionPayloadHeaderFulu<MainnetEthSpec>;
 pub type ExecutionPayloadHeaderRef<'a> = lh_types::ExecutionPayloadHeaderRef<'a, MainnetEthSpec>;
 pub type ExecutionPayload = lh_types::ExecutionPayload<MainnetEthSpec>;
 pub type ExecutionPayloadElectra = lh_types::ExecutionPayloadElectra<MainnetEthSpec>;
 pub type ExecutionPayloadFulu = lh_types::ExecutionPayloadFulu<MainnetEthSpec>;
-pub type SignedBuilderBid = lh_types::builder_bid::SignedBuilderBid<MainnetEthSpec>;
-pub type BuilderBid = lh_types::builder_bid::BuilderBid<MainnetEthSpec>;
-pub type BuilderBidElectra = lh_types::builder_bid::BuilderBidElectra<MainnetEthSpec>;
+pub type SignedBuilderBid = lh_types::SignedBuilderBid<MainnetEthSpec>;
+pub type BuilderBid = lh_types::BuilderBid<MainnetEthSpec>;
+pub type BuilderBidBellatrix = lh_types::BuilderBidBellatrix<MainnetEthSpec>;
+pub type BuilderBidCapella = lh_types::BuilderBidCapella<MainnetEthSpec>;
+pub type BuilderBidDeneb = lh_types::BuilderBidDeneb<MainnetEthSpec>;
+pub type BuilderBidElectra = lh_types::BuilderBidElectra<MainnetEthSpec>;
+pub type BuilderBidFulu = lh_types::BuilderBidFulu<MainnetEthSpec>;
 
 /// Response object of GET
 /// `/eth/v1/builder/header/{slot}/{parent_hash}/{pubkey}`
-pub type GetHeaderResponse = lh_types::ForkVersionedResponse<SignedBuilderBid>;
+pub type GetHeaderResponse = ForkVersionedResponse<SignedBuilderBid>;
 
-pub type KzgCommitments = lh_types::beacon_block_body::KzgCommitments<MainnetEthSpec>;
+pub type KzgCommitments = lh_types::KzgCommitments<MainnetEthSpec>;
+
+pub type Uint256 = lh_types::Uint256;
 
 /// Response params of GET
 /// `/eth/v1/builder/header/{slot}/{parent_hash}/{pubkey}`

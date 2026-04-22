@@ -2,18 +2,24 @@ use std::{net::Ipv4Addr, sync::Arc, time::Duration};
 
 use alloy::primitives::U256;
 use cb_common::{
-    config::{CommitBoostConfig, LogsSettings, PbsConfig, RelayConfig, StaticPbsConfig},
+    config::{
+        BlockValidationMode, CommitBoostConfig, HeaderValidationMode, LogsSettings, PbsConfig,
+        RelayConfig, StaticPbsConfig,
+    },
     pbs::RelayEntry,
     signer::random_secret,
     types::Chain,
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
-    mock_relay::{MockRelayState, start_mock_relay_service},
+    mock_relay::{MockRelayState, start_mock_relay_service_with_listener},
     mock_validator::MockValidator,
-    utils::{generate_mock_relay, get_pbs_config, setup_test_env, to_pbs_config},
+    utils::{
+        generate_mock_relay, get_free_listener, get_pbs_config, setup_test_env, to_pbs_config,
+    },
 };
 use eyre::Result;
+use lh_types::ForkName;
 use reqwest::StatusCode;
 use tracing::info;
 use url::Url;
@@ -28,20 +34,23 @@ async fn test_cfg_file_update() -> Result<()> {
     let pubkey = signer.public_key();
 
     let chain = Chain::Hoodi;
-    let pbs_port = 3730;
+    let pbs_listener = get_free_listener().await;
+    let relay1_listener = get_free_listener().await;
+    let relay2_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr().unwrap().port();
+    let relay1_port = relay1_listener.local_addr().unwrap().port();
+    let relay2_port = relay2_listener.local_addr().unwrap().port();
 
     // Start relay 1
-    let relay1_port = pbs_port + 1;
     let relay1 = generate_mock_relay(relay1_port, pubkey.clone())?;
     let relay1_state = Arc::new(MockRelayState::new(chain, signer.clone()));
-    tokio::spawn(start_mock_relay_service(relay1_state.clone(), relay1_port));
+    tokio::spawn(start_mock_relay_service_with_listener(relay1_state.clone(), relay1_listener));
 
     // Start relay 2
-    let relay2_port = relay1_port + 1;
     let relay2 = generate_mock_relay(relay2_port, pubkey.clone())?;
     let relay2_id = relay2.id.clone().to_string();
     let relay2_state = Arc::new(MockRelayState::new(chain, signer));
-    tokio::spawn(start_mock_relay_service(relay2_state.clone(), relay2_port));
+    tokio::spawn(start_mock_relay_service_with_listener(relay2_state.clone(), relay2_listener));
 
     // Make a config with relay 1 only
     let pbs_config = PbsConfig {
@@ -57,7 +66,8 @@ async fn test_cfg_file_update() -> Result<()> {
         min_bid_wei: U256::ZERO,
         late_in_slot_time_ms: u64::MAX / 2, /* serde gets very upset about serializing u64::MAX
                                              * or anything close to it */
-        extra_validation_enabled: false,
+        block_validation_mode: BlockValidationMode::Standard,
+        header_validation_mode: HeaderValidationMode::Standard,
         rpc_url: None,
         ssv_node_api_url: Url::parse("http://example.com").unwrap(),
         ssv_public_api_url: Url::parse("http://example.com").unwrap(),
@@ -104,6 +114,7 @@ async fn test_cfg_file_update() -> Result<()> {
     // Run the PBS service
     let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![relay1.clone()]);
     let state = PbsState::new(config, config_path.clone());
+    drop(pbs_listener);
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
 
     // leave some time to start servers - extra time for the file watcher
@@ -112,7 +123,7 @@ async fn test_cfg_file_update() -> Result<()> {
     // Send a get header request - should go to relay 1 only
     let mock_validator = MockValidator::new(pbs_port)?;
     info!("Sending get header");
-    let res = mock_validator.do_get_header(None).await?;
+    let res = mock_validator.do_get_header(None, Vec::new(), ForkName::Fulu).await?;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(relay1_state.received_get_header(), 1);
     assert_eq!(relay2_state.received_get_header(), 0);
@@ -154,7 +165,7 @@ async fn test_cfg_file_update() -> Result<()> {
 
     // Send another get header request - should go to relay 2 only
     info!("Sending get header after config update");
-    let res = mock_validator.do_get_header(None).await?;
+    let res = mock_validator.do_get_header(None, Vec::new(), ForkName::Fulu).await?;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(relay1_state.received_get_header(), 1); // no change
     assert_eq!(relay2_state.received_get_header(), 1); // incremented

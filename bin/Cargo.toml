@@ -27,3 +27,6 @@ tempfile.workspace = true
 [[bin]]
 name = "commit-boost"
 path = "commit-boost.rs"
+
+[lints]
+workspace = true
