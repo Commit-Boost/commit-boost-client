@@ -1,51 +1,29 @@
 use std::{collections::HashMap, time::Duration};
 
-use alloy::primitives::b256;
 use cb_common::{
-    commit::{
-        constants::{GET_PUBKEYS_PATH, REVOKE_MODULE_PATH},
-        request::RevokeModuleRequest,
-    },
-    config::{ModuleSigningConfig, load_module_signing_configs},
-    types::ModuleId,
-    utils::{create_admin_jwt, create_jwt},
+    commit::{constants::GET_PUBKEYS_PATH, request::GetPubkeysResponse},
+    config::StartSignerConfig,
+    signer::{SignerLoader, ValidatorKeysFormat},
+    types::{Chain, ModuleId},
+    utils::{bls_pubkey_from_hex, create_jwt},
 };
-use cb_tests::{
-    signer_service::{start_server, verify_pubkeys},
-    utils::{self, setup_test_env},
-};
+use cb_signer::service::SigningService;
+use cb_tests::utils::{get_signer_config, get_start_signer_config, setup_test_env};
 use eyre::Result;
-use reqwest::StatusCode;
+use reqwest::{Response, StatusCode};
 use tracing::info;
 
 const JWT_MODULE: &str = "test-module";
 const JWT_SECRET: &str = "test-jwt-secret";
-const ADMIN_SECRET: &str = "test-admin-secret";
-
-async fn create_mod_signing_configs() -> HashMap<ModuleId, ModuleSigningConfig> {
-    let mut cfg =
-        utils::get_commit_boost_config(utils::get_pbs_static_config(utils::get_pbs_config(0)));
-
-    let module_id = ModuleId(JWT_MODULE.to_string());
-    let signing_id = b256!("0101010101010101010101010101010101010101010101010101010101010101");
-
-    cfg.modules = Some(vec![utils::create_module_config(module_id.clone(), signing_id)]);
-
-    let jwts = HashMap::from([(module_id.clone(), JWT_SECRET.to_string())]);
-
-    load_module_signing_configs(&cfg, &jwts).unwrap()
-}
 
 #[tokio::test]
 async fn test_signer_jwt_auth_success() -> Result<()> {
     setup_test_env();
     let module_id = ModuleId(JWT_MODULE.to_string());
-    let mod_cfgs = create_mod_signing_configs().await;
-    let start_config = start_server(20100, &mod_cfgs, ADMIN_SECRET.to_string(), false).await?;
-    let jwt_config = mod_cfgs.get(&module_id).expect("JWT config for test module not found");
+    let start_config = start_server(20100).await?;
 
     // Run a pubkeys request
-    let jwt = create_jwt(&module_id, &jwt_config.jwt_secret, GET_PUBKEYS_PATH, None)?;
+    let jwt = create_jwt(&module_id, JWT_SECRET)?;
     let client = reqwest::Client::new();
     let url = format!("http://{}{}", start_config.endpoint, GET_PUBKEYS_PATH);
     let response = client.get(&url).bearer_auth(&jwt).send().await?;
@@ -60,11 +38,10 @@ async fn test_signer_jwt_auth_success() -> Result<()> {
 async fn test_signer_jwt_auth_fail() -> Result<()> {
     setup_test_env();
     let module_id = ModuleId(JWT_MODULE.to_string());
-    let mod_cfgs = create_mod_signing_configs().await;
-    let start_config = start_server(20101, &mod_cfgs, ADMIN_SECRET.to_string(), false).await?;
+    let start_config = start_server(20200).await?;
 
     // Run a pubkeys request - this should fail due to invalid JWT
-    let jwt = create_jwt(&module_id, "incorrect secret", GET_PUBKEYS_PATH, None)?;
+    let jwt = create_jwt(&module_id, "incorrect secret")?;
     let client = reqwest::Client::new();
     let url = format!("http://{}{}", start_config.endpoint, GET_PUBKEYS_PATH);
     let response = client.get(&url).bearer_auth(&jwt).send().await?;
@@ -81,12 +58,10 @@ async fn test_signer_jwt_auth_fail() -> Result<()> {
 async fn test_signer_jwt_rate_limit() -> Result<()> {
     setup_test_env();
     let module_id = ModuleId(JWT_MODULE.to_string());
-    let mod_cfgs = create_mod_signing_configs().await;
-    let start_config = start_server(20102, &mod_cfgs, ADMIN_SECRET.to_string(), false).await?;
-    let mod_cfg = mod_cfgs.get(&module_id).expect("JWT config for test module not found");
+    let start_config = start_server(20300).await?;
 
     // Run as many pubkeys requests as the fail limit
-    let jwt = create_jwt(&module_id, "incorrect secret", GET_PUBKEYS_PATH, None)?;
+    let jwt = create_jwt(&module_id, "incorrect secret")?;
     let client = reqwest::Client::new();
     let url = format!("http://{}{}", start_config.endpoint, GET_PUBKEYS_PATH);
     for _ in 0..start_config.jwt_auth_fail_limit {
@@ -95,7 +70,7 @@ async fn test_signer_jwt_rate_limit() -> Result<()> {
     }
 
     // Run another request - this should fail due to rate limiting now
-    let jwt = create_jwt(&module_id, &mod_cfg.jwt_secret, GET_PUBKEYS_PATH, None)?;
+    let jwt = create_jwt(&module_id, JWT_SECRET)?;
     let response = client.get(&url).bearer_auth(&jwt).send().await?;
     assert!(response.status() == StatusCode::TOO_MANY_REQUESTS);
 
@@ -110,101 +85,65 @@ async fn test_signer_jwt_rate_limit() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_signer_revoked_jwt_fail() -> Result<()> {
+// Starts the signer moduler server on a separate task and returns its
+// configuration
+async fn start_server(port: u16) -> Result<StartSignerConfig> {
     setup_test_env();
-    let admin_secret = ADMIN_SECRET.to_string();
+    let chain = Chain::Hoodi;
+
+    // Mock JWT secrets
     let module_id = ModuleId(JWT_MODULE.to_string());
-    let mod_cfgs = create_mod_signing_configs().await;
-    let start_config = start_server(20400, &mod_cfgs, admin_secret.clone(), false).await?;
+    let mut jwts = HashMap::new();
+    jwts.insert(module_id.clone(), JWT_SECRET.to_string());
 
-    // Run as many pubkeys requests as the fail limit
-    let jwt = create_jwt(&module_id, JWT_SECRET, GET_PUBKEYS_PATH, None)?;
-    let client = reqwest::Client::new();
+    // Create a signer config
+    let loader = SignerLoader::ValidatorsDir {
+        keys_path: "data/keystores/keys".into(),
+        secrets_path: "data/keystores/secrets".into(),
+        format: ValidatorKeysFormat::Lighthouse,
+    };
+    let mut config = get_signer_config(loader);
+    config.port = port;
+    config.jwt_auth_fail_limit = 3; // Set a low fail limit for testing
+    config.jwt_auth_fail_timeout_seconds = 3; // Set a short timeout for testing
+    let start_config = get_start_signer_config(config, chain, jwts);
 
-    // At first, test module should be allowed to request pubkeys
-    let url = format!("http://{}{}", start_config.endpoint, GET_PUBKEYS_PATH);
-    let response = client.get(&url).bearer_auth(&jwt).send().await?;
-    assert!(response.status() == StatusCode::OK);
+    // Run the Signer
+    let server_handle = tokio::spawn(SigningService::run(start_config.clone()));
 
-    let revoke_body = RevokeModuleRequest { module_id: ModuleId(JWT_MODULE.to_string()) };
-    let body_bytes = serde_json::to_vec(&revoke_body)?;
-    let admin_jwt = create_admin_jwt(admin_secret, REVOKE_MODULE_PATH, Some(&body_bytes))?;
-
-    let revoke_url = format!("http://{}{}", start_config.endpoint, REVOKE_MODULE_PATH);
-    let response =
-        client.post(&revoke_url).json(&revoke_body).bearer_auth(&admin_jwt).send().await?;
-    assert!(response.status() == StatusCode::OK);
-
-    // After revoke, test module shouldn't be allowed anymore
-    let response = client.get(&url).bearer_auth(&jwt).send().await?;
-    assert!(response.status() == StatusCode::UNAUTHORIZED);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_signer_only_admin_can_revoke() -> Result<()> {
-    setup_test_env();
-    let admin_secret = ADMIN_SECRET.to_string();
-    let module_id = ModuleId(JWT_MODULE.to_string());
-    let mod_cfgs = create_mod_signing_configs().await;
-    let start_config = start_server(20500, &mod_cfgs, admin_secret.clone(), false).await?;
-
-    let revoke_body = RevokeModuleRequest { module_id: ModuleId(JWT_MODULE.to_string()) };
-    let body_bytes = serde_json::to_vec(&revoke_body)?;
-
-    // Run as many pubkeys requests as the fail limit
-    let jwt = create_jwt(&module_id, JWT_SECRET, REVOKE_MODULE_PATH, Some(&body_bytes))?;
-    let client = reqwest::Client::new();
-    let url = format!("http://{}{}", start_config.endpoint, REVOKE_MODULE_PATH);
-
-    // Module JWT shouldn't be able to revoke modules
-    let response = client.post(&url).json(&revoke_body).bearer_auth(&jwt).send().await?;
-    assert!(response.status() == StatusCode::UNAUTHORIZED);
-
-    // Admin should be able to revoke modules
-    let admin_jwt = create_admin_jwt(admin_secret, REVOKE_MODULE_PATH, Some(&body_bytes))?;
-    let response = client.post(&url).json(&revoke_body).bearer_auth(&admin_jwt).send().await?;
-    assert!(response.status() == StatusCode::OK);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_signer_admin_jwt_rate_limit() -> Result<()> {
-    setup_test_env();
-    let admin_secret = ADMIN_SECRET.to_string();
-    let module_id = ModuleId(JWT_MODULE.to_string());
-    let mod_cfgs = create_mod_signing_configs().await;
-    let start_config = start_server(20510, &mod_cfgs, admin_secret.clone(), false).await?;
-
-    let revoke_body = RevokeModuleRequest { module_id: ModuleId(JWT_MODULE.to_string()) };
-    let body_bytes = serde_json::to_vec(&revoke_body)?;
-
-    // Run as many pubkeys requests as the fail limit
-    let jwt = create_jwt(&module_id, JWT_SECRET, REVOKE_MODULE_PATH, Some(&body_bytes))?;
-    let client = reqwest::Client::new();
-    let url = format!("http://{}{}", start_config.endpoint, REVOKE_MODULE_PATH);
-
-    // Module JWT shouldn't be able to revoke modules
-    for _ in 0..start_config.jwt_auth_fail_limit {
-        let response = client.post(&url).json(&revoke_body).bearer_auth(&jwt).send().await?;
-        assert!(response.status() == StatusCode::UNAUTHORIZED);
+    // Make sure the server is running
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    if server_handle.is_finished() {
+        return Err(eyre::eyre!(
+            "Signer service failed to start: {}",
+            server_handle.await.unwrap_err()
+        ));
     }
+    Ok(start_config)
+}
 
-    // Run another request - this should fail due to rate limiting now
-    let admin_jwt = create_admin_jwt(admin_secret, REVOKE_MODULE_PATH, Some(&body_bytes))?;
-    let response = client.post(&url).json(&revoke_body).bearer_auth(&admin_jwt).send().await?;
-    assert!(response.status() == StatusCode::TOO_MANY_REQUESTS);
-
-    // Wait for the rate limit timeout
-    tokio::time::sleep(Duration::from_secs(start_config.jwt_auth_fail_timeout_seconds as u64))
-        .await;
-
-    // Now the next request should succeed
-    let response = client.post(&url).json(&revoke_body).bearer_auth(&admin_jwt).send().await?;
+// Verifies that the pubkeys returned by the server match the pubkeys in the
+// test data
+async fn verify_pubkeys(response: Response) -> Result<()> {
+    // Verify the expected pubkeys are returned
     assert!(response.status() == StatusCode::OK);
-
+    let pubkey_json = response.json::<GetPubkeysResponse>().await?;
+    assert_eq!(pubkey_json.keys.len(), 2);
+    let expected_pubkeys = vec![
+        bls_pubkey_from_hex(
+            "883827193f7627cd04e621e1e8d56498362a52b2a30c9a1c72036eb935c4278dee23d38a24d2f7dda62689886f0c39f4",
+        )?,
+        bls_pubkey_from_hex(
+            "b3a22e4a673ac7a153ab5b3c17a4dbef55f7e47210b20c0cbb0e66df5b36bb49ef808577610b034172e955d2312a61b9",
+        )?,
+    ];
+    for expected in expected_pubkeys {
+        assert!(
+            pubkey_json.keys.iter().any(|k| k.consensus == expected),
+            "Expected pubkey not found: {:?}",
+            expected
+        );
+        info!("Server returned expected pubkey: {:?}", expected);
+    }
     Ok(())
 }

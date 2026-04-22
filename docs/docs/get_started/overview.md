@@ -28,7 +28,7 @@ The services are also published at [each release](https://github.com/orgs/Commit
 
 Requirements:
 
-- Rust 1.91
+- Rust 1.89
 
 :::note
 Run `rustup update` to update Rust and Cargo to the latest version

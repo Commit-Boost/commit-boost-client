@@ -11,7 +11,7 @@ use cb_tests::{
     mock_relay::{MockRelayState, start_mock_relay_service},
     mock_ssv_public::{PublicSsvMockState, create_mock_public_ssv_server},
     mock_validator::MockValidator,
-    utils::{generate_mock_relay, get_pbs_config, to_pbs_config},
+    utils::{generate_mock_relay, get_pbs_static_config, to_pbs_config},
 };
 use eyre::Result;
 use reqwest::StatusCode;
@@ -87,7 +87,7 @@ async fn test_auto_refresh() -> Result<()> {
     };
 
     // Set up the PBS config
-    let mut pbs_config = get_pbs_config(pbs_port);
+    let mut pbs_config = get_pbs_static_config(pbs_port);
     pbs_config.ssv_public_api_url = ssv_api_url.clone();
     pbs_config.mux_registry_refresh_interval_seconds = 1; // Refresh the mux every second
     let (mux_lookup, registry_muxes) = muxes.validate_and_fill(chain, &pbs_config).await?;
