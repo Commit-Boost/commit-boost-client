@@ -8,10 +8,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{constants::APPLICATION_BUILDER_DOMAIN, signature::compute_domain};
 
-pub type BlsPublicKeyBytes = lh_types::PublicKeyBytes;
-pub type BlsPublicKey = lh_types::PublicKey;
-pub type BlsSignature = lh_types::Signature;
-pub type BlsSecretKey = lh_types::SecretKey;
+pub type BlsPublicKeyBytes = lh_bls::PublicKeyBytes;
+pub type BlsPublicKey = lh_bls::PublicKey;
+pub type BlsSignature = lh_bls::Signature;
+pub type BlsSecretKey = lh_bls::SecretKey;
 
 #[derive(Clone, Debug, Display, PartialEq, Eq, Hash, Deref, From, Into, Serialize, Deserialize)]
 #[into(owned, ref, ref_mut)]
