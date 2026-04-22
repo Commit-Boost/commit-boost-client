@@ -407,6 +407,7 @@ async fn fetch_ssv_pubkeys(
 
     let mut pubkeys: Vec<BlsPublicKey> = vec![];
     let mut page = 1;
+    let mut expected_total: Option<usize> = None;
 
     // Validate the URL - this appends a trailing slash if missing as efficiently as
     // possible
@@ -425,25 +426,21 @@ async fn fetch_ssv_pubkeys(
 
         let response = fetch_ssv_pubkeys_from_url(url, http_timeout).await?;
         let fetched = response.validators.len();
+        if expected_total.is_none() && fetched > 0 {
+            expected_total = Some(response.pagination.total);
+        }
         pubkeys.extend(
             response.validators.into_iter().map(|v| v.pubkey).collect::<Vec<BlsPublicKey>>(),
         );
         page += 1;
 
         if fetched < MAX_PER_PAGE {
-            // Past-end page (fetched == 0) returns pagination.total == 0 from the SSV
-            // public API; only assert the total when the page actually carried
-            // data.
-            if fetched > 0 {
-                ensure!(
-                    pubkeys.len() == response.pagination.total,
-                    "expected {} keys, got {}",
-                    response.pagination.total,
-                    pubkeys.len()
-                );
-            }
             break;
         }
+    }
+
+    if let Some(expected) = expected_total {
+        ensure!(pubkeys.len() == expected, "expected {expected} keys, got {}", pubkeys.len());
     }
 
     Ok(pubkeys)
