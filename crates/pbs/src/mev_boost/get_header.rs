@@ -27,7 +27,7 @@ use futures::future::join_all;
 use parking_lot::RwLock;
 use reqwest::{StatusCode, header::USER_AGENT};
 use tokio::time::sleep;
-use tracing::{Instrument, debug, error, info, warn};
+use tracing::{Instrument, debug, error, warn};
 use tree_hash::TreeHash;
 use url::Url;
 
@@ -131,7 +131,7 @@ pub async fn get_header<S: BuilderApiState>(
                     .unwrap_or_default();
                 RELAY_HEADER_VALUE.with_label_values(&[relay_id]).set(value_gwei);
 
-                relay_bids.push((relay_id, res))
+                relay_bids.push(res)
             }
             Ok(_) => {}
             Err(err) if err.is_timeout() => error!(err = "Timed Out", relay_id),
@@ -139,18 +139,9 @@ pub async fn get_header<S: BuilderApiState>(
         }
     }
 
-    let max_bid = relay_bids.into_iter().max_by_key(|(_, bid)| *bid.value());
+    let max_bid = relay_bids.into_iter().max_by_key(|bid| *bid.value());
 
-    if let Some((winning_relay_id, ref bid)) = max_bid {
-        info!(
-            relay_id = winning_relay_id,
-            value_eth = format_ether(*bid.value()),
-            block_hash = %bid.block_hash(),
-            "auction winner"
-        );
-    }
-
-    Ok(max_bid.map(|(_, bid)| bid))
+    Ok(max_bid)
 }
 
 /// Fetch the parent block from the RPC URL for extra validation of the header.
@@ -382,7 +373,7 @@ async fn send_one_get_header(
         }
     };
 
-    info!(
+    debug!(
         relay_id = relay.id.as_ref(),
         header_size_bytes,
         latency = ?request_latency,
