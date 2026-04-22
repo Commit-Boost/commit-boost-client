@@ -345,7 +345,7 @@ async fn test_ssv_multi_with_node() -> Result<()> {
     config.registry_muxes = Some(registry_muxes);
 
     // Run PBS service
-    let state = PbsState::new(config, PathBuf::new());
+    let state = PbsState::new(config);
     let pbs_server = tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
     info!("Started PBS server with pubkey {pubkey}");
 
@@ -441,7 +441,7 @@ async fn test_ssv_multi_with_public() -> Result<()> {
     config.registry_muxes = Some(registry_muxes);
 
     // Run PBS service
-    let state = PbsState::new(config, PathBuf::new());
+    let state = PbsState::new(config);
     let pbs_server = tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
     info!("Started PBS server with pubkey {pubkey}");
 
