@@ -10,8 +10,30 @@ permissions:
   packages: write
 
 jobs:
+  # Determines whether this tag should update :latest on GHCR.
+  # Runs once; both Docker jobs consume its output.
+  determine-latest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      value: ${{ steps.is_latest.outputs.value }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch tags
+        run: git fetch --tags
+
+      - name: Check is-latest
+        id: is_latest
+        run: |
+          VALUE=$(python .github/workflows/release/release.py is-latest "${{ github.ref_name }}")
+          echo "value=$VALUE" >> $GITHUB_OUTPUT
+
   # Builds the x64 and arm64 binaries for Linux, for all 3 crates, via the Docker builder
   build-binaries-linux:
+    timeout-minutes: 60
     strategy:
       matrix:
         target:
@@ -44,6 +66,9 @@ jobs:
         run: |
           echo "Releasing commit: $(git rev-parse HEAD)"
 
+      - name: Set lowercase owner
+        run: echo "OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -63,8 +88,8 @@ jobs:
           context: .
           push: false
           platforms: linux/amd64,linux/arm64
-          cache-from: type=registry,ref=ghcr.io/commit-boost/buildcache:${{ matrix.target-crate}}
-          cache-to: type=registry,ref=ghcr.io/commit-boost/buildcache:${{ matrix.target-crate }},mode=max
+          cache-from: type=registry,ref=ghcr.io/${{ env.OWNER }}/buildcache:${{ matrix.target-crate}}
+          cache-to: type=registry,ref=ghcr.io/${{ env.OWNER }}/buildcache:${{ matrix.target-crate }},mode=max
           file: provisioning/build.Dockerfile
           outputs: type=local,dest=build
           build-args: |
@@ -85,6 +110,7 @@ jobs:
 
   # Builds the arm64 binaries for Darwin, for all 3 crates, natively
   build-binaries-darwin:
+    timeout-minutes: 60
     strategy:
       matrix:
         target:
@@ -160,8 +186,9 @@ jobs:
 
   # Builds the PBS Docker image
   build-and-push-pbs-docker:
-    needs: [build-binaries-linux]
+    needs: [build-binaries-linux, determine-latest]
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -183,6 +210,9 @@ jobs:
           mv ./artifacts/bin/commit-boost-pbs ./artifacts/bin/linux_amd64/commit-boost-pbs
           tar -xzf ./artifacts/commit-boost-pbs-${{ github.ref_name }}-linux_arm64/commit-boost-pbs-${{ github.ref_name }}-linux_arm64.tar.gz -C ./artifacts/bin
           mv ./artifacts/bin/commit-boost-pbs ./artifacts/bin/linux_arm64/commit-boost-pbs
+
+      - name: Set lowercase owner
+        run: echo "OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -206,14 +236,15 @@ jobs:
           build-args: |
             BINARIES_PATH=./artifacts/bin
           tags: |
-            ghcr.io/commit-boost/pbs:${{ github.ref_name }}
-            ${{ !contains(github.ref_name, 'rc') && 'ghcr.io/commit-boost/pbs:latest' || '' }}
+            ghcr.io/${{ env.OWNER }}/pbs:${{ github.ref_name }}
+            ${{ needs.determine-latest.outputs.value == 'true' && format('ghcr.io/{0}/pbs:latest', env.OWNER) || '' }}
           file: provisioning/pbs.Dockerfile
 
   # Builds the Signer Docker image
   build-and-push-signer-docker:
-    needs: [build-binaries-linux]
+    needs: [build-binaries-linux, determine-latest]
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -235,6 +266,9 @@ jobs:
           mv ./artifacts/bin/commit-boost-signer ./artifacts/bin/linux_amd64/commit-boost-signer
           tar -xzf ./artifacts/commit-boost-signer-${{ github.ref_name }}-linux_arm64/commit-boost-signer-${{ github.ref_name }}-linux_arm64.tar.gz -C ./artifacts/bin
           mv ./artifacts/bin/commit-boost-signer ./artifacts/bin/linux_arm64/commit-boost-signer
+
+      - name: Set lowercase owner
+        run: echo "OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -258,8 +292,8 @@ jobs:
           build-args: |
             BINARIES_PATH=./artifacts/bin
           tags: |
-            ghcr.io/commit-boost/signer:${{ github.ref_name }}
-            ${{ !contains(github.ref_name, 'rc') && 'ghcr.io/commit-boost/signer:latest' || '' }}
+            ghcr.io/${{ env.OWNER }}/signer:${{ github.ref_name }}
+            ${{ needs.determine-latest.outputs.value == 'true' && format('ghcr.io/{0}/signer:latest', env.OWNER) || '' }}
           file: provisioning/signer.Dockerfile
 
   # Creates a draft release on GitHub with the binaries
@@ -270,6 +304,7 @@ jobs:
       - build-and-push-pbs-docker
       - build-and-push-signer-docker
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
