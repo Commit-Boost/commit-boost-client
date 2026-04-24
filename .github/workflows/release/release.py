@@ -264,6 +264,21 @@ def cmd_is_latest(args: argparse.Namespace) -> None:
     sys.exit(0)
 
 
+def _step(fn, args: argparse.Namespace) -> None:
+    """Run a cmd_* function as a step inside an orchestrator.
+
+    The cmd_* functions all call ``sys.exit(0)`` on success, which would
+    short-circuit any orchestrator that chains them. This wrapper catches
+    SystemExit(0) so the next step can run, while letting non-zero exits
+    propagate (orchestrator should abort on failure).
+    """
+    try:
+        fn(args)
+    except SystemExit as e:
+        if e.code not in (0, None):
+            raise
+
+
 def cmd_validate_pr(args: argparse.Namespace) -> None:
     base = _env("BASE_SHA")
     head = _env("HEAD_SHA")
@@ -291,11 +306,11 @@ def cmd_validate_pr(args: argparse.Namespace) -> None:
     filepath = added[0]
     basename = Path(filepath).stem
 
-    cmd_validate_filename(argparse.Namespace(basename=basename))
+    _step(cmd_validate_filename, argparse.Namespace(basename=basename))
     commit, _ = validate_yaml_file(filepath)
-    cmd_check_commit_exists(argparse.Namespace(sha=commit))
-    cmd_check_tag_free(argparse.Namespace(tag=basename))
-    cmd_check_signatures(argparse.Namespace(commit=commit))
+    _step(cmd_check_commit_exists, argparse.Namespace(sha=commit))
+    _step(cmd_check_tag_free, argparse.Namespace(tag=basename))
+    _step(cmd_check_signatures, argparse.Namespace(commit=commit))
 
     print(f"added_count=1")
     print(f"tag={basename}")
@@ -315,6 +330,26 @@ def cmd_gate(args: argparse.Namespace) -> None:
     filepath = added[0]
     commit, tag = validate_yaml_file(filepath)
     cmd_create_tag(argparse.Namespace(tag=tag, commit=commit))
+
+
+def cmd_lint(args: argparse.Namespace) -> None:
+    """Pre-commit sanity check: run every CI validation against a single YAML.
+
+    Reads $REPO and $GH_TOKEN like validate-pr does, but skips the git-diff
+    step — we already know which file you're checking. Use this before
+    opening a release-request PR to confirm CI will accept it.
+    """
+    path = args.path
+    basename = Path(path).stem
+
+    print(f"── Linting {path} ──")
+    _step(cmd_validate_filename, argparse.Namespace(basename=basename))
+    commit, _ = validate_yaml_file(path)
+    _step(cmd_check_commit_exists, argparse.Namespace(sha=commit))
+    _step(cmd_check_tag_free, argparse.Namespace(tag=basename))
+    _step(cmd_check_signatures, argparse.Namespace(commit=commit))
+    print(f"✅ {path} would pass CI.")
+    sys.exit(0)
 
 
 # ── main ─────────────────────────────────────────────────────────────────────
@@ -367,6 +402,10 @@ def main() -> None:
 
     p = sub.add_parser("gate", help="End-to-end gate after merge (reads env)")
     p.set_defaults(func=cmd_gate)
+
+    p = sub.add_parser("lint", help="Pre-commit sanity check on a single YAML (reads $REPO + $GH_TOKEN)")
+    p.add_argument("path", help="Path to the release-request YAML to lint")
+    p.set_defaults(func=cmd_lint)
 
     parsed = parser.parse_args()
     parsed.func(parsed)

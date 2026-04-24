@@ -21,6 +21,7 @@ from release import (
     cmd_check_commit_exists,
     cmd_check_tag_free,
     GhApiError,
+    cmd_lint,
 )
 
 HERE = Path(__file__).parent
@@ -541,3 +542,55 @@ def _git_rev(path: Path, ref: str) -> str:
         cwd=str(path), capture_output=True, text=True,
     )
     return r.stdout.strip()
+
+
+# ── lint ─────────────────────────────────────────────────────────────────────
+
+class TestLint:
+    def test_lint_full_pass(self, tmp_path, capsys):
+        """Happy path: filename ok, YAML ok, commit exists, tag free, all signed."""
+        path = _write_yaml(tmp_path, "v1.2.3.yml", GOOD_YAML)
+        with (
+            patch("release.run_git") as mock_git,
+            patch("release.gh_api") as mock_gh,
+        ):
+            # check-signatures path: prev tag, then compare with all signed
+            mock_git.return_value = "v1.0.0"
+            # check-commit-exists, check-tag-free (raises = free), compare
+            def gh_side_effect(method, path_, **kwargs):
+                if "/commits/" in path_:
+                    return {"sha": "abcdef" * 6 + "abcdefgh"}
+                if "/git/refs/tags/" in path_:
+                    raise GhApiError("not found")
+                if "/compare/" in path_:
+                    return {"commits": [
+                        {"sha": "a", "commit": {"verification": {"verified": True}}},
+                    ]}
+                raise AssertionError(f"unexpected gh_api path: {path_}")
+            mock_gh.side_effect = gh_side_effect
+            with pytest.raises(SystemExit) as exc:
+                cmd_lint(_ns(path=path))
+            assert exc.value.code == 0
+            out = capsys.readouterr().out
+            assert "Linting" in out
+            assert "would pass CI" in out
+
+    def test_lint_bad_filename_fails_early(self, tmp_path, capsys):
+        path = _write_yaml(tmp_path, "v01.02.03.yml", GOOD_YAML)  # leading zeros
+        with pytest.raises(SystemExit) as exc:
+            cmd_lint(_ns(path=path))
+        assert exc.value.code == 1
+        out = capsys.readouterr().out
+        assert "❌" in out
+        assert "would pass CI" not in out
+
+    def test_lint_bad_yaml_fails(self, tmp_path, capsys):
+        path = _write_yaml(tmp_path, "v1.2.3.yml", BAD_SCHEMA_YAML)
+        with pytest.raises(SystemExit) as exc:
+            cmd_lint(_ns(path=path))
+        assert exc.value.code == 1
+        out = capsys.readouterr().out
+        assert "❌" in out
+        assert "reason" in out
+
+
