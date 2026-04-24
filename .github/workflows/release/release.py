@@ -86,10 +86,17 @@ SEMVER_RE = re.compile(
 
 
 def _semver_key(tag: str) -> tuple:
-    """Return a comparable key for a semver tag (e.g. ``v1.2.3``)."""
+    """Return a comparable key for a strict-semver release tag.
+
+    Strict means: matches SEMVER_RE exactly. Non-strict input raises ValueError
+    so callers can fail loudly rather than silently mis-sort.
+
+    Sort order: (major, minor, patch, rc_or_inf). Final releases sort above
+    their RC siblings via float('inf') — i.e. v1.2.3 > v1.2.3-rc99.
+    """
+    if not SEMVER_RE.match(tag):
+        raise ValueError(f"Not a strict-semver release tag: {tag!r}")
     m = re.match(r"^v(\d+)\.(\d+)\.(\d+)(?:-rc(\d+))?$", tag)
-    if not m:
-        return (0, 0, 0, 0)
     return (
         int(m.group(1)), int(m.group(2)), int(m.group(3)),
         int(m.group(4)) if m.group(4) else float("inf"),
@@ -250,16 +257,25 @@ def cmd_create_tag(args: argparse.Namespace) -> None:
 
 def cmd_is_latest(args: argparse.Namespace) -> None:
     tag = args.tag
+    # Fail-closed: the tag we're releasing must itself be strict semver.
+    # validate-filename already enforces this for new releases, but defend
+    # in depth in case is-latest is invoked standalone.
+    if not SEMVER_RE.match(tag):
+        print(f"❌ Tag {tag!r} is not strict semver. Cannot determine is-latest.")
+        sys.exit(1)
     try:
         all_tags = run_git("tag", "--list", "v*").strip().split("\n")
     except subprocess.CalledProcessError:
         print("true")
         sys.exit(0)
-    non_rc = [t for t in all_tags if t and not re.search(r"-rc\d+$", t)]
-    if not non_rc:
+    # Only strict-semver, non-RC tags participate in the comparison.
+    # Legacy malformed tags (v0.7.0-rc.1, v0.9.2-rc-dev, v2.0.0-rc2-1, etc.)
+    # are invisible to the highest-wins check.
+    candidates = [t for t in all_tags if t and SEMVER_RE.match(t) and "-rc" not in t]
+    if not candidates:
         print("true")
         sys.exit(0)
-    highest = sorted(non_rc, key=_semver_key)[-1]
+    highest = max(candidates, key=_semver_key)
     print("true" if highest == tag else "false")
     sys.exit(0)
 

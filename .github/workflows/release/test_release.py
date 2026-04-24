@@ -489,6 +489,13 @@ class TestSemverKey:
             "v2.0.0",
         ]
 
+    def test_rejects_non_strict(self):
+        """_semver_key fails loudly on tags that don't match SEMVER_RE."""
+        for bad in ["v0.7.0-rc.1", "v0.9.2-rc-dev", "v2.0.0-rc2-1",
+                    "v01.02.03", "1.2.3", "garbage"]:
+            with pytest.raises(ValueError):
+                _semver_key(bad)
+
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
