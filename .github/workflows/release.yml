@@ -213,15 +213,9 @@ jobs:
       matrix:
         crate: [pbs, signer]
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 10
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          submodules: true
-
-      - name: Download binary archives
+      - name: Download binary artifacts
         uses: actions/download-artifact@v4
         with:
           path: ./artifacts
@@ -245,12 +239,10 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
+      - name: Sign all binaries with Sigstore
+        uses: sigstore/gh-action-sigstore-python@v3.0.0
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          inputs: ./artifacts/**/*.tar.gz
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
@@ -268,29 +260,6 @@ jobs:
   # Signs all Linux binaries with Sigstore for provenance
   sign-binaries:
     needs: [check-ci-status, build-binaries-linux]
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Download binary artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: ./artifacts
-          pattern: "commit-boost-*linux*"
-
-      - name: Sign all binaries with Sigstore
-        uses: sigstore/gh-action-sigstore-python@v3.0.0
-        with:
-          inputs: ./artifacts/**/*.tar.gz
-
-      - name: Upload signed artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: signed-${{ github.ref_name }}
-          path: ./artifacts/**/*
-
-  # Signs all Linux binaries with Sigstore for provenance
-  sign-binaries:
-    needs: [build-binaries-linux]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
