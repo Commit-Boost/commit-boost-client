@@ -13,10 +13,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-import yaml
-
 
 # ── helpers ──────────────────────────────────────────────────────────────────
+
 
 def _env(name: str) -> str:
     """Read *name* from the environment; exit 1 with a clear message if missing."""
@@ -78,6 +77,16 @@ def _git_diff(base: str, head: str, diff_filter: str) -> list[str]:
     return [l for l in out.strip().split("\n") if l]
 
 
+def find_added(base: str, head: str) -> list[str]:
+    """Return .releases/*.yml files added between two refs."""
+    return _git_diff(base, head, "A")
+
+
+def find_modified_deleted(base: str, head: str) -> list[str]:
+    """Return .releases/*.yml files modified or deleted between two refs."""
+    return _git_diff(base, head, "MD")
+
+
 # ── core validation helpers ─────────────────────────────────────────────────
 
 SEMVER_RE = re.compile(
@@ -111,6 +120,7 @@ def validate_yaml_file(path: str) -> tuple[str, str]:
         print(f"❌ File not found: {path}")
         sys.exit(1)
 
+    import yaml
     try:
         data = yaml.safe_load(text)
     except yaml.YAMLError as e:
@@ -166,7 +176,7 @@ def cmd_validate_yaml(args: argparse.Namespace) -> None:
 
 
 def cmd_find_added(args: argparse.Namespace) -> None:
-    files = _git_diff(args.base, args.head, "A")
+    files = find_added(args.base, args.head)
     for f in files:
         print(f)
     print(f"count={len(files)}", file=sys.stderr)
@@ -174,7 +184,7 @@ def cmd_find_added(args: argparse.Namespace) -> None:
 
 
 def cmd_check_modifications(args: argparse.Namespace) -> None:
-    files = _git_diff(args.base, args.head, "MD")
+    files = find_modified_deleted(args.base, args.head)
     if files:
         print("❌ Existing release YAMLs cannot be modified or deleted:")
         for f in files:
@@ -299,8 +309,8 @@ def cmd_validate_pr(args: argparse.Namespace) -> None:
     base = _env("BASE_SHA")
     head = _env("HEAD_SHA")
 
-    added = _git_diff(base, head, "A")
-    mods = _git_diff(base, head, "MD")
+    added = find_added(base, head)
+    mods = find_modified_deleted(base, head)
 
     if mods:
         print("❌ Existing release YAMLs cannot be modified or deleted:")
@@ -338,7 +348,7 @@ def cmd_gate(args: argparse.Namespace) -> None:
     base = _env("BASE_SHA")
     merge_sha = _env("MERGE_SHA")
 
-    added = _git_diff(base, merge_sha, "A")
+    added = find_added(base, merge_sha)
     if len(added) != 1:
         print(f"Expected exactly 1 added release YAML, got {len(added)}. Skipping.")
         sys.exit(0)
@@ -346,6 +356,28 @@ def cmd_gate(args: argparse.Namespace) -> None:
     filepath = added[0]
     commit, tag = validate_yaml_file(filepath)
     cmd_create_tag(argparse.Namespace(tag=tag, commit=commit))
+
+
+def cmd_check_ci(args: argparse.Namespace) -> None:
+    """Check CI status for a given commit SHA."""
+    sha = args.sha
+    data = gh_api("GET", f"/commits/{sha}/check-runs?per_page=100")
+    runs = data.get("check_runs", [])
+
+    completed = [r for r in runs if r.get("status") == "completed"]
+    if not completed:
+        print(f"⚠️  No completed CI checks for commit {sha}. Proceeding without verification.")
+        sys.exit(0)
+
+    failures = [(r["name"], r["conclusion"]) for r in completed if r.get("conclusion") != "success"]
+    if failures:
+        print(f"❌ CI check failed for commit {sha}:")
+        for name, conclusion in failures:
+            print(f"  {name}: {conclusion}")
+        sys.exit(1)
+
+    print(f"✅ All CI checks passed for commit {sha}")
+    sys.exit(0)
 
 
 def cmd_lint(args: argparse.Namespace) -> None:
@@ -418,6 +450,10 @@ def main() -> None:
 
     p = sub.add_parser("gate", help="End-to-end gate after merge (reads env)")
     p.set_defaults(func=cmd_gate)
+
+    p = sub.add_parser("check-ci", help="Check CI status for a given commit SHA")
+    p.add_argument("sha", help="Commit SHA to check")
+    p.set_defaults(func=cmd_check_ci)
 
     p = sub.add_parser("lint", help="Pre-commit sanity check on a single YAML (reads $REPO + $GH_TOKEN)")
     p.add_argument("path", help="Path to the release-request YAML to lint")

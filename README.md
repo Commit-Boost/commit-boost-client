@@ -28,6 +28,40 @@ Commit-Boost is a modular sidecar that allows Ethereum validators to opt-in to d
 ## Audit
 Commit-Boost received an audit from [Sigma Prime](https://sigmaprime.io/). Find the report [here](/audit/Sigma_Prime_Commit_Boost_Client_Security_Assessment_Report_v2_0.pdf).
 
+## Verifying release artifacts
+
+All release binaries are signed using [Sigstore cosign](https://docs.sigstore.dev/cosign/overview/). You can verify that a binary was built by the official Commit-Boost CI pipeline from the tagged commit of any release.
+
+### Prerequisites
+
+Install cosign: [cosign installation guide](https://docs.sigstore.dev/cosign/system_config/installation/)
+
+### Verify a binary
+
+```bash
+# Set the release version and your target architecture
+# Architecture options: darwin_arm64, linux_arm64, linux_x86-64
+export VERSION=vX.Y.Z
+export ARCH=linux_x86-64
+
+# Download the binary tarball and its signature bundle
+curl -sL -o "commit-boost-$VERSION-$ARCH.tar.gz" \
+  "https://github.com/Commit-Boost/commit-boost-client/releases/download/$VERSION/commit-boost-$VERSION-$ARCH.tar.gz"
+curl -sL -o "commit-boost-$VERSION-$ARCH.tar.gz.sigstore.json" \
+  "https://github.com/Commit-Boost/commit-boost-client/releases/download/$VERSION/commit-boost-$VERSION-$ARCH.tar.gz.sigstore.json"
+
+# Verify the binary was signed by the official release pipeline
+cosign verify-blob \
+  "commit-boost-$VERSION-$ARCH.tar.gz" \
+  --bundle "commit-boost-$VERSION-$ARCH.tar.gz.sigstore.json" \
+  --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+  --certificate-identity="https://github.com/Commit-Boost/commit-boost-client/.github/workflows/release.yml@refs/tags/$VERSION"
+```
+
+A successful verification prints `Verified OK`. If the binary was modified after being built by CI, verification will fail.
+
+The `.sigstore.json` bundle for each binary is attached to the release alongside the tarball itself.
+
 ## Acknowledgements
 - [MEV boost](https://github.com/flashbots/mev-boost)
 - [Reth](https://github.com/paradigmxyz/reth)
