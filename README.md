@@ -60,7 +60,7 @@ cosign verify-blob \
   "$BIN-$VERSION-$ARCH.tar.gz" \
   --bundle "$BIN-$VERSION-$ARCH.tar.gz.sigstore.json" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-  --certificate-identity="https://github.com/JasonVranek/commit-boost-client/.github/workflows/release.yml@refs/heads/main"
+  --certificate-identity="https://github.com/Commit-Boost/commit-boost-client/.github/workflows/release.yml@refs/heads/main"
 ```
 
 A successful verification prints `Verified OK`. If the binary was modified after being built by CI, verification will fail.
