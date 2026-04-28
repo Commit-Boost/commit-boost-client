@@ -28,3 +28,8 @@ devenv.lock
 
 # Generated from testnet
 kurtosis-dump
+
+# Python (release scripts under .github/workflows/release/)
+__pycache__/
+*.pyc
+.pytest_cache/

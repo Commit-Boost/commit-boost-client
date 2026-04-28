@@ -1,20 +1,83 @@
-
 name: Draft Release
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v1.2.3)"
+        required: true
+        type: string
 
 permissions:
-  contents: write
-  packages: write
-  id-token: write
+  contents: read
+  packages: read
+  id-token: none
+  actions: read
+  attestations: read
+  checks: read
+  deployments: read
+  issues: read
+  discussions: read
+  pull-requests: read
+  repository-projects: read
+  security-events: read
+  statuses: read
+  models: read
+
+# Job-level permissions grant write scopes only where required.
+
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
 
 jobs:
-  # Builds the x64 and arm64 binary for Linux via the Docker builder
+  resolve-tag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      commit: ${{ steps.resolve.outputs.commit }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Resolve tag to commit
+        id: resolve
+        run: |
+          git cat-file -e "refs/tags/${{ inputs.tag }}" 2>/dev/null || {
+            echo "❌ Tag ${{ inputs.tag }} does not exist"
+            exit 1
+          }
+          COMMIT=$(git rev-parse "refs/tags/${{ inputs.tag }}^{}")
+          echo "commit=$COMMIT" >> $GITHUB_OUTPUT
+          echo "Resolved tag ${{ inputs.tag }} to commit $COMMIT"
+
+  # Determines whether this tag should update :latest on GHCR.
+  # Runs once; the Docker job consumes its output via matrix.
+  determine-latest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      value: ${{ steps.is_latest.outputs.value }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check is-latest
+        id: is_latest
+        run: |
+          VALUE=$(python .github/workflows/release/release.py is-latest "${{ inputs.tag }}")
+          echo "value=$VALUE" >> $GITHUB_OUTPUT
+
+  # Builds the x64 and arm64 binaries for Linux, for all 3 crates, via the Docker builder
   build-binaries-linux:
+    needs: [resolve-tag]
+    timeout-minutes: 60
     strategy:
+      fail-fast: false
       matrix:
         target:
           - amd64
@@ -31,8 +94,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
+          ref: ${{ needs.resolve-tag.outputs.commit }}
           fetch-depth: 0
           submodules: true
 
@@ -61,30 +125,31 @@ jobs:
         with:
           context: .
           push: false
-          platforms: linux/amd64,linux/arm64
-          cache-from: type=registry,ref=ghcr.io/${{ env.OWNER }}/buildcache:${{ matrix.target-crate}}
-          cache-to: type=registry,ref=ghcr.io/${{ env.OWNER }}/buildcache:${{ matrix.target-crate }},mode=max
+          platforms: linux/${{ matrix.target }}
           file: provisioning/build.Dockerfile
-          outputs: type=local,dest=build
+          outputs: type=local,dest=build/linux_${{ matrix.target }}
           build-args: |
             TARGET_CRATE=${{ matrix.name }}
 
       - name: Package binary (Linux)
         run: |
           cd build/linux_${{ matrix.target }}
-          tar -czvf ${{ matrix.name }}-${{ github.ref_name }}-linux_${{ matrix.package-suffix }}.tar.gz ${{ matrix.name }}
-          mv ${{ matrix.name }}-${{ github.ref_name }}-linux_${{ matrix.package-suffix }}.tar.gz ../../
+          tar -czvf ${{ matrix.name }}-${{ inputs.tag }}-linux_${{ matrix.package-suffix }}.tar.gz ${{ matrix.name }}
+          mv ${{ matrix.name }}-${{ inputs.tag }}-linux_${{ matrix.package-suffix }}.tar.gz ../../
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.name }}-${{ github.ref_name }}-linux_${{ matrix.package-suffix }}
+          name: ${{ matrix.name }}-${{ inputs.tag }}-linux_${{ matrix.package-suffix }}
           path: |
-            ${{ matrix.name }}-${{ github.ref_name }}-linux_${{ matrix.package-suffix }}.tar.gz
+            ${{ matrix.name }}-${{ inputs.tag }}-linux_${{ matrix.package-suffix }}.tar.gz
 
   # Builds the arm64 binary for Darwin natively
   build-binaries-darwin:
+    needs: [resolve-tag]
+    timeout-minutes: 60
     strategy:
+      fail-fast: false
       matrix:
         target:
           # x64 requires macos-latest-large which is not available in the free tier
@@ -102,8 +167,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
+          ref: ${{ needs.resolve-tag.outputs.commit }}
           fetch-depth: 0
           submodules: true
 
@@ -118,19 +184,19 @@ jobs:
           brew install protobuf
 
       - name: Cache Cargo registry
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache Cargo index
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.cargo/git
           key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache Cargo build
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: target
           key: ${{ runner.os }}-cargo-build-${{ matrix.target }}-${{ matrix.name }}-${{ hashFiles('**/Cargo.lock') }}
@@ -145,173 +211,119 @@ jobs:
       - name: Package binary (Darwin)
         run: |
           cd target/${{ matrix.target }}/release
-          tar -czvf ${{ matrix.name }}-${{ github.ref_name }}-darwin_${{ matrix.package-suffix }}.tar.gz ${{ matrix.name }}
-          mv ${{ matrix.name }}-${{ github.ref_name }}-darwin_${{ matrix.package-suffix }}.tar.gz ../../../
+          tar -czvf ${{ matrix.name }}-${{ inputs.tag }}-darwin_${{ matrix.package-suffix }}.tar.gz ${{ matrix.name }}
+          mv ${{ matrix.name }}-${{ inputs.tag }}-darwin_${{ matrix.package-suffix }}.tar.gz ../../../
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.name }}-${{ github.ref_name }}-darwin_${{ matrix.package-suffix }}
+          name: ${{ matrix.name }}-${{ inputs.tag }}-darwin_${{ matrix.package-suffix }}
           path: |
-            ${{ matrix.name }}-${{ github.ref_name }}-darwin_${{ matrix.package-suffix }}.tar.gz
+            ${{ matrix.name }}-${{ inputs.tag }}-darwin_${{ matrix.package-suffix }}.tar.gz
 
-  # Signs the binaries
-  sign-binaries:
-    needs:
-      - build-binaries-linux
-      - build-binaries-darwin
+  # Builds and pushes Docker images for both PBS and Signer
+  build-and-push-docker:
+    needs: [resolve-tag, build-binaries-linux, determine-latest]
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        crate: [pbs, signer]
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
-      - name: Download artifacts
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve-tag.outputs.commit }}
+          fetch-depth: 0
+          submodules: true
+
+      - name: Download binary archives
         uses: actions/download-artifact@v4
         with:
           path: ./artifacts
           pattern: "commit-boost*"
 
-      - name: Sign binaries
-        uses: sigstore/gh-action-sigstore-python@a5caf349bc536fbef3668a10ed7f5cd309a4b53d #v3.2.0
+      - name: Extract binaries
+        run: |
+          mkdir -p ./artifacts/bin/linux_amd64
+          mkdir -p ./artifacts/bin/linux_arm64
+          tar -xzf ./artifacts/commit-boost-${{ matrix.crate }}-${{ inputs.tag }}-linux_x86-64/commit-boost-${{ matrix.crate }}-${{ inputs.tag }}-linux_x86-64.tar.gz -C ./artifacts/bin
+          mv ./artifacts/bin/commit-boost-${{ matrix.crate }} ./artifacts/bin/linux_amd64/commit-boost-${{ matrix.crate }}
+          tar -xzf ./artifacts/commit-boost-${{ matrix.crate }}-${{ inputs.tag }}-linux_arm64/commit-boost-${{ matrix.crate }}-${{ inputs.tag }}-linux_arm64.tar.gz -C ./artifacts/bin
+          mv ./artifacts/bin/commit-boost-${{ matrix.crate }} ./artifacts/bin/linux_arm64/commit-boost-${{ matrix.crate }}
+
+      - name: Set lowercase owner
+        run: echo "OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            BINARIES_PATH=./artifacts/bin
+          tags: |
+            ghcr.io/${{ env.OWNER }}/${{ matrix.crate }}:${{ inputs.tag }}
+            ${{ needs.determine-latest.outputs.value == 'true' && format('ghcr.io/{0}/{1}:latest', env.OWNER, matrix.crate) || '' }}
+          file: provisioning/${{ matrix.crate }}.Dockerfile
+
+  # Signs all binaries with Sigstore for provenance
+  sign-binaries:
+    needs: [build-binaries-linux, build-binaries-darwin]
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download binary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+          pattern: "commit-boost*"
+
+      - name: Sign all binaries with Sigstore
+        uses: sigstore/gh-action-sigstore-python@v3.0.0
         with:
           inputs: ./artifacts/**/*.tar.gz
 
-      - name: Upload signatures
+      - name: Upload signed artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: signatures-${{ github.ref_name }}
-          path: |
-            ./artifacts/**/*.sigstore.json
-
-  # Builds the PBS Docker image
-  build-and-push-pbs-docker:
-    needs: [build-binaries-linux]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          submodules: true
-
-      - name: Download binary archives
-        uses: actions/download-artifact@v4
-        with:
-          path: ./artifacts
-          pattern: "commit-boost*"
-
-      - name: Extract binaries
-        run: |
-          mkdir -p ./artifacts/bin/linux_amd64
-          mkdir -p ./artifacts/bin/linux_arm64
-          tar -xzf ./artifacts/commit-boost-${{ github.ref_name }}-linux_x86-64/commit-boost-${{ github.ref_name }}-linux_x86-64.tar.gz -C ./artifacts/bin
-          mv ./artifacts/bin/commit-boost ./artifacts/bin/linux_amd64/commit-boost
-          tar -xzf ./artifacts/commit-boost-${{ github.ref_name }}-linux_arm64/commit-boost-${{ github.ref_name }}-linux_arm64.tar.gz -C ./artifacts/bin
-          mv ./artifacts/bin/commit-boost ./artifacts/bin/linux_arm64/commit-boost
-
-      - name: Set lowercase owner
-        run: echo "OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push PBS Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          platforms: linux/amd64,linux/arm64
-          build-args: |
-            BINARIES_PATH=./artifacts/bin
-          tags: |
-            ghcr.io/${{ env.OWNER }}/pbs:${{ github.ref_name }}
-            ${{ !contains(github.ref_name, 'rc') && format('ghcr.io/{0}/pbs:latest', env.OWNER) || '' }}
-          file: provisioning/pbs.Dockerfile
-
-  # Builds the Signer Docker image
-  build-and-push-signer-docker:
-    needs: [build-binaries-linux]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          submodules: true
-
-      - name: Download binary archives
-        uses: actions/download-artifact@v4
-        with:
-          path: ./artifacts
-          pattern: "commit-boost*"
-
-      - name: Extract binaries
-        run: |
-          mkdir -p ./artifacts/bin/linux_amd64
-          mkdir -p ./artifacts/bin/linux_arm64
-          tar -xzf ./artifacts/commit-boost-${{ github.ref_name }}-linux_x86-64/commit-boost-${{ github.ref_name }}-linux_x86-64.tar.gz -C ./artifacts/bin
-          mv ./artifacts/bin/commit-boost ./artifacts/bin/linux_amd64/commit-boost
-          tar -xzf ./artifacts/commit-boost-${{ github.ref_name }}-linux_arm64/commit-boost-${{ github.ref_name }}-linux_arm64.tar.gz -C ./artifacts/bin
-          mv ./artifacts/bin/commit-boost ./artifacts/bin/linux_arm64/commit-boost
-
-      - name: Set lowercase owner
-        run: echo "OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push Signer Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          platforms: linux/amd64,linux/arm64
-          build-args: |
-            BINARIES_PATH=./artifacts/bin
-          tags: |
-            ghcr.io/${{ env.OWNER }}/signer:${{ github.ref_name }}
-            ${{ !contains(github.ref_name, 'rc') && format('ghcr.io/{0}/signer:latest', env.OWNER) || '' }}
-          file: provisioning/signer.Dockerfile
+          name: signed-${{ inputs.tag }}
+          path: ./artifacts/**/*.sigstore*
 
   # Creates a release on GitHub with the binaries
   finalize-release:
     needs:
       - build-binaries-linux
       - build-binaries-darwin
+      - build-and-push-docker
       - sign-binaries
-      - build-and-push-pbs-docker
-      - build-and-push-signer-docker
+    permissions:
+      contents: write
+      packages: read
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
-      - uses: actions/create-github-app-token@v1
-        id: app-token
-        with:
-          app-id: ${{ secrets.APP_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
-
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          token: ${{ steps.app-token.outputs.token }}
-
-      - name: Download binaries
+      - name: Download binary artifacts
         uses: actions/download-artifact@v4
         with:
           path: ./artifacts
@@ -323,15 +335,20 @@ jobs:
           path: ./artifacts
           pattern: "signatures-${{ github.ref_name }}*"
 
+      - name: Download signed artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+          pattern: "signed-*"
+
       - name: Finalize Release
         uses: softprops/action-gh-release@v2
         with:
           files: ./artifacts/**/*
-          draft: false
-          prerelease: ${{ contains(github.ref_name, '-rc') }}
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
-          generate_release_notes: true
+          draft: true
+          prerelease: false
+          tag_name: ${{ inputs.tag }}
+          name: ${{ inputs.tag }}
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
