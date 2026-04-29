@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (e.g. v1.2.3)"
+        description: 'Release tag (e.g. v1.2.3)'
         required: true
         type: string
 
@@ -72,7 +72,7 @@ jobs:
           VALUE=$(python .github/workflows/release/release.py is-latest "${{ inputs.tag }}")
           echo "value=$VALUE" >> $GITHUB_OUTPUT
 
-  # Builds the x64 and arm64 binaries for Linux, for all 3 crates, via the Docker builder
+  # Builds the x64 and arm64 binaries for Linux via the Docker builder
   build-binaries-linux:
     needs: [resolve-tag]
     timeout-minutes: 60
@@ -250,10 +250,10 @@ jobs:
         run: |
           mkdir -p ./artifacts/bin/linux_amd64
           mkdir -p ./artifacts/bin/linux_arm64
-          tar -xzf ./artifacts/commit-boost-${{ matrix.crate }}-${{ inputs.tag }}-linux_x86-64/commit-boost-${{ matrix.crate }}-${{ inputs.tag }}-linux_x86-64.tar.gz -C ./artifacts/bin
-          mv ./artifacts/bin/commit-boost-${{ matrix.crate }} ./artifacts/bin/linux_amd64/commit-boost-${{ matrix.crate }}
-          tar -xzf ./artifacts/commit-boost-${{ matrix.crate }}-${{ inputs.tag }}-linux_arm64/commit-boost-${{ matrix.crate }}-${{ inputs.tag }}-linux_arm64.tar.gz -C ./artifacts/bin
-          mv ./artifacts/bin/commit-boost-${{ matrix.crate }} ./artifacts/bin/linux_arm64/commit-boost-${{ matrix.crate }}
+          tar -xzf ./artifacts/commit-boost-${{ inputs.tag }}-linux_x86-64/commit-boost-${{ inputs.tag }}-linux_x86-64.tar.gz -C ./artifacts/bin
+          mv ./artifacts/bin/commit-boost ./artifacts/bin/linux_amd64/commit-boost
+          tar -xzf ./artifacts/commit-boost-${{ inputs.tag }}-linux_arm64/commit-boost-${{ inputs.tag }}-linux_arm64.tar.gz -C ./artifacts/bin
+          mv ./artifacts/bin/commit-boost ./artifacts/bin/linux_arm64/commit-boost
 
       - name: Set lowercase owner
         run: echo "OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
@@ -297,7 +297,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: ./artifacts
-          pattern: "commit-boost*"
+          pattern: "commit-boost-*"
 
       - name: Sign all binaries with Sigstore
         uses: sigstore/gh-action-sigstore-python@v3.0.0
@@ -310,7 +310,7 @@ jobs:
           name: signed-${{ inputs.tag }}
           path: ./artifacts/**/*.sigstore*
 
-  # Creates a release on GitHub with the binaries
+  # Creates a draft release on GitHub with the binaries
   finalize-release:
     needs:
       - build-binaries-linux
@@ -327,13 +327,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: ./artifacts
-          pattern: "commit-boost*"
-
-      - name: Download signatures
-        uses: actions/download-artifact@v4
-        with:
-          path: ./artifacts
-          pattern: "signatures-${{ github.ref_name }}*"
+          pattern: "commit-boost-*"
 
       - name: Download signed artifacts
         uses: actions/download-artifact@v4
@@ -350,75 +344,4 @@ jobs:
           tag_name: ${{ inputs.tag }}
           name: ${{ inputs.tag }}
         env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-
-  # Fast-forwards stable (full release) or beta (RC) to the new tag.
-  # Runs after all artifacts are built and the draft release is created,
-  # so stable/beta are never touched if any part of the pipeline fails.
-  fast-forward-branch:
-    needs:
-      - finalize-release
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/create-github-app-token@v1
-        id: app-token
-        with:
-          app-id: ${{ secrets.APP_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
-
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ steps.app-token.outputs.token }}
-
-      - name: Configure git
-        run: |
-          git config user.name  "commit-boost-release-bot[bot]"
-          git config user.email "commit-boost-release-bot[bot]@users.noreply.github.com"
-
-      - name: Fast-forward beta branch (RC releases)
-        if: contains(github.ref_name, '-rc')
-        run: |
-          git checkout beta
-          git merge --ff-only "${{ github.ref_name }}"
-          git push origin beta
-
-      - name: Fast-forward stable branch (full releases)
-        if: "!contains(github.ref_name, '-rc')"
-        run: |
-          git checkout stable
-          git merge --ff-only "${{ github.ref_name }}"
-          git push origin stable
-
-  # Deletes the tag if any job in the release pipeline fails.
-  # This keeps the tag and release artifacts in sync — a tag should only
-  # exist if the full pipeline completed successfully.
-  # stable/beta are never touched on failure since fast-forward-branch
-  # only runs after finalize-release succeeds.
-  #
-  # Note: if finalize-release specifically fails, a draft release may already
-  # exist on GitHub pointing at the now-deleted tag and will need manual cleanup.
-  cleanup-on-failure:
-    needs:
-      - build-binaries-linux
-      - build-binaries-darwin
-      - sign-binaries
-      - build-and-push-pbs-docker
-      - build-and-push-signer-docker
-      - finalize-release
-      - fast-forward-branch
-    runs-on: ubuntu-latest
-    if: failure()
-    steps:
-      - uses: actions/create-github-app-token@v1
-        id: app-token
-        with:
-          app-id: ${{ secrets.APP_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
-
-      - uses: actions/checkout@v4
-        with:
-          token: ${{ steps.app-token.outputs.token }}
-
-      - name: Delete tag
-        run: git push origin --delete ${{ github.ref_name }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
