@@ -229,7 +229,7 @@ jobs:
       packages: write
     strategy:
       matrix:
-        crate: [pbs, signer]
+        crate: [pbs, signer, commit-boost]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
