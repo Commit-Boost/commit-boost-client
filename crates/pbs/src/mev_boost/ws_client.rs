@@ -228,6 +228,7 @@ async fn connection_loop(
         let mut connected = false;
 
         // ----- Main read loop -----
+        let was_previously_connected = connected;  // track reconnect for logging
         let mut ping_interval = tokio::time::interval(PING_INTERVAL);
         let mut last_ping_nonce: u64 = 0;
         let mut awaiting_pong = false;
@@ -279,7 +280,11 @@ async fn connection_loop(
                                 }
                                 if !connected {
                                     connected = true;
+                                if was_previously_connected {
+                                    info!("WebSocket reconnected ({} acks accepted)", auth_tracker.accepted_count());
+                                } else {
                                     info!("WebSocket connected ({} acks accepted)", auth_tracker.accepted_count());
+                                }
                                     *state.write() = WsClientState::Connected { connected_at: Instant::now() };
                                 }
                             }
@@ -310,8 +315,8 @@ async fn connection_loop(
             }
         }
 
-        // ----- Disconnected from loop -----
         let reason = DisconnectReason::ConnectionReset;
+        warn!("ws disconnected, using REST");
         attempt += 1;
         if attempt >= MAX_RETRIES {
             *state.write() = WsClientState::Failed { reason: format!("max retries ({MAX_RETRIES}) exceeded") };
