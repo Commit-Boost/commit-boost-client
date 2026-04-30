@@ -10,6 +10,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use parking_lot::RwLock;
+use ssz_types::VariableList;
 use tokio::sync::mpsc;
 use tokio_tungstenite::connect_async;
 use futures_util::{SinkExt, StreamExt};
@@ -126,7 +127,7 @@ impl HelixWsClient {
 
         let s = state.clone();
         let batch = ValidatorRegistration {
-            registrations: registrations.clone(),
+            registrations: VariableList::from(registrations.clone()),
         };
         let sent_count = registrations.len() as u32;
 

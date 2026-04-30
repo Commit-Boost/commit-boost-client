@@ -6,6 +6,7 @@
 
 use lh_types::ForkName;
 use crate::mev_boost::ws_messages::*;
+use ssz_types::VariableList;
 
 // ---------------------------------------------------------------------------
 // Fork name <-> u8
@@ -38,7 +39,7 @@ pub fn fork_name_from_u8(v: u8) -> eyre::Result<ForkName> {
 pub fn build_registration_batch(
     regs: Vec<WireSignedValidatorRegistration>,
 ) -> ValidatorRegistration {
-    ValidatorRegistration { registrations: regs }
+    ValidatorRegistration { registrations: VariableList::from(regs) }
 }
 
 // ---------------------------------------------------------------------------
@@ -52,7 +53,7 @@ pub fn build_bid_push(
     fork: ForkName,
     signed_bid_ssz: Vec<u8>,
 ) -> BidPush {
-    BidPush { slot, parent_hash, fork_name: fork_name_to_u8(fork), signed_bid_ssz }
+    BidPush { slot, parent_hash, fork_name: fork_name_to_u8(fork), signed_bid_ssz: VariableList::from(signed_bid_ssz) }
 }
 
 // ---------------------------------------------------------------------------
@@ -61,7 +62,7 @@ pub fn build_bid_push(
 
 /// Build a wire SubmitBlockRequest.
 pub fn build_submit_block_request(fork: ForkName, body_ssz: Vec<u8>) -> SubmitBlockRequest {
-    SubmitBlockRequest { fork_name: fork_name_to_u8(fork), body_ssz }
+    SubmitBlockRequest { fork_name: fork_name_to_u8(fork), body_ssz: VariableList::from(body_ssz) }
 }
 
 /// Build a wire SubmitBlockAck from a status byte.
