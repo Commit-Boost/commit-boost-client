@@ -1,6 +1,6 @@
 # Commit-Boost PBS — Docker build for interop testing
-# Build context: pbs-stack parent directory
-# Build: from docker-compose.test.yml (context: ..)
+# Build context: pbs-stack/
+# Build: docker compose -f docker-compose.test.yml build
 FROM rust:1.91-bookworm AS builder
 WORKDIR /src
 
