@@ -14,9 +14,11 @@ pub const METRICS_PORT_ENV: &str = "CB_METRICS_PORT";
 pub const LOGS_DIR_ENV: &str = "CB_LOGS_DIR";
 pub const LOGS_DIR_DEFAULT: &str = "/var/logs/commit-boost";
 
+/// Default Docker image
+pub const COMMIT_BOOST_IMAGE_DEFAULT: &str = "ghcr.io/commit-boost/commit-boost:latest";
+
 ///////////////////////// PBS /////////////////////////
 
-pub const PBS_IMAGE_DEFAULT: &str = "ghcr.io/commit-boost/commit-boost:latest";
 pub const PBS_SERVICE_NAME: &str = "pbs";
 
 /// Where to receive BuilderAPI calls from beacon node
@@ -26,7 +28,6 @@ pub const MUX_PATH_ENV: &str = "CB_MUX_PATH";
 
 ///////////////////////// SIGNER /////////////////////////
 
-pub const SIGNER_IMAGE_DEFAULT: &str = "ghcr.io/commit-boost/commit-boost:latest";
 pub const SIGNER_SERVICE_NAME: &str = "signer";
 
 /// Where the signer module should open the server

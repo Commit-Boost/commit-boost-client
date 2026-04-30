@@ -113,8 +113,10 @@ commitBoost:
       repository: ghcr.io/commit-boost/commit-boost
       pullPolicy: IfNotPresent
       tag: "v0.4.0"
+    command: ["commit-boost"]
+    args: ["pbs"]
     config:
-      chain: "Holesky"
+      chain: "Hoodi"
       metrics:
         server_port: 10000
         prometheus_config: "/dev/null"
