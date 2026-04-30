@@ -4,9 +4,12 @@
 FROM rust:1.91-bookworm AS builder
 WORKDIR /src
 
+# Install protoc (needed by cb-signer)
+RUN apt-get update && apt-get install -y protobuf-compiler && rm -rf /var/lib/apt/lists/*
+
 # Copy commit-boost source and ws-wire
 COPY commit-boost-client/ ./commit-boost-client/
-COPY pbs-stack/ws-wire/ ./pbs-stack/ws-wire/
+COPY ws-wire/ ./ws-wire/
 
 # Build in commit-boost workspace
 WORKDIR /src/commit-boost-client
