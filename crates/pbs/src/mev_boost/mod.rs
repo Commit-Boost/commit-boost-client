@@ -3,6 +3,9 @@ mod register_validator;
 mod reload;
 mod status;
 mod submit_block;
+pub mod ws_client;
+pub mod ws_messages;
+pub mod wire;
 
 use alloy::primitives::U256;
 use cb_common::{

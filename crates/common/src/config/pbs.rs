@@ -81,6 +81,9 @@ pub struct RelayConfig {
     /// Whether to enable timing games
     #[serde(default = "default_bool::<false>")]
     pub enable_timing_games: bool,
+    /// Whether to enable WebSocket connection to this relay
+    #[serde(default = "default_bool::<false>")]
+    pub websocket: bool,
     /// Target time in slot when to send the first header request
     pub target_first_request_ms: Option<u64>,
     /// Frequency in ms to send get_header requests
