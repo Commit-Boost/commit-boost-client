@@ -329,6 +329,7 @@ async fn connection_loop(
 
 async fn backoff_step(state: &Arc<RwLock<WsClientState>>, ms: u64, reason: DisconnectReason) {
     let until = Instant::now() + Duration::from_millis(ms);
+    warn!("ws disconnected, using REST");
     *state.write() = WsClientState::Backoff { until, reason };
     tokio::time::sleep(Duration::from_millis(ms)).await;
 }
