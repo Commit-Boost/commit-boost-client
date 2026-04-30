@@ -8,6 +8,18 @@ RUN cargo install cargo-chef --locked && \
 
 FROM --platform=${BUILDPLATFORM} chef AS planner
 ARG TARGETOS TARGETARCH BUILDPLATFORM TARGET_CRATE
+# Create minimal ws-wire stub to satisfy cargo metadata path dep
+RUN mkdir -p /ws-wire/src && \
+    echo '[package]' > /ws-wire/Cargo.toml && \
+    echo 'name = "ws-wire"' >> /ws-wire/Cargo.toml && \
+    echo 'version = "0.1.0"' >> /ws-wire/Cargo.toml && \
+    echo 'edition = "2021"' >> /ws-wire/Cargo.toml && \
+    echo '[dependencies]' >> /ws-wire/Cargo.toml && \
+    echo 'ethereum_ssz = "0.10"' >> /ws-wire/Cargo.toml && \
+    echo 'ethereum_ssz_derive = "0.10"' >> /ws-wire/Cargo.toml && \
+    echo 'ssz_types = "0.10"' >> /ws-wire/Cargo.toml && \
+    echo 'alloy-primitives = "1.0"' >> /ws-wire/Cargo.toml && \
+    echo '' > /ws-wire/src/lib.rs
 COPY . .
 RUN cargo chef prepare --recipe-path recipe.json
 
@@ -49,6 +61,19 @@ RUN if [ "$BUILDPLATFORM" = "linux/amd64" -a "$TARGETARCH" = "arm64" ]; then \
       echo "export OPENSSL_INCLUDE_DIR=/usr/include/x86_64-linux-gnu" >> ${BUILD_VAR_SCRIPT} && \
       echo "export OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu" >> ${BUILD_VAR_SCRIPT}; \
     fi
+
+# Create ws-wire stub for path dependency resolution (same as planner stage)
+RUN mkdir -p /ws-wire/src && \
+    echo '[package]' > /ws-wire/Cargo.toml && \
+    echo 'name = "ws-wire"' >> /ws-wire/Cargo.toml && \
+    echo 'version = "0.1.0"' >> /ws-wire/Cargo.toml && \
+    echo 'edition = "2021"' >> /ws-wire/Cargo.toml && \
+    echo '[dependencies]' >> /ws-wire/Cargo.toml && \
+    echo 'ethereum_ssz = "0.10"' >> /ws-wire/Cargo.toml && \
+    echo 'ethereum_ssz_derive = "0.10"' >> /ws-wire/Cargo.toml && \
+    echo 'ssz_types = "0.10"' >> /ws-wire/Cargo.toml && \
+    echo 'alloy-primitives = "1.0"' >> /ws-wire/Cargo.toml && \
+    echo '' > /ws-wire/src/lib.rs
 
 # Run cook to prep the build 
 RUN if [ -f ${BUILD_VAR_SCRIPT} ]; then \
