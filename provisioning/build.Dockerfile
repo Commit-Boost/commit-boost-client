@@ -1,4 +1,5 @@
 # This will be the main build image
+# Build context: pbs-stack parent (contains commit-boost-client/ and ws-wire/)
 FROM --platform=${BUILDPLATFORM} rust:1.91-slim-bookworm AS chef
 ARG TARGETOS TARGETARCH BUILDPLATFORM TARGET_CRATE
 ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
@@ -8,19 +9,10 @@ RUN cargo install cargo-chef --locked && \
 
 FROM --platform=${BUILDPLATFORM} chef AS planner
 ARG TARGETOS TARGETARCH BUILDPLATFORM TARGET_CRATE
-# Create minimal ws-wire stub to satisfy cargo metadata path dep
-RUN mkdir -p /ws-wire/src && \
-    echo '[package]' > /ws-wire/Cargo.toml && \
-    echo 'name = "ws-wire"' >> /ws-wire/Cargo.toml && \
-    echo 'version = "0.1.0"' >> /ws-wire/Cargo.toml && \
-    echo 'edition = "2021"' >> /ws-wire/Cargo.toml && \
-    echo '[dependencies]' >> /ws-wire/Cargo.toml && \
-    echo 'ethereum_ssz = "0.10"' >> /ws-wire/Cargo.toml && \
-    echo 'ethereum_ssz_derive = "0.10"' >> /ws-wire/Cargo.toml && \
-    echo 'ssz_types = "0.10"' >> /ws-wire/Cargo.toml && \
-    echo 'alloy-primitives = "1.0"' >> /ws-wire/Cargo.toml && \
-    echo '' > /ws-wire/src/lib.rs
-COPY . .
+# Copy ws-wire first (needed for cargo metadata path resolution)
+COPY ws-wire/ /ws-wire/
+# Copy commit-boost source
+COPY commit-boost-client/ .
 RUN cargo chef prepare --recipe-path recipe.json
 
 FROM --platform=${BUILDPLATFORM} chef AS builder
@@ -29,9 +21,11 @@ RUN test -n "$TARGET_CRATE" || (echo "TARGET_CRATE must be set to the service / 
 ENV BUILD_VAR_SCRIPT=/tmp/env.sh
 COPY --from=planner /app/recipe.json recipe.json
 
+# Copy ws-wire for build (same as planner)
+COPY ws-wire/ /ws-wire/
+
 # Set up the build environment for cross-compilation if needed
 RUN if [ "$BUILDPLATFORM" = "linux/amd64" -a "$TARGETARCH" = "arm64" ]; then \
-      # We're on x64, cross-compiling for arm64
       rustup target add aarch64-unknown-linux-gnu && \
       dpkg --add-architecture arm64 && \
       apt update && \
@@ -46,7 +40,6 @@ RUN if [ "$BUILDPLATFORM" = "linux/amd64" -a "$TARGETARCH" = "arm64" ]; then \
       echo "export OPENSSL_INCLUDE_DIR=/usr/include/aarch64-linux-gnu" >> ${BUILD_VAR_SCRIPT} && \
       echo "export OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu" >> ${BUILD_VAR_SCRIPT}; \
     elif [ "$BUILDPLATFORM" = "linux/arm64" -a "$TARGETARCH" = "amd64" ]; then \
-      # We're on arm64, cross-compiling for x64
       rustup target add x86_64-unknown-linux-gnu && \
       dpkg --add-architecture amd64 && \
       apt update && \
@@ -62,19 +55,6 @@ RUN if [ "$BUILDPLATFORM" = "linux/amd64" -a "$TARGETARCH" = "arm64" ]; then \
       echo "export OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu" >> ${BUILD_VAR_SCRIPT}; \
     fi
 
-# Create ws-wire stub for path dependency resolution (same as planner stage)
-RUN mkdir -p /ws-wire/src && \
-    echo '[package]' > /ws-wire/Cargo.toml && \
-    echo 'name = "ws-wire"' >> /ws-wire/Cargo.toml && \
-    echo 'version = "0.1.0"' >> /ws-wire/Cargo.toml && \
-    echo 'edition = "2021"' >> /ws-wire/Cargo.toml && \
-    echo '[dependencies]' >> /ws-wire/Cargo.toml && \
-    echo 'ethereum_ssz = "0.10"' >> /ws-wire/Cargo.toml && \
-    echo 'ethereum_ssz_derive = "0.10"' >> /ws-wire/Cargo.toml && \
-    echo 'ssz_types = "0.10"' >> /ws-wire/Cargo.toml && \
-    echo 'alloy-primitives = "1.0"' >> /ws-wire/Cargo.toml && \
-    echo '' > /ws-wire/src/lib.rs
-
 # Run cook to prep the build 
 RUN if [ -f ${BUILD_VAR_SCRIPT} ]; then \
       chmod +x ${BUILD_VAR_SCRIPT} && \
@@ -88,11 +68,11 @@ RUN if [ -f ${BUILD_VAR_SCRIPT} ]; then \
     cargo chef cook ${TARGET_FLAG} --release --recipe-path recipe.json
 
 # Get the latest Protoc since the one in the Debian repo is incredibly old
-COPY provisioning/protoc.sh provisioning/protoc.sh
+COPY commit-boost-client/provisioning/protoc.sh provisioning/protoc.sh
 RUN provisioning/protoc.sh
 
 # Now we can copy the source files - chef cook wants to run before this step
-COPY . .
+COPY commit-boost-client/ .
 
 # Build the application
 RUN if [ -f ${BUILD_VAR_SCRIPT} ]; then \
@@ -105,7 +85,6 @@ RUN if [ -f ${BUILD_VAR_SCRIPT} ]; then \
     export GIT_HASH=$(git rev-parse HEAD) && \
     cargo build ${TARGET_FLAG} --release --bin ${TARGET_CRATE} && \
     if [ ! -z "$TARGET" ]; then \
-      # If we're cross-compiling, we need to move the binary out of the target dir
       mv target/${TARGET}/release/${TARGET_CRATE} target/release/${TARGET_CRATE}; \
     fi
 
