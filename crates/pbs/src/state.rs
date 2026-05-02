@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use cb_common::{
     config::{PbsConfig, PbsModuleConfig},
@@ -7,10 +7,15 @@ use cb_common::{
 };
 use parking_lot::RwLock;
 
+use crate::mev_boost::ws_client::HelixWsClient;
+
 pub trait BuilderApiState: Clone + Sync + Send + 'static {}
 impl BuilderApiState for () {}
 
 pub type PbsStateGuard<S> = Arc<RwLock<PbsState<S>>>;
+
+/// Map of relay ID → WebSocket client (only for relays with `websocket: true`).
+pub type WsClientMap = HashMap<String, HelixWsClient>;
 
 /// Config for the Pbs module. It can be extended by adding extra data to the
 /// state for modules that need it
@@ -23,15 +28,28 @@ pub struct PbsState<S: BuilderApiState = ()> {
     pub config_path: Arc<PathBuf>,
     /// Opaque extra data for library use
     pub data: S,
+    /// WebSocket clients keyed by relay ID (only for relays with `websocket:
+    /// true`)
+    pub ws_clients: Arc<RwLock<WsClientMap>>,
 }
 
 impl PbsState<()> {
     pub fn new(config: PbsModuleConfig, config_path: PathBuf) -> Self {
-        Self { config: Arc::new(config), config_path: Arc::new(config_path), data: () }
+        Self {
+            config: Arc::new(config),
+            config_path: Arc::new(config_path),
+            data: (),
+            ws_clients: Arc::new(RwLock::new(HashMap::new())),
+        }
     }
 
     pub fn with_data<S: BuilderApiState>(self, data: S) -> PbsState<S> {
-        PbsState { data, config: self.config, config_path: self.config_path }
+        PbsState {
+            data,
+            config: self.config,
+            config_path: self.config_path,
+            ws_clients: self.ws_clients,
+        }
     }
 }
 

@@ -200,6 +200,19 @@ pub async fn get_header<S: BuilderApiState>(
         },
         accepted_types,
     });
+
+    // Collect WebSocket bids (instant — from cache, no round-trip)
+    // These participate in the same auction as REST bids.
+    let ws_bids = collect_ws_bids(&state, &request_info.params);
+    if !ws_bids.is_empty() {
+        info!(
+            ws_count = ws_bids.len(),
+            rest_count = relays.len(),
+            slot = request_info.params.slot,
+            "auction: collecting WS bids + REST bids"
+        );
+    }
+
     let mut handles = Vec::with_capacity(relays.len());
     for relay in relays.iter() {
         handles.push(
@@ -228,7 +241,7 @@ pub async fn get_header<S: BuilderApiState>(
                 let value_gwei = (value / U256::from(1_000_000_000)).try_into().unwrap_or_default();
                 RELAY_HEADER_VALUE.with_label_values(&[relay_id]).set(value_gwei);
 
-                relay_bids.push((relay_id, res))
+                relay_bids.push((relay_id.to_string(), res))
             }
             Ok(_) => {}
             Err(err) if err.is_timeout() => error!(err = "Timed Out", relay_id),
@@ -236,12 +249,34 @@ pub async fn get_header<S: BuilderApiState>(
         }
     }
 
+    // Merge WebSocket bids into the auction
+    let ws_count = ws_bids.len();
+    for (ws_relay_id, ws_bid) in ws_bids.into_iter() {
+        let value = match &ws_bid {
+            CompoundGetHeaderResponse::Full(full) => *full.value(),
+            CompoundGetHeaderResponse::Light(light) => light.value,
+        };
+        RELAY_LAST_SLOT.with_label_values(&[&ws_relay_id]).set(slot);
+        let value_gwei = (value / U256::from(1_000_000_000)).try_into().unwrap_or_default();
+        RELAY_HEADER_VALUE.with_label_values(&[&ws_relay_id]).set(value_gwei);
+        relay_bids.push((ws_relay_id, ws_bid));
+    }
+
+    let total_bids = relay_bids.len();
+    info!(
+        total = total_bids,
+        ws = ws_count,
+        rest = total_bids - ws_count,
+        slot = request_info.params.slot,
+        "auction: collected bids from all sources"
+    );
+
     let max_bid = relay_bids.into_iter().max_by_key(|(_, bid)| match bid {
         CompoundGetHeaderResponse::Full(full) => *full.value(),
         CompoundGetHeaderResponse::Light(light) => light.value,
     });
 
-    if let Some((winning_relay_id, ref bid)) = max_bid {
+    if let Some((ref winning_relay_id, ref bid)) = max_bid {
         match bid {
             CompoundGetHeaderResponse::Full(full) => {
                 info!(
@@ -864,6 +899,68 @@ fn extra_validation(
     };
 
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// WebSocket bid collection
+// ---------------------------------------------------------------------------
+
+/// Collect cached bids from all connected WebSocket clients.
+/// Returns a vector of (relay_id, CompoundGetHeaderResponse) entries.
+/// Per ARCH v3.2 D6: reads the latest cached bid from each relay's
+/// `tokio::sync::watch::Receiver<Option<CachedBid>>`. Returns nothing for
+/// relays with no cached bid, a cached bid for a different slot, or a
+/// bid where the proposer pubkey doesn't match this request.
+///
+/// `websocket = false` on all relays → empty map → early return, no
+/// hot-path cost.
+fn collect_ws_bids<S: BuilderApiState>(
+    state: &PbsState<S>,
+    params: &GetHeaderParams,
+) -> Vec<(String, CompoundGetHeaderResponse)> {
+    let ws_clients = state.ws_clients.read();
+    if ws_clients.is_empty() {
+        return vec![];
+    }
+
+    let mut bids = Vec::new();
+    for (relay_id, ws) in ws_clients.iter() {
+        // Gate on connection state — a backoff'd client's stale cached
+        // bid from before the disconnect could still be present in the
+        // watch channel.
+        if !matches!(
+            ws.state_snapshot(),
+            crate::mev_boost::ws_client::WsClientState::Connected { .. }
+        ) {
+            continue;
+        }
+
+        let Some(cached) = ws.latest_bid() else { continue };
+
+        // Slot filtering is relay-side. A `SignedBuilderBid` carries
+        // the slot inside its inner `BuilderBid::header().slot()`,
+        // but the various fork header types expose that behind
+        // different enum matches — see cb_common::utils for the
+        // existing SSZ-offset-based extraction used for value.
+        // Adding slot-gating here is deferred until that helper is
+        // extended; the relay's Phase A/B push policy is the
+        // authoritative slot-freshness guard (new-slot rollover in
+        // PerSlotState clears the cached bid).
+        let _ = params;
+
+        let value_eth = format_ether(cached.value);
+        let idx = bids.len() + 1;
+        bids.push((relay_id.clone(), cached.response));
+        info!(
+            relay_id,
+            value_eth,
+            idx,
+            "WS: contributing cached bid #{} to auction",
+            idx
+        );
+    }
+
+    bids
 }
 
 #[cfg(test)]

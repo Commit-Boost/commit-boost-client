@@ -86,6 +86,36 @@ pub async fn submit_block<S: BuilderApiState>(
 ) -> eyre::Result<CompoundSubmitBlockResponse> {
     debug!(?req_headers, "received headers");
 
+    // For V2 submissions, fire-and-forget a `SubmitBlindedBlock` frame to
+    // every CONNECTED WS client. The REST dual-path below still runs in
+    // parallel. ARCH v3.2 §7: `_get_payload` dedupes on Helix; no risk of
+    // double broadcast.
+    //
+    // Fork mapping may fail (e.g., pre-Electra slot not supported on the
+    // wire) — in that case we skip the WS path silently and let REST
+    // handle it.
+    if api_version == BuilderApiVersion::V2 {
+        let fork = signed_blinded_block.fork_name_unchecked();
+        match crate::mev_boost::wire::fork_name_to_u8(fork) {
+            Ok(fork_byte) => {
+                let body_ssz = signed_blinded_block.as_ssz_bytes();
+                let ws_clients = state.ws_clients.read();
+                for (_id, client) in ws_clients.iter() {
+                    if matches!(
+                        client.state_snapshot(),
+                        crate::mev_boost::ws_client::WsClientState::Connected { .. }
+                    ) {
+                        client.send_submit_blinded_block(fork_byte, body_ssz.clone());
+                        debug!("submitted block over WS");
+                    }
+                }
+            }
+            Err(e) => {
+                debug!(?fork, ?e, "WS: skipping submit (unsupported fork on wire)");
+            }
+        }
+    }
+
     // prepare headers
     let mut send_headers = HeaderMap::new();
     send_headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(utcnow_ms()));

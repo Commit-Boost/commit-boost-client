@@ -3,9 +3,8 @@ mod register_validator;
 mod reload;
 mod status;
 mod submit_block;
-pub mod ws_client;
-pub mod ws_messages;
 pub mod wire;
+pub mod ws_client;
 
 use alloy::primitives::U256;
 use cb_common::{
@@ -21,6 +20,7 @@ pub use submit_block::submit_block;
 
 /// Enum that handles different GetHeader response types based on the level of
 /// validation required
+#[derive(Clone)]
 pub enum CompoundGetHeaderResponse {
     /// Standard response type, fully parsing the response from a relay into a
     /// complete response struct

@@ -1,93 +1,97 @@
-//! Conversion layer between lh_types native types and ws-wire wire types.
-//! See ARCH.md §12 for the full conversion specification.
+//! Fork-name ↔ wire-byte mapping for the Builder API WebSocket extension.
 //!
-//! Full field-by-field conversion is TBD — currently provides
-//! fork-name mapping and stub conversions that compile.
+//! ARCH v3.2 §2.3: Electra=1, Fulu=2, Gloas=3. Pre-Electra forks and byte 0
+//! are invalid on the wire. This mapping MUST match Helix's
+//! `helix/crates/relay/src/api/proposer/websocket/wire.rs` exactly.
 
 use lh_types::ForkName;
-use crate::mev_boost::ws_messages::*;
-use ssz_types::VariableList;
+
+// ---------------------------------------------------------------------------
+// Errors
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, thiserror::Error)]
+pub enum WireForkError {
+    #[error("pre-Electra fork not supported on the WebSocket wire: {0:?}")]
+    UnsupportedFork(ForkName),
+    #[error("unknown wire fork discriminant: {0}")]
+    UnknownDiscriminant(u8),
+}
 
 // ---------------------------------------------------------------------------
 // Fork name <-> u8
 // ---------------------------------------------------------------------------
 
-pub fn fork_name_to_u8(fork: ForkName) -> u8 {
+pub fn fork_name_to_u8(fork: ForkName) -> Result<u8, WireForkError> {
     match fork {
-        ForkName::Deneb => 0,
-        ForkName::Electra => 1,
-        ForkName::Fulu => 2,
-        _ => 0, // Base/Altair/Bellatrix/Capella/Gloas → 0
+        ForkName::Electra => Ok(1),
+        ForkName::Fulu => Ok(2),
+        ForkName::Gloas => Ok(3),
+        other => Err(WireForkError::UnsupportedFork(other)),
     }
 }
 
-pub fn fork_name_from_u8(v: u8) -> eyre::Result<ForkName> {
+pub fn fork_name_from_u8(v: u8) -> Result<ForkName, WireForkError> {
     match v {
-        0 => Ok(ForkName::Deneb),
         1 => Ok(ForkName::Electra),
         2 => Ok(ForkName::Fulu),
-        _ => Err(eyre::eyre!("unknown wire fork discriminant: {v}")),
+        3 => Ok(ForkName::Gloas),
+        other => Err(WireForkError::UnknownDiscriminant(other)),
     }
 }
 
 // ---------------------------------------------------------------------------
-// Validator registration conversion (stubs — full impl TBD)
+// Tests
 // ---------------------------------------------------------------------------
-
-/// Build a wire ValidatorRegistration batch from raw registrations.
-/// Full conversion from lh_types::SignedValidatorRegistrationData is TBD.
-pub fn build_registration_batch(
-    regs: Vec<WireSignedValidatorRegistration>,
-) -> ValidatorRegistration {
-    ValidatorRegistration { registrations: VariableList::from(regs) }
-}
-
-// ---------------------------------------------------------------------------
-// Bid conversion (stubs — full SSZ roundtrip TBD)
-// ---------------------------------------------------------------------------
-
-/// Build a wire BidPush from slot, parent_hash, fork, and pre-encoded SSZ bytes.
-pub fn build_bid_push(
-    slot: u64,
-    parent_hash: [u8; 32],
-    fork: ForkName,
-    signed_bid_ssz: Vec<u8>,
-) -> BidPush {
-    BidPush { slot, parent_hash, fork_name: fork_name_to_u8(fork), signed_bid_ssz: VariableList::from(signed_bid_ssz) }
-}
-
-// ---------------------------------------------------------------------------
-// Submit block conversion
-// ---------------------------------------------------------------------------
-
-/// Build a wire SubmitBlockRequest.
-pub fn build_submit_block_request(fork: ForkName, body_ssz: Vec<u8>) -> SubmitBlockRequest {
-    SubmitBlockRequest { fork_name: fork_name_to_u8(fork), body_ssz: VariableList::from(body_ssz) }
-}
-
-/// Build a wire SubmitBlockAck from a status byte.
-pub fn build_submit_block_ack(status: u8) -> SubmitBlockAck {
-    SubmitBlockAck { status }
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn fork_name_roundtrip() {
-        assert_eq!(fork_name_from_u8(fork_name_to_u8(ForkName::Electra)).unwrap(), ForkName::Electra);
-        assert_eq!(fork_name_from_u8(fork_name_to_u8(ForkName::Fulu)).unwrap(), ForkName::Fulu);
-        assert_eq!(fork_name_from_u8(fork_name_to_u8(ForkName::Deneb)).unwrap(), ForkName::Deneb);
+    fn fork_name_roundtrip_supported() {
+        for fork in [ForkName::Electra, ForkName::Fulu, ForkName::Gloas] {
+            let byte = fork_name_to_u8(fork).expect("supported fork must encode");
+            let back = fork_name_from_u8(byte).expect("valid byte must decode");
+            assert_eq!(fork, back);
+        }
     }
 
     #[test]
-    fn fork_name_unknown_rejected() {
-        assert!(fork_name_from_u8(255).is_err());
+    fn fork_name_to_u8_electra_is_one() {
+        assert_eq!(fork_name_to_u8(ForkName::Electra).unwrap(), 1);
+        assert_eq!(fork_name_to_u8(ForkName::Fulu).unwrap(), 2);
+        assert_eq!(fork_name_to_u8(ForkName::Gloas).unwrap(), 3);
     }
 
     #[test]
-    fn non_electra_defaults_to_zero() {
-        assert_eq!(fork_name_to_u8(ForkName::Base), 0);
+    fn fork_name_pre_electra_rejected() {
+        for fork in [
+            ForkName::Base,
+            ForkName::Altair,
+            ForkName::Bellatrix,
+            ForkName::Capella,
+            ForkName::Deneb,
+        ] {
+            assert!(
+                matches!(fork_name_to_u8(fork), Err(WireForkError::UnsupportedFork(_))),
+                "pre-Electra fork {fork:?} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn fork_name_from_u8_zero_rejected() {
+        assert!(matches!(fork_name_from_u8(0), Err(WireForkError::UnknownDiscriminant(0))));
+    }
+
+    #[test]
+    fn fork_name_from_u8_unknown_rejected() {
+        for byte in [4u8, 5, 99, 255] {
+            assert!(
+                matches!(fork_name_from_u8(byte), Err(WireForkError::UnknownDiscriminant(_))),
+                "byte {byte} must be rejected"
+            );
+        }
     }
 }

@@ -1841,6 +1841,7 @@ dependencies = [
  "serde",
  "serde_json",
  "ssz_types 0.10.1",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-tungstenite 0.27.0",
  "tower-http",
@@ -1895,6 +1896,7 @@ dependencies = [
  "eth2",
  "ethereum_ssz 0.10.3",
  "eyre",
+ "futures-util",
  "jsonwebtoken",
  "rcgen",
  "reqwest 0.12.28",
@@ -1902,6 +1904,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "tokio-tungstenite 0.27.0",
  "toml",
  "tracing",
  "tracing-subscriber",
@@ -1909,6 +1912,7 @@ dependencies = [
  "tree_hash 0.12.1",
  "types",
  "url",
+ "ws-wire",
 ]
 
 [[package]]

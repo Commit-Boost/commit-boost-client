@@ -43,6 +43,66 @@ impl PbsService {
 
         let config_path = state.config_path.clone();
         let state: Arc<RwLock<PbsState<S>>> = RwLock::new(state).into();
+
+        // Spawn WebSocket clients for relays with `websocket: true`.
+        //
+        // Per ARCH v3.2 §3.4, `auction_conclusion_ms` is derived from the
+        // existing CB config and appended as a URL query param on upgrade
+        // (not sent as a separate message).
+        let ws_enabled_count = {
+            let state_guard = state.read();
+            let pbs = state_guard.pbs_config();
+            let pbs_late_in_slot = pbs.late_in_slot_time_ms;
+            let pbs_timeout_get_header = pbs.timeout_get_header_ms;
+            let mut ws_map = state_guard.ws_clients.write();
+            let mut count = 0u32;
+            for relay in state_guard.all_relays().iter() {
+                if !relay.config.websocket {
+                    continue;
+                }
+                // Convert relay URL to ws:// scheme
+                let mut ws_url = relay.config.entry.url.clone();
+                let _ = ws_url.set_scheme("ws");
+                ws_url.set_path("/eth/v1/builder/ws");
+
+                let auction_conclusion_ms = if relay.config.enable_timing_games {
+                    // target_first_request_ms + timeout_get_header_ms,
+                    // capped at late_in_slot_time_ms so Phase B deadline
+                    // arithmetic stays sane.
+                    Some(
+                        relay
+                            .config
+                            .target_first_request_ms
+                            .map(|t| (t + pbs_timeout_get_header).min(pbs_late_in_slot))
+                            .unwrap_or(pbs_late_in_slot),
+                    )
+                } else {
+                    // No timing games: proposer accepts bids until
+                    // `late_in_slot_time_ms`.
+                    Some(pbs_late_in_slot)
+                };
+
+                info!(
+                    relay_id = %relay.id,
+                    url = %ws_url,
+                    ?auction_conclusion_ms,
+                    "spawning WebSocket client"
+                );
+                let client = crate::mev_boost::ws_client::HelixWsClient::spawn(
+                    ws_url,
+                    auction_conclusion_ms,
+                );
+                ws_map.insert(relay.id.to_string(), client);
+                count += 1;
+            }
+            count
+        };
+        if ws_enabled_count > 0 {
+            info!(ws_count = ws_enabled_count, "WebSocket clients spawned for relay(s)");
+        } else {
+            info!("no relays configured with websocket=true, using REST-only mode");
+        }
+
         let app = create_app_router::<S, A>(state.clone());
         let listener = TcpListener::bind(addr).await?;
 
