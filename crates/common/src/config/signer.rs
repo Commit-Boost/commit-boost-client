@@ -22,7 +22,8 @@ use super::{
 };
 use crate::{
     config::{
-        DIRK_CA_CERT_ENV, DIRK_CERT_ENV, DIRK_DIR_SECRETS_ENV, DIRK_KEY_ENV, SIGNER_IMAGE_DEFAULT,
+        COMMIT_BOOST_IMAGE_DEFAULT, DIRK_CA_CERT_ENV, DIRK_CERT_ENV, DIRK_DIR_SECRETS_ENV,
+        DIRK_KEY_ENV,
     },
     signer::{ProxyStore, SignerLoader},
     types::{Chain, ModuleId},
@@ -164,7 +165,7 @@ impl SignerConfig {
 }
 
 fn default_signer_image() -> String {
-    SIGNER_IMAGE_DEFAULT.to_string()
+    COMMIT_BOOST_IMAGE_DEFAULT.to_string()
 }
 
 fn default_tls_mode() -> TlsMode {
@@ -424,7 +425,10 @@ mod tests {
     use alloy::primitives::{Uint, b256};
 
     use super::*;
-    use crate::config::{LogsSettings, ModuleKind, PbsConfig, StaticModuleConfig, StaticPbsConfig};
+    use crate::config::{
+        COMMIT_BOOST_IMAGE_DEFAULT, LogsSettings, ModuleKind, PbsConfig, StaticModuleConfig,
+        StaticPbsConfig,
+    };
 
     // Wrapper needed because TOML requires a top-level struct (can't serialize
     // a bare enum).
@@ -437,7 +441,7 @@ mod tests {
         SignerConfig {
             host: Ipv4Addr::LOCALHOST,
             port: 20000,
-            docker_image: SIGNER_IMAGE_DEFAULT.to_string(),
+            docker_image: COMMIT_BOOST_IMAGE_DEFAULT.to_string(),
             jwt_auth_fail_limit: 3,
             jwt_auth_fail_timeout_seconds: 300,
             tls_mode,
@@ -851,7 +855,7 @@ mod tests {
         cfg.signer = Some(SignerConfig {
             host: Ipv4Addr::new(127, 0, 0, 1),
             port: 20000,
-            docker_image: SIGNER_IMAGE_DEFAULT.to_string(),
+            docker_image: COMMIT_BOOST_IMAGE_DEFAULT.to_string(),
             jwt_auth_fail_limit: 3,
             jwt_auth_fail_timeout_seconds: 300,
             tls_mode: TlsMode::Insecure,

@@ -24,7 +24,7 @@ use cb_common::{
     utils::random_jwt_secret,
 };
 use docker_compose_types::{
-    Compose, DependsCondition, DependsOnOptions, EnvFile, Environment, Healthcheck,
+    Command, Compose, DependsCondition, DependsOnOptions, EnvFile, Environment, Healthcheck,
     HealthcheckTest, MapOrEmpty, NetworkSettings, Networks, Ports, Service, Services, SingleValue,
     Volumes,
 };
@@ -310,6 +310,7 @@ fn create_pbs_service(service_config: &mut ServiceCreationInfo) -> eyre::Result<
     let pbs_service = Service {
         container_name: Some("cb_pbs".to_owned()),
         image: Some(cb_config.pbs.docker_image.clone()),
+        command: Some(Command::Args(vec!["pbs".to_owned()])),
         ports: Ports::Short(ports),
         volumes,
         environment: Environment::KvPair(envs),
@@ -459,6 +460,7 @@ fn create_signer_service_local(
     let signer_service = Service {
         container_name: Some("cb_signer".to_owned()),
         image: Some(signer_config.docker_image.clone()),
+        command: Some(Command::Args(vec!["signer".to_owned()])),
         networks: Networks::Simple(signer_networks),
         ports: Ports::Short(ports),
         volumes,
@@ -586,6 +588,7 @@ fn create_signer_service_dirk(
     let signer_service = Service {
         container_name: Some("cb_signer".to_owned()),
         image: Some(signer_config.docker_image.clone()),
+        command: Some(Command::Args(vec!["signer".to_owned()])),
         networks: Networks::Simple(signer_networks),
         ports: Ports::Short(ports),
         volumes,
@@ -871,7 +874,7 @@ mod tests {
             r#"
             chain = "Holesky"
             [pbs]
-            docker_image = "ghcr.io/commit-boost/pbs:latest"
+            docker_image = "ghcr.io/commit-boost/commit-boost:latest"
         "#,
         )
         .expect("valid minimal test config")
@@ -1126,7 +1129,7 @@ mod tests {
         let service = create_pbs_service(&mut sc)?;
 
         assert_eq!(service.container_name.as_deref(), Some("cb_pbs"));
-        assert_eq!(service.image.as_deref(), Some("ghcr.io/commit-boost/pbs:latest"));
+        assert_eq!(service.image.as_deref(), Some("ghcr.io/commit-boost/commit-boost:latest"));
         assert!(env_str(&service, CONFIG_ENV).is_some());
         assert!(env_str(&service, PBS_ENDPOINT_ENV).is_some());
         assert!(service.healthcheck.is_some());

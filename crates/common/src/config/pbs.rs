@@ -23,8 +23,8 @@ use super::{
 use crate::{
     commit::client::SignerClient,
     config::{
-        CONFIG_ENV, MODULE_JWT_ENV, MuxKeysLoader, PBS_IMAGE_DEFAULT, PBS_SERVICE_NAME, PbsMuxes,
-        SIGNER_TLS_CERTIFICATE_NAME, SIGNER_TLS_CERTIFICATES_PATH_ENV, SIGNER_URL_ENV,
+        COMMIT_BOOST_IMAGE_DEFAULT, CONFIG_ENV, MODULE_JWT_ENV, MuxKeysLoader, PBS_SERVICE_NAME,
+        PbsMuxes, SIGNER_TLS_CERTIFICATE_NAME, SIGNER_TLS_CERTIFICATES_PATH_ENV, SIGNER_URL_ENV,
         SignerConfig, TlsMode, load_env_var, load_file_from_env,
     },
     pbs::{
@@ -257,7 +257,7 @@ pub struct PbsModuleConfig {
 }
 
 fn default_pbs() -> String {
-    PBS_IMAGE_DEFAULT.to_string()
+    COMMIT_BOOST_IMAGE_DEFAULT.to_string()
 }
 
 /// Loads the default pbs config, i.e. with no signer client or custom data

@@ -10,8 +10,8 @@ chain = "Holesky"
 # Configuration for the PBS module
 [pbs]
 # Docker image to use for the PBS module.
-# OPTIONAL, DEFAULT: ghcr.io/commit-boost/pbs:latest
-docker_image = "ghcr.io/commit-boost/pbs:latest"
+# OPTIONAL, DEFAULT: ghcr.io/commit-boost/commit-boost:latest
+docker_image = "ghcr.io/commit-boost/commit-boost:latest"
 # Whether to enable the PBS module to request signatures from the Signer module (not used in the default PBS image)
 # OPTIONAL, DEFAULT: false
 with_signer = false
@@ -175,8 +175,8 @@ url = "http://0xa119589bb33ef52acbb8116832bec2b58fca590fe5c85eac5d3230b44d5bc09f
 # More details on the docs (https://commit-boost.github.io/commit-boost-client/get_started/configuration/#signer-module)
 [signer]
 # Docker image to use for the Signer module.
-# OPTIONAL, DEFAULT: ghcr.io/commit-boost/signer:latest
-docker_image = "ghcr.io/commit-boost/signer:latest"
+# OPTIONAL, DEFAULT: ghcr.io/commit-boost/commit-boost:latest
+docker_image = "ghcr.io/commit-boost/commit-boost:latest"
 # Host to bind the Signer API server to
 # OPTIONAL, DEFAULT: 127.0.0.1
 host = "127.0.0.1"
