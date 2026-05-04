@@ -27,7 +27,7 @@ A Helm chart for Kubernetes
 | commitBoost.pbs.config.relays | list | `[]` |  |
 | commitBoost.pbs.enable | bool | `true` |  |
 | commitBoost.pbs.image.pullPolicy | string | `"IfNotPresent"` |  |
-| commitBoost.pbs.image.repository | string | `"ghcr.io/commit-boost/pbs"` |  |
+| commitBoost.pbs.image.repository | string | `"ghcr.io/commit-boost/commit-boost"` |  |
 | commitBoost.pbs.image.tag | string | `"v0.4.0"` |  |
 | fullnameOverride | string | `""` |  |
 | imagePullSecrets | list | `[]` |  |

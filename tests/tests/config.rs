@@ -36,7 +36,7 @@ async fn test_load_pbs_happy() -> Result<()> {
     );
 
     // Docker and general settings
-    assert_eq!(config.pbs.docker_image, "ghcr.io/commit-boost/pbs:latest");
+    assert_eq!(config.pbs.docker_image, "ghcr.io/commit-boost/commit-boost:latest");
     assert!(!config.pbs.with_signer);
     assert_eq!(config.pbs.pbs_config.host, "127.0.0.1".parse::<Ipv4Addr>().unwrap());
     assert_eq!(config.pbs.pbs_config.port, 18550);

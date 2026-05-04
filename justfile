@@ -38,96 +38,22 @@ build-bin-multiarch version: \
   (_docker-build-binary-multiarch version "commit-boost")
 
 [doc("""
-  Creates a Docker image named 'commit-boost/pbs:<version>' and loads it to the local Docker repository.
-  Requires the binary to be built first, but this command won't build it automatically if you just need to build the
-  Docker image without recompiling the binary.
-""")]
-build-pbs-img version: \
-  (_docker-build-image version "pbs")
-
-[doc("""
-  Builds the commit-boost binary to './build/<version>' and creates a Docker image named 'commit-boost/pbs:<version>'.
-""")]
-build-pbs version: \
-  (build-bin version) \
-  (build-pbs-img version)
-
-[doc("""
-  Creates a multiarch Docker image manifest named 'commit-boost/pbs:<version>' and pushes it to a custom Docker registry
-  (such as '192.168.1.10:5000').
-  Used for testing multiarch images locally instead of using a public registry like GHCR or Docker Hub.
-""")]
-build-pbs-img-multiarch version local-docker-registry: \
-  (_docker-build-image-multiarch version "pbs" local-docker-registry)
-
-[doc("""
-  Builds amd64 and arm64 binaries for the commit-boost crate to './build/<version>/<platform>', where '<platform>' is the
-  OS / arch platform of the binary (linux_amd64 and linux_arm64).
-  Creates a multiarch Docker image manifest named 'commit-boost/pbs:<version>' and pushes it to a custom Docker registry
-  (such as '192.168.1.10:5000').
-  Used for testing multiarch images locally instead of using a public registry like GHCR or Docker Hub.
-""")]
-build-pbs-multiarch version local-docker-registry: \
-  (build-bin-multiarch version) \
-  (build-pbs-img-multiarch version local-docker-registry)
-
-[doc("""
-  Creates a Docker image named 'commit-boost/signer:<version>' and loads it to the local Docker repository.
-  Requires the binary to be built first, but this command won't build it automatically if you just need to build the
-  Docker image without recompiling the binary.
-""")]
-build-signer-img version: \
-  (_docker-build-image version "signer")
-
-[doc("""
-  Builds the commit-boost binary to './build/<version>' and creates a Docker image named 'commit-boost/signer:<version>'.
-""")]
-build-signer version: \
-  (build-bin version) \
-  (build-signer-img version)
-
-[doc("""
-  Creates a multiarch Docker image manifest named 'commit-boost/signer:<version>' and pushes it to a custom Docker registry
-  (such as '192.168.1.10:5000').
-  Used for testing multiarch images locally instead of using a public registry like GHCR or Docker Hub.
-""")]
-build-signer-img-multiarch version local-docker-registry: \
-  (_docker-build-image-multiarch version "signer" local-docker-registry)
-
-[doc("""
-  Builds amd64 and arm64 binaries for the commit-boost crate to './build/<version>/<platform>', where '<platform>' is
-  the OS / arch platform of the binary (linux_amd64 and linux_arm64).
-  Creates a multiarch Docker image manifest named 'commit-boost/signer:<version>' and pushes it to a custom Docker registry
-  (such as '192.168.1.10:5000').
-  Used for testing multiarch images locally instead of using a public registry like GHCR or Docker Hub.
-""")]
-build-signer-multiarch version local-docker-registry: \
-  (build-bin-multiarch version) \
-  (build-signer-img-multiarch version local-docker-registry)
-
-[doc("""
-  Builds the CLI, PBS, and Signer binaries and Docker images for the specified version.
-  The binaries will be placed in './build/<version>'.
-  The Docker images will be named 'commit-boost/cli:<version>', 'commit-boost/pbs:<version>', and
-  'commit-boost/signer:<version>'.
+  Builds the commit-boost binary to './build/<version>' and creates a Docker image named 'commit-boost/commit-boost:<version>'.
 """)]
 build-all version: \
   (build-bin version) \
-  (build-pbs-img version) \
-  (build-signer-img version)
+  (_docker-build-image version "commit-boost")
 
 [doc("""
-  Builds amd64 and arm64 flavors of the CLI, PBS, and Signer binaries and Docker images for the specified version.
+  Builds amd64 and arm64 flavors of the commit-boost binary and creates a unified multiarch Docker image manifest for the specified version.
   The binaries will be placed in './build/<version>/<platform>', where '<platform>' is the
   OS / arch platform of the binary (linux_amd64 and linux_arm64).
-  Also creates multiarch Docker image manifests for each crate and pushes them to a custom Docker registry
-  (such as '192.168.1.10:5000').
+  Also pushes the image to a custom Docker registry (such as '192.168.1.10:5000').
   Used for testing multiarch images locally instead of using a public registry like GHCR or Docker Hub.
 """)]
 build-all-multiarch version local-docker-registry: \
   (build-bin-multiarch version) \
-  (build-pbs-img-multiarch version local-docker-registry) \
-  (build-signer-img-multiarch version local-docker-registry)
+  (_docker-build-image-multiarch version "commit-boost" local-docker-registry)
 
 # ===============================
 # === Builder Implementations ===

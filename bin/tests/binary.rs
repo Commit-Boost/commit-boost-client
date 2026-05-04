@@ -8,13 +8,13 @@ use cb_cli::docker_init::{CB_COMPOSE_FILE, CB_ENV_FILE};
 const MINIMAL_PBS_TOML: &str = r#"
 chain = "Holesky"
 [pbs]
-docker_image = "ghcr.io/commit-boost/pbs:latest"
+docker_image = "ghcr.io/commit-boost/commit-boost:latest"
 "#;
 
 const MINIMAL_WITH_MODULE_TOML: &str = r#"
 chain = "Holesky"
 [pbs]
-docker_image = "ghcr.io/commit-boost/pbs:latest"
+docker_image = "ghcr.io/commit-boost/commit-boost:latest"
 
 [signer.local.loader]
 key_path = "/keys/keys.json"
@@ -127,7 +127,7 @@ fn test_init_compose_file_pbs_service_structure() {
 
     let pbs = &compose["services"]["cb_pbs"];
     assert!(!pbs.is_null(), "cb_pbs service must exist");
-    assert_eq!(pbs["image"].as_str(), Some("ghcr.io/commit-boost/pbs:latest"), "image");
+    assert_eq!(pbs["image"].as_str(), Some("ghcr.io/commit-boost/commit-boost:latest"), "image");
     assert_eq!(pbs["container_name"].as_str(), Some("cb_pbs"), "container_name");
 
     // Config file must be mounted inside the container.

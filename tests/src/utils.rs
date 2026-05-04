@@ -8,8 +8,8 @@ use std::{
 use alloy::primitives::{B256, U256};
 use cb_common::{
     config::{
-        CommitBoostConfig, LogsSettings, ModuleKind, ModuleSigningConfig, PbsConfig,
-        PbsModuleConfig, RelayConfig, ReverseProxyHeaderSetup, SIGNER_IMAGE_DEFAULT,
+        COMMIT_BOOST_IMAGE_DEFAULT, CommitBoostConfig, LogsSettings, ModuleKind,
+        ModuleSigningConfig, PbsConfig, PbsModuleConfig, RelayConfig, ReverseProxyHeaderSetup,
         SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT, SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT,
         SIGNER_PORT_DEFAULT, SignerConfig, SignerType, StartSignerConfig, StaticModuleConfig,
         StaticPbsConfig, TlsMode,
@@ -131,7 +131,7 @@ pub fn get_signer_config(loader: SignerLoader, tls: bool) -> SignerConfig {
     SignerConfig {
         host: default_host(),
         port: SIGNER_PORT_DEFAULT,
-        docker_image: SIGNER_IMAGE_DEFAULT.to_string(),
+        docker_image: COMMIT_BOOST_IMAGE_DEFAULT.to_string(),
         jwt_auth_fail_limit: SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT,
         jwt_auth_fail_timeout_seconds: SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT,
         inner: SignerType::Local { loader, store: None },
