@@ -43,7 +43,7 @@ Install cosign: [cosign installation guide](https://docs.sigstore.dev/cosign/sys
 export REPO=Commit-Boost/commit-boost-client
 export VERSION=vX.Y.Z
 export ARCH=linux_x86-64
-export BIN=commit-boost-pbs
+export BIN=commit-boost
 
 # Download the binary tarball and its signature bundle
 curl -L \
