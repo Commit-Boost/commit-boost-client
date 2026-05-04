@@ -73,7 +73,7 @@ Example verification flow:
 export REPO=Commit-Boost/commit-boost-client
 export VERSION=vX.Y.Z
 export ARCH=linux_x86-64
-export BIN=commit-boost-pbs
+export BIN=commit-boost
 
 curl -L \
   -o "$BIN-$VERSION-$ARCH.tar.gz" \
@@ -87,7 +87,7 @@ cosign verify-blob \
   "$BIN-$VERSION-$ARCH.tar.gz" \
   --bundle "$BIN-$VERSION-$ARCH.tar.gz.sigstore.json" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-  --certificate-identity="https://github.com/Commit-Boost/commit-boost-client/.github/workflows/release.yml@refs/heads/main"
+  --certificate-identity="https://github.com/$REPO/.github/workflows/release.yml@refs/heads/main"
 ```
 
 To verify assets from a fork, replace `REPO` with the fork path, for example:

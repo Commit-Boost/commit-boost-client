@@ -3,7 +3,7 @@ on:
   pull_request:
     types: [closed]
     branches: [main]
-    paths: ['.releases/**']
+    paths: [".releases/**"]
 
 concurrency:
   group: release-gate
@@ -40,7 +40,7 @@ jobs:
 
       - uses: actions/setup-python@v6
         with:
-          python-version: '3.x'
+          python-version: "3.x"
 
       - name: Install Python deps
         run: pip install pyyaml

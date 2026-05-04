@@ -72,7 +72,7 @@ jobs:
           VALUE=$(python .github/workflows/release/release.py is-latest "${{ inputs.tag }}")
           echo "value=$VALUE" >> $GITHUB_OUTPUT
 
-  # Builds the x64 and arm64 binaries for Linux, for all 3 crates, via the Docker builder
+  # Builds the x64 and arm64 binaries for Linux via the Docker builder
   build-binaries-linux:
     needs: [resolve-tag]
     timeout-minutes: 60
@@ -83,20 +83,14 @@ jobs:
           - amd64
           - arm64
         name:
-          - commit-boost-cli
-          - commit-boost-pbs
-          - commit-boost-signer
+          - commit-boost
         include:
           - target: amd64
             package-suffix: x86-64
           - target: arm64
             package-suffix: arm64
-          - name: commit-boost-cli
-            target-crate: cli
-          - name: commit-boost-pbs
-            target-crate: pbs
-          - name: commit-boost-signer
-            target-crate: signer
+          - name: commit-boost
+            target-crate: commit-boost
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -150,7 +144,7 @@ jobs:
           path: |
             ${{ matrix.name }}-${{ inputs.tag }}-linux_${{ matrix.package-suffix }}.tar.gz
 
-  # Builds the arm64 binaries for Darwin, for all 3 crates, natively
+  # Builds the arm64 binary for Darwin natively
   build-binaries-darwin:
     needs: [resolve-tag]
     timeout-minutes: 60
@@ -162,9 +156,7 @@ jobs:
           # - x86_64-apple-darwin
           - aarch64-apple-darwin
         name:
-          - commit-boost-cli
-          - commit-boost-pbs
-          - commit-boost-signer
+          - commit-boost
         include:
           # - target: x86_64-apple-darwin
           #   os: macos-latest-large
@@ -237,7 +229,7 @@ jobs:
       packages: write
     strategy:
       matrix:
-        crate: [pbs, signer]
+        crate: [pbs, signer, commit-boost]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -252,16 +244,16 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: ./artifacts
-          pattern: "commit-boost-*"
+          pattern: "commit-boost*"
 
       - name: Extract binaries
         run: |
           mkdir -p ./artifacts/bin/linux_amd64
           mkdir -p ./artifacts/bin/linux_arm64
-          tar -xzf ./artifacts/commit-boost-${{ matrix.crate }}-${{ inputs.tag }}-linux_x86-64/commit-boost-${{ matrix.crate }}-${{ inputs.tag }}-linux_x86-64.tar.gz -C ./artifacts/bin
-          mv ./artifacts/bin/commit-boost-${{ matrix.crate }} ./artifacts/bin/linux_amd64/commit-boost-${{ matrix.crate }}
-          tar -xzf ./artifacts/commit-boost-${{ matrix.crate }}-${{ inputs.tag }}-linux_arm64/commit-boost-${{ matrix.crate }}-${{ inputs.tag }}-linux_arm64.tar.gz -C ./artifacts/bin
-          mv ./artifacts/bin/commit-boost-${{ matrix.crate }} ./artifacts/bin/linux_arm64/commit-boost-${{ matrix.crate }}
+          tar -xzf ./artifacts/commit-boost-${{ inputs.tag }}-linux_x86-64/commit-boost-${{ inputs.tag }}-linux_x86-64.tar.gz -C ./artifacts/bin
+          mv ./artifacts/bin/commit-boost ./artifacts/bin/linux_amd64/commit-boost
+          tar -xzf ./artifacts/commit-boost-${{ inputs.tag }}-linux_arm64/commit-boost-${{ inputs.tag }}-linux_arm64.tar.gz -C ./artifacts/bin
+          mv ./artifacts/bin/commit-boost ./artifacts/bin/linux_arm64/commit-boost
 
       - name: Set lowercase owner
         run: echo "OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV

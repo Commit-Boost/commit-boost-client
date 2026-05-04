@@ -3,7 +3,6 @@
 [![Ci](https://github.com/Commit-Boost/commit-boost-client/actions/workflows/ci.yml/badge.svg)](https://github.com/Commit-Boost/commit-boost-client/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-latest-blue.svg)](https://commit-boost.github.io/commit-boost-client/)
 [![Release](https://img.shields.io/github/v/release/Commit-Boost/commit-boost-client)](https://github.com/Commit-Boost/commit-boost-client/releases)
-[![Chat](https://img.shields.io/endpoint?color=neon&logo=telegram&label=chat&url=https%3A%2F%2Ftg.sumanjay.workers.dev%2F%2BPcs9bykxK3BiMzk5)](https://t.me/+Pcs9bykxK3BiMzk5)
 [![X](https://img.shields.io/twitter/follow/Commit_Boost)](https://x.com/Commit_Boost)
 
 A new Ethereum validator sidecar focused on standardizing the last mile of communication between validators and third-party protocols.
@@ -44,7 +43,7 @@ Install cosign: [cosign installation guide](https://docs.sigstore.dev/cosign/sys
 export REPO=Commit-Boost/commit-boost-client
 export VERSION=vX.Y.Z
 export ARCH=linux_x86-64
-export BIN=commit-boost-pbs
+export BIN=commit-boost
 
 # Download the binary tarball and its signature bundle
 curl -L \
@@ -60,7 +59,7 @@ cosign verify-blob \
   "$BIN-$VERSION-$ARCH.tar.gz" \
   --bundle "$BIN-$VERSION-$ARCH.tar.gz.sigstore.json" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-  --certificate-identity="https://github.com/Commit-Boost/commit-boost-client/.github/workflows/release.yml@refs/heads/main"
+  --certificate-identity="https://github.com/$REPO/.github/workflows/release.yml@refs/heads/main"
 ```
 
 A successful verification prints `Verified OK`. If the binary was modified after being built by CI, verification will fail.

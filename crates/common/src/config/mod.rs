@@ -41,7 +41,7 @@ pub struct CommitBoostConfig {
 impl CommitBoostConfig {
     /// Validate config
     pub async fn validate(&self) -> Result<()> {
-        self.pbs.pbs_config.validate(self.chain).await?;
+        self.pbs.validate(self.chain).await?;
         if let Some(signer) = &self.signer {
             signer.validate().await?;
         }
@@ -56,19 +56,19 @@ impl CommitBoostConfig {
     }
 
     pub fn from_file(path: &PathBuf) -> Result<Self> {
-        let config: Self = load_from_file(path)?;
+        let (config, _): (Self, _) = load_from_file(path)?;
         Ok(config)
     }
 
     // When loading the config from the environment, it's important that every path
     // is replaced with the correct value if the config is loaded inside a container
-    pub fn from_env_path() -> Result<Self> {
-        let helper_config: HelperConfig = load_file_from_env(CONFIG_ENV)?;
+    pub fn from_env_path() -> Result<(Self, PathBuf)> {
+        let (helper_config, config_path): (HelperConfig, PathBuf) = load_file_from_env(CONFIG_ENV)?;
 
         let chain = match helper_config.chain {
             ChainLoader::Path { path, genesis_time_secs } => {
                 // check if the file path is overridden by env var
-                let (slot_time_secs, genesis_fork_version, fulu_fork_slot) =
+                let (slot_time_secs, genesis_fork_version, fulu_fork_slot, chain_id) =
                     if let Some(path) = load_optional_env_var(CHAIN_SPEC_ENV) {
                         load_chain_from_file(path.parse()?)?
                     } else {
@@ -79,6 +79,7 @@ impl CommitBoostConfig {
                     slot_time_secs,
                     genesis_fork_version,
                     fulu_fork_slot,
+                    chain_id,
                 }
             }
             ChainLoader::Known(known) => Chain::from(known),
@@ -87,6 +88,7 @@ impl CommitBoostConfig {
                 slot_time_secs,
                 genesis_fork_version,
                 fulu_fork_slot,
+                chain_id,
             } => {
                 let genesis_fork_version: ForkVersion = genesis_fork_version.as_ref().try_into()?;
                 Chain::Custom {
@@ -94,6 +96,7 @@ impl CommitBoostConfig {
                     slot_time_secs,
                     genesis_fork_version,
                     fulu_fork_slot,
+                    chain_id,
                 }
             }
         };
@@ -109,13 +112,13 @@ impl CommitBoostConfig {
             logs: helper_config.logs,
         };
 
-        Ok(config)
+        Ok((config, config_path))
     }
 
     /// Returns the path to the chain spec file if any
     pub fn chain_spec_file(path: &PathBuf) -> Option<PathBuf> {
         match load_from_file::<_, ChainConfig>(path) {
-            Ok(config) => {
+            Ok((config, _)) => {
                 if let ChainLoader::Path { path, genesis_time_secs: _ } = config.chain {
                     Some(path)
                 } else {
@@ -124,6 +127,40 @@ impl CommitBoostConfig {
             }
             Err(_) => None,
         }
+    }
+
+    /// Helper to return if the signer module is needed based on the config
+    pub fn needs_signer_module(&self) -> bool {
+        self.pbs.with_signer ||
+            self.modules.as_ref().is_some_and(|modules| {
+                modules.iter().any(|module| matches!(module.kind, ModuleKind::Commit))
+            })
+    }
+
+    pub fn signer_uses_tls(&self) -> bool {
+        self.signer
+            .as_ref()
+            .is_some_and(|signer_config| matches!(signer_config.tls_mode, TlsMode::Certificate(_)))
+    }
+
+    pub fn signer_server_url(&self, default_port: u16) -> String {
+        if let Some(SignerConfig { inner: SignerType::Remote { url }, .. }) = &self.signer {
+            url.to_string()
+        } else {
+            let signer_http_prefix = if self.signer_uses_tls() { "https" } else { "http" };
+            let port = self.signer.as_ref().map(|s| s.port).unwrap_or(default_port);
+            format!("{signer_http_prefix}://cb_signer:{port}")
+        }
+    }
+
+    pub fn signer_certs_path(&self) -> Option<&PathBuf> {
+        self.signer
+            .as_ref()
+            .map(|config| match &config.tls_mode {
+                TlsMode::Insecure => None,
+                TlsMode::Certificate(path) => Some(path),
+            })
+            .unwrap_or_default()
     }
 }
 

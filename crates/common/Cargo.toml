@@ -17,6 +17,7 @@ base64.workspace = true
 bimap.workspace = true
 bytes.workspace = true
 cipher.workspace = true
+const_format.workspace = true
 ctr.workspace = true
 derive_more.workspace = true
 docker-image.workspace = true
@@ -31,6 +32,7 @@ lh_bls.workspace = true
 lh_eth2.workspace = true
 lh_eth2_keystore.workspace = true
 lh_types.workspace = true
+notify.workspace = true
 pbkdf2.workspace = true
 rand.workspace = true
 rayon.workspace = true
@@ -51,3 +53,7 @@ tree_hash.workspace = true
 tree_hash_derive.workspace = true
 unicode-normalization.workspace = true
 url.workspace = true
+reqwest-eventsource.workspace = true
+
+[dev-dependencies]
+  tempfile.workspace = true

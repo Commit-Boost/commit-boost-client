@@ -7,14 +7,14 @@ description: Initial setup
 Commit-Boost is primarily based on [Docker](https://www.docker.com/) to enable modularity, sandboxing and cross-platform compatibility. It is also possible to run Commit-Boost [natively](/get_started/running/binary) without Docker.
 
 Each component roughly maps to a container: from a single `.toml` config file, the node operator can specify which modules they want to run, and Commit-Boost takes care of spinning up the services and creating links between them.
-Commit-Boost ships with two core modules:
+Commit-Boost ships with two core services:
 
 - A PBS module which implements the [BuilderAPI](https://ethereum.github.io/builder-specs/) for [MEV Boost](https://docs.flashbots.net/flashbots-mev-boost/architecture-overview/specifications).
 - A signer module, which implements the [Signer API](/api) and provides the interface for modules to request proposer commitments.
 
 ## Setup
 
-The Commit-Boost CLI creates a dynamic `docker-compose` file, with services and ports already set up.
+The Commit-Boost program can create a dynamic `docker-compose` file, with services and ports already set up.
 
 Whether you're using Docker or running the binaries natively, you can compile from source directly from the repo, or download binaries and fetch docker images from the official releases.
 
@@ -22,7 +22,7 @@ Whether you're using Docker or running the binaries natively, you can compile fr
 
 Find the latest releases at https://github.com/Commit-Boost/commit-boost-client/releases.
 
-The modules are also published at [each release](https://github.com/orgs/Commit-Boost/packages?repo_name=commit-boost-client).
+The services are also published at [each release](https://github.com/orgs/Commit-Boost/packages?repo_name=commit-boost-client).
 
 ### From source
 
@@ -49,35 +49,24 @@ git submodule update --init --recursive
 If you get an `openssl` related error try running: `apt-get update && apt-get install -y openssl ca-certificates libssl3 libssl-dev build-essential pkg-config`
 :::
 
+Now, build the binary, which will be stored in `build/<git hash>/<OS and arch>`, for example `build/206658b/linux_amd64/`:
+
+```bash
+just build-bin $(git rev-parse --short HEAD)
+```
+
+You can confirm the binary was built successfully by navigating to the build directory and checking its version:
+```bash
+./commit-boost --version
+```
+
 ### Docker
 
-You will need to build the CLI to create the `docker-compose` file:
+Building the service images requires the binary to be built using the above instructions first, since it will be copied into those images. Once it's built, create the images with the following:
 
 ```bash
-# Build the CLI
-cargo build --release --bin commit-boost-cli
-
-# Check that it works
-./target/release/commit-boost-cli --version
+just build-pbs-img $(git rev-parse --short HEAD)
+just build-signer-img $(git rev-parse --short HEAD)
 ```
 
-and the modules as Docker images:
-
-```bash
-docker build -t commitboost_pbs_default . -f ./provisioning/pbs.Dockerfile
-docker build -t commitboost_signer . -f ./provisioning/signer.Dockerfile
-```
-
-This will create two local images called `commitboost_pbs_default` and `commitboost_signer` for the Pbs and Signer module respectively. Make sure to use these images in the `docker_image` field in the `[pbs]` and `[signer]` sections of the `.toml` config file, respectively.
-
-### Binaries
-
-Alternatively, you can also build the modules from source and run them without Docker, in which case you can skip the CLI and only compile the modules:
-
-```bash
-# Build the PBS module
-cargo build --release --bin commit-boost-pbs
-
-# Build the Signer module
-cargo build --release --bin commit-boost-signer
-```
+This will create two local images called `commit_boost/pbs:<git_hash>` and `commit_boost/signer:<git_hash>` for the PBS and Signer services respectively. Make sure to use these images in the `docker_image` field in the `[pbs]` and `[signer]` sections of the `.toml` config file, respectively.
