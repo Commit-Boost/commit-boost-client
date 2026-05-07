@@ -1,0 +1,244 @@
+[
+  {
+    "constant": true,
+    "inputs": [
+      {
+        "name": "_operatorId",
+        "type": "uint256"
+      }
+    ],
+    "name": "operatorStructById",
+    "outputs": [
+      {
+        "name": "active",
+        "type": "bool"
+      },
+      {
+        "name": "optedForSocializingPool",
+        "type": "bool"
+      },
+      {
+        "name": "operatorName",
+        "type": "string"
+      },
+      {
+        "name": "operatorRewardAddress",
+        "type": "address"
+      },
+      {
+        "name": "operatorAddress",
+        "type": "address"
+      }
+    ],
+    "payable": false,
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "constant": true,
+    "inputs": [
+      {
+        "name": "_operator",
+        "type": "address"
+      }
+    ],
+    "name": "operatorIDByAddress",
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "payable": false,
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "constant": true,
+    "inputs": [
+      {
+        "name": "_operatorId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getOperatorTotalKeys",
+    "outputs": [
+      {
+        "name": "_totalKeys",
+        "type": "uint256"
+      }
+    ],
+    "payable": false,
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "constant": true,
+    "inputs": [
+      {
+        "name": "_operator",
+        "type": "address"
+      },
+      {
+        "name": "_pageNumber",
+        "type": "uint256"
+      },
+      {
+        "name": "_pageSize",
+        "type": "uint256"
+      }
+    ],
+    "name": "getValidatorsByOperator",
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple[]",
+        "components": [
+          {
+            "name": "status",
+            "type": "uint8"
+          },
+          {
+            "name": "pubkey",
+            "type": "bytes"
+          },
+          {
+            "name": "preDepositSignature",
+            "type": "bytes"
+          },
+          {
+            "name": "depositSignature",
+            "type": "bytes"
+          },
+          {
+            "name": "withdrawVaultAddress",
+            "type": "address"
+          },
+          {
+            "name": "operatorId",
+            "type": "uint256"
+          },
+          {
+            "name": "depositBlock",
+            "type": "uint256"
+          },
+          {
+            "name": "withdrawnBlock",
+            "type": "uint256"
+          }
+        ]
+      }
+    ],
+    "payable": false,
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "constant": true,
+    "inputs": [
+      {
+        "name": "_operatorId",
+        "type": "uint256"
+      },
+      {
+        "name": "_index",
+        "type": "uint256"
+      }
+    ],
+    "name": "validatorIdsByOperatorId",
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "payable": false,
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "constant": true,
+    "inputs": [
+      {
+        "name": "_validatorId",
+        "type": "uint256"
+      }
+    ],
+    "name": "validatorRegistry",
+    "outputs": [
+      {
+        "name": "status",
+        "type": "uint8"
+      },
+      {
+        "name": "pubkey",
+        "type": "bytes"
+      },
+      {
+        "name": "preDepositSignature",
+        "type": "bytes"
+      },
+      {
+        "name": "depositSignature",
+        "type": "bytes"
+      },
+      {
+        "name": "withdrawVaultAddress",
+        "type": "address"
+      },
+      {
+        "name": "operatorId",
+        "type": "uint256"
+      },
+      {
+        "name": "depositBlock",
+        "type": "uint256"
+      },
+      {
+        "name": "withdrawnBlock",
+        "type": "uint256"
+      }
+    ],
+    "payable": false,
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "constant": true,
+    "inputs": [
+      {
+        "name": "_operatorId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getOperatorRewardAddress",
+    "outputs": [
+      {
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "payable": false,
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "constant": true,
+    "inputs": [
+      {
+        "name": "_operAddr",
+        "type": "address"
+      }
+    ],
+    "name": "isExistingOperator",
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "payable": false,
+    "stateMutability": "view",
+    "type": "function"
+  }
+]

@@ -75,6 +75,15 @@ pub enum HoodiLidoModule {
     CommunityStaking = 4,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
+pub enum StaderPool {
+    #[serde(alias = "permissioned")]
+    Permissioned,
+
+    #[serde(alias = "permissionless")]
+    Permissionless,
+}
+
 pub type ForkVersion = [u8; 4];
 
 impl std::fmt::Display for Chain {
