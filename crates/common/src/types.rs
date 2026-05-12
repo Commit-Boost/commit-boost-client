@@ -77,10 +77,10 @@ pub enum HoodiLidoModule {
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
 pub enum StaderPool {
-    #[serde(alias = "permissioned")]
+    #[serde(rename = "permissioned")]
     Permissioned,
 
-    #[serde(alias = "permissionless")]
+    #[serde(rename = "permissionless")]
     Permissionless,
 }
 

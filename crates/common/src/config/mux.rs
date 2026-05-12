@@ -427,6 +427,8 @@ async fn fetch_stader_registry_keys(
     node_operator_id: U256,
     http_timeout: Duration,
 ) -> eyre::Result<Vec<BlsPublicKey>> {
+    debug!(?chain, %node_operator_id, ?stader_pool, "loading operator keys from Stader registry");
+
     let client = Client::builder().timeout(http_timeout).build()?;
     let http = Http::with_client(client, rpc_url);
     let is_local = http.guess_local();
