@@ -539,13 +539,19 @@
     "list": [
       {
         "current": {
-          "text": "$__all",
+          "selected": true,
+          "text": "All",
           "value": "$__all"
         },
         "description": "SignerAPI endpoint",
         "includeAll": true,
         "name": "endpoint",
         "options": [
+          {
+            "selected": true,
+            "text": "All",
+            "value": "$__all"
+          },
           {
             "selected": false,
             "text": "get_pubkeys",
@@ -558,11 +564,21 @@
           },
           {
             "selected": false,
-            "text": "request_signature",
-            "value": "request_signature"
+            "text": "request_signature_bls",
+            "value": "request_signature_bls"
+          },
+          {
+            "selected": false,
+            "text": "request_signature_proxy_bls",
+            "value": "request_signature_proxy_bls"
+          },
+          {
+            "selected": false,
+            "text": "request_signature_proxy_ecdsa",
+            "value": "request_signature_proxy_ecdsa"
           }
         ],
-        "query": "get_pubkeys, generate_proxy_key, request_signature",
+        "query": "get_pubkeys, generate_proxy_key, request_signature_bls, request_signature_proxy_bls, request_signature_proxy_ecdsa",
         "type": "custom"
       }
     ]

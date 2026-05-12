@@ -3,6 +3,7 @@
 use std::{
     collections::HashMap,
     net::{Ipv4Addr, SocketAddr},
+    path::PathBuf,
     sync::Arc,
 };
 
@@ -10,19 +11,21 @@ use alloy::{
     primitives::{U256, utils::format_ether},
     providers::{Provider, ProviderBuilder},
 };
+use docker_image::DockerImage;
 use eyre::{Result, ensure};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use url::Url;
 
 use super::{
     CommitBoostConfig, HTTP_TIMEOUT_SECONDS_DEFAULT, PBS_ENDPOINT_ENV, RuntimeMuxConfig,
-    constants::PBS_IMAGE_DEFAULT, load_optional_env_var,
+    load_optional_env_var,
 };
 use crate::{
     commit::client::SignerClient,
     config::{
-        CONFIG_ENV, MODULE_JWT_ENV, MuxKeysLoader, PBS_MODULE_NAME, PbsMuxes, SIGNER_URL_ENV,
-        load_env_var, load_file_from_env,
+        COMMIT_BOOST_IMAGE_DEFAULT, CONFIG_ENV, MODULE_JWT_ENV, MuxKeysLoader, PBS_SERVICE_NAME,
+        PbsMuxes, SIGNER_TLS_CERTIFICATE_NAME, SIGNER_TLS_CERTIFICATES_PATH_ENV, SIGNER_URL_ENV,
+        SignerConfig, TlsMode, load_env_var, load_file_from_env,
     },
     pbs::{
         DEFAULT_PBS_PORT, DEFAULT_REGISTRY_REFRESH_SECONDS, DefaultTimeout, LATE_IN_SLOT_TIME_MS,
@@ -123,9 +126,12 @@ pub struct PbsConfig {
     pub extra_validation_enabled: bool,
     /// Execution Layer RPC url to use for extra validation
     pub rpc_url: Option<Url>,
-    /// URL for the SSV network API
-    #[serde(default = "default_ssv_api_url")]
-    pub ssv_api_url: Url,
+    /// URL for the user's own SSV node API endpoint
+    #[serde(default = "default_ssv_node_api_url")]
+    pub ssv_node_api_url: Url,
+    /// URL for the public SSV network API server
+    #[serde(default = "default_public_ssv_api_url")]
+    pub ssv_public_api_url: Url,
     /// Timeout for HTTP requests in seconds
     #[serde(default = "default_u64::<HTTP_TIMEOUT_SECONDS_DEFAULT>")]
     pub http_timeout_seconds: u64,
@@ -177,18 +183,16 @@ impl PbsConfig {
         }
 
         if let Some(rpc_url) = &self.rpc_url {
-            // TODO: remove this once we support chain ids for custom chains
-            if !matches!(chain, Chain::Custom { .. }) {
-                let provider = ProviderBuilder::new().connect_http(rpc_url.clone());
-                let chain_id = provider.get_chain_id().await?;
-                ensure!(
-                    chain_id == chain.id(),
-                    "Rpc url is for the wrong chain, expected: {} ({:?}) got {}",
-                    chain.id(),
-                    chain,
-                    chain_id
-                );
-            }
+            let provider = ProviderBuilder::new().connect_http(rpc_url.clone());
+            let chain_id = provider.get_chain_id().await?;
+            let chain_id_big = U256::from(chain_id);
+            ensure!(
+                chain_id_big == chain.id(),
+                "Rpc url is for the wrong chain, expected: {} ({:?}) got {}",
+                chain.id(),
+                chain,
+                chain_id_big
+            );
         }
 
         ensure!(
@@ -212,6 +216,21 @@ pub struct StaticPbsConfig {
     /// Whether to enable the signer client
     #[serde(default = "default_bool::<false>")]
     pub with_signer: bool,
+}
+
+impl StaticPbsConfig {
+    /// Validate static pbs config
+    pub async fn validate(&self, chain: Chain) -> Result<()> {
+        // The Docker tag must parse
+        ensure!(!self.docker_image.is_empty(), "Docker image is empty");
+        ensure!(
+            DockerImage::parse(&self.docker_image).is_ok(),
+            format!("Invalid Docker image: {}", self.docker_image)
+        );
+
+        // Validate the inner pbs config
+        self.pbs_config.validate(chain).await
+    }
 }
 
 /// Runtime config for the pbs module
@@ -238,12 +257,15 @@ pub struct PbsModuleConfig {
 }
 
 fn default_pbs() -> String {
-    PBS_IMAGE_DEFAULT.to_string()
+    COMMIT_BOOST_IMAGE_DEFAULT.to_string()
 }
 
 /// Loads the default pbs config, i.e. with no signer client or custom data
-pub async fn load_pbs_config() -> Result<PbsModuleConfig> {
-    let config = CommitBoostConfig::from_env_path()?;
+pub async fn load_pbs_config(config_path: Option<PathBuf>) -> Result<(PbsModuleConfig, PathBuf)> {
+    let (config, config_path) = match config_path {
+        Some(path) => (CommitBoostConfig::from_file(&path)?, path),
+        None => CommitBoostConfig::from_env_path()?,
+    };
     config.validate().await?;
 
     // Make sure relays isn't empty - since the config is still technically valid if
@@ -295,16 +317,19 @@ pub async fn load_pbs_config() -> Result<PbsModuleConfig> {
 
     let all_relays = all_relays.into_values().collect();
 
-    Ok(PbsModuleConfig {
-        chain: config.chain,
-        endpoint,
-        pbs_config: Arc::new(config.pbs.pbs_config),
-        relays: relay_clients,
-        all_relays,
-        signer_client: None,
-        registry_muxes,
-        mux_lookup,
-    })
+    Ok((
+        PbsModuleConfig {
+            chain: config.chain,
+            endpoint,
+            pbs_config: Arc::new(config.pbs.pbs_config),
+            relays: relay_clients,
+            all_relays,
+            signer_client: None,
+            registry_muxes,
+            mux_lookup,
+        },
+        config_path,
+    ))
 }
 
 /// Loads a custom pbs config, i.e. with signer client and/or custom data
@@ -322,12 +347,13 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
         chain: Chain,
         relays: Vec<RelayConfig>,
         pbs: CustomPbsConfig<U>,
+        signer: Option<SignerConfig>,
         muxes: Option<PbsMuxes>,
     }
 
     // load module config including the extra data (if any)
-    let cb_config: StubConfig<T> = load_file_from_env(CONFIG_ENV)?;
-    cb_config.pbs.static_config.pbs_config.validate(cb_config.chain).await?;
+    let (cb_config, _): (StubConfig<T>, _) = load_file_from_env(CONFIG_ENV)?;
+    cb_config.pbs.static_config.validate(cb_config.chain).await?;
 
     // use endpoint from env if set, otherwise use default host and port
     let endpoint = if let Some(endpoint) = load_optional_env_var(PBS_ENDPOINT_ENV) {
@@ -378,10 +404,24 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
         // if custom pbs requires a signer client, load jwt
         let module_jwt = Jwt(load_env_var(MODULE_JWT_ENV)?);
         let signer_server_url = load_env_var(SIGNER_URL_ENV)?.parse()?;
+        let certs_path = match cb_config
+            .signer
+            .ok_or_else(|| eyre::eyre!("with_signer = true but no [signer] section in config"))?
+            .tls_mode
+        {
+            TlsMode::Insecure => None,
+            TlsMode::Certificate(path) => Some(
+                load_env_var(SIGNER_TLS_CERTIFICATES_PATH_ENV)
+                    .map(PathBuf::from)
+                    .unwrap_or(path)
+                    .join(SIGNER_TLS_CERTIFICATE_NAME),
+            ),
+        };
         Some(SignerClient::new(
             signer_server_url,
+            certs_path,
             module_jwt,
-            ModuleId(PBS_MODULE_NAME.to_string()),
+            ModuleId(PBS_SERVICE_NAME.to_string()),
         )?)
     } else {
         None
@@ -402,7 +442,12 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
     ))
 }
 
-/// Default URL for the SSV network API
-fn default_ssv_api_url() -> Url {
+/// Default URL for the user's SSV node API endpoint (/v1/validators).
+fn default_ssv_node_api_url() -> Url {
+    Url::parse("http://localhost:16000/v1/").expect("default URL is valid")
+}
+
+/// Default URL for the public SSV network API.
+fn default_public_ssv_api_url() -> Url {
     Url::parse("https://api.ssv.network/api/v4/").expect("default URL is valid")
 }

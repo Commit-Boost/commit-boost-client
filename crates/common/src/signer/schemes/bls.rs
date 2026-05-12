@@ -3,7 +3,7 @@ use tree_hash::TreeHash;
 
 use crate::{
     signature::sign_commit_boost_root,
-    types::{BlsPublicKey, BlsSecretKey, BlsSignature, Chain},
+    types::{BlsPublicKey, BlsSecretKey, BlsSignature, Chain, SignatureRequestInfo},
 };
 
 #[derive(Clone)]
@@ -28,20 +28,32 @@ impl BlsSigner {
         }
     }
 
-    pub fn secret(&self) -> [u8; 32] {
+    pub fn secret(&self) -> B256 {
         match self {
             BlsSigner::Local(secret) => secret.serialize().as_bytes().try_into().unwrap(),
         }
     }
 
-    pub async fn sign(&self, chain: Chain, object_root: B256) -> BlsSignature {
+    pub async fn sign(
+        &self,
+        chain: Chain,
+        object_root: &B256,
+        signature_request_info: Option<&SignatureRequestInfo>,
+    ) -> BlsSignature {
         match self {
-            BlsSigner::Local(sk) => sign_commit_boost_root(chain, sk, object_root),
+            BlsSigner::Local(sk) => {
+                sign_commit_boost_root(chain, sk, object_root, signature_request_info)
+            }
         }
     }
 
-    pub async fn sign_msg(&self, chain: Chain, msg: &impl TreeHash) -> BlsSignature {
-        self.sign(chain, msg.tree_hash_root()).await
+    pub async fn sign_msg(
+        &self,
+        chain: Chain,
+        msg: &impl TreeHash,
+        signature_request_info: Option<&SignatureRequestInfo>,
+    ) -> BlsSignature {
+        self.sign(chain, &msg.tree_hash_root(), signature_request_info).await
     }
 }
 

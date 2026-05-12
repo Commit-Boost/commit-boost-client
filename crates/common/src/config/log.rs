@@ -16,7 +16,7 @@ pub struct LogsSettings {
 
 impl LogsSettings {
     pub fn from_env_config() -> Result<Self> {
-        let mut config = CommitBoostConfig::from_env_path()?;
+        let (mut config, _) = CommitBoostConfig::from_env_path()?;
 
         // Override log dir path if env var is set
         if let Some(log_dir) = load_optional_env_var(LOGS_DIR_ENV) {

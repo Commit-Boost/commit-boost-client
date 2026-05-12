@@ -16,8 +16,19 @@ targets.json
 .idea/
 logs
 .vscode/
+certs/
 
 # Python (release scripts under .github/workflows/release/)
 __pycache__/
 *.pyc
 .pytest_cache/
+# Nix
+.direnv/
+.devenv/
+devenv.*
+devenv.lock
+.devenv.flake.nix
+.envrc
+
+# Generated from testnet
+kurtosis-dump

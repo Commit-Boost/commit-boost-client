@@ -18,14 +18,12 @@ tracing.workspace = true
 tree_hash.workspace = true
 tree_hash_derive.workspace = true
 
-[[bin]]
-name = "commit-boost-cli"
-path = "cli.rs"
+[dev-dependencies]
+assert_cmd.workspace = true
+predicates.workspace = true
+serde_yaml.workspace = true
+tempfile.workspace = true
 
 [[bin]]
-name = "commit-boost-pbs"
-path = "pbs.rs"
-
-[[bin]]
-name = "commit-boost-signer"
-path = "signer.rs"
+name = "commit-boost"
+path = "commit-boost.rs"

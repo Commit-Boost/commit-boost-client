@@ -1,0 +1,44 @@
+# ELs: geth, nethermind, erigon, besu, reth, ethrex
+# CLs: nimbus, lighthouse, lodestar, teku, prysm, and grandine
+participants:
+  - el_type: nethermind
+    cl_type: lighthouse
+
+  # Uncomment to test different EL/CL pairs:
+  # - el_type: geth
+  #   cl_type: nimbus
+
+  # - el_type: erigon
+  #   cl_type: lodestar
+
+  # - el_type: besu
+  #   cl_type: teku
+
+  # - el_type: reth
+  #   cl_type: prysm
+
+  # - el_type: ethrex
+  #   cl_type: grandine
+
+additional_services:
+  - dora
+  - spamoor
+mev_type: commit-boost
+
+mev_params:
+  mev_relay_image: ethpandaops/mev-boost-relay:main
+  mev_boost_image: commit-boost/commit-boost:kurtosis
+  mev_builder_cl_image: sigp/lighthouse:latest
+  mev_builder_image: ethpandaops/reth-rbuilder:develop
+
+network_params:
+  network: kurtosis
+  network_id: "3151908"
+  deposit_contract_address: "0x00000000219ab540356cBB839Cbe05303d7705Fa"
+  seconds_per_slot: 12
+  slot_duration_ms: 12000
+  num_validator_keys_per_node: 128
+  preregistered_validator_keys_mnemonic:
+    "giant issue aisle success illegal bike spike
+    question tent bar rely arctic volcano long crawl hungry vocal artwork sniff fantasy
+    very lucky have athlete"

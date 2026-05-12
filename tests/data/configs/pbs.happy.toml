@@ -1,7 +1,7 @@
 chain = "Holesky"
 
 [pbs]
-docker_image = "ghcr.io/commit-boost/pbs:latest"
+docker_image = "ghcr.io/commit-boost/commit-boost:latest"
 extra_validation_enabled = false
 host = "127.0.0.1"
 late_in_slot_time_ms = 2000
