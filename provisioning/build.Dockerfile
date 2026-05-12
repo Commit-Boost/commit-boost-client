@@ -73,6 +73,7 @@ COPY . .
 RUN if [ -f ${BUILD_VAR_SCRIPT} ]; then \
       chmod +x ${BUILD_VAR_SCRIPT} && \
       . ${BUILD_VAR_SCRIPT} && \
+      rustup target add ${TARGET} && \
       echo "Cross-compilation environment set up for ${TARGET}"; \
     else \
       echo "No cross-compilation needed"; \

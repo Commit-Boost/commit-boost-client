@@ -18,6 +18,10 @@ logs
 .vscode/
 certs/
 
+# Python (release scripts under .github/workflows/release/)
+__pycache__/
+*.pyc
+.pytest_cache/
 # Nix
 .direnv/
 .devenv/

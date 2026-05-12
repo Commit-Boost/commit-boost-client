@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: true
 
@@ -32,10 +32,13 @@ jobs:
       - name: Install protoc
         run: sudo provisioning/protoc.sh
 
-      - name: Setup just
-        uses: extractions/setup-just@v3
-        with:
-          just-version: 1.40.0
+      - name: Install just
+        run: cargo install just --version 1.40.0 --locked
+        env:
+          CARGO_TARGET_DIR: /tmp/cargo-install-just
+
+      - name: Add cargo bin to PATH
+        run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
       - name: Check compilation
         run: cargo check

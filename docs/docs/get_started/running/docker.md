@@ -55,7 +55,7 @@ Below is a simple configuration for running only the PBS service on the Hoodi ne
 chain = "Hoodi"
 
 [pbs]
-docker_image = "ghcr.io/commit-boost/pbs:v0.8.0"
+docker_image = "ghcr.io/commit-boost/commit-boost:v0.8.0"
 relay_check = true
 wait_all_registrations = true
 
@@ -80,13 +80,15 @@ Run `commit-boost init --config cb-config.toml` with the above configuration, th
 ```
 services:
   cb_pbs:
+    command:
+    - pbs
     healthcheck:
       test: curl -f http://localhost:18550/eth/v1/builder/status
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 5s
-    image: ghcr.io/commit-boost/pbs:v0.8.0
+    image: ghcr.io/commit-boost/commit-boost:v0.8.0
     container_name: cb_pbs
     ports:
     - 127.0.0.1:18550:18550
@@ -143,7 +145,7 @@ Below is a simple configuration for running only the three modules on the Hoodi 
 chain = "Hoodi"
 
 [pbs]
-docker_image = "ghcr.io/commit-boost/pbs:v0.8.0"
+docker_image = "ghcr.io/commit-boost/commit-boost:v0.8.0"
 relay_check = true
 wait_all_registrations = true
 
@@ -204,13 +206,15 @@ services:
       cb_signer:
         condition: service_healthy
   cb_pbs:
+    command:
+    - pbs
     healthcheck:
       test: curl -f http://localhost:18550/eth/v1/builder/status
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 5s
-    image: ghcr.io/commit-boost/pbs:latest
+    image: ghcr.io/commit-boost/commit-boost:latest
     container_name: cb_pbs
     ports:
     - 127.0.0.1:18550:18550
@@ -220,13 +224,15 @@ services:
     volumes:
     - ./cb-config.toml:/cb-config.toml:ro
   cb_signer:
+    command:
+    - signer
     healthcheck:
       test: curl -f http://localhost:20000/status
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 5s
-    image: ghcr.io/commit-boost/signer:latest
+    image: ghcr.io/commit-boost/commit-boost:latest
     container_name: cb_signer
     ports:
     - 127.0.0.1:20000:20000
