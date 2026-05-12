@@ -320,6 +320,7 @@ async fn test_ssv_multi_with_node() -> Result<()> {
         node_operator_id: 1,
         lido_module_id: None,
         registry: cb_common::config::NORegistry::SSV,
+        stader_pool: None,
     };
     let muxes = PbsMuxes {
         muxes: vec![MuxConfig {
@@ -358,7 +359,7 @@ async fn test_ssv_multi_with_node() -> Result<()> {
     info!("Sending get header");
     let res = mock_validator.do_get_header(Some(pubkey2.clone())).await?;
     assert_eq!(res.status(), StatusCode::OK);
-    assert_eq!(relay_state.received_get_header(), 1); // pubkey2 was loaded from the SSV node 
+    assert_eq!(relay_state.received_get_header(), 1); // pubkey2 was loaded from the SSV node
 
     // Shut down the server handles
     pbs_server.abort();
@@ -416,6 +417,7 @@ async fn test_ssv_multi_with_public() -> Result<()> {
         node_operator_id: 1,
         lido_module_id: None,
         registry: cb_common::config::NORegistry::SSV,
+        stader_pool: None,
     };
     let muxes = PbsMuxes {
         muxes: vec![MuxConfig {
@@ -454,7 +456,7 @@ async fn test_ssv_multi_with_public() -> Result<()> {
     info!("Sending get header");
     let res = mock_validator.do_get_header(Some(pubkey2.clone())).await?;
     assert_eq!(res.status(), StatusCode::OK);
-    assert_eq!(relay_state.received_get_header(), 1); // pubkey2 was loaded from the SSV public API 
+    assert_eq!(relay_state.received_get_header(), 1); // pubkey2 was loaded from the SSV public API
 
     // Shut down the server handles
     pbs_server.abort();

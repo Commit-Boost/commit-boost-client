@@ -74,7 +74,7 @@ async fn test_auto_refresh() -> Result<()> {
         node_operator_id: 1,
         lido_module_id: None,
         registry: cb_common::config::NORegistry::SSV,
-        stader_pool: None
+        stader_pool: None,
     };
     let muxes = PbsMuxes {
         muxes: vec![MuxConfig {

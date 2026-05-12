@@ -19,12 +19,11 @@ use tracing::{debug, info, warn};
 use url::Url;
 
 use super::{MUX_PATH_ENV, PbsConfig, RelayConfig, load_optional_env_var};
-use crate::types::StaderPool;
 use crate::{
     config::{remove_duplicate_keys, safe_read_http_response},
     interop::{lido::utils::*, ssv::utils::*, stader::utils::*},
     pbs::RelayClient,
-    types::{BlsPublicKey, Chain},
+    types::{BlsPublicKey, Chain, StaderPool},
     utils::default_bool,
 };
 
@@ -157,7 +156,7 @@ pub struct MuxConfig {
 
 impl MuxConfig {
     /// Returns the env, actual path, and internal path to use for the file
-    /// loader. In File mode, validates the mux file prior to returning.   
+    /// loader. In File mode, validates the mux file prior to returning.
     pub fn loader_env(&self) -> eyre::Result<Option<(String, String, String)>> {
         let Some(loader) = self.loader.as_ref() else {
             return Ok(None);
@@ -260,29 +259,19 @@ impl MuxKeysLoader {
                         bail!("Lido registry requires RPC URL to be set in the PBS config");
                     };
 
-                        fetch_lido_registry_keys(
-                            rpc_url,
-                            chain,
-                            U256::from(*node_operator_id),
-                            lido_module_id.unwrap_or(1),
-                            http_timeout,
-                        )
-                        .await
-                    }
-                    NORegistry::SSV => {
-                        fetch_ssv_pubkeys(
-                            ssv_node_api_url,
-                            ssv_public_api_url,
-                            chain,
-                            U256::from(*node_operator_id),
-                            http_timeout,
-                        )
-                        .await
-                    }
+                    fetch_lido_registry_keys(
+                        rpc_url,
+                        chain,
+                        U256::from(*node_operator_id),
+                        lido_module_id.unwrap_or(1),
+                        http_timeout,
+                    )
+                    .await
                 }
                 NORegistry::SSV => {
                     fetch_ssv_pubkeys(
-                        ssv_api_url,
+                        ssv_node_api_url,
+                        ssv_public_api_url,
                         chain,
                         U256::from(*node_operator_id),
                         http_timeout,
