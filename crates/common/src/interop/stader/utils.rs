@@ -1,11 +1,16 @@
 use std::collections::HashMap;
 
-use crate::interop::stader::types::StaderRegistry;
-use crate::types::{Chain, StaderPool};
-use alloy::primitives::{Address, Bytes, U256, address};
-use alloy::rpc::types::beacon::constants::BLS_PUBLIC_KEY_BYTES_LEN;
+use alloy::{
+    primitives::{Address, Bytes, U256, address},
+    rpc::types::beacon::constants::BLS_PUBLIC_KEY_BYTES_LEN,
+};
 use eyre::ensure;
 use lazy_static::lazy_static;
+
+use crate::{
+    interop::stader::types::StaderRegistry,
+    types::{Chain, StaderPool},
+};
 
 const REGISTRY_CALL_BATCH_SIZE: u64 = 250u64;
 

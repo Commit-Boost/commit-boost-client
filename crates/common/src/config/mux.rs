@@ -19,12 +19,11 @@ use tracing::{debug, info, warn};
 use url::Url;
 
 use super::{MUX_PATH_ENV, PbsConfig, RelayConfig, load_optional_env_var};
-use crate::types::StaderPool;
 use crate::{
     config::{remove_duplicate_keys, safe_read_http_response},
     interop::{lido::utils::*, ssv::utils::*, stader::utils::*},
     pbs::RelayClient,
-    types::{BlsPublicKey, Chain},
+    types::{BlsPublicKey, Chain, StaderPool},
     utils::default_bool,
 };
 
@@ -157,7 +156,7 @@ pub struct MuxConfig {
 
 impl MuxConfig {
     /// Returns the env, actual path, and internal path to use for the file
-    /// loader. In File mode, validates the mux file prior to returning.   
+    /// loader. In File mode, validates the mux file prior to returning.
     pub fn loader_env(&self) -> eyre::Result<Option<(String, String, String)>> {
         let Some(loader) = self.loader.as_ref() else {
             return Ok(None);
