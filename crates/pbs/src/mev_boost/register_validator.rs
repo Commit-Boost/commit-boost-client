@@ -18,7 +18,7 @@ use futures::{
 use reqwest::header::{CONTENT_TYPE, USER_AGENT};
 use tracing::{Instrument, debug, error};
 use url::Url;
-use ws_wire::messages::{SignedValidatorRegistrationV1, ValidatorRegistrationData};
+use ws_wire::messages::{SignedValidatorRegistrationV1, SubscriptionRequest};
 
 use crate::{
     constants::{MAX_SIZE_DEFAULT, REGISTER_VALIDATOR_ENDPOINT_TAG, TIMEOUT_ERROR_CODE_STR},
@@ -174,7 +174,7 @@ fn parse_json_registration(reg: &serde_json::Value) -> Option<SignedValidatorReg
     let signature_bytes = hex_to_fixed_bytes::<96>(signature);
 
     Some(SignedValidatorRegistrationV1 {
-        message: ValidatorRegistrationData { fee_recipient, gas_limit, timestamp, pubkey },
+        message: SubscriptionRequest { fee_recipient, gas_limit, timestamp, pubkey },
         signature: signature_bytes,
     })
 }

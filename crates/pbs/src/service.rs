@@ -92,7 +92,7 @@ impl PbsService {
                     ws_url,
                     auction_conclusion_ms,
                 );
-                ws_map.insert(relay.id.to_string(), client);
+                ws_map.insert(relay.id.to_string(), Arc::new(client));
                 count += 1;
             }
             count

@@ -951,13 +951,7 @@ fn collect_ws_bids<S: BuilderApiState>(
         let value_eth = format_ether(cached.value);
         let idx = bids.len() + 1;
         bids.push((relay_id.clone(), cached.response));
-        info!(
-            relay_id,
-            value_eth,
-            idx,
-            "WS: contributing cached bid #{} to auction",
-            idx
-        );
+        info!(relay_id, value_eth, idx, "WS: contributing cached bid #{} to auction", idx);
     }
 
     bids

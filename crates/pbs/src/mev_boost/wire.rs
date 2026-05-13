@@ -1,42 +1,32 @@
-//! Fork-name ↔ wire-byte mapping for the Builder API WebSocket extension.
+//! Fork-name ↔ wire-byte adapters for the Builder API WebSocket extension.
 //!
-//! ARCH v3.2 §2.3: Electra=1, Fulu=2, Gloas=3. Pre-Electra forks and byte 0
-//! are invalid on the wire. This mapping MUST match Helix's
-//! `helix/crates/relay/src/api/proposer/websocket/wire.rs` exactly.
+//! ARCH v3.2 §2.3: Electra=1, Fulu=2, Gloas=3. Fork encoding is delegated
+//! to ws_wire::framing. Callers receive `WireError` instead of a local error.
 
 use lh_types::ForkName;
+use ws_wire::WireError;
 
 // ---------------------------------------------------------------------------
-// Errors
+// Fork name <-> u8 (thin adapters delegating to ws_wire)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, thiserror::Error)]
-pub enum WireForkError {
-    #[error("pre-Electra fork not supported on the WebSocket wire: {0:?}")]
-    UnsupportedFork(ForkName),
-    #[error("unknown wire fork discriminant: {0}")]
-    UnknownDiscriminant(u8),
+pub fn fork_name_to_u8(fork: ForkName) -> Result<u8, WireError> {
+    use ForkName::*;
+    let name = match fork {
+        Electra => "electra",
+        Fulu => "fulu",
+        Gloas => "gloas",
+        _other => return Err(WireError::InvalidForkByte(0)),
+    };
+    ws_wire::framing::fork_name_to_u8(name)
 }
 
-// ---------------------------------------------------------------------------
-// Fork name <-> u8
-// ---------------------------------------------------------------------------
-
-pub fn fork_name_to_u8(fork: ForkName) -> Result<u8, WireForkError> {
-    match fork {
-        ForkName::Electra => Ok(1),
-        ForkName::Fulu => Ok(2),
-        ForkName::Gloas => Ok(3),
-        other => Err(WireForkError::UnsupportedFork(other)),
-    }
-}
-
-pub fn fork_name_from_u8(v: u8) -> Result<ForkName, WireForkError> {
-    match v {
-        1 => Ok(ForkName::Electra),
-        2 => Ok(ForkName::Fulu),
-        3 => Ok(ForkName::Gloas),
-        other => Err(WireForkError::UnknownDiscriminant(other)),
+pub fn fork_name_from_u8(v: u8) -> Result<ForkName, WireError> {
+    match ws_wire::framing::fork_name_from_u8(v)? {
+        "electra" => Ok(ForkName::Electra),
+        "fulu" => Ok(ForkName::Fulu),
+        "gloas" => Ok(ForkName::Gloas),
+        _ => unreachable!("ws_wire only returns known fork names"),
     }
 }
 
@@ -47,6 +37,7 @@ pub fn fork_name_from_u8(v: u8) -> Result<ForkName, WireForkError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ws_wire::WireError;
 
     #[test]
     fn fork_name_roundtrip_supported() {
@@ -74,7 +65,7 @@ mod tests {
             ForkName::Deneb,
         ] {
             assert!(
-                matches!(fork_name_to_u8(fork), Err(WireForkError::UnsupportedFork(_))),
+                matches!(fork_name_to_u8(fork), Err(WireError::InvalidForkByte(_))),
                 "pre-Electra fork {fork:?} must be rejected"
             );
         }
@@ -82,14 +73,14 @@ mod tests {
 
     #[test]
     fn fork_name_from_u8_zero_rejected() {
-        assert!(matches!(fork_name_from_u8(0), Err(WireForkError::UnknownDiscriminant(0))));
+        assert!(matches!(fork_name_from_u8(0), Err(WireError::InvalidForkByte(0))));
     }
 
     #[test]
     fn fork_name_from_u8_unknown_rejected() {
         for byte in [4u8, 5, 99, 255] {
             assert!(
-                matches!(fork_name_from_u8(byte), Err(WireForkError::UnknownDiscriminant(_))),
+                matches!(fork_name_from_u8(byte), Err(WireError::InvalidForkByte(_))),
                 "byte {byte} must be rejected"
             );
         }

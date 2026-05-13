@@ -99,15 +99,21 @@ pub async fn submit_block<S: BuilderApiState>(
         match crate::mev_boost::wire::fork_name_to_u8(fork) {
             Ok(fork_byte) => {
                 let body_ssz = signed_blinded_block.as_ssz_bytes();
-                let ws_clients = state.ws_clients.read();
-                for (_id, client) in ws_clients.iter() {
-                    if matches!(
-                        client.state_snapshot(),
-                        crate::mev_boost::ws_client::WsClientState::Connected { .. }
-                    ) {
-                        client.send_submit_blinded_block(fork_byte, body_ssz.clone());
-                        debug!("submitted block over WS");
-                    }
+                let clients: Vec<_> = {
+                    state.ws_clients.read().iter()
+                        .filter(|(_, c)| matches!(c.state_snapshot(),
+                            crate::mev_boost::ws_client::WsClientState::Connected { .. }))
+                        .map(|(_, c)| Arc::clone(c))
+                        .collect()
+                };
+                for client in clients {
+                    let b = body_ssz.clone();
+                    tokio::spawn(async move {
+                        match client.send_submit_blinded_block_with_ack(fork_byte, b).await {
+                            Ok(status) => debug!(%status, "WS: submit blinded block acked"),
+                            Err(e) => warn!(?e, "WS: submit blinded block ack failed"),
+                        }
+                    });
                 }
             }
             Err(e) => {

@@ -7,7 +7,7 @@
 //!
 //! Inbound from relay: BidPush (pushed bids), RegistrationAck,
 //! SubmitBlindedBlockAck, Pong.
-//! Outbound to relay: ValidatorRegistration, SubmitBlindedBlock, Ping.
+//! Outbound to relay: Subscribe (validator registrations), SubmitBlindedBlock, Ping.
 //!
 //! Bid cache (D6): the most recently decoded `BidPush` is exposed via a
 //! `tokio::sync::watch::Sender<Option<CachedBid>>`. `collect_ws_bids` on
@@ -19,17 +19,16 @@ use std::{
     time::{Duration, Instant},
 };
 
-use alloy::primitives::U256;
-use alloy::primitives::utils::format_ether;
+use alloy::primitives::{U256, utils::format_ether};
 use cb_common::pbs::{ForkName, ForkVersionDecode, GetHeaderResponse, SignedBuilderBid};
 use futures_util::{SinkExt, StreamExt};
 use parking_lot::RwLock;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio_tungstenite::connect_async;
 use tracing::{debug, error, info, warn};
 use ws_wire::{
     WsMessage, framing,
-    messages::{Ping, Pong, SignedValidatorRegistrationV1, ValidatorRegistration},
+    messages::{Ping, Pong, SignedValidatorRegistrationV1, SubscriptionBatch},
 };
 
 use crate::mev_boost::{CompoundGetHeaderResponse, wire};
@@ -75,10 +74,57 @@ const LONG_RETRY_THRESHOLD: u32 = 20;
 const PING_INTERVAL: Duration = Duration::from_secs(15);
 const PONG_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Timeout for waiting for SubmitBlindedBlockAck before retrying.
+const SUBMIT_ACK_TIMEOUT: Duration = Duration::from_millis(500);
+/// Maximum retries for SubmitBlindedBlock over WS.
+const MAX_SUBMIT_RETRIES: u8 = 2;
+
+/// Per-submission retry tracker. Caller drives the loop:
+/// send frame → call attempt(ack_rx) → if WouldRetry, resend and call again.
+pub(crate) struct SubmitRetry {
+    pub retries: u8,
+    max_retries: u8,
+    timeout: Duration,
+}
+
+#[derive(Debug, PartialEq)]
+pub(crate) enum SubmitRetryResult {
+    /// Ack received, status byte returned.
+    Ok(u8),
+    /// Ack not received within timeout. Resend and retry.
+    WouldRetry,
+    /// Max retries exhausted.
+    MaxRetries,
+    /// Channel closed (connection dropped).
+    ChannelClosed,
+}
+
+impl SubmitRetry {
+    fn new(max_retries: u8, timeout: Duration) -> Self {
+        Self { retries: 0, max_retries, timeout }
+    }
+
+    async fn attempt(&mut self, ack_rx: oneshot::Receiver<u8>) -> SubmitRetryResult {
+        match tokio::time::timeout(self.timeout, ack_rx).await {
+            Ok(Ok(status)) => SubmitRetryResult::Ok(status),
+            Ok(Err(_)) => SubmitRetryResult::ChannelClosed,
+            Err(_elapsed) => {
+                self.retries += 1;
+                if self.retries >= self.max_retries {
+                    SubmitRetryResult::MaxRetries
+                } else {
+                    SubmitRetryResult::WouldRetry
+                }
+            }
+        }
+    }
+}
+
 pub struct HelixWsClient {
     pub state: Arc<RwLock<WsClientState>>,
-    cmd_tx: mpsc::UnboundedSender<WsMessage>,
+    pub(crate) cmd_tx: mpsc::UnboundedSender<WsMessage>,
     latest_bid_rx: watch::Receiver<Option<CachedBid>>,
+    pub(crate) pending_ack: Arc<std::sync::Mutex<Option<oneshot::Sender<u8>>>>,
 }
 
 impl HelixWsClient {
@@ -94,11 +140,13 @@ impl HelixWsClient {
         let state = Arc::new(RwLock::new(WsClientState::Disconnected));
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<WsMessage>();
         let (bid_tx, bid_rx) = watch::channel::<Option<CachedBid>>(None);
+        let pending_ack = Arc::new(std::sync::Mutex::new(None));
 
         let s = state.clone();
-        tokio::spawn(connection_loop(url, s, cmd_rx, bid_tx));
+        let pa = pending_ack.clone();
+        tokio::spawn(connection_loop(url, s, cmd_rx, bid_tx, pa));
 
-        Self { state, cmd_tx, latest_bid_rx: bid_rx }
+        Self { state, cmd_tx, latest_bid_rx: bid_rx, pending_ack }
     }
 
     pub fn state_snapshot(&self) -> WsClientState {
@@ -121,8 +169,8 @@ impl HelixWsClient {
         if registrations.is_empty() {
             return;
         }
-        let batch = ValidatorRegistration::from_vec(registrations);
-        let _ = self.cmd_tx.send(WsMessage::ValidatorRegistration(batch));
+        let batch = SubscriptionBatch::from_vec(registrations);
+        let _ = self.cmd_tx.send(WsMessage::Subscribe(batch));
     }
 
     /// Fire-and-forget a `SubmitBlindedBlock` frame (V2 semantics). The
@@ -131,6 +179,44 @@ impl HelixWsClient {
     pub fn send_submit_blinded_block(&self, fork: u8, body_ssz: Vec<u8>) {
         let _ = self.cmd_tx.send(WsMessage::SubmitBlindedBlock { fork, body_ssz });
     }
+
+    /// Send SubmitBlindedBlock and wait for ack with retry. Returns the
+    /// status byte on success. Retries on timeout (max 2).
+    pub async fn send_submit_blinded_block_with_ack(
+        &self,
+        fork: u8,
+        body_ssz: Vec<u8>,
+    ) -> Result<u8, SubmitRetryError> {
+        let mut retry = SubmitRetry::new(MAX_SUBMIT_RETRIES, SUBMIT_ACK_TIMEOUT);
+        loop {
+            let (tx, rx) = oneshot::channel();
+            *self.pending_ack.lock().unwrap() = Some(tx);
+            let _ = self.cmd_tx.send(WsMessage::SubmitBlindedBlock { fork, body_ssz: body_ssz.clone() });
+
+            match retry.attempt(rx).await {
+                SubmitRetryResult::Ok(status) => return Ok(status),
+                SubmitRetryResult::WouldRetry => {
+                    warn!(fork, retry = retry.retries, "WS: submit ack timeout, retrying");
+                    continue;
+                }
+                SubmitRetryResult::MaxRetries => {
+                    error!(fork, "WS: submit ack max retries exhausted");
+                    *self.pending_ack.lock().unwrap() = None;
+                    return Err(SubmitRetryError::MaxRetries);
+                }
+                SubmitRetryResult::ChannelClosed => {
+                    debug!("WS: pending ack channel closed (connection dropped)");
+                    return Err(SubmitRetryError::ChannelClosed);
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum SubmitRetryError {
+    MaxRetries,
+    ChannelClosed,
 }
 
 // ---------------------------------------------------------------------------
@@ -142,6 +228,7 @@ async fn connection_loop(
     state: Arc<RwLock<WsClientState>>,
     mut cmd_rx: mpsc::UnboundedReceiver<WsMessage>,
     bid_tx: watch::Sender<Option<CachedBid>>,
+    pending_ack: Arc<std::sync::Mutex<Option<oneshot::Sender<u8>>>>,
 ) {
     let mut attempt: u32 = 0;
     let mut backoff_ms = INITIAL_BACKOFF_MS;
@@ -235,6 +322,9 @@ async fn connection_loop(
                         }
                         Ok(WsMessage::SubmitBlindedBlockAck(ack)) => {
                             debug!(status = ack.status, "WS: submit blinded block ack");
+                            if let Some(tx) = pending_ack.lock().unwrap().take() {
+                                let _ = tx.send(ack.status);
+                            }
                         }
                         Ok(_) => { debug!("unhandled inbound WS message"); }
                         Err(e) => { warn!(?e, "WS decode error"); }
@@ -301,6 +391,7 @@ fn decode_bid_push(fork_byte: u8, payload: &[u8]) -> eyre::Result<CachedBid> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::sync::oneshot;
 
     #[test]
     fn test_state_machine_variants_constructible() {
@@ -352,5 +443,40 @@ mod tests {
         // Replace and re-read.
         tx.send_replace(Some(100));
         assert_eq!(rx.borrow().clone(), Some(100));
+    }
+
+    /// Direct test of submit retry loop (no WS required).
+    #[tokio::test]
+    async fn test_submit_retry_success_first_attempt() {
+        let mut retry = SubmitRetry::new(2, Duration::from_millis(500));
+        let (tx, rx) = oneshot::channel();
+
+        tokio::spawn(async move { let _ = tx.send(6); });
+        assert_eq!(retry.attempt(rx).await, SubmitRetryResult::Ok(6));
+        assert_eq!(retry.retries, 0);
+    }
+
+    #[tokio::test]
+    async fn test_submit_retry_timeout_triggers_would_retry() {
+        let mut retry = SubmitRetry::new(2, Duration::from_millis(1));
+        let (_tx, rx) = oneshot::channel::<u8>();
+        // drop tx — rx will never fire
+
+        let result = retry.attempt(rx).await;
+        assert_eq!(result, SubmitRetryResult::WouldRetry);
+        assert_eq!(retry.retries, 1);
+    }
+
+    #[tokio::test]
+    async fn test_submit_retry_max_retries_exhausted() {
+        let mut retry = SubmitRetry::new(2, Duration::from_millis(1));
+
+        let (_tx1, rx1) = oneshot::channel::<u8>();
+        assert_eq!(retry.attempt(rx1).await, SubmitRetryResult::WouldRetry);
+        assert_eq!(retry.retries, 1);
+
+        let (_tx2, rx2) = oneshot::channel::<u8>();
+        assert_eq!(retry.attempt(rx2).await, SubmitRetryResult::MaxRetries);
+        assert_eq!(retry.retries, 2);
     }
 }
