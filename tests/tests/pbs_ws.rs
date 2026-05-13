@@ -3,25 +3,30 @@
 //! Follows the existing `cb_tests` pattern: PBS server + mock relay(s),
 //! exercise builder-API endpoints, assert on relay state + WS frame capture.
 
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::time::Duration;
+use std::{
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
 
 use alloy::rpc::types::beacon::relay::ValidatorRegistration;
-use cb_common::config::RelayConfig;
-use cb_common::pbs::{RelayClient, RelayEntry, ForkName};
-use cb_common::utils::EncodingType;
-use cb_common::signer::random_secret;
-use cb_common::types::{BlsPublicKey, Chain};
-use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
-use cb_tests::mock_relay::{
-    MockRelayState, start_mock_relay_service_with_listener,
+use cb_common::{
+    config::RelayConfig,
+    pbs::{ForkName, RelayClient, RelayEntry},
+    signer::random_secret,
+    types::{BlsPublicKey, Chain},
+    utils::EncodingType,
 };
-use cb_tests::mock_validator::MockValidator;
-use cb_tests::utils::{
-    generate_mock_relay, get_free_listener, get_pbs_config, setup_test_env,
-    to_pbs_config,
+use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
+use cb_tests::{
+    mock_relay::{MockRelayState, start_mock_relay_service_with_listener},
+    mock_validator::MockValidator,
+    utils::{
+        generate_mock_relay, get_free_listener, get_pbs_config, setup_test_env, to_pbs_config,
+    },
 };
 use eyre::Result;
 use futures_util::StreamExt;
@@ -30,8 +35,7 @@ use tokio::net::TcpListener;
 use tokio_tungstenite::accept_async;
 use tracing::info;
 use url::Url;
-use ws_wire::framing;
-use ws_wire::WsMessage;
+use ws_wire::{WsMessage, framing};
 
 // ───────────────────────────────────────────────────────────────────────────
 // Mock WS relay
@@ -54,7 +58,8 @@ impl MockWsRelay {
         let addr = listener.local_addr().unwrap();
         let url = Url::parse(&format!("ws://{addr}")).unwrap();
 
-        let frames: Arc<std::sync::Mutex<Vec<WsMessage>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let frames: Arc<std::sync::Mutex<Vec<WsMessage>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
         let shutdown = Arc::new(AtomicBool::new(false));
         let connections = Arc::new(AtomicUsize::new(0));
 
@@ -112,7 +117,12 @@ impl MockWsRelay {
 
 /// Build a RelayConfig with `websocket = true` pointing at a WS mock and
 /// a REST mock on a separate port.
-fn ws_relay_config(relay_id: &str, _ws_url: &Url, rest_port: u16, pubkey: &BlsPublicKey) -> RelayConfig {
+fn ws_relay_config(
+    relay_id: &str,
+    _ws_url: &Url,
+    rest_port: u16,
+    pubkey: &BlsPublicKey,
+) -> RelayConfig {
     RelayConfig {
         id: Some(relay_id.to_string()),
         entry: RelayEntry {
@@ -208,7 +218,7 @@ async fn test_ws_client_connects_to_mock_relay() -> Result<()> {
     // relay port. RelayClient::new constructs a client from entry.url;
     // the WS code will rewrite the scheme to ws and set the path.
     ws_cfg.entry.url = ws_mock.url.clone();
-    ws_cfg.entry.url.set_path("");  // CB will set /eth/v1/builder/ws
+    ws_cfg.entry.url.set_path(""); // CB will set /eth/v1/builder/ws
     let relay = RelayClient::new(ws_cfg)?;
 
     let mut pbs_cfg = get_pbs_config(pbs_port);
@@ -273,12 +283,7 @@ async fn test_ws_submit_block_dual_path() -> Result<()> {
     // will fail. But the WS path should still attempt a SubmitBlindedBlock
     // frame. The test verifies that CB doesn't crash.
     let res = validator
-        .do_submit_block_v2(
-            None,
-            vec![EncodingType::Ssz],
-            EncodingType::Ssz,
-            ForkName::Electra,
-        )
+        .do_submit_block_v2(None, vec![EncodingType::Ssz], EncodingType::Ssz, ForkName::Electra)
         .await?;
 
     // REST may have already returned 4xx/5xx — that's fine. The point
@@ -320,12 +325,12 @@ async fn test_get_header_rest_only_with_ws_disabled() -> Result<()> {
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     let validator = MockValidator::new(pbs_port)?;
-    let res = validator
-        .do_get_header(None, vec![], ForkName::Electra)
-        .await?;
+    let res = validator.do_get_header(None, vec![], ForkName::Electra).await?;
     // 204 (no bid available) or 200 (mock returned a bid) — both OK.
-    assert!(res.status().is_success() || res.status() == StatusCode::NO_CONTENT,
-        "get_header should return success or 204 from mock relay");
+    assert!(
+        res.status().is_success() || res.status() == StatusCode::NO_CONTENT,
+        "get_header should return success or 204 from mock relay"
+    );
 
     Ok(())
 }

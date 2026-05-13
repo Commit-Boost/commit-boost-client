@@ -193,15 +193,19 @@ fn parse_u64_field(v: Option<&serde_json::Value>) -> Option<u64> {
 fn hex_to_fixed_bytes<const N: usize>(s: &str) -> [u8; N] {
     let s = s.strip_prefix("0x").unwrap_or(s);
     let mut arr = [0u8; N];
-    for i in 0..N {
+
+    for (i, byte) in arr.iter_mut().enumerate() {
         let byte_start = i * 2;
+
         if byte_start + 2 > s.len() {
             break;
         }
+
         if let Ok(b) = u8::from_str_radix(&s[byte_start..byte_start + 2], 16) {
-            arr[i] = b;
+            *byte = b;
         }
     }
+
     arr
 }
 

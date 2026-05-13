@@ -1,0 +1,424 @@
+#!/usr/bin/env python3
+"""Release management CLI for Commit-Boost.
+
+Single-file argparse CLI.  PyYAML + stdlib only.  Shells out to ``git`` and
+``gh`` via ``subprocess.run``.
+"""
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+
+# ── helpers ──────────────────────────────────────────────────────────────────
+
+
+def _env(name: str) -> str:
+    """Read *name* from the environment; exit 1 with a clear message if missing."""
+    val = os.environ.get(name)
+    if not val:
+        print(f"❌ Required environment variable ${name} is not set.")
+        sys.exit(1)
+    return val
+
+
+class GhApiError(Exception):
+    """Raised when a ``gh api`` call fails non-zero."""
+
+
+def gh_api(method: str, path: str, *, paginate: bool = False, **fields) -> dict | list:
+    """Thin wrapper over ``gh api``.  Returns parsed JSON."""
+    token = _env("GH_TOKEN")
+    repo = _env("REPO")
+    full_path = f"/repos/{repo}{path}"
+    argv = ["gh", "api", "--method", method, full_path]
+    for k, v in fields.items():
+        argv.extend(["-f", f"{k}={v}"])
+    if method.upper() == "GET" and paginate:
+        argv.append("--paginate")
+    env = os.environ.copy()
+    env["GH_TOKEN"] = token
+    result = subprocess.run(argv, capture_output=True, text=True, env=env)
+    if result.returncode != 0:
+        print(result.stderr, file=sys.stderr, end="")
+        raise GhApiError(
+            f"gh api {method} {full_path} failed (exit {result.returncode})"
+        )
+    if not result.stdout.strip():
+        return {}
+    return json.loads(result.stdout)
+
+
+def _run(*args: str) -> str:
+    """Wrapper over ``subprocess.run`` with check, capture_output, text."""
+    result = subprocess.run(list(args), capture_output=True, text=True, check=True)
+    return result.stdout
+
+
+# Public alias so tests can patch `release.run_git` at the boundary.
+# Also lets callers shell out to git explicitly when intent needs to be clear.
+def run_git(*args: str) -> str:
+    return _run("git", *args)
+
+
+def _git_diff(base: str, head: str, diff_filter: str) -> list[str]:
+    """Return list of .releases/*.yml files from git diff with *diff_filter*."""
+    try:
+        out = run_git(
+            "diff", "--name-only", f"--diff-filter={diff_filter}",
+            f"{base}..{head}", "--", ".releases/*.yml",
+        )
+    except subprocess.CalledProcessError as e:
+        if e.returncode == 1:
+            return []
+        raise
+    return [l for l in out.strip().split("\n") if l]
+
+
+def find_added(base: str, head: str) -> list[str]:
+    """Return .releases/*.yml files added between two refs."""
+    return _git_diff(base, head, "A")
+
+
+def find_modified_deleted(base: str, head: str) -> list[str]:
+    """Return .releases/*.yml files modified or deleted between two refs."""
+    return _git_diff(base, head, "MD")
+
+
+# ── core validation helpers ─────────────────────────────────────────────────
+
+SEMVER_RE = re.compile(
+    r"^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-rc[1-9][0-9]*)?$"
+)
+
+
+def _semver_key(tag: str) -> tuple:
+    """Return a comparable key for a strict-semver release tag.
+
+    Strict means: matches SEMVER_RE exactly. Non-strict input raises ValueError
+    so callers can fail loudly rather than silently mis-sort.
+
+    Sort order: (major, minor, patch, rc_or_inf). Final releases sort above
+    their RC siblings via float('inf') — i.e. v1.2.3 > v1.2.3-rc99.
+    """
+    if not SEMVER_RE.match(tag):
+        raise ValueError(f"Not a strict-semver release tag: {tag!r}")
+    m = re.match(r"^v(\d+)\.(\d+)\.(\d+)(?:-rc(\d+))?$", tag)
+    return (
+        int(m.group(1)), int(m.group(2)), int(m.group(3)),
+        int(m.group(4)) if m.group(4) else float("inf"),
+    )
+
+
+def validate_yaml_file(path: str) -> tuple[str, str]:
+    """Parse and validate a release-request YAML.  Returns (commit_sha, tag)."""
+    try:
+        text = Path(path).read_text()
+    except FileNotFoundError:
+        print(f"❌ File not found: {path}")
+        sys.exit(1)
+
+    import yaml
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError as e:
+        print(f"❌ YAML parse error: {e}")
+        sys.exit(1)
+
+    if not isinstance(data, dict):
+        print("❌ YAML must be a mapping (dict)")
+        sys.exit(1)
+
+    missing = {"commit", "reason"} - data.keys()
+    if missing:
+        print(f"❌ Missing required fields: {missing}")
+        sys.exit(1)
+
+    commit = data["commit"]
+    if (
+        not isinstance(commit, str) or len(commit) != 40
+        or not all(c in "0123456789abcdef" for c in commit)
+    ):
+        print("❌ commit must be a 40-character lowercase hex SHA")
+        sys.exit(1)
+
+    reason = data["reason"]
+    if not isinstance(reason, str) or not reason.strip():
+        print("❌ reason must be a non-empty string")
+        sys.exit(1)
+
+    tag = Path(path).stem
+    return commit, tag
+
+
+# ── subcommands ──────────────────────────────────────────────────────────────
+
+def cmd_validate_filename(args: argparse.Namespace) -> None:
+    if SEMVER_RE.match(args.basename):
+        print(f"✅ Valid release filename: {args.basename}")
+        sys.exit(0)
+    print(
+        f"❌ Filename '{args.basename}' is not a valid release tag.\n"
+        "Expected: v<major>.<minor>.<patch> or v<major>.<minor>.<patch>-rc<N>, "
+        "no leading zeros"
+    )
+    sys.exit(1)
+
+
+def cmd_validate_yaml(args: argparse.Namespace) -> None:
+    commit, tag = validate_yaml_file(args.path)
+    print(f"tag={tag}")
+    print(f"commit={commit}")
+    print(f"✅ YAML validation passed for {Path(args.path).name}")
+    sys.exit(0)
+
+
+def cmd_find_added(args: argparse.Namespace) -> None:
+    files = find_added(args.base, args.head)
+    for f in files:
+        print(f)
+    print(f"count={len(files)}", file=sys.stderr)
+    sys.exit(0)
+
+
+def cmd_check_modifications(args: argparse.Namespace) -> None:
+    files = find_modified_deleted(args.base, args.head)
+    if files:
+        print("❌ Existing release YAMLs cannot be modified or deleted:")
+        for f in files:
+            print(f)
+        sys.exit(1)
+    print("✅ No modifications or deletions detected")
+    sys.exit(0)
+
+
+def cmd_check_commit_exists(args: argparse.Namespace) -> None:
+    try:
+        gh_api("GET", f"/commits/{args.sha}")
+        print(f"✅ Commit {args.sha} exists")
+        sys.exit(0)
+    except GhApiError:
+        print(f"❌ Commit {args.sha} does not exist in this repository")
+        sys.exit(1)
+
+
+def cmd_check_tag_free(args: argparse.Namespace) -> None:
+    try:
+        gh_api("GET", f"/git/refs/tags/{args.tag}")
+        print(f"❌ Tag {args.tag} already exists. Pick a different version.")
+        sys.exit(1)
+    except GhApiError:
+        print(f"✅ Tag {args.tag} is free")
+        sys.exit(0)
+
+
+def cmd_create_tag(args: argparse.Namespace) -> None:
+    tag_obj = gh_api(
+        "POST", "/git/tags",
+        tag=args.tag, message=args.tag,
+        object=args.commit, type="commit",
+    )
+    tag_sha = tag_obj.get("sha") if isinstance(tag_obj, dict) else None
+    if not tag_sha:
+        print("❌ Failed to create tag object")
+        sys.exit(1)
+
+    gh_api(
+        "POST", "/git/refs",
+        ref=f"refs/tags/{args.tag}", sha=tag_sha,
+    )
+    print(f"✅ Tag {args.tag} created at {args.commit} (signed by GitHub via App identity)")
+    sys.exit(0)
+
+
+def cmd_is_latest(args: argparse.Namespace) -> None:
+    tag = args.tag
+    # Fail-closed: the tag we're releasing must itself be strict semver.
+    # validate-filename already enforces this for new releases, but defend
+    # in depth in case is-latest is invoked standalone.
+    if not SEMVER_RE.match(tag):
+        print(f"❌ Tag {tag!r} is not strict semver. Cannot determine is-latest.")
+        sys.exit(1)
+    # RC tags never get :latest
+    if "-rc" in tag:
+        print("false")
+        sys.exit(0)
+    try:
+        all_tags = run_git("tag", "--list", "v*").strip().split("\n")
+    except subprocess.CalledProcessError:
+        print("true")
+        sys.exit(0)
+    # Only strict-semver, non-RC tags participate in the comparison.
+    # Legacy malformed tags (v0.7.0-rc.1, v0.9.2-rc-dev, v2.0.0-rc2-1, etc.)
+    # are invisible to the highest-wins check.
+    candidates = [t for t in all_tags if t and SEMVER_RE.match(t) and "-rc" not in t]
+    if not candidates:
+        print("true")
+        sys.exit(0)
+    highest = max(candidates, key=_semver_key)
+    print("true" if highest == tag else "false")
+    sys.exit(0)
+
+
+def _step(fn, args: argparse.Namespace) -> None:
+    """Run a cmd_* function as a step inside an orchestrator.
+
+    The cmd_* functions all call ``sys.exit(0)`` on success, which would
+    short-circuit any orchestrator that chains them. This wrapper catches
+    SystemExit(0) so the next step can run, while letting non-zero exits
+    propagate (orchestrator should abort on failure).
+    """
+    try:
+        fn(args)
+    except SystemExit as e:
+        if e.code not in (0, None):
+            raise
+
+
+def cmd_validate_pr(args: argparse.Namespace) -> None:
+    base = _env("BASE_SHA")
+    head = _env("HEAD_SHA")
+
+    added = find_added(base, head)
+    mods = find_modified_deleted(base, head)
+
+    if mods:
+        print("❌ Existing release YAMLs cannot be modified or deleted:")
+        for m in mods:
+            print(m)
+        sys.exit(1)
+
+    if len(added) == 0:
+        print("added_count=0")
+        print("No release changes in this PR; validation trivially passes.")
+        sys.exit(0)
+
+    if len(added) > 1:
+        print("❌ Only one release YAML may be added per PR.")
+        for a in added:
+            print(a)
+        sys.exit(1)
+
+    filepath = added[0]
+    basename = Path(filepath).stem
+
+    _step(cmd_validate_filename, argparse.Namespace(basename=basename))
+    commit, _ = validate_yaml_file(filepath)
+    _step(cmd_check_commit_exists, argparse.Namespace(sha=commit))
+    _step(cmd_check_tag_free, argparse.Namespace(tag=basename))
+    print(f"added_count=1")
+    print(f"tag={basename}")
+    print(f"commit={commit}")
+    print(f"✅ Release request for {basename} validated.")
+
+
+def cmd_gate(args: argparse.Namespace) -> None:
+    base = _env("BASE_SHA")
+    merge_sha = _env("MERGE_SHA")
+
+    added = find_added(base, merge_sha)
+    if len(added) == 0:
+        print("Expected exactly 1 added release YAML, got 0. Skipping.")
+        sys.exit(0)
+    if len(added) > 1:
+        print(f"❌ Expected exactly 1 added release YAML, got {len(added)}.")
+        for path in added:
+            print(path)
+        sys.exit(1)
+
+    filepath = added[0]
+    basename = Path(filepath).stem
+
+    # Re-validate everything — do not trust that validate-pr ran or passed.
+    _step(cmd_validate_filename, argparse.Namespace(basename=basename))
+    commit, tag = validate_yaml_file(filepath)
+    _step(cmd_check_commit_exists, argparse.Namespace(sha=commit))
+    _step(cmd_check_tag_free, argparse.Namespace(tag=tag))
+
+    # Emit structured output before creating the tag so release-gate.yml can parse it
+    print(f"tag={tag}")
+    print(f"commit={commit}")
+
+    cmd_create_tag(argparse.Namespace(tag=tag, commit=commit))
+
+
+def cmd_lint(args: argparse.Namespace) -> None:
+    """Pre-commit sanity check: run every CI validation against a single YAML.
+
+    Reads $REPO and $GH_TOKEN like validate-pr does, but skips the git-diff
+    step — we already know which file you're checking. Use this before
+    opening a release-request PR to confirm CI will accept it.
+    """
+    path = args.path
+    basename = Path(path).stem
+
+    print(f"── Linting {path} ──")
+    _step(cmd_validate_filename, argparse.Namespace(basename=basename))
+    commit, _ = validate_yaml_file(path)
+    _step(cmd_check_commit_exists, argparse.Namespace(sha=commit))
+    _step(cmd_check_tag_free, argparse.Namespace(tag=basename))
+    print(f"✅ {path} would pass CI.")
+    sys.exit(0)
+
+
+# ── main ─────────────────────────────────────────────────────────────────────
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Commit-Boost release management")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p = sub.add_parser("validate-filename", help="Validate a release filename against strict semver")
+    p.add_argument("basename")
+    p.set_defaults(func=cmd_validate_filename)
+
+    p = sub.add_parser("validate-yaml", help="Parse and validate a release-request YAML file")
+    p.add_argument("path")
+    p.set_defaults(func=cmd_validate_yaml)
+
+    p = sub.add_parser("find-added", help="List release YAMLs added between two refs")
+    p.add_argument("--base", required=True)
+    p.add_argument("--head", required=True)
+    p.set_defaults(func=cmd_find_added)
+
+    p = sub.add_parser("check-modifications", help="Reject modifications/deletions of release YAMLs")
+    p.add_argument("--base", required=True)
+    p.add_argument("--head", required=True)
+    p.set_defaults(func=cmd_check_modifications)
+
+    p = sub.add_parser("check-commit-exists", help="Verify a commit SHA exists in the repo")
+    p.add_argument("sha")
+    p.set_defaults(func=cmd_check_commit_exists)
+
+    p = sub.add_parser("check-tag-free", help="Verify a tag does not already exist")
+    p.add_argument("tag")
+    p.set_defaults(func=cmd_check_tag_free)
+
+    p = sub.add_parser("create-tag", help="Create an annotated tag via GitHub API")
+    p.add_argument("tag")
+    p.add_argument("commit")
+    p.set_defaults(func=cmd_create_tag)
+
+    p = sub.add_parser("is-latest", help="Check if a tag is the highest non-RC semver")
+    p.add_argument("tag")
+    p.set_defaults(func=cmd_is_latest)
+
+    p = sub.add_parser("validate-pr", help="End-to-end PR validator (reads env)")
+    p.set_defaults(func=cmd_validate_pr)
+
+    p = sub.add_parser("gate", help="End-to-end gate after merge (reads env)")
+    p.set_defaults(func=cmd_gate)
+
+    p = sub.add_parser("lint", help="Pre-commit sanity check on a single YAML (reads $REPO + $GH_TOKEN)")
+    p.add_argument("path", help="Path to the release-request YAML to lint")
+    p.set_defaults(func=cmd_lint)
+
+    parsed = parser.parse_args()
+    parsed.func(parsed)
+
+
+if __name__ == "__main__":
+    main()

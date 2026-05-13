@@ -1,7 +1,7 @@
 chain = "Hoodi"
 
 [pbs]
-docker_image = "ghcr.io/commit-boost/pbs:latest"
+docker_image = "ghcr.io/commit-boost/commit-boost:latest"
 with_signer = true
 host = "127.0.0.1"
 port = 18550
@@ -25,7 +25,7 @@ target_first_request_ms = 200
 frequency_get_header_ms = 300
 
 [signer]
-docker_image = "ghcr.io/commit-boost/signer:latest"
+docker_image = "ghcr.io/commit-boost/commit-boost:latest"
 host = "127.0.0.1"
 port = 20000
 jwt_auth_fail_limit = 3

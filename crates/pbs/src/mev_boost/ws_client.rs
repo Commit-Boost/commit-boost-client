@@ -7,7 +7,8 @@
 //!
 //! Inbound from relay: BidPush (pushed bids), RegistrationAck,
 //! SubmitBlindedBlockAck, Pong.
-//! Outbound to relay: Subscribe (validator registrations), SubmitBlindedBlock, Ping.
+//! Outbound to relay: Subscribe (validator registrations), SubmitBlindedBlock,
+//! Ping.
 //!
 //! Bid cache (D6): the most recently decoded `BidPush` is exposed via a
 //! `tokio::sync::watch::Sender<Option<CachedBid>>`. `collect_ws_bids` on
@@ -191,7 +192,9 @@ impl HelixWsClient {
         loop {
             let (tx, rx) = oneshot::channel();
             *self.pending_ack.lock().unwrap() = Some(tx);
-            let _ = self.cmd_tx.send(WsMessage::SubmitBlindedBlock { fork, body_ssz: body_ssz.clone() });
+            let _ = self
+                .cmd_tx
+                .send(WsMessage::SubmitBlindedBlock { fork, body_ssz: body_ssz.clone() });
 
             match retry.attempt(rx).await {
                 SubmitRetryResult::Ok(status) => return Ok(status),
@@ -390,8 +393,9 @@ fn decode_bid_push(fork_byte: u8, payload: &[u8]) -> eyre::Result<CachedBid> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use tokio::sync::oneshot;
+
+    use super::*;
 
     #[test]
     fn test_state_machine_variants_constructible() {
@@ -451,7 +455,9 @@ mod tests {
         let mut retry = SubmitRetry::new(2, Duration::from_millis(500));
         let (tx, rx) = oneshot::channel();
 
-        tokio::spawn(async move { let _ = tx.send(6); });
+        tokio::spawn(async move {
+            let _ = tx.send(6);
+        });
         assert_eq!(retry.attempt(rx).await, SubmitRetryResult::Ok(6));
         assert_eq!(retry.retries, 0);
     }

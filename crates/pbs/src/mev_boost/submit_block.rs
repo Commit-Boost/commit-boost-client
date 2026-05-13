@@ -100,9 +100,16 @@ pub async fn submit_block<S: BuilderApiState>(
             Ok(fork_byte) => {
                 let body_ssz = signed_blinded_block.as_ssz_bytes();
                 let clients: Vec<_> = {
-                    state.ws_clients.read().iter()
-                        .filter(|(_, c)| matches!(c.state_snapshot(),
-                            crate::mev_boost::ws_client::WsClientState::Connected { .. }))
+                    state
+                        .ws_clients
+                        .read()
+                        .iter()
+                        .filter(|(_, c)| {
+                            matches!(
+                                c.state_snapshot(),
+                                crate::mev_boost::ws_client::WsClientState::Connected { .. }
+                            )
+                        })
                         .map(|(_, c)| Arc::clone(c))
                         .collect()
                 };

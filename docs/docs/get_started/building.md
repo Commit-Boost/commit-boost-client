@@ -4,7 +4,7 @@ Commit-Boost's components are all written in [Rust](https://www.rust-lang.org/).
 
 ## Building via the Docker Builder
 
-For convenience, Commit-Boost has Dockerized the build environment for Linux `x64` and `arm64` platforms. It utilizes Docker's powerful [buildx](https://docs.docker.com/reference/cli/docker/buildx/) system. All of the prerequisites, cross-compilation tooling, and configuration are handled by the builder image. If you would like to build the CLI, PBS module, or Signer binaries and Docker images from source, you are welcome to use the Docker builder process.
+For convenience, Commit-Boost has Dockerized the build environment for Linux `x64` and `arm64` platforms. It utilizes Docker's powerful [buildx](https://docs.docker.com/reference/cli/docker/buildx/) system. All of the prerequisites, cross-compilation tooling, and configuration are handled by the builder image. If you would like to build the Commit-Boost binary and Docker image from source, you are welcome to use the Docker builder process.
 
 To use the builder, you will need to have [Docker Engine](https://docs.docker.com/engine/install/) installed on your system. Please follow the instructions to install it first.
 
@@ -18,9 +18,8 @@ Use `just --list` to show all of the actions - there are many. The `justfile` pr
 
 Below is a brief summary of the relevant ones for building the Commit-Boost artifacts:
 
-- `build-all <version>` will build the `commit-boost` binary for your local system architecture. It will also create Docker images called `commit-boost/pbs:<version>` and `commit-boost/signer:<version>` and load them into your local Docker registry for use.
+- `build-all <version>` builds the `commit-boost` binary to `./build/<version>` and creates a Docker image called `commit-boost/commit-boost:<version>` (a unified image that bundles all subcommands), loading it into your local Docker registry.
 - `build-bin <version>` can be used to create the `commit-boost` binary itself.
-- `build-pbs-img <version>` and `build-signer-img <version>` can be used to create the Docker images for the PBS and Signer services, respectively.
 
 The `version` provided will be used to house the output binaries in `./build/<version>`, and act as the version tag for the Docker images when they're added to your local system or uploaded to your local Docker repository. For example, using `$(git rev-parse --short HEAD)` will set the version to the current commit hash.
 

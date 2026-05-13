@@ -36,8 +36,9 @@ pub fn fork_name_from_u8(v: u8) -> Result<ForkName, WireError> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use ws_wire::WireError;
+
+    use super::*;
 
     #[test]
     fn fork_name_roundtrip_supported() {
