@@ -23,7 +23,6 @@ use std::{
 
 use alloy::primitives::{U256, utils::format_ether};
 use cb_common::pbs::{ForkName, ForkVersionDecode, GetHeaderResponse, SignedBuilderBid};
-use cb_common::utils::utcnow_ns;
 use futures_util::{SinkExt, StreamExt};
 use parking_lot::RwLock;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -299,7 +298,7 @@ async fn connection_loop(
             }
         };
 
-        info!(now_ns = utcnow_ns(), "WS connected to {}", url);
+        info!("WS connected to {}", url);
         *state.write() = WsClientState::Connected { connected_at: Instant::now() };
         attempt = 0;
         backoff_ms = INITIAL_BACKOFF_MS;
@@ -326,7 +325,7 @@ async fn connection_loop(
                     let data = match msg {
                         Some(Ok(tokio_tungstenite::tungstenite::Message::Binary(d))) => d,
                         Some(Ok(tokio_tungstenite::tungstenite::Message::Close(_))) | None => {
-                            info!(now_ns = utcnow_ns(), "WS closed by relay");
+                            info!("WS closed by relay");
                             break;
                         }
                         _ => continue,
@@ -365,10 +364,10 @@ async fn connection_loop(
                             if awaiting_pong && p.nonce == last_ping_nonce { awaiting_pong = false; }
                         }
                         Ok(WsMessage::RegistrationAck(ack)) => {
-                            debug!(now_ns = utcnow_ns(), accepted = ack.accepted, rejected = ack.rejected, "WS: registration ack");
+                            info!(accepted = ack.accepted, rejected = ack.rejected, "WS: registration ack");
                         }
                         Ok(WsMessage::SubmitBlindedBlockAck(ack)) => {
-                            debug!(now_ns = utcnow_ns(), status = ack.status, "WS: submit blinded block ack");
+                            info!(status = ack.status, "WS: submit blinded block ack");
                             if let Some(tx) = pending_ack.lock().unwrap().take() {
                                 let _ = tx.send(ack.status);
                             }

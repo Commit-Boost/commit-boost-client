@@ -15,8 +15,8 @@ use cb_common::{
     },
     utils::{
         AcceptedEncodings, CONSENSUS_VERSION_HEADER, EncodingType, OUTBOUND_ACCEPT,
-        build_outbound_accept, get_user_agent_with_version, parse_response_encoding_and_fork,
-        read_chunked_body_with_max, utcnow_ms, utcnow_ns,
+        build_outbound_accept, get_user_agent_with_version, ms_into_slot,
+        parse_response_encoding_and_fork, read_chunked_body_with_max, utcnow_ms,
     },
 };
 use futures::{FutureExt, future::select_ok};
@@ -26,7 +26,7 @@ use reqwest::{
 };
 use serde::Deserialize;
 use ssz::Encode;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn, Span};
 use url::Url;
 
 use crate::{
@@ -99,6 +99,8 @@ pub async fn submit_block<S: BuilderApiState>(
         match crate::mev_boost::wire::fork_name_to_u8(fork) {
             Ok(fork_byte) => {
                 let body_ssz = signed_blinded_block.as_ssz_bytes();
+                let slot = signed_blinded_block.message().slot().as_u64();
+                let ms_into = ms_into_slot(slot, state.config.chain);
                 let clients: Vec<_> = {
                     state
                         .ws_clients
@@ -115,10 +117,11 @@ pub async fn submit_block<S: BuilderApiState>(
                 };
                 for client in clients {
                     let b = body_ssz.clone();
+                    let span = Span::current();
                     tokio::spawn(async move {
                         match client.send_submit_blinded_block_with_ack(fork_byte, b).await {
-                            Ok(status) => debug!(now_ns = utcnow_ns(), %status, "WS: submit blinded block acked"),
-                            Err(e) => warn!(now_ns = utcnow_ns(), ?e, "WS: submit blinded block ack failed"),
+                            Ok(status) => info!(parent: &span, ms_into_slot = ms_into, %status, "WS: submit blinded block acked"),
+                            Err(e) => warn!(parent: &span, ms_into_slot = ms_into, ?e, "WS: submit blinded block ack failed"),
                         }
                     });
                 }
