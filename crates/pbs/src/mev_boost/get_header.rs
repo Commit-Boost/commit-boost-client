@@ -935,22 +935,22 @@ fn collect_ws_bids<S: BuilderApiState>(
             continue;
         }
 
-        let Some(cached) = ws.latest_bid() else { continue };
+        // If we already contributed a cached bid for this slot, clear it.
+        // The stale-bid problem: a bid from slot N survives in the watch
+        // channel across slots because the relay stops pushing after
+        // delivery. Without this, the same bid wins auction for slots N+1,
+        // N+2, ... indefinitely.
+        if ws.clear_if_stale(params.slot) {
+            info!(relay_id, slot = params.slot, "WS: cleared stale cached bid");
+            continue;
+        }
 
-        // Slot filtering is relay-side. A `SignedBuilderBid` carries
-        // the slot inside its inner `BuilderBid::header().slot()`,
-        // but the various fork header types expose that behind
-        // different enum matches — see cb_common::utils for the
-        // existing SSZ-offset-based extraction used for value.
-        // Adding slot-gating here is deferred until that helper is
-        // extended; the relay's Phase A/B push policy is the
-        // authoritative slot-freshness guard (new-slot rollover in
-        // PerSlotState clears the cached bid).
-        let _ = params;
+        let Some(cached) = ws.latest_bid() else { continue };
 
         let value_eth = format_ether(cached.value);
         let idx = bids.len() + 1;
         bids.push((relay_id.clone(), cached.response));
+        ws.mark_bid_contributed(params.slot);
         info!(relay_id, value_eth, idx, "WS: contributing cached bid #{} to auction", idx);
     }
 

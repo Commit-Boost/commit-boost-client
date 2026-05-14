@@ -17,11 +17,13 @@
 
 use std::{
     sync::Arc,
+    sync::atomic::{AtomicU64, Ordering},
     time::{Duration, Instant},
 };
 
 use alloy::primitives::{U256, utils::format_ether};
 use cb_common::pbs::{ForkName, ForkVersionDecode, GetHeaderResponse, SignedBuilderBid};
+use cb_common::utils::utcnow_ns;
 use futures_util::{SinkExt, StreamExt};
 use parking_lot::RwLock;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -125,7 +127,34 @@ pub struct HelixWsClient {
     pub state: Arc<RwLock<WsClientState>>,
     pub(crate) cmd_tx: mpsc::UnboundedSender<WsMessage>,
     latest_bid_rx: watch::Receiver<Option<CachedBid>>,
+    /// Clone of the watch sender — used to clear stale bids on slot change.
+    bid_tx: watch::Sender<Option<CachedBid>>,
+    /// Last slot for which a WS bid was contributed to an auction.
+    /// Shared with the connection loop: reset to 0 when a new bid arrives
+    /// so `clear_if_stale` doesn't clear a fresh bid in the same slot.
+    last_slot: Arc<AtomicU64>,
     pub(crate) pending_ack: Arc<std::sync::Mutex<Option<oneshot::Sender<u8>>>>,
+}
+
+impl HelixWsClient {
+    /// Mark a bid as contributed for this slot. On next `collect_ws_bids`
+    /// for the same slot, skip the cached bid (already consumed). The flag
+    /// is cleared by `send_replace(Some(...))` in the WS read loop when a
+    /// new bid arrives.
+    pub fn mark_bid_contributed(&self, slot: u64) {
+        self.last_slot.store(slot, Ordering::Relaxed);
+    }
+
+    /// Clear the cached bid if it was already contributed in a different
+    /// slot. Returns true if cleared.
+    pub fn clear_if_stale(&self, current_slot: u64) -> bool {
+        let prev = self.last_slot.load(Ordering::Relaxed);
+        if prev != 0 && prev != current_slot {
+            self.bid_tx.send_replace(None);
+            return true;
+        }
+        false
+    }
 }
 
 impl HelixWsClient {
@@ -142,12 +171,22 @@ impl HelixWsClient {
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<WsMessage>();
         let (bid_tx, bid_rx) = watch::channel::<Option<CachedBid>>(None);
         let pending_ack = Arc::new(std::sync::Mutex::new(None));
+        let last_slot = Arc::new(AtomicU64::new(0));
 
         let s = state.clone();
         let pa = pending_ack.clone();
-        tokio::spawn(connection_loop(url, s, cmd_rx, bid_tx, pa));
+        let bt = bid_tx.clone();
+        let ls = last_slot.clone();
+        tokio::spawn(connection_loop(url, s, cmd_rx, bt, pa, ls));
 
-        Self { state, cmd_tx, latest_bid_rx: bid_rx, pending_ack }
+        Self {
+            state,
+            cmd_tx,
+            latest_bid_rx: bid_rx,
+            bid_tx,
+            last_slot,
+            pending_ack,
+        }
     }
 
     pub fn state_snapshot(&self) -> WsClientState {
@@ -232,6 +271,7 @@ async fn connection_loop(
     mut cmd_rx: mpsc::UnboundedReceiver<WsMessage>,
     bid_tx: watch::Sender<Option<CachedBid>>,
     pending_ack: Arc<std::sync::Mutex<Option<oneshot::Sender<u8>>>>,
+    last_slot: Arc<AtomicU64>,
 ) {
     let mut attempt: u32 = 0;
     let mut backoff_ms = INITIAL_BACKOFF_MS;
@@ -259,7 +299,7 @@ async fn connection_loop(
             }
         };
 
-        info!("WS connected to {}", url);
+        info!(now_ns = utcnow_ns(), "WS connected to {}", url);
         *state.write() = WsClientState::Connected { connected_at: Instant::now() };
         attempt = 0;
         backoff_ms = INITIAL_BACKOFF_MS;
@@ -286,7 +326,7 @@ async fn connection_loop(
                     let data = match msg {
                         Some(Ok(tokio_tungstenite::tungstenite::Message::Binary(d))) => d,
                         Some(Ok(tokio_tungstenite::tungstenite::Message::Close(_))) | None => {
-                            info!("WS closed by relay");
+                            info!(now_ns = utcnow_ns(), "WS closed by relay");
                             break;
                         }
                         _ => continue,
@@ -303,6 +343,10 @@ async fn connection_loop(
                                         "WS: cached pushed bid"
                                     );
                                     bid_tx.send_replace(Some(cached));
+                                    // Reset stale-bid guard: a fresh bid arrived,
+                                    // so it's safe to contribute in this slot even
+                                    // if we already contributed an earlier one.
+                                    last_slot.store(0, Ordering::Relaxed);
                                 }
                                 Err(e) => warn!(fork, ?e, "WS: BidPush decode failed"),
                             }
@@ -321,10 +365,10 @@ async fn connection_loop(
                             if awaiting_pong && p.nonce == last_ping_nonce { awaiting_pong = false; }
                         }
                         Ok(WsMessage::RegistrationAck(ack)) => {
-                            debug!(accepted = ack.accepted, rejected = ack.rejected, "WS: registration ack");
+                            debug!(now_ns = utcnow_ns(), accepted = ack.accepted, rejected = ack.rejected, "WS: registration ack");
                         }
                         Ok(WsMessage::SubmitBlindedBlockAck(ack)) => {
-                            debug!(status = ack.status, "WS: submit blinded block ack");
+                            debug!(now_ns = utcnow_ns(), status = ack.status, "WS: submit blinded block ack");
                             if let Some(tx) = pending_ack.lock().unwrap().take() {
                                 let _ = tx.send(ack.status);
                             }

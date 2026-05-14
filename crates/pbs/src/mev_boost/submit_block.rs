@@ -16,7 +16,7 @@ use cb_common::{
     utils::{
         AcceptedEncodings, CONSENSUS_VERSION_HEADER, EncodingType, OUTBOUND_ACCEPT,
         build_outbound_accept, get_user_agent_with_version, parse_response_encoding_and_fork,
-        read_chunked_body_with_max, utcnow_ms,
+        read_chunked_body_with_max, utcnow_ms, utcnow_ns,
     },
 };
 use futures::{FutureExt, future::select_ok};
@@ -117,8 +117,8 @@ pub async fn submit_block<S: BuilderApiState>(
                     let b = body_ssz.clone();
                     tokio::spawn(async move {
                         match client.send_submit_blinded_block_with_ack(fork_byte, b).await {
-                            Ok(status) => debug!(%status, "WS: submit blinded block acked"),
-                            Err(e) => warn!(?e, "WS: submit blinded block ack failed"),
+                            Ok(status) => debug!(now_ns = utcnow_ns(), %status, "WS: submit blinded block acked"),
+                            Err(e) => warn!(now_ns = utcnow_ns(), ?e, "WS: submit blinded block ack failed"),
                         }
                     });
                 }
@@ -158,8 +158,18 @@ pub async fn submit_block<S: BuilderApiState>(
         validation_mode: mode,
         accepted_types,
     });
-    let mut handles = Vec::with_capacity(state.all_relays().len());
-    for relay in state.all_relays().iter() {
+    // Deduplicate relays by URL to avoid spawning duplicate REST tasks
+    // for the same relay (can happen with mux configs that include the
+    // default relay again).
+    let mut seen = std::collections::HashSet::new();
+    let unique_relays: Vec<_> = state
+        .all_relays()
+        .iter()
+        .filter(|r| seen.insert(r.config.entry.url.as_str()))
+        .collect();
+
+    let mut handles = Vec::with_capacity(unique_relays.len());
+    for relay in unique_relays {
         handles.push(
             tokio::spawn(submit_block_with_timeout(
                 proposal_info.clone(),
