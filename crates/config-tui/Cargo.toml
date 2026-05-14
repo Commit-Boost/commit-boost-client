@@ -1,0 +1,24 @@
+[package]
+edition.workspace = true
+name = "cb-config-tui"
+publish = false
+rust-version.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "cb-config-tui"
+path = "src/main.rs"
+
+[dependencies]
+cb-common.workspace = true
+clap.workspace = true
+eyre.workspace = true
+toml.workspace = true
+
+crossterm = "0.28"
+ratatui = "0.29"
+regex = "1"
+serde_path_to_error = "0.1"
+tokio = { workspace = true, features = ["full"] }
+tui-textarea = { version = "0.7", features = ["search"] }
+tempfile.workspace = true
