@@ -529,7 +529,8 @@ async fn send_submit_block_impl(
             relay_id = relay.id.as_ref(),
             retry,
             latency = ?request_latency,
-            "received 202 Accepted for v2 submit_block"
+            status = %code,
+            "received response for v2 submit_block"
         );
 
         match code {
