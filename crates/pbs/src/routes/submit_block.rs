@@ -18,6 +18,7 @@ use ssz::Encode;
 use tracing::{error, info, trace};
 
 use crate::{
+    CompoundSubmitBlockResponse,
     api::BuilderApi,
     constants::SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG,
     error::PbsClientError,
@@ -72,9 +73,50 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
 
     info!(ua, ms_into_slot = now.saturating_sub(slot_start_ms), "new request");
 
-    match A::submit_block(signed_blinded_block, req_headers, state, api_version).await {
+    match A::submit_block(signed_blinded_block, req_headers, state, api_version, accept_types).await
+    {
         Ok(res) => match res {
-            Some(payload_and_blobs) => {
+            crate::CompoundSubmitBlockResponse::EmptyBody => {
+                info!("received unblinded block (v2)");
+
+                // Note: this doesn't provide consensus_version_header because it doesn't pass
+                // the body through, and there's no content-type header since the body is empty.
+                BEACON_NODE_STATUS
+                    .with_label_values(&["202", SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG])
+                    .inc();
+                Ok((StatusCode::ACCEPTED, "").into_response())
+            }
+            CompoundSubmitBlockResponse::Light(payload_and_blobs) => {
+                trace!(?payload_and_blobs);
+                info!("received unblinded block (v1, unvalidated)");
+
+                BEACON_NODE_STATUS
+                    .with_label_values(&["200", SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG])
+                    .inc();
+
+                // Create the headers
+                let consensus_version_header =
+                    match HeaderValue::from_str(&payload_and_blobs.version.to_string()) {
+                        Ok(consensus_version_header) => {
+                            Ok::<HeaderValue, PbsClientError>(consensus_version_header)
+                        }
+                        Err(e) => {
+                            return Err(PbsClientError::RelayError(format!(
+                                "error decoding consensus version from relay payload: {e}"
+                            )));
+                        }
+                    }?;
+                let content_type_header =
+                    payload_and_blobs.encoding_type.content_type_header().clone();
+
+                // Build response
+                let mut res = payload_and_blobs.raw_bytes.into_response();
+                res.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
+                res.headers_mut().insert(CONTENT_TYPE, content_type_header);
+                info!("sending response as {} (light)", payload_and_blobs.encoding_type);
+                Ok(res)
+            }
+            CompoundSubmitBlockResponse::Full(payload_and_blobs) => {
                 trace!(?payload_and_blobs);
                 info!("received unblinded block (v1)");
 
@@ -106,16 +148,6 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
                         Ok((StatusCode::OK, axum::Json(payload_and_blobs)).into_response())
                     }
                 }
-            }
-            None => {
-                info!("received unblinded block (v2)");
-
-                // Note: this doesn't provide consensus_version_header because it doesn't pass
-                // the body through, and there's no content-type header since the body is empty.
-                BEACON_NODE_STATUS
-                    .with_label_values(&["202", SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG])
-                    .inc();
-                Ok((StatusCode::ACCEPTED, "").into_response())
             }
         },
 

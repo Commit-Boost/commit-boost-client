@@ -1,7 +1,11 @@
 use std::{net::Ipv4Addr, path::PathBuf};
 
 use alloy::primitives::U256;
-use cb_common::{config::CommitBoostConfig, types::Chain, utils::WEI_PER_ETH};
+use cb_common::{
+    config::{BlockValidationMode, CommitBoostConfig, HeaderValidationMode},
+    types::Chain,
+    utils::WEI_PER_ETH,
+};
 use eyre::Result;
 use url::Url;
 
@@ -54,7 +58,8 @@ async fn test_load_pbs_happy() -> Result<()> {
     dbg!(&U256::from(0.5));
     assert_eq!(config.pbs.pbs_config.min_bid_wei, U256::from((0.5 * WEI_PER_ETH as f64) as u64));
     assert_eq!(config.pbs.pbs_config.late_in_slot_time_ms, 2000);
-    assert!(!config.pbs.pbs_config.extra_validation_enabled);
+    assert_eq!(config.pbs.pbs_config.header_validation_mode, HeaderValidationMode::Standard);
+    assert_eq!(config.pbs.pbs_config.block_validation_mode, BlockValidationMode::Standard);
 
     // Relay specific settings
     let relay = &config.relays[0];
@@ -156,7 +161,7 @@ async fn test_validate_bad_min_bid() -> Result<()> {
 #[tokio::test]
 async fn test_validate_missing_rpc_url() -> Result<()> {
     let mut config = load_happy_config().await?;
-    config.pbs.pbs_config.extra_validation_enabled = true;
+    config.pbs.pbs_config.header_validation_mode = HeaderValidationMode::Extra;
     config.pbs.pbs_config.rpc_url = None;
 
     let result = config.validate().await;
@@ -165,7 +170,7 @@ async fn test_validate_missing_rpc_url() -> Result<()> {
         result
             .unwrap_err()
             .to_string()
-            .contains("rpc_url is required if extra_validation_enabled is true")
+            .contains("rpc_url is required if header_validation_mode is set to extra")
     );
     Ok(())
 }

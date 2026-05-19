@@ -10,6 +10,7 @@ use alloy::{
 };
 use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
+    config::HeaderValidationMode,
     constants::APPLICATION_BUILDER_DOMAIN,
     pbs::{
         EMPTY_TX_ROOT_HASH, ExecutionPayloadHeaderRef, ForkName, ForkVersionDecode, GetHeaderInfo,
@@ -20,7 +21,8 @@ use cb_common::{
     signature::verify_signed_message,
     types::{BlsPublicKey, BlsPublicKeyBytes, BlsSignature, Chain},
     utils::{
-        EncodingType, OUTBOUND_ACCEPT, get_user_agent_with_version, ms_into_slot,
+        AcceptedEncodings, EncodingType, OUTBOUND_ACCEPT, build_outbound_accept,
+        get_bid_value_from_signed_builder_bid_ssz, get_user_agent_with_version, ms_into_slot,
         parse_response_encoding_and_fork, read_chunked_body_with_max, timestamp_of_slot_start_sec,
         utcnow_ms,
     },
@@ -31,6 +33,7 @@ use reqwest::{
     StatusCode,
     header::{ACCEPT, USER_AGENT},
 };
+use serde::Deserialize;
 use tokio::time::sleep;
 use tracing::{Instrument, debug, error, info, warn};
 use tree_hash::TreeHash;
@@ -42,6 +45,7 @@ use crate::{
         TIMEOUT_ERROR_CODE_STR,
     },
     metrics::{RELAY_HEADER_VALUE, RELAY_LAST_SLOT, RELAY_LATENCY, RELAY_STATUS_CODE},
+    mev_boost::{CompoundGetHeaderResponse, LightGetHeaderResponse},
     state::{BuilderApiState, PbsState},
     utils::check_gas_limit,
 };
@@ -62,6 +66,10 @@ struct RequestInfo {
 
     /// Context for validating the header returned by the relay
     validation: ValidationContext,
+
+    /// The accepted encoding types from the original request, ordered by
+    /// descending caller preference (q-value).
+    accepted_types: AcceptedEncodings,
 }
 
 struct GetHeaderResponseInfo {
@@ -85,11 +93,19 @@ struct GetHeaderResponseInfo {
     request_latency: Duration,
 }
 
+/// Context for validating the header
 #[derive(Clone)]
 struct ValidationContext {
+    /// Whether to skip signature verification
     skip_sigverify: bool,
+
+    /// Minimum acceptable bid, in wei
     min_bid_wei: U256,
-    extra_validation_enabled: bool,
+
+    /// The mode used for response validation
+    mode: HeaderValidationMode,
+
+    /// The parent block, if fetched
     parent_block: Arc<RwLock<Option<Block>>>,
 }
 
@@ -99,11 +115,12 @@ pub async fn get_header<S: BuilderApiState>(
     params: GetHeaderParams,
     req_headers: HeaderMap,
     state: PbsState<S>,
-) -> eyre::Result<Option<GetHeaderResponse>> {
+    accepted_types: AcceptedEncodings,
+) -> eyre::Result<Option<CompoundGetHeaderResponse>> {
     let parent_block = Arc::new(RwLock::new(None));
-    if state.extra_validation_enabled() &&
-        let Some(rpc_url) = state.pbs_config().rpc_url.clone()
-    {
+    let extra_validation_enabled =
+        state.config.pbs_config.header_validation_mode == HeaderValidationMode::Extra;
+    if extra_validation_enabled && let Some(rpc_url) = state.pbs_config().rpc_url.clone() {
         tokio::spawn(
             fetch_parent_block(rpc_url, params.parent_hash, parent_block.clone()).in_current_span(),
         );
@@ -150,9 +167,19 @@ pub async fn get_header<S: BuilderApiState>(
     send_headers.insert(USER_AGENT, get_user_agent_with_version(&req_headers)?);
 
     // Create the Accept headers for requests
-    // Use the documented, deterministic preference:
-    // SSZ first (wire-efficient), JSON fallback.
-    let accept_types = OUTBOUND_ACCEPT.to_string();
+    let mode = state.pbs_config().header_validation_mode;
+    let accept_types = match mode {
+        HeaderValidationMode::None => {
+            // No validation mode, so forward the caller's preference verbatim
+            // (still q-ordered) — the relay's response is passed through.
+            build_outbound_accept(accepted_types)
+        }
+        _ => {
+            // We're unpacking the body, so use the documented, deterministic
+            // preference: SSZ first (wire-efficient), JSON fallback.
+            OUTBOUND_ACCEPT.to_string()
+        }
+    };
     send_headers.insert(
         ACCEPT,
         HeaderValue::from_str(&accept_types)
@@ -168,9 +195,10 @@ pub async fn get_header<S: BuilderApiState>(
         validation: ValidationContext {
             skip_sigverify: state.pbs_config().skip_sigverify,
             min_bid_wei: state.pbs_config().min_bid_wei,
-            extra_validation_enabled: state.extra_validation_enabled(),
+            mode,
             parent_block,
         },
+        accepted_types,
     });
     let mut handles = Vec::with_capacity(relays.len());
     for relay in relays.iter() {
@@ -192,10 +220,12 @@ pub async fn get_header<S: BuilderApiState>(
 
         match res {
             Ok(Some(res)) => {
+                let value = match &res {
+                    CompoundGetHeaderResponse::Full(full) => *full.value(),
+                    CompoundGetHeaderResponse::Light(light) => light.value,
+                };
                 RELAY_LAST_SLOT.with_label_values(&[relay_id]).set(slot);
-                let value_gwei = (res.data.message.value() / U256::from(1_000_000_000))
-                    .try_into()
-                    .unwrap_or_default();
+                let value_gwei = (value / U256::from(1_000_000_000)).try_into().unwrap_or_default();
                 RELAY_HEADER_VALUE.with_label_values(&[relay_id]).set(value_gwei);
 
                 relay_bids.push((relay_id, res))
@@ -206,15 +236,29 @@ pub async fn get_header<S: BuilderApiState>(
         }
     }
 
-    let max_bid = relay_bids.into_iter().max_by_key(|(_, bid)| *bid.value());
+    let max_bid = relay_bids.into_iter().max_by_key(|(_, bid)| match bid {
+        CompoundGetHeaderResponse::Full(full) => *full.value(),
+        CompoundGetHeaderResponse::Light(light) => light.value,
+    });
 
     if let Some((winning_relay_id, ref bid)) = max_bid {
-        info!(
-            relay_id = winning_relay_id,
-            value_eth = format_ether(*bid.value()),
-            block_hash = %bid.block_hash(),
-            "auction winner"
-        );
+        match bid {
+            CompoundGetHeaderResponse::Full(full) => {
+                info!(
+                    relay_id = winning_relay_id,
+                    value_eth = format_ether(*full.value()),
+                    block_hash = %full.block_hash(),
+                    "auction winner"
+                );
+            }
+            CompoundGetHeaderResponse::Light(light) => {
+                info!(
+                    relay_id = winning_relay_id,
+                    value_eth = format_ether(light.value),
+                    "auction winner (light mode, no block_hash available)"
+                );
+            }
+        }
     }
 
     Ok(max_bid.map(|(_, bid)| bid))
@@ -250,7 +294,7 @@ async fn send_timed_get_header(
     relay: RelayClient,
     ms_into_slot: u64,
     mut timeout_left_ms: u64,
-) -> Result<Option<GetHeaderResponse>, PbsError> {
+) -> Result<Option<CompoundGetHeaderResponse>, PbsError> {
     let params = &request_info.params;
     let url = Arc::new(relay.get_header_url(params.slot, &params.parent_hash, &params.pubkey)?);
 
@@ -356,86 +400,133 @@ async fn send_one_get_header(
     relay: RelayClient,
     url: Arc<Url>,
     timeout_left_ms: u64,
-) -> Result<(u64, Option<GetHeaderResponse>), PbsError> {
-    // Full processing: decode full response and validate
-    let (start_request_time, get_header_response) = send_get_header_full(
-        &relay,
-        url,
-        timeout_left_ms,
-        (*request_info.headers).clone(), /* Create a copy of the HeaderMap because the
-                                          * impl
-                                          * will
-                                          * modify it */
-    )
-    .await?;
-    let get_header_response = match get_header_response {
-        None => {
-            // Break if there's no header
-            return Ok((start_request_time, None));
+) -> Result<(u64, Option<CompoundGetHeaderResponse>), PbsError> {
+    match request_info.validation.mode {
+        HeaderValidationMode::None => {
+            // Minimal processing: extract fork and value, forward response bytes directly.
+            // Expensive crypto/structural validation is skipped (sigverify, parent hash,
+            // timestamp), but the min_bid check is applied.
+            let (start_request_time, get_header_response) = send_get_header_light(
+                &relay,
+                url,
+                timeout_left_ms,
+                (*request_info.headers).clone(), /* Create a copy of the HeaderMap because the
+                                                  * impl
+                                                  * will
+                                                  * modify it */
+            )
+            .await?;
+            match get_header_response {
+                None => Ok((start_request_time, None)),
+                Some(res) => {
+                    let min_bid = request_info.validation.min_bid_wei;
+                    if res.value < min_bid {
+                        return Err(PbsError::Validation(ValidationError::BidTooLow {
+                            min: min_bid,
+                            got: res.value,
+                        }));
+                    }
+
+                    // Make sure the response is encoded in one of the accepted
+                    // types since we're passing the raw response directly to the client
+                    if !request_info.accepted_types.contains(res.encoding_type) {
+                        return Err(PbsError::RelayResponse {
+                            error_msg: format!(
+                                "relay returned unsupported encoding type for get_header in no-validation mode: {:?}",
+                                res.encoding_type
+                            ),
+                            code: 406, // Not Acceptable
+                        });
+                    }
+                    Ok((start_request_time, Some(CompoundGetHeaderResponse::Light(res))))
+                }
+            }
         }
-        Some(res) => res,
-    };
+        _ => {
+            // Full processing: decode full response and validate
+            let (start_request_time, get_header_response) = send_get_header_full(
+                &relay,
+                url,
+                timeout_left_ms,
+                (*request_info.headers).clone(), /* Create a copy of the HeaderMap because the
+                                                  * impl
+                                                  * will
+                                                  * modify it */
+            )
+            .await?;
+            let get_header_response = match get_header_response {
+                None => {
+                    // Break if there's no header
+                    return Ok((start_request_time, None));
+                }
+                Some(res) => res,
+            };
 
-    // Extract the basic header data needed for validation
-    let header_data = match &get_header_response.data.message.header() {
-        ExecutionPayloadHeaderRef::Bellatrix(_) |
-        ExecutionPayloadHeaderRef::Capella(_) |
-        ExecutionPayloadHeaderRef::Deneb(_) => {
-            Err(PbsError::Validation(ValidationError::UnsupportedFork))
+            // Extract the basic header data needed for validation
+            let header_data = match &get_header_response.data.message.header() {
+                ExecutionPayloadHeaderRef::Bellatrix(_) |
+                ExecutionPayloadHeaderRef::Capella(_) |
+                ExecutionPayloadHeaderRef::Deneb(_) => {
+                    Err(PbsError::Validation(ValidationError::UnsupportedFork))
+                }
+                ExecutionPayloadHeaderRef::Electra(res) => Ok(HeaderData {
+                    block_hash: res.block_hash.0,
+                    parent_hash: res.parent_hash.0,
+                    tx_root: res.transactions_root,
+                    value: *get_header_response.value(),
+                    timestamp: res.timestamp,
+                }),
+                ExecutionPayloadHeaderRef::Fulu(res) => Ok(HeaderData {
+                    block_hash: res.block_hash.0,
+                    parent_hash: res.parent_hash.0,
+                    tx_root: res.transactions_root,
+                    value: *get_header_response.value(),
+                    timestamp: res.timestamp,
+                }),
+            }?;
+
+            // Validate the header
+            let chain = request_info.chain;
+            let params = &request_info.params;
+            let validation = &request_info.validation;
+            validate_header_data(
+                &header_data,
+                chain,
+                params.parent_hash,
+                validation.min_bid_wei,
+                params.slot,
+            )?;
+
+            // Validate the relay signature
+            if !validation.skip_sigverify {
+                validate_signature(
+                    chain,
+                    relay.pubkey(),
+                    get_header_response.data.message.pubkey(),
+                    &get_header_response.data.message,
+                    &get_header_response.data.signature,
+                )?;
+            }
+
+            // Validate the parent block if enabled
+            if validation.mode == HeaderValidationMode::Extra {
+                let parent_block = validation.parent_block.read();
+                if let Some(parent_block) = parent_block.as_ref() {
+                    extra_validation(parent_block, &get_header_response)?;
+                } else {
+                    warn!(
+                        relay_id = relay.id.as_ref(),
+                        "parent block not found, skipping extra validation"
+                    );
+                }
+            }
+
+            Ok((
+                start_request_time,
+                Some(CompoundGetHeaderResponse::Full(Box::new(get_header_response))),
+            ))
         }
-        ExecutionPayloadHeaderRef::Electra(res) => Ok(HeaderData {
-            block_hash: res.block_hash.0,
-            parent_hash: res.parent_hash.0,
-            tx_root: res.transactions_root,
-            value: *get_header_response.value(),
-            timestamp: res.timestamp,
-        }),
-        ExecutionPayloadHeaderRef::Fulu(res) => Ok(HeaderData {
-            block_hash: res.block_hash.0,
-            parent_hash: res.parent_hash.0,
-            tx_root: res.transactions_root,
-            value: *get_header_response.value(),
-            timestamp: res.timestamp,
-        }),
-    }?;
-
-    // Validate the header
-    let chain = request_info.chain;
-    let params = &request_info.params;
-    let validation = &request_info.validation;
-    validate_header_data(
-        &header_data,
-        chain,
-        params.parent_hash,
-        validation.min_bid_wei,
-        params.slot,
-    )?;
-
-    // Validate the relay signature
-    if !validation.skip_sigverify {
-        validate_signature(
-            chain,
-            relay.pubkey(),
-            get_header_response.data.message.pubkey(),
-            &get_header_response.data.message,
-            &get_header_response.data.signature,
-        )?;
     }
-
-    // Validate the parent block if enabled
-    if validation.extra_validation_enabled {
-        let parent_block = validation.parent_block.read();
-        if let Some(parent_block) = parent_block.as_ref() {
-            extra_validation(parent_block, &get_header_response)?;
-        } else {
-            warn!(
-                relay_id = relay.id.as_ref(),
-                "parent block not found, skipping extra validation"
-            );
-        }
-    }
-
-    Ok((start_request_time, Some(get_header_response)))
 }
 
 /// Send and decode a full get_header response, with all of the fields.
@@ -472,6 +563,52 @@ async fn send_get_header_full(
     Ok((start_request_time, Some(get_header_response)))
 }
 
+/// Send a get_header request and decode only the fork and bid value from the
+/// response, leaving the raw bytes intact for direct forwarding to the caller.
+/// Used in `HeaderValidationMode::None` where expensive crypto/structural
+/// checks are skipped.
+async fn send_get_header_light(
+    relay: &RelayClient,
+    url: Arc<Url>,
+    timeout_left_ms: u64,
+    headers: HeaderMap,
+) -> Result<(u64, Option<LightGetHeaderResponse>), PbsError> {
+    // Send the request
+    let (start_request_time, info) =
+        send_get_header_impl(relay, url, timeout_left_ms, headers).await?;
+    let info = match info {
+        Some(info) => info,
+        None => {
+            return Ok((start_request_time, None));
+        }
+    };
+
+    // Decode the value / fork from the response
+    let (fork, value) = decode_by_encoding(&info, get_light_info_from_json, |bytes, fork| {
+        Ok((fork, get_bid_value_from_signed_builder_bid_ssz(bytes, fork)?))
+    })?;
+
+    // Log and return
+    debug!(
+        relay_id = info.relay_id.as_ref(),
+        header_size_bytes = info.response_bytes.len(),
+        latency = ?info.request_latency,
+        version =? fork,
+        value_eth = format_ether(value),
+        content_type = ?info.content_type,
+        "received new header (light processing)"
+    );
+    Ok((
+        start_request_time,
+        Some(LightGetHeaderResponse {
+            version: fork,
+            value,
+            raw_bytes: info.response_bytes,
+            encoding_type: info.content_type,
+        }),
+    ))
+}
+
 /// Dispatch a get_header response to the appropriate decoder based on the
 /// negotiated content-type. SSZ requires a fork header; its absence is a
 /// protocol violation reported as `PbsError::RelayResponse`. Callers supply
@@ -506,6 +643,7 @@ async fn send_get_header_impl(
     // the timestamp in the header is the consensus block time which is fixed,
     // use the beginning of the request as proxy to make sure we use only the
     // last one received
+    let start_request = Instant::now();
     let start_request_time = utcnow_ms();
     headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(start_request_time));
 
@@ -513,7 +651,6 @@ async fn send_get_header_impl(
     // minimize timing games without losing the bid
     headers.insert(HEADER_TIMEOUT_MS, HeaderValue::from(timeout_left_ms));
 
-    let start_request = Instant::now();
     let res = match relay
         .client
         .get(url.as_ref().clone())
@@ -531,12 +668,12 @@ async fn send_get_header_impl(
         }
     };
 
+    // Log the response code and latency
+    let code = res.status();
     let request_latency = start_request.elapsed();
     RELAY_LATENCY
         .with_label_values(&[GET_HEADER_ENDPOINT_TAG, &relay.id])
         .observe(request_latency.as_secs_f64());
-
-    let code = res.status();
     RELAY_STATUS_CODE.with_label_values(&[code.as_str(), GET_HEADER_ENDPOINT_TAG, &relay.id]).inc();
 
     // Per the builder spec, 200 carries a bid payload and 204 means no bid
@@ -587,6 +724,35 @@ async fn send_get_header_impl(
 fn decode_json_payload(response_bytes: &[u8]) -> Result<GetHeaderResponse, PbsError> {
     match serde_json::from_slice::<GetHeaderResponse>(response_bytes) {
         Ok(parsed) => Ok(parsed),
+        Err(err) => Err(PbsError::JsonDecode {
+            err,
+            raw: String::from_utf8_lossy(response_bytes).into_owned(),
+        }),
+    }
+}
+
+/// Get the value of a builder bid and the fork name from a get_header JSON
+/// response (used for light-level processing)
+fn get_light_info_from_json(response_bytes: &[u8]) -> Result<(ForkName, U256), PbsError> {
+    #[derive(Deserialize)]
+    struct LightBuilderBid {
+        #[serde(with = "serde_utils::quoted_u256")]
+        pub value: U256,
+    }
+
+    #[derive(Deserialize)]
+    struct LightSignedBuilderBid {
+        pub message: LightBuilderBid,
+    }
+
+    #[derive(Deserialize)]
+    struct LightHeaderResponse {
+        version: ForkName,
+        data: LightSignedBuilderBid,
+    }
+
+    match serde_json::from_slice::<LightHeaderResponse>(response_bytes) {
+        Ok(parsed) => Ok((parsed.version, parsed.data.message.value)),
         Err(err) => Err(PbsError::JsonDecode {
             err,
             raw: String::from_utf8_lossy(response_bytes).into_owned(),
@@ -711,9 +877,7 @@ mod tests {
         pbs::*,
         signature::sign_builder_message,
         types::{BlsPublicKeyBytes, BlsSecretKey, BlsSignature, Chain},
-        utils::{
-            TestRandomSeed, get_bid_value_from_signed_builder_bid_ssz, timestamp_of_slot_start_sec,
-        },
+        utils::{TestRandomSeed, timestamp_of_slot_start_sec},
     };
     use ssz::Encode;
 

@@ -8,11 +8,11 @@ use std::{
 use alloy::primitives::{B256, U256};
 use cb_common::{
     config::{
-        COMMIT_BOOST_IMAGE_DEFAULT, CommitBoostConfig, LogsSettings, ModuleKind,
-        ModuleSigningConfig, PbsConfig, PbsModuleConfig, RelayConfig, ReverseProxyHeaderSetup,
-        SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT, SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT,
-        SIGNER_PORT_DEFAULT, SignerConfig, SignerType, StartSignerConfig, StaticModuleConfig,
-        StaticPbsConfig, TlsMode,
+        BlockValidationMode, COMMIT_BOOST_IMAGE_DEFAULT, CommitBoostConfig, HeaderValidationMode,
+        LogsSettings, ModuleKind, ModuleSigningConfig, PbsConfig, PbsModuleConfig, RelayConfig,
+        ReverseProxyHeaderSetup, SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT,
+        SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT, SIGNER_PORT_DEFAULT, SignerConfig,
+        SignerType, StartSignerConfig, StaticModuleConfig, StaticPbsConfig, TlsMode,
     },
     pbs::{RelayClient, RelayEntry},
     signer::SignerLoader,
@@ -94,8 +94,8 @@ pub fn get_pbs_config(port: u16) -> PbsConfig {
         skip_sigverify: false,
         min_bid_wei: U256::ZERO,
         late_in_slot_time_ms: u64::MAX,
-        extra_validation_enabled: false,
-
+        header_validation_mode: HeaderValidationMode::Standard,
+        block_validation_mode: BlockValidationMode::Standard,
         ssv_node_api_url: Url::parse("http://localhost:0").unwrap(),
         ssv_public_api_url: Url::parse("http://localhost:0").unwrap(),
         rpc_url: None,

@@ -2,11 +2,15 @@ use std::{collections::HashSet, path::PathBuf, sync::Arc, time::Duration};
 
 use alloy::primitives::{B256, U256};
 use cb_common::{
+    config::HeaderValidationMode,
     pbs::{GetHeaderResponse, SignedBuilderBid},
     signature::sign_builder_root,
     signer::random_secret,
     types::{BlsPublicKeyBytes, Chain},
-    utils::{EncodingType, ForkName, get_consensus_version_header, timestamp_of_slot_start_sec},
+    utils::{
+        EncodingType, ForkName, get_bid_value_from_signed_builder_bid_ssz,
+        get_consensus_version_header, timestamp_of_slot_start_sec,
+    },
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
@@ -31,6 +35,7 @@ async fn test_get_header() -> Result<()> {
         vec![EncodingType::Json],
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         1,
+        HeaderValidationMode::Standard,
         StatusCode::OK,
         U256::from(10u64),
         U256::ZERO,
@@ -47,6 +52,7 @@ async fn test_get_header_ssz() -> Result<()> {
         vec![EncodingType::Ssz],
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         1,
+        HeaderValidationMode::Standard,
         StatusCode::OK,
         U256::from(10u64),
         U256::ZERO,
@@ -65,6 +71,7 @@ async fn test_get_header_ssz_into_json() -> Result<()> {
         vec![EncodingType::Ssz],
         HashSet::from([EncodingType::Json]),
         1,
+        HeaderValidationMode::Standard,
         StatusCode::OK,
         U256::from(10u64),
         U256::ZERO,
@@ -82,6 +89,7 @@ async fn test_get_header_multitype_ssz() -> Result<()> {
         vec![EncodingType::Ssz, EncodingType::Json],
         HashSet::from([EncodingType::Ssz]),
         1,
+        HeaderValidationMode::Standard,
         StatusCode::OK,
         U256::from(10u64),
         U256::ZERO,
@@ -99,6 +107,98 @@ async fn test_get_header_multitype_json() -> Result<()> {
         vec![EncodingType::Ssz, EncodingType::Json],
         HashSet::from([EncodingType::Json]),
         1,
+        HeaderValidationMode::Standard,
+        StatusCode::OK,
+        U256::from(10u64),
+        U256::ZERO,
+        None,
+        ForkName::Electra,
+    )
+    .await
+}
+
+// === Light Mode Tests ===
+
+/// Test requesting JSON without validation when the relay supports JSON
+#[tokio::test]
+async fn test_get_header_light() -> Result<()> {
+    test_get_header_impl(
+        vec![EncodingType::Json],
+        HashSet::from([EncodingType::Ssz, EncodingType::Json]),
+        1,
+        HeaderValidationMode::None,
+        StatusCode::OK,
+        U256::from(10u64),
+        U256::ZERO,
+        None,
+        ForkName::Electra,
+    )
+    .await
+}
+
+/// Test requesting SSZ without validation when the relay supports SSZ
+#[tokio::test]
+async fn test_get_header_ssz_light() -> Result<()> {
+    test_get_header_impl(
+        vec![EncodingType::Ssz],
+        HashSet::from([EncodingType::Ssz, EncodingType::Json]),
+        1,
+        HeaderValidationMode::None,
+        StatusCode::OK,
+        U256::from(10u64),
+        U256::ZERO,
+        None,
+        ForkName::Electra,
+    )
+    .await
+}
+
+/// Test requesting SSZ without validation when the relay only supports JSON.
+/// This should actually fail because in no-validation mode we just forward the
+/// response without re-encoding it.
+#[tokio::test]
+async fn test_get_header_ssz_into_json_light() -> Result<()> {
+    test_get_header_impl(
+        vec![EncodingType::Ssz],
+        HashSet::from([EncodingType::Json]),
+        1,
+        HeaderValidationMode::None,
+        StatusCode::NO_CONTENT, // Should fail because the only relay can't be used
+        U256::from(10u64),
+        U256::ZERO,
+        None,
+        ForkName::Electra,
+    )
+    .await
+}
+
+/// Test requesting multiple types without validation when the relay supports
+/// SSZ, which should return SSZ
+#[tokio::test]
+async fn test_get_header_multitype_ssz_light() -> Result<()> {
+    test_get_header_impl(
+        vec![EncodingType::Ssz, EncodingType::Json],
+        HashSet::from([EncodingType::Ssz]),
+        1,
+        HeaderValidationMode::None,
+        StatusCode::OK,
+        U256::from(10u64),
+        U256::ZERO,
+        None,
+        ForkName::Electra,
+    )
+    .await
+}
+
+/// Test requesting multiple types without validation when the relay supports
+/// JSON, which should still work
+#[tokio::test]
+async fn test_get_header_multitype_json_light() -> Result<()> {
+    test_get_header_impl(
+        vec![EncodingType::Ssz, EncodingType::Json],
+        HashSet::from([EncodingType::Json]),
+        1,
+        HeaderValidationMode::None,
         StatusCode::OK,
         U256::from(10u64),
         U256::ZERO,
@@ -118,6 +218,7 @@ async fn test_get_header_impl(
     accept_types: Vec<EncodingType>,
     relay_types: HashSet<EncodingType>,
     expected_try_count: u64,
+    mode: HeaderValidationMode,
     expected_code: StatusCode,
     bid_value: U256,
     min_bid_wei: U256,
@@ -142,6 +243,7 @@ async fn test_get_header_impl(
 
     // Run the PBS service
     let mut pbs_config = get_pbs_config(pbs_port);
+    pbs_config.header_validation_mode = mode;
     pbs_config.min_bid_wei = min_bid_wei;
     pbs_config.rpc_url = rpc_url;
     let config = to_pbs_config(chain, pbs_config, vec![mock_relay.clone()]);
@@ -199,7 +301,7 @@ async fn test_get_header_impl(
 }
 
 #[tokio::test]
-async fn test_get_header_returns_204_if_no_relay_reachable() -> Result<()> {
+async fn test_get_header_returns_204_if_relay_down() -> Result<()> {
     setup_test_env();
     let signer = random_secret();
     let pubkey = signer.public_key();
@@ -289,7 +391,7 @@ async fn test_get_header_returns_400_if_request_is_invalid() -> Result<()> {
 /// checks; Extra adds the parent-block check via EL RPC (which is skipped with
 /// a warning if the fetch fails, so a non-existent RPC URL still passes here).
 #[tokio::test]
-async fn test_get_header_extra_validation_enforce_min_bid() -> Result<()> {
+async fn test_get_header_all_modes_enforce_min_bid() -> Result<()> {
     let relay_bid = U256::from(7u64);
     let min_bid_above_relay = relay_bid + U256::from(1);
     // A syntactically valid URL that will never connect — Extra mode config
@@ -297,32 +399,90 @@ async fn test_get_header_extra_validation_enforce_min_bid() -> Result<()> {
     // handled gracefully (extra validation is skipped with a warning).
     let fake_rpc: Url = "http://127.0.0.1:1".parse()?;
 
-    // Bid below min → all modes reject (204).
-    test_get_header_impl(
-        vec![EncodingType::Json],
-        HashSet::from([EncodingType::Json]),
-        1,
-        StatusCode::NO_CONTENT,
-        relay_bid,
-        min_bid_above_relay,
-        Some(fake_rpc.clone()),
-        ForkName::Electra,
-    )
-    .await?;
+    for (mode, rpc_url) in [
+        (HeaderValidationMode::Standard, None),
+        (HeaderValidationMode::None, None),
+        (HeaderValidationMode::Extra, Some(fake_rpc.clone())),
+    ] {
+        // Bid below min → all modes reject (204).
+        test_get_header_impl(
+            vec![EncodingType::Json],
+            HashSet::from([EncodingType::Json]),
+            1,
+            mode,
+            StatusCode::NO_CONTENT,
+            relay_bid,
+            min_bid_above_relay,
+            rpc_url.clone(),
+            ForkName::Electra,
+        )
+        .await?;
 
-    // Bid above min → all modes accept (200).
-    test_get_header_impl(
-        vec![EncodingType::Json],
-        HashSet::from([EncodingType::Json]),
-        1,
-        StatusCode::OK,
-        min_bid_above_relay,
-        U256::ZERO,
-        Some(fake_rpc),
-        ForkName::Electra,
-    )
-    .await?;
+        // Bid above min → all modes accept (200).
+        test_get_header_impl(
+            vec![EncodingType::Json],
+            HashSet::from([EncodingType::Json]),
+            1,
+            mode,
+            StatusCode::OK,
+            min_bid_above_relay,
+            U256::ZERO,
+            rpc_url,
+            ForkName::Electra,
+        )
+        .await?;
+    }
+    Ok(())
+}
 
+/// SSZ round-trip: configure the relay with a specific bid value, request via
+/// PBS in None mode with SSZ encoding, and verify the raw response bytes decode
+/// to the exact value that was configured. This exercises the byte-offset
+/// extraction logic (`get_bid_value_from_signed_builder_bid_ssz`) end-to-end
+/// through a live HTTP relay for both currently-supported forks.
+#[tokio::test]
+async fn test_get_header_ssz_bid_value_round_trip() -> Result<()> {
+    setup_test_env();
+    let signer = random_secret();
+    let pubkey = signer.public_key();
+    let chain = Chain::Holesky;
+
+    // Use a distinctive value so accidental zero-matches are impossible.
+    let relay_bid = U256::from(999_888_777u64);
+
+    for fork_name in [ForkName::Electra, ForkName::Fulu] {
+        let pbs_listener = get_free_listener().await;
+        let relay_listener = get_free_listener().await;
+        let pbs_port = pbs_listener.local_addr().unwrap().port();
+        let relay_port = relay_listener.local_addr().unwrap().port();
+        let mock_state =
+            Arc::new(MockRelayState::new(chain, signer.clone()).with_bid_value(relay_bid));
+        let mock_relay = generate_mock_relay(relay_port, pubkey.clone())?;
+        tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
+
+        let mut pbs_config = get_pbs_config(pbs_port);
+        // None mode: PBS forwards the raw SSZ bytes without re-encoding.
+        pbs_config.header_validation_mode = HeaderValidationMode::None;
+        pbs_config.min_bid_wei = U256::ZERO;
+        let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
+        let state = PbsState::new(config, PathBuf::new());
+        drop(pbs_listener);
+        tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let mock_validator = MockValidator::new(pbs_port)?;
+        let res = mock_validator.do_get_header(None, vec![EncodingType::Ssz], fork_name).await?;
+        assert_eq!(res.status(), StatusCode::OK, "fork {fork_name}: expected 200");
+
+        let bytes = res.bytes().await?;
+        let extracted = get_bid_value_from_signed_builder_bid_ssz(&bytes, fork_name)
+            .map_err(|e| eyre::eyre!("fork {fork_name}: SSZ extraction failed: {e}"))?;
+        assert_eq!(
+            extracted, relay_bid,
+            "fork {fork_name}: SSZ-extracted bid value does not match configured relay bid"
+        );
+    }
     Ok(())
 }
 
@@ -364,30 +524,115 @@ async fn test_get_header_bid_validation_matrix() -> Result<()> {
     let min_bid = U256::from(50u64);
 
     // (fork, encoding, mode, relay_bid, expected_status)
-    let cases: &[(ForkName, EncodingType, U256, StatusCode)] = &[
-        (ForkName::Electra, EncodingType::Json, bid_low, StatusCode::NO_CONTENT),
-        (ForkName::Electra, EncodingType::Json, bid_high, StatusCode::OK),
-        (ForkName::Electra, EncodingType::Ssz, bid_low, StatusCode::NO_CONTENT),
-        (ForkName::Electra, EncodingType::Ssz, bid_high, StatusCode::OK),
-        (ForkName::Fulu, EncodingType::Json, bid_low, StatusCode::NO_CONTENT),
-        (ForkName::Fulu, EncodingType::Json, bid_high, StatusCode::OK),
-        (ForkName::Fulu, EncodingType::Ssz, bid_low, StatusCode::NO_CONTENT),
-        (ForkName::Fulu, EncodingType::Ssz, bid_high, StatusCode::OK),
-        (ForkName::Electra, EncodingType::Json, bid_low, StatusCode::NO_CONTENT),
-        (ForkName::Electra, EncodingType::Json, bid_high, StatusCode::OK),
-        (ForkName::Electra, EncodingType::Ssz, bid_low, StatusCode::NO_CONTENT),
-        (ForkName::Electra, EncodingType::Ssz, bid_high, StatusCode::OK),
-        (ForkName::Fulu, EncodingType::Json, bid_low, StatusCode::NO_CONTENT),
-        (ForkName::Fulu, EncodingType::Json, bid_high, StatusCode::OK),
-        (ForkName::Fulu, EncodingType::Ssz, bid_low, StatusCode::NO_CONTENT),
-        (ForkName::Fulu, EncodingType::Ssz, bid_high, StatusCode::OK),
+    let cases: &[(ForkName, EncodingType, HeaderValidationMode, U256, StatusCode)] = &[
+        (
+            ForkName::Electra,
+            EncodingType::Json,
+            HeaderValidationMode::None,
+            bid_low,
+            StatusCode::NO_CONTENT,
+        ),
+        (
+            ForkName::Electra,
+            EncodingType::Json,
+            HeaderValidationMode::None,
+            bid_high,
+            StatusCode::OK,
+        ),
+        (
+            ForkName::Electra,
+            EncodingType::Ssz,
+            HeaderValidationMode::None,
+            bid_low,
+            StatusCode::NO_CONTENT,
+        ),
+        (
+            ForkName::Electra,
+            EncodingType::Ssz,
+            HeaderValidationMode::None,
+            bid_high,
+            StatusCode::OK,
+        ),
+        (
+            ForkName::Fulu,
+            EncodingType::Json,
+            HeaderValidationMode::None,
+            bid_low,
+            StatusCode::NO_CONTENT,
+        ),
+        (ForkName::Fulu, EncodingType::Json, HeaderValidationMode::None, bid_high, StatusCode::OK),
+        (
+            ForkName::Fulu,
+            EncodingType::Ssz,
+            HeaderValidationMode::None,
+            bid_low,
+            StatusCode::NO_CONTENT,
+        ),
+        (ForkName::Fulu, EncodingType::Ssz, HeaderValidationMode::None, bid_high, StatusCode::OK),
+        (
+            ForkName::Electra,
+            EncodingType::Json,
+            HeaderValidationMode::Standard,
+            bid_low,
+            StatusCode::NO_CONTENT,
+        ),
+        (
+            ForkName::Electra,
+            EncodingType::Json,
+            HeaderValidationMode::Standard,
+            bid_high,
+            StatusCode::OK,
+        ),
+        (
+            ForkName::Electra,
+            EncodingType::Ssz,
+            HeaderValidationMode::Standard,
+            bid_low,
+            StatusCode::NO_CONTENT,
+        ),
+        (
+            ForkName::Electra,
+            EncodingType::Ssz,
+            HeaderValidationMode::Standard,
+            bid_high,
+            StatusCode::OK,
+        ),
+        (
+            ForkName::Fulu,
+            EncodingType::Json,
+            HeaderValidationMode::Standard,
+            bid_low,
+            StatusCode::NO_CONTENT,
+        ),
+        (
+            ForkName::Fulu,
+            EncodingType::Json,
+            HeaderValidationMode::Standard,
+            bid_high,
+            StatusCode::OK,
+        ),
+        (
+            ForkName::Fulu,
+            EncodingType::Ssz,
+            HeaderValidationMode::Standard,
+            bid_low,
+            StatusCode::NO_CONTENT,
+        ),
+        (
+            ForkName::Fulu,
+            EncodingType::Ssz,
+            HeaderValidationMode::Standard,
+            bid_high,
+            StatusCode::OK,
+        ),
     ];
 
-    for (i, &(fork, encoding, relay_bid, expected_status)) in cases.iter().enumerate() {
+    for (i, &(fork, encoding, mode, relay_bid, expected_status)) in cases.iter().enumerate() {
         test_get_header_impl(
             vec![encoding],
             HashSet::from([encoding]),
             1,
+            mode,
             expected_status,
             relay_bid,
             min_bid,
@@ -395,9 +640,7 @@ async fn test_get_header_bid_validation_matrix() -> Result<()> {
             fork,
         )
         .await
-        .map_err(|e| {
-            eyre::eyre!("case {i} (fork={fork} enc={encoding} bid={relay_bid} min={min_bid}): {e}")
-        })?;
+        .map_err(|e| eyre::eyre!("case {i} (fork={fork} enc={encoding} mode={mode:?} bid={relay_bid} min={min_bid}): {e}"))?;
     }
     Ok(())
 }
@@ -482,5 +725,49 @@ async fn test_get_header_tolerates_json_charset_param() -> Result<()> {
 
     let body: GetHeaderResponse = serde_json::from_slice(&res.bytes().await?)?;
     assert_eq!(body.data.message.header().block_hash().0[0], 1);
+    Ok(())
+}
+
+/// Standard mode rejects a bid whose embedded pubkey does not match the relay's
+/// configured pubkey; None mode forwards it unchecked, proving the bypass works
+/// for the signature/pubkey validation check.
+#[tokio::test]
+async fn test_get_header_none_mode_bypasses_pubkey_validation() -> Result<()> {
+    setup_test_env();
+    let chain = Chain::Holesky;
+
+    // The mock relay signs with `signer` and embeds `signer.public_key()` in
+    // its message, but we register the relay in PBS with a *different* pubkey.
+    // Standard mode catches this mismatch; None mode does not check.
+    let signer = random_secret();
+    let wrong_pubkey = random_secret().public_key();
+
+    for (mode, expected_status) in [
+        (HeaderValidationMode::Standard, StatusCode::NO_CONTENT),
+        (HeaderValidationMode::None, StatusCode::OK),
+    ] {
+        let pbs_listener = get_free_listener().await;
+        let relay_listener = get_free_listener().await;
+        let pbs_port = pbs_listener.local_addr().unwrap().port();
+        let relay_port = relay_listener.local_addr().unwrap().port();
+        let mock_state = Arc::new(MockRelayState::new(chain, signer.clone()));
+        // Register with `wrong_pubkey` — PBS will expect this key but the relay
+        // embeds `signer.public_key()`, causing a mismatch in Standard mode.
+        let mock_relay = generate_mock_relay(relay_port, wrong_pubkey.clone())?;
+        tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
+
+        let mut pbs_config = get_pbs_config(pbs_port);
+        pbs_config.header_validation_mode = mode;
+        let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
+        let state = PbsState::new(config, PathBuf::new());
+        drop(pbs_listener);
+        tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let mock_validator = MockValidator::new(pbs_port)?;
+        let res = mock_validator.do_get_header(None, Vec::new(), ForkName::Electra).await?;
+        assert_eq!(res.status(), expected_status, "unexpected status for mode {mode:?}");
+    }
     Ok(())
 }
