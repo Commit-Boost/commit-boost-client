@@ -10,7 +10,7 @@ use lh_types::{BeaconBlock, ForkName};
 use mediatype::{MediaType, ReadParams};
 use reqwest::{
     Response,
-    header::{ACCEPT, CONTENT_TYPE, HeaderMap},
+    header::{ACCEPT, CONTENT_TYPE, HeaderMap, ToStrError},
 };
 use thiserror::Error;
 
@@ -35,6 +35,18 @@ pub enum ResponseReadError {
         "request failed with status: {status_code}, request_url: {request_url}, body: {error_msg}"
     )]
     NonSuccess { status_code: u16, error_msg: String, request_url: String },
+}
+
+#[derive(Debug, Error)]
+pub enum AcceptedEncodingsError {
+    #[error("invalid header string: {0}")]
+    InvalidString(#[from] ToStrError),
+
+    #[error("invalid accept header: {error_msg}")]
+    InvalidEncoding { error_msg: String },
+
+    #[error("unsupported accept type")]
+    UnsupportedAcceptType,
 }
 
 #[cfg(feature = "testing-flags")]
@@ -108,7 +120,7 @@ pub async fn read_chunked_body_with_max(
 /// Reads an HTTP response body with a size limit, erroring on non-success
 /// status or read failure.
 pub async fn safe_read_http_response(
-    response: reqwest::Response,
+    response: Response,
     max_size: usize,
 ) -> Result<Vec<u8>, ResponseReadError> {
     let status_code = response.status();
@@ -198,7 +210,9 @@ impl IntoIterator for AcceptedEncodings {
 /// The returned order honors the RFC 9110 §12.5.1 precedence rules already
 /// applied by `headers_accept::Accept::media_types()` (specificity, then
 /// q-value, then original order).
-pub fn get_accept_types(req_headers: &HeaderMap) -> eyre::Result<AcceptedEncodings> {
+pub fn get_accept_types(
+    req_headers: &HeaderMap,
+) -> Result<AcceptedEncodings, AcceptedEncodingsError> {
     // Only two supported media types, so the ordered set is at most two
     // entries: primary + optional fallback.
     let mut primary: Option<EncodingType> = None;
@@ -206,8 +220,12 @@ pub fn get_accept_types(req_headers: &HeaderMap) -> eyre::Result<AcceptedEncodin
     let mut saw_any = false;
     let mut had_supported = false;
     for header in req_headers.get_all(ACCEPT).iter() {
-        let accept = Accept::from_str(header.to_str()?)
-            .map_err(|e| eyre::eyre!("invalid accept header: {e}"))?;
+        let accept_str = header.to_str().map_err(AcceptedEncodingsError::InvalidString)?;
+        let accept =
+            Accept::from_str(accept_str).map_err(|e| AcceptedEncodingsError::InvalidEncoding {
+                error_msg: (format!("invalid accept header: {e}")).to_string(),
+            })?;
+
         for mt in accept.media_types() {
             saw_any = true;
 
@@ -243,7 +261,7 @@ pub fn get_accept_types(req_headers: &HeaderMap) -> eyre::Result<AcceptedEncodin
     }
 
     if saw_any && !had_supported {
-        eyre::bail!("unsupported accept type");
+        return Err(AcceptedEncodingsError::UnsupportedAcceptType)
     }
 
     // No accept header (or only q=0 rejections): fall back to the request
