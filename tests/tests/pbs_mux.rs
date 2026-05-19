@@ -12,7 +12,7 @@ use cb_common::{
     },
     signer::random_secret,
     types::Chain,
-    wire::{ResponseReadError, set_ignore_content_length},
+    wire::{EncodingType, ResponseReadError, set_ignore_content_length},
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
@@ -286,12 +286,34 @@ async fn test_mux() -> Result<()> {
 
     // v1 Submit block requests should go to all relays
     info!("Sending submit block v1");
-    assert_eq!(mock_validator.do_submit_block_v1(None,).await?.status(), StatusCode::OK);
+    assert_eq!(
+        mock_validator
+            .do_submit_block_v1(
+                None,
+                vec![EncodingType::Json],
+                EncodingType::Json,
+                ForkName::Electra
+            )
+            .await?
+            .status(),
+        StatusCode::OK
+    );
     assert_eq!(mock_state.received_submit_block(), 3); // default + 2 mux relays were used
 
     // v2 Submit block requests should go to all relays
     info!("Sending submit block v2");
-    assert_eq!(mock_validator.do_submit_block_v2(None,).await?.status(), StatusCode::ACCEPTED);
+    assert_eq!(
+        mock_validator
+            .do_submit_block_v2(
+                None,
+                vec![EncodingType::Json],
+                EncodingType::Json,
+                ForkName::Electra
+            )
+            .await?
+            .status(),
+        StatusCode::ACCEPTED
+    );
     assert_eq!(mock_state.received_submit_block(), 6); // default + 2 mux relays were used
 
     Ok(())
