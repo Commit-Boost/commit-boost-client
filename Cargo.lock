@@ -1891,6 +1891,8 @@ dependencies = [
  "cb-common",
  "cb-pbs",
  "cb-signer",
+ "eth2",
+ "ethereum_ssz 0.10.3",
  "eyre",
  "jsonwebtoken",
  "rcgen",
