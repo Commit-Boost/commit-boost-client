@@ -6,7 +6,11 @@ use cb_common::{
     wire::{CONSENSUS_VERSION_HEADER, EncodingType},
 };
 use lh_types::ForkName;
-use reqwest::{Response, header::ACCEPT};
+use reqwest::{
+    Response,
+    header::{ACCEPT, CONTENT_TYPE},
+};
+use ssz::Encode;
 
 use crate::utils::generate_mock_relay;
 
@@ -80,28 +84,77 @@ impl MockValidator {
     pub async fn do_submit_block_v1(
         &self,
         signed_blinded_block_opt: Option<SignedBlindedBeaconBlock>,
+        accept: Vec<EncodingType>,
+        content_type: EncodingType,
+        fork_name: ForkName,
     ) -> eyre::Result<Response> {
-        self.do_submit_block_impl(signed_blinded_block_opt, BuilderApiVersion::V1).await
+        self.do_submit_block_impl(
+            signed_blinded_block_opt,
+            accept,
+            content_type,
+            fork_name,
+            BuilderApiVersion::V1,
+        )
+        .await
     }
 
     pub async fn do_submit_block_v2(
         &self,
         signed_blinded_block_opt: Option<SignedBlindedBeaconBlock>,
+        accept: Vec<EncodingType>,
+        content_type: EncodingType,
+        fork_name: ForkName,
     ) -> eyre::Result<Response> {
-        self.do_submit_block_impl(signed_blinded_block_opt, BuilderApiVersion::V2).await
+        self.do_submit_block_impl(
+            signed_blinded_block_opt,
+            accept,
+            content_type,
+            fork_name,
+            BuilderApiVersion::V2,
+        )
+        .await
     }
 
     async fn do_submit_block_impl(
         &self,
-        signed_blinded_block: Option<SignedBlindedBeaconBlock>,
+        signed_blinded_block_opt: Option<SignedBlindedBeaconBlock>,
+        accept: Vec<EncodingType>,
+        content_type: EncodingType,
+        fork_name: ForkName,
         api_version: BuilderApiVersion,
     ) -> eyre::Result<Response> {
         let url = self.comm_boost.submit_block_url(api_version).unwrap();
 
         let signed_blinded_block =
-            signed_blinded_block.unwrap_or_else(load_test_signed_blinded_block);
+            signed_blinded_block_opt.unwrap_or_else(load_test_signed_blinded_block);
+        let body = match content_type {
+            EncodingType::Json => serde_json::to_vec(&signed_blinded_block).unwrap(),
+            EncodingType::Ssz => signed_blinded_block.as_ssz_bytes(),
+        };
 
-        Ok(self.comm_boost.client.post(url).json(&signed_blinded_block).send().await?)
+        let accept = match accept.len() {
+            0 => None,
+            1 => Some(accept.into_iter().next().unwrap().to_string()),
+            _ => {
+                // Ordered: first-listed is highest preference. Server honors
+                // RFC 9110 §12.5.1 (first-listed wins at equal q).
+                let accept_strings: Vec<String> =
+                    accept.into_iter().map(|e| e.to_string()).collect();
+                Some(accept_strings.join(", "))
+            }
+        };
+        let mut res = self
+            .comm_boost
+            .client
+            .post(url)
+            .body(body)
+            .header(CONSENSUS_VERSION_HEADER, &fork_name.to_string())
+            .header(CONTENT_TYPE, &content_type.to_string());
+        if let Some(accept_header) = accept {
+            res = res.header(ACCEPT, accept_header);
+        }
+        let res = res.send().await?;
+        Ok(res)
     }
 }
 
