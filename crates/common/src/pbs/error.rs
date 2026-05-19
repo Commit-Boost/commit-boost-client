@@ -14,6 +14,9 @@ pub enum PbsError {
     #[error("json decode error: {err:?}, raw: {raw}")]
     JsonDecode { err: serde_json::Error, raw: String },
 
+    #[error("error with request: {0}")]
+    GeneralRequest(String),
+
     #[error("{0}")]
     ReadResponse(#[from] ResponseReadError),
 
@@ -106,4 +109,26 @@ pub enum ValidationError {
 
     #[error("unsupported fork")]
     UnsupportedFork,
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum SszValueError {
+    #[error("invalid payload length: required {required} but payload was {actual}")]
+    InvalidPayloadLength { required: usize, actual: usize },
+
+    #[error("unsupported fork")]
+    UnsupportedFork { name: String },
+}
+
+impl From<SszValueError> for PbsError {
+    fn from(err: SszValueError) -> Self {
+        match err {
+            SszValueError::InvalidPayloadLength { required, actual } => PbsError::GeneralRequest(
+                format!("invalid payload length: required {required} but payload was {actual}"),
+            ),
+            SszValueError::UnsupportedFork { name } => {
+                PbsError::GeneralRequest(format!("unsupported fork: {name}"))
+            }
+        }
+    }
 }

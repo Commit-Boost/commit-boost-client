@@ -1777,8 +1777,10 @@ dependencies = [
  "ethereum_ssz_derive 0.10.3",
  "eyre",
  "futures",
+ "headers-accept",
  "jsonwebtoken",
  "lazy_static",
+ "mediatype 0.20.0",
  "notify",
  "pbkdf2",
  "rand 0.9.4",
@@ -1828,8 +1830,11 @@ dependencies = [
  "axum-extra",
  "cb-common",
  "cb-metrics",
+ "ethereum_serde_utils 0.7.0",
+ "ethereum_ssz 0.10.3",
  "eyre",
  "futures",
+ "headers",
  "lazy_static",
  "notify",
  "parking_lot",
@@ -1841,6 +1846,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tree_hash 0.12.1",
+ "types",
  "url",
  "uuid 1.23.1",
 ]
@@ -2903,7 +2909,7 @@ dependencies = [
  "ethereum_ssz_derive 0.10.3",
  "futures",
  "futures-util",
- "mediatype",
+ "mediatype 0.19.20",
  "pretty_reqwest_error",
  "reqwest 0.12.28",
  "reqwest-eventsource 0.6.0",
@@ -3532,6 +3538,17 @@ dependencies = [
  "httpdate",
  "mime",
  "sha1",
+]
+
+[[package]]
+name = "headers-accept"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "479bcb872e714e11f72fcc6a71afadbc86d0dbe887bc44252b04cfbc63272897"
+dependencies = [
+ "headers-core",
+ "http 1.4.0",
+ "mediatype 0.20.0",
 ]
 
 [[package]]
@@ -4372,6 +4389,12 @@ name = "mediatype"
 version = "0.19.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33746aadcb41349ec291e7f2f0a3aa6834d1d7c58066fb4b01f68efc4c4b7631"
+
+[[package]]
+name = "mediatype"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f490ea2ae935dd8ac89c472d4df28c7f6b87cc20767e1b21fd5ed6a16e7f61e4"
 
 [[package]]
 name = "memchr"

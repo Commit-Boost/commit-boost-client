@@ -1,5 +1,5 @@
 use alloy::primitives::{B256, U256, b256};
-use lh_eth2::ForkVersionedResponse;
+pub use lh_eth2::ForkVersionedResponse;
 pub use lh_types::ForkName;
 use lh_types::{BlindedPayload, ExecPayload, MainnetEthSpec};
 use serde::{Deserialize, Serialize};
@@ -26,6 +26,10 @@ pub type PayloadAndBlobs = lh_eth2::types::ExecutionPayloadAndBlobs<MainnetEthSp
 pub type SubmitBlindedBlockResponse = ForkVersionedResponse<PayloadAndBlobs>;
 
 pub type ExecutionPayloadHeader = lh_types::ExecutionPayloadHeader<MainnetEthSpec>;
+pub type ExecutionPayloadHeaderBellatrix =
+    lh_types::ExecutionPayloadHeaderBellatrix<MainnetEthSpec>;
+pub type ExecutionPayloadHeaderCapella = lh_types::ExecutionPayloadHeaderCapella<MainnetEthSpec>;
+pub type ExecutionPayloadHeaderDeneb = lh_types::ExecutionPayloadHeaderDeneb<MainnetEthSpec>;
 pub type ExecutionPayloadHeaderElectra = lh_types::ExecutionPayloadHeaderElectra<MainnetEthSpec>;
 pub type ExecutionPayloadHeaderFulu = lh_types::ExecutionPayloadHeaderFulu<MainnetEthSpec>;
 pub type ExecutionPayloadHeaderRef<'a> = lh_types::ExecutionPayloadHeaderRef<'a, MainnetEthSpec>;
@@ -34,13 +38,19 @@ pub type ExecutionPayloadElectra = lh_types::ExecutionPayloadElectra<MainnetEthS
 pub type ExecutionPayloadFulu = lh_types::ExecutionPayloadFulu<MainnetEthSpec>;
 pub type SignedBuilderBid = lh_types::SignedBuilderBid<MainnetEthSpec>;
 pub type BuilderBid = lh_types::BuilderBid<MainnetEthSpec>;
+pub type BuilderBidBellatrix = lh_types::BuilderBidBellatrix<MainnetEthSpec>;
+pub type BuilderBidCapella = lh_types::BuilderBidCapella<MainnetEthSpec>;
+pub type BuilderBidDeneb = lh_types::BuilderBidDeneb<MainnetEthSpec>;
 pub type BuilderBidElectra = lh_types::BuilderBidElectra<MainnetEthSpec>;
+pub type BuilderBidFulu = lh_types::BuilderBidFulu<MainnetEthSpec>;
 
 /// Response object of GET
 /// `/eth/v1/builder/header/{slot}/{parent_hash}/{pubkey}`
 pub type GetHeaderResponse = ForkVersionedResponse<SignedBuilderBid>;
 
 pub type KzgCommitments = lh_types::KzgCommitments<MainnetEthSpec>;
+
+pub type Uint256 = lh_types::Uint256;
 
 /// Response params of GET
 /// `/eth/v1/builder/header/{slot}/{parent_hash}/{pubkey}`
