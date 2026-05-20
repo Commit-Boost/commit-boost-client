@@ -9,4 +9,4 @@
 - Test new release process (duplicate of v0.9.6)
 
 ### v0.9.8
-- Add new log the prints winning relay's id and bid amount
+- Add new log that prints winning relay's id and bid amount
