@@ -426,8 +426,8 @@ mod tests {
 
     use super::*;
     use crate::config::{
-        COMMIT_BOOST_IMAGE_DEFAULT, LogsSettings, ModuleKind, PbsConfig, StaticModuleConfig,
-        StaticPbsConfig,
+        BlockValidationMode, COMMIT_BOOST_IMAGE_DEFAULT, HeaderValidationMode, LogsSettings,
+        ModuleKind, PbsConfig, StaticModuleConfig, StaticPbsConfig,
     };
 
     // Wrapper needed because TOML requires a top-level struct (can't serialize
@@ -476,7 +476,8 @@ mod tests {
                     skip_sigverify: false,
                     min_bid_wei: Uint::<256, 4>::from(0),
                     late_in_slot_time_ms: 0,
-                    extra_validation_enabled: false,
+                    header_validation_mode: HeaderValidationMode::Standard,
+                    block_validation_mode: BlockValidationMode::Standard,
                     rpc_url: None,
                     http_timeout_seconds: 30,
                     register_validator_retry_limit: 3,

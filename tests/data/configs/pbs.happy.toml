@@ -1,6 +1,8 @@
 chain = "Holesky"
 
 [pbs]
+header_validation_mode = "standard"
+block_validation_mode = "standard"
 docker_image = "ghcr.io/commit-boost/commit-boost:latest"
 extra_validation_enabled = false
 host = "127.0.0.1"
