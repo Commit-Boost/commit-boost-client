@@ -1,7 +1,6 @@
 #[cfg(feature = "testing-flags")]
 use std::cell::Cell;
 use std::{
-    fmt::Display,
     net::Ipv4Addr,
     str::FromStr,
     sync::LazyLock,
@@ -555,16 +554,9 @@ pub const OUTBOUND_ACCEPT: &str = "application/octet-stream;q=1.0,application/js
 /// policy in one place prevents drift between those sites.
 pub const NO_PREFERENCE_DEFAULT: EncodingType = EncodingType::Json;
 
-/// Encodings the original requester is willing to accept, in descending
-/// preference order.
-///
-/// The builder spec defines exactly two media types (SSZ and JSON), so after
-/// dedup the accepted set is at most one primary plus one optional fallback.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AcceptedEncodings {
-    /// Caller's highest-preference encoding.
     pub primary: EncodingType,
-    /// Second-choice encoding, if the caller provided one.
     pub fallback: Option<EncodingType>,
 }
 
@@ -582,8 +574,6 @@ impl AcceptedEncodings {
         std::iter::once(self.primary).chain(self.fallback)
     }
 
-    /// Pick the caller's highest-preference encoding that the server supports.
-    /// Returns `None` if no overlap exists.
     pub fn preferred(self, supported: &[EncodingType]) -> Option<EncodingType> {
         self.iter().find(|a| supported.contains(a))
     }
@@ -675,6 +665,7 @@ fn accept_q_value_for_index(index: usize) -> f32 {
 }
 
 /// Format a single `Accept` header entry as `"<media-type>;q=<x.x>"`.
+#[inline]
 fn format_accept_entry(enc: EncodingType, q: f32) -> String {
     format!("{};q={:.1}", enc.content_type(), q)
 }
@@ -692,8 +683,6 @@ pub fn build_outbound_accept(preferred: AcceptedEncodings) -> String {
         .join(",")
 }
 
-/// Parse CONTENT TYPE header to get the encoding type of the body, defaulting
-/// to JSON if missing or malformed.
 pub fn get_content_type(req_headers: &HeaderMap) -> EncodingType {
     EncodingType::from_str(
         req_headers
@@ -704,7 +693,6 @@ pub fn get_content_type(req_headers: &HeaderMap) -> EncodingType {
     .unwrap_or(EncodingType::Json)
 }
 
-/// Parse CONSENSUS_VERSION header
 pub fn get_consensus_version_header(req_headers: &HeaderMap) -> Option<ForkName> {
     ForkName::from_str(
         req_headers
@@ -799,29 +787,19 @@ pub fn parse_response_encoding_and_fork(
     Ok((content_type, get_consensus_version_header(headers)))
 }
 
+#[derive(Debug, Error)]
 pub enum BodyDeserializeError {
+    #[error("JSON deserialization error: {0}")]
     SerdeJsonError(serde_json::Error),
+    #[error("SSZ deserialization error: {0:?}")]
     SszDecodeError(ssz::DecodeError),
+    #[error("unsupported media type")]
     UnsupportedMediaType,
+    #[error("missing consensus version header")]
     MissingVersionHeader,
 }
 
-impl Display for BodyDeserializeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            BodyDeserializeError::SerdeJsonError(e) => write!(f, "JSON deserialization error: {e}"),
-            BodyDeserializeError::SszDecodeError(e) => {
-                write!(f, "SSZ deserialization error: {e:?}")
-            }
-            BodyDeserializeError::UnsupportedMediaType => write!(f, "unsupported media type"),
-            BodyDeserializeError::MissingVersionHeader => {
-                write!(f, "missing consensus version header")
-            }
-        }
-    }
-}
-
-pub async fn deserialize_body(
+pub fn deserialize_body(
     headers: &HeaderMap,
     body: Bytes,
 ) -> Result<SignedBlindedBeaconBlock, BodyDeserializeError> {
@@ -900,56 +878,46 @@ pub fn bls_pubkey_from_hex_unchecked(hex: &str) -> BlsPublicKey {
 }
 
 // Get the offset of the message in a SignedBuilderBid SSZ structure
-fn get_ssz_value_offset_for_fork(fork: ForkName) -> Option<usize> {
+fn get_ssz_value_offset_for_fork(fork: ForkName) -> Result<usize, SszValueError> {
     match fork {
         ForkName::Bellatrix => {
             // Message goes header -> value -> pubkey
-            Some(
-                get_message_offset::<BuilderBidBellatrix>() +
-                    <ExecutionPayloadHeaderBellatrix as ssz::Decode>::ssz_fixed_len(),
-            )
+            Ok(get_message_offset::<BuilderBidBellatrix>() +
+                <ExecutionPayloadHeaderBellatrix as ssz::Decode>::ssz_fixed_len())
         }
 
         ForkName::Capella => {
             // Message goes header -> value -> pubkey
-            Some(
-                get_message_offset::<BuilderBidCapella>() +
-                    <ExecutionPayloadHeaderCapella as ssz::Decode>::ssz_fixed_len(),
-            )
+            Ok(get_message_offset::<BuilderBidCapella>() +
+                <ExecutionPayloadHeaderCapella as ssz::Decode>::ssz_fixed_len())
         }
 
         ForkName::Deneb => {
             // Message goes header -> blob_kzg_commitments -> value -> pubkey
-            Some(
-                get_message_offset::<BuilderBidDeneb>() +
-                    <ExecutionPayloadHeaderDeneb as ssz::Decode>::ssz_fixed_len() +
-                    <KzgCommitments as ssz::Decode>::ssz_fixed_len(),
-            )
+            Ok(get_message_offset::<BuilderBidDeneb>() +
+                <ExecutionPayloadHeaderDeneb as ssz::Decode>::ssz_fixed_len() +
+                <KzgCommitments as ssz::Decode>::ssz_fixed_len())
         }
 
         ForkName::Electra => {
             // Message goes header -> blob_kzg_commitments -> execution_requests -> value ->
             // pubkey
-            Some(
-                get_message_offset::<BuilderBidElectra>() +
-                    <ExecutionPayloadHeaderElectra as ssz::Decode>::ssz_fixed_len() +
-                    <KzgCommitments as ssz::Decode>::ssz_fixed_len() +
-                    <ExecutionRequests as ssz::Decode>::ssz_fixed_len(),
-            )
+            Ok(get_message_offset::<BuilderBidElectra>() +
+                <ExecutionPayloadHeaderElectra as ssz::Decode>::ssz_fixed_len() +
+                <KzgCommitments as ssz::Decode>::ssz_fixed_len() +
+                <ExecutionRequests as ssz::Decode>::ssz_fixed_len())
         }
 
         ForkName::Fulu => {
             // Message goes header -> blob_kzg_commitments -> execution_requests -> value ->
             // pubkey
-            Some(
-                get_message_offset::<BuilderBidFulu>() +
-                    <ExecutionPayloadHeaderFulu as ssz::Decode>::ssz_fixed_len() +
-                    <KzgCommitments as ssz::Decode>::ssz_fixed_len() +
-                    <ExecutionRequests as ssz::Decode>::ssz_fixed_len(),
-            )
+            Ok(get_message_offset::<BuilderBidFulu>() +
+                <ExecutionPayloadHeaderFulu as ssz::Decode>::ssz_fixed_len() +
+                <KzgCommitments as ssz::Decode>::ssz_fixed_len() +
+                <ExecutionRequests as ssz::Decode>::ssz_fixed_len())
         }
 
-        _ => None,
+        _ => Err(SszValueError::UnsupportedFork { name: fork.to_string() }),
     }
 }
 
@@ -958,8 +926,7 @@ pub fn get_bid_value_from_signed_builder_bid_ssz(
     response_bytes: &[u8],
     fork: ForkName,
 ) -> Result<U256, SszValueError> {
-    let value_offset = get_ssz_value_offset_for_fork(fork)
-        .ok_or(SszValueError::UnsupportedFork { name: fork.to_string() })?;
+    let value_offset = get_ssz_value_offset_for_fork(fork)?;
 
     // Sanity check the response length so we don't panic trying to slice it
     let end_offset = value_offset + 32; // U256 is 32 bytes
@@ -1825,7 +1792,7 @@ mod test {
     async fn test_deserialize_body_missing_content_type_falls_back_to_json() {
         let headers = HeaderMap::new();
         let body = Bytes::from_static(b"not json");
-        let err = deserialize_body(&headers, body).await.unwrap_err();
+        let err = deserialize_body(&headers, body).unwrap_err();
         assert!(
             matches!(err, BodyDeserializeError::SerdeJsonError(_)),
             "expected SerdeJsonError (JSON decode attempted), got: {err}"
@@ -1839,7 +1806,7 @@ mod test {
         let mut headers = HeaderMap::new();
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/plain"));
         let body = Bytes::from_static(b"hi");
-        let err = deserialize_body(&headers, body).await.unwrap_err();
+        let err = deserialize_body(&headers, body).unwrap_err();
         assert!(matches!(err, BodyDeserializeError::UnsupportedMediaType));
     }
 
@@ -1848,7 +1815,7 @@ mod test {
         let mut headers = HeaderMap::new();
         headers.insert(CONTENT_TYPE, HeaderValue::from_str(APPLICATION_OCTET_STREAM).unwrap());
         let body = Bytes::from_static(b"\x00\x01\x02\x03");
-        let err = deserialize_body(&headers, body).await.unwrap_err();
+        let err = deserialize_body(&headers, body).unwrap_err();
         assert!(matches!(err, BodyDeserializeError::MissingVersionHeader));
     }
 }

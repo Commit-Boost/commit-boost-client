@@ -31,6 +31,9 @@ pub enum PbsError {
 
     #[error("tokio join error: {0}")]
     TokioJoinError(#[from] tokio::task::JoinError),
+
+    #[error("SSZ error: {0}")]
+    SszError(#[from] SszValueError),
 }
 
 impl PbsError {
@@ -118,17 +121,4 @@ pub enum SszValueError {
 
     #[error("unsupported fork")]
     UnsupportedFork { name: String },
-}
-
-impl From<SszValueError> for PbsError {
-    fn from(err: SszValueError) -> Self {
-        match err {
-            SszValueError::InvalidPayloadLength { required, actual } => PbsError::GeneralRequest(
-                format!("invalid payload length: required {required} but payload was {actual}"),
-            ),
-            SszValueError::UnsupportedFork { name } => {
-                PbsError::GeneralRequest(format!("unsupported fork: {name}"))
-            }
-        }
-    }
 }
