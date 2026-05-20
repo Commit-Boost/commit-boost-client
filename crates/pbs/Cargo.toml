@@ -31,3 +31,4 @@ tracing.workspace = true
 tree_hash.workspace = true
 url.workspace = true
 uuid.workspace = true
+thiserror.workspace = true

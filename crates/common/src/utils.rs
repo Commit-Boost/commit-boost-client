@@ -3,7 +3,6 @@ use std::cell::Cell;
 use std::{
     net::Ipv4Addr,
     str::FromStr,
-    sync::LazyLock,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -644,7 +643,7 @@ pub fn get_accept_types(req_headers: &HeaderMap) -> eyre::Result<AcceptedEncodin
     }
 
     if saw_any && !had_supported {
-        return Err(eyre::eyre!("unsupported accept type"));
+        eyre::bail!("unsupported accept type");
     }
 
     // No accept header (or only q=0 rejections): fall back to the request
@@ -717,16 +716,10 @@ impl EncodingType {
         }
     }
 
-    /// Pre-built `Content-Type` header for this encoding. `HeaderValue` is
-    /// not `const`-constructible in stable Rust, so the values are
-    /// lazy-initialized once per process via `LazyLock` from static ASCII
-    /// strings. Callers can clone the returned reference cheaply (the
-    /// underlying bytes are shared).
+    /// Pre-built `Content-Type` header for this encoding.
     pub fn content_type_header(&self) -> &'static HeaderValue {
-        static JSON_HEADER: LazyLock<HeaderValue> =
-            LazyLock::new(|| HeaderValue::from_static(APPLICATION_JSON));
-        static SSZ_HEADER: LazyLock<HeaderValue> =
-            LazyLock::new(|| HeaderValue::from_static(APPLICATION_OCTET_STREAM));
+        static JSON_HEADER: HeaderValue = HeaderValue::from_static(APPLICATION_JSON);
+        static SSZ_HEADER: HeaderValue = HeaderValue::from_static(APPLICATION_OCTET_STREAM);
         match self {
             EncodingType::Json => &JSON_HEADER,
             EncodingType::Ssz => &SSZ_HEADER,
@@ -917,7 +910,7 @@ fn get_ssz_value_offset_for_fork(fork: ForkName) -> Result<usize, SszValueError>
                 <ExecutionRequests as ssz::Decode>::ssz_fixed_len())
         }
 
-        _ => Err(SszValueError::UnsupportedFork { name: fork.to_string() }),
+        _ => Err(SszValueError::UnsupportedFork { name: fork }),
     }
 }
 

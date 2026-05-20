@@ -50,8 +50,6 @@ pub type GetHeaderResponse = ForkVersionedResponse<SignedBuilderBid>;
 
 pub type KzgCommitments = lh_types::KzgCommitments<MainnetEthSpec>;
 
-pub type Uint256 = lh_types::Uint256;
-
 /// Response params of GET
 /// `/eth/v1/builder/header/{slot}/{parent_hash}/{pubkey}`
 #[derive(Debug, Serialize, Deserialize, Clone)]

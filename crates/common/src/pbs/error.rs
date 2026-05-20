@@ -1,4 +1,5 @@
 use alloy::primitives::{B256, U256};
+use lh_types::ForkName;
 use thiserror::Error;
 
 use crate::{types::BlsPublicKeyBytes, utils::ResponseReadError};
@@ -116,6 +117,6 @@ pub enum SszValueError {
     #[error("invalid payload length: required {required} but payload was {actual}")]
     InvalidPayloadLength { required: usize, actual: usize },
 
-    #[error("unsupported fork")]
-    UnsupportedFork { name: String },
+    #[error("unsupported fork: {name}")]
+    UnsupportedFork { name: ForkName },
 }
