@@ -3,7 +3,8 @@ use std::sync::Arc;
 use axum::{Json, extract::State, http::HeaderMap, response::IntoResponse};
 use cb_common::{
     pbs::{BuilderApiVersion, GetPayloadInfo, SignedBlindedBeaconBlock},
-    utils::{get_user_agent, timestamp_of_slot_start_millis, utcnow_ms},
+    utils::{timestamp_of_slot_start_millis, utcnow_ms},
+    wire::get_user_agent,
 };
 use reqwest::StatusCode;
 use tracing::{error, info, trace};

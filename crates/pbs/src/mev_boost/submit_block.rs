@@ -13,7 +13,8 @@ use cb_common::{
         SubmitBlindedBlockResponse,
         error::{PbsError, ValidationError},
     },
-    utils::{get_user_agent_with_version, read_chunked_body_with_max, utcnow_ms},
+    utils::utcnow_ms,
+    wire::{get_user_agent_with_version, read_chunked_body_with_max},
 };
 use futures::{FutureExt, future::select_ok};
 use reqwest::header::USER_AGENT;

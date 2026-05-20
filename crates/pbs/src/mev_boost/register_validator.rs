@@ -4,7 +4,8 @@ use alloy::primitives::Bytes;
 use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
     pbs::{HEADER_START_TIME_UNIX_MS, RelayClient, error::PbsError},
-    utils::{get_user_agent_with_version, read_chunked_body_with_max, utcnow_ms},
+    utils::utcnow_ms,
+    wire::{get_user_agent_with_version, read_chunked_body_with_max},
 };
 use eyre::bail;
 use futures::{

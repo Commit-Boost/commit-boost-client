@@ -7,7 +7,9 @@ pub mod interop;
 pub mod pbs;
 pub mod signature;
 pub mod signer;
+pub mod ssz;
 pub mod types;
 pub mod utils;
+pub mod wire;
 
 pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(12);

@@ -1,5 +1,5 @@
 use axum::{http::StatusCode, response::IntoResponse};
-use cb_common::utils::BodyDeserializeError;
+use cb_common::wire::BodyDeserializeError;
 use thiserror::Error;
 
 #[derive(Debug, Error)]

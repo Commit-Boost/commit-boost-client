@@ -2,7 +2,7 @@ use alloy::primitives::{B256, U256};
 use lh_types::ForkName;
 use thiserror::Error;
 
-use crate::{types::BlsPublicKeyBytes, utils::ResponseReadError};
+use crate::{types::BlsPublicKeyBytes, wire::ResponseReadError};
 
 #[derive(Debug, Error)]
 pub enum PbsError {

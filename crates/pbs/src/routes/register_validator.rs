@@ -1,5 +1,5 @@
 use axum::{Json, extract::State, http::HeaderMap, response::IntoResponse};
-use cb_common::utils::get_user_agent;
+use cb_common::wire::get_user_agent;
 use reqwest::StatusCode;
 use tracing::{error, info, trace};
 

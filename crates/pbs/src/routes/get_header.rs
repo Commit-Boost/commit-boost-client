@@ -6,7 +6,8 @@ use axum::{
 };
 use cb_common::{
     pbs::{GetHeaderInfo, GetHeaderParams},
-    utils::{get_user_agent, ms_into_slot},
+    utils::ms_into_slot,
+    wire::get_user_agent,
 };
 use reqwest::StatusCode;
 use tracing::{error, info};

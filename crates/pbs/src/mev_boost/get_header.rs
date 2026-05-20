@@ -18,10 +18,8 @@ use cb_common::{
     },
     signature::verify_signed_message,
     types::{BlsPublicKey, BlsPublicKeyBytes, BlsSignature, Chain},
-    utils::{
-        get_user_agent_with_version, ms_into_slot, read_chunked_body_with_max,
-        timestamp_of_slot_start_sec, utcnow_ms,
-    },
+    utils::{ms_into_slot, timestamp_of_slot_start_sec, utcnow_ms},
+    wire::{get_user_agent_with_version, read_chunked_body_with_max},
 };
 use futures::future::join_all;
 use parking_lot::RwLock;

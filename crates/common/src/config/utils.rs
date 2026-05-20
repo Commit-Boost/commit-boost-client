@@ -9,7 +9,7 @@ use serde::de::DeserializeOwned;
 use crate::{
     config::{ADMIN_JWT_ENV, JWTS_ENV, MUXER_HTTP_MAX_LENGTH},
     types::{BlsPublicKey, ModuleId},
-    utils::read_chunked_body_with_max,
+    wire::read_chunked_body_with_max,
 };
 
 pub fn load_env_var(env: &str) -> Result<String> {
