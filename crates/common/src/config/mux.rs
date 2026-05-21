@@ -18,13 +18,14 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 use url::Url;
 
-use super::{MUX_PATH_ENV, PbsConfig, RelayConfig, load_optional_env_var};
+use super::{MUX_PATH_ENV, MUXER_HTTP_MAX_LENGTH, PbsConfig, RelayConfig, load_optional_env_var};
 use crate::{
-    config::{remove_duplicate_keys, safe_read_http_response},
+    config::remove_duplicate_keys,
     interop::{lido::utils::*, ssv::utils::*},
     pbs::RelayClient,
     types::{BlsPublicKey, Chain},
     utils::default_bool,
+    wire::read_chunked_body_with_max,
 };
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -156,7 +157,7 @@ pub struct MuxConfig {
 
 impl MuxConfig {
     /// Returns the env, actual path, and internal path to use for the file
-    /// loader. In File mode, validates the mux file prior to returning.   
+    /// loader. In File mode, validates the mux file prior to returning.
     pub fn loader_env(&self) -> eyre::Result<Option<(String, String, String)>> {
         let Some(loader) = self.loader.as_ref() else {
             return Ok(None);
@@ -237,7 +238,16 @@ impl MuxKeysLoader {
                 }
                 let client = reqwest::ClientBuilder::new().timeout(http_timeout).build()?;
                 let response = client.get(url).send().await?;
-                let pubkey_bytes = safe_read_http_response(response).await?;
+                let status = response.status();
+                let pubkey_bytes = read_chunked_body_with_max(response, MUXER_HTTP_MAX_LENGTH)
+                    .await
+                    .wrap_err("Failed to read response body")?;
+                if !status.is_success() {
+                    bail!(
+                        "Request failed with status: {status}, body: {}",
+                        String::from_utf8_lossy(&pubkey_bytes)
+                    );
+                }
                 serde_json::from_slice(&pubkey_bytes)
                     .wrap_err("failed to fetch mux keys from HTTP endpoint")
             }

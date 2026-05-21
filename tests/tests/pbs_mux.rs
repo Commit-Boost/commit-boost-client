@@ -86,10 +86,9 @@ async fn test_ssv_network_fetch_big_data() -> Result<()> {
             panic!("Expected an error due to big content length, but got a successful response")
         }
         Err(e) => match e.downcast_ref::<ResponseReadError>() {
-            Some(ResponseReadError::PayloadTooLarge { max, content_length, raw }) => {
+            Some(ResponseReadError::PayloadTooLarge { max, content_length }) => {
                 assert_eq!(*max, MUXER_HTTP_MAX_LENGTH);
                 assert!(*content_length > MUXER_HTTP_MAX_LENGTH);
-                assert!(raw.is_empty());
             }
             _ => panic!("Expected PayloadTooLarge error, got: {}", e),
         },
@@ -147,10 +146,9 @@ async fn test_ssv_network_fetch_big_data_without_content_length() -> Result<()> 
             panic!("Expected an error due to excessive data, but got a successful response")
         }
         Err(e) => match e.downcast_ref::<ResponseReadError>() {
-            Some(ResponseReadError::PayloadTooLarge { max, content_length, raw }) => {
+            Some(ResponseReadError::PayloadTooLarge { max, content_length }) => {
                 assert_eq!(*max, MUXER_HTTP_MAX_LENGTH);
                 assert_eq!(*content_length, 0);
-                assert!(!raw.is_empty());
             }
             _ => panic!("Expected PayloadTooLarge error, got: {}", e),
         },

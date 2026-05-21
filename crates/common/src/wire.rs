@@ -23,10 +23,8 @@ pub const CONSENSUS_VERSION_HEADER: &str = "Eth-Consensus-Version";
 
 #[derive(Debug, Error)]
 pub enum ResponseReadError {
-    #[error(
-        "response size exceeds max size; max: {max}, content_length: {content_length}, raw: {raw}"
-    )]
-    PayloadTooLarge { max: usize, content_length: usize, raw: String },
+    #[error("response size exceeds max size; max: {max}, content_length: {content_length}")]
+    PayloadTooLarge { max: usize, content_length: usize },
 
     #[error("error reading response stream: {0}")]
     ReqwestError(#[from] reqwest::Error),
@@ -74,7 +72,6 @@ pub async fn read_chunked_body_with_max(
         return Err(ResponseReadError::PayloadTooLarge {
             max: max_size,
             content_length: length as usize,
-            raw: String::new(), // raw content is not available here
         });
     }
 
@@ -89,7 +86,6 @@ pub async fn read_chunked_body_with_max(
             return Err(ResponseReadError::PayloadTooLarge {
                 max: max_size,
                 content_length: content_length.unwrap_or(0) as usize,
-                raw: String::from_utf8_lossy(&response_bytes).into_owned(),
             });
         }
 

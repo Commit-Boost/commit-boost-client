@@ -1,13 +1,14 @@
 use std::time::Duration;
 
 use alloy::primitives::U256;
-use eyre::Context;
+use eyre::{Context, bail};
 use serde_json::json;
 use url::Url;
 
 use crate::{
-    config::safe_read_http_response,
+    config::MUXER_HTTP_MAX_LENGTH,
     interop::ssv::types::{SSVNodeResponse, SSVPublicResponse},
+    wire::read_chunked_body_with_max,
 };
 
 pub async fn request_ssv_pubkeys_from_ssv_node(
@@ -28,7 +29,16 @@ pub async fn request_ssv_pubkeys_from_ssv_node(
     })?;
 
     // Parse the response as JSON
-    let body_bytes = safe_read_http_response(response).await?;
+    let status = response.status();
+    let body_bytes = read_chunked_body_with_max(response, MUXER_HTTP_MAX_LENGTH)
+        .await
+        .wrap_err("Failed to read response body")?;
+    if !status.is_success() {
+        bail!(
+            "Request failed with status: {status}, body: {}",
+            String::from_utf8_lossy(&body_bytes)
+        );
+    }
     serde_json::from_slice::<SSVNodeResponse>(&body_bytes).wrap_err("failed to parse SSV response")
 }
 
@@ -46,7 +56,16 @@ pub async fn request_ssv_pubkeys_from_public_api(
     })?;
 
     // Parse the response as JSON
-    let body_bytes = safe_read_http_response(response).await?;
+    let status = response.status();
+    let body_bytes = read_chunked_body_with_max(response, MUXER_HTTP_MAX_LENGTH)
+        .await
+        .wrap_err("Failed to read response body")?;
+    if !status.is_success() {
+        bail!(
+            "Request failed with status: {status}, body: {}",
+            String::from_utf8_lossy(&body_bytes)
+        );
+    }
     serde_json::from_slice::<SSVPublicResponse>(&body_bytes)
         .wrap_err("failed to parse SSV response")
 }

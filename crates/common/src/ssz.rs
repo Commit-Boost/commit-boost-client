@@ -1,21 +1,12 @@
 use alloy::primitives::U256;
 use lh_bls::Signature;
 use lh_types::ForkName;
-use ssz::{BYTES_PER_LENGTH_OFFSET, Decode, Encode};
+use ssz::BYTES_PER_LENGTH_OFFSET;
 
 use crate::pbs::{
     BuilderBidFulu, ExecutionPayloadHeaderFulu, ExecutionRequests, KzgCommitments,
     error::SszValueError,
 };
-
-/// Test that SSZ encoding and decoding round-trips, returning the decoded
-/// struct.
-pub fn test_encode_decode_ssz<T: Encode + Decode>(d: &[u8]) -> T {
-    let decoded = T::from_ssz_bytes(d).expect("deserialize");
-    let encoded = T::as_ssz_bytes(&decoded);
-    assert_eq!(encoded, d);
-    decoded
-}
 
 // Get the offset of the message in a SignedBuilderBid SSZ structure
 fn get_ssz_value_offset_for_fork(fork: ForkName) -> Result<usize, SszValueError> {
