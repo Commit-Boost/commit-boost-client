@@ -1,0 +1,2 @@
+commit: "efda6a67f43b0ddb400c454a65b055d59acc7d6c"
+reason: "Substantial change to harden security in the signer service, improve build and release process, quality of life improvements to logging, and more support for SSV integrations. Contains breaking changes to the signer service and how the CLI is invoked."
