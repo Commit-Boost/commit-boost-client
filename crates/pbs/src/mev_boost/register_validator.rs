@@ -5,7 +5,7 @@ use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
     pbs::{HEADER_START_TIME_UNIX_MS, RelayClient, error::PbsError},
     utils::utcnow_ms,
-    wire::{get_user_agent_with_version, read_chunked_body_with_max},
+    wire::{get_user_agent_with_version, safe_read_http_response},
 };
 use eyre::bail;
 use futures::{
@@ -187,17 +187,9 @@ async fn send_register_validator(
         .with_label_values(&[code.as_str(), REGISTER_VALIDATOR_ENDPOINT_TAG, &relay.id])
         .inc();
 
-    if !code.is_success() {
-        let response_bytes = read_chunked_body_with_max(res, MAX_SIZE_DEFAULT).await?;
-        let err = PbsError::RelayResponse {
-            error_msg: String::from_utf8_lossy(&response_bytes).into_owned(),
-            code: code.as_u16(),
-        };
-
-        // error here since we check if any success above
-        error!(relay_id = relay.id.as_ref(), retry, %err, "failed registration");
-        return Err(err);
-    };
+    safe_read_http_response(res, MAX_SIZE_DEFAULT, relay.id.as_ref()).await.inspect_err(|e| {
+        error!(relay_id = relay.id.as_ref(), retry, %e, "failed registration");
+    })?;
 
     debug!(
         relay_id = relay.id.as_ref(),

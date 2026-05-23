@@ -19,7 +19,7 @@ use cb_common::{
     signature::verify_signed_message,
     types::{BlsPublicKey, BlsPublicKeyBytes, BlsSignature, Chain},
     utils::{ms_into_slot, timestamp_of_slot_start_sec, utcnow_ms},
-    wire::{get_user_agent_with_version, read_chunked_body_with_max},
+    wire::{get_user_agent_with_version, safe_read_http_response},
 };
 use futures::future::join_all;
 use parking_lot::RwLock;
@@ -351,14 +351,9 @@ async fn send_one_get_header(
     let code = res.status();
     RELAY_STATUS_CODE.with_label_values(&[code.as_str(), GET_HEADER_ENDPOINT_TAG, &relay.id]).inc();
 
-    let response_bytes = read_chunked_body_with_max(res, MAX_SIZE_GET_HEADER_RESPONSE).await?;
+    let response_bytes =
+        safe_read_http_response(res, MAX_SIZE_GET_HEADER_RESPONSE, relay.id.as_ref()).await?;
     let header_size_bytes = response_bytes.len();
-    if !code.is_success() {
-        return Err(PbsError::RelayResponse {
-            error_msg: String::from_utf8_lossy(&response_bytes).into_owned(),
-            code: code.as_u16(),
-        });
-    };
     if code == StatusCode::NO_CONTENT {
         debug!(
             relay_id = relay.id.as_ref(),

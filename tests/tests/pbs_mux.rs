@@ -78,7 +78,7 @@ async fn test_ssv_network_fetch_big_data() -> Result<()> {
     let server_handle =
         cb_tests::mock_ssv_public::create_mock_public_ssv_server(port, None).await?;
     let url = Url::parse(&format!("http://localhost:{port}/big_data")).unwrap();
-    let response = request_ssv_pubkeys_from_public_api(url, Duration::from_secs(120)).await;
+    let response = request_ssv_pubkeys_from_public_api(url.clone(), Duration::from_secs(120)).await;
 
     // The response should fail due to content length being too big
     match response {
@@ -86,9 +86,17 @@ async fn test_ssv_network_fetch_big_data() -> Result<()> {
             panic!("Expected an error due to big content length, but got a successful response")
         }
         Err(e) => match e.downcast_ref::<ResponseReadError>() {
-            Some(ResponseReadError::PayloadTooLarge { max, content_length }) => {
+            Some(ResponseReadError::PayloadTooLarge {
+                max,
+                content_length,
+                request_url,
+                request_id,
+            }) => {
                 assert_eq!(*max, MUXER_HTTP_MAX_LENGTH);
                 assert!(*content_length > MUXER_HTTP_MAX_LENGTH);
+                assert_eq!(url.as_str(), request_url.as_str());
+                // url used as request id
+                assert_eq!(request_id.as_str(), request_url.as_str());
             }
             _ => panic!("Expected PayloadTooLarge error, got: {}", e),
         },
@@ -138,7 +146,7 @@ async fn test_ssv_network_fetch_big_data_without_content_length() -> Result<()> 
     set_ignore_content_length(true);
     let server_handle = create_mock_public_ssv_server(port, None).await?;
     let url = Url::parse(&format!("http://localhost:{port}/big_data")).unwrap();
-    let response = request_ssv_pubkeys_from_public_api(url, Duration::from_secs(120)).await;
+    let response = request_ssv_pubkeys_from_public_api(url.clone(), Duration::from_secs(120)).await;
 
     // The response should fail due to the body being too big
     match response {
@@ -146,9 +154,17 @@ async fn test_ssv_network_fetch_big_data_without_content_length() -> Result<()> 
             panic!("Expected an error due to excessive data, but got a successful response")
         }
         Err(e) => match e.downcast_ref::<ResponseReadError>() {
-            Some(ResponseReadError::PayloadTooLarge { max, content_length }) => {
+            Some(ResponseReadError::PayloadTooLarge {
+                max,
+                content_length,
+                request_url,
+                request_id,
+            }) => {
                 assert_eq!(*max, MUXER_HTTP_MAX_LENGTH);
                 assert_eq!(*content_length, 0);
+                assert_eq!(url.as_str(), request_url.as_str());
+                // url used as request id
+                assert_eq!(request_id.as_str(), request_url.as_str());
             }
             _ => panic!("Expected PayloadTooLarge error, got: {}", e),
         },

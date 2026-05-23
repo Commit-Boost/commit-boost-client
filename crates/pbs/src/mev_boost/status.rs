@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use axum::http::HeaderMap;
 use cb_common::{
     pbs::{RelayClient, error::PbsError},
-    wire::{get_user_agent_with_version, read_chunked_body_with_max},
+    wire::{get_user_agent_with_version, safe_read_http_response},
 };
 use futures::future::select_ok;
 use reqwest::header::USER_AGENT;
@@ -73,16 +73,9 @@ async fn send_relay_check(relay: &RelayClient, headers: HeaderMap) -> Result<(),
     let code = res.status();
     RELAY_STATUS_CODE.with_label_values(&[code.as_str(), STATUS_ENDPOINT_TAG, &relay.id]).inc();
 
-    if !code.is_success() {
-        let response_bytes = read_chunked_body_with_max(res, MAX_SIZE_DEFAULT).await?;
-        let err = PbsError::RelayResponse {
-            error_msg: String::from_utf8_lossy(&response_bytes).into_owned(),
-            code: code.as_u16(),
-        };
-
-        error!(relay_id = relay.id.as_ref(),%err, "status failed");
-        return Err(err);
-    };
+    safe_read_http_response(res, MAX_SIZE_DEFAULT, relay.id.as_ref()).await.inspect_err(|e| {
+        error!(relay_id = relay.id.as_ref(), %e, "status failed");
+    })?;
 
     debug!(relay_id = relay.id.as_ref(),?code, latency = ?request_latency, "status passed");
 

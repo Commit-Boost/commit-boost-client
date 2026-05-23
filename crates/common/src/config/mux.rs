@@ -25,7 +25,7 @@ use crate::{
     pbs::RelayClient,
     types::{BlsPublicKey, Chain},
     utils::default_bool,
-    wire::read_chunked_body_with_max,
+    wire::safe_read_http_response,
 };
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -236,18 +236,11 @@ impl MuxKeysLoader {
                         "Mux keys URL {url} is insecure; consider using HTTPS if possible instead"
                     );
                 }
+                let url = url.as_str();
                 let client = reqwest::ClientBuilder::new().timeout(http_timeout).build()?;
                 let response = client.get(url).send().await?;
-                let status = response.status();
-                let pubkey_bytes = read_chunked_body_with_max(response, MUXER_HTTP_MAX_LENGTH)
-                    .await
-                    .wrap_err("Failed to read response body")?;
-                if !status.is_success() {
-                    bail!(
-                        "Request failed with status: {status}, body: {}",
-                        String::from_utf8_lossy(&pubkey_bytes)
-                    );
-                }
+                let pubkey_bytes =
+                    safe_read_http_response(response, MUXER_HTTP_MAX_LENGTH, url).await?;
                 serde_json::from_slice(&pubkey_bytes)
                     .wrap_err("failed to fetch mux keys from HTTP endpoint")
             }

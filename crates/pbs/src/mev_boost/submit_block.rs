@@ -14,7 +14,7 @@ use cb_common::{
         error::{PbsError, ValidationError},
     },
     utils::utcnow_ms,
-    wire::{get_user_agent_with_version, read_chunked_body_with_max},
+    wire::{get_user_agent_with_version, safe_read_http_response},
 };
 use futures::{FutureExt, future::select_ok};
 use reqwest::header::USER_AGENT;
@@ -201,17 +201,11 @@ async fn send_submit_block(
         .with_label_values(&[code.as_str(), SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG, &relay.id])
         .inc();
 
-    let response_bytes = read_chunked_body_with_max(res, MAX_SIZE_SUBMIT_BLOCK_RESPONSE).await?;
-    if !code.is_success() {
-        let err = PbsError::RelayResponse {
-            error_msg: String::from_utf8_lossy(&response_bytes).into_owned(),
-            code: code.as_u16(),
-        };
-
-        // we requested the payload from all relays, but some may have not received it
-        warn!(relay_id = relay.id.as_ref(), retry, %err, "failed to get payload (this might be ok if other relays have it)");
-        return Err(err);
-    };
+    let response_bytes = safe_read_http_response(res, MAX_SIZE_SUBMIT_BLOCK_RESPONSE, relay.id.as_ref())
+        .await
+        .inspect_err(|e| {
+            warn!(relay_id = relay.id.as_ref(), retry, %e, "failed to get payload (this might be ok if other relays have it)");
+        })?;
 
     if api_version != &BuilderApiVersion::V1 {
         // v2 response is going to be empty, so just break here
