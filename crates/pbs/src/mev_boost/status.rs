@@ -73,7 +73,7 @@ async fn send_relay_check(relay: &RelayClient, headers: HeaderMap) -> Result<(),
     let code = res.status();
     RELAY_STATUS_CODE.with_label_values(&[code.as_str(), STATUS_ENDPOINT_TAG, &relay.id]).inc();
 
-    safe_read_http_response(res, MAX_SIZE_DEFAULT, relay.id.as_ref()).await.inspect_err(|e| {
+    safe_read_http_response(res, MAX_SIZE_DEFAULT).await.inspect_err(|e| {
         error!(relay_id = relay.id.as_ref(), %e, "status failed");
     })?;
 

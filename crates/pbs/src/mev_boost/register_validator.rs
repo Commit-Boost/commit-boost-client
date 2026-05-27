@@ -187,7 +187,7 @@ async fn send_register_validator(
         .with_label_values(&[code.as_str(), REGISTER_VALIDATOR_ENDPOINT_TAG, &relay.id])
         .inc();
 
-    safe_read_http_response(res, MAX_SIZE_DEFAULT, relay.id.as_ref()).await.inspect_err(|e| {
+    safe_read_http_response(res, MAX_SIZE_DEFAULT).await.inspect_err(|e| {
         error!(relay_id = relay.id.as_ref(), retry, %e, "failed registration");
     })?;
 

@@ -201,7 +201,7 @@ async fn send_submit_block(
         .with_label_values(&[code.as_str(), SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG, &relay.id])
         .inc();
 
-    let response_bytes = safe_read_http_response(res, MAX_SIZE_SUBMIT_BLOCK_RESPONSE, relay.id.as_ref())
+    let response_bytes = safe_read_http_response(res, MAX_SIZE_SUBMIT_BLOCK_RESPONSE)
         .await
         .inspect_err(|e| {
             warn!(relay_id = relay.id.as_ref(), retry, %e, "failed to get payload (this might be ok if other relays have it)");

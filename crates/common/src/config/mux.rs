@@ -239,8 +239,7 @@ impl MuxKeysLoader {
                 let url = url.as_str();
                 let client = reqwest::ClientBuilder::new().timeout(http_timeout).build()?;
                 let response = client.get(url).send().await?;
-                let pubkey_bytes =
-                    safe_read_http_response(response, MUXER_HTTP_MAX_LENGTH, url).await?;
+                let pubkey_bytes = safe_read_http_response(response, MUXER_HTTP_MAX_LENGTH).await?;
                 serde_json::from_slice(&pubkey_bytes)
                     .wrap_err("failed to fetch mux keys from HTTP endpoint")
             }
@@ -472,8 +471,7 @@ async fn fetch_ssv_pubkeys_from_public_api(
         );
         let url = url.join(&route).wrap_err("failed to construct SSV API URL")?;
 
-        let response =
-            request_ssv_pubkeys_from_public_api(url, node_operator_id, http_timeout).await?;
+        let response = request_ssv_pubkeys_from_public_api(url, http_timeout).await?;
         let fetched = response.validators.len();
         if expected_total.is_none() && fetched > 0 {
             expected_total = Some(response.pagination.total);

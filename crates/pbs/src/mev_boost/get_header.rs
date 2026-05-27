@@ -351,8 +351,7 @@ async fn send_one_get_header(
     let code = res.status();
     RELAY_STATUS_CODE.with_label_values(&[code.as_str(), GET_HEADER_ENDPOINT_TAG, &relay.id]).inc();
 
-    let response_bytes =
-        safe_read_http_response(res, MAX_SIZE_GET_HEADER_RESPONSE, relay.id.as_ref()).await?;
+    let response_bytes = safe_read_http_response(res, MAX_SIZE_GET_HEADER_RESPONSE).await?;
     let header_size_bytes = response_bytes.len();
     if code == StatusCode::NO_CONTENT {
         debug!(
