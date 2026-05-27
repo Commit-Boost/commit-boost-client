@@ -472,7 +472,8 @@ async fn fetch_ssv_pubkeys_from_public_api(
         );
         let url = url.join(&route).wrap_err("failed to construct SSV API URL")?;
 
-        let response = request_ssv_pubkeys_from_public_api(url, http_timeout).await?;
+        let response =
+            request_ssv_pubkeys_from_public_api(url, node_operator_id, http_timeout).await?;
         let fetched = response.validators.len();
         if expected_total.is_none() && fetched > 0 {
             expected_total = Some(response.pagination.total);

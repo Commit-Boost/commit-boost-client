@@ -16,7 +16,6 @@ pub async fn request_ssv_pubkeys_from_ssv_node(
     node_operator_id: U256,
     http_timeout: Duration,
 ) -> eyre::Result<SSVNodeResponse> {
-    let url = url.as_str();
     let client = reqwest::ClientBuilder::new().timeout(http_timeout).build()?;
     let body = json!({
         "operators": [node_operator_id]
@@ -30,15 +29,17 @@ pub async fn request_ssv_pubkeys_from_ssv_node(
     })?;
 
     // Parse the response as JSON
-    let body_bytes = safe_read_http_response(response, MUXER_HTTP_MAX_LENGTH, url).await?;
+    let body_bytes =
+        safe_read_http_response(response, MUXER_HTTP_MAX_LENGTH, &node_operator_id.to_string())
+            .await?;
     serde_json::from_slice::<SSVNodeResponse>(&body_bytes).wrap_err("failed to parse SSV response")
 }
 
 pub async fn request_ssv_pubkeys_from_public_api(
     url: Url,
+    node_operator_id: U256,
     http_timeout: Duration,
 ) -> eyre::Result<SSVPublicResponse> {
-    let url = url.as_str();
     let client = reqwest::ClientBuilder::new().timeout(http_timeout).build()?;
     let response = client.get(url).send().await.map_err(|e| {
         if e.is_timeout() {
@@ -49,7 +50,9 @@ pub async fn request_ssv_pubkeys_from_public_api(
     })?;
 
     // Parse the response as JSON
-    let body_bytes = safe_read_http_response(response, MUXER_HTTP_MAX_LENGTH, url).await?;
+    let body_bytes =
+        safe_read_http_response(response, MUXER_HTTP_MAX_LENGTH, &node_operator_id.to_string())
+            .await?;
     serde_json::from_slice::<SSVPublicResponse>(&body_bytes)
         .wrap_err("failed to parse SSV response")
 }

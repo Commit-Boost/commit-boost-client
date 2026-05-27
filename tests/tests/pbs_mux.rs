@@ -41,9 +41,13 @@ async fn test_ssv_public_network_fetch() -> Result<()> {
     let url =
         Url::parse(&format!("http://localhost:{port}/api/v4/test_chain/validators/in_operator/1"))
             .unwrap();
-    let response =
-        request_ssv_pubkeys_from_public_api(url, Duration::from_secs(HTTP_TIMEOUT_SECONDS_DEFAULT))
-            .await?;
+    let node_operator_id = U256::from(0);
+    let response = request_ssv_pubkeys_from_public_api(
+        url,
+        node_operator_id,
+        Duration::from_secs(HTTP_TIMEOUT_SECONDS_DEFAULT),
+    )
+    .await?;
 
     // Make sure the response is correct
     // NOTE: requires that ssv_valid_public.json doesn't change
@@ -78,7 +82,13 @@ async fn test_ssv_network_fetch_big_data() -> Result<()> {
     let server_handle =
         cb_tests::mock_ssv_public::create_mock_public_ssv_server(port, None).await?;
     let url = Url::parse(&format!("http://localhost:{port}/big_data")).unwrap();
-    let response = request_ssv_pubkeys_from_public_api(url.clone(), Duration::from_secs(120)).await;
+    let node_operator_id = U256::from(0);
+    let response = request_ssv_pubkeys_from_public_api(
+        url.clone(),
+        node_operator_id,
+        Duration::from_secs(120),
+    )
+    .await;
 
     // The response should fail due to content length being too big
     match response {
@@ -90,13 +100,12 @@ async fn test_ssv_network_fetch_big_data() -> Result<()> {
                 max,
                 content_length,
                 request_url,
-                request_id,
+                request_context,
             }) => {
                 assert_eq!(*max, MUXER_HTTP_MAX_LENGTH);
                 assert!(*content_length > MUXER_HTTP_MAX_LENGTH);
                 assert_eq!(url.as_str(), request_url.as_str());
-                // url used as request id
-                assert_eq!(request_id.as_str(), request_url.as_str());
+                assert_eq!(request_context.as_str(), node_operator_id.to_string());
             }
             _ => panic!("Expected PayloadTooLarge error, got: {}", e),
         },
@@ -122,8 +131,13 @@ async fn test_ssv_network_fetch_timeout() -> Result<()> {
     let url =
         Url::parse(&format!("http://localhost:{port}/api/v4/test_chain/validators/in_operator/1"))
             .unwrap();
-    let response =
-        request_ssv_pubkeys_from_public_api(url, Duration::from_secs(TEST_HTTP_TIMEOUT)).await;
+    let node_operator_id = U256::from(0);
+    let response = request_ssv_pubkeys_from_public_api(
+        url,
+        node_operator_id,
+        Duration::from_secs(TEST_HTTP_TIMEOUT),
+    )
+    .await;
 
     // The response should fail due to timeout
     assert!(response.is_err(), "Expected timeout error, but got success");
@@ -146,7 +160,13 @@ async fn test_ssv_network_fetch_big_data_without_content_length() -> Result<()> 
     set_ignore_content_length(true);
     let server_handle = create_mock_public_ssv_server(port, None).await?;
     let url = Url::parse(&format!("http://localhost:{port}/big_data")).unwrap();
-    let response = request_ssv_pubkeys_from_public_api(url.clone(), Duration::from_secs(120)).await;
+    let node_operator_id = U256::from(0);
+    let response = request_ssv_pubkeys_from_public_api(
+        url.clone(),
+        node_operator_id,
+        Duration::from_secs(120),
+    )
+    .await;
 
     // The response should fail due to the body being too big
     match response {
@@ -158,13 +178,12 @@ async fn test_ssv_network_fetch_big_data_without_content_length() -> Result<()> 
                 max,
                 content_length,
                 request_url,
-                request_id,
+                request_context,
             }) => {
                 assert_eq!(*max, MUXER_HTTP_MAX_LENGTH);
                 assert_eq!(*content_length, 0);
                 assert_eq!(url.as_str(), request_url.as_str());
-                // url used as request id
-                assert_eq!(request_id.as_str(), request_url.as_str());
+                assert_eq!(request_context.as_str(), node_operator_id.to_string());
             }
             _ => panic!("Expected PayloadTooLarge error, got: {}", e),
         },

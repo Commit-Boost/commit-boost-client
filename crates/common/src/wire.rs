@@ -24,17 +24,22 @@ pub const CONSENSUS_VERSION_HEADER: &str = "Eth-Consensus-Version";
 #[derive(Debug, Error)]
 pub enum ResponseReadError {
     #[error(
-        "response size exceeds max size; max: {max}, content_length: {content_length}, request_url: {request_url}, request_id: {request_id}"
+        "response size exceeds max size; max: {max}, content_length: {content_length}, request_url: {request_url}, request_context: {request_context}"
     )]
-    PayloadTooLarge { max: usize, content_length: usize, request_url: String, request_id: String },
+    PayloadTooLarge {
+        max: usize,
+        content_length: usize,
+        request_url: String,
+        request_context: String,
+    },
 
     #[error("error reading response stream: {0}")]
     ReqwestError(#[from] reqwest::Error),
 
     #[error(
-        "request failed with status: {status_code}, request_url: {request_url}, request_id: {request_id}, body: {error_msg}"
+        "request failed with status: {status_code}, request_url: {request_url}, request_context: {request_context}, body: {error_msg}"
     )]
-    NonSuccess { status_code: u16, error_msg: String, request_url: String, request_id: String },
+    NonSuccess { status_code: u16, error_msg: String, request_url: String, request_context: String },
 }
 
 #[cfg(feature = "testing-flags")]
@@ -82,7 +87,7 @@ pub async fn read_chunked_body_with_max(
             max: max_size,
             content_length: length as usize,
             request_url: request_url.to_string(),
-            request_id: request_id.to_string(),
+            request_context: request_id.to_string(),
         });
     }
 
@@ -98,7 +103,7 @@ pub async fn read_chunked_body_with_max(
                 max: max_size,
                 content_length: content_length.unwrap_or(0) as usize,
                 request_url: request_url.to_string(),
-                request_id: request_id.to_string(),
+                request_context: request_id.to_string(),
             });
         }
 
@@ -125,7 +130,7 @@ pub async fn safe_read_http_response(
             status_code: status_code.as_u16(),
             error_msg: String::from_utf8_lossy(&body).into_owned(),
             request_url: request_url.to_string(),
-            request_id: request_id.to_string(),
+            request_context: request_id.to_string(),
         })
     }
 }
