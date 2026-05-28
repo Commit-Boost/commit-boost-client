@@ -13,7 +13,7 @@ commit-boost init --config cb-config.toml
 ```
 This will create up to three files:
 - `cb.docker-compose.yml` which contains the full setup of the Commit-Boost services.
-- `.cb.env` with local env variables, including JWTs for modules, only created if the signer module is enabled.
+- `.cb.env` with local env variables, including JWTs for modules, only created if the Signer Service is enabled.
 - `target.json` which enables dynamic discovery of services for metrics scraping via Prometheus, only created if metrics are enabled.
 
 ## Start
@@ -133,7 +133,7 @@ Currently, the program will always export the PBS service's API port in one of t
 ```
 
 
-## Example with PBS, Signer, and a Signer Module
+## Example with PBS, Signer, and a Signer Service
 
 In this scenario we will be running the PBS service, the Signer service, and a module (`DA_COMMIT`) that interacts with the Signer service's API.
 
@@ -267,7 +267,7 @@ CB_JWT_DA_COMMIT=mwDSSr7chwy9eFf7RhedBoyBtrwFUjSQ
 CB_JWTS=DA_COMMIT=mwDSSr7chwy9eFf7RhedBoyBtrwFUjSQ
 ```
 
-The Signer service needs JWT authentication from each of its modules. The program creates these and embeds them into the containers via environment variables automatically for convenience. This is demonstrated for the Signer module within the `environment` compose block: the `CB_JWTS: ${CB_JWTS}` forwards the `CB_JWTS` environment variable that's present when running Docker compose. The program requests that you do so via the command `docker compose --env-file "./.cb.env" -f "./cb.docker-compose.yml" up -d`; the `--env-file "./.cb.env"` handles loading the program's JWT output into this environment variable.
+The Signer service needs JWT authentication from each of its modules. The program creates these and embeds them into the containers via environment variables automatically for convenience. This is demonstrated for the Signer Service within the `environment` compose block: the `CB_JWTS: ${CB_JWTS}` forwards the `CB_JWTS` environment variable that's present when running Docker compose. The program requests that you do so via the command `docker compose --env-file "./.cb.env" -f "./cb.docker-compose.yml" up -d`; the `--env-file "./.cb.env"` handles loading the program's JWT output into this environment variable.
 
 Similarly, for the `cb_da_commit` module, the `CB_SIGNER_JWT: ${CB_JWT_DA_COMMIT}` line within its `environment` block will set the JWT that it should use to authenticate with the Signer service.
 

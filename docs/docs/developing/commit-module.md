@@ -41,7 +41,7 @@ The loaded `config` also has a few other useful fields:
 
 
 ## Requesting signatures
-At its core the Signer Module simply provides a signature on a 32-byte data digest. The signatures are currently provided with either the validator keys (BLS) or a proxy key (BLS or ECDSA) for a given validator key, both on the [builder domain](https://github.com/Commit-Boost/commit-boost-client/blob/main/crates/common/src/signature.rs#L88-L96).
+At its core the Signer Service simply provides a signature on a 32-byte data digest. The signatures are currently provided with either the validator keys (BLS) or a proxy key (BLS or ECDSA) for a given validator key, both on the [builder domain](https://github.com/Commit-Boost/commit-boost-client/blob/main/crates/common/src/signature.rs#L88-L96).
 
 In the example we use `TreeHash`, already used in the CL, to create the digest from a custom struct:
 ```rust

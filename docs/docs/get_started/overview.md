@@ -9,8 +9,8 @@ Commit-Boost is primarily based on [Docker](https://www.docker.com/) to enable m
 Each component roughly maps to a container: from a single `.toml` config file, the node operator can specify which modules they want to run, and Commit-Boost takes care of spinning up the services and creating links between them.
 Commit-Boost ships with two core services:
 
-- A PBS module which implements the [BuilderAPI](https://ethereum.github.io/builder-specs/) for [MEV Boost](https://docs.flashbots.net/flashbots-mev-boost/architecture-overview/specifications).
-- A signer module, which implements the [Signer API](/api) and provides the interface for modules to request proposer commitments.
+- A PBS Service which implements the [BuilderAPI](https://ethereum.github.io/builder-specs/) for [MEV Boost](https://docs.flashbots.net/flashbots-mev-boost/architecture-overview/specifications).
+- A Signer Service, which implements the [Signer API](/api) and provides the interface for modules to request proposer commitments.
 
 ## Setup
 

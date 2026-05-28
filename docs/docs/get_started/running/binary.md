@@ -21,12 +21,12 @@ Modules need some environment variables to work correctly.
 - `CB_METRICS_PORT`: optional, port where to expose the `/metrics` endpoint for Prometheus.
 - `CB_LOGS_DIR`: optional, directory to store logs. This will override the directory in the `.toml` config.
 
-### PBS Module
+### PBS Service
 
-- `CB_PBS_ENDPOINT`: optional, override to specify the `IP:port` endpoint where the PBS module will open the port for the beacon node.
+- `CB_PBS_ENDPOINT`: optional, override to specify the `IP:port` endpoint where the PBS Service will open the port for the beacon node.
 - `CB_MUX_PATH_{ID}`: optional, override where to load mux validator keys for mux with `id=\{ID\}`.
 
-### Signer Module
+### Signer Service
 
 - `CB_SIGNER_ADMIN_JWT`: secret to use for admin JWT.
 - `CB_SIGNER_ENDPOINT`: optional, override to specify the `IP:port` endpoint to bind the signer server to.
@@ -49,7 +49,7 @@ Modules need some environment variables to work correctly.
 
 #### Commit modules
 
-- `CB_SIGNER_URL`: required, url to the signer module server.
+- `CB_SIGNER_URL`: required, url to the Signer Service server.
 - `CB_SIGNER_JWT`: required, jwt to use for signature requests.
 
 Modules might also have additional envs required, which should be detailed by the maintainers.

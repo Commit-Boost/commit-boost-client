@@ -55,6 +55,8 @@ const sidebars = {
       items: [
         'developing/custom-modules',
         'developing/commit-module',
+        'developing/prop-commit-signing',
+        'developing/signer-api',
         'developing/environment-setup',
       ],
     },
