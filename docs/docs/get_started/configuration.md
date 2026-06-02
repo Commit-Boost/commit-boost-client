@@ -7,7 +7,7 @@ description: Configure Commit-Boost
 Commit-Boost needs a configuration file detailing all the services that you want to run. Create a `cb-config.toml` and modify it depending on which modules you plan to run.
 
 - For a full explanation of all the fields, check out [here](https://github.com/Commit-Boost/commit-boost-client/blob/main/config.example.toml).
-- For some additional examples on config presets, check out [here](https://github.com/Commit-Boost/commit-boost-client/tree/main/configs).
+- For some additional examples on config presets, check out [here](https://github.com/Commit-Boost/commit-boost-client/tree/main/examples/configs).
 
 ## Minimal PBS setup on Holesky
 
