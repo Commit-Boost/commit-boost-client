@@ -24,7 +24,7 @@ url = ""
 enabled = true
 ```
 
-You can find a list of MEV-Boost Hoodi relays [here](https://www.coincashew.com/coins/overview-eth/mev-boost/mev-relay-list#hoodi-testnet-relays).
+You can find a list of MEV-Boost Hoodi relays [here](https://github.com/ethstaker/ethstaker-guides/blob/main/MEV-relay-list.md#mev-relay-list-for-hoodi-testnet).
 After the sidecar is started, it will expose a port (`18550` in this example), that you need to point your CL to. This may be different depending on which CL you're running, check out [here](https://docs.flashbots.net/flashbots-mev-boost/getting-started/system-requirements#consensus-client-configuration-guides) for a list of configuration guides.
 
 :::note
