@@ -187,3 +187,32 @@ pub fn load_builder_module_config<T: DeserializeOwned>() -> eyre::Result<StartBu
         extra: module_config.extra,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_module_kind_commit_deserializes() {
+        // Use a wrapper struct with a `type` field to match module config structure
+        #[derive(Deserialize)]
+        struct Wrapper {
+            #[serde(rename = "type")]
+            kind: ModuleKind,
+        }
+        let w: Wrapper = toml::from_str("type = \"commit\"").expect("commit should deserialize");
+        // Verify the variant is Commit by matching
+        assert!(matches!(w.kind, ModuleKind::Commit), "expected ModuleKind::Commit");
+    }
+
+    #[test]
+    fn test_module_kind_pbs_is_rejected() {
+        let result: Result<ModuleKind, _> = toml::from_str("type = \"pbs\"");
+        let err = result.expect_err("pbs should fail to deserialize");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("unknown variant") || msg.contains("\"pbs\""),
+            "error should mention unknown variant 'pbs', got: {msg}"
+        );
+    }
+}

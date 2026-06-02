@@ -619,9 +619,148 @@ paths:
                     type: string
                     example: "Internal error"
 
+  /reload:
+    post:
+      summary: Hot-reload signer configuration
+      description: >
+        Re-reads cb-config.toml and environment variables, rebuilding the signer's
+        internal state. Accepts optional body overrides for JWT secrets and the
+        admin secret.
+
+        **Behaviour:**
+        - New modules in config are registered.
+        - Removed modules are dropped from the access list.
+        - JWT secrets and admin secret are reset to env var values.
+        - Previous runtime changes (from /revoke_jwt or body overrides) are reverted.
+
+        **Body overrides** (applied on top of the config baseline):
+        - `jwt_secrets`: comma-separated `<MODULE_ID>=<SECRET>` pairs.
+        - `admin_secret`: string to override the admin JWT secret.
+
+        Body overrides are **not persisted** across restarts.
+      tags:
+        - Management
+      security:
+        - AdminBearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                jwt_secrets:
+                  description: Comma-separated list of MODULE_ID=SECRET pairs to override module JWT secrets
+                  type: string
+                  example: "module_a=newsecret,module_b=anothersecret"
+                admin_secret:
+                  description: Override for the admin JWT secret
+                  type: string
+                  example: "my-new-admin-secret"
+      responses:
+        "200":
+          description: Configuration reloaded successfully
+        "400":
+          description: Body references a module ID not present in the config
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                properties:
+                  code:
+                    type: number
+                    example: 400
+                  message:
+                    type: string
+                    example: "bad request: Module unknown-module not found in config, cannot override JWT secret"
+        "500":
+          description: Failed to reload config (previous state preserved)
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                properties:
+                  code:
+                    type: number
+                    example: 500
+                  message:
+                    type: string
+                    example: "internal error: failed to reload config"
+
+  /revoke_jwt:
+    post:
+      summary: Immediately revoke a module's access
+      description: >
+        Removes a module from the signer's access list. The module will no longer
+        be able to authenticate with its JWT.
+
+        If the module is still present in cb-config.toml, the next `/reload` will
+        re-add it. Remove the module from the config to make revocation permanent.
+      tags:
+        - Management
+      security:
+        - AdminBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - module_id
+              properties:
+                module_id:
+                  description: The ID of the module to revoke
+                  type: string
+                  example: "MY_MODULE"
+      responses:
+        "200":
+          description: Module access revoked successfully
+        "404":
+          description: Module ID not found
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                properties:
+                  code:
+                    type: number
+                    example: 404
+                  message:
+                    type: string
+                    example: "module id not found"
+
+  /status:
+    get:
+      summary: Health check
+      description: Simple health check endpoint. Returns 200 OK with no body. No authentication required.
+      tags:
+        - Management
+      responses:
+        "200":
+          description: Signer service is healthy
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ""
+
 components:
   securitySchemes:
     BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    AdminBearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
