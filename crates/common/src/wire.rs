@@ -7,7 +7,7 @@ use bytes::Bytes;
 use futures::StreamExt;
 use headers_accept::Accept;
 use lh_types::{BeaconBlock, ForkName};
-use mediatype::{MediaType, ReadParams};
+use mediatype::{MediaType, ReadParams, names};
 use reqwest::{
     Response,
     header::{ACCEPT, CONTENT_TYPE, HeaderMap, ToStrError},
@@ -239,13 +239,7 @@ pub fn get_accept_types(
                 continue;
             }
 
-            let parsed = match mt.essence().to_string().as_str() {
-                APPLICATION_OCTET_STREAM => Some(EncodingType::Ssz),
-                APPLICATION_JSON => Some(EncodingType::Json),
-                WILDCARD => Some(NO_PREFERENCE_DEFAULT),
-                _ => None,
-            };
-            if let Some(enc) = parsed {
+            if let Some(enc) = essence_encoding(&mt.essence()) {
                 had_supported = true;
                 match primary {
                     None => primary = Some(enc),
@@ -267,6 +261,22 @@ pub fn get_accept_types(
     // No accept header (or only q=0 rejections): fall back to the request
     // Content-Type, which mirrors the historical behavior.
     Ok(AcceptedEncodings::single(get_content_type(req_headers)))
+}
+
+fn essence_encoding(mt: &MediaType) -> Option<EncodingType> {
+    if mt.suffix.is_some() {
+        return None;
+    }
+
+    match () {
+        _ if mt.ty == names::_STAR && mt.subty == names::_STAR => Some(NO_PREFERENCE_DEFAULT),
+        _ if mt.ty == names::APPLICATION && mt.subty == names::OCTET_STREAM => {
+            Some(EncodingType::Ssz)
+        }
+        _ if mt.ty == names::APPLICATION && mt.subty == names::JSON => Some(EncodingType::Json),
+        _ if mt.ty == names::APPLICATION && mt.subty == names::_STAR => Some(NO_PREFERENCE_DEFAULT),
+        _ => None,
+    }
 }
 
 /// Compute the q-value for the `index`-th preferred encoding when building an
@@ -363,11 +373,7 @@ impl FromStr for EncodingType {
         // (e.g. `application/json; charset=utf-8`). Compare essence only.
         let parsed =
             MediaType::parse(value).map_err(|e| format!("invalid content type {value}: {e}"))?;
-        match parsed.essence().to_string().to_ascii_lowercase().as_str() {
-            APPLICATION_JSON => Ok(EncodingType::Json),
-            APPLICATION_OCTET_STREAM => Ok(EncodingType::Ssz),
-            _ => Err(format!("unsupported encoding type: {value}")),
-        }
+        essence_encoding(&parsed).ok_or_else(|| format!("unsupported encoding type: {value}"))
     }
 }
 

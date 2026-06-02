@@ -55,7 +55,7 @@ struct RequestInfo {
     params: GetHeaderParams,
 
     /// Common baseline of headers to send with each request
-    headers: Arc<HeaderMap>,
+    headers: HeaderMap,
 
     /// The chain the request is for
     chain: Chain,
@@ -152,10 +152,9 @@ pub async fn get_header<S: BuilderApiState>(
     // Create the Accept headers for requests
     // Use the documented, deterministic preference:
     // SSZ first (wire-efficient), JSON fallback.
-    let accept_types = OUTBOUND_ACCEPT.to_string();
     send_headers.insert(
         ACCEPT,
-        HeaderValue::from_str(&accept_types).map_err(|e| {
+        HeaderValue::from_str(OUTBOUND_ACCEPT).map_err(|e| {
             AcceptedEncodingsError::InvalidEncoding {
                 error_msg: (format!("invalid accept header: {e}")).to_string(),
             }
@@ -166,7 +165,7 @@ pub async fn get_header<S: BuilderApiState>(
     let slot = params.slot as i64;
     let request_info = Arc::new(RequestInfo {
         params,
-        headers: Arc::new(send_headers),
+        headers: send_headers,
         chain: state.config.chain,
         validation: ValidationContext {
             skip_sigverify: state.pbs_config().skip_sigverify,
@@ -255,7 +254,7 @@ async fn send_timed_get_header(
     mut timeout_left_ms: u64,
 ) -> Result<Option<GetHeaderResponse>, PbsError> {
     let params = &request_info.params;
-    let url = Arc::new(relay.get_header_url(params.slot, &params.parent_hash, &params.pubkey)?);
+    let url = relay.get_header_url(params.slot, &params.parent_hash, &params.pubkey)?;
 
     if relay.config.enable_timing_games {
         if let Some(target_ms) = relay.config.target_first_request_ms {
@@ -357,7 +356,7 @@ async fn send_timed_get_header(
 async fn send_one_get_header(
     request_info: Arc<RequestInfo>,
     relay: RelayClient,
-    url: Arc<Url>,
+    url: Url,
     timeout_left_ms: u64,
 ) -> Result<(u64, Option<GetHeaderResponse>), PbsError> {
     // Full processing: decode full response and validate
@@ -365,10 +364,10 @@ async fn send_one_get_header(
         &relay,
         url,
         timeout_left_ms,
-        (*request_info.headers).clone(), /* Create a copy of the HeaderMap because the
-                                          * impl
-                                          * will
-                                          * modify it */
+        request_info.headers.clone(), /* Create a copy of the HeaderMap because the
+                                       * impl
+                                       * will
+                                       * modify it */
     )
     .await?;
     let get_header_response = match get_header_response {
@@ -396,7 +395,6 @@ async fn send_one_get_header(
         }),
     }?;
 
-    // Validate the header
     let chain = request_info.chain;
     let params = &request_info.params;
     let validation = &request_info.validation;
@@ -408,7 +406,6 @@ async fn send_one_get_header(
         params.slot,
     )?;
 
-    // Validate the relay signature
     if !validation.skip_sigverify {
         validate_signature(
             chain,
@@ -419,7 +416,6 @@ async fn send_one_get_header(
         )?;
     }
 
-    // Validate the parent block if enabled
     if validation.extra_validation_enabled {
         let parent_block = validation.parent_block.read();
         if let Some(parent_block) = parent_block.as_ref() {
@@ -438,11 +434,10 @@ async fn send_one_get_header(
 /// Send and decode a full get_header response, with all of the fields.
 async fn send_get_header_full(
     relay: &RelayClient,
-    url: Arc<Url>,
+    url: Url,
     timeout_left_ms: u64,
     headers: HeaderMap,
 ) -> Result<(u64, Option<GetHeaderResponse>), PbsError> {
-    // Send the request
     let (start_request_time, info) =
         send_get_header_impl(relay, url, timeout_left_ms, headers).await?;
     let info = match info {
@@ -452,10 +447,8 @@ async fn send_get_header_full(
         }
     };
 
-    // Decode the response
     let get_header_response = decode_by_encoding(&info, decode_json_payload, decode_ssz_payload)?;
 
-    // Log and return
     info!(
         relay_id = info.relay_id.as_ref(),
         header_size_bytes = info.response_bytes.len(),
@@ -473,11 +466,11 @@ async fn send_get_header_full(
 /// negotiated content-type. SSZ requires a fork header; its absence is a
 /// protocol violation reported as `PbsError::RelayResponse`. Callers supply
 /// the format-specific decoders, keeping the encoding branch in one place.
-fn decode_by_encoding<T>(
+fn decode_by_encoding(
     info: &GetHeaderResponseInfo,
-    on_json: impl FnOnce(&[u8]) -> Result<T, PbsError>,
-    on_ssz: impl FnOnce(&[u8], ForkName) -> Result<T, PbsError>,
-) -> Result<T, PbsError> {
+    on_json: impl FnOnce(&[u8]) -> Result<GetHeaderResponse, PbsError>,
+    on_ssz: impl FnOnce(&[u8], ForkName) -> Result<GetHeaderResponse, PbsError>,
+) -> Result<GetHeaderResponse, PbsError> {
     match info.content_type {
         EncodingType::Json => on_json(&info.response_bytes),
         EncodingType::Ssz => {
@@ -496,7 +489,7 @@ fn decode_by_encoding<T>(
 /// Used by send_one_get_header to perform the actual request submission.
 async fn send_get_header_impl(
     relay: &RelayClient,
-    url: Arc<Url>,
+    url: Url,
     timeout_left_ms: u64,
     mut headers: HeaderMap,
 ) -> Result<(u64, Option<GetHeaderResponseInfo>), PbsError> {
@@ -513,7 +506,7 @@ async fn send_get_header_impl(
     let start_request = Instant::now();
     let res = match relay
         .client
-        .get(url.as_ref().clone())
+        .get(url.as_ref())
         .timeout(Duration::from_millis(timeout_left_ms))
         .headers(headers)
         .send()
@@ -582,10 +575,7 @@ fn decode_ssz_payload(
     fork: ForkName,
 ) -> Result<GetHeaderResponse, PbsError> {
     let data = SignedBuilderBid::from_ssz_bytes_by_fork(response_bytes, fork).map_err(|e| {
-        PbsError::SSZDecode {
-            err: (format!("error decoding relay payload: {e:?}")).to_string(),
-            fork,
-        }
+        PbsError::SSZDecode { err: (format!("error decoding relay payload: {e:?}")), fork }
     })?;
     Ok(GetHeaderResponse { version: fork, data, metadata: Default::default() })
 }
