@@ -7,12 +7,12 @@
 # A custom object, e.g., chain = { genesis_time_secs = 1695902400, slot_time_secs = 12, genesis_fork_version = "0x01017000", chain_id = 17000 }.
 chain = "Holesky"
 
-# Configuration for the PBS module
+# Configuration for the PBS service
 [pbs]
-# Docker image to use for the PBS module.
+# Docker image to use for the PBS service.
 # OPTIONAL, DEFAULT: ghcr.io/commit-boost/commit-boost:latest
 docker_image = "ghcr.io/commit-boost/commit-boost:latest"
-# Whether to enable the PBS module to request signatures from the Signer module (not used in the default PBS image)
+# Whether to enable the PBS service to request signatures from the Signer service (not used in the default PBS image)
 # OPTIONAL, DEFAULT: false
 with_signer = false
 # Host to receive BuilderAPI calls from beacon node
@@ -62,7 +62,7 @@ extra_validation_enabled = false
 # a fallback if the user's own SSV node is not reachable.
 # OPTIONAL, DEFAULT: "https://api.ssv.network/api/v4/"
 # ssv_public_api_url = "https://api.ssv.network/api/v4/"
-# Timeout for any HTTP requests sent from the PBS module to other services, in seconds
+# Timeout for any HTTP requests sent from the PBS service to other services, in seconds
 # OPTIONAL, DEFAULT: 10
 http_timeout_seconds = 10
 # Maximum number of retries for validator registrations per relay
@@ -79,7 +79,7 @@ validator_registration_batch_size = ""
 # OPTIONAL, DEFAULT: 384
 mux_registry_refresh_interval_seconds = 384
 
-# The PBS module needs one or more [[relays]] as defined below.
+# The PBS service needs one or more [[relays]] as defined below.
 [[relays]]
 # Relay ID to use in telemetry
 # OPTIONAL, DEFAULT: URL hostname
@@ -167,14 +167,14 @@ timeout_get_header_ms = 900
 id = "mux-relay-1"
 url = "http://0xa119589bb33ef52acbb8116832bec2b58fca590fe5c85eac5d3230b44d5bc09fe73ccd21f88eab31d6de16194d17782e@def.xyz"
 
-# Configuration for the Signer Module, only required if any `commit` module is present, or if `pbs.with_signer = true`
-# Currently three types of Signer modules are supported (only one can be used at a time):
+# Configuration for the Signer service, only required if any `commit` module is present, or if `pbs.with_signer = true`
+# Currently three types of Signer service are supported (only one can be used at a time):
 #   - Remote: a remote Web3Signer instance
 #   - Dirk: a remote Dirk instance
 #   - Local: a local Signer module
-# More details on the docs (https://commit-boost.github.io/commit-boost-client/get_started/configuration/#signer-module)
+# More details on the docs (https://commit-boost.github.io/commit-boost-client/get_started/configuration/#signer-service)
 [signer]
-# Docker image to use for the Signer module.
+# Docker image to use for the Signer service.
 # OPTIONAL, DEFAULT: ghcr.io/commit-boost/commit-boost:latest
 docker_image = "ghcr.io/commit-boost/commit-boost:latest"
 # Host to bind the Signer API server to
@@ -247,13 +247,13 @@ jwt_auth_fail_timeout_seconds = 300
 # url = "https://localhost:8882"
 # accounts = ["Wallet2", "DistributedWallet"]
 
-# Configuration for how the Signer module should store proxy delegations.
+# Configuration for how the Signer service should store proxy delegations.
 # OPTIONAL
 # [signer.dirk.store]
 # proxy_dir = "/path/to/proxies"
 
 # For Local signer:
-# Configuration for how the Signer module should load validator keys. Currently two types of loaders are supported:
+# Configuration for how the Signer service should load validator keys. Currently two types of loaders are supported:
 #   - File: load keys from a plain text file (unsafe, use only for testing purposes)
 #   - ValidatorsDir: load keys from a `keys` and `secrets` file/folder (ERC-2335 style keystores). More details can be found in the docs (https://commit-boost.github.io/commit-boost-client/get_started/configuration/)
 [signer.local.loader]
@@ -275,7 +275,7 @@ key_path = "./tests/data/keys.example.json"
 # For lodestar, it's the path to the file containing the decryption password.
 # For nimbus, it's the path to the directory where the `<pubkey>` files are located.
 # secrets_path = ""
-# Configuration for how the Signer module should store proxy delegations. Supported types of store are:
+# Configuration for how the Signer service should store proxy delegations. Supported types of store are:
 #   - File: store keys and delegations from a plain text file (unsafe, use only for testing purposes)
 #   - ERC2335: store keys and delegations safely using ERC-2335 style keystores. More details can be found in the docs (https://commit-boost.github.io/commit-boost-client/get_started/configuration#proxy-keys-store)
 # OPTIONAL, if missing proxies are lost on restart
