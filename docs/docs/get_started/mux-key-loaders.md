@@ -4,7 +4,7 @@ description: Mux (multiplexer) configuration and key loader types
 
 # Mux key loaders
 
-The PBS multiplexer — *mux* for short — lets you route different validators to different relay sets or timing game configurations. Instead of a single `[[relays]]` list for all your validators, you declare one or more `[[mux]]` entries that match specific validator pubkeys to custom relay and timing settings.
+The PBS multiplexer (AKA *mux*) lets you route different validators to different relay sets or timing game configurations. Instead of a single `[[relays]]` list for all your validators, you declare one or more `[[mux]]` entries that match specific validator pubkeys to custom relay and timing settings.
 
 Use a mux when you need:
 
@@ -35,9 +35,18 @@ validator_pubkeys = [
     "0x80c7f782b2467c5898c5516a8b6595d75623960b4afc4f71ee07d40985d20e117ba35e7cd352a3e75fb85a8668a3b745",
 ]
 
+# A relay used by this mux
 [[mux.relays]]
 id = "fast-relay"
 url = "..."
+
+# Another relay used by this mux
+[[mux.relays]]
+id = "robust-relay"
+url = "..."
+
+# ...
+# Multiple muxes can be defined repeating this pattern
 ```
 
 ### Matching rules summary
@@ -91,8 +100,6 @@ url = "..."
 export CB_MUX_PATH_lido-mux="/path/to/override.json"
 ```
 
-**Chains supported:** All chains.
-
 ---
 
 ### URL loader
@@ -116,15 +123,13 @@ url = "..."
 - Timeout is controlled by `default_pbs.http_timeout_seconds` (default: 10s).
 - The response body is read in full and parsed as JSON.
 
-**Chains supported:** All chains.
-
 ---
 
 ### Registry loader
 
-Loads validator pubkeys from an on-chain or network registry. This is the most powerful loader — it resolves pubkeys automatically from a data source that stays in sync as validators are added or removed.
+Loads validator pubkeys from an on-chain or network registry. This resolves pubkeys automatically from a data source that stays in sync as validators are added or removed.
 
-Two registries are supported:
+Two registries are currently supported:
 
 | Registry | `registry` value | Key source | Authentication |
 |---|---|---|---|
@@ -133,7 +138,7 @@ Two registries are supported:
 
 #### Lido registry
 
-Reads validator pubkeys from Lido's on-chain NodeOperatorsRegistry or CSModule registry, depending on the module type. The sidecar connects to the configured RPC endpoint and calls the contract's `getSigningKeys` method with pagination.
+Reads validator pubkeys from Lido's on-chain `NodeOperatorsRegistry` or `CSModule registry`, depending on the module type. The sidecar connects to the configured RPC endpoint and calls the contract's `getSigningKeys` method with pagination.
 
 **Requirements:** `rpc_url` must be set in the `[pbs]` configuration.
 
