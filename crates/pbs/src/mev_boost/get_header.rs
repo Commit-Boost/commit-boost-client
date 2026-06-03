@@ -529,21 +529,29 @@ async fn send_get_header_impl(
     let code = res.status();
     RELAY_STATUS_CODE.with_label_values(&[code.as_str(), GET_HEADER_ENDPOINT_TAG, &relay.id]).inc();
 
-    // Parse Content-Type (tolerating MIME parameters per RFC 7231 §3.1.1.1)
-    // and Eth-Consensus-Version headers in one shot.
-    let (content_type, fork) = parse_response_encoding_and_fork(res.headers(), code.as_u16())?;
-
-    let response_bytes = safe_read_http_response(res, MAX_SIZE_GET_HEADER_RESPONSE).await?;
+    // 204 No Content = relay has no header for this slot/parent_hash/pubkey.
+    // Return early — there is no body to decode.
     if code == StatusCode::NO_CONTENT {
         debug!(
             relay_id = relay.id.as_ref(),
             ?code,
             latency = ?request_latency,
-            response = ?response_bytes,
             "no header from relay"
         );
         return Ok((start_request_time, None));
     }
+
+    // Parse Content-Type before consuming the response body. Only successful
+    // responses carry a meaningful Content-Type (SSZ or JSON). Non-success
+    // responses often carry text/plain (or another default), which would fail
+    // as unsupported — but safe_read_http_response will return NonSuccess for
+    // those, so the parsed values are never consumed by the caller.
+    let (content_type, fork) = if code.is_success() {
+        parse_response_encoding_and_fork(res.headers(), code.as_u16())?
+    } else {
+        (EncodingType::Json, None)
+    };
+    let response_bytes = safe_read_http_response(res, MAX_SIZE_GET_HEADER_RESPONSE).await?;
 
     Ok((
         start_request_time,
