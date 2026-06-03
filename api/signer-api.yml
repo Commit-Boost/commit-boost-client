@@ -2,7 +2,46 @@ openapi: "3.1.1"
 info:
   title: Signer API
   version: "0.2.0"
-  description: API that allows commit modules to request generic signatures from validators
+  description: |
+    API that allows commit modules to request generic signatures from validators.
+
+    ## Authentication
+
+    All endpoints (except `/status`) require a Bearer JWT in the `Authorization` header.
+
+    ### Module JWT claims
+
+    | Claim | Type | Required | Description |
+    |-------|------|----------|-------------|
+    | `module` | string | always | Module `id` from `[[modules]]` in `cb-config.toml`. |
+    | `route` | string | always | Exact request path, e.g. `/signer/v1/get_pubkeys`. |
+    | `exp` | integer | always | UNIX expiry timestamp. |
+    | `payload_hash` | string | POST only | Keccak-256 hash of the JSON request body (`0x`-prefixed). |
+
+    Tokens are HS256-signed with the module's pre-shared secret (`CB_SIGNER_JWT` env var).
+    Expiry is 5 minutes. Refresh is **client-side** — the module generates a new JWT locally.
+    The `payload_hash` claim prevents JWT replay attacks.
+
+    ### Admin JWT
+
+    Admin endpoints use a separate secret (`CB_SIGNER_ADMIN_JWT` env var) and include `admin: true` in claims.
+
+    ### Rate limiting
+
+    Per-IP rate limit on JWT auth failures. Default: **3 failures / 5 minutes**. Configurable via `[signer].jwt_auth_fail_limit` and `jwt_auth_fail_timeout_seconds` in `cb-config.toml`.
+
+    ## Error responses
+
+    All errors use `{"code": <http-status>, "message": "..."}`.
+
+    | Status | Meaning |
+    |--------|---------|
+    | `400` | Malformed body, invalid pubkey, unsupported operation (e.g. ECDSA proxy with Dirk). |
+    | `401` | Missing/invalid/expired JWT. |
+    | `404` | Pubkey, proxy, or module ID not found. |
+    | `429` | Rate limited — retry after timeout. |
+    | `500` | Internal server error. |
+    | `502` | Dirk backend unreachable. |
 tags:
   - name: Signer
   - name: Management
