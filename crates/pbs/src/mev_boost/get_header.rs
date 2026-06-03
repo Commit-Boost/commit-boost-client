@@ -21,7 +21,7 @@ use cb_common::{
     types::{BlsPublicKey, BlsPublicKeyBytes, BlsSignature, Chain},
     utils::{ms_into_slot, timestamp_of_slot_start_sec, utcnow_ms},
     wire::{
-        AcceptedEncodingsError, EncodingType, OUTBOUND_ACCEPT, get_user_agent_with_version,
+        EncodingType, OUTBOUND_ACCEPT, get_user_agent_with_version,
         parse_response_encoding_and_fork, safe_read_http_response,
     },
 };
@@ -152,14 +152,7 @@ pub async fn get_header<S: BuilderApiState>(
     // Create the Accept headers for requests
     // Use the documented, deterministic preference:
     // SSZ first (wire-efficient), JSON fallback.
-    send_headers.insert(
-        ACCEPT,
-        HeaderValue::from_str(OUTBOUND_ACCEPT).map_err(|e| {
-            AcceptedEncodingsError::InvalidEncoding {
-                error_msg: (format!("invalid accept header: {e}")).to_string(),
-            }
-        })?,
-    );
+    send_headers.insert(ACCEPT, HeaderValue::from_static(OUTBOUND_ACCEPT));
 
     // Send requests to all relays concurrently
     let slot = params.slot as i64;
@@ -506,7 +499,7 @@ async fn send_get_header_impl(
     let start_request = Instant::now();
     let res = match relay
         .client
-        .get(url.as_ref())
+        .get(url)
         .timeout(Duration::from_millis(timeout_left_ms))
         .headers(headers)
         .send()

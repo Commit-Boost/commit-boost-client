@@ -549,6 +549,15 @@ mod test {
         assert!(result.is_err());
     }
 
+    /// Test rejecting an unknown Accept: / type
+    #[test]
+    fn test_invalid_accept_header_type_slash() {
+        let mut headers = HeaderMap::new();
+        headers.append(ACCEPT, HeaderValue::from_str("/").unwrap());
+        let result = get_accept_types(&headers);
+        assert!(result.is_err());
+    }
+
     /// Test accepting one header with multiple values
     #[test]
     fn test_accept_header_invalid_parse() {
@@ -831,6 +840,13 @@ mod test {
     fn test_content_type_unknown_defaults_to_json() {
         let mut headers = HeaderMap::new();
         headers.insert(CONTENT_TYPE, HeaderValue::from_str("application/xml").unwrap());
+        assert_eq!(get_content_type(&headers), EncodingType::Json);
+    }
+
+    #[test]
+    fn test_content_type_invalid_defaults_to_json() {
+        let mut headers = HeaderMap::new();
+        headers.append(CONTENT_TYPE, HeaderValue::from_str("/").unwrap());
         assert_eq!(get_content_type(&headers), EncodingType::Json);
     }
 
