@@ -12,7 +12,7 @@ Running the modules natively means you opt out of the security guarantees made b
 
 Get the binary of the module either by compiling from source or by downloading a [published release](https://github.com/Commit-Boost/commit-boost-client/releases).
 
-Modules need some environment variables to work correctly.
+Services need environment variables to work correctly.
 
 ### Common
 
@@ -28,12 +28,15 @@ Modules need some environment variables to work correctly.
 
 ### Signer Service
 
+- `CB_JWTS`: required if any commit modules are configured, comma-separated list of `module_id=jwt_secret` pairs for module authentication.
 - `CB_SIGNER_ADMIN_JWT`: secret to use for admin JWT.
+- `CB_SIGNER_JWT_AUTH_FAIL_LIMIT`: optional, override the number of failed JWT auth attempts before rate-limiting a client (default: `3`).
+- `CB_SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS`: optional, override the rate-limit timeout window in seconds (default: `300`).
 - `CB_SIGNER_ENDPOINT`: optional, override to specify the `IP:port` endpoint to bind the signer server to.
 - `CB_SIGNER_TLS_CERTIFICATES`: path to the TLS certificates for the server.
 - For loading keys we currently support:
   - `CB_SIGNER_LOADER_FILE`: path to a `.json` with plaintext keys (for testing purposes only).
-  - `CB_SIGNER_LOADER_FORMAT`, `CB_SIGNER_LOADER_KEYS_DIR` and `CB_SIGNER_LOADER_SECRETS_DIR`: paths to the `keys` and `secrets` directories or files (ERC-2335 style keystores, see [Signer config](../configuration/#signer-module) for more info).
+  - `CB_SIGNER_LOADER_KEYS_DIR` and `CB_SIGNER_LOADER_SECRETS_DIR`: paths to the `keys` and `secrets` directories or files (ERC-2335 style keystores, see [Signer config](../configuration/#signer-module) for more info).
 - For storing proxy keys we currently support:
   - `CB_PROXY_STORE_DIR`: directory where proxy keys and delegations will be saved in plaintext (for testing purposes only).
   - `CB_PROXY_KEYS_DIR` and `CB_PROXY_SECRETS_DIR`: paths to the `keys` and `secrets` directories or files (ERC-2335 style keystores, see [Proxy keys store](../configuration/#proxy-keys-store) for more info).
