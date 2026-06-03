@@ -11,10 +11,9 @@ First run:
 ```bash
 commit-boost init --config cb-config.toml
 ```
-This will create up to three files:
+This will create two files:
 - `cb.docker-compose.yml` which contains the full setup of the Commit-Boost services.
 - `.cb.env` with local env variables, including JWTs for modules, only created if the Signer Service is enabled.
-- `target.json` which enables dynamic discovery of services for metrics scraping via Prometheus, only created if metrics are enabled.
 
 ## Start
 
@@ -23,7 +22,7 @@ To start Commit-Boost run:
 docker compose --env-file ".cb.env" -f ".cb.docker-compose.yml" up -d
 ```
 
-This will run all the configured services, including PBS, signer and modules (if any).
+This will run all the configured services, including PBS, signer and commit modules (if any).
 
 The MEV-Boost server will be exposed at `pbs.port` from the config, `18550` in our example. You'll need to point your CL/Validator client to this port to be able to source blocks from the builder market.
 
@@ -55,7 +54,7 @@ Below is a simple configuration for running only the PBS service on the Hoodi ne
 chain = "Hoodi"
 
 [pbs]
-docker_image = "ghcr.io/commit-boost/commit-boost:v0.8.0"
+docker_image = "ghcr.io/commit-boost/commit-boost:v0.9.6"
 relay_check = true
 wait_all_registrations = true
 
@@ -68,7 +67,7 @@ id = "def"
 url = "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@def.xyz"
 ```
 
-Note that there are many more parameters that Commit-Boost supports, but they are all omitted and thus will use their default options. For a full description of the default options within the config file, go to the [annotated configuration example](../../../../config.example.toml).
+Note that there are many more parameters that Commit-Boost supports, but they are all omitted and thus will use their default options. For a full description of the default options within the config file, go to the [annotated configuration example](https://github.com/Commit-Boost/commit-boost-client/blob/main/config.example.toml).
 
 The relays here are placeholder for the sake of the example; for a list of actual relays, visit [the EthStaker relay list](https://github.com/eth-educators/ethstaker-guides/blob/main/MEV-relay-list.md).
 
@@ -80,15 +79,13 @@ Run `commit-boost init --config cb-config.toml` with the above configuration, th
 ```
 services:
   cb_pbs:
-    command:
-    - pbs
     healthcheck:
       test: curl -f http://localhost:18550/eth/v1/builder/status
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 5s
-    image: ghcr.io/commit-boost/commit-boost:v0.8.0
+    image: ghcr.io/commit-boost/commit-boost:v0.9.6
     container_name: cb_pbs
     ports:
     - 127.0.0.1:18550:18550
@@ -96,7 +93,9 @@ services:
       CB_CONFIG: /cb-config.toml
       CB_PBS_ENDPOINT: 0.0.0.0:18550
     volumes:
-    - ./cb-config.toml:/cb-config.toml:ro
+    - ./test.toml:/cb-config.toml:ro
+    command:
+    - pbs
 ```
 
 This will run the PBS service in a container named `cb_pbs`.
@@ -120,8 +119,8 @@ host = "0.0.0.0"
 to the `[pbs]` section in the configuration. This will cause the resulting `ports` entry in the Docker compose file to become:
 
 ```
-    ports:
-    - 0.0.0.0:18550:18550
+ports:
+  - 0.0.0.0:18550:18550
 ```
 
 though you will need to add an entry to your local machine's firewall software (if applicable) for other machines to access it.
@@ -129,7 +128,7 @@ though you will need to add an entry to your local machine's firewall software (
 Currently, the program will always export the PBS service's API port in one of these two ways. If you don't want to expose it at all, so it can only be accessed by other Docker containers running within Docker's internal network, you will need to manually remove the `ports` entry from the Docker compose file after it's been created:
 
 ```
-    ports: []
+ports: []
 ```
 
 
@@ -145,7 +144,7 @@ Below is a simple configuration for running only the three modules on the Hoodi 
 chain = "Hoodi"
 
 [pbs]
-docker_image = "ghcr.io/commit-boost/commit-boost:v0.8.0"
+docker_image = "ghcr.io/commit-boost/commit-boost:v0.9.6"
 relay_check = true
 wait_all_registrations = true
 
@@ -158,6 +157,7 @@ id = "def"
 url = "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@def.xyz"
 
 [signer]
+docker_image = "ghcr.io/commit-boost/commit-boost:v0.9.6"
 port = 20000
 
 [signer.local.loader]
@@ -169,14 +169,17 @@ secrets_path = "./secrets"
 id = "DA_COMMIT"
 type = "commit"
 docker_image = "test_da_commit"
+signing_id = "0x6a33a23ef26a4836979edff86c493a69b26ccf0b4a16491a815a13787657431b"
 sleep_secs = 5
 ```
 
-Note that there are many more parameters that Commit-Boost supports, but they are all omitted and thus will use their default options. For a full description of the default options within the config file, go to the [annotated configuration example](../../../../config.example.toml).
+Note that there are many more parameters that Commit-Boost supports, but they are all omitted and thus will use their default options. For a full description of the default options within the config file, go to the [annotated configuration example](https://github.com/Commit-Boost/commit-boost-client/blob/main/config.example.toml).
 
 The relays here are placeholder for the sake of the example; for a list of actual relays, visit [the EthStaker relay list](https://github.com/eth-educators/ethstaker-guides/blob/main/MEV-relay-list.md).
 
 In this scenario there are two folders in the same directory as the configuration file (the working directory): `keys` and `secrets`. These correspond to the folders containing the [EIP-2335 keystores](../configuration.md#local-signer) and secrets in Lighthouse format. For your own keys, adjust the `format` parameter within the configuration and directory paths accordingly.
+
+Note that if either the `docker_image` under the `[signer]` or `[pbs]` is left unspecified it will default to `ghcr.io/commit-boost/commit-boost:latest`. Make sure to specify both if you intend to use versions other than the latest release.
 
 
 ### Commit-Boost Init Output
@@ -199,22 +202,20 @@ services:
       CB_SIGNER_JWT: ${CB_JWT_DA_COMMIT}
       CB_SIGNER_URL: http://cb_signer:20000
     volumes:
-    - ./cb-config.toml:/cb-config.toml:ro
+    - ./test.toml:/cb-config.toml:ro
     networks:
     - signer_network
     depends_on:
       cb_signer:
         condition: service_healthy
   cb_pbs:
-    command:
-    - pbs
     healthcheck:
       test: curl -f http://localhost:18550/eth/v1/builder/status
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 5s
-    image: ghcr.io/commit-boost/commit-boost:latest
+    image: ghcr.io/commit-boost/commit-boost:v0.9.6
     container_name: cb_pbs
     ports:
     - 127.0.0.1:18550:18550
@@ -222,36 +223,39 @@ services:
       CB_CONFIG: /cb-config.toml
       CB_PBS_ENDPOINT: 0.0.0.0:18550
     volumes:
-    - ./cb-config.toml:/cb-config.toml:ro
-  cb_signer:
+    - ./test.toml:/cb-config.toml:ro
     command:
-    - signer
+    - pbs
+  cb_signer:
     healthcheck:
-      test: curl -f http://localhost:20000/status
+      test: curl -k -f http://cb_signer:20000/status
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 5s
-    image: ghcr.io/commit-boost/commit-boost:latest
+    image: ghcr.io/commit-boost/commit-boost:v0.9.6
     container_name: cb_signer
     ports:
     - 127.0.0.1:20000:20000
     environment:
       CB_CONFIG: /cb-config.toml
       CB_JWTS: ${CB_JWTS}
+      CB_SIGNER_ADMIN_JWT: ${CB_SIGNER_ADMIN_JWT}
+      CB_SIGNER_TLS_CERTIFICATES: /certs
       CB_SIGNER_ENDPOINT: 0.0.0.0:20000
       CB_SIGNER_LOADER_KEYS_DIR: /keys
       CB_SIGNER_LOADER_SECRETS_DIR: /secrets
     volumes:
-    - ./cb-config.toml:/cb-config.toml:ro
+    - ./test.toml:/cb-config.toml:ro
     - ./keys:/keys:ro
     - ./secrets:/secrets:ro
     networks:
     - signer_network
+    command:
+    - signer
 networks:
   signer_network:
     driver: bridge
-
 ```
 
 This will create three Docker containers when executed:
@@ -263,8 +267,9 @@ This will create three Docker containers when executed:
 Finally, the `.cb.env` file produced will look like this:
 
 ```
-CB_JWT_DA_COMMIT=mwDSSr7chwy9eFf7RhedBoyBtrwFUjSQ
-CB_JWTS=DA_COMMIT=mwDSSr7chwy9eFf7RhedBoyBtrwFUjSQ
+CB_JWT_DA_COMMIT=hJ0bV40pTMShsRb9QS7fVinAsL9Roxkc
+CB_JWTS=DA_COMMIT=hJ0bV40pTMShsRb9QS7fVinAsL9Roxkc
+CB_SIGNER_ADMIN_JWT=WbdxlH32hNOMkfc6BfBHaV1WZj3vgODA
 ```
 
 The Signer service needs JWT authentication from each of its modules. The program creates these and embeds them into the containers via environment variables automatically for convenience. This is demonstrated for the Signer Service within the `environment` compose block: the `CB_JWTS: ${CB_JWTS}` forwards the `CB_JWTS` environment variable that's present when running Docker compose. The program requests that you do so via the command `docker compose --env-file "./.cb.env" -f "./cb.docker-compose.yml" up -d`; the `--env-file "./.cb.env"` handles loading the program's JWT output into this environment variable.
@@ -288,16 +293,16 @@ host = "0.0.0.0"
 to both the `[pbs]` and `[signer]` sections in the configuration. This will cause the resulting `ports` entries in the Docker compose file to become:
 
 ```
-  cb_pbs:
-    ...
-    ports:
-    - 0.0.0.0:18550:18550
+cb_pbs:
+  ...
+  ports:
+  - 0.0.0.0:18550:18550
 
 
-  cb_signer:
-    ...
-    ports:
-    - 0.0.0.0:20000:20000
+cb_signer:
+  ...
+  ports:
+  - 0.0.0.0:20000:20000
 ```
 
 though you will need to add entries to your local machine's firewall software (if applicable) for other machines to access them.
@@ -305,5 +310,5 @@ though you will need to add entries to your local machine's firewall software (i
 Currently, the program will always export the PBS and Signer services' API ports in one of these two ways. If you don't want to expose them at all, so they can only be accessed by other Docker containers running within Docker's internal network, you will need to manually remove the `ports` entries from the Docker compose files after they've been created:
 
 ```
-    ports: []
+ports: []
 ```
