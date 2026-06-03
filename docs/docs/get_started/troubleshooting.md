@@ -4,7 +4,7 @@ description: Common issues
 
 # Troubleshooting
 
-Commit-Boost was recently audited and going through a phased approach for validators to move to production. If you find any or have any question, please reach out on [X (Twitter)](https://x.com/Commit_Boost). If there are any security related items, please see [here](https://github.com/Commit-Boost/commit-boost-client/blob/main/SECURITY.md).
+If you find any or have any question, please reach out on [X (Twitter)](https://x.com/Commit_Boost). If there are any security related items, please see [here](https://github.com/Commit-Boost/commit-boost-client/blob/main/SECURITY.md).
 
 ---
 
@@ -30,7 +30,7 @@ Real failures often cascade across service boundaries. Before diving into a spec
 
 ### Init failures
 
-`commit-boost init --config cb-config.toml` produces `cb.docker-compose.yml`, `.cb.env`, and optionally `target.json`. If you see `no such file` when running Docker Compose:
+`commit-boost init --config cb-config.toml` produces `cb.docker-compose.yml`, and `.cb.env`. If you see `no such file` when running Docker Compose:
 
 1. **Missing config file** — verify `cb-config.toml` exists in the working directory and is TOML-valid.
 2. **Missing env file** — if the Signer Service is enabled, `.cb.env` is created alongside the compose file. Pass it with `--env-file ./.cb.env`.
@@ -71,9 +71,8 @@ A `401` response from any `POST /signer/*` endpoint means the request's JWT was 
    - Typo in the module ID or secret string.
    - The `.cb.env` file was regenerated (e.g., by re-running `init`) but the running containers still use the old env file.
    - A manual override was applied via [`POST /reload` body overrides](#body-overrides-and-footguns) but the environment variable was not updated — after a restart the override is lost.
-2. **Clock skew** — JWT validation checks the `iat` (issued-at) and `exp` (expiration) claims. If the signer's system clock differs from the module's clock by more than a few seconds, the JWT may appear invalid. Synchronise clocks across all machines with NTP.
-3. **`SIGNER_JWT_EXPIRATION` too short for long-running operations** — if a module holds a JWT for the duration of a slot and the expiration is set too low (e.g., a few seconds), the token expires before the signature request completes. Raise `SIGNER_JWT_EXPIRATION` to cover the expected operation window. The crate constant `SIGNER_JWT_EXPIRATION` is available in the Rust SDK.
-4. **Admin endpoint auth failure** — `POST /signer/reload` and `POST /signer/revoke_jwt` require the admin JWT secret (`CB_SIGNER_ADMIN_JWT` environment variable or `admin_secret` body override). If you get a 401 on these endpoints, check that the admin secret matches.
+2. **Clock skew** — JWT validation checks the `iat` (issued-at) and `exp` (expiration) claims. If the signer's system clock differs from the module's clock, the JWT may appear invalid.
+3. **Admin endpoint auth failure** — `POST /signer/reload` and `POST /signer/revoke_jwt` require the admin JWT secret (`CB_SIGNER_ADMIN_JWT` environment variable or `admin_secret` body override). If you get a 401 on these endpoints, check that the admin secret matches.
 
 ### Key loading
 
@@ -81,7 +80,7 @@ If the signer fails to start with errors about keys:
 
 - **Wrong format** — the `[signer.local.loader] format` must match the actual keystore layout. See the [Signer configuration](./configuration.md#local-signer) for supported formats and their expected file structures.
 - **Wrong path** — `keys_path` and `secrets_path` are relative to the container's filesystem, not the host. In Docker, these are volume-mounted from the host; verify the mount paths match what the loader expects.
-- **Permission denied** — the signer process runs as a non-root user inside the container. Ensure keys and secrets are world-readable (`chmod 644` for files, `755` for directories) or owned by the container's user.
+- **Permission denied** — the signer process runs as a non-root user inside the container. Ensure the mounted keys and secrets are readable by the container user.
 - **Proxy store path missing** — if `[signer.local.store]` is configured, the proxy directory must exist and be writable. The signer will fail to start if it cannot create proxy key files.
 - **Remote signer unavailable** — for Web3Signer or Dirk, the signer must be reachable at startup. A timeout or connection error during the initial handshake will cause the signer to exit.
 
