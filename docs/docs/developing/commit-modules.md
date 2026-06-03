@@ -86,13 +86,7 @@ To request a signature, you need a public key. Get available keys:
 let pubkeys = config.signer_client.get_pubkeys().await.unwrap();
 ```
 
-Requests are authenticated using a JWT, which must be refreshed periodically:
-
-```rust
-config.signer_client.refresh_token().await.unwrap();
-```
-
-The `SIGNER_JWT_EXPIRATION` constant gives the expiry duration in seconds.
+JWT tokens are created and refreshed internally by `SignerClient` — each method generates a fresh token with the correct `route`, `exp`, and `payload_hash` claims automatically. No manual token management is needed.
 
 #### Consensus key signatures
 
