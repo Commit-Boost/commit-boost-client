@@ -4,7 +4,7 @@ sidebar_position: 2
 
 # Extending PBS
 
-The PBS (Payload Building Service) binary that ships with Commit-Boost can be extended with custom logic. This is **not** a config-level module declaration like commit modules — instead you replace the PBS binary entirely by implementing the `DefaultBuilderApi` trait.
+The PBS binary that ships with Commit-Boost can be extended with custom logic. This is **not** a config-level module declaration like commit modules — instead you replace the PBS binary entirely by implementing the `DefaultBuilderApi` trait.
 
 ## Before you extend PBS
 
