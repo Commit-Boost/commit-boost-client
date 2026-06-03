@@ -28,15 +28,11 @@ signing_id = "0x6a33a23ef26a4836979edff86c493a69b26ccf0b4a16491a815a13787657431b
 | `signing_id` | A 32-byte identifier used to scope signatures to this module (see [Signing structure](#signing-structure)). |
 | (custom) | Additional fields are passed through as opaque config to the module's runtime. |
 
-### ⚠️ `type = "pbs"` is not supported
+:::warning
+Setting `type = "pbs"` in a `[[modules]]` entry is **not** a supported path. The configuration parser will reject it at parse time. If you want to extend the PBS binary itself, see [Extending PBS](./extending-pbs.md).
+:::
 
-Setting `type = "pbs"` in a `[[modules]]` entry is **not** a supported path. The configuration parser will reject it at parse time with an error like:
 
-```
-unknown variant 'pbs', expected 'commit'
-```
-
-If you want to extend the PBS binary itself, see [Extending PBS](./extending-pbs.md).
 
 ## Rust SDK usage
 
@@ -73,7 +69,7 @@ The returned `StartCommitModuleConfig` also provides:
 
 ### Requesting signatures
 
-At its core, the Signer Service provides a signature on a 32-byte data digest. Signatures are provided using either the validator keys (BLS) or a proxy key (BLS or ECDSA), both on the [builder domain](https://github.com/Commit-Boost/commit-boost-client/blob/main/crates/common/src/signature.rs#L88-L96).
+At its core, the Signer Service provides a signature on a 32-byte data digest. Signatures are provided using either the validator keys (BLS) or a proxy key (BLS or ECDSA), both on the [Commit-Boost domain](#signing-structure).
 
 Use `TreeHash` to create a digest from a custom struct:
 
