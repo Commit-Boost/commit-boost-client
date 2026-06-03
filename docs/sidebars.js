@@ -58,7 +58,6 @@ const sidebars = {
         'developing/commit-modules',
         'developing/prop-commit-signing',
         'developing/extending-pbs',
-        'developing/signer-api',
         'developing/environment-setup',
       ],
     },
