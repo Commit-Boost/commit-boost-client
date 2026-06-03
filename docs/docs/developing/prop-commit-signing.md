@@ -51,11 +51,8 @@ In terms of implementation, the nonce format conforms to the specification in [E
 
 The form proposer commitment signatures take depends on the type of signature being requested. BLS signatures take the [standard form](https://eth2book.info/latest/part2/building_blocks/signatures/) (96-byte values). ECDSA (Ethereum EL) signatures take the [standard Ethereum ECDSA `r,s,v` signature form](https://forum.openzeppelin.com/t/sign-it-like-you-mean-it-creating-and-verifying-ethereum-signatures/697). In both cases, the data being signed is a 32-byte hash - the root hash of a composite two-stage [SSZ Merkle tree](https://thogiti.github.io/2024/05/02/Merkleization.html), described below:
 
-<center>
+![signature structure](../res/img/prop_commit_tree.png)
 
-<img src="../res/img/prop_commit_tree.png" width="800"/>
-
-</center>
 
 where, for the sub-tree in blue:
 
