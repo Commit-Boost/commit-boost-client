@@ -239,4 +239,4 @@ For a complete working example with multiple mux entries — File loader, Lido r
 ## See also
 
 - [Configuration reference](./configuration.md) — full config field listing
-- [Signer API](../developing/signer-api.md) — key loading for the Signer Service
+- [Signer API](../developing/prop-commit-signing.md#api-quickstart) — signing API quickstart and authentication
