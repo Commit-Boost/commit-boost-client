@@ -5,6 +5,7 @@
 // See: https://docusaurus.io/docs/api/docusaurus-config
 
 import { themes as prismThemes } from 'prism-react-renderer';
+import path from 'path';
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
@@ -110,6 +111,23 @@ const config = {
         additionalLanguages: ['bash','toml'],
       },
     }),
+
+  plugins: [
+    function webpackAliasPlugin() {
+      return {
+        name: 'webpack-alias-plugin',
+        configureWebpack() {
+          return {
+            resolve: {
+              alias: {
+                '@signer-api-spec': path.resolve(__dirname, '..', 'api', 'signer-api.yml'),
+              },
+            },
+          };
+        },
+      };
+    },
+  ],
 };
 
 export default config;

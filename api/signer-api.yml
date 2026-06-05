@@ -11,16 +11,14 @@ info:
 
     ### Module JWT claims
 
-    | Claim | Type | Required | Description |
-    |-------|------|----------|-------------|
-    | `module` | string | always | Module `id` from `[[modules]]` in `cb-config.toml`. |
-    | `route` | string | always | Exact request path, e.g. `/signer/v1/get_pubkeys`. |
-    | `exp` | integer | always | UNIX expiry timestamp. |
-    | `payload_hash` | string | POST only | Keccak-256 hash of the JSON request body (`0x`-prefixed). |
+    HS256-signed token with the module's pre-shared secret (`CB_SIGNER_JWT` env var):
 
-    Tokens are HS256-signed with the module's pre-shared secret (`CB_SIGNER_JWT` env var).
-    Expiry is 5 minutes. Refresh is **client-side** — the module generates a new JWT locally.
-    The `payload_hash` claim prevents JWT replay attacks.
+    - **module** (string, required) — Module `id` from `[[modules]]` in `cb-config.toml`.
+    - **route** (string, required) — Exact request path, e.g. `/signer/v1/get_pubkeys`.
+    - **exp** (integer, required) — UNIX expiry timestamp. Expires after 5 minutes.
+    - **payload_hash** (string, POST only) — Keccak-256 hash of the JSON request body, `0x`-prefixed. Prevents JWT replay attacks.
+
+    Refresh is client-side — the module generates a new JWT locally. No refresh endpoint.
 
     ### Admin JWT
 
@@ -28,20 +26,7 @@ info:
 
     ### Rate limiting
 
-    Per-IP rate limit on JWT auth failures. Default: **3 failures / 5 minutes**. Configurable via `[signer].jwt_auth_fail_limit` and `jwt_auth_fail_timeout_seconds` in `cb-config.toml`.
-
-    ## Error responses
-
-    All errors use `{"code": <http-status>, "message": "..."}`.
-
-    | Status | Meaning |
-    |--------|---------|
-    | `400` | Malformed body, invalid pubkey, unsupported operation (e.g. ECDSA proxy with Dirk). |
-    | `401` | Missing/invalid/expired JWT. |
-    | `404` | Pubkey, proxy, or module ID not found. |
-    | `429` | Rate limited — retry after timeout. |
-    | `500` | Internal server error. |
-    | `502` | Dirk backend unreachable. |
+    Per-IP rate limit on JWT auth failures. Default: 3 failures within 5 minutes. Configurable via `[signer].jwt_auth_fail_limit` and `jwt_auth_fail_timeout_seconds` in `cb-config.toml`.
 tags:
   - name: Signer
   - name: Management
@@ -49,9 +34,9 @@ paths:
   /signer/v1/get_pubkeys:
     get:
       summary: Get a list of public keys for which signatures may be requested
-      description: >
+      description: |
         This endpoint requires a valid JWT Bearer token.
-        
+
         The token **must include** the following claims:
         - `exp` (integer): Expiration timestamp
         - `route` (string): The route being requested (must be `/signer/v1/get_pubkeys` for this endpoint).
@@ -107,9 +92,9 @@ paths:
   /signer/v1/request_signature/bls:
     post:
       summary: Request a signature for a 32-byte blob of data (typically a hash), signed by the BLS private key for the requested public key.
-      description: >
+      description: |
         This endpoint requires a valid JWT Bearer token.
-        
+
         The token **must include** the following claims:
         - `exp` (integer): Expiration timestamp
         - `module` (string): The ID of the module making the request, which must match a module ID in the Commit-Boost configuration file.
@@ -186,7 +171,7 @@ paths:
                   message:
                     type: string
                     example: "Unauthorized"
-        
+
         "404":
           description: You either requested a route that doesn't exist, or you requested a signature from a key that does not exist.
           content:
@@ -255,9 +240,9 @@ paths:
   /signer/v1/request_signature/proxy-bls:
     post:
       summary: Request a signature for a 32-byte blob of data (typically a hash), signed by the BLS private key for the requested proxy public key.
-      description: >
+      description: |
         This endpoint requires a valid JWT Bearer token.
-        
+
         The token **must include** the following claims:
         - `exp` (integer): Expiration timestamp
         - `module` (string): The ID of the module making the request, which must match a module ID in the Commit-Boost configuration file.
@@ -276,7 +261,7 @@ paths:
               required: [proxy, object_root, nonce]
               properties:
                 proxy:
-                  description: The 48-byte BLS public key (for `proxy_bls` mode) or the 20-byte Ethereum address (for `proxy_ecdsa` mode), with optional `0x` prefix, of the proxy key that you want to request a signature from.
+                  description: The 48-byte BLS public key, with optional `0x` prefix, of the proxy key that you want to request a signature from.
                   $ref: "#/components/schemas/BlsPubkey"
                 object_root:
                   description: The 32-byte data you want to sign, with optional `0x` prefix.
@@ -284,7 +269,7 @@ paths:
                 nonce:
                   $ref: "#/components/schemas/Nonce"
             example:
-              pubkey: "0xa3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989"
+              proxy: "0xa3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989"
               object_root: "0x3e9f4a78b5c21d64f0b8e3d9a7f5c02b4d1e67a3c8f29b5d6e4a3b1c8f72e6d9"
       responses:
         "200":
@@ -334,7 +319,7 @@ paths:
                   message:
                     type: string
                     example: "Unauthorized"
-        
+
         "404":
           description: You either requested a route that doesn't exist, or you requested a signature from a key that does not exist.
           content:
@@ -403,9 +388,9 @@ paths:
   /signer/v1/request_signature/proxy-ecdsa:
     post:
       summary: Request a signature for a 32-byte blob of data (typically a hash), signed by the ECDSA private key for the requested proxy Ethereum address.
-      description: >
+      description: |
         This endpoint requires a valid JWT Bearer token.
-        
+
         The token **must include** the following claims:
         - `exp` (integer): Expiration timestamp
         - `module` (string): The ID of the module making the request, which must match a module ID in the Commit-Boost configuration file.
@@ -482,7 +467,7 @@ paths:
                   message:
                     type: string
                     example: "Unauthorized"
-        
+
         "404":
           description: You either requested a route that doesn't exist, or you requested a signature from a key that does not exist.
           content:
@@ -551,9 +536,9 @@ paths:
   /signer/v1/generate_proxy_key:
     post:
       summary: Request a proxy key be generated for a specific consensus pubkey
-      description: >
+      description: |
         This endpoint requires a valid JWT Bearer token.
-        
+
         The token **must include** the following claims:
         - `exp` (integer): Expiration timestamp
         - `module` (string): The ID of the module making the request, which must match a module ID in the Commit-Boost configuration file.
@@ -661,7 +646,7 @@ paths:
   /reload:
     post:
       summary: Hot-reload signer configuration
-      description: >
+      description: |
         Re-reads cb-config.toml and environment variables, rebuilding the signer's
         internal state. Accepts optional body overrides for JWT secrets and the
         admin secret.
@@ -735,7 +720,7 @@ paths:
   /revoke_jwt:
     post:
       summary: Immediately revoke a module's access
-      description: >
+      description: |
         Removes a module from the signer's access list. The module will no longer
         be able to authenticate with its JWT.
 
