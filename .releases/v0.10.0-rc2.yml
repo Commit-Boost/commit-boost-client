@@ -1,0 +1,2 @@
+commit: "1e4237d111ec7716c3ce0d17c3b6e1935fe6391d"
+reason: "Bug fix for SSV local node string marshaling."
