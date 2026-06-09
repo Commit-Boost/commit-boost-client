@@ -27,7 +27,7 @@ impl PbsClientError {
             PbsClientError::NoPayload => StatusCode::BAD_GATEWAY,
             PbsClientError::Internal => StatusCode::INTERNAL_SERVER_ERROR,
             PbsClientError::DecodeError(_) => StatusCode::BAD_REQUEST,
-            PbsClientError::HeaderError(_) => StatusCode::BAD_REQUEST,
+            PbsClientError::HeaderError(_) => StatusCode::NOT_ACCEPTABLE,
         }
     }
 }
