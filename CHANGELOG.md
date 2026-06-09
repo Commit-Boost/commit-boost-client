@@ -32,3 +32,7 @@
 
 **Infrastructure**
 - New release process based on `.releases/` YAML model (#462 and #464)
+
+
+### v0.10.0-rc2
+- Fix string marshaling bug when fetching keys from local SSV nodes
