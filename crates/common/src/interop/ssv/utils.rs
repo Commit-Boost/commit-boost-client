@@ -17,9 +17,9 @@ pub async fn request_ssv_pubkeys_from_ssv_node(
     http_timeout: Duration,
 ) -> eyre::Result<SSVNodeResponse> {
     let client = reqwest::ClientBuilder::new().timeout(http_timeout).build()?;
-    // The SSV node API expects operator IDs as numeric (uint64) values. Serializing the
-    // U256 directly emits a JSON string, which the node rejects with a 400, so narrow it
-    // to a u64 first.
+    // The SSV node API expects operator IDs as numeric (uint64) values. Serializing
+    // the U256 directly emits a JSON string, which the node rejects with a 400,
+    // so narrow it to a u64 first.
     let operator_id = u64::try_from(node_operator_id)
         .map_err(|e| eyre::eyre!("SSV node operator ID does not fit in u64: {e}"))?;
     let body = json!({
@@ -66,8 +66,9 @@ mod tests {
     fn ssv_node_request_serializes_operator_as_number() {
         let node_operator_id = U256::from(100u64);
 
-        // Regression guard: serializing the U256 directly emits a (hex) JSON string, which
-        // the SSV node rejects ("cannot unmarshal string into ... uint64").
+        // Regression guard: serializing the U256 directly emits a (hex) JSON string,
+        // which the SSV node rejects ("cannot unmarshal string into ...
+        // uint64").
         let stringy = serde_json::to_string(&json!({ "operators": [node_operator_id] })).unwrap();
         assert_eq!(stringy, r#"{"operators":["0x64"]}"#);
 
