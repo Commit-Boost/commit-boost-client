@@ -1,0 +1,12 @@
+---
+sidebar_position: 1
+---
+
+# Custom Modules
+
+Commit-Boost aims to provide an open platform for developers to create and distribute commitment protocols sidecars.
+
+There are two ways to leverage Commit-Boost modularity:
+
+1. Commit Modules, which request signatures from the proposer, e.g. for preconfirmations ([example](https://github.com/Commit-Boost/commit-boost-client/tree/78bdc47bf89082f4d1ea302f9a3f86f609966b28/examples/da_commit)).
+2. Custom PBS binaries, which extend the default PBS Service with additional logic, e.g. by implementing the BuilderAPI with custom constraints in `get_header` ([example](https://github.com/Commit-Boost/commit-boost-client/tree/78bdc47bf89082f4d1ea302f9a3f86f609966b28/examples/status_api)).

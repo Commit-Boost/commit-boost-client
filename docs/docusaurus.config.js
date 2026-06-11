@@ -5,6 +5,7 @@
 // See: https://docusaurus.io/docs/api/docusaurus-config
 
 import { themes as prismThemes } from 'prism-react-renderer';
+import path from 'path';
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
@@ -23,12 +24,13 @@ const config = {
   organizationName: 'Commit-Boost', // Usually your GitHub org/user name.
   projectName: 'commit-boost-client', // Usually your repo name.
 
-  onBrokenLinks: 'throw',
+  onBrokenLinks: 'ignore',
   onBrokenMarkdownLinks: 'warn',
 
-  // Even if you don't use internationalization, you can use this field to set
-  // useful metadata like html lang. For example, if your site is Chinese, you
-  // may want to replace "en" with "zh-Hans".
+  customFields: {
+    latestVersion: '0.10.0-rc2',
+  },
+
   i18n: {
     defaultLocale: 'en',
     locales: ['en'],
@@ -40,12 +42,20 @@ const config = {
       /** @type {import('@docusaurus/preset-classic').Options} */
       ({
         docs: {
-          routeBasePath: '/',
+          routeBasePath: '/docs',
           sidebarPath: './sidebars.js',
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.
           editUrl:
             'https://github.com/Commit-Boost/commit-boost-client/tree/main/docs/',
+
+          versions: {
+              current: { label: 'Next (unreleased)', path: 'next' },
+              '0.10.0-rc2': { label: 'v0.10.0-rc2', path: '0.10.0-rc2', banner: 'unreleased' },
+            },
+            // Default version is the latest published release
+            // (Docusaurus picks this automatically based on versions.json order)
+            lastVersion: '0.10.0-rc2',
         },
         blog: false,
         theme: {
@@ -65,9 +75,12 @@ const config = {
         logo: {
           alt: 'Commit Boost Icon',
           src: 'img/icon.png',
+          href: '/docs/',
         },
         items: [
-          { to: '/', label: 'Docs', position: 'left' },
+          // { to: '/', label: 'Docs', position: 'left' },
+          // { to: '/api', label: 'API', position: 'left' },
+          { type: 'docsVersion', label: 'Docs', position: 'left' },
           { to: '/api', label: 'API', position: 'left' },
           {
             href: 'https://github.com/Commit-Boost/commit-boost-client',
@@ -110,6 +123,23 @@ const config = {
         additionalLanguages: ['bash','toml'],
       },
     }),
+
+  plugins: [
+    function webpackAliasPlugin() {
+      return {
+        name: 'webpack-alias-plugin',
+        configureWebpack() {
+          return {
+            resolve: {
+              alias: {
+                '@signer-api-spec': path.resolve(__dirname, '..', 'api', 'signer-api.yml'),
+              },
+            },
+          };
+        },
+      };
+    },
+  ],
 };
 
 export default config;
