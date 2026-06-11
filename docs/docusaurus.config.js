@@ -28,7 +28,7 @@ const config = {
   onBrokenMarkdownLinks: 'warn',
 
   customFields: {
-    latestVersion: '0.10.0-rc2',
+    latestVersion: '0.9.6',
   },
 
   i18n: {
@@ -51,11 +51,12 @@ const config = {
 
           versions: {
               current: { label: 'Next (unreleased)', path: 'next' },
+              '0.9.6': { label: 'v0.9.6', path: '0.9.6' },
               '0.10.0-rc2': { label: 'v0.10.0-rc2', path: '0.10.0-rc2', banner: 'unreleased' },
             },
             // Default version is the latest published release
             // (Docusaurus picks this automatically based on versions.json order)
-            lastVersion: '0.10.0-rc2',
+            lastVersion: '0.9.6',
         },
         blog: false,
         theme: {
@@ -75,12 +76,12 @@ const config = {
         logo: {
           alt: 'Commit Boost Icon',
           src: 'img/icon.png',
-          href: '/docs/',
         },
         items: [
           // { to: '/', label: 'Docs', position: 'left' },
           // { to: '/api', label: 'API', position: 'left' },
-          { type: 'docsVersion', label: 'Docs', position: 'left' },
+          { type: 'docsVersion', to: '/docs/', label: 'Docs', position: 'left' },
+          { type: 'docsVersionDropdown', position: 'right' },
           { to: '/api', label: 'API', position: 'left' },
           {
             href: 'https://github.com/Commit-Boost/commit-boost-client',

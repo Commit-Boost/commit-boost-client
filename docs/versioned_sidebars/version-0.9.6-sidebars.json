@@ -1,0 +1,69 @@
+{
+  "tutorialSidebar": [
+    "introduction",
+    "overview",
+    {
+      "type": "category",
+      "label": "Get started",
+      "link": {
+        "type": "generated-index"
+      },
+      "collapsed": false,
+      "items": [
+        "get_started/overview",
+        "get_started/configuration",
+        {
+          "type": "category",
+          "label": "Running",
+          "link": {
+            "type": "generated-index"
+          },
+          "items": [
+            "get_started/running/docker",
+            "get_started/running/binary",
+            "get_started/running/k8s",
+            "get_started/running/metrics"
+          ]
+        },
+        "get_started/troubleshooting"
+      ]
+    },
+    {
+      "type": "category",
+      "label": "Developing",
+      "link": {
+        "type": "generated-index"
+      },
+      "items": [
+        "developing/custom-modules",
+        "developing/commit-module",
+        "developing/prop-commit-signing",
+        "developing/environment-setup"
+      ]
+    },
+    {
+      "type": "category",
+      "label": "Architecture",
+      "link": {
+        "type": "generated-index"
+      },
+      "items": [
+        "architecture/overview"
+      ]
+    },
+    {
+      "type": "html",
+      "value": "<hr />"
+    },
+    {
+      "type": "link",
+      "label": "Github",
+      "href": "https://github.com/Commit-Boost/commit-boost-client"
+    },
+    {
+      "type": "link",
+      "label": "X (Twitter)",
+      "href": "https://x.com/Commit_Boost"
+    }
+  ]
+}
