@@ -36,7 +36,7 @@ Services need environment variables to work correctly.
 - `CB_SIGNER_TLS_CERTIFICATES`: path to the TLS certificates for the server.
 - For loading keys we currently support:
   - `CB_SIGNER_LOADER_FILE`: path to a `.json` with plaintext keys (for testing purposes only).
-  - `CB_SIGNER_LOADER_KEYS_DIR` and `CB_SIGNER_LOADER_SECRETS_DIR`: paths to the `keys` and `secrets` directories or files (ERC-2335 style keystores, see [Signer config](../configuration/#signer-module) for more info).
+  - `CB_SIGNER_LOADER_KEYS_DIR` and `CB_SIGNER_LOADER_SECRETS_DIR`: paths to the `keys` and `secrets` directories or files (ERC-2335 style keystores, see [Signer config](../configuration/#signer-service) for more info).
 - For storing proxy keys we currently support:
   - `CB_PROXY_STORE_DIR`: directory where proxy keys and delegations will be saved in plaintext (for testing purposes only).
   - `CB_PROXY_KEYS_DIR` and `CB_PROXY_SECRETS_DIR`: paths to the `keys` and `secrets` directories or files (ERC-2335 style keystores, see [Proxy keys store](../configuration/#proxy-keys-store) for more info).

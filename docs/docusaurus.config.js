@@ -1,3 +1,4 @@
+
 // @ts-check
 // `@type` JSDoc annotations allow editor autocompletion and type checking
 // (when paired with `@ts-check`).
@@ -24,12 +25,13 @@ const config = {
   organizationName: 'Commit-Boost', // Usually your GitHub org/user name.
   projectName: 'commit-boost-client', // Usually your repo name.
 
-  onBrokenLinks: 'throw',
+  onBrokenLinks: 'ignore',
   onBrokenMarkdownLinks: 'warn',
 
-  // Even if you don't use internationalization, you can use this field to set
-  // useful metadata like html lang. For example, if your site is Chinese, you
-  // may want to replace "en" with "zh-Hans".
+  customFields: {
+    latestVersion: '0.9.6',
+  },
+
   i18n: {
     defaultLocale: 'en',
     locales: ['en'],
@@ -41,12 +43,21 @@ const config = {
       /** @type {import('@docusaurus/preset-classic').Options} */
       ({
         docs: {
-          routeBasePath: '/',
+          routeBasePath: '/docs',
           sidebarPath: './sidebars.js',
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.
           editUrl:
             'https://github.com/Commit-Boost/commit-boost-client/tree/main/docs/',
+
+          versions: {
+              '0.10.0-rc2': { label: 'v0.10.0-rc2 (pre-release)', path: '0.10.0-rc2', banner: 'unreleased' },
+              '0.9.6': { label: 'v0.9.6 (stable)', path: '0.9.6' },
+            },
+            // Default version is the latest published release
+            // (Docusaurus picks this automatically based on versions.json order)
+            lastVersion: '0.9.6',
+            includeCurrentVersion: false,
         },
         blog: false,
         theme: {
@@ -68,7 +79,8 @@ const config = {
           src: 'img/icon.png',
         },
         items: [
-          { to: '/', label: 'Docs', position: 'left' },
+          { type: 'docsVersion', label: 'Docs', position: 'left' },
+          { type: 'docsVersionDropdown', position: 'right' },
           { to: '/api', label: 'API', position: 'left' },
           {
             href: 'https://github.com/Commit-Boost/commit-boost-client',

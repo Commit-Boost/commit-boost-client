@@ -84,7 +84,7 @@ If the signer fails to start with errors about keys:
 - **Proxy store path missing** — if `[signer.local.store]` is configured, the proxy directory must exist and be writable. The signer will fail to start if it cannot create proxy key files.
 - **Remote signer unavailable** — for Web3Signer or Dirk, the signer must be reachable at startup. A timeout or connection error during the initial handshake will cause the signer to exit.
 
-See the [Signer configuration](./configuration.md#signer-service) for a full reference and [Docker setup](./running/docker.md#example-with-pbs-signer-and-a-signer-service) for a working example.
+See the [Signer configuration](./configuration.md#signer-service) for a full reference and [Docker setup](./running/docker.md#example-with-pbs-signer-and-a-commit-module) for a working example.
 
 ### TLS
 
