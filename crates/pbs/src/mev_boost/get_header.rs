@@ -150,11 +150,10 @@ pub async fn get_header<S: BuilderApiState>(
     // Forward the caller's Accept preference to the relay so the relay
     // returns data in the format the BN expects, avoiding decode→re-encode.
     // Always offer both encodings as fallback so a format-limited relay
-    // still returns a bid (PBS converts if needed). Safe to unwrap:
-    // handle_get_header already validated the Accept header before calling
-    // into get_header.
-    let caller_accept = get_accept_types(&req_headers)
-        .expect("Accept header validated upstream in handle_get_header");
+    // still returns a bid (PBS converts if needed).
+    let caller_accept = get_accept_types(&req_headers).inspect_err(|err| {
+        error!(%err, "error parsing accept header");
+    })?;
     let relay_accept = AcceptedEncodings {
         primary: caller_accept.primary,
         fallback: Some(match caller_accept.primary {
