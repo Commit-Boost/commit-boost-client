@@ -202,11 +202,11 @@ impl IntoIterator for AcceptedEncodings {
 /// Parse the ACCEPT header into a q-value ordered [`AcceptedEncodings`]
 /// (highest preference first, deduplicated), defaulting to the request's
 /// Content-Type when no Accept header is present. Returns an error only if
-/// every media type in the header is malformed or unsupported. Supports
-/// requests with multiple ACCEPT headers or headers with multiple media
-/// types. `q=0` entries are treated as explicit rejections per RFC 7231
+/// every media type in the header is malformed or unsupported.
+/// Multiple Accept header fields are combined before parsing so q-value
+/// ordering is applied globally across all media ranges.
+/// `q=0` entries are treated as explicit rejections per RFC 7231
 /// §5.3.1 and are skipped.
-///
 /// The returned order honors the RFC 9110 §12.5.1 precedence rules already
 /// applied by `headers_accept::Accept::media_types()` (specificity, then
 /// q-value, then original order).
@@ -219,11 +219,15 @@ pub fn get_accept_types(
     let mut fallback: Option<EncodingType> = None;
     let mut saw_any = false;
     let mut had_supported = false;
-    for header in req_headers.get_all(ACCEPT).iter() {
-        let accept_str = header.to_str()?;
-        let accept =
-            Accept::from_str(accept_str).map_err(|_| AcceptedEncodingsError::InvalidAccept)?;
+    let mut accept_values = Vec::new();
 
+    for header in req_headers.get_all(ACCEPT).iter() {
+        accept_values.push(header.to_str()?);
+    }
+    if !accept_values.is_empty() {
+        let accept_str = accept_values.join(",");
+        let accept =
+            Accept::from_str(&accept_str).map_err(|_| AcceptedEncodingsError::InvalidAccept)?;
         for mt in accept.media_types() {
             saw_any = true;
 
@@ -720,6 +724,24 @@ mod test {
             get_accept_types(&headers).unwrap(),
             AcceptedEncodings::single(EncodingType::Json)
         );
+    }
+
+    /// Multiple Accept header fields must be combined before parsing so
+    /// q-values are ordered globally across all media ranges, not per
+    /// header field.
+    #[test]
+    fn test_multiple_accept_headers_q_value_ordering() {
+        let mut headers = HeaderMap::new();
+
+        // SSZ appears in the first header field but has a lower q-value.
+        // JSON appears in the second header field and should win globally.
+        headers.append(ACCEPT, HeaderValue::from_str("application/octet-stream;q=0.1").unwrap());
+        headers.append(ACCEPT, HeaderValue::from_str("application/json;q=1.0").unwrap());
+
+        assert_eq!(get_accept_types(&headers).unwrap(), AcceptedEncodings {
+            primary: EncodingType::Json,
+            fallback: Some(EncodingType::Ssz),
+        });
     }
 
     /// Once primary and fallback are filled, further supported entries must
