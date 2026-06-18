@@ -42,8 +42,8 @@ pub enum AcceptedEncodingsError {
     #[error("invalid header string: {0}")]
     InvalidString(#[from] ToStrError),
 
-    #[error("invalid accept header: {error_msg}")]
-    InvalidEncoding { error_msg: String },
+    #[error("invalid accept header")]
+    InvalidAccept,
 
     #[error("unsupported accept type")]
     UnsupportedAcceptType,
@@ -220,11 +220,9 @@ pub fn get_accept_types(
     let mut saw_any = false;
     let mut had_supported = false;
     for header in req_headers.get_all(ACCEPT).iter() {
-        let accept_str = header.to_str().map_err(AcceptedEncodingsError::InvalidString)?;
+        let accept_str = header.to_str()?;
         let accept =
-            Accept::from_str(accept_str).map_err(|e| AcceptedEncodingsError::InvalidEncoding {
-                error_msg: (format!("invalid accept header: {e}")).to_string(),
-            })?;
+            Accept::from_str(accept_str).map_err(|_| AcceptedEncodingsError::InvalidAccept)?;
 
         for mt in accept.media_types() {
             saw_any = true;

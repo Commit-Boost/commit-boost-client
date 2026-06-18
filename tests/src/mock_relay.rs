@@ -351,9 +351,9 @@ async fn handle_submit_block_v1(
         vec![1u8; 1 + MAX_SIZE_SUBMIT_BLOCK_RESPONSE]
     } else {
         let mut execution_payload = ExecutionPayloadElectra::test_random();
-        let submit_block = deserialize_body(&headers, body_bytes).map_err(|e| {
-            error!(%e, "failed to deserialize signed blinded block");
-            (StatusCode::BAD_REQUEST, format!("failed to deserialize body: {e}"))
+        let submit_block = deserialize_body(&headers, body_bytes).map_err(|err| {
+            error!(%err, "failed to deserialize signed blinded block");
+            (StatusCode::BAD_REQUEST, format!("failed to deserialize body: {err}"))
         });
         if let Err(e) = submit_block {
             return e.into_response();

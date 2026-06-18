@@ -69,8 +69,8 @@ impl PbsService {
             watcher = RecommendedWatcher::new(
                 move |result: Result<Event, Error>| {
                     match result {
-                        Err(e) => {
-                            warn!(%e, "error watching PBS config file for changes");
+                        Err(err) => {
+                            warn!(%err, "error watching PBS config file for changes");
                             return;
                         }
                         Ok(event) => {

@@ -50,8 +50,6 @@ use crate::{
 /// Sent from get_header to each send_timed_get_header call.
 #[derive(Clone)]
 struct RequestInfo {
-    /// The blockchain parameters of the get_header request (what slot it's for,
-    /// which pubkey is requesting it, etc)
     params: GetHeaderParams,
 
     /// Common baseline of headers to send with each request
@@ -834,9 +832,6 @@ mod tests {
                 .expect("failed to extract bid value from SSZ");
 
             // Compare to the original value
-            println!("Testing fork: {}", fork_name);
-            println!("Original value: {}", decoded.value());
-            println!("Extracted value: {}", bid_value);
             assert_eq!(*decoded.value(), bid_value);
         }
     }
