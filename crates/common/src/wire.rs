@@ -152,12 +152,6 @@ pub fn get_user_agent_with_version(req_headers: &HeaderMap) -> eyre::Result<Head
     Ok(HeaderValue::from_str(&format!("commit-boost/{HEADER_VERSION_VALUE} {ua}"))?)
 }
 
-/// Deterministic outbound `Accept` header used when PBS asks a relay for a
-/// response it will itself decode (validation mode On/Extra). SSZ is preferred
-/// for wire efficiency. Emitted verbatim so packet captures and support
-/// tickets are reproducible.
-pub const OUTBOUND_ACCEPT: &str = "application/octet-stream;q=1.0,application/json;q=0.9";
-
 /// Default encoding used when the caller does not express a format
 /// preference. This covers both `Accept: */*` (see `get_accept_types`) and
 /// a missing Content-Type header on inbound or relay responses (see
@@ -458,7 +452,7 @@ mod test {
 
     use super::{
         APPLICATION_JSON, APPLICATION_OCTET_STREAM, AcceptedEncodings, BodyDeserializeError,
-        CONSENSUS_VERSION_HEADER, EncodingType, NO_PREFERENCE_DEFAULT, OUTBOUND_ACCEPT, WILDCARD,
+        CONSENSUS_VERSION_HEADER, EncodingType, NO_PREFERENCE_DEFAULT, WILDCARD,
         accept_q_value_for_index, build_outbound_accept, deserialize_body, format_accept_entry,
         get_accept_types, get_consensus_version_header, get_content_type,
         parse_response_encoding_and_fork,
@@ -799,13 +793,6 @@ mod test {
             accepts.preferred(&[EncodingType::Ssz, EncodingType::Json]),
             Some(EncodingType::Json)
         );
-    }
-
-    /// Snapshot test: constant emits exactly what we document in
-    /// OUTBOUND_ACCEPT.
-    #[test]
-    fn test_outbound_accept_constant_snapshot() {
-        assert_eq!(OUTBOUND_ACCEPT, "application/octet-stream;q=1.0,application/json;q=0.9");
     }
 
     /// q-value ladder: first entry is 1.0, each subsequent entry drops by 0.1.
