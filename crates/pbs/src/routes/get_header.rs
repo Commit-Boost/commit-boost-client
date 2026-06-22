@@ -50,7 +50,6 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
     match A::get_header(params, req_headers, state).await {
         Ok(res) => {
             if let Some(max_bid) = res {
-                BEACON_NODE_STATUS.with_label_values(&["200", GET_HEADER_ENDPOINT_TAG]).inc();
                 // Respond based on requester accept types
                 info!(value_eth = format_ether(*max_bid.data.message.value()), block_hash =% max_bid.block_hash(), "received header");
 
@@ -58,10 +57,18 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
                 // practice — `get_accept_types` errors earlier if
                 // the caller offers nothing we support), SSZ, or JSON.
                 match response_encoding {
-                    None => Err(PbsClientError::HeaderError(
-                        AcceptedEncodingsError::UnsupportedAcceptType,
-                    )),
+                    None => {
+                        BEACON_NODE_STATUS
+                            .with_label_values(&["406", GET_HEADER_ENDPOINT_TAG])
+                            .inc();
+                        Err(PbsClientError::HeaderError(
+                            AcceptedEncodingsError::UnsupportedAcceptType,
+                        ))
+                    }
                     Some(EncodingType::Ssz) => {
+                        BEACON_NODE_STATUS
+                            .with_label_values(&["200", GET_HEADER_ENDPOINT_TAG])
+                            .inc();
                         // ForkName::to_string() always yields valid
                         // ASCII, so HeaderValue::from_str cannot
                         // fail here.
@@ -74,11 +81,14 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
                         res.headers_mut()
                             .insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
                         res.headers_mut().insert(CONTENT_TYPE, content_type_header);
-                        debug!("sending response as SSZ");
+                        debug!("sending get_header response to BN as SSZ");
                         Ok(res)
                     }
                     Some(EncodingType::Json) => {
-                        debug!("sending response as JSON");
+                        BEACON_NODE_STATUS
+                            .with_label_values(&["200", GET_HEADER_ENDPOINT_TAG])
+                            .inc();
+                        debug!("sending get_header response to BN as JSON");
                         Ok((StatusCode::OK, axum::Json(max_bid)).into_response())
                     }
                 }
