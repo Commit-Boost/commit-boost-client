@@ -36,3 +36,6 @@
 
 ### v0.10.0-rc2
 - Fix string marshaling bug when fetching keys from local SSV nodes
+
+### v0.10.0-rc3
+- Fix Crypto TLS import ordering issue that caused Dirk signer path to panic.
