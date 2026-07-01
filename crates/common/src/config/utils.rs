@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use eyre::{Context, Result, bail};
+use eyre::{Context, Result};
 use serde::de::DeserializeOwned;
 
 use crate::{
@@ -60,11 +60,11 @@ pub fn decode_string_to_map(raw: &str) -> Result<HashMap<ModuleId, String>> {
     raw.trim()
         .split(',')
         .map(|pair| {
-            let mut parts = pair.trim().split('=');
-            match (parts.next(), parts.next()) {
-                (Some(key), Some(value)) => Ok((ModuleId(key.into()), value.into())),
-                _ => bail!("Invalid key-value pair: {pair}"),
-            }
+            let (key, value) = pair
+                .trim()
+                .split_once('=')
+                .ok_or_else(|| eyre::eyre!("Invalid key-value pair: {pair}"))?;
+            Ok((ModuleId(key.into()), value.into()))
         })
         .collect()
 }
@@ -118,6 +118,12 @@ mod tests {
         let map = decode_string_to_map("ONLY=ONE").unwrap();
         assert_eq!(map.len(), 1);
         assert_eq!(map.get(&ModuleId("ONLY".into())), Some(&"ONE".to_string()));
+    }
+
+    #[test]
+    fn test_decode_string_to_map_preserves_equals_in_value() {
+        let map = decode_string_to_map("MODULE=secret=with=equals").unwrap();
+        assert_eq!(map.get(&ModuleId("MODULE".into())), Some(&"secret=with=equals".to_string()));
     }
 
     #[test]
