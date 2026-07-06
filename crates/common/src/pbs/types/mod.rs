@@ -62,6 +62,74 @@ pub struct GetHeaderParams {
     pub pubkey: BlsPublicKey,
 }
 
+pub type ExecutionPayloadBid = lh_types::ExecutionPayloadBid;
+pub type SignedExecutionPayloadBid = lh_types::SignedExecutionPayloadBid;
+
+/// Response object of GET
+/// `/eth/v3/builder/header/{slot}/{parent_hash}/{parent_root}/
+/// {proposer_pubkey}`
+pub type GetExecutionPayloadBidResponse = ForkVersionedResponse<SignedExecutionPayloadBid>;
+
+pub trait GetExecutionPayloadBidInfo {
+    fn block_hash(&self) -> B256;
+    fn parent_hash(&self) -> B256;
+    fn parent_root(&self) -> B256;
+    fn value(&self) -> u64;
+    fn execution_payment(&self) -> u64;
+    fn builder_index(&self) -> u64;
+    fn slot(&self) -> u64;
+    fn gas_limit(&self) -> u64;
+}
+
+impl GetExecutionPayloadBidInfo for GetExecutionPayloadBidResponse {
+    fn block_hash(&self) -> B256 {
+        self.data.message.block_hash.0
+    }
+
+    fn parent_hash(&self) -> B256 {
+        self.data.message.parent_block_hash.0
+    }
+
+    fn parent_root(&self) -> B256 {
+        self.data.message.parent_block_root
+    }
+
+    fn value(&self) -> u64 {
+        self.data.message.value
+    }
+
+    fn execution_payment(&self) -> u64 {
+        self.data.message.execution_payment
+    }
+
+    fn builder_index(&self) -> u64 {
+        self.data.message.builder_index
+    }
+
+    fn slot(&self) -> u64 {
+        self.data.message.slot.as_u64()
+    }
+
+    fn gas_limit(&self) -> u64 {
+        self.data.message.gas_limit
+    }
+}
+
+/// Response params of GET
+/// `/eth/v1/builder/header/{slot}/{parent_hash}/{parent_root}/
+/// {proposer_pubkey}`
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct GetExecutionPayloadBidParams {
+    /// The slot for which the block should be proposed.
+    pub slot: u64,
+    /// The hash of the execution layer block the proposer will build on.
+    pub parent_hash: B256,
+    /// The root of the beacon block the proposer will build on.
+    pub parent_root: B256,
+    /// The public key of the proposer.
+    pub pubkey: BlsPublicKey,
+}
+
 pub trait GetHeaderInfo {
     fn block_hash(&self) -> B256;
     fn value(&self) -> &U256;

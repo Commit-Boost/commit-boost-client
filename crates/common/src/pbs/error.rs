@@ -80,6 +80,9 @@ pub enum ValidationError {
     #[error("parent hash mismatch: expected {expected} got {got}")]
     ParentHashMismatch { expected: B256, got: B256 },
 
+    #[error("parent root mismatch: expected {expected} got {got}")]
+    ParentRootMismatch { expected: B256, got: B256 },
+
     #[error("block hash mismatch: expected {expected} got {got}")]
     BlockHashMismatch { expected: B256, got: B256 },
 
@@ -99,6 +102,15 @@ pub enum ValidationError {
     #[error("bid below minimum: min: {min} got {got}")]
     BidTooLow { min: U256, got: U256 },
 
+    #[error("trustless bid below minimum (gwei): min: {min} got {got}")]
+    TrustlessBidTooLow { min: u64, got: u64 },
+
+    #[error("trusted bid above maximum (gwei): max: {max} got {got}")]
+    TrustedBidTooHigh { max: u64, got: u64 },
+
+    #[error("empty parent root")]
+    EmptyParentRoot,
+
     #[error("empty tx root")]
     EmptyTxRoot,
 
@@ -110,6 +122,9 @@ pub enum ValidationError {
 
     #[error("wrong block number: parent: {parent} header: {header}")]
     BlockNumberMismatch { parent: u64, header: u64 },
+
+    #[error("wrong slot number: expected: {expected} got: {got}")]
+    SlotNumberMismatch { expected: u64, got: u64 },
 
     #[error("invalid gas limit: parent: {parent} header: {header}")]
     GasLimit { parent: u64, header: u64 },

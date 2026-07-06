@@ -4,6 +4,7 @@ use std::{
 };
 
 use alloy::{
+    consensus::BlockHeader,
     primitives::{B256, U256, aliases::B32, utils::format_ether},
     providers::Provider,
     rpc::types::Block,
@@ -16,13 +17,13 @@ use axum::{
 use cb_common::{
     constants::APPLICATION_BUILDER_DOMAIN,
     pbs::{
-        EMPTY_TX_ROOT_HASH, ExecutionPayloadHeaderRef, GetHeaderInfo, GetHeaderParams,
-        GetHeaderResponse, HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS, RelayClient,
+        GetExecutionPayloadBidInfo, GetExecutionPayloadBidParams, GetExecutionPayloadBidResponse,
+        HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS, RelayClient,
         error::{PbsError, ValidationError},
     },
     signature::verify_signed_message,
-    types::{BlsPublicKey, BlsPublicKeyBytes, BlsSignature, Chain},
-    utils::{ms_into_slot, timestamp_of_slot_start_sec, utcnow_ms},
+    types::{BlsPublicKey, BlsSignature, Chain},
+    utils::{ms_into_slot, utcnow_ms},
     wire::{get_user_agent, get_user_agent_with_version, safe_read_http_response},
 };
 use futures::future::join_all;
@@ -50,10 +51,11 @@ use crate::{
 pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
     State(state): State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
-    Path(params): Path<GetHeaderParams>,
+    Path(params): Path<GetExecutionPayloadBidParams>,
 ) -> Result<impl IntoResponse, PbsClientError> {
     tracing::Span::current().record("slot", params.slot);
     tracing::Span::current().record("parent_hash", tracing::field::debug(params.parent_hash));
+    tracing::Span::current().record("parent_root", tracing::field::debug(params.parent_root));
     tracing::Span::current().record("validator", tracing::field::debug(&params.pubkey));
 
     let state = state.read().clone();
@@ -63,10 +65,15 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
 
     info!(ua, ms_into_slot, "new request");
 
+    // TODO match over the body
+    // if SignedRequestAuthV1 points to builder-> route to URL via
+    // send_timed_get_execution_payload_bid else -> route to CB-owned builder
+    // list (current get_execution_payload_bid logic)
+
     match get_execution_payload_bid(params, req_headers, state).await {
         Ok(res) => {
             if let Some(max_bid) = res {
-                info!(value_eth = format_ether(*max_bid.data.message.value()), block_hash =% max_bid.block_hash(), "received header");
+                info!(trustless_bid_eth = format_ether(max_bid.value()), execution_payment_eth = format_ether(max_bid.execution_payment()), block_hash =% max_bid.block_hash(), builder_index = max_bid.builder_index(), "received header");
 
                 BEACON_NODE_STATUS
                     .with_label_values(&["200", GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG])
@@ -100,10 +107,10 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
 /// Implements https://ethereum.github.io/builder-specs/?urls.primaryName=dev#/Builder/getExecutionPayloadBid
 /// Returns 200 if at least one relay returns 200, else 204
 pub async fn get_execution_payload_bid<S: BuilderApiState>(
-    params: GetHeaderParams,
+    params: GetExecutionPayloadBidParams,
     req_headers: HeaderMap,
     state: PbsState<S>,
-) -> eyre::Result<Option<GetHeaderResponse>> {
+) -> eyre::Result<Option<GetExecutionPayloadBidResponse>> {
     let parent_block = Arc::new(RwLock::new(None));
     if state.extra_validation_enabled() &&
         let Some(rpc_url) = state.pbs_config().rpc_url.clone()
@@ -165,7 +172,8 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
                 max_timeout_ms,
                 ValidationContext {
                     skip_sigverify: state.pbs_config().skip_sigverify,
-                    min_bid_wei: state.pbs_config().min_bid_wei,
+                    min_trustless_bid_gwei: 0, // todo add param
+                    max_trusted_bid_gwei: 0,   // todo add param
                     extra_validation_enabled: state.extra_validation_enabled(),
                     parent_block: parent_block.clone(),
                 },
@@ -182,7 +190,8 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
         match res {
             Ok(Some(res)) => {
                 RELAY_LAST_SLOT.with_label_values(&[relay_id]).set(params.slot as i64);
-                let value_gwei = (res.data.message.value() / U256::from(1_000_000_000))
+                // TODO bid-sorting policy should use execution payload
+                let value_gwei = (U256::from(res.value()) / U256::from(1_000_000_000))
                     .try_into()
                     .unwrap_or_default();
                 RELAY_HEADER_VALUE.with_label_values(&[relay_id]).set(value_gwei);
@@ -195,12 +204,14 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
         }
     }
 
-    let max_bid = relay_bids.into_iter().max_by_key(|(_, bid)| *bid.value());
+    let max_bid = relay_bids.into_iter().max_by_key(|(_, bid)| bid.value());
 
     if let Some((winning_relay_id, ref bid)) = max_bid {
         info!(
             relay_id = winning_relay_id,
-            value_eth = format_ether(*bid.value()),
+            bid_eth = format_ether(bid.value() + bid.execution_payment()),
+            trustless_bid_eth = format_ether(bid.value()),
+            execution_payment_eth = format_ether(bid.execution_payment()),
             block_hash = %bid.block_hash(),
             "auction winner"
         );
@@ -235,14 +246,15 @@ async fn fetch_parent_block(
 }
 
 async fn send_timed_get_execution_payload_bid(
-    params: GetHeaderParams,
+    params: GetExecutionPayloadBidParams,
     relay: RelayClient,
     chain: Chain,
     headers: HeaderMap,
     ms_into_slot: u64,
     mut timeout_left_ms: u64,
     validation: ValidationContext,
-) -> Result<Option<GetHeaderResponse>, PbsError> {
+) -> Result<Option<GetExecutionPayloadBidResponse>, PbsError> {
+    // TODO use builder client with params.parent_root
     let url = relay.get_header_url(params.slot, &params.parent_hash, &params.pubkey)?;
 
     if relay.config.enable_timing_games {
@@ -361,18 +373,19 @@ struct RequestContext {
 #[derive(Clone)]
 struct ValidationContext {
     skip_sigverify: bool,
-    min_bid_wei: U256,
+    min_trustless_bid_gwei: u64,
+    max_trusted_bid_gwei: u64,
     extra_validation_enabled: bool,
     parent_block: Arc<RwLock<Option<Block>>>,
 }
 
 async fn send_one_get_execution_payload_bid(
-    params: GetHeaderParams,
+    params: GetExecutionPayloadBidParams,
     relay: RelayClient,
     chain: Chain,
     mut req_config: RequestContext,
     validation: ValidationContext,
-) -> Result<(u64, Option<GetHeaderResponse>), PbsError> {
+) -> Result<(u64, Option<GetExecutionPayloadBidResponse>), PbsError> {
     // the timestamp in the header is the consensus block time which is fixed,
     // use the beginning of the request as proxy to make sure we use only the
     // last one received
@@ -422,92 +435,59 @@ async fn send_one_get_execution_payload_bid(
         return Ok((start_request_time, None));
     }
 
-    let get_header_response = match serde_json::from_slice::<GetHeaderResponse>(&response_bytes) {
-        Ok(parsed) => parsed,
-        Err(err) => {
-            return Err(PbsError::JsonDecode {
-                err,
-                raw: String::from_utf8_lossy(&response_bytes).into_owned(),
-            });
-        }
-    };
+    let get_header_response =
+        match serde_json::from_slice::<GetExecutionPayloadBidResponse>(&response_bytes) {
+            Ok(parsed) => parsed,
+            Err(err) => {
+                return Err(PbsError::JsonDecode {
+                    err,
+                    raw: String::from_utf8_lossy(&response_bytes).into_owned(),
+                });
+            }
+        };
 
     info!(
         relay_id = relay.id.as_ref(),
         header_size_bytes,
         latency = ?request_latency,
         version =? get_header_response.version,
-        value_eth = format_ether(*get_header_response.value()),
-        block_hash = %get_header_response.block_hash(),
+        bid_eth = format_ether(get_header_response.data.message.value + get_header_response.data.message.execution_payment),
+        trustless_bid_eth = format_ether(get_header_response.data.message.value),
+        execution_payment_eth = format_ether(get_header_response.data.message.execution_payment),
+        block_hash = %get_header_response.data.message.block_hash,
         "received new header"
     );
 
-    match &get_header_response.data.message.header() {
-        ExecutionPayloadHeaderRef::Bellatrix(_) |
-        ExecutionPayloadHeaderRef::Capella(_) |
-        ExecutionPayloadHeaderRef::Deneb(_) => {
-            return Err(PbsError::Validation(ValidationError::UnsupportedFork))
-        }
-        ExecutionPayloadHeaderRef::Electra(res) => {
-            let header_data = HeaderData {
-                block_hash: res.block_hash.0,
-                parent_hash: res.parent_hash.0,
-                tx_root: res.transactions_root,
-                value: *get_header_response.value(),
-                timestamp: res.timestamp,
-            };
+    let header_info = HeaderInfo {
+        block_hash: get_header_response.block_hash(),
+        parent_hash: get_header_response.parent_hash(),
+        parent_root: get_header_response.parent_root(),
+        slot: get_header_response.slot(),
+        trustless_payment: get_header_response.value(),
+        trusted_payment: get_header_response.execution_payment(),
+        gas_limit: get_header_response.gas_limit(),
+    };
 
-            validate_header_data(
-                &header_data,
-                chain,
-                params.parent_hash,
-                validation.min_bid_wei,
-                params.slot,
-            )?;
+    validate_header_data(
+        &header_info,
+        &params,
+        validation.min_trustless_bid_gwei, // todo
+        validation.max_trusted_bid_gwei,   // todo
+    )?;
 
-            if !validation.skip_sigverify {
-                validate_signature(
-                    chain,
-                    relay.pubkey(),
-                    get_header_response.data.message.pubkey(),
-                    &get_header_response.data.message,
-                    &get_header_response.data.signature,
-                )?;
-            }
-        }
-        ExecutionPayloadHeaderRef::Fulu(res) => {
-            let header_data = HeaderData {
-                block_hash: res.block_hash.0,
-                parent_hash: res.parent_hash.0,
-                tx_root: res.transactions_root,
-                value: *get_header_response.value(),
-                timestamp: res.timestamp,
-            };
-
-            validate_header_data(
-                &header_data,
-                chain,
-                params.parent_hash,
-                validation.min_bid_wei,
-                params.slot,
-            )?;
-
-            if !validation.skip_sigverify {
-                validate_signature(
-                    chain,
-                    relay.pubkey(),
-                    get_header_response.data.message.pubkey(),
-                    &get_header_response.data.message,
-                    &get_header_response.data.signature,
-                )?;
-            }
-        }
+    if !validation.skip_sigverify {
+        validate_signature(
+            chain,
+            relay.pubkey(),
+            &get_header_response.data.message,
+            &get_header_response.data.signature,
+        )?;
     }
 
     if validation.extra_validation_enabled {
         let parent_block = validation.parent_block.read();
         if let Some(parent_block) = parent_block.as_ref() {
-            extra_validation(parent_block, &get_header_response)?;
+            extra_validation(parent_block, &header_info, &params)?;
         } else {
             warn!(
                 relay_id = relay.id.as_ref(),
@@ -519,45 +499,58 @@ async fn send_one_get_execution_payload_bid(
     Ok((start_request_time, Some(get_header_response)))
 }
 
-struct HeaderData {
+struct HeaderInfo {
     block_hash: B256,
     parent_hash: B256,
-    tx_root: B256,
-    value: U256,
-    timestamp: u64,
+    parent_root: B256,
+    slot: u64,
+    trustless_payment: u64,
+    trusted_payment: u64,
+    gas_limit: u64,
 }
 
 fn validate_header_data(
-    header_data: &HeaderData,
-    chain: Chain,
-    expected_parent_hash: B256,
-    minimum_bid_wei: U256,
-    slot: u64,
+    header_info: &HeaderInfo,
+    params: &GetExecutionPayloadBidParams,
+    min_trustless_bid_gwei: u64,
+    max_trusted_bid_gwei: u64,
 ) -> Result<(), ValidationError> {
-    if header_data.block_hash == B256::ZERO {
+    if header_info.block_hash == B256::ZERO {
         return Err(ValidationError::EmptyBlockhash);
     }
 
-    if expected_parent_hash != header_data.parent_hash {
+    if params.parent_hash != header_info.parent_hash {
         return Err(ValidationError::ParentHashMismatch {
-            expected: expected_parent_hash,
-            got: header_data.parent_hash,
+            expected: params.parent_hash,
+            got: header_info.parent_hash,
         });
     }
 
-    if header_data.tx_root == EMPTY_TX_ROOT_HASH {
-        return Err(ValidationError::EmptyTxRoot);
+    if params.parent_root != header_info.parent_root {
+        return Err(ValidationError::ParentRootMismatch {
+            expected: params.parent_root,
+            got: header_info.parent_root,
+        });
     }
 
-    if header_data.value < minimum_bid_wei {
-        return Err(ValidationError::BidTooLow { min: minimum_bid_wei, got: header_data.value });
+    if params.slot != header_info.slot {
+        return Err(ValidationError::SlotNumberMismatch {
+            expected: params.slot,
+            got: header_info.slot,
+        });
     }
 
-    let expected_timestamp = timestamp_of_slot_start_sec(slot, chain);
-    if expected_timestamp != header_data.timestamp {
-        return Err(ValidationError::TimestampMismatch {
-            expected: expected_timestamp,
-            got: header_data.timestamp,
+    if header_info.trustless_payment < min_trustless_bid_gwei {
+        return Err(ValidationError::TrustlessBidTooLow {
+            min: min_trustless_bid_gwei,
+            got: header_info.trustless_payment,
+        });
+    }
+
+    if header_info.trusted_payment > max_trusted_bid_gwei {
+        return Err(ValidationError::TrustedBidTooHigh {
+            max: max_trusted_bid_gwei,
+            got: header_info.trusted_payment,
         });
     }
 
@@ -566,21 +559,13 @@ fn validate_header_data(
 
 fn validate_signature<T: TreeHash>(
     chain: Chain,
-    expected_relay_pubkey: &BlsPublicKey,
-    received_relay_pubkey: &BlsPublicKeyBytes,
+    expected_pubkey: &BlsPublicKey,
     message: &T,
     signature: &BlsSignature,
 ) -> Result<(), ValidationError> {
-    if expected_relay_pubkey.serialize() != received_relay_pubkey.as_serialized() {
-        return Err(ValidationError::PubkeyMismatch {
-            expected: BlsPublicKeyBytes::from(expected_relay_pubkey),
-            got: *received_relay_pubkey,
-        });
-    }
-
     if !verify_signed_message(
         chain,
-        expected_relay_pubkey,
+        expected_pubkey,
         &message,
         signature,
         None,
@@ -594,32 +579,49 @@ fn validate_signature<T: TreeHash>(
 
 fn extra_validation(
     parent_block: &Block,
-    signed_header: &GetHeaderResponse,
+    header_info: &HeaderInfo,
+    params: &GetExecutionPayloadBidParams,
 ) -> Result<(), ValidationError> {
-    if signed_header.block_number() != parent_block.header.number + 1 {
-        return Err(ValidationError::BlockNumberMismatch {
-            parent: parent_block.header.number,
-            header: signed_header.block_number(),
+    if parent_block.hash() != params.parent_hash {
+        return Err(ValidationError::ParentHashMismatch {
+            got: parent_block.header.parent_hash,
+            expected: params.parent_hash,
+        });
+    };
+
+    let Some(parent_root) = parent_block.header.parent_beacon_block_root() else {
+        tracing::error!("parent block is missing parent_beacon_block_root");
+        return Err(ValidationError::EmptyParentRoot);
+    };
+
+    if parent_root != params.parent_root {
+        return Err(ValidationError::ParentRootMismatch {
+            got: parent_root,
+            expected: params.parent_root,
         });
     }
 
-    if !check_gas_limit(signed_header.gas_limit(), parent_block.header.gas_limit) {
+    // TODO potentially check builder index -> pubkey mapping
+
+    if !check_gas_limit(header_info.gas_limit, parent_block.header.gas_limit) {
         return Err(ValidationError::GasLimit {
             parent: parent_block.header.gas_limit,
-            header: signed_header.gas_limit(),
+            header: header_info.gas_limit,
         });
     };
 
     Ok(())
 }
+
 #[cfg(test)]
 mod tests {
-    use alloy::primitives::{B256, U256};
+
+    use alloy::primitives::B256;
     use cb_common::{
-        pbs::{EMPTY_TX_ROOT_HASH, error::ValidationError},
+        pbs::error::ValidationError,
         signature::sign_builder_message,
         types::{BlsSecretKey, Chain},
-        utils::{TestRandomSeed, timestamp_of_slot_start_sec},
+        utils::TestRandomSeed,
     };
 
     use super::{validate_header_data, *};
@@ -628,28 +630,50 @@ mod tests {
     fn test_validate_header() {
         let slot = 5;
         let parent_hash = B256::from_slice(&[1; 32]);
-        let chain = Chain::Holesky;
-        let min_bid = U256::from(10);
+        let parent_root = B256::from_slice(&[2; 32]);
+        let min_trustless_payment = 500;
+        let max_trusted_payment = 1000;
+        let secret_key = BlsSecretKey::test_random();
+        let pubkey = secret_key.public_key();
 
-        let mut mock_header_data = HeaderData {
+        let mock_params = GetExecutionPayloadBidParams {
+            slot,
+            parent_hash: parent_hash.clone(),
+            parent_root: parent_root.clone(),
+            pubkey,
+        };
+
+        let mut mock_header_data = HeaderInfo {
             block_hash: B256::default(),
             parent_hash: B256::default(),
-            tx_root: EMPTY_TX_ROOT_HASH,
-            value: U256::default(),
-            timestamp: 0,
+            parent_root: B256::default(),
+            slot: 0,
+            trustless_payment: min_trustless_payment - 1,
+            trusted_payment: max_trusted_payment + 1,
+            gas_limit: 0,
         };
 
         assert_eq!(
-            validate_header_data(&mock_header_data, chain, parent_hash, min_bid, slot,),
+            validate_header_data(
+                &mock_header_data,
+                &mock_params,
+                min_trustless_payment,
+                max_trusted_payment,
+            ),
             Err(ValidationError::EmptyBlockhash)
         );
 
         mock_header_data.block_hash.0[1] = 1;
 
         assert_eq!(
-            validate_header_data(&mock_header_data, chain, parent_hash, min_bid, slot,),
+            validate_header_data(
+                &mock_header_data,
+                &mock_params,
+                min_trustless_payment,
+                max_trusted_payment,
+            ),
             Err(ValidationError::ParentHashMismatch {
-                expected: parent_hash,
+                expected: mock_params.parent_hash,
                 got: B256::default()
             })
         );
@@ -657,69 +681,86 @@ mod tests {
         mock_header_data.parent_hash = parent_hash;
 
         assert_eq!(
-            validate_header_data(&mock_header_data, chain, parent_hash, min_bid, slot,),
-            Err(ValidationError::EmptyTxRoot)
+            validate_header_data(
+                &mock_header_data,
+                &mock_params,
+                min_trustless_payment,
+                max_trusted_payment,
+            ),
+            Err(ValidationError::ParentRootMismatch {
+                expected: mock_params.parent_root,
+                got: B256::default()
+            })
         );
 
-        mock_header_data.tx_root = Default::default();
+        mock_header_data.parent_root = parent_root;
 
         assert_eq!(
-            validate_header_data(&mock_header_data, chain, parent_hash, min_bid, slot,),
-            Err(ValidationError::BidTooLow { min: min_bid, got: U256::ZERO })
+            validate_header_data(
+                &mock_header_data,
+                &mock_params,
+                min_trustless_payment,
+                max_trusted_payment,
+            ),
+            Err(ValidationError::SlotNumberMismatch { expected: slot, got: 0 })
         );
 
-        mock_header_data.value = U256::from(11);
+        mock_header_data.slot = slot;
 
-        let expected = timestamp_of_slot_start_sec(slot, chain);
         assert_eq!(
-            validate_header_data(&mock_header_data, chain, parent_hash, min_bid, slot,),
-            Err(ValidationError::TimestampMismatch { expected, got: 0 })
+            validate_header_data(
+                &mock_header_data,
+                &mock_params,
+                min_trustless_payment,
+                max_trusted_payment,
+            ),
+            Err(ValidationError::TrustlessBidTooLow {
+                min: min_trustless_payment,
+                got: mock_header_data.trustless_payment,
+            })
         );
 
-        mock_header_data.timestamp = expected;
+        mock_header_data.trustless_payment = min_trustless_payment;
 
-        assert!(validate_header_data(&mock_header_data, chain, parent_hash, min_bid, slot).is_ok());
+        assert_eq!(
+            validate_header_data(
+                &mock_header_data,
+                &mock_params,
+                min_trustless_payment,
+                max_trusted_payment,
+            ),
+            Err(ValidationError::TrustedBidTooHigh {
+                max: max_trusted_payment,
+                got: mock_header_data.trusted_payment,
+            })
+        );
+
+        mock_header_data.trusted_payment = max_trusted_payment;
+
+        validate_header_data(
+            &mock_header_data,
+            &mock_params,
+            min_trustless_payment,
+            max_trusted_payment,
+        )
+        .unwrap();
     }
 
     #[test]
     fn test_validate_signature() {
         let secret_key = BlsSecretKey::test_random();
         let pubkey = secret_key.public_key();
-        let wrong_pubkey = BlsPublicKeyBytes::test_random();
         let wrong_signature = BlsSignature::test_random();
 
         let message = B256::random();
 
         let signature = sign_builder_message(Chain::Holesky, &secret_key, &message);
 
-        assert_eq!(
-            validate_signature(Chain::Holesky, &pubkey, &wrong_pubkey, &message, &wrong_signature),
-            Err(ValidationError::PubkeyMismatch {
-                expected: BlsPublicKeyBytes::from(&pubkey),
-                got: wrong_pubkey
-            })
-        );
-
         assert!(matches!(
-            validate_signature(
-                Chain::Holesky,
-                &pubkey,
-                &BlsPublicKeyBytes::from(&pubkey),
-                &message,
-                &wrong_signature
-            ),
+            validate_signature(Chain::Holesky, &pubkey, &message, &wrong_signature),
             Err(ValidationError::Sigverify)
         ));
 
-        assert!(
-            validate_signature(
-                Chain::Holesky,
-                &pubkey,
-                &BlsPublicKeyBytes::from(&pubkey),
-                &message,
-                &signature
-            )
-            .is_ok()
-        );
+        assert!(validate_signature(Chain::Holesky, &pubkey, &message, &signature).is_ok());
     }
 }
