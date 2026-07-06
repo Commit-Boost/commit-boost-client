@@ -2,12 +2,16 @@ use crate::constants::COMMIT_BOOST_VERSION;
 
 pub const BUILDER_V1_API_PATH: &str = "/eth/v1/builder";
 pub const BUILDER_V2_API_PATH: &str = "/eth/v2/builder";
+pub const BUILDER_V3_API_PATH: &str = "/eth/v3/builder";
 
 pub const GET_HEADER_PATH: &str = "/header/{slot}/{parent_hash}/{pubkey}";
 pub const GET_STATUS_PATH: &str = "/status";
 pub const REGISTER_VALIDATOR_PATH: &str = "/validators";
 pub const SUBMIT_BLOCK_PATH: &str = "/blinded_blocks";
 pub const RELOAD_PATH: &str = "/reload";
+
+pub const GET_EXECUTION_PAYLOAD_BID_PATH: &str =
+    "/header/{slot}/{parent_hash}/{parent_root}/{proposer_pubkey}";
 
 // https://ethereum.github.io/builder-specs/#/Builder
 

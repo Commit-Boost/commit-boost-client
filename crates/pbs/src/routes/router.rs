@@ -8,16 +8,16 @@ use axum::{
 };
 use axum_extra::headers::{ContentType, HeaderMapExt, UserAgent};
 use cb_common::pbs::{
-    BUILDER_V1_API_PATH, BUILDER_V2_API_PATH, GET_HEADER_PATH, GET_STATUS_PATH,
-    REGISTER_VALIDATOR_PATH, RELOAD_PATH, SUBMIT_BLOCK_PATH,
+    BUILDER_V1_API_PATH, BUILDER_V2_API_PATH, BUILDER_V3_API_PATH, GET_EXECUTION_PAYLOAD_BID_PATH,
+    GET_HEADER_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, RELOAD_PATH, SUBMIT_BLOCK_PATH,
 };
 use tower_http::trace::TraceLayer;
 use tracing::{info, trace, warn};
 use uuid::Uuid;
 
 use super::{
-    handle_get_header, handle_get_status, handle_register_validator, handle_submit_block_v1,
-    reload::handle_reload,
+    handle_get_execution_payload_bid, handle_get_header, handle_get_status,
+    handle_register_validator, handle_submit_block_v1, reload::handle_reload,
 };
 use crate::{
     MAX_SIZE_REGISTER_VALIDATOR_REQUEST, MAX_SIZE_SUBMIT_BLOCK_RESPONSE,
@@ -48,17 +48,22 @@ pub fn create_app_router<S: BuilderApiState, A: BuilderApi<S>>(state: PbsStateGu
         post(handle_submit_block_v2::<S, A>)
             .route_layer(DefaultBodyLimit::max(MAX_SIZE_SUBMIT_BLOCK_RESPONSE)),
     );
+    let v3_builder_routes = Router::new()
+        .route(GET_EXECUTION_PAYLOAD_BID_PATH, post(handle_get_execution_payload_bid::<S>));
     let v1_builder_router = Router::new().nest(BUILDER_V1_API_PATH, v1_builder_routes);
     let v2_builder_router = Router::new().nest(BUILDER_V2_API_PATH, v2_builder_routes);
+    let v3_builder_router = Router::new().nest(BUILDER_V3_API_PATH, v3_builder_routes);
     let reload_router = Router::new().route(RELOAD_PATH, post(handle_reload::<S, A>));
-    let builder_api =
-        Router::new().merge(v1_builder_router).merge(v2_builder_router).merge(reload_router).layer(
-            TraceLayer::new_for_http().on_response(
-                |response: &Response, latency: std::time::Duration, _: &tracing::Span| {
-                    info!("Responded with {} in {} ms", response.status(), latency.as_millis());
-                },
-            ),
-        );
+    let builder_api = Router::new()
+        .merge(v1_builder_router)
+        .merge(v2_builder_router)
+        .merge(v3_builder_router)
+        .merge(reload_router)
+        .layer(TraceLayer::new_for_http().on_response(
+            |response: &Response, latency: std::time::Duration, _: &tracing::Span| {
+                info!("Responded with {} in {} ms", response.status(), latency.as_millis());
+            },
+        ));
 
     let app = if let Some(extra_routes) = A::extra_routes() {
         builder_api.merge(extra_routes)
@@ -70,7 +75,7 @@ pub fn create_app_router<S: BuilderApiState, A: BuilderApi<S>>(state: PbsStateGu
 }
 
 #[tracing::instrument(
-    name = "", 
+    name = "",
     skip_all,
     fields(
         method = %req.extensions().get::<MatchedPath>().map(|m| m.as_str()).unwrap_or("unknown"),
