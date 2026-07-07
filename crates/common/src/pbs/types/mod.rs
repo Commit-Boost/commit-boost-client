@@ -5,6 +5,7 @@ use lh_types::{BlindedPayload, ExecPayload, MainnetEthSpec, Slot};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
+use url::Url;
 
 use crate::types::{BlsPublicKey, BlsSignature};
 
@@ -194,4 +195,12 @@ pub struct RequestAuthV1 {
 pub struct SignedRequestAuthV1 {
     pub message: RequestAuthV1,
     pub signature: BlsSignature,
+}
+
+impl SignedRequestAuthV1 {
+    // todo custom error type
+    pub fn get_url(&self) -> eyre::Result<Url> {
+        let url = String::from_utf8(self.message.data.to_vec())?;
+        Ok(Url::parse(&url)?)
+    }
 }

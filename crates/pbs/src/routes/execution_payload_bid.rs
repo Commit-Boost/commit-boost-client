@@ -60,6 +60,11 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
     tracing::Span::current().record("parent_hash", tracing::field::debug(params.parent_hash));
     tracing::Span::current().record("parent_root", tracing::field::debug(params.parent_root));
     tracing::Span::current().record("validator", tracing::field::debug(&params.pubkey));
+    if let Some(auth) = body.as_ref() {
+        tracing::Span::current()
+            .record("auth data", tracing::field::debug(&auth.message.data.to_vec()));
+        tracing::Span::current().record("auth signature", tracing::field::debug(&auth.signature));
+    }
 
     let state = state.read().clone();
 
@@ -67,11 +72,6 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
 
     info!(ua, ms_into_slot, "new request");
-
-    // TODO match over the body
-    // if SignedRequestAuthV1 points to builder-> route to URL via
-    // send_timed_get_execution_payload_bid else -> route to CB-owned builder
-    // list (current get_execution_payload_bid logic)
 
     match get_execution_payload_bid(params, body, req_headers, state).await {
         Ok(res) => {
@@ -127,11 +127,26 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
     let (pbs_config, relays, maybe_mux_id) = state.mux_config_and_relays(&params.pubkey);
 
+    // All acceptable builders this pubkey can talk to
     if let Some(mux_id) = maybe_mux_id {
         debug!(mux_id, relays = relays.len(), pubkey = %params.pubkey, "using mux config");
     } else {
         debug!(relays = relays.len(), pubkey = %params.pubkey, "using default config");
     }
+
+    // Filtered to only the builder the request is authorized for
+    let relays: Vec<&RelayClient> = if let Some(auth) = body.as_ref() {
+        let dest_url = auth.get_url()?;
+        // TODO if the VC sends an auth for a builder not configured in muxes,
+        // decide whether to unconditionally forward or drop the request.
+        // The current behavior drops it since relays will be len 0,
+        // But a new RelayClient could be constructed with the auth url
+        relays.iter().filter(|r| r.config.entry.url == dest_url).collect()
+    } else {
+        // Otherwise request from all builders
+        // TODO revisit if we should just error out if there's a missing auth
+        relays.iter().collect()
+    };
 
     let max_timeout_ms = pbs_config
         .timeout_get_header_ms
@@ -165,7 +180,7 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
     send_headers.insert(USER_AGENT, get_user_agent_with_version(&req_headers)?);
 
     let mut handles = Vec::with_capacity(relays.len());
-    for relay in relays.iter() {
+    for &relay in relays.iter() {
         handles.push(
             send_timed_get_execution_payload_bid(
                 params.clone(),
@@ -176,8 +191,8 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
                 max_timeout_ms,
                 ValidationContext {
                     skip_sigverify: state.pbs_config().skip_sigverify,
-                    min_trustless_bid_gwei: 0, // todo add param
-                    max_trusted_bid_gwei: 0,   // todo add param
+                    min_trustless_bid_gwei: 0, // todo add param to config
+                    max_trusted_bid_gwei: 0,   // todo add param to config
                     extra_validation_enabled: state.extra_validation_enabled(),
                     parent_block: parent_block.clone(),
                     chain: state.config.chain,
