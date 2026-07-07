@@ -507,6 +507,7 @@ async fn submit_block_impl(
                 )
                 .await?
         }
+        BuilderApiVersion::V3 => panic!("V3 not implemented")
     };
     let expected_count = if force_404s { 0 } else { expected_try_count };
     assert_eq!(mock_state.received_submit_block(), expected_count);
