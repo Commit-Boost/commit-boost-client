@@ -10,6 +10,7 @@ use alloy::{
     rpc::types::Block,
 };
 use axum::{
+    Json,
     extract::{Path, State},
     http::{HeaderMap, HeaderValue},
     response::IntoResponse,
@@ -18,7 +19,7 @@ use cb_common::{
     constants::APPLICATION_BUILDER_DOMAIN,
     pbs::{
         GetExecutionPayloadBidInfo, GetExecutionPayloadBidParams, GetExecutionPayloadBidResponse,
-        HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS, RelayClient,
+        HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS, RelayClient, SignedRequestAuthV1,
         error::{PbsError, ValidationError},
     },
     signature::verify_signed_message,
@@ -52,7 +53,9 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
     State(state): State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
     Path(params): Path<GetExecutionPayloadBidParams>,
+    body: Option<Json<Arc<SignedRequestAuthV1>>>,
 ) -> Result<impl IntoResponse, PbsClientError> {
+    let body = body.map(|Json(auth)| auth);
     tracing::Span::current().record("slot", params.slot);
     tracing::Span::current().record("parent_hash", tracing::field::debug(params.parent_hash));
     tracing::Span::current().record("parent_root", tracing::field::debug(params.parent_root));
@@ -70,7 +73,7 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
     // send_timed_get_execution_payload_bid else -> route to CB-owned builder
     // list (current get_execution_payload_bid logic)
 
-    match get_execution_payload_bid(params, req_headers, state).await {
+    match get_execution_payload_bid(params, body, req_headers, state).await {
         Ok(res) => {
             if let Some(max_bid) = res {
                 info!(trustless_bid_eth = format_ether(max_bid.value()), execution_payment_eth = format_ether(max_bid.execution_payment()), block_hash =% max_bid.block_hash(), builder_index = max_bid.builder_index(), "received header");
@@ -108,6 +111,7 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
 /// Returns 200 if at least one relay returns 200, else 204
 pub async fn get_execution_payload_bid<S: BuilderApiState>(
     params: GetExecutionPayloadBidParams,
+    body: Option<Arc<SignedRequestAuthV1>>,
     req_headers: HeaderMap,
     state: PbsState<S>,
 ) -> eyre::Result<Option<GetExecutionPayloadBidResponse>> {
@@ -165,8 +169,8 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
         handles.push(
             send_timed_get_execution_payload_bid(
                 params.clone(),
+                body.clone(),
                 relay.clone(),
-                state.config.chain,
                 send_headers.clone(),
                 ms_into_slot,
                 max_timeout_ms,
@@ -176,6 +180,7 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
                     max_trusted_bid_gwei: 0,   // todo add param
                     extra_validation_enabled: state.extra_validation_enabled(),
                     parent_block: parent_block.clone(),
+                    chain: state.config.chain,
                 },
             )
             .in_current_span(),
@@ -247,15 +252,19 @@ async fn fetch_parent_block(
 
 async fn send_timed_get_execution_payload_bid(
     params: GetExecutionPayloadBidParams,
+    body: Option<Arc<SignedRequestAuthV1>>,
     relay: RelayClient,
-    chain: Chain,
     headers: HeaderMap,
     ms_into_slot: u64,
     mut timeout_left_ms: u64,
     validation: ValidationContext,
 ) -> Result<Option<GetExecutionPayloadBidResponse>, PbsError> {
-    // TODO use builder client with params.parent_root
-    let url = relay.get_header_url(params.slot, &params.parent_hash, &params.pubkey)?;
+    let url = relay.get_execution_payload_bid_url(
+        params.slot,
+        &params.parent_hash,
+        &params.parent_root,
+        &params.pubkey,
+    )?;
 
     if relay.config.enable_timing_games {
         if let Some(target_ms) = relay.config.target_first_request_ms {
@@ -290,8 +299,8 @@ async fn send_timed_get_execution_payload_bid(
                 handles.push(tokio::spawn(
                     send_one_get_execution_payload_bid(
                         params,
+                        body.clone(),
                         relay.clone(),
-                        chain,
                         RequestContext {
                             timeout_ms: timeout_left_ms,
                             url: url.clone(),
@@ -355,8 +364,8 @@ async fn send_timed_get_execution_payload_bid(
     // if no timing games or no repeated send, just send one request
     send_one_get_execution_payload_bid(
         params,
+        body,
         relay,
-        chain,
         RequestContext { timeout_ms: timeout_left_ms, url, headers },
         validation,
     )
@@ -377,12 +386,13 @@ struct ValidationContext {
     max_trusted_bid_gwei: u64,
     extra_validation_enabled: bool,
     parent_block: Arc<RwLock<Option<Block>>>,
+    chain: Chain,
 }
 
 async fn send_one_get_execution_payload_bid(
     params: GetExecutionPayloadBidParams,
+    body: Option<Arc<SignedRequestAuthV1>>,
     relay: RelayClient,
-    chain: Chain,
     mut req_config: RequestContext,
     validation: ValidationContext,
 ) -> Result<(u64, Option<GetExecutionPayloadBidResponse>), PbsError> {
@@ -399,9 +409,10 @@ async fn send_one_get_execution_payload_bid(
     let start_request = Instant::now();
     let res = match relay
         .client
-        .get(req_config.url)
+        .post(req_config.url)
         .timeout(Duration::from_millis(req_config.timeout_ms))
         .headers(req_config.headers)
+        .json(&body)
         .send()
         .await
     {
@@ -471,13 +482,13 @@ async fn send_one_get_execution_payload_bid(
     validate_header_data(
         &header_info,
         &params,
-        validation.min_trustless_bid_gwei, // todo
-        validation.max_trusted_bid_gwei,   // todo
+        validation.min_trustless_bid_gwei,
+        validation.max_trusted_bid_gwei,
     )?;
 
     if !validation.skip_sigverify {
         validate_signature(
-            chain,
+            validation.chain,
             relay.pubkey(),
             &get_header_response.data.message,
             &get_header_response.data.signature,
