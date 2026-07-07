@@ -53,6 +53,7 @@ tracing-appender.workspace = true
 tracing-subscriber.workspace = true
 tree_hash.workspace = true
 tree_hash_derive.workspace = true
+typenum.workspace = true
 unicode-normalization.workspace = true
 url.workspace = true
 reqwest-eventsource.workspace = true

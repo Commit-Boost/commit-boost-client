@@ -1,10 +1,12 @@
 use alloy::primitives::{B256, U256, b256};
 pub use lh_eth2::ForkVersionedResponse;
 pub use lh_types::ForkName;
-use lh_types::{BlindedPayload, ExecPayload, MainnetEthSpec};
+use lh_types::{BlindedPayload, ExecPayload, MainnetEthSpec, Slot};
 use serde::{Deserialize, Serialize};
+use ssz_derive::{Decode, Encode};
+use ssz_types::VariableList;
 
-use crate::types::BlsPublicKey;
+use crate::types::{BlsPublicKey, BlsSignature};
 
 pub const EMPTY_TX_ROOT_HASH: B256 =
     b256!("7ffe241ea60187fdb0187bfa22de35d1f9bed7ab061d9401fd47e34a54fbede1");
@@ -174,4 +176,22 @@ impl GetPayloadInfo for SignedBlindedBeaconBlock {
     fn parent_hash(&self) -> B256 {
         self.message().body().execution_payload().map(|r| r.parent_hash().0).unwrap_or_default()
     }
+}
+
+#[allow(non_camel_case_types)]
+pub type MAX_DATA_SIZE = typenum::U4096;
+
+// `RequestAuthV1` is used to authenticate requests to a builder. This is useful
+// so that other builders do not DDOS or run replay attacks on the builder.
+#[derive(Debug, Serialize, Deserialize, Encode, Decode, Clone)]
+pub struct RequestAuthV1 {
+    pub data: VariableList<u8, MAX_DATA_SIZE>,
+    pub slot: Slot,
+}
+
+// `SignedRequestAuthV1`
+#[derive(Debug, Serialize, Deserialize, Encode, Decode, Clone)]
+pub struct SignedRequestAuthV1 {
+    pub message: RequestAuthV1,
+    pub signature: BlsSignature,
 }
