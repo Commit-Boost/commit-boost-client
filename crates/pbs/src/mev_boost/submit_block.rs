@@ -203,8 +203,8 @@ async fn send_submit_block(
 
     let response_bytes = safe_read_http_response(res, MAX_SIZE_SUBMIT_BLOCK_RESPONSE)
         .await
-        .inspect_err(|e| {
-            warn!(relay_id = relay.id.as_ref(), retry, %e, "failed to get payload (this might be ok if other relays have it)");
+        .inspect_err(|err| {
+            warn!(relay_id = relay.id.as_ref(), retry, %err, "failed to get payload (this might be ok if other relays have it)");
         })?;
 
     if api_version != &BuilderApiVersion::V1 {

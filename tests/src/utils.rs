@@ -27,6 +27,11 @@ pub fn get_local_address(port: u16) -> String {
     format!("http://0.0.0.0:{port}")
 }
 
+/// Bind to port 0 and let the OS assign an unused ephemeral port.
+pub async fn get_free_listener() -> tokio::net::TcpListener {
+    tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap()
+}
+
 static SYNC_SETUP: Once = Once::new();
 pub fn setup_test_env() {
     SYNC_SETUP.call_once(|| {
@@ -83,6 +88,7 @@ pub fn get_pbs_config(port: u16) -> PbsConfig {
         min_bid_wei: U256::ZERO,
         late_in_slot_time_ms: u64::MAX,
         extra_validation_enabled: false,
+
         ssv_node_api_url: Url::parse("http://localhost:0").unwrap(),
         ssv_public_api_url: Url::parse("http://localhost:0").unwrap(),
         rpc_url: None,

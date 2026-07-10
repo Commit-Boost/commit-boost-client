@@ -236,7 +236,6 @@ impl MuxKeysLoader {
                         "Mux keys URL {url} is insecure; consider using HTTPS if possible instead"
                     );
                 }
-                let url = url.as_str();
                 let client = reqwest::ClientBuilder::new().timeout(http_timeout).build()?;
                 let response = client.get(url).send().await?;
                 let pubkey_bytes = safe_read_http_response(response, MUXER_HTTP_MAX_LENGTH).await?;

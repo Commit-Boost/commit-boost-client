@@ -1,10 +1,12 @@
 use alloy::{primitives::B256, rpc::types::beacon::relay::ValidatorRegistration};
 use cb_common::{
     pbs::{BuilderApiVersion, RelayClient, SignedBlindedBeaconBlock},
-    types::BlsPublicKey,
+    types::{BlsPublicKey, KnownChain},
     utils::bls_pubkey_from_hex,
+    wire::{CONSENSUS_VERSION_HEADER, EncodingType},
 };
-use reqwest::Response;
+use lh_types::ForkName;
+use reqwest::{Response, header::ACCEPT};
 
 use crate::utils::generate_mock_relay;
 
@@ -20,13 +22,41 @@ impl MockValidator {
         Ok(Self { comm_boost: generate_mock_relay(port, pubkey)? })
     }
 
-    pub async fn do_get_header(&self, pubkey: Option<BlsPublicKey>) -> eyre::Result<Response> {
+    pub async fn do_get_header(
+        &self,
+        pubkey: Option<BlsPublicKey>,
+        accept: Vec<EncodingType>,
+        fork_name: ForkName,
+    ) -> eyre::Result<Response> {
         let default_pubkey = bls_pubkey_from_hex(
             "0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae",
         )?;
+        let slot = match fork_name {
+            ForkName::Fulu => KnownChain::Hoodi.fulu_fork_slot() + 1,
+            _ => 0,
+        };
+
         let url =
-            self.comm_boost.get_header_url(0, &B256::ZERO, &pubkey.unwrap_or(default_pubkey))?;
-        Ok(self.comm_boost.client.get(url).send().await?)
+            self.comm_boost.get_header_url(slot, &B256::ZERO, &pubkey.unwrap_or(default_pubkey))?;
+        let accept = match accept.len() {
+            0 => None,
+            1 => Some(accept.into_iter().next().unwrap().to_string()),
+            _ => {
+                let accept_strings: Vec<String> =
+                    accept.into_iter().map(|e| e.to_string()).collect();
+                Some(accept_strings.join(", "))
+            }
+        };
+        let mut res = self
+            .comm_boost
+            .client
+            .get(url)
+            .header(CONSENSUS_VERSION_HEADER, &fork_name.to_string());
+        if let Some(accept_header) = accept {
+            res = res.header(ACCEPT, accept_header);
+        }
+        let res = res.send().await?;
+        Ok(res)
     }
 
     pub async fn do_get_status(&self) -> eyre::Result<Response> {
@@ -49,16 +79,16 @@ impl MockValidator {
 
     pub async fn do_submit_block_v1(
         &self,
-        signed_blinded_block: Option<SignedBlindedBeaconBlock>,
+        signed_blinded_block_opt: Option<SignedBlindedBeaconBlock>,
     ) -> eyre::Result<Response> {
-        self.do_submit_block_impl(signed_blinded_block, BuilderApiVersion::V1).await
+        self.do_submit_block_impl(signed_blinded_block_opt, BuilderApiVersion::V1).await
     }
 
     pub async fn do_submit_block_v2(
         &self,
-        signed_blinded_block: Option<SignedBlindedBeaconBlock>,
+        signed_blinded_block_opt: Option<SignedBlindedBeaconBlock>,
     ) -> eyre::Result<Response> {
-        self.do_submit_block_impl(signed_blinded_block, BuilderApiVersion::V2).await
+        self.do_submit_block_impl(signed_blinded_block_opt, BuilderApiVersion::V2).await
     }
 
     async fn do_submit_block_impl(
