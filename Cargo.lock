@@ -1711,7 +1711,7 @@ checksum = "37b2a672a2cb129a2e41c10b1224bb368f9f37a2b16b612598138befd7b37eb5"
 
 [[package]]
 name = "cb-bench-micro"
-version = "0.10.0-rc3"
+version = "0.10.0-rc4"
 dependencies = [
  "alloy",
  "axum 0.8.9",
@@ -1724,7 +1724,7 @@ dependencies = [
 
 [[package]]
 name = "cb-bench-pbs"
-version = "0.10.0-rc3"
+version = "0.10.0-rc4"
 dependencies = [
  "alloy",
  "cb-common",
@@ -1741,7 +1741,7 @@ dependencies = [
 
 [[package]]
 name = "cb-cli"
-version = "0.10.0-rc3"
+version = "0.10.0-rc4"
 dependencies = [
  "cb-common",
  "clap",
@@ -1755,7 +1755,7 @@ dependencies = [
 
 [[package]]
 name = "cb-common"
-version = "0.10.0-rc3"
+version = "0.10.0-rc4"
 dependencies = [
  "aes",
  "alloy",
@@ -1807,7 +1807,7 @@ dependencies = [
 
 [[package]]
 name = "cb-metrics"
-version = "0.10.0-rc3"
+version = "0.10.0-rc4"
 dependencies = [
  "axum 0.8.9",
  "cb-common",
@@ -1820,7 +1820,7 @@ dependencies = [
 
 [[package]]
 name = "cb-pbs"
-version = "0.10.0-rc3"
+version = "0.10.0-rc4"
 dependencies = [
  "alloy",
  "async-trait",
@@ -1847,7 +1847,7 @@ dependencies = [
 
 [[package]]
 name = "cb-signer"
-version = "0.10.0-rc3"
+version = "0.10.0-rc4"
 dependencies = [
  "alloy",
  "axum 0.8.9",
@@ -1878,7 +1878,7 @@ dependencies = [
 
 [[package]]
 name = "cb-tests"
-version = "0.10.0-rc3"
+version = "0.10.0-rc4"
 dependencies = [
  "alloy",
  "axum 0.8.9",
@@ -2097,7 +2097,7 @@ dependencies = [
 
 [[package]]
 name = "commit-boost"
-version = "0.10.0-rc3"
+version = "0.10.0-rc4"
 dependencies = [
  "assert_cmd",
  "cb-cli",
@@ -2321,9 +2321,9 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-epoch"
-version = "0.9.18"
+version = "0.9.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b82ac4a3c2ca9c3460964f020e1402edd5753411d7737aa39c3714ad1b5420e"
+checksum = "2d6914041f254d6e9176c01941b21115dcfb7089e55135a35411081bd106ef3f"
 dependencies = [
  "crossbeam-utils",
 ]
@@ -2396,7 +2396,7 @@ dependencies = [
 
 [[package]]
 name = "da_commit"
-version = "0.10.0-rc3"
+version = "0.10.0-rc4"
 dependencies = [
  "alloy",
  "color-eyre",
@@ -3383,11 +3383,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd"
 dependencies = [
  "cfg-if",
- "js-sys",
  "libc",
  "r-efi 5.3.0",
  "wasip2",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -3397,11 +3395,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0de51e6874e94e7bf76d726fc5d13ba782deca734ff60d5bb2fb2607c7406555"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "r-efi 6.0.0",
  "rand_core 0.10.1",
  "wasip2",
  "wasip3",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -5207,15 +5207,16 @@ dependencies = [
 
 [[package]]
 name = "quinn-proto"
-version = "0.11.14"
+version = "0.11.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "434b42fec591c96ef50e21e886936e66d3cc3f737104fdb9b737c40ffb94c098"
+checksum = "2f4bfc015262b9df63c8845072ce59068853ff5872180c2ce2f13038b970e560"
 dependencies = [
  "aws-lc-rs",
  "bytes",
- "getrandom 0.3.4",
+ "getrandom 0.4.2",
  "lru-slab",
- "rand 0.9.4",
+ "rand 0.10.1",
+ "rand_pcg",
  "ring",
  "rustc-hash",
  "rustls",
@@ -5346,6 +5347,15 @@ name = "rand_core"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
+
+[[package]]
+name = "rand_pcg"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "caa0f4137e1c0a72f4c651489402276c8e8e1cf081f3b0ba156d2cbeef09e86a"
+dependencies = [
+ "rand_core 0.10.1",
+]
 
 [[package]]
 name = "rand_xorshift"
@@ -6381,7 +6391,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "status_api"
-version = "0.10.0-rc3"
+version = "0.10.0-rc4"
 dependencies = [
  "async-trait",
  "axum 0.8.9",
