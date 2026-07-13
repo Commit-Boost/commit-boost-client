@@ -42,6 +42,7 @@ use crate::{
         TIMEOUT_ERROR_CODE_STR,
     },
     metrics::{RELAY_HEADER_VALUE, RELAY_LAST_SLOT, RELAY_LATENCY, RELAY_STATUS_CODE},
+    mev_boost::CompoundGetHeaderResponse,
     state::{BuilderApiState, PbsState},
     utils::check_gas_limit,
 };
@@ -97,7 +98,7 @@ pub async fn get_header<S: BuilderApiState>(
     params: GetHeaderParams,
     req_headers: HeaderMap,
     state: PbsState<S>,
-) -> eyre::Result<Option<GetHeaderResponse>> {
+) -> eyre::Result<Option<CompoundGetHeaderResponse>> {
     let parent_block = Arc::new(RwLock::new(None));
     if state.extra_validation_enabled() &&
         let Some(rpc_url) = state.pbs_config().rpc_url.clone()
@@ -176,6 +177,19 @@ pub async fn get_header<S: BuilderApiState>(
             parent_block,
         },
     });
+
+    // Collect WebSocket bids (instant — from cache, no round-trip)
+    // These participate in the same auction as REST bids.
+    let ws_bids = collect_ws_bids(&state, &request_info.params);
+    if !ws_bids.is_empty() {
+        info!(
+            ws_count = ws_bids.len(),
+            rest_count = relays.len(),
+            slot = request_info.params.slot,
+            "auction: collecting WS bids + REST bids"
+        );
+    }
+
     let mut handles = Vec::with_capacity(relays.len());
     for relay in relays.iter() {
         handles.push(
@@ -202,7 +216,8 @@ pub async fn get_header<S: BuilderApiState>(
                     .unwrap_or_default();
                 RELAY_HEADER_VALUE.with_label_values(&[relay_id]).set(value_gwei);
 
-                relay_bids.push((relay_id, res))
+                relay_bids
+                    .push((relay_id.to_string(), CompoundGetHeaderResponse::Full(Box::new(res))))
             }
             Ok(_) => {}
             Err(err) if err.is_timeout() => error!(err = "Timed Out", relay_id),
@@ -210,15 +225,63 @@ pub async fn get_header<S: BuilderApiState>(
         }
     }
 
-    let max_bid = relay_bids.into_iter().max_by_key(|(_, bid)| *bid.value());
+    // Merge WebSocket bids into the auction
+    let ws_count = ws_bids.len();
+    for (ws_relay_id, ws_bid) in ws_bids.into_iter() {
+        // A light bid is forwarded undecoded, so it can only serve callers
+        // that accept its cached encoding
+        if let CompoundGetHeaderResponse::Light(light) = &ws_bid &&
+            !caller_accept.contains(light.encoding_type)
+        {
+            debug!(
+                relay_id = %ws_relay_id,
+                encoding = %light.encoding_type,
+                "skipping cached WS bid: encoding not accepted by caller"
+            );
+            continue;
+        }
+        let value = match &ws_bid {
+            CompoundGetHeaderResponse::Full(full) => *full.value(),
+            CompoundGetHeaderResponse::Light(light) => light.value,
+        };
+        RELAY_LAST_SLOT.with_label_values(&[&ws_relay_id]).set(slot);
+        let value_gwei = (value / U256::from(1_000_000_000)).try_into().unwrap_or_default();
+        RELAY_HEADER_VALUE.with_label_values(&[&ws_relay_id]).set(value_gwei);
+        relay_bids.push((ws_relay_id, ws_bid));
+    }
 
-    if let Some((winning_relay_id, ref bid)) = max_bid {
-        info!(
-            relay_id = winning_relay_id,
-            value_eth = format_ether(*bid.value()),
-            block_hash = %bid.block_hash(),
-            "auction winner"
-        );
+    let total_bids = relay_bids.len();
+    info!(
+        total = total_bids,
+        ws = ws_count,
+        rest = total_bids - ws_count,
+        slot = request_info.params.slot,
+        "auction: collected bids from all sources"
+    );
+
+    let max_bid = relay_bids.into_iter().max_by_key(|(_, bid)| match bid {
+        CompoundGetHeaderResponse::Full(full) => *full.value(),
+        CompoundGetHeaderResponse::Light(light) => light.value,
+    });
+
+    if let Some((ref winning_relay_id, ref bid)) = max_bid {
+        match bid {
+            CompoundGetHeaderResponse::Full(full) => {
+                info!(
+                    relay_id = winning_relay_id,
+                    value_eth = format_ether(*full.value()),
+                    block_hash = %full.block_hash(),
+                    "auction winner"
+                );
+            }
+            CompoundGetHeaderResponse::Light(light) => {
+                info!(
+                    relay_id = winning_relay_id,
+                    value_eth = format_ether(light.value),
+                    "auction winner (light mode, no block_hash available)"
+                );
+            }
+        }
     }
 
     Ok(max_bid.map(|(_, bid)| bid))
@@ -682,6 +745,62 @@ fn extra_validation(
     };
 
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// WebSocket bid collection
+// ---------------------------------------------------------------------------
+
+/// Collect cached bids from all connected WebSocket clients.
+/// Returns a vector of (relay_id, CompoundGetHeaderResponse) entries.
+/// Per ARCH v3.2 D6: reads the latest cached bid from each relay's
+/// `tokio::sync::watch::Receiver<Option<CachedBid>>`. Returns nothing for
+/// relays with no cached bid, a cached bid for a different slot, or a
+/// bid where the proposer pubkey doesn't match this request.
+///
+/// `websocket = false` on all relays → empty map → early return, no
+/// hot-path cost.
+fn collect_ws_bids<S: BuilderApiState>(
+    state: &PbsState<S>,
+    params: &GetHeaderParams,
+) -> Vec<(String, CompoundGetHeaderResponse)> {
+    let ws_clients = state.ws_clients.read();
+    if ws_clients.is_empty() {
+        return vec![];
+    }
+
+    let mut bids = Vec::new();
+    for (relay_id, ws) in ws_clients.iter() {
+        // Gate on connection state — a backoff'd client's stale cached
+        // bid from before the disconnect could still be present in the
+        // watch channel.
+        if !matches!(
+            ws.state_snapshot(),
+            crate::mev_boost::ws_client::WsClientState::Connected { .. }
+        ) {
+            continue;
+        }
+
+        // If we already contributed a cached bid for this slot, clear it.
+        // The stale-bid problem: a bid from slot N survives in the watch
+        // channel across slots because the relay stops pushing after
+        // delivery. Without this, the same bid wins auction for slots N+1,
+        // N+2, ... indefinitely.
+        if ws.clear_if_stale(params.slot) {
+            info!(relay_id, slot = params.slot, "WS: cleared stale cached bid");
+            continue;
+        }
+
+        let Some(cached) = ws.latest_bid() else { continue };
+
+        let value_eth = format_ether(cached.value);
+        let idx = bids.len() + 1;
+        bids.push((relay_id.clone(), cached.response));
+        ws.mark_bid_contributed(params.slot);
+        info!(relay_id, value_eth, idx, "WS: contributing cached bid #{} to auction", idx);
+    }
+
+    bids
 }
 
 #[cfg(test)]

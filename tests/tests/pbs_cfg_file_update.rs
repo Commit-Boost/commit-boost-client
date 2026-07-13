@@ -87,6 +87,7 @@ async fn test_cfg_file_update() -> Result<()> {
         relays: vec![RelayConfig {
             id: Some(relay1.id.to_string()),
             enable_timing_games: false,
+            websocket: false,
             frequency_get_header_ms: None,
             get_params: None,
             headers: None,
@@ -140,6 +141,7 @@ async fn test_cfg_file_update() -> Result<()> {
         relays: vec![RelayConfig {
             id: Some(relay2_id.clone()),
             enable_timing_games: false,
+            websocket: false,
             frequency_get_header_ms: None,
             get_params: None,
             headers: None,

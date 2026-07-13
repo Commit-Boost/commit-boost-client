@@ -3,12 +3,12 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use axum::{Router, http::HeaderMap};
 use cb_common::pbs::{
-    BuilderApiVersion, GetHeaderParams, GetHeaderResponse, SignedBlindedBeaconBlock,
-    SubmitBlindedBlockResponse,
+    BuilderApiVersion, GetHeaderParams, SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
 };
 
 use crate::{
     mev_boost,
+    mev_boost::CompoundGetHeaderResponse,
     state::{BuilderApiState, PbsState, PbsStateGuard},
 };
 
@@ -24,7 +24,7 @@ pub trait BuilderApi<S: BuilderApiState>: 'static {
         params: GetHeaderParams,
         req_headers: HeaderMap,
         state: PbsState<S>,
-    ) -> eyre::Result<Option<GetHeaderResponse>> {
+    ) -> eyre::Result<Option<CompoundGetHeaderResponse>> {
         mev_boost::get_header(params, req_headers, state).await
     }
 

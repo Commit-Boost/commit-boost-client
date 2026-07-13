@@ -21,6 +21,7 @@ use crate::{
     constants::GET_HEADER_ENDPOINT_TAG,
     error::PbsClientError,
     metrics::BEACON_NODE_STATUS,
+    mev_boost::CompoundGetHeaderResponse,
     state::{BuilderApiState, PbsStateGuard},
 };
 
@@ -50,6 +51,35 @@ pub async fn handle_get_header<S: BuilderApiState, A: BuilderApi<S>>(
     match A::get_header(params, req_headers, state).await {
         Ok(res) => {
             if let Some(max_bid) = res {
+                // A light bid (WS cache, validation mode none) is forwarded
+                // undecoded; a full bid goes through content negotiation below
+                let max_bid = match max_bid {
+                    CompoundGetHeaderResponse::Light(light_bid) => {
+                        BEACON_NODE_STATUS
+                            .with_label_values(&["200", GET_HEADER_ENDPOINT_TAG])
+                            .inc();
+                        info!(
+                            value_eth = format_ether(light_bid.value),
+                            "received header (unvalidated)"
+                        );
+                        let consensus_version_header =
+                            HeaderValue::from_str(&light_bid.version.to_string())
+                                .expect("fork name is always a valid header value");
+                        let content_type_header =
+                            light_bid.encoding_type.content_type_header().clone();
+                        let mut res = light_bid.raw_bytes.into_response();
+                        res.headers_mut()
+                            .insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
+                        res.headers_mut().insert(CONTENT_TYPE, content_type_header);
+                        debug!(
+                            "sending get_header response to BN as {} (light)",
+                            light_bid.encoding_type
+                        );
+                        return Ok(res);
+                    }
+                    CompoundGetHeaderResponse::Full(full) => *full,
+                };
+
                 // Respond based on requester accept types
                 info!(value_eth = format_ether(*max_bid.data.message.value()), block_hash =% max_bid.block_hash(), "received header");
 

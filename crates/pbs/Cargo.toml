@@ -32,3 +32,8 @@ tree_hash.workspace = true
 url.workspace = true
 uuid.workspace = true
 thiserror.workspace = true
+
+# WebSocket support
+ws-wire = { path = "../../../ws-wire" }
+tokio-tungstenite = "0.27"
+futures-util = "0.3"

@@ -12,7 +12,7 @@ use cb_common::{
         SignedBlindedBeaconBlock, SubmitBlindedBlockResponse,
         error::{PbsError, ValidationError},
     },
-    utils::utcnow_ms,
+    utils::{ms_into_slot, utcnow_ms},
     wire::{
         AcceptedEncodings, CONSENSUS_VERSION_HEADER, EncodingType, build_outbound_accept,
         get_accept_types, get_user_agent_with_version, parse_response_encoding_and_fork,
@@ -25,7 +25,7 @@ use reqwest::{
     header::{ACCEPT, CONTENT_TYPE, USER_AGENT},
 };
 use ssz::Encode;
-use tracing::{debug, error, warn};
+use tracing::{Span, debug, error, info, warn};
 use url::Url;
 
 use crate::{
@@ -77,6 +77,56 @@ pub async fn submit_block<S: BuilderApiState>(
 ) -> eyre::Result<Option<SubmitBlindedBlockResponse>> {
     debug!(?req_headers, "received headers");
 
+    // For V2 submissions, fire-and-forget a `SubmitBlindedBlock` frame to
+    // every CONNECTED WS client. The REST dual-path below still runs in
+    // parallel. ARCH v3.2 §7: `_get_payload` dedupes on Helix; no risk of
+    // double broadcast.
+    //
+    // Fork mapping may fail (e.g., pre-Electra slot not supported on the
+    // wire) — in that case we skip the WS path silently and let REST
+    // handle it.
+    if api_version == BuilderApiVersion::V2 {
+        let fork = signed_blinded_block.fork_name_unchecked();
+        match crate::mev_boost::wire::fork_name_to_u8(fork) {
+            Ok(fork_byte) => {
+                let body_ssz = signed_blinded_block.as_ssz_bytes();
+                let slot = signed_blinded_block.message().slot().as_u64();
+                let ms_into = ms_into_slot(slot, state.config.chain);
+                let clients: Vec<_> = {
+                    state
+                        .ws_clients
+                        .read()
+                        .iter()
+                        .filter(|(_, c)| {
+                            matches!(
+                                c.state_snapshot(),
+                                crate::mev_boost::ws_client::WsClientState::Connected { .. }
+                            )
+                        })
+                        .map(|(_, c)| Arc::clone(c))
+                        .collect()
+                };
+                for client in clients {
+                    let b = body_ssz.clone();
+                    let span = Span::current();
+                    tokio::spawn(async move {
+                        match client.send_submit_blinded_block_with_ack(fork_byte, b).await {
+                            Ok(status) => {
+                                info!(parent: &span, ms_into_slot = ms_into, %status, "WS: submit blinded block acked")
+                            }
+                            Err(e) => {
+                                warn!(parent: &span, ms_into_slot = ms_into, ?e, "WS: submit blinded block ack failed")
+                            }
+                        }
+                    });
+                }
+            }
+            Err(e) => {
+                debug!(?fork, ?e, "WS: skipping submit (unsupported fork on wire)");
+            }
+        }
+    }
+
     // prepare headers
     let mut send_headers = HeaderMap::new();
     send_headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(utcnow_ms()));
@@ -101,8 +151,15 @@ pub async fn submit_block<S: BuilderApiState>(
     // Send requests to all relays concurrently
     let proposal_info =
         Arc::new(ProposalInfo { signed_blinded_block, headers: send_headers, api_version });
-    let mut handles = Vec::with_capacity(state.all_relays().len());
-    for relay in state.all_relays().iter() {
+    // Deduplicate relays by URL to avoid spawning duplicate REST tasks
+    // for the same relay (can happen with mux configs that include the
+    // default relay again).
+    let mut seen = std::collections::HashSet::new();
+    let unique_relays: Vec<_> =
+        state.all_relays().iter().filter(|r| seen.insert(r.config.entry.url.as_str())).collect();
+
+    let mut handles = Vec::with_capacity(unique_relays.len());
+    for relay in unique_relays {
         handles.push(
             tokio::spawn(submit_block_with_timeout(
                 proposal_info.clone(),
