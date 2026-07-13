@@ -66,20 +66,20 @@ _create-docker-builder:
 # Builds a binary for a specific crate and version
 _docker-build-binary version crate: _create-docker-builder
   export PLATFORM=$(docker buildx inspect --bootstrap | awk -F': ' '/Platforms/ {print $2}' | cut -d',' -f1 | xargs | tr '/' '_'); \
-  docker buildx build --rm --platform=local -f provisioning/build.Dockerfile --output "build/{{version}}/$PLATFORM" --target output --build-arg TARGET_CRATE=commit-boost .
+  docker buildx build --rm --platform=local -f provisioning/build.Dockerfile --output "build/{{version}}/$PLATFORM" --target output --build-arg TARGET_CRATE=commit-boost ..
 
 # Builds a Docker image for a specific crate and version
 _docker-build-image version crate: _create-docker-builder
-  docker buildx build --rm --load --build-arg BINARIES_PATH=build/{{version}} -t commit-boost/{{crate}}:{{version}} -f provisioning/{{crate}}.Dockerfile .
+  docker buildx build --rm --load --build-arg BINARIES_PATH=commit-boost-client/build/{{version}} -t commit-boost/{{crate}}:{{version}} -f provisioning/{{crate}}.Dockerfile ..
 
 # Builds multiple binaries (for Linux amd64 and arm64 architectures) for a specific crate and version
 _docker-build-binary-multiarch version crate: _create-docker-builder
-  docker buildx build --rm --platform=linux/amd64,linux/arm64 -f provisioning/build.Dockerfile --output build/{{version}} --target output --build-arg TARGET_CRATE=commit-boost .
+  docker buildx build --rm --platform=linux/amd64,linux/arm64 -f provisioning/build.Dockerfile --output build/{{version}} --target output --build-arg TARGET_CRATE=commit-boost ..
 
 # Builds a multi-architecture (Linux amd64 and arm64) Docker manifest for a specific crate and version.
 # Uploads to the custom Docker registry (such as '192.168.1.10:5000') instead of a public registry like GHCR or Docker Hub.
 _docker-build-image-multiarch version crate local-docker-registry: _create-docker-builder
-  docker buildx build --rm --platform=linux/amd64,linux/arm64 --build-arg BINARIES_PATH=build/{{version}} -t {{local-docker-registry}}/commit-boost/{{crate}}:{{version}} -f provisioning/{{crate}}.Dockerfile --push .
+  docker buildx build --rm --platform=linux/amd64,linux/arm64 --build-arg BINARIES_PATH=commit-boost-client/build/{{version}} -t {{local-docker-registry}}/commit-boost/{{crate}}:{{version}} -f provisioning/{{crate}}.Dockerfile --push ..
 
 # =================
 # === Utilities ===
