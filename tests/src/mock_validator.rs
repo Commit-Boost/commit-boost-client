@@ -1,6 +1,6 @@
 use alloy::{primitives::B256, rpc::types::beacon::relay::ValidatorRegistration};
 use cb_common::{
-    pbs::{BuilderApiVersion, RelayClient, SignedBlindedBeaconBlock},
+    pbs::{BuilderApiVersion, RelayClient, SignedBlindedBeaconBlock, SignedRequestAuthV1},
     types::{BlsPublicKey, KnownChain},
     utils::bls_pubkey_from_hex,
     wire::{CONSENSUS_VERSION_HEADER, EncodingType},
@@ -61,6 +61,31 @@ impl MockValidator {
         }
         let res = res.send().await?;
         Ok(res)
+    }
+
+    pub async fn do_get_execution_payload_bid(
+        &self,
+        slot: u64,
+        parent_hash: B256,
+        parent_root: B256,
+        pubkey: Option<BlsPublicKey>,
+        auth: Option<&SignedRequestAuthV1>,
+    ) -> eyre::Result<Response> {
+        let default_pubkey = bls_pubkey_from_hex(
+            "0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae",
+        )?;
+        let url = self.comm_boost.get_execution_payload_bid_url(
+            slot,
+            &parent_hash,
+            &parent_root,
+            &pubkey.unwrap_or(default_pubkey),
+        )?;
+        let req = self.comm_boost.client.post(url);
+        let req = match auth {
+            Some(auth) => req.json(auth),
+            None => req,
+        };
+        Ok(req.send().await?)
     }
 
     pub async fn do_get_status(&self) -> eyre::Result<Response> {

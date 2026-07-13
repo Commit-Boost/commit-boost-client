@@ -9,7 +9,8 @@ use std::{
 };
 
 use alloy::{
-    eips::eip7594::CELLS_PER_EXT_BLOB, primitives::U256,
+    eips::eip7594::CELLS_PER_EXT_BLOB,
+    primitives::{B256, U256},
     rpc::types::beacon::relay::ValidatorRegistration,
 };
 use axum::{
@@ -22,13 +23,16 @@ use axum::{
 use cb_common::{
     pbs::{
         BUILDER_V1_API_PATH, BUILDER_V2_API_PATH, BlobsBundle, BuilderBid, BuilderBidFulu,
-        ExecutionPayloadElectra, ExecutionPayloadHeaderFulu, ExecutionRequests, ForkName,
-        GET_HEADER_PATH, GET_STATUS_PATH, GetHeaderParams, GetHeaderResponse, GetPayloadInfo,
-        PayloadAndBlobs, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH, SignedBuilderBid,
+        ExecutionPayloadBid, ExecutionPayloadElectra, ExecutionPayloadHeaderFulu,
+        ExecutionRequests, ForkName, GET_EXECUTION_PAYLOAD_BID_PATH, GET_HEADER_PATH,
+        GET_STATUS_PATH, GetExecutionPayloadBidResponse, GetHeaderParams, GetHeaderResponse,
+        GetPayloadInfo, PayloadAndBlobs, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
+        SignedBuilderBid, SignedExecutionPayloadBid, SignedRequestAuthV1,
         SubmitBlindedBlockResponse,
     },
     signature::sign_builder_root,
-    types::{BlsSecretKey, Chain},
+    signer::random_secret,
+    types::{BlsPublicKey, BlsSecretKey, Chain},
     utils::{TestRandomSeed, timestamp_of_slot_start_sec},
     wire::{
         CONSENSUS_VERSION_HEADER, EncodingType, deserialize_body, get_accept_types,
@@ -36,7 +40,7 @@ use cb_common::{
     },
 };
 use cb_pbs::MAX_SIZE_SUBMIT_BLOCK_RESPONSE;
-use lh_types::KzgProof;
+use lh_types::{KzgProof, Slot};
 use reqwest::header::{ACCEPT, CONTENT_TYPE};
 use ssz::Encode;
 use tokio::net::TcpListener;
@@ -87,11 +91,20 @@ pub struct MockRelayState {
     received_get_status: Arc<AtomicU64>,
     received_register_validator: Arc<AtomicU64>,
     received_submit_block: Arc<AtomicU64>,
+    received_execution_payload_bid: Arc<AtomicU64>,
     response_override: RwLock<Option<StatusCode>>,
     bid_value: RwLock<U256>,
     /// The raw `Accept` header PBS sent on the most recent get_header request,
     /// so a test can assert what encoding PBS asked the relay for.
     received_get_header_accept: RwLock<Option<String>>,
+    /// Served as `bid.value` / `bid.execution_payment` by
+    /// `handle_get_execution_payload_bid`
+    trustless_bid_gwei: u64, // default 10
+    trusted_bid_gwei: u64,
+    epbs_no_bid: bool,
+    epbs_invalid_signature: bool,
+    epbs_wrong_parent_hash: bool,
+    epbs_wrong_parent_root: bool,
 }
 
 impl MockRelayState {
@@ -109,6 +122,9 @@ impl MockRelayState {
     }
     pub fn received_submit_block(&self) -> u64 {
         self.received_submit_block.load(Ordering::Relaxed)
+    }
+    pub fn received_execution_payload_bid(&self) -> u64 {
+        self.received_execution_payload_bid.load(Ordering::Relaxed)
     }
     pub fn large_body(&self) -> bool {
         self.large_body
@@ -148,9 +164,16 @@ impl MockRelayState {
             received_get_status: Default::default(),
             received_register_validator: Default::default(),
             received_submit_block: Default::default(),
+            received_execution_payload_bid: Default::default(),
             response_override: RwLock::new(None),
             bid_value: RwLock::new(U256::from(10)),
             received_get_header_accept: RwLock::new(None),
+            trustless_bid_gwei: 10,
+            trusted_bid_gwei: 0,
+            epbs_no_bid: false,
+            epbs_invalid_signature: false,
+            epbs_wrong_parent_hash: false,
+            epbs_wrong_parent_root: false,
             supported_content_types: Arc::new(
                 [EncodingType::Json, EncodingType::Ssz].iter().cloned().collect(),
             ),
@@ -199,6 +222,31 @@ impl MockRelayState {
     pub fn with_submit_block_version(self, fork: ForkName) -> Self {
         Self { submit_block_version_override: Some(fork), ..self }
     }
+
+    pub fn with_trustless_bid_gwei(self, value: u64) -> Self {
+        Self { trustless_bid_gwei: value, ..self }
+    }
+
+    pub fn with_trusted_bid_gwei(self, execution_payment: u64) -> Self {
+        Self { trusted_bid_gwei: execution_payment, ..self }
+    }
+
+    pub fn with_no_epbs_bid(self) -> Self {
+        Self { epbs_no_bid: true, ..self }
+    }
+
+    /// Signs the served bid with a throwaway key
+    pub fn with_epbs_invalid_signature(self) -> Self {
+        Self { epbs_invalid_signature: true, ..self }
+    }
+
+    pub fn with_epbs_wrong_parent_hash(self) -> Self {
+        Self { epbs_wrong_parent_hash: true, ..self }
+    }
+
+    pub fn with_epbs_wrong_parent_root(self) -> Self {
+        Self { epbs_wrong_parent_root: true, ..self }
+    }
 }
 
 pub fn mock_relay_app_router(state: Arc<MockRelayState>) -> Router {
@@ -206,7 +254,9 @@ pub fn mock_relay_app_router(state: Arc<MockRelayState>) -> Router {
         .route(GET_HEADER_PATH, get(handle_get_header))
         .route(GET_STATUS_PATH, get(handle_get_status))
         .route(REGISTER_VALIDATOR_PATH, post(handle_register_validator))
-        .route(SUBMIT_BLOCK_PATH, post(handle_submit_block_v1));
+        .route(SUBMIT_BLOCK_PATH, post(handle_submit_block_v1))
+        // ePBS endpoints are v1 of new resources per builder-specs
+        .route(GET_EXECUTION_PAYLOAD_BID_PATH, post(handle_get_execution_payload_bid));
 
     let v2_builder_routes = if state.supports_submit_block_v2 {
         Router::new().route(SUBMIT_BLOCK_PATH, post(handle_submit_block_v2))
@@ -217,6 +267,53 @@ pub fn mock_relay_app_router(state: Arc<MockRelayState>) -> Router {
     let builder_router_v1 = Router::new().nest(BUILDER_V1_API_PATH, v1_builder_routes);
     let builder_router_v2 = Router::new().nest(BUILDER_V2_API_PATH, v2_builder_routes);
     Router::new().merge(builder_router_v1).merge(builder_router_v2).with_state(state)
+}
+
+async fn handle_get_execution_payload_bid(
+    State(state): State<Arc<MockRelayState>>,
+    Path((slot, parent_hash, parent_root, _pubkey)): Path<(u64, B256, B256, BlsPublicKey)>,
+    _auth: Option<Json<SignedRequestAuthV1>>,
+) -> Response {
+    state.received_execution_payload_bid.fetch_add(1, Ordering::Relaxed);
+
+    if state.epbs_no_bid {
+        return StatusCode::NO_CONTENT.into_response();
+    }
+
+    let served_parent_hash =
+        if state.epbs_wrong_parent_hash { B256::repeat_byte(0xab) } else { parent_hash };
+    let served_parent_root =
+        if state.epbs_wrong_parent_root { B256::repeat_byte(0xcd) } else { parent_root };
+
+    let mut block_hash = B256::ZERO;
+    block_hash.0[0] = 1;
+
+    let message = ExecutionPayloadBid {
+        parent_block_hash: served_parent_hash.into(),
+        parent_block_root: served_parent_root,
+        block_hash: block_hash.into(),
+        gas_limit: 30_000_000,
+        builder_index: 42,
+        slot: Slot::new(slot),
+        value: state.trustless_bid_gwei,
+        execution_payment: state.trusted_bid_gwei,
+        ..Default::default()
+    };
+
+    let object_root = message.tree_hash_root();
+    let signature = if state.epbs_invalid_signature {
+        let wrong_key = random_secret();
+        sign_builder_root(state.chain, &wrong_key, &object_root)
+    } else {
+        sign_builder_root(state.chain, &state.signer, &object_root)
+    };
+
+    let response = GetExecutionPayloadBidResponse {
+        version: ForkName::Gloas,
+        data: SignedExecutionPayloadBid { message, signature },
+        metadata: Default::default(),
+    };
+    (StatusCode::OK, Json(response)).into_response()
 }
 
 async fn handle_get_header(
