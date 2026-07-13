@@ -580,6 +580,7 @@ async fn submit_block_ssz_override(
                 )
                 .await?
         }
+        BuilderApiVersion::V3 => panic!("V3 not implemented"),
     };
     Ok((res, mock_state.received_submit_block()))
 }
