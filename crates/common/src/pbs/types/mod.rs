@@ -68,8 +68,8 @@ pub struct GetHeaderParams {
 pub type ExecutionPayloadBid = lh_types::ExecutionPayloadBid;
 pub type SignedExecutionPayloadBid = lh_types::SignedExecutionPayloadBid;
 
-/// Response object of GET
-/// `/eth/v3/builder/header/{slot}/{parent_hash}/{parent_root}/
+/// Response object of POST
+/// `/eth/v1/builder/execution_payload_bid/{slot}/{parent_hash}/{parent_root}/
 /// {proposer_pubkey}`
 pub type GetExecutionPayloadBidResponse = ForkVersionedResponse<SignedExecutionPayloadBid>;
 
@@ -118,8 +118,8 @@ impl GetExecutionPayloadBidInfo for GetExecutionPayloadBidResponse {
     }
 }
 
-/// Response params of GET
-/// `/eth/v1/builder/header/{slot}/{parent_hash}/{parent_root}/
+/// Path params of POST
+/// `/eth/v1/builder/execution_payload_bid/{slot}/{parent_hash}/{parent_root}/
 /// {proposer_pubkey}`
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct GetExecutionPayloadBidParams {
@@ -129,8 +129,8 @@ pub struct GetExecutionPayloadBidParams {
     pub parent_hash: B256,
     /// The root of the beacon block the proposer will build on.
     pub parent_root: B256,
-    /// The public key of the proposer.
-    pub pubkey: BlsPublicKey,
+    /// The public key of the proposer
+    pub proposer_pubkey: BlsPublicKey,
 }
 
 pub trait GetHeaderInfo {

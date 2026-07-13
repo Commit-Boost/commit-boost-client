@@ -132,6 +132,8 @@ impl RelayClient {
         self.builder_api_url(SUBMIT_BLOCK_PATH, api_version)
     }
 
+    /// builder-API: POST /eth/v1/builder/execution_payload_bid/{slot}/
+    /// {parent_hash}/{parent_root}/{proposer_pubkey}
     pub fn get_execution_payload_bid_url(
         &self,
         slot: u64,
@@ -140,8 +142,10 @@ impl RelayClient {
         validator_pubkey: &BlsPublicKey,
     ) -> Result<Url, PbsError> {
         self.builder_api_url(
-            &format!("/header/{slot}/{parent_hash}/{parent_root}/{validator_pubkey}"),
-            BuilderApiVersion::V3,
+            &format!(
+                "/execution_payload_bid/{slot}/{parent_hash}/{parent_root}/{validator_pubkey}"
+            ),
+            BuilderApiVersion::V1,
         )
     }
 }
@@ -249,7 +253,7 @@ mod tests {
             "0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae",
         );
         let expected = format!(
-            "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz/eth/v3/builder/header/{slot}/{parent_hash}/{parent_root}/{validator_pubkey}"
+            "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz/eth/v1/builder/execution_payload_bid/{slot}/{parent_hash}/{parent_root}/{validator_pubkey}"
         );
 
         let relay_config = r#"
@@ -297,7 +301,7 @@ mod tests {
         // exact order of parameters Instead of hard-coding the order, we'll
         // check that both parameters are present in the URL
         let url_prefix = format!(
-            "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz/eth/v3/builder/header/{slot}/{parent_hash}/{parent_root}/{validator_pubkey}?"
+            "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz/eth/v1/builder/execution_payload_bid/{slot}/{parent_hash}/{parent_root}/{validator_pubkey}?"
         );
 
         let mut get_params = HashMap::new();

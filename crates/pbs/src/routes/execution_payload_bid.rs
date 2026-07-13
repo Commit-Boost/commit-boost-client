@@ -59,7 +59,7 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
     tracing::Span::current().record("slot", params.slot);
     tracing::Span::current().record("parent_hash", tracing::field::debug(params.parent_hash));
     tracing::Span::current().record("parent_root", tracing::field::debug(params.parent_root));
-    tracing::Span::current().record("validator", tracing::field::debug(&params.pubkey));
+    tracing::Span::current().record("validator", tracing::field::debug(&params.proposer_pubkey));
     if let Some(auth) = body.as_ref() {
         tracing::Span::current()
             .record("auth data", tracing::field::debug(&auth.message.data.to_vec()));
@@ -125,13 +125,13 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
     }
 
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
-    let (pbs_config, relays, maybe_mux_id) = state.mux_config_and_relays(&params.pubkey);
+    let (pbs_config, relays, maybe_mux_id) = state.mux_config_and_relays(&params.proposer_pubkey);
 
     // All acceptable builders this pubkey can talk to
     if let Some(mux_id) = maybe_mux_id {
-        debug!(mux_id, relays = relays.len(), pubkey = %params.pubkey, "using mux config");
+        debug!(mux_id, relays = relays.len(), pubkey = %params.proposer_pubkey, "using mux config");
     } else {
-        debug!(relays = relays.len(), pubkey = %params.pubkey, "using default config");
+        debug!(relays = relays.len(), pubkey = %params.proposer_pubkey, "using default config");
     }
 
     // Filtered to only the builder the request is authorized for
@@ -278,7 +278,7 @@ async fn send_timed_get_execution_payload_bid(
         params.slot,
         &params.parent_hash,
         &params.parent_root,
-        &params.pubkey,
+        &params.proposer_pubkey,
     )?;
 
     if relay.config.enable_timing_games {
@@ -422,15 +422,17 @@ async fn send_one_get_execution_payload_bid(
     req_config.headers.insert(HEADER_TIMEOUT_MS, HeaderValue::from(req_config.timeout_ms));
 
     let start_request = Instant::now();
-    let res = match relay
+    // Only attach a JSON body when the caller supplied a request auth
+    let request = relay
         .client
         .post(req_config.url)
         .timeout(Duration::from_millis(req_config.timeout_ms))
-        .headers(req_config.headers)
-        .json(&body)
-        .send()
-        .await
-    {
+        .headers(req_config.headers);
+    let request = match body.as_ref() {
+        Some(auth) => request.json(auth),
+        None => request,
+    };
+    let res = match request.send().await {
         Ok(res) => res,
         Err(err) => {
             RELAY_STATUS_CODE
@@ -666,7 +668,7 @@ mod tests {
             slot,
             parent_hash: parent_hash.clone(),
             parent_root: parent_root.clone(),
-            pubkey,
+            proposer_pubkey: pubkey,
         };
 
         let mut mock_header_data = HeaderInfo {
