@@ -186,6 +186,8 @@ pub type MAX_DATA_SIZE = typenum::U4096;
 // so that other builders do not DDOS or run replay attacks on the builder.
 #[derive(Debug, Serialize, Deserialize, Encode, Decode, Clone)]
 pub struct RequestAuthV1 {
+    /// ASCII bytes of the canonical builder URL; hex string on the JSON wire
+    #[serde(with = "ssz_types::serde_utils::hex_var_list")]
     pub data: VariableList<u8, MAX_DATA_SIZE>,
     pub slot: Slot,
 }
@@ -202,5 +204,46 @@ impl SignedRequestAuthV1 {
     pub fn get_url(&self) -> eyre::Result<Url> {
         let url = String::from_utf8(self.message.data.to_vec())?;
         Ok(Url::parse(&url)?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Spec vector (builder-specs types/gloas/request_auth.yaml): `data` is a
+    /// hex STRING of the ASCII bytes of the canonical builder URL — the
+    /// literal example is 0x6874... = "https://builder.example.com" — not a
+    /// JSON array of integers.
+    #[test]
+    fn test_request_auth_data_serializes_as_hex() {
+        let auth = SignedRequestAuthV1 {
+            message: RequestAuthV1 {
+                data: VariableList::new(b"https://builder.example.com".to_vec()).unwrap(),
+                slot: Slot::new(100),
+            },
+            signature: BlsSignature::empty(),
+        };
+        let json = serde_json::to_value(&auth).unwrap();
+        assert_eq!(
+            json["message"]["data"],
+            "0x68747470733a2f2f6275696c6465722e6578616d706c652e636f6d"
+        );
+        assert_eq!(json["message"]["slot"], "100");
+    }
+
+    /// Round-trip the spec's wire shape back into the struct
+    #[test]
+    fn test_request_auth_deserializes_spec_json() {
+        let json = r#"{
+            "message": {
+                "data": "0x68747470733a2f2f6275696c6465722e6578616d706c652e636f6d",
+                "slot": "100"
+            },
+            "signature": "0xc00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+        }"#;
+        let auth: SignedRequestAuthV1 = serde_json::from_str(json).unwrap();
+        assert_eq!(auth.message.data.to_vec(), b"https://builder.example.com");
+        assert_eq!(auth.message.slot, Slot::new(100));
     }
 }

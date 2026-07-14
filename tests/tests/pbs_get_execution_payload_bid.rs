@@ -99,8 +99,8 @@ async fn test_get_execution_payload_bid_wrong_parent_root() -> Result<()> {
     .await
 }
 
-/// TODO Documents CURRENT behavior: `max_trusted_bid_gwei` is hardcoded to 0 in the
-/// route, so any bid with a nonzero execution_payment is rejected as
+/// TODO Documents CURRENT behavior: `max_trusted_bid_gwei` is hardcoded to 0 in
+/// the route, so any bid with a nonzero execution_payment is rejected as
 /// TrustedBidTooHigh. Per spec this threshold should come from the proposer's
 /// BuilderPreferences (and 0-when-absent is spec-correct); update this test
 /// when the preferences endpoint lands.
