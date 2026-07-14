@@ -15,6 +15,9 @@ pub enum PbsError {
     #[error("json decode error: {err:?}, raw: {raw}")]
     JsonDecode { err: serde_json::Error, raw: String },
 
+    #[error("json encode error: {0:?}")]
+    JsonEncode(serde_json::Error),
+
     #[error("ssz decode error: {err:?}, fork: {fork}")]
     SSZDecode { err: String, fork: ForkName },
 

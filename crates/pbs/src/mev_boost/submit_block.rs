@@ -377,12 +377,17 @@ async fn send_submit_block_impl(
             status = %res.status(),
             "relay rejected SSZ content-type, resubmitting block with JSON content-type"
         );
+        //  Sharing caller's timeout budget with SSZ attempt, so JSON gets the remaining
+        // time
+        let remaining_timeout_ms =
+            timeout_ms.saturating_sub(start_request.elapsed().as_millis() as u64);
+        let json_body = serde_json::to_vec(&signed_blinded_block).map_err(PbsError::JsonEncode)?;
         res = match relay
             .client
             .post(url.as_ref().clone())
-            .timeout(Duration::from_millis(timeout_ms))
+            .timeout(Duration::from_millis(remaining_timeout_ms))
             .headers(headers.clone())
-            .body(serde_json::to_vec(&signed_blinded_block).unwrap())
+            .body(json_body)
             .header(CONTENT_TYPE, EncodingType::Json.content_type_header())
             .send()
             .await
