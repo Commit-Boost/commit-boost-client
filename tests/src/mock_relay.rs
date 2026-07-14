@@ -21,6 +21,7 @@ use axum::{
     routing::{get, post},
 };
 use cb_common::{
+    constants::{GENESIS_VALIDATORS_ROOT, GLOAS_FORK_VERSION},
     pbs::{
         BUILDER_V1_API_PATH, BUILDER_V2_API_PATH, BlobsBundle, BuilderBid, BuilderBidFulu,
         ExecutionPayloadBid, ExecutionPayloadElectra, ExecutionPayloadHeaderFulu,
@@ -30,7 +31,7 @@ use cb_common::{
         SignedBuilderBid, SignedExecutionPayloadBid, SignedRequestAuthV1,
         SubmitBlindedBlockResponse,
     },
-    signature::sign_builder_root,
+    signature::{sign_builder_root, sign_execution_payload_bid_root},
     signer::random_secret,
     types::{BlsPublicKey, BlsSecretKey, Chain},
     utils::{TestRandomSeed, timestamp_of_slot_start_sec},
@@ -303,9 +304,19 @@ async fn handle_get_execution_payload_bid(
     let object_root = message.tree_hash_root();
     let signature = if state.epbs_invalid_signature {
         let wrong_key = random_secret();
-        sign_builder_root(state.chain, &wrong_key, &object_root)
+        sign_execution_payload_bid_root(
+            &wrong_key,
+            &object_root,
+            GLOAS_FORK_VERSION,
+            GENESIS_VALIDATORS_ROOT.into(),
+        )
     } else {
-        sign_builder_root(state.chain, &state.signer, &object_root)
+        sign_execution_payload_bid_root(
+            &state.signer,
+            &object_root,
+            GLOAS_FORK_VERSION,
+            GENESIS_VALIDATORS_ROOT.into(),
+        )
     };
 
     let response = GetExecutionPayloadBidResponse {

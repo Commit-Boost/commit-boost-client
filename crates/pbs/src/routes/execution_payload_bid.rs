@@ -5,7 +5,7 @@ use std::{
 
 use alloy::{
     consensus::BlockHeader,
-    primitives::{B256, U256, aliases::B32, utils::format_ether},
+    primitives::{B256, U256, utils::format_ether},
     providers::Provider,
     rpc::types::Block,
 };
@@ -16,14 +16,14 @@ use axum::{
     response::IntoResponse,
 };
 use cb_common::{
-    constants::APPLICATION_BUILDER_DOMAIN,
+    constants::{GENESIS_VALIDATORS_ROOT, GLOAS_FORK_VERSION},
     pbs::{
         GetExecutionPayloadBidInfo, GetExecutionPayloadBidParams, GetExecutionPayloadBidResponse,
         HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS, RelayClient, SignedRequestAuthV1,
         error::{PbsError, ValidationError},
     },
-    signature::verify_signed_message,
-    types::{BlsPublicKey, BlsSignature, Chain},
+    signature::verify_execution_payload_bid_signature,
+    types::{BlsPublicKey, BlsSignature},
     utils::{ms_into_slot, utcnow_ms},
     wire::{get_user_agent, get_user_agent_with_version, safe_read_http_response},
 };
@@ -195,7 +195,6 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
                     max_trusted_bid_gwei: 0,   // todo add param to config
                     extra_validation_enabled: state.extra_validation_enabled(),
                     parent_block: parent_block.clone(),
-                    chain: state.config.chain,
                 },
             )
             .in_current_span(),
@@ -401,7 +400,6 @@ struct ValidationContext {
     max_trusted_bid_gwei: u64,
     extra_validation_enabled: bool,
     parent_block: Arc<RwLock<Option<Block>>>,
-    chain: Chain,
 }
 
 async fn send_one_get_execution_payload_bid(
@@ -505,7 +503,6 @@ async fn send_one_get_execution_payload_bid(
 
     if !validation.skip_sigverify {
         validate_signature(
-            validation.chain,
             relay.pubkey(),
             &get_header_response.data.message,
             &get_header_response.data.signature,
@@ -586,18 +583,16 @@ fn validate_header_data(
 }
 
 fn validate_signature<T: TreeHash>(
-    chain: Chain,
     expected_pubkey: &BlsPublicKey,
     message: &T,
     signature: &BlsSignature,
 ) -> Result<(), ValidationError> {
-    if !verify_signed_message(
-        chain,
+    if !verify_execution_payload_bid_signature(
         expected_pubkey,
         &message,
         signature,
-        None,
-        &B32::from(APPLICATION_BUILDER_DOMAIN),
+        GLOAS_FORK_VERSION,
+        GENESIS_VALIDATORS_ROOT.into(),
     ) {
         return Err(ValidationError::Sigverify);
     }
@@ -646,8 +641,9 @@ mod tests {
 
     use alloy::primitives::B256;
     use cb_common::{
+        constants::{GENESIS_VALIDATORS_ROOT, GLOAS_FORK_VERSION},
         pbs::error::ValidationError,
-        signature::sign_builder_message,
+        signature::{sign_builder_message, sign_execution_payload_bid_root},
         types::{BlsSecretKey, Chain},
         utils::TestRandomSeed,
     };
@@ -782,13 +778,24 @@ mod tests {
 
         let message = B256::random();
 
-        let signature = sign_builder_message(Chain::Holesky, &secret_key, &message);
+        // A legacy builder-domain signature must be rejected: bids use the
+        // gloas bid domain (DOMAIN_BEACON_BUILDER), not APPLICATION_BUILDER_DOMAIN.
+        let builder_domain_sig = sign_builder_message(Chain::Holesky, &secret_key, &message);
+        let bid_domain_sig = sign_execution_payload_bid_root(
+            &secret_key,
+            &message.tree_hash_root(),
+            GLOAS_FORK_VERSION,
+            GENESIS_VALIDATORS_ROOT.into(),
+        );
 
         assert!(matches!(
-            validate_signature(Chain::Holesky, &pubkey, &message, &wrong_signature),
+            validate_signature(&pubkey, &message, &wrong_signature),
             Err(ValidationError::Sigverify)
         ));
-
-        assert!(validate_signature(Chain::Holesky, &pubkey, &message, &signature).is_ok());
+        assert!(matches!(
+            validate_signature(&pubkey, &message, &builder_domain_sig),
+            Err(ValidationError::Sigverify)
+        ));
+        assert!(validate_signature(&pubkey, &message, &bid_domain_sig).is_ok());
     }
 }

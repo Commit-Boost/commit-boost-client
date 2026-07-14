@@ -2,11 +2,12 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use alloy::primitives::B256;
 use cb_common::{
+    constants::{GENESIS_VALIDATORS_ROOT, GLOAS_FORK_VERSION},
     pbs::{
         GetExecutionPayloadBidInfo, GetExecutionPayloadBidResponse, RequestAuthV1,
         SignedRequestAuthV1,
     },
-    signature::sign_builder_root,
+    signature::sign_execution_payload_bid_root,
     signer::random_secret,
     types::{BlsSignature, Chain},
 };
@@ -276,9 +277,12 @@ async fn test_get_execution_payload_bid_impl(
     // The winning bid must be signed by one of the configured relays
     let object_root = res.data.message.tree_hash_root();
     assert!(
-        states
-            .iter()
-            .any(|s| sign_builder_root(chain, &s.signer, &object_root) == res.data.signature),
+        states.iter().any(|s| sign_execution_payload_bid_root(
+            &s.signer,
+            &object_root,
+            GLOAS_FORK_VERSION,
+            GENESIS_VALIDATORS_ROOT.into(),
+        ) == res.data.signature),
         "bid signature does not match any configured relay"
     );
     Ok(())
