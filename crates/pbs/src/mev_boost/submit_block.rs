@@ -272,7 +272,7 @@ async fn send_submit_block_full(
         relay,
         url,
         timeout_ms,
-        proposal_info.headers.clone(),
+        &proposal_info.headers,
         &proposal_info.signed_blinded_block,
         retry,
         api_version,
@@ -333,7 +333,7 @@ async fn send_submit_block_impl(
     relay: &RelayClient,
     url: Arc<Url>,
     timeout_ms: u64,
-    headers: HeaderMap,
+    headers: &HeaderMap,
     signed_blinded_block: &SignedBlindedBeaconBlock,
     retry: u32,
     api_version: BuilderApiVersion,
@@ -347,7 +347,7 @@ async fn send_submit_block_impl(
         .timeout(Duration::from_millis(timeout_ms))
         .headers(headers.clone())
         .body(signed_blinded_block.as_ssz_bytes())
-        .header(CONTENT_TYPE, EncodingType::Ssz.to_string())
+        .header(CONTENT_TYPE, EncodingType::Ssz.content_type_header())
         .header(CONSENSUS_VERSION_HEADER, signed_blinded_block.fork_name_unchecked().to_string())
         .send()
         .await
@@ -381,9 +381,9 @@ async fn send_submit_block_impl(
             .client
             .post(url.as_ref().clone())
             .timeout(Duration::from_millis(timeout_ms))
-            .headers(headers)
+            .headers(headers.clone())
             .body(serde_json::to_vec(&signed_blinded_block).unwrap())
-            .header(CONTENT_TYPE, EncodingType::Json.to_string())
+            .header(CONTENT_TYPE, EncodingType::Json.content_type_header())
             .send()
             .await
         {
@@ -505,7 +505,7 @@ fn decode_ssz_payload(
 ) -> Result<SubmitBlindedBlockResponse, PbsError> {
     let data = PayloadAndBlobs::from_ssz_bytes_by_fork(response_bytes, fork).map_err(|e| {
         PbsError::RelayResponse {
-            error_msg: (format!("error decoding relay payload: {e:?}")).to_string(),
+            error_msg: format!("error decoding relay payload: {e:?}"),
             code: 200,
         }
     })?;
