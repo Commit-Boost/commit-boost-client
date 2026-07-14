@@ -25,7 +25,10 @@ use cb_common::{
     signature::verify_execution_payload_bid_signature,
     types::{BlsPublicKey, BlsSignature},
     utils::{ms_into_slot, utcnow_ms},
-    wire::{get_user_agent, get_user_agent_with_version, safe_read_http_response},
+    wire::{
+        CONSENSUS_VERSION_HEADER, get_user_agent, get_user_agent_with_version,
+        safe_read_http_response,
+    },
 };
 use futures::future::join_all;
 use parking_lot::RwLock;
@@ -81,7 +84,12 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
                 BEACON_NODE_STATUS
                     .with_label_values(&["200", GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG])
                     .inc();
-                Ok((StatusCode::OK, axum::Json(max_bid)).into_response())
+                // Eth-Consensus-Version required on 200
+                let consensus_version_header = HeaderValue::from_str(&max_bid.version.to_string())
+                    .expect("fork name is always a valid header value");
+                let mut res = axum::Json(max_bid).into_response();
+                res.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
+                Ok(res)
             } else {
                 // spec: return 204 if request is valid but no bid available
                 info!("no header available for slot");

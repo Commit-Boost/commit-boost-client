@@ -264,8 +264,18 @@ async fn test_get_execution_payload_bid_impl(
         return Ok(());
     }
 
+    // Eth-Consensus-Version required on 200
+    let version_header =
+        res.headers().get("eth-consensus-version").and_then(|v| v.to_str().ok()).map(str::to_owned);
+    assert_eq!(
+        version_header.as_deref(),
+        Some("gloas"),
+        "200 response must set Eth-Consensus-Version: gloas"
+    );
+
     // Get the data
     let res = serde_json::from_slice::<GetExecutionPayloadBidResponse>(&res.bytes().await?)?;
+    assert_eq!(res.version.to_string(), "gloas");
     assert_eq!(res.slot(), TEST_SLOT);
     assert_eq!(res.parent_hash(), B256::ZERO);
     assert_eq!(res.parent_root(), B256::ZERO);
