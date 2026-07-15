@@ -199,8 +199,14 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
                 max_timeout_ms,
                 ValidationContext {
                     skip_sigverify: state.pbs_config().skip_sigverify,
-                    min_trustless_bid_gwei: 0, // todo add param to config
-                    max_trusted_bid_gwei: 0,   // todo add param to config
+                    // the ePBS floor is the same min_bid policy knob, in gwei
+                    min_bid_gwei: (pbs_config.min_bid_wei / U256::from(1_000_000_000))
+                        .try_into()
+                        .unwrap_or(u64::MAX),
+                    max_trusted_bid_gwei: relay
+                        .config
+                        .max_execution_payment_gwei
+                        .unwrap_or(pbs_config.max_execution_payment_gwei),
                     extra_validation_enabled: state.extra_validation_enabled(),
                     parent_block: parent_block.clone(),
                 },
@@ -411,7 +417,7 @@ struct RequestContext {
 #[derive(Clone)]
 struct ValidationContext {
     skip_sigverify: bool,
-    min_trustless_bid_gwei: u64,
+    min_bid_gwei: u64,
     max_trusted_bid_gwei: u64,
     extra_validation_enabled: bool,
     parent_block: Arc<RwLock<Option<Block>>>,
@@ -512,7 +518,7 @@ async fn send_one_get_execution_payload_bid(
     validate_header_data(
         &header_info,
         &params,
-        validation.min_trustless_bid_gwei,
+        validation.min_bid_gwei,
         validation.max_trusted_bid_gwei,
     )?;
 
@@ -552,7 +558,7 @@ struct HeaderInfo {
 fn validate_header_data(
     header_info: &HeaderInfo,
     params: &GetExecutionPayloadBidParams,
-    min_trustless_bid_gwei: u64,
+    min_bid_gwei: u64,
     max_trusted_bid_gwei: u64,
 ) -> Result<(), ValidationError> {
     if header_info.block_hash == B256::ZERO {
@@ -580,11 +586,9 @@ fn validate_header_data(
         });
     }
 
-    if header_info.trustless_payment < min_trustless_bid_gwei {
-        return Err(ValidationError::TrustlessBidTooLow {
-            min: min_trustless_bid_gwei,
-            got: header_info.trustless_payment,
-        });
+    let total_payment = header_info.trustless_payment.saturating_add(header_info.trusted_payment);
+    if total_payment < min_bid_gwei {
+        return Err(ValidationError::TotalPaymentTooLow { min: min_bid_gwei, got: total_payment });
     }
 
     if header_info.trusted_payment > max_trusted_bid_gwei {
@@ -670,7 +674,7 @@ mod tests {
         let slot = 5;
         let parent_hash = B256::from_slice(&[1; 32]);
         let parent_root = B256::from_slice(&[2; 32]);
-        let min_trustless_payment = 500;
+        let min_bid = 500;
         let max_trusted_payment = 1000;
         let secret_key = BlsSecretKey::test_random();
         let pubkey = secret_key.public_key();
@@ -687,30 +691,20 @@ mod tests {
             parent_hash: B256::default(),
             parent_root: B256::default(),
             slot: 0,
-            trustless_payment: min_trustless_payment - 1,
-            trusted_payment: max_trusted_payment + 1,
+            trustless_payment: min_bid - 1,
+            trusted_payment: 0,
             gas_limit: 0,
         };
 
         assert_eq!(
-            validate_header_data(
-                &mock_header_data,
-                &mock_params,
-                min_trustless_payment,
-                max_trusted_payment,
-            ),
+            validate_header_data(&mock_header_data, &mock_params, min_bid, max_trusted_payment,),
             Err(ValidationError::EmptyBlockhash)
         );
 
         mock_header_data.block_hash.0[1] = 1;
 
         assert_eq!(
-            validate_header_data(
-                &mock_header_data,
-                &mock_params,
-                min_trustless_payment,
-                max_trusted_payment,
-            ),
+            validate_header_data(&mock_header_data, &mock_params, min_bid, max_trusted_payment,),
             Err(ValidationError::ParentHashMismatch {
                 expected: mock_params.parent_hash,
                 got: B256::default()
@@ -720,12 +714,7 @@ mod tests {
         mock_header_data.parent_hash = parent_hash;
 
         assert_eq!(
-            validate_header_data(
-                &mock_header_data,
-                &mock_params,
-                min_trustless_payment,
-                max_trusted_payment,
-            ),
+            validate_header_data(&mock_header_data, &mock_params, min_bid, max_trusted_payment,),
             Err(ValidationError::ParentRootMismatch {
                 expected: mock_params.parent_root,
                 got: B256::default()
@@ -735,39 +724,24 @@ mod tests {
         mock_header_data.parent_root = parent_root;
 
         assert_eq!(
-            validate_header_data(
-                &mock_header_data,
-                &mock_params,
-                min_trustless_payment,
-                max_trusted_payment,
-            ),
+            validate_header_data(&mock_header_data, &mock_params, min_bid, max_trusted_payment,),
             Err(ValidationError::SlotNumberMismatch { expected: slot, got: 0 })
         );
 
         mock_header_data.slot = slot;
 
         assert_eq!(
-            validate_header_data(
-                &mock_header_data,
-                &mock_params,
-                min_trustless_payment,
-                max_trusted_payment,
-            ),
-            Err(ValidationError::TrustlessBidTooLow {
-                min: min_trustless_payment,
+            validate_header_data(&mock_header_data, &mock_params, min_bid, max_trusted_payment,),
+            Err(ValidationError::TotalPaymentTooLow {
+                min: min_bid,
                 got: mock_header_data.trustless_payment,
             })
         );
 
-        mock_header_data.trustless_payment = min_trustless_payment;
+        mock_header_data.trusted_payment = max_trusted_payment + 1;
 
         assert_eq!(
-            validate_header_data(
-                &mock_header_data,
-                &mock_params,
-                min_trustless_payment,
-                max_trusted_payment,
-            ),
+            validate_header_data(&mock_header_data, &mock_params, min_bid, max_trusted_payment,),
             Err(ValidationError::TrustedBidTooHigh {
                 max: max_trusted_payment,
                 got: mock_header_data.trusted_payment,
@@ -776,13 +750,8 @@ mod tests {
 
         mock_header_data.trusted_payment = max_trusted_payment;
 
-        validate_header_data(
-            &mock_header_data,
-            &mock_params,
-            min_trustless_payment,
-            max_trusted_payment,
-        )
-        .unwrap();
+        validate_header_data(&mock_header_data, &mock_params, min_bid, max_trusted_payment)
+            .unwrap();
     }
 
     #[test]

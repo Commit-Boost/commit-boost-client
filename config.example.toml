@@ -44,6 +44,11 @@ skip_sigverify = false
 # Can be specified as a float or a string for extra precision (e.g. "0.01")
 # OPTIONAL, DEFAULT: 0.0
 min_bid_eth = 0.0
+# Maximum trusted execution payment in Gwei accepted in an ePBS bid. With the default of 0 any bid
+# carrying an execution payment is rejected, so payments only flow through the on-chain trustless
+# mechanism. Can be overridden per relay with `max_execution_payment_gwei` on the relay entry
+# OPTIONAL, DEFAULT: 0
+max_execution_payment_gwei = 0
 # How late in milliseconds in the slot is "late". This impacts the `get_header` requests, by shortening timeouts for `get_header` calls to
 # relays and make sure a header is returned within this deadline. If the request from the CL comes later in the slot, then fetching headers is skipped
 # to force local building and miniminzing the risk of missed slots. See also the timing games section below
@@ -121,6 +126,9 @@ target_first_request_ms = 200
 # Frequency in ms to send get_header requests
 # OPTIONAL
 frequency_get_header_ms = 300
+# Maximum trusted execution payment in Gwei accepted in an ePBS bid from this relay
+# OPTIONAL, DEFAULT: the PBS-level `max_execution_payment_gwei`
+# max_execution_payment_gwei = 0
 
 # Configuration for the PBS multiplexers, which enable different configs to be used for get header requests, depending on validator pubkey
 # Note that:

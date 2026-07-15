@@ -1,6 +1,6 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
-use alloy::primitives::B256;
+use alloy::primitives::{B256, U256};
 use cb_common::{
     constants::{GENESIS_VALIDATORS_ROOT, GLOAS_FORK_VERSION},
     pbs::{
@@ -44,6 +44,7 @@ async fn test_get_execution_payload_bid() -> Result<()> {
         StatusCode::OK,
         &[1],
         Some(10),
+        0,
     )
     .await
 }
@@ -57,6 +58,7 @@ async fn test_get_execution_payload_bid_no_bid() -> Result<()> {
         StatusCode::NO_CONTENT,
         &[1],
         None,
+        0,
     )
     .await
 }
@@ -70,6 +72,7 @@ async fn test_get_execution_payload_bid_invalid_signature() -> Result<()> {
         StatusCode::NO_CONTENT,
         &[1],
         None,
+        0,
     )
     .await
 }
@@ -83,6 +86,7 @@ async fn test_get_execution_payload_bid_wrong_parent_hash() -> Result<()> {
         StatusCode::NO_CONTENT,
         &[1],
         None,
+        0,
     )
     .await
 }
@@ -96,15 +100,13 @@ async fn test_get_execution_payload_bid_wrong_parent_root() -> Result<()> {
         StatusCode::NO_CONTENT,
         &[1],
         None,
+        0,
     )
     .await
 }
 
-/// TODO Documents CURRENT behavior: `max_trusted_bid_gwei` is hardcoded to 0 in
-/// the route, so any bid with a nonzero execution_payment is rejected as
-/// TrustedBidTooHigh. Per spec this threshold should come from the proposer's
-/// BuilderPreferences (and 0-when-absent is spec-correct); update this test
-/// when the preferences endpoint lands.
+/// With the default `max_execution_payment_gwei` of 0, any bid with a nonzero
+/// execution_payment is rejected as TrustedBidTooHigh
 #[tokio::test]
 async fn test_get_execution_payload_bid_nonzero_execution_payment_rejected() -> Result<()> {
     test_get_execution_payload_bid_impl(
@@ -113,12 +115,11 @@ async fn test_get_execution_payload_bid_nonzero_execution_payment_rejected() -> 
         StatusCode::NO_CONTENT,
         &[1],
         None,
+        0,
     )
     .await
 }
 
-/// Test that PBS returns the highest bid across relays (selection is by
-/// trustless `value`)
 #[tokio::test]
 async fn test_get_execution_payload_bid_highest_wins() -> Result<()> {
     test_get_execution_payload_bid_impl(
@@ -130,8 +131,79 @@ async fn test_get_execution_payload_bid_highest_wins() -> Result<()> {
         StatusCode::OK,
         &[1, 1],
         Some(42),
+        0,
     )
     .await
+}
+
+/// Test that a bid with an execution payment within the configured
+/// `max_execution_payment_gwei` is accepted
+#[tokio::test]
+async fn test_get_execution_payload_bid_execution_payment_within_cap() -> Result<()> {
+    test_get_execution_payload_bid_impl(
+        vec![MockRelayState::new(Chain::Hoodi, random_secret()).with_trusted_bid_gwei(5)],
+        AuthTarget::None,
+        StatusCode::OK,
+        &[1],
+        None,
+        10,
+    )
+    .await
+}
+
+/// Test that selection is by TOTAL payment: trustless 5 + payment 10 beats
+/// trustless 10 + payment 0. Asserting value == 5 proves the total won.
+#[tokio::test]
+async fn test_get_execution_payload_bid_highest_total_payment_wins() -> Result<()> {
+    test_get_execution_payload_bid_impl(
+        vec![
+            MockRelayState::new(Chain::Hoodi, random_secret()).with_trustless_bid_gwei(10),
+            MockRelayState::new(Chain::Hoodi, random_secret())
+                .with_trustless_bid_gwei(5)
+                .with_trusted_bid_gwei(10),
+        ],
+        AuthTarget::None,
+        StatusCode::OK,
+        &[1, 1],
+        Some(5),
+        10,
+    )
+    .await
+}
+
+/// Test that min_bid_eth also floors ePBS bids: a bid whose total payment (in
+/// gwei) is below the configured minimum returns 204. Covers the wei -> gwei
+/// conversion, which the unit tests don't.
+#[tokio::test]
+async fn test_get_execution_payload_bid_below_min_bid_rejected() -> Result<()> {
+    setup_test_env();
+    let chain = Chain::Hoodi;
+    let pbs_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr()?.port();
+    let relay_listener = get_free_listener().await;
+    let relay_port = relay_listener.local_addr()?.port();
+
+    // Default mock bid: trustless 10 gwei, no execution payment
+    let mock_state = Arc::new(MockRelayState::new(chain, random_secret()));
+    let mock_relay = generate_mock_relay(relay_port, mock_state.signer.public_key())?;
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
+
+    let mut pbs_config = get_pbs_config(pbs_port);
+    pbs_config.min_bid_wei = U256::from(20_000_000_000u64); // 20 gwei
+    let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
+    let state = PbsState::new(config, PathBuf::new());
+    drop(pbs_listener);
+    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+
+    let mock_validator = MockValidator::new(pbs_port)?;
+    wait_for_ready(&mock_validator).await?;
+
+    let res = mock_validator
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None)
+        .await?;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    assert_eq!(mock_state.received_execution_payload_bid(), 1);
+    Ok(())
 }
 
 /// Test that auth for a specific builder forwards the request ONLY to the
@@ -148,6 +220,7 @@ async fn test_get_execution_payload_bid_auth_filters_to_target() -> Result<()> {
         StatusCode::OK,
         &[1, 0],
         Some(10),
+        0,
     )
     .await
 }
@@ -165,6 +238,7 @@ async fn test_get_execution_payload_bid_auth_unknown_builder() -> Result<()> {
         StatusCode::NO_CONTENT,
         &[0, 0],
         None,
+        0,
     )
     .await
 }
@@ -213,6 +287,7 @@ async fn test_get_execution_payload_bid_impl(
     expected_code: StatusCode,
     expected_relay_counts: &[u64],
     expected_value: Option<u64>,
+    max_execution_payment_gwei: u64,
 ) -> Result<()> {
     // Setup test environment
     setup_test_env();
@@ -236,7 +311,9 @@ async fn test_get_execution_payload_bid_impl(
     }
 
     // Run the PBS service
-    let config = to_pbs_config(chain, get_pbs_config(pbs_port), relays);
+    let mut pbs_config = get_pbs_config(pbs_port);
+    pbs_config.max_execution_payment_gwei = max_execution_payment_gwei;
+    let config = to_pbs_config(chain, pbs_config, relays);
     let state = PbsState::new(config, PathBuf::new());
     drop(pbs_listener);
     tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
@@ -280,7 +357,7 @@ async fn test_get_execution_payload_bid_impl(
     assert_eq!(res.parent_hash(), B256::ZERO);
     assert_eq!(res.parent_root(), B256::ZERO);
     assert_ne!(res.block_hash(), B256::ZERO);
-    assert_eq!(res.execution_payment(), 0);
+    assert!(res.execution_payment() <= max_execution_payment_gwei);
     if let Some(expected_value) = expected_value {
         assert_eq!(res.value(), expected_value);
     }

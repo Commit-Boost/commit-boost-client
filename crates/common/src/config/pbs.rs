@@ -61,6 +61,8 @@ pub struct RelayConfig {
     /// request
     #[serde(deserialize_with = "empty_string_as_none", default)]
     pub validator_registration_batch_size: Option<usize>,
+    /// Maximum trusted execution payment in Gwei accepted in an ePBS bid
+    pub max_execution_payment_gwei: Option<u64>,
 }
 
 fn empty_string_as_none<'de, D>(deserializer: D) -> Result<Option<usize>, D::Error>
@@ -118,6 +120,9 @@ pub struct PbsConfig {
     /// Minimum bid that will be accepted from get_header
     #[serde(rename = "min_bid_eth", with = "as_eth_str", default = "default_u256")]
     pub min_bid_wei: U256,
+    /// Maximum trusted execution payment in Gwei accepted in an ePBS bid
+    #[serde(default = "default_u64::<0>")]
+    pub max_execution_payment_gwei: u64,
     /// How late in the slot we consider to be "late"
     #[serde(default = "default_u64::<LATE_IN_SLOT_TIME_MS>")]
     pub late_in_slot_time_ms: u64,

@@ -102,8 +102,8 @@ pub enum ValidationError {
     #[error("bid below minimum: min: {min} got {got}")]
     BidTooLow { min: U256, got: U256 },
 
-    #[error("trustless bid below minimum (gwei): min: {min} got {got}")]
-    TrustlessBidTooLow { min: u64, got: u64 },
+    #[error("total payment below minimum bid (gwei): min: {min} got {got}")]
+    TotalPaymentTooLow { min: u64, got: u64 },
 
     #[error("trusted bid above maximum (gwei): max: {max} got {got}")]
     TrustedBidTooHigh { max: u64, got: u64 },

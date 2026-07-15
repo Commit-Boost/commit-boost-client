@@ -51,6 +51,7 @@ pub fn generate_mock_relay(port: u16, pubkey: BlsPublicKey) -> Result<RelayClien
         target_first_request_ms: None,
         frequency_get_header_ms: None,
         validator_registration_batch_size: None,
+        max_execution_payment_gwei: None,
     };
     RelayClient::new(config)
 }
@@ -71,6 +72,7 @@ pub fn generate_mock_relay_with_batch_size(
         target_first_request_ms: None,
         frequency_get_header_ms: None,
         validator_registration_batch_size: Some(batch_size),
+        max_execution_payment_gwei: None,
     };
     RelayClient::new(config)
 }
@@ -86,6 +88,7 @@ pub fn get_pbs_config(port: u16) -> PbsConfig {
         timeout_register_validator_ms: u64::MAX,
         skip_sigverify: false,
         min_bid_wei: U256::ZERO,
+        max_execution_payment_gwei: 0,
         late_in_slot_time_ms: u64::MAX,
         extra_validation_enabled: false,
 
