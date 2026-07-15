@@ -47,8 +47,6 @@ async fn test_auto_refresh() -> Result<()> {
     let ssv_api_port = ssv_api_listener.local_addr().unwrap().port();
     let default_relay_port = default_relay_listener.local_addr().unwrap().port();
     let mux_relay_port = mux_relay_listener.local_addr().unwrap().port();
-    // create_mock_public_ssv_server binds the port itself.
-    drop(ssv_api_listener);
 
     // Start the mock SSV API server
     // Intentionally missing a trailing slash to ensure this is handled properly
@@ -60,7 +58,7 @@ async fn test_auto_refresh() -> Result<()> {
         force_timeout: Arc::new(RwLock::new(false)),
     };
     let ssv_server_handle =
-        create_mock_public_ssv_server(ssv_api_port, Some(mock_ssv_state.clone())).await?;
+        create_mock_public_ssv_server(ssv_api_listener, Some(mock_ssv_state.clone())).await?;
 
     // Start a default relay for non-mux keys
     let default_relay = generate_mock_relay(default_relay_port, default_pubkey.clone())?;
@@ -112,8 +110,8 @@ async fn test_auto_refresh() -> Result<()> {
 
     // Run PBS service
     let state = PbsState::new(config, PathBuf::new());
-    drop(pbs_listener);
-    let pbs_server = tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    let pbs_server =
+        tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
     info!("Started PBS server with pubkey {default_pubkey}");
 
     // Wait for the server to start

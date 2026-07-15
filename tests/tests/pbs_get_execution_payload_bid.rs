@@ -193,8 +193,7 @@ async fn test_get_execution_payload_bid_below_min_bid_rejected() -> Result<()> {
     pbs_config.min_bid_wei = U256::from(20_000_000_000u64); // 20 gwei
     let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
     let state = PbsState::new(config, PathBuf::new());
-    drop(pbs_listener);
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
 
     let mock_validator = MockValidator::new(pbs_port)?;
     wait_for_ready(&mock_validator).await?;
@@ -226,8 +225,7 @@ async fn test_get_execution_payload_bid_wrong_fee_recipient_rejected() -> Result
     pbs_config.fee_recipient = Some(Address::from([1; 20]));
     let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
     let state = PbsState::new(config, PathBuf::new());
-    drop(pbs_listener);
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
 
     let mock_validator = MockValidator::new(pbs_port)?;
     wait_for_ready(&mock_validator).await?;
@@ -269,8 +267,7 @@ async fn test_get_execution_payload_bid_mux_fee_recipient() -> Result<()> {
     config.mux_lookup = Some(HashMap::from([(mux_pubkey.clone(), mux)]));
 
     let state = PbsState::new(config, PathBuf::new());
-    drop(pbs_listener);
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
 
     let mock_validator = MockValidator::new(pbs_port)?;
     wait_for_ready(&mock_validator).await?;
@@ -344,8 +341,7 @@ async fn test_get_execution_payload_bid_spec_url() -> Result<()> {
 
     let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay]);
     let state = PbsState::new(config, PathBuf::new());
-    drop(pbs_listener);
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
 
     let mock_validator = MockValidator::new(pbs_port)?;
     wait_for_ready(&mock_validator).await?;
@@ -399,8 +395,7 @@ async fn test_get_execution_payload_bid_impl(
     pbs_config.max_execution_payment_gwei = max_execution_payment_gwei;
     let config = to_pbs_config(chain, pbs_config, relays);
     let state = PbsState::new(config, PathBuf::new());
-    drop(pbs_listener);
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
 
     let mock_validator = MockValidator::new(pbs_port)?;
     wait_for_ready(&mock_validator).await?;

@@ -113,8 +113,7 @@ async fn test_cfg_file_update() -> Result<()> {
     // Run the PBS service
     let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![relay1.clone()]);
     let state = PbsState::new(config, config_path.clone());
-    drop(pbs_listener);
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
 
     // leave some time to start servers - extra time for the file watcher
     tokio::time::sleep(Duration::from_millis(1000)).await;
