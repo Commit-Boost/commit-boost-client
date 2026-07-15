@@ -8,7 +8,7 @@ use std::{
 };
 
 use alloy::{
-    primitives::{U256, utils::format_ether},
+    primitives::{Address, U256, utils::format_ether},
     providers::{Provider, ProviderBuilder},
 };
 use docker_image::DockerImage;
@@ -123,6 +123,9 @@ pub struct PbsConfig {
     /// Maximum trusted execution payment in Gwei accepted in an ePBS bid
     #[serde(default = "default_u64::<0>")]
     pub max_execution_payment_gwei: u64,
+    /// Expected fee recipient in ePBS bids; when set, bids with a different
+    /// fee_recipient are rejected
+    pub fee_recipient: Option<Address>,
     /// How late in the slot we consider to be "late"
     #[serde(default = "default_u64::<LATE_IN_SLOT_TIME_MS>")]
     pub late_in_slot_time_ms: u64,

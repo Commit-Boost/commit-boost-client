@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 
-use alloy::primitives::U256;
+use alloy::primitives::{Address, U256};
 use cb_common::{
     config::{
         HTTP_TIMEOUT_SECONDS_DEFAULT, MUXER_HTTP_MAX_LENGTH, MuxConfig, MuxKeysLoader, PbsMuxes,
@@ -386,6 +386,7 @@ async fn test_ssv_multi_with_node() -> Result<()> {
             relays: vec![(*relay.config).clone()],
             timeout_get_header_ms: Some(u64::MAX - 1),
             validator_pubkeys: vec![],
+            fee_recipient: None,
         }],
     };
 
@@ -494,6 +495,7 @@ async fn test_ssv_multi_with_public() -> Result<()> {
             relays: vec![(*relay.config).clone()],
             timeout_get_header_ms: Some(u64::MAX - 1),
             validator_pubkeys: vec![],
+            fee_recipient: None,
         }],
     };
 
@@ -533,5 +535,42 @@ async fn test_ssv_multi_with_public() -> Result<()> {
     ssv_public_handle.abort();
     relay_task.abort();
 
+    Ok(())
+}
+
+/// Mux-level fee_recipient overrides the default config's for that mux's keys
+#[tokio::test]
+async fn test_mux_fee_recipient_resolution() -> Result<()> {
+    setup_test_env();
+    let relay = generate_mock_relay(30100, random_secret().public_key())?;
+    let validator_pubkey = random_secret().public_key();
+    let expected = Address::from([1; 20]);
+    let muxes = PbsMuxes {
+        muxes: vec![MuxConfig {
+            id: "fee-mux".to_string(),
+            loader: None,
+            late_in_slot_time_ms: None,
+            relays: vec![(*relay.config).clone()],
+            timeout_get_header_ms: Some(u64::MAX - 1),
+            validator_pubkeys: vec![validator_pubkey.clone()],
+            fee_recipient: Some(expected),
+        }],
+    };
+
+    let pbs_config = get_pbs_config(30101);
+    let (mux_lookup, _) = muxes.clone().validate_and_fill(Chain::Hoodi, &pbs_config).await?;
+    let mux = mux_lookup.get(&validator_pubkey).unwrap();
+    assert_eq!(mux.config.fee_recipient, Some(expected));
+    assert_eq!(pbs_config.fee_recipient, None);
+
+    // The inherit direction: a mux without its own fee_recipient gets the default's
+    let mut muxes = muxes;
+    muxes.muxes[0].fee_recipient = None;
+    let mut pbs_config = pbs_config;
+    let default_recipient = Address::from([2; 20]);
+    pbs_config.fee_recipient = Some(default_recipient);
+    let (mux_lookup, _) = muxes.validate_and_fill(Chain::Hoodi, &pbs_config).await?;
+    let mux = mux_lookup.get(&validator_pubkey).unwrap();
+    assert_eq!(mux.config.fee_recipient, Some(default_recipient));
     Ok(())
 }

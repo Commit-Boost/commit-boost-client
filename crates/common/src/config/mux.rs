@@ -112,6 +112,7 @@ impl PbsMuxes {
                 late_in_slot_time_ms: mux
                     .late_in_slot_time_ms
                     .unwrap_or(default_pbs.late_in_slot_time_ms),
+                fee_recipient: mux.fee_recipient.or(default_pbs.fee_recipient),
                 ..default_pbs.clone()
             };
             config.validate(chain).await?;
@@ -153,6 +154,8 @@ pub struct MuxConfig {
     pub loader: Option<MuxKeysLoader>,
     pub timeout_get_header_ms: Option<u64>,
     pub late_in_slot_time_ms: Option<u64>,
+    /// Expected fee recipient in ePBS bids for this mux's validators
+    pub fee_recipient: Option<Address>,
 }
 
 impl MuxConfig {

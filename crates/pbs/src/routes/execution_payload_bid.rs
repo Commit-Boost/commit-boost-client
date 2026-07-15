@@ -5,7 +5,7 @@ use std::{
 
 use alloy::{
     consensus::BlockHeader,
-    primitives::{B256, U256, utils::format_ether},
+    primitives::{Address, B256, U256, utils::format_ether},
     providers::Provider,
     rpc::types::Block,
 };
@@ -207,6 +207,7 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
                         .config
                         .max_execution_payment_gwei
                         .unwrap_or(pbs_config.max_execution_payment_gwei),
+                    expected_fee_recipient: pbs_config.fee_recipient,
                     extra_validation_enabled: state.extra_validation_enabled(),
                     parent_block: parent_block.clone(),
                 },
@@ -419,6 +420,7 @@ struct ValidationContext {
     skip_sigverify: bool,
     min_bid_gwei: u64,
     max_trusted_bid_gwei: u64,
+    expected_fee_recipient: Option<Address>,
     extra_validation_enabled: bool,
     parent_block: Arc<RwLock<Option<Block>>>,
 }
@@ -512,6 +514,7 @@ async fn send_one_get_execution_payload_bid(
         slot: get_header_response.slot(),
         trustless_payment: get_header_response.value(),
         trusted_payment: get_header_response.execution_payment(),
+        fee_recipient: get_header_response.fee_recipient(),
         gas_limit: get_header_response.gas_limit(),
     };
 
@@ -520,6 +523,7 @@ async fn send_one_get_execution_payload_bid(
         &params,
         validation.min_bid_gwei,
         validation.max_trusted_bid_gwei,
+        validation.expected_fee_recipient,
     )?;
 
     if !validation.skip_sigverify {
@@ -552,6 +556,7 @@ struct HeaderInfo {
     slot: u64,
     trustless_payment: u64,
     trusted_payment: u64,
+    fee_recipient: Address,
     gas_limit: u64,
 }
 
@@ -560,6 +565,7 @@ fn validate_header_data(
     params: &GetExecutionPayloadBidParams,
     min_bid_gwei: u64,
     max_trusted_bid_gwei: u64,
+    expected_fee_recipient: Option<Address>,
 ) -> Result<(), ValidationError> {
     if header_info.block_hash == B256::ZERO {
         return Err(ValidationError::EmptyBlockhash);
@@ -595,6 +601,15 @@ fn validate_header_data(
         return Err(ValidationError::TrustedBidTooHigh {
             max: max_trusted_bid_gwei,
             got: header_info.trusted_payment,
+        });
+    }
+
+    if let Some(expected) = expected_fee_recipient &&
+        header_info.fee_recipient != expected
+    {
+        return Err(ValidationError::FeeRecipientMismatch {
+            expected,
+            got: header_info.fee_recipient,
         });
     }
 
@@ -693,18 +708,31 @@ mod tests {
             slot: 0,
             trustless_payment: min_bid - 1,
             trusted_payment: 0,
+            fee_recipient: Address::ZERO,
             gas_limit: 0,
         };
 
         assert_eq!(
-            validate_header_data(&mock_header_data, &mock_params, min_bid, max_trusted_payment,),
+            validate_header_data(
+                &mock_header_data,
+                &mock_params,
+                min_bid,
+                max_trusted_payment,
+                None
+            ),
             Err(ValidationError::EmptyBlockhash)
         );
 
         mock_header_data.block_hash.0[1] = 1;
 
         assert_eq!(
-            validate_header_data(&mock_header_data, &mock_params, min_bid, max_trusted_payment,),
+            validate_header_data(
+                &mock_header_data,
+                &mock_params,
+                min_bid,
+                max_trusted_payment,
+                None
+            ),
             Err(ValidationError::ParentHashMismatch {
                 expected: mock_params.parent_hash,
                 got: B256::default()
@@ -714,7 +742,13 @@ mod tests {
         mock_header_data.parent_hash = parent_hash;
 
         assert_eq!(
-            validate_header_data(&mock_header_data, &mock_params, min_bid, max_trusted_payment,),
+            validate_header_data(
+                &mock_header_data,
+                &mock_params,
+                min_bid,
+                max_trusted_payment,
+                None
+            ),
             Err(ValidationError::ParentRootMismatch {
                 expected: mock_params.parent_root,
                 got: B256::default()
@@ -724,14 +758,26 @@ mod tests {
         mock_header_data.parent_root = parent_root;
 
         assert_eq!(
-            validate_header_data(&mock_header_data, &mock_params, min_bid, max_trusted_payment,),
+            validate_header_data(
+                &mock_header_data,
+                &mock_params,
+                min_bid,
+                max_trusted_payment,
+                None
+            ),
             Err(ValidationError::SlotNumberMismatch { expected: slot, got: 0 })
         );
 
         mock_header_data.slot = slot;
 
         assert_eq!(
-            validate_header_data(&mock_header_data, &mock_params, min_bid, max_trusted_payment,),
+            validate_header_data(
+                &mock_header_data,
+                &mock_params,
+                min_bid,
+                max_trusted_payment,
+                None
+            ),
             Err(ValidationError::TotalPaymentTooLow {
                 min: min_bid,
                 got: mock_header_data.trustless_payment,
@@ -741,7 +787,13 @@ mod tests {
         mock_header_data.trusted_payment = max_trusted_payment + 1;
 
         assert_eq!(
-            validate_header_data(&mock_header_data, &mock_params, min_bid, max_trusted_payment,),
+            validate_header_data(
+                &mock_header_data,
+                &mock_params,
+                min_bid,
+                max_trusted_payment,
+                None
+            ),
             Err(ValidationError::TrustedBidTooHigh {
                 max: max_trusted_payment,
                 got: mock_header_data.trusted_payment,
@@ -750,8 +802,32 @@ mod tests {
 
         mock_header_data.trusted_payment = max_trusted_payment;
 
-        validate_header_data(&mock_header_data, &mock_params, min_bid, max_trusted_payment)
-            .unwrap();
+        let expected_fee_recipient = Address::from([1; 20]);
+
+        assert_eq!(
+            validate_header_data(
+                &mock_header_data,
+                &mock_params,
+                min_bid,
+                max_trusted_payment,
+                Some(expected_fee_recipient),
+            ),
+            Err(ValidationError::FeeRecipientMismatch {
+                expected: expected_fee_recipient,
+                got: Address::ZERO,
+            })
+        );
+
+        mock_header_data.fee_recipient = expected_fee_recipient;
+
+        validate_header_data(
+            &mock_header_data,
+            &mock_params,
+            min_bid,
+            max_trusted_payment,
+            Some(expected_fee_recipient),
+        )
+        .unwrap();
     }
 
     #[test]
@@ -803,6 +879,9 @@ mod tests {
         }
         fn execution_payment(&self) -> u64 {
             self.execution_payment
+        }
+        fn fee_recipient(&self) -> Address {
+            Address::ZERO
         }
         fn builder_index(&self) -> u64 {
             0

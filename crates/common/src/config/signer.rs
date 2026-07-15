@@ -476,6 +476,7 @@ mod tests {
                     skip_sigverify: false,
                     min_bid_wei: Uint::<256, 4>::from(0),
                     max_execution_payment_gwei: 0,
+                    fee_recipient: None,
                     late_in_slot_time_ms: 0,
                     extra_validation_enabled: false,
                     rpc_url: None,

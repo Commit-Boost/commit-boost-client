@@ -1,7 +1,8 @@
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 
-use alloy::primitives::{B256, U256};
+use alloy::primitives::{Address, B256, U256};
 use cb_common::{
+    config::RuntimeMuxConfig,
     constants::{GENESIS_VALIDATORS_ROOT, GLOAS_FORK_VERSION},
     pbs::{
         GetExecutionPayloadBidInfo, GetExecutionPayloadBidResponse, RequestAuthV1,
@@ -203,6 +204,89 @@ async fn test_get_execution_payload_bid_below_min_bid_rejected() -> Result<()> {
         .await?;
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
     assert_eq!(mock_state.received_execution_payload_bid(), 1);
+    Ok(())
+}
+
+/// Test that a bid whose fee_recipient differs from the configured expected
+/// value is dropped. The mock serves Address::ZERO as fee_recipient.
+#[tokio::test]
+async fn test_get_execution_payload_bid_wrong_fee_recipient_rejected() -> Result<()> {
+    setup_test_env();
+    let chain = Chain::Hoodi;
+    let pbs_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr()?.port();
+    let relay_listener = get_free_listener().await;
+    let relay_port = relay_listener.local_addr()?.port();
+
+    let mock_state = Arc::new(MockRelayState::new(chain, random_secret()));
+    let mock_relay = generate_mock_relay(relay_port, mock_state.signer.public_key())?;
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
+
+    let mut pbs_config = get_pbs_config(pbs_port);
+    pbs_config.fee_recipient = Some(Address::from([1; 20]));
+    let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
+    let state = PbsState::new(config, PathBuf::new());
+    drop(pbs_listener);
+    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+
+    let mock_validator = MockValidator::new(pbs_port)?;
+    wait_for_ready(&mock_validator).await?;
+
+    let res = mock_validator
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None)
+        .await?;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    assert_eq!(mock_state.received_execution_payload_bid(), 1);
+    Ok(())
+}
+
+/// Test that a MUX-level fee_recipient reaches bid validation: the mux's
+/// validator gets its bid (mock serves Address::ZERO) rejected, while the
+/// default config (no expected fee_recipient) still accepts it.
+#[tokio::test]
+async fn test_get_execution_payload_bid_mux_fee_recipient() -> Result<()> {
+    setup_test_env();
+    let chain = Chain::Hoodi;
+    let pbs_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr()?.port();
+    let relay_listener = get_free_listener().await;
+    let relay_port = relay_listener.local_addr()?.port();
+
+    let mock_state = Arc::new(MockRelayState::new(chain, random_secret()));
+    let mock_relay = generate_mock_relay(relay_port, mock_state.signer.public_key())?;
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
+
+    // Default config has no expected fee_recipient; only the mux does
+    let mut config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay.clone()]);
+    let mut mux_pbs_config = get_pbs_config(pbs_port);
+    mux_pbs_config.fee_recipient = Some(Address::from([1; 20]));
+    let mux = RuntimeMuxConfig {
+        id: String::from("fee-mux"),
+        config: Arc::new(mux_pbs_config),
+        relays: vec![mock_relay],
+    };
+    let mux_pubkey = random_secret().public_key();
+    config.mux_lookup = Some(HashMap::from([(mux_pubkey.clone(), mux)]));
+
+    let state = PbsState::new(config, PathBuf::new());
+    drop(pbs_listener);
+    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+
+    let mock_validator = MockValidator::new(pbs_port)?;
+    wait_for_ready(&mock_validator).await?;
+
+    // The mux validator's bid fails the fee_recipient check
+    let res = mock_validator
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, Some(mux_pubkey), None)
+        .await?;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    // A non-mux validator uses the default config and gets the bid
+    let res = mock_validator
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None)
+        .await?;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(mock_state.received_execution_payload_bid(), 2);
     Ok(())
 }
 

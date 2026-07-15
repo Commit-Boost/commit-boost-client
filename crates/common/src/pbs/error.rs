@@ -1,4 +1,4 @@
-use alloy::primitives::{B256, U256};
+use alloy::primitives::{Address, B256, U256};
 use lh_types::ForkName;
 use thiserror::Error;
 
@@ -104,6 +104,9 @@ pub enum ValidationError {
 
     #[error("total payment below minimum bid (gwei): min: {min} got {got}")]
     TotalPaymentTooLow { min: u64, got: u64 },
+
+    #[error("fee recipient mismatch: expected {expected} got {got}")]
+    FeeRecipientMismatch { expected: Address, got: Address },
 
     #[error("trusted bid above maximum (gwei): max: {max} got {got}")]
     TrustedBidTooHigh { max: u64, got: u64 },

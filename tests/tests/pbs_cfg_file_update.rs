@@ -62,6 +62,7 @@ async fn test_cfg_file_update() -> Result<()> {
         skip_sigverify: true,
         min_bid_wei: U256::ZERO,
         max_execution_payment_gwei: 0,
+        fee_recipient: None,
         late_in_slot_time_ms: u64::MAX / 2, /* serde gets very upset about serializing u64::MAX
                                              * or anything close to it */
         extra_validation_enabled: false,

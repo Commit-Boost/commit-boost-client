@@ -89,6 +89,7 @@ pub fn get_pbs_config(port: u16) -> PbsConfig {
         skip_sigverify: false,
         min_bid_wei: U256::ZERO,
         max_execution_payment_gwei: 0,
+        fee_recipient: None,
         late_in_slot_time_ms: u64::MAX,
         extra_validation_enabled: false,
 
