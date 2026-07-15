@@ -217,7 +217,6 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
         match res {
             Ok(Some(res)) => {
                 RELAY_LAST_SLOT.with_label_values(&[relay_id]).set(params.slot as i64);
-                // TODO bid-sorting policy should use execution payload
                 let value_gwei = (U256::from(res.value()) / U256::from(1_000_000_000))
                     .try_into()
                     .unwrap_or_default();
@@ -231,12 +230,12 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
         }
     }
 
-    let max_bid = relay_bids.into_iter().max_by_key(|(_, bid)| bid.value());
+    let max_bid = select_max_bid(relay_bids);
 
     if let Some((winning_relay_id, ref bid)) = max_bid {
         info!(
             relay_id = winning_relay_id,
-            bid_eth = format_ether(bid.value() + bid.execution_payment()),
+            bid_eth = format_ether(total_payment(bid)),
             trustless_bid_eth = format_ether(bid.value()),
             execution_payment_eth = format_ether(bid.execution_payment()),
             block_hash = %bid.block_hash(),
@@ -245,6 +244,14 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
     }
 
     Ok(max_bid.map(|(_, bid)| bid))
+}
+
+fn total_payment(bid: &impl GetExecutionPayloadBidInfo) -> u64 {
+    bid.value().saturating_add(bid.execution_payment())
+}
+
+fn select_max_bid<I: GetExecutionPayloadBidInfo>(bids: Vec<(&str, I)>) -> Option<(&str, I)> {
+    bids.into_iter().max_by_key(|(_, bid)| total_payment(bid))
 }
 
 /// Fetch the parent block from the RPC URL for extra validation of the header.
@@ -805,5 +812,58 @@ mod tests {
             Err(ValidationError::Sigverify)
         ));
         assert!(validate_signature(&pubkey, &message, &bid_domain_sig).is_ok());
+    }
+
+    struct MockBid {
+        value: u64,
+        execution_payment: u64,
+    }
+
+    impl GetExecutionPayloadBidInfo for MockBid {
+        fn block_hash(&self) -> B256 {
+            B256::default()
+        }
+        fn parent_hash(&self) -> B256 {
+            B256::default()
+        }
+        fn parent_root(&self) -> B256 {
+            B256::default()
+        }
+        fn value(&self) -> u64 {
+            self.value
+        }
+        fn execution_payment(&self) -> u64 {
+            self.execution_payment
+        }
+        fn builder_index(&self) -> u64 {
+            0
+        }
+        fn slot(&self) -> u64 {
+            0
+        }
+        fn gas_limit(&self) -> u64 {
+            0
+        }
+    }
+
+    // The winning bid is the one paying the proposer the most in TOTAL:
+    // value + execution_payment (the builder commits to pay the sum), not
+    // the highest trustless value alone.
+    #[test]
+    fn test_select_max_bid_by_total_payment() {
+        let bids = vec![
+            ("value_winner", MockBid { value: 6, execution_payment: 0 }),
+            ("total_winner", MockBid { value: 5, execution_payment: 10 }),
+        ];
+        let (winner, _) = select_max_bid(bids).unwrap();
+        assert_eq!(winner, "total_winner");
+
+        // A saturating sum must not misrank a near-overflow bid
+        let bids = vec![
+            ("honest", MockBid { value: 7, execution_payment: 0 }),
+            ("overflow", MockBid { value: u64::MAX, execution_payment: u64::MAX }),
+        ];
+        let (winner, _) = select_max_bid(bids).unwrap();
+        assert_eq!(winner, "overflow");
     }
 }
