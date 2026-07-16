@@ -26,6 +26,8 @@ signing_id = "0x6a33a23ef26a4836979edff86c493a69b26ccf0b4a16491a815a13787657431b
 | `type` | **Must be `"commit"`.** This is the only valid value. |
 | `docker_image` | The Docker image to run for this module. |
 | `signing_id` | A 32-byte identifier used to scope signatures to this module (see [Signing structure](#signing-structure)). |
+| `env` | Optional map of environment variables for the module. |
+| `env_file` | Optional path to an environment file for the module. |
 | (custom) | Additional fields are passed through as opaque config to the module's runtime. |
 
 :::warning
@@ -93,7 +95,7 @@ JWT tokens are created and refreshed internally by `SignerClient` — each metho
 ```rust
 let datagram = Datagram { data: 1 };
 let request = SignConsensusRequest::builder(pubkey).with_msg(&datagram);
-let signature = config.signer_client.request_consensus_signature(&request).await.unwrap();
+let signature = config.signer_client.request_consensus_signature(request).await.unwrap();
 ```
 
 Where `pubkey` is the validator (consensus) public key.
@@ -118,12 +120,12 @@ Then request a signature using the proxy key:
 // BLS proxy
 let datagram = Datagram { data: 1 };
 let request = SignProxyRequest::builder(proxy_pubkey).with_msg(&datagram);
-let signature = config.signer_client.request_proxy_signature_bls(&request).await.unwrap();
+let signature = config.signer_client.request_proxy_signature_bls(request).await.unwrap();
 
 // ECDSA proxy
 let datagram = Datagram { data: 1 };
 let request = SignProxyRequest::builder(proxy_address).with_msg(&datagram);
-let signature = config.signer_client.request_proxy_signature_ecdsa(&request).await.unwrap();
+let signature = config.signer_client.request_proxy_signature_ecdsa(request).await.unwrap();
 ```
 
 ### Signing structure
@@ -147,10 +149,10 @@ static ref SIG_RECEIVED_COUNTER: IntCounter = IntCounter::new("signature_receive
 
 ```rust
 MY_CUSTOM_REGISTRY.register(Box::new(SIG_RECEIVED_COUNTER.clone())).unwrap();
-MetricsProvider::load_and_run(MY_CUSTOM_REGISTRY.clone());
+MetricsProvider::load_and_run(config.chain, MY_CUSTOM_REGISTRY.clone());
 ```
 
-This starts a server with a `/metrics` endpoint on the configured port (default `9090`).
+This starts a server with a `/metrics` endpoint on the port set by the `CB_METRICS_PORT` env var (assigned from `[metrics].start_port`, default `10000`, by `commit-boost init`).
 
 ### Record metrics
 
@@ -158,4 +160,4 @@ This starts a server with a `/metrics` endpoint on the configured port (default 
 SIG_RECEIVED_COUNTER.inc();
 ```
 
-For a full reference of available metrics, see the [Metrics catalog](../get_started/running/metrics.md) (once created; the Prometheus scrape target is already configured by the docker-init setup).
+For a full reference of available metrics, see the [Metrics catalog](../get_started/running/metrics-catalog.md). The Prometheus scrape target is already configured by the docker-init setup.

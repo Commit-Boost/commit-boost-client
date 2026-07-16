@@ -14,10 +14,10 @@ Proposer commitment signatures produced by Commit-Boost's signer service conform
 - Signatures are **unique** to a given EVM chain (identified by its [chain ID](https://chainlist.org/)). Signatures generated for one chain will not work on a different chain.
 - Signatures are **unique** to Commit-Boost proposer commitments. The signer service **cannot** be used to create signatures that could be used for other applications, such as for attestations on the Beacon chain. While the signer service has access to the same validator private keys used to attest on the Beacon chain, it cannot create signatures that would get you slashed on the Beacon chain.
 - Signatures are **unique** to a particular module. One module cannot, for example, request an identical payload as another module and effectively "forge" a signature for the second module; identical payloads from two separate modules will result in two separate signatures.
-- The data payload being signed must be a **32-byte array**, typically serializd as a 64-character hex string with an optional `0x` prefix. The value itself is arbitrary, as long as it has meaning to the requester - though it is typically the 256-bit hash of some kind of data.
+- The data payload being signed must be a **32-byte array**, typically serialized as a 64-character hex string with an optional `0x` prefix. The value itself is arbitrary, as long as it has meaning to the requester - though it is typically the 256-bit hash of some kind of data.
 - If requesting a signature from a BLS key, the resulting signature will be a standard BLS signature (96 bytes in length).
 - If requesting a signature from an ECDSA key, the resulting signature will be a standard Ethereum RSV signature (65 bytes in length).
-- Signatures **may** be **unique** per request, using the optional `nonce` field in their requests to indicate a unique sequence that this signature belongs to.
+- Signatures **may** be **unique** per request, using the required `nonce` field in their requests (send `0` if unused) to indicate a unique sequence that this signature belongs to.
 
 
 ## Configuring a Module for Proposer Commitments
@@ -91,7 +91,7 @@ Modules authenticate with a **signed JWT** using the pre-shared secret (`CB_SIGN
 
 The `payload_hash` claim prevents JWT replay attacks: a token issued for one POST request body cannot be reused with a different body on the same route.
 
-**Token lifecycle:** Expiry is 5 minutes (`SIGNER_JWT_EXPIRATION` crate constant). Refresh is **client-side** — there is no refresh endpoint. The module generates a new JWT locally using the pre-shared secret. The SDK's `SignerClient::refresh_token()` handles this automatically.
+**Token lifecycle:** Expiry is 5 minutes (`SIGNER_JWT_EXPIRATION` crate constant). Refresh is **client-side** — there is no refresh endpoint. The module generates a new JWT locally using the pre-shared secret. The SDK's `SignerClient` creates a fresh token on every request automatically.
 
 ### Admin token
 
@@ -172,14 +172,7 @@ ECDSA proxy signing is not available when the signer is using the Dirk backend. 
 
 ## Error codes
 
-All error responses follow a consistent JSON format:
-
-```json
-{
-  "code": <http-status-code>,
-  "message": "<human-readable description>"
-}
-```
+All error responses return a plain-text body with a human-readable description of the error.
 
 | HTTP Status | Meaning |
 |-------------|---------|

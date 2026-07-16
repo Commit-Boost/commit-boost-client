@@ -68,7 +68,7 @@ id = "def"
 url = "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@def.xyz"
 ```
 
-Note that there are many more parameters that Commit-Boost supports, but they are all omitted and thus will use their default options. For a full description of the default options within the config file, go to the [annotated configuration example](../../../../config.example.toml).
+Note that there are many more parameters that Commit-Boost supports, but they are all omitted and thus will use their default options. For a full description of the default options within the config file, go to the [annotated configuration example](https://github.com/Commit-Boost/commit-boost-client/blob/main/config.example.toml).
 
 The relays here are placeholder for the sake of the example; for a list of actual relays, visit [the EthStaker relay list](https://github.com/eth-educators/ethstaker-guides/blob/main/MEV-relay-list.md).
 
@@ -170,7 +170,7 @@ docker_image = "test_da_commit"
 sleep_secs = 5
 ```
 
-Note that there are many more parameters that Commit-Boost supports, but they are all omitted and thus will use their default options. For a full description of the default options within the config file, go to the [annotated configuration example](../../../../config.example.toml).
+Note that there are many more parameters that Commit-Boost supports, but they are all omitted and thus will use their default options. For a full description of the default options within the config file, go to the [annotated configuration example](https://github.com/Commit-Boost/commit-boost-client/blob/main/config.example.toml).
 
 The relays here are placeholder for the sake of the example; for a list of actual relays, visit [the EthStaker relay list](https://github.com/eth-educators/ethstaker-guides/blob/main/MEV-relay-list.md).
 

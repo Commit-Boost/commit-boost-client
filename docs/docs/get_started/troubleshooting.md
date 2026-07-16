@@ -16,11 +16,11 @@ Real failures often cascade across service boundaries. Before diving into a spec
 |---|---|---|
 | Container won't start / exits immediately | Docker (volume, port, image) or missing env vars | [Docker / networking](#docker--networking) |
 | HTTP 401 from `POST /signer/*` | JWT auth failure — shared secret mismatch | [Signer Service > JWT auth failures](#jwt-auth-failures) |
-| Signer log says `cannot load keys` or `invalid keystore` | Key loading path, format mismatch, or permission error | [Signer Service > Key loading](#key-loading) |
+| Signer logs a key loading error at startup | Key loading path, format mismatch, or permission error | [Signer Service > Key loading](#key-loading) |
 | Module log says `connection refused` reaching signer | Docker networking: wrong URL, port, or network | [Docker / networking > container-to-container connectivity](#container-to-container-connectivity) |
-| `POST /reload` returns HTTP 500 | Reload failure — invalid config or body override | [Hot reload > Reload failures](#reload-failures) |
+| `POST /reload` returns HTTP 500 or 400 | Reload failure — invalid config (500) or bad body override (400) | [Hot reload > Reload failures](#reload-failures) |
 | `POST /reload` reverts a previous `POST /revoke_jwt` | Body override not persisted | [Hot reload > Body overrides and footguns](#body-overrides-and-footguns) |
-| Module starts but fails all signature requests | JWT expiration too short for long-running operations | [Signer Service > JWT auth failures](#jwt-auth-failures) |
+| Module starts but fails all signature requests | Shared secret mismatch, module missing from the signer's config, or clock skew beyond the 10s leeway | [Signer Service > JWT auth failures](#jwt-auth-failures) |
 | Module container runs but PBS returns no headers | Relays unreachable or timing game expiring too early | [PBS](#pbs) |
 | `docker compose` exits with `no such file` | Missing or misnamed config file or env file | [Docker / networking > Init failures](#init-failures) |
 
@@ -67,12 +67,12 @@ If the signer logs an error at startup or signature requests fail at runtime, th
 
 A `401` response from any `POST /signer/*` endpoint means the request's JWT was rejected.
 
-1. **Shared secret mismatch (most common)** — each module authenticates with a JWT derived from a shared secret. The signer's `CB_JWTS` env var (or `[signer]` config) and the module's `CB_SIGNER_JWT` env var must carry the **same secret for the same module ID**. Common pitfalls:
+1. **Shared secret mismatch (most common)** — each module authenticates with a JWT derived from a shared secret. The signer's `CB_JWTS` env var and the module's `CB_SIGNER_JWT` env var must carry the **same secret for the same module ID**. Common pitfalls:
    - Typo in the module ID or secret string.
    - The `.cb.env` file was regenerated (e.g., by re-running `init`) but the running containers still use the old env file.
    - A manual override was applied via [`POST /reload` body overrides](#body-overrides-and-footguns) but the environment variable was not updated — after a restart the override is lost.
-2. **Clock skew** — JWT validation checks the `iat` (issued-at) and `exp` (expiration) claims. If the signer's system clock differs from the module's clock, the JWT may appear invalid.
-3. **Admin endpoint auth failure** — `POST /signer/reload` and `POST /signer/revoke_jwt` require the admin JWT secret (`CB_SIGNER_ADMIN_JWT` environment variable or `admin_secret` body override). If you get a 401 on these endpoints, check that the admin secret matches.
+2. **Clock skew** — the only time-based claim JWT validation checks is `exp` (expiration), with a 10-second leeway. If the signer's system clock differs from the module's clock by more than the leeway, the JWT may appear invalid.
+3. **Admin endpoint auth failure** — `POST /reload` and `POST /revoke_jwt` require the admin JWT secret (`CB_SIGNER_ADMIN_JWT` environment variable or `admin_secret` body override). If you get a 401 on these endpoints, check that the admin secret matches.
 
 ### Key loading
 
@@ -82,15 +82,15 @@ If the signer fails to start with errors about keys:
 - **Wrong path** — `keys_path` and `secrets_path` are relative to the container's filesystem, not the host. In Docker, these are volume-mounted from the host; verify the mount paths match what the loader expects.
 - **Permission denied** — the signer process runs as a non-root user inside the container. Ensure the mounted keys and secrets are readable by the container user.
 - **Proxy store path missing** — if `[signer.local.store]` is configured, the proxy directory must exist and be writable. The signer will fail to start if it cannot create proxy key files.
-- **Remote signer unavailable** — for Web3Signer or Dirk, the signer must be reachable at startup. A timeout or connection error during the initial handshake will cause the signer to exit.
+- **Remote signer unavailable** — for Dirk, the remote signer must be reachable at startup. A timeout or connection error during the initial handshake will cause the signer to exit.
 
-See the [Signer configuration](./configuration.md#signer-service) for a full reference and [Docker setup](./running/docker.md#example-with-pbs-signer-and-a-signer-service) for a working example.
+See the [Signer configuration](./configuration.md#signer-service) for a full reference and [Docker setup](./running/docker.md#example-with-pbs-signer-and-a-commit-module) for a working example.
 
 ### TLS
 
 If you enable TLS and the signer fails to start:
 
-1. **Missing certificate files** — the TLS directory (default `./certs`) must contain `cert.pem` and `key.pem`. See the [TLS section](./configuration.md#tls) for details.
+1. **Missing certificate files** — the directory set by `path` in `[signer.tls_mode]` (required when `type = "certificate"`; mounted at `/certs` inside the Docker container) must contain `cert.pem` and `key.pem`. They are not generated automatically. See the [TLS section](./configuration.md#tls) for details.
 2. **Self-signed certificate** — recommended for testing only. Production setups should use a well-known CA.
 3. **Certificate permissions** — the key file must be readable by the signer process (non-root user inside the container).
 
@@ -105,11 +105,11 @@ If a commit module logs errors when calling the signer:
 1. **Wrong JWT** — the module's `CB_SIGNER_JWT` must match the signer's entry for that module ID. See [JWT auth failures](#jwt-auth-failures) above.
 2. **Wrong signer URL** — verify `CB_SIGNER_URL` points to the correct host and port. In Docker, the host is the signer container name (`cb_signer` by default); with native binaries, it is the signer's host IP.
 3. **Signer not started** — modules depend on the signer via Docker Compose `depends_on`. If the signer fails to start (e.g., key loading error), dependent modules will never leave the `created` state.
-4. **Proxy key generation fails** — if using proxy keys, the signer must have the proxy store configured and writable. Check the signer logs for `cannot write proxy key`.
+4. **Proxy key generation fails** — if using proxy keys, the signer must have the proxy store configured and writable. Check the signer logs for proxy store errors (e.g. `failed reading proxy dir: ...`).
 
 ### Module ID mismatch
 
-If the signer responds with `unknown module`:
+If the signer responds with `401` `unauthorized` to a module's requests (or `404` `module id not found` on `POST /revoke_jwt`):
 
 - The `[[modules]]` entry in `cb-config.toml` uses a different `id` than what the module was started with (`CB_MODULE_ID` env var). These must match exactly.
 - After adding a new module to the config, you must send [`POST /reload`](#hot-reload) to the signer before starting the module container. Until then, the signer has no record of the new module and will reject its requests.
@@ -125,8 +125,11 @@ Commit-Boost supports hot-reloading the configuration without restarting contain
 If `POST /reload` returns `500`:
 
 1. **Invalid TOML** — the config file changed on disk since the service started. If the new content has syntax errors, the reload is rejected and the previous configuration is kept. Check `docker compose logs` for the parse error.
-2. **Body override references a non-existent module** — the body fields `jwt_secrets` and `admin_secret` (the "body overrides") accept optional overrides applied on top of the config. If the body references a module ID that does not exist in the config file, the entire reload is rejected.
-3. **Permission denied** — the service may not be able to re-read the config file if its permissions changed after startup (e.g., file was moved or ownership changed).
+2. **Permission denied** — the service may not be able to re-read the config file if its permissions changed after startup (e.g., file was moved or ownership changed).
+
+If `POST /reload` returns `400` ("bad request"):
+
+- **Body override references a non-existent module** — the body fields `jwt_secrets` and `admin_secret` (the "body overrides") accept optional overrides applied on top of the config. If the body references a module ID that does not exist in the config file, the entire reload is rejected.
 
 ### Body overrides and footguns
 
@@ -165,7 +168,7 @@ Modules (depends_on: condition: service_healthy) never start
 Modules that need proposer commitments (proxy key generation, signature requests) get connection refused
 ```
 
-**Diagnosis:** Start with the signer log. A `cannot load keys` or `invalid keystore` error at the top means all downstream failures are consequences. Fix the key loading, then restart.
+**Diagnosis:** Start with the signer log. A key loading error at the top (e.g. `failed reading proxy dir: ...` or a keystore parse failure) means all downstream failures are consequences. Fix the key loading, then restart.
 
 ### Scenario 2: Config file becomes stale after a restart
 
@@ -189,10 +192,12 @@ One relay becomes slow or unresponsive
     ↓
 PBS times out waiting for that relay's header
     ↓
-PBS returns 502 (NoResponse) to the CL
+No relay returns a valid bid → PBS returns 204 (no content) to the CL
     ↓
 CL falls back to local execution payload → no MEV reward
 ```
+
+If the request itself fails (rather than simply yielding no bids), PBS instead returns `502` (`no payload from relays`).
 
 **Diagnosis:** Check the PBS logs for relay timeout errors (status code `555` or `TIMEOUT_ERROR_CODE_STR`) on a specific relay. Remove or replace that relay in the `[[relays]]` config, then `POST /reload` the PBS.
 

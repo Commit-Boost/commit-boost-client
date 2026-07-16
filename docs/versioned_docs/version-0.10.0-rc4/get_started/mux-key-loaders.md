@@ -82,7 +82,7 @@ Loads pubkeys from a flat JSON file on disk.
 ]
 ```
 
-**Config:** Specify the path relative to the config file, or as an absolute path.
+**Config:** Specify the path relative to the process working directory, or as an absolute path. Note that relative paths are resolved against the directory the sidecar is started from, not the config file's location — absolute paths are recommended for binary deployments.
 
 ```toml
 [[mux]]
@@ -129,12 +129,13 @@ url = "..."
 
 Loads validator pubkeys from an on-chain or network registry. This resolves pubkeys automatically from a data source that stays in sync as validators are added or removed.
 
-Two registries are currently supported:
+Three registries are currently supported:
 
 | Registry | `registry` value | Key source | Authentication |
 |---|---|---|---|
 | Lido | `"lido"` | On-chain contract via RPC | RPC URL (from `[pbs]` config) |
 | SSV | `"ssv"` | SSV node API or public API | SSV API URLs (from `[pbs]` config) |
+| Stader | `"stader"` | On-chain contract via RPC | RPC URL (from `[pbs]` config) |
 
 #### Lido registry
 
@@ -184,7 +185,7 @@ url = "..."
 
 Module ids 1 and 2 use the `NodeOperatorsRegistry` contract. Module id 3 (Mainnet) and module id 4 (Holesky / Hoodi) use the `CSModule` (Community Staking Module) contract, which has a different ABI. The sidecar detects the module type automatically based on chain and module id.
 
-**Dynamic refreshing:** When `enable_refreshing = true`, the sidecar periodically re-fetches keys from the on-chain registry at runtime. New validators that register with the node operator are picked up automatically without a restart. This is useful for growing node operator deployments where you don't want to restart the sidecar every time a new validator is added.
+**Dynamic refreshing:** When `enable_refreshing = true`, the sidecar periodically re-fetches keys from the on-chain registry at runtime. New validators that register with the node operator are picked up automatically without a restart. This is useful for growing node operator deployments where you don't want to restart the sidecar every time a new validator is added. The refresh interval is controlled by `mux_registry_refresh_interval_seconds` in the `[pbs]` configuration (default: `384` seconds, i.e. one epoch; must be greater than 0), and applies to all registry muxes with refreshing enabled.
 
 ---
 
@@ -192,13 +193,13 @@ Module ids 1 and 2 use the `NodeOperatorsRegistry` contract. Module id 3 (Mainne
 
 Loads validator pubkeys from the SSV network. The sidecar first tries to fetch keys from your local SSV node API. If that fails, it falls back to the public SSV API.
 
-**Requirements:** `ssv_node_api_url` and `ssv_public_api_url` must be set in the `[pbs]` configuration.
+**Requirements:** None — `ssv_node_api_url` and `ssv_public_api_url` are optional in the `[pbs]` configuration and default to `http://localhost:16000/v1/` (node API) and `https://api.ssv.network/api/v4/` (public API). Set them only to point at a different node or API server.
 
 ```toml
 [pbs]
 port = 18550
-ssv_node_api_url = "http://localhost:3030/"
-ssv_public_api_url = "https://api.ssv.network/"
+ssv_node_api_url = "http://localhost:16000/v1/"
+ssv_public_api_url = "https://api.ssv.network/api/v4/"
 
 [[mux]]
 id = "ssv-mux"
@@ -228,9 +229,42 @@ If the node API call fails (timeout, connection error, etc.), the sidecar logs a
 
 ---
 
+#### Stader registry
+
+Reads validator pubkeys from Stader's on-chain node registry. The sidecar connects to the configured RPC endpoint and queries the registry contract for the pool you specify.
+
+**Requirements:** `rpc_url` must be set in the `[pbs]` configuration, and `stader_pool` must be set in the mux config.
+
+```toml
+[pbs]
+port = 18550
+rpc_url = "https://ethereum-rpc.publicnode.com"
+
+[[mux]]
+id = "stader-mux"
+loader = { registry = "stader", node_operator_id = 200, stader_pool = "permissioned" }
+
+[[mux.relays]]
+id = "stader-relay"
+url = "..."
+```
+
+**Fields:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `registry` | string | Yes | Must be `"stader"` |
+| `node_operator_id` | integer | Yes | Stader node operator ID |
+| `stader_pool` | string | Yes | Stader staking pool — `"permissioned"` or `"permissionless"` |
+| `enable_refreshing` | boolean | No (default: `false`) | Whether to periodically refresh keys at runtime |
+
+**Chains supported:** Mainnet only.
+
+---
+
 ## Reference config
 
-For a complete working example with multiple mux entries — File loader, Lido registry, and SSV registry — see:
+For a complete working example with multiple mux entries — File loader, Lido registry, SSV registry, and Stader registry — see:
 
 - [`examples/configs/pbs_mux.toml`](https://github.com/Commit-Boost/commit-boost-client/blob/main/examples/configs/pbs_mux.toml)
 

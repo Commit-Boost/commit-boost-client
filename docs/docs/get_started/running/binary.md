@@ -17,7 +17,7 @@ Services need environment variables to work correctly.
 ### Common
 
 - `CB_CONFIG`: required, path to the `.toml` config file.
-- `CHAIN_SPEC_ENV`: optional, path to a chain spec file. This will override the `[chain]` field in the `.toml` config.
+- `CB_CHAIN_SPEC`: optional, path to a chain spec file. This will override the `[chain]` field in the `.toml` config.
 - `CB_METRICS_PORT`: optional, port where to expose the `/metrics` endpoint for Prometheus.
 - `CB_LOGS_DIR`: optional, directory to store logs. This will override the directory in the `.toml` config.
 
@@ -28,8 +28,8 @@ Services need environment variables to work correctly.
 
 ### Signer Service
 
-- `CB_JWTS`: required if any commit modules are configured, comma-separated list of `module_id=jwt_secret` pairs for module authentication.
-- `CB_SIGNER_ADMIN_JWT`: secret to use for admin JWT.
+- `CB_JWTS`: required (the signer service will not start without it), comma-separated list of `module_id=jwt_secret` pairs for module authentication.
+- `CB_SIGNER_ADMIN_JWT`: required, secret to use for admin JWT.
 - `CB_SIGNER_JWT_AUTH_FAIL_LIMIT`: optional, override the number of failed JWT auth attempts before rate-limiting a client (default: `3`).
 - `CB_SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS`: optional, override the rate-limit timeout window in seconds (default: `300`).
 - `CB_SIGNER_ENDPOINT`: optional, override to specify the `IP:port` endpoint to bind the signer server to.
@@ -41,9 +41,9 @@ Services need environment variables to work correctly.
   - `CB_PROXY_STORE_DIR`: directory where proxy keys and delegations will be saved in plaintext (for testing purposes only).
   - `CB_PROXY_KEYS_DIR` and `CB_PROXY_SECRETS_DIR`: paths to the `keys` and `secrets` directories or files (ERC-2335 style keystores, see [Proxy keys store](../configuration/#proxy-keys-store) for more info).
 - For Dirk remote signer the following envs are available (see [Dirk config](../configuration/#dirk) for more info):
-  - `CB_SIGNER_DIRK_CERT_FILE`: required, path to the client certificate file.
-  - `CB_SIGNER_DIRK_KEY_FILE`: required, path to the client key file.
-  - `CB_SIGNER_DIRK_SECRETS_DIR`: required, path to the secrets directory.
+  - `CB_SIGNER_DIRK_CERT_FILE`: optional, override of the `cert_path` in the `[signer.dirk]` config, path to the client certificate file.
+  - `CB_SIGNER_DIRK_KEY_FILE`: optional, override of the `key_path` in the `[signer.dirk]` config, path to the client key file.
+  - `CB_SIGNER_DIRK_SECRETS_DIR`: optional, override of the `secrets_path` in the `[signer.dirk]` config, path to the secrets directory.
   - `CB_SIGNER_DIRK_CA_CERT_FILE`: optional, path to the CA certificate file.
 
 ### Modules

@@ -45,11 +45,11 @@ The PBS service is configured through the `values.yaml` file. The chart exposes 
 | `commitBoost.pbs.enable` | bool | `true` | Enable the PBS service |
 | `commitBoost.pbs.image.repository` | string | `ghcr.io/commit-boost/commit-boost` | PBS container image repository |
 | `commitBoost.pbs.image.tag` | string | `v0.4.0` | PBS container image tag |
-| `commitBoost.pbs.config.chain` | string | `Holesky` | Ethereum network (e.g. Holesky, Hoodi) |
+| `commitBoost.pbs.config.chain` | string | `Hoodi` | Ethereum network (e.g. Holesky, Hoodi) |
 | `commitBoost.pbs.config.pbs.port` | int | `18550` | PBS service port |
 | `commitBoost.pbs.config.relays` | list | `[]` | List of relays to connect to |
 | `commitBoost.pbs.config.mux` | list | `[]` | Multiplexer configuration for validator-specific relay routing |
-| `commitBoost.pbs.config.metrics.server_port` | int | `10000` | Metrics server port |
+| `commitBoost.pbs.config.metrics.server_port` | int | `10000` | Metrics server port. Note: the config key Commit-Boost actually reads is `metrics.start_port`, so changing `server_port` is currently a no-op (the port stays at the built-in default of `10000`) |
 | `replicaCount` | int | `1` | Number of PBS pod replicas |
 | `service.type` | string | `ClusterIP` | Kubernetes service type |
 | `service.pbs_port` | int | `18550` | Service port for PBS |

@@ -25,10 +25,12 @@ const config = {
   organizationName: 'Commit-Boost', // Usually your GitHub org/user name.
   projectName: 'commit-boost-client', // Usually your repo name.
 
-  onBrokenLinks: 'ignore',
+  onBrokenLinks: 'throw',
   onBrokenMarkdownLinks: 'warn',
 
   customFields: {
+    // Keep in sync with lastVersion below: the homepage meta-refresh
+    // (src/pages/index.js) redirects to this version's docs
     latestVersion: '0.9.6',
   },
 
@@ -51,13 +53,14 @@ const config = {
             'https://github.com/Commit-Boost/commit-boost-client/tree/main/docs/',
 
           versions: {
-              '0.10.0-rc2': { label: 'v0.10.0-rc2 (pre-release)', path: '0.10.0-rc2', banner: 'unreleased' },
+              current: { label: 'Next', banner: 'unreleased' },
+              '0.10.0-rc4': { label: 'v0.10.0-rc4 (pre-release)', path: '0.10.0-rc4', banner: 'unreleased' },
               '0.9.6': { label: 'v0.9.6 (stable)', path: '0.9.6' },
             },
-            // Default version is the latest published release
-            // (Docusaurus picks this automatically based on versions.json order)
+            // Default version served at /docs/<path>; keep in sync with
+            // customFields.latestVersion above
             lastVersion: '0.9.6',
-            includeCurrentVersion: false,
+            includeCurrentVersion: true,
         },
         blog: false,
         theme: {
@@ -125,6 +128,20 @@ const config = {
     }),
 
   plugins: [
+    [
+      '@docusaurus/plugin-client-redirects',
+      {
+        // Docs used to live at the site root (routeBasePath '/'); redirect
+        // those published URLs to the same page in the default docs version
+        createRedirects(existingPath) {
+          const defaultPrefix = '/docs/0.9.6/';
+          if (existingPath.startsWith(defaultPrefix)) {
+            return [existingPath.replace(defaultPrefix, '/')];
+          }
+          return [];
+        },
+      },
+    ],
     function webpackAliasPlugin() {
       return {
         name: 'webpack-alias-plugin',

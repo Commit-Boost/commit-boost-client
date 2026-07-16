@@ -404,7 +404,7 @@ A few things to note:
 - We now added a `signer` section which will be used to create the Signer module.
 - There is now a `[[modules]]` section which at a minimum needs to specify the module `id`, `type` and `docker_image`. Additional parameters needed for the business logic of the module will also be here,
 
-To learn more about developing modules, check out [here](/category/developing).
+To learn more about developing modules, check out [here](../developing/commit-modules.md).
 
 ## Vouch
 

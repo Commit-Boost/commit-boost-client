@@ -31,6 +31,72 @@ After the sidecar is started, it will expose a port (`18550` in this example), t
 In this setup, the Signer Service will not be started.
 :::
 
+## Custom chains
+
+Besides the known chain names (`Mainnet`, `Holesky`, `Sepolia`, `Hoodi`), the `chain` field also accepts a custom chain in two forms:
+
+- **Spec file**: a genesis time plus a path to a chain spec file, either in JSON (as returned by the beacon endpoint `/eth/v1/config/spec`) or YAML format:
+
+```toml
+chain = { genesis_time_secs = 1695902400, path = "/path/to/spec.json" }
+```
+
+- **Inline object**: all parameters specified directly:
+
+```toml
+chain = { genesis_time_secs = 1695902400, slot_time_secs = 12, genesis_fork_version = "0x01017000", fulu_fork_slot = 5283840, chain_id = 17000 }
+```
+
+When using the spec-file form, the `CB_CHAIN_SPEC` environment variable can be set to override the spec file path at runtime (see [Binary](./running/binary.md#common)).
+
+## PBS safety and tuning options
+
+Beyond the basics shown above, the `[pbs]` section supports some additional knobs (see the [annotated config example](https://github.com/Commit-Boost/commit-boost-client/blob/main/config.example.toml) for the full list):
+
+- `skip_sigverify`: whether to skip verification of the relay signature and pubkey in `get_header` responses. Default: `false`.
+- `min_bid_eth`: minimum bid in ETH that will be accepted from `get_header`, can be specified as a float or a string for extra precision (e.g. `"0.01"`). Default: `0.0`.
+- `extra_validation_enabled`: whether to enable extra validation of `get_header` responses. If enabled, `rpc_url` must also be set to an Execution Layer RPC on the same chain as the sidecar (this is checked at startup). Default: `false`.
+- `register_validator_retry_limit`: maximum number of retries for validator registration requests per relay, must be greater than 0. Default: `3`.
+- `validator_registration_batch_size`: maximum number of validators to send to relays in a single registration request. Default: unlimited.
+- `mux_registry_refresh_interval_seconds`: for registry-based muxes with [dynamic refreshing](./mux-key-loaders.md#lido-registry) enabled, how often to refresh the list of pubkeys from the registry, in seconds. Must be greater than 0. Default: `384` (one epoch).
+
+:::warning
+`validator_registration_batch_size` used to be a per-relay option. It is now obsolete on a per-relay basis and setting it inside a `[[relays]]` entry makes the sidecar fail at startup: move it to the `[pbs]` section instead.
+:::
+
+### Per-relay options
+
+Each `[[relays]]` entry supports, besides `id` and `url`:
+
+- `headers`: optional headers to send with each request to this relay.
+- `get_params`: optional GET parameters to add to each request URL for this relay.
+- `enable_timing_games`: whether to enable timing games for this relay, as tuned by `target_first_request_ms` and `frequency_get_header_ms`. If neither of those is set, this flag has no effect. Timing games should only be used by advanced users: each relay has different latency and timing games setups, and misconfiguration can result in e.g. fetching a lower header value or missing a slot. Default: `false`.
+- `target_first_request_ms`: target time in the slot, in milliseconds, at which to send the first `get_header` request.
+- `frequency_get_header_ms`: frequency, in milliseconds, at which to send `get_header` requests.
+
+The same fields are available on `[[mux.relays]]` entries (see [Mux key loaders](./mux-key-loaders.md)).
+
+## Logs
+
+Logging is configured via the optional `[logs.stdout]` and `[logs.file]` sections:
+
+```toml
+[logs.stdout]
+enabled = true    # Whether to enable stdout logging. Default: true
+level = "info"    # Log level: trace, debug, info, warn, error. Default: "info"
+use_json = false  # Log in JSON format. Default: false
+color = true      # Whether to use colors in the output. Default: true
+
+[logs.file]
+enabled = true    # Whether to enable file logging. Default: false
+level = "info"    # Log level: trace, debug, info, warn, error. Default: "info"
+use_json = true   # Log in JSON format. Default: true
+dir_path = "/var/logs/commit-boost"  # Directory to store logs. Default: "/var/logs/commit-boost"
+max_files = 30    # Maximum number of log files to keep. Default: unlimited
+```
+
+The `CB_LOGS_DIR` environment variable overrides `dir_path` (see [Binary](./running/binary.md#common)).
+
 ## Signer Service
 
 Commit-Boost supports both local and remote signers. The Signer Service is responsible for signing the transactions that commit modules generate (***it is not used by the PBS Service***). Please note that only one signer at a time is allowed.
@@ -307,16 +373,7 @@ Where the `<PROXY_PUBLIC_KEY>.json` files contain ERC-2335 keystore, the `<PROXY
 
 ### Remote signer
 
-You might choose to use an external service to sign the transactions. For now, two types of remote signers are supported: Web3Signer and Dirk.
-
-#### Web3Signer
-
-Web3Signer implements the same API as Commit-Boost, so there's no need to set up a Signer Service. The parameters needed for the remote signer are:
-
-```toml
-[signer.remote]
-url = "https://remote.signer.url"
-```
+You might choose to use an external service to sign the transactions. For now, one remote signer is supported: Dirk.
 
 #### Dirk
 
@@ -329,7 +386,7 @@ key_path = "/path/to/client.key"
 secrets_path = "/path/to/secrets"
 # Optional parameters
 ca_cert_path = "/path/to/ca.crt"
-max_response_size_bytes = "4194304"
+max_response_size_bytes = 4194304
 
 # Add one entry like this for each host
 [[signer.dirk.hosts]]
@@ -354,7 +411,7 @@ Additionally, you can set a proxy store so that the delegation signatures for ge
 proxy_dir = "/path/to/proxy_dir"
 ```
 
-Delegation signatures will be stored in files with the format `<proxy_dir>/delegations/<MODULE_ID>/<PROXY_KEY>.sig`.
+Delegation signatures will be stored in files with the format `<proxy_dir>/delegations/<MODULE_ID>/bls/<PROXY_KEY>.sig`.
 
 A full example of a config file with Dirk can be found [here](https://github.com/Commit-Boost/commit-boost-client/blob/main/examples/configs/dirk_signer.toml).
 
@@ -363,7 +420,7 @@ A full example of a config file with Dirk can be found [here](https://github.com
 
 By default, the Signer Service runs in **insecure** mode, so its API service uses HTTP without any TLS encryption. This is sufficient for testing or if you're running locally within your machine's isolated Docker network and only intend to access it within the confines of your machine. However, for larger production setups, it's recommended to enable TLS - especially for traffic that spans across multiple machines.
 
-To enable TLS, you must first create a **certificate / key pair**. We **strongly advise** using a well-known Certificate Authority to create and sign the certificate and do not recommend using a self-signed ceriticate / key pair for production environments.
+To enable TLS, you must first create a **certificate / key pair**. We **strongly advise** using a well-known Certificate Authority to create and sign the certificate and do not recommend using a self-signed certificate / key pair for production environments.
 
 When configuring TLS support, the Signer Service expects a single folder containing:
 - `cert.pem`: The SSL certificate file signed by a certificate authority, in PEM format
@@ -385,7 +442,7 @@ type = "certificate"
 path = "path/to/your/cert/folder"
 ```
 
-Where `path` is the aforementioned folder. It defaults to `./certs` and auto-generates the `.pem` files in self-signed mode if the `type` and `path` are unspecified.
+Where `path` is the aforementioned folder. If `[signer.tls_mode]` is omitted, the Signer Service runs in insecure HTTP mode. With `type = "certificate"`, an existing `cert.pem` and `key.pem` must be present at `path` - there is no default path and the files are not auto-generated.
 
 ### Rate limit
 
@@ -446,7 +503,7 @@ url = ""
 [signer]
 port = 20000
 
-[signer.loader]
+[signer.local.loader]
 format = "lighthouse"
 keys_path = "/path/to/keys"
 secrets_path = "/path/to.secrets"
@@ -465,9 +522,9 @@ sleep_secs = 5
 A few things to note:
 
 - We now added a `signer` section which will be used to create the Signer Service.
-- There is now a `[[modules]]` section which at a minimum needs to specify the module `id`, `type` and `docker_image`. For modules with type `commit`, which will be used to access the Signer Service and request signatures for preconfs, you will also need to specify the module's unique `signing_id` (see [the propser commitment documentation](../developing/prop-commit-signing.md)). Additional parameters needed for the business logic of the module will also be here.
+- There is now a `[[modules]]` section which at a minimum needs to specify the module `id`, `type` and `docker_image`. For modules with type `commit`, which will be used to access the Signer Service and request signatures for preconfs, you will also need to specify the module's unique `signing_id` (see [the proposer commitment documentation](../developing/prop-commit-signing.md)). You can also pass environment variables to the module with `env` (a map of variable name to value) and `env_file` (path to an environment file for the module). Additional parameters needed for the business logic of the module will also be here.
 
-To learn more about developing modules, check out [here](/category/developing).
+To learn more about developing modules, check out [here](../developing/commit-modules.md).
 
 
 ## Vouch
@@ -483,7 +540,7 @@ For simplicity, assume that in Vouch `blockrelay.listen-address: 127.0.0.0:19550
 
 #### Beacon Node to Vouch
 
-In this setup, the BN Builder-API endpoint will be pointing to the PBS Service (e.g. for Lighthouse you will need the flag `--builder=http://127.0.0.0:18550`).
+In this setup, the BN Builder-API endpoint will be pointing to the Vouch `blockrelay` (e.g. for Lighthouse you will need the flag `--builder=http://127.0.0.0:19550`).
 
 Modify the `blockrelay.config` file to add Commit-Boost:
 
@@ -510,11 +567,15 @@ This approach could also work if you have a multi-beacon-node setup, where some 
 
 ## Hot Reload
 
-Commit-Boost supports hot-reloading the configuration file. This means that you can modify the `cb-config.toml` file and apply the changes without needing to restart the modules. To do this, you need to send a `POST` request to the `/reload` endpoint on each module you want to reload the configuration. In the case the module is running in a Docker container without the port exposed (like the signer), you can use the following command:
+Commit-Boost supports hot-reloading the configuration file. This means that you can modify the `cb-config.toml` file and apply the changes without needing to restart the modules. To do this, you need to send a `POST` request to the `/reload` endpoint on each module you want to reload the configuration. On the signer, the `/reload` and `/revoke_jwt` endpoints require the admin JWT (`CB_SIGNER_ADMIN_JWT`) as a Bearer token. In the case the module is running in a Docker container without the port exposed (like the signer), you can use the following command:
 
 ```bash
-docker compose -f cb.docker-compose.yml exec cb_signer curl -X POST http://localhost:20000/reload
+docker compose -f cb.docker-compose.yml exec cb_signer curl -X POST -H "Authorization: Bearer $CB_SIGNER_ADMIN_JWT" http://localhost:20000/reload
 ```
+
+### Automatic reload (PBS only)
+
+In addition to the manual `/reload` endpoint, the PBS Service watches the config file for changes and automatically reloads the configuration whenever the file is modified — no restart or API call needed. If the reload fails (e.g. because of a misconfigured option), it logs a warning and keeps the previous configuration.
 
 ### Signer Service reload
 
@@ -536,7 +597,7 @@ If the body is empty, the signer state is simply synced to match the config.
 
 **Add a new module without restarting:**
 1. Add the `[[modules]]` entry to `cb-config.toml`.
-2. Set the new module's JWT secret in the signer's environment (`CB_SIGNER_JWT_SECRETS`).
+2. Set the new module's JWT secret in the signer's environment (`CB_JWTS`, a comma-separated list of `<MODULE_ID>=<JWT_SECRET>` pairs).
 3. Send `POST /reload` with an empty body. The signer picks up the new module from config.
 4. Start the new module container with the matching JWT secret.
 

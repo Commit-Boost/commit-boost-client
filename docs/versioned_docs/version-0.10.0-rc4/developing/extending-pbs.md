@@ -4,14 +4,14 @@ sidebar_position: 2
 
 # Extending PBS
 
-The PBS binary that ships with Commit-Boost can be extended with custom logic. This is **not** a config-level module declaration like commit modules — instead you replace the PBS binary entirely by implementing the `DefaultBuilderApi` trait.
+The PBS binary that ships with Commit-Boost can be extended with custom logic. This is **not** a config-level module declaration like commit modules — instead you replace the PBS binary entirely by implementing the `BuilderApi<S>` trait (the default implementation is the `DefaultBuilderApi` struct).
 
 ## Before you extend PBS
 
 | You want to... | Use... |
 |---|---|
 | Request signatures from the proposer's validator keys (BLS/ECDSA) | [Commit Module](./commit-modules.md) — runs as a sidecar alongside PBS |
-| Add custom constraints to `get_header`, `submit_block`, or other BuilderAPI methods | Extend PBS — replace the `DefaultBuilderApi` with your own implementation |
+| Add custom constraints to `get_header`, `submit_block`, or other BuilderAPI methods | Extend PBS — implement `BuilderApi<S>` on your own struct |
 | Run custom logic that triggers on each slot but does not modify relay interaction | Commit Module — cheaper to maintain and deploy independently |
 | Add new HTTP routes alongside the standard BuilderAPI | Extend PBS — implement `extra_routes()` on your custom `BuilderApi` |
 
@@ -30,7 +30,18 @@ The trait covers:
 - `reload` — hot-reload configuration
 - `extra_routes` — add custom HTTP endpoints
 
-By implementing `BuilderApi<S>` on your own struct, you can override any of these methods while reusing the default MEV-Boost logic by calling the corresponding free functions (`crate::get_header`, etc.) from within your override.
+PBS serves the submit-block route on both `POST /eth/v1/builder/blinded_blocks` and `POST /eth/v2/builder/blinded_blocks`; both are handled by the same `submit_block` method, which receives an `api_version: BuilderApiVersion` parameter (`V1` or `V2`) telling it which route was called.
+
+By implementing `BuilderApi<S>` on your own struct, you can override any of these methods while reusing the default MEV-Boost logic: the default handlers (`get_header`, `get_status`, `register_validator`, `submit_block`) are re-exported in `commit_boost::prelude`, so you can call them from within your override:
+
+```rust
+use commit_boost::prelude::*;
+
+// e.g. inside your `get_status` override
+get_status(req_headers, state).await
+```
+
+Note that the default `reload` handler is not re-exported in the prelude, so a `reload` override must rebuild its state itself.
 
 ### Reference example
 

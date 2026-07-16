@@ -28,7 +28,7 @@ Signer metrics use a custom Prometheus registry with namespace prefix `cb_signer
 
 | Metric name (wire) | Type | Labels | Description |
 |---|---|---|---|
-| `cb_signer_signer_status_code_total` | Counter | `http_status_code`, `endpoint` | HTTP status code returned by signer endpoints. Incremented as responses are sent. Endpoint values: `get_pubkeys`, `generate_proxy_key`, `request_signature_bls`, `request_signature_proxy_bls`, `request_signature_proxy_ecdsa`. |
+| `cb_signer_signer_status_code_total` | Counter | `http_status_code`, `endpoint` | HTTP status code returned by signer endpoints. Incremented as responses are sent. Endpoint values: `get_pubkeys`, `generate_proxy_key`, `request_signature_bls`, `request_signature_proxy_bls`, `request_signature_proxy_ecdsa`, and `unknown endpoint` (emitted for the admin routes `/reload` and `/revoke_jwt`, which are matched by the router but not mapped to a named tag). |
 
 ---
 
@@ -38,7 +38,7 @@ When each service starts its metrics HTTP server (via the `MetricsProvider` from
 
 | Metric name (wire) | Type | Labels | Description |
 |---|---|---|---|
-| `info` | Gauge | `version`, `commit`, `network` | Always `1`. Carries build metadata as Prometheus const labels. The `version` label is the crate version (`CARGO_PKG_VERSION`), `commit` is the Git hash at build time (`GIT_HASH`), and `network` is the chain name (e.g. `mainnet`, `holesky`, `ephemery`). |
+| `info` | Gauge | `version`, `commit`, `network` | Always `1`. Carries build metadata as Prometheus const labels. The `version` label is the crate version (`CARGO_PKG_VERSION`), `commit` is the Git hash at build time (`GIT_HASH`), and `network` is the chain name (e.g. `Mainnet`, `Holesky`, `Sepolia`, `Hoodi`, or `Custom` for custom chain specs). |
 
 This metric appears under the service's own registry prefix — for example, the PBS instance exposes it as `cb_pbs_info{version="...",commit="...",network="..."}` and the Signer exposes it as `cb_signer_info{version="...",commit="...",network="..."}`.
 

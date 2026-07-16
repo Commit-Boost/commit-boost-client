@@ -4,7 +4,7 @@ description: Initial setup
 
 # Overview
 
-Commit-Boost is primarily based on [Docker](https://www.docker.com/) to enable modularity, sandboxing and cross-platform compatibility. It is also possible to run Commit-Boost [natively](/get_started/running/binary) without Docker.
+Commit-Boost is primarily based on [Docker](https://www.docker.com/) to enable modularity, sandboxing and cross-platform compatibility. It is also possible to run Commit-Boost [natively](./running/binary.md) without Docker.
 
 Each component roughly maps to a container: from a single `.toml` config file, the node operator can specify which services they want to run, and Commit-Boost takes care of spinning up the services and creating links between them.
 Commit-Boost ships with two core services:
@@ -84,4 +84,4 @@ git checkout efda6a67f43b0ddb400c454a65b055d59acc7d6c
 just build-all $(git rev-parse --short HEAD)
 ```
 
-This will create a local image called `commit_boost/commit-boost:<git_hash>` that can be used to run the PBS and Signer services, as well as the CLI. Make sure to use this image in the `docker_image` field in the `[pbs]` and `[signer]` sections of the `.toml` config file.
+This will create a local image called `commit-boost/commit-boost:<git_hash>` that can be used to run the PBS and Signer services, as well as the CLI. Make sure to use this image in the `docker_image` field in the `[pbs]` and `[signer]` sections of the `.toml` config file.

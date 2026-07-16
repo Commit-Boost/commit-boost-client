@@ -22,6 +22,10 @@ To start Commit-Boost run:
 docker compose --env-file ".cb.env" -f ".cb.docker-compose.yml" up -d
 ```
 
+:::note
+If only the PBS service is configured, no `.cb.env` file is generated and the `--env-file ".cb.env"` flag must be omitted (Docker Compose errors if the file doesn't exist). In general, use the exact command that `commit-boost init` prints. The same applies to the `logs` and `down` commands below.
+:::
+
 This will run all the configured services, including PBS, signer and commit modules (if any).
 
 The MEV-Boost server will be exposed at `pbs.port` from the config, `18550` in our example. You'll need to point your CL/Validator client to this port to be able to source blocks from the builder market.
@@ -31,7 +35,7 @@ To check the logs, run:
 ```bash
 docker compose --env-file ".cb.env" -f ".cb.docker-compose.yml" logs -f
 ```
-This will currently show all logs from the different services via the Docker logs interface. Logs are also optionally saved to file, depending on your `[logs]` configuration.
+This will currently show all logs from the different services via the Docker logs interface. Logs are also optionally saved to file, depending on your [`[logs]` configuration](../configuration.md#logs).
 
 ## Stop
 
@@ -93,7 +97,7 @@ services:
       CB_CONFIG: /cb-config.toml
       CB_PBS_ENDPOINT: 0.0.0.0:18550
     volumes:
-    - ./test.toml:/cb-config.toml:ro
+    - ./cb-config.toml:/cb-config.toml:ro
     command:
     - pbs
 ```
@@ -105,7 +109,7 @@ This will run the PBS service in a container named `cb_pbs`.
 
 The program creates a read-only volume binding for the config file, which the PBS service needs to run. The Docker compose file that it creates with the `init` command, `cb.docker-compose.yml`, will be placed into your current working directory when you run the program. The volume source will be specified as a *relative path* to that working directory, so it's ideal if the config file is directly within your working directory (or a subdirectory). If you need to specify an absolute path for the config file, you can adjust the `volumes` entry within the Docker compose file manually after its creation.
 
-Since this is a volume, the PBS service container will reload the file from disk any time it's restarted. That means you can change the file any time after the Docker compose file is created to tweak PBS's parameters, but it also means the config file must stay in the same location; if you move it, the PBS container won't be able to mount it anymore and fail to start unless you manually adjust the volume's source location.
+Since this is a volume, the PBS service sees changes to the file: it watches the config file and [automatically reloads the configuration](../configuration.md#automatic-reload-pbs-only) whenever the file is modified, without needing a restart. That means you can change the file any time after the Docker compose file is created to tweak PBS's parameters, but it also means the config file must stay in the same location; if you move it, the PBS container won't be able to mount it anymore and fail to start unless you manually adjust the volume's source location.
 
 
 ### Networking
@@ -202,7 +206,7 @@ services:
       CB_SIGNER_JWT: ${CB_JWT_DA_COMMIT}
       CB_SIGNER_URL: http://cb_signer:20000
     volumes:
-    - ./test.toml:/cb-config.toml:ro
+    - ./cb-config.toml:/cb-config.toml:ro
     networks:
     - signer_network
     depends_on:
@@ -223,7 +227,7 @@ services:
       CB_CONFIG: /cb-config.toml
       CB_PBS_ENDPOINT: 0.0.0.0:18550
     volumes:
-    - ./test.toml:/cb-config.toml:ro
+    - ./cb-config.toml:/cb-config.toml:ro
     command:
     - pbs
   cb_signer:
@@ -246,7 +250,7 @@ services:
       CB_SIGNER_LOADER_KEYS_DIR: /keys
       CB_SIGNER_LOADER_SECRETS_DIR: /secrets
     volumes:
-    - ./test.toml:/cb-config.toml:ro
+    - ./cb-config.toml:/cb-config.toml:ro
     - ./keys:/keys:ro
     - ./secrets:/secrets:ro
     networks:

@@ -75,19 +75,10 @@ paths:
         "500":
           description: Internal error
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 500
-                  message:
-                    type: string
-                    example: "Internal error"
+                type: string
+                example: "internal error"
 
   /signer/v1/request_signature/bls:
     post:
@@ -138,104 +129,58 @@ paths:
         "400":
           description: |
             This can occur in several scenarios:
+            - The request did not include a valid `Authorization` header with a Bearer token (a missing or malformed header is rejected with `400`, not `401`).
             - The Commit-Boost configuration file does not contain a signing ID for the module that made the request.
             - You requested an operation while using the Dirk signer mode instead of locally-managed signer mode, but Dirk doesn't support that operation.
             - Something went wrong while preparing your request; the error text will provide more information.
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 400
-                  message:
-                    type: string
-                    example: "Bad request: Invalid pubkey format"
+                type: string
+                example: "Dirk signer does not support this operation"
         "401":
-          description: The requesting module did not provide a JWT string in the request's authorization header, or the JWT string was not configured in the signer service's configuration file as belonging to the module.
+          description: The JWT provided in the request's authorization header was invalid. For example, it was expired, signed with the wrong secret, or its claims did not match the request. Note that a request with a missing or malformed `Authorization` header is rejected with `400` instead.
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 401
-                  message:
-                    type: string
-                    example: "Unauthorized"
+                type: string
+                example: "unauthorized"
 
         "404":
           description: You either requested a route that doesn't exist, or you requested a signature from a key that does not exist.
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 404
-                  message:
-                    type: string
-                    example: "Unknown pubkey"
+                type: string
+                example: "unknown consensus signer: 0xa9e9cff900de07e295a044789fd4bdb6785eb0651ad282f9e76d12afd87e75180bdd64caf2e315b815d7322bd31ab48a"
+        "422":
+          description: The request body could not be deserialized. For example, the pubkey was not valid hex of the expected length.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "Failed to deserialize the JSON body into the target type"
         "429":
           description: Your module attempted and failed JWT authentication too many times recently, and is currently timed out. It cannot make any more requests until the timeout ends.
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 429
-                  message:
-                    type: string
-                    example: "Too many requests"
+                type: string
+                example: "rate limited for 12.3s"
         "500":
           description: Your request was valid, but something went wrong internally that prevented it from being fulfilled.
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 500
-                  message:
-                    type: string
-                    example: "Internal error"
+                type: string
+                example: "internal error"
         "502":
           description: The signer service is running in Dirk signer mode, but Dirk could not be reached.
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 502
-                  message:
-                    type: string
-                    example: "Bad gateway: Dirk signer service is unreachable"
+                type: string
+                example: "Dirk communication error"
 
   /signer/v1/request_signature/proxy-bls:
     post:
@@ -286,104 +231,58 @@ paths:
         "400":
           description: |
             This can occur in several scenarios:
+            - The request did not include a valid `Authorization` header with a Bearer token (a missing or malformed header is rejected with `400`, not `401`).
             - The Commit-Boost configuration file does not contain a signing ID for the module that made the request.
             - You requested an operation while using the Dirk signer mode instead of locally-managed signer mode, but Dirk doesn't support that operation.
             - Something went wrong while preparing your request; the error text will provide more information.
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 400
-                  message:
-                    type: string
-                    example: "Bad request: Invalid pubkey format"
+                type: string
+                example: "Dirk signer does not support this operation"
         "401":
-          description: The requesting module did not provide a JWT string in the request's authorization header, or the JWT string was not configured in the signer service's configuration file as belonging to the module.
+          description: The JWT provided in the request's authorization header was invalid. For example, it was expired, signed with the wrong secret, or its claims did not match the request. Note that a request with a missing or malformed `Authorization` header is rejected with `400` instead.
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 401
-                  message:
-                    type: string
-                    example: "Unauthorized"
+                type: string
+                example: "unauthorized"
 
         "404":
           description: You either requested a route that doesn't exist, or you requested a signature from a key that does not exist.
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 404
-                  message:
-                    type: string
-                    example: "Unknown pubkey"
+                type: string
+                example: "unknown consensus signer: 0xa9e9cff900de07e295a044789fd4bdb6785eb0651ad282f9e76d12afd87e75180bdd64caf2e315b815d7322bd31ab48a"
+        "422":
+          description: The request body could not be deserialized. For example, the pubkey was not valid hex of the expected length.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "Failed to deserialize the JSON body into the target type"
         "429":
           description: Your module attempted and failed JWT authentication too many times recently, and is currently timed out. It cannot make any more requests until the timeout ends.
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 429
-                  message:
-                    type: string
-                    example: "Too many requests"
+                type: string
+                example: "rate limited for 12.3s"
         "500":
           description: Your request was valid, but something went wrong internally that prevented it from being fulfilled.
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 500
-                  message:
-                    type: string
-                    example: "Internal error"
+                type: string
+                example: "internal error"
         "502":
           description: The signer service is running in Dirk signer mode, but Dirk could not be reached.
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 502
-                  message:
-                    type: string
-                    example: "Bad gateway: Dirk signer service is unreachable"
+                type: string
+                example: "Dirk communication error"
 
   /signer/v1/request_signature/proxy-ecdsa:
     post:
@@ -434,104 +333,58 @@ paths:
         "400":
           description: |
             This can occur in several scenarios:
+            - The request did not include a valid `Authorization` header with a Bearer token (a missing or malformed header is rejected with `400`, not `401`).
             - The Commit-Boost configuration file does not contain a signing ID for the module that made the request.
             - You requested an operation while using the Dirk signer mode instead of locally-managed signer mode, but Dirk doesn't support that operation.
             - Something went wrong while preparing your request; the error text will provide more information.
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 400
-                  message:
-                    type: string
-                    example: "Bad request: Invalid pubkey format"
+                type: string
+                example: "Dirk signer does not support this operation"
         "401":
-          description: The requesting module did not provide a JWT string in the request's authorization header, or the JWT string was not configured in the signer service's configuration file as belonging to the module.
+          description: The JWT provided in the request's authorization header was invalid. For example, it was expired, signed with the wrong secret, or its claims did not match the request. Note that a request with a missing or malformed `Authorization` header is rejected with `400` instead.
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 401
-                  message:
-                    type: string
-                    example: "Unauthorized"
+                type: string
+                example: "unauthorized"
 
         "404":
           description: You either requested a route that doesn't exist, or you requested a signature from a key that does not exist.
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 404
-                  message:
-                    type: string
-                    example: "Unknown pubkey"
+                type: string
+                example: "unknown consensus signer: 0xa9e9cff900de07e295a044789fd4bdb6785eb0651ad282f9e76d12afd87e75180bdd64caf2e315b815d7322bd31ab48a"
+        "422":
+          description: The request body could not be deserialized — for example, the pubkey was not valid hex of the expected length.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "Failed to deserialize the JSON body into the target type"
         "429":
           description: Your module attempted and failed JWT authentication too many times recently, and is currently timed out. It cannot make any more requests until the timeout ends.
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 429
-                  message:
-                    type: string
-                    example: "Too many requests"
+                type: string
+                example: "rate limited for 12.3s"
         "500":
           description: Your request was valid, but something went wrong internally that prevented it from being fulfilled.
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 500
-                  message:
-                    type: string
-                    example: "Internal error"
+                type: string
+                example: "internal error"
         "502":
           description: The signer service is running in Dirk signer mode, but Dirk could not be reached.
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 502
-                  message:
-                    type: string
-                    example: "Bad gateway: Dirk signer service is unreachable"
+                type: string
+                example: "Dirk communication error"
 
   /signer/v1/generate_proxy_key:
     post:
@@ -613,35 +466,17 @@ paths:
         "404":
           description: Unknown value (pubkey, etc.)
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 404
-                  message:
-                    type: string
-                    example: "Unknown pubkey"
+                type: string
+                example: "unknown consensus signer: 0xa9e9cff900de07e295a044789fd4bdb6785eb0651ad282f9e76d12afd87e75180bdd64caf2e315b815d7322bd31ab48a"
         "500":
           description: Internal error
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 500
-                  message:
-                    type: string
-                    example: "Internal error"
+                type: string
+                example: "internal error"
 
   /reload:
     post:
@@ -662,12 +497,15 @@ paths:
         - `admin_secret`: string to override the admin JWT secret.
 
         Body overrides are **not persisted** across restarts.
+
+        A JSON body with `Content-Type: application/json` is required even when no
+        overrides are sent — send an empty object `{}`.
       tags:
         - Management
       security:
         - AdminBearerAuth: []
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
@@ -687,35 +525,17 @@ paths:
         "400":
           description: Body references a module ID not present in the config
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 400
-                  message:
-                    type: string
-                    example: "bad request: Module unknown-module not found in config, cannot override JWT secret"
+                type: string
+                example: "bad request: Module unknown-module not found in config, cannot override JWT secret"
         "500":
           description: Failed to reload config (previous state preserved)
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 500
-                  message:
-                    type: string
-                    example: "internal error: failed to reload config"
+                type: string
+                example: "internal error"
 
   /revoke_jwt:
     post:
@@ -749,19 +569,10 @@ paths:
         "404":
           description: Module ID not found
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 404
-                  message:
-                    type: string
-                    example: "module id not found"
+                type: string
+                example: "module id not found"
 
   /status:
     get:
@@ -829,9 +640,10 @@ components:
         nonce:
           $ref: "#/components/schemas/Nonce"
         chain_id:
-          description: The chain ID that the signature is valid for, as specified in the Commit-Boost configuration
-          type: integer
-          example: 1
+          description: The chain ID that the signature is valid for, as specified in the Commit-Boost configuration. Serialized as a `0x`-prefixed hex quantity string.
+          type: string
+          format: hex
+          example: "0x1"
         signature:
           description: The BLS signature of the Merkle root hash of the provided `object_root` field and the requesting module's Signing ID. For details on this signature, see the [signature structure documentation](https://commit-boost.github.io/commit-boost-client/developing/prop-commit-signing.md#structure-of-a-signature).
           $ref: "#/components/schemas/BlsSignature"
@@ -850,9 +662,10 @@ components:
         nonce:
           $ref: "#/components/schemas/Nonce"
         chain_id:
-          description: The chain ID that the signature is valid for, as specified in the Commit-Boost configuration
-          type: integer
-          example: 1
+          description: The chain ID that the signature is valid for, as specified in the Commit-Boost configuration. Serialized as a `0x`-prefixed hex quantity string.
+          type: string
+          format: hex
+          example: "0x1"
         signature:
           description: The ECDSA signature (in Ethereum RSV format) of the Merkle root hash of the provided `object_root` field and the requesting module's Signing ID. For details on this signature, see the [signature structure documentation](https://commit-boost.github.io/commit-boost-client/developing/prop-commit-signing.md#structure-of-a-signature).
           $ref: "#/components/schemas/EcdsaSignature"

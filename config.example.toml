@@ -4,7 +4,7 @@
 # Chain spec ID. Supported values:
 # A network ID. Supported values: Mainnet, Holesky, Sepolia, Hoodi. Lower case values e.g. "mainnet" are also accepted
 # A custom object, e.g., chain = { genesis_time_secs = 1695902400, path = "/path/to/spec.json" }, with a path to a chain spec file, either in .json format (e.g., as returned by the beacon endpoint /eth/v1/config/spec), or in .yml format (see examples in tests/data).
-# A custom object, e.g., chain = { genesis_time_secs = 1695902400, slot_time_secs = 12, genesis_fork_version = "0x01017000", chain_id = 17000 }.
+# A custom object, e.g., chain = { genesis_time_secs = 1695902400, slot_time_secs = 12, genesis_fork_version = "0x01017000", fulu_fork_slot = 5283840, chain_id = 17000 }. All fields are required.
 chain = "Holesky"
 
 # Configuration for the PBS service
@@ -142,7 +142,8 @@ validator_pubkeys = [
 #   - Registry: details of a registry to load keys from. Supported registries:
 #       - Lido: NodeOperatorsRegistry
 #       - SSV: SSV API
-#       You can toggle the 'enable_refreshing' flag to let this registry periodically query Lido or SSV and refresh the list of validator pubkeys belonging to the corresponding operator.
+#       - Stader: Stader registry. Requires `stader_pool` ("permissioned" or "permissionless") to be set in the mux config, and `rpc_url` to be set in the [pbs] config.
+#       You can toggle the 'enable_refreshing' flag to let this registry periodically query Lido, SSV, or Stader and refresh the list of validator pubkeys belonging to the corresponding operator.
 #       Each of these registry entries must be unique:
 #       - There can only be one Lido entry with a given Lido node operator ID.
 #       - There can only be one SSV entry with a given SSV node operator ID.
@@ -158,6 +159,7 @@ loader = "./tests/data/mux_keys.example.json"
 # loader = { url = "http://localhost:8000/keys" }
 # loader = { registry = "lido", node_operator_id = 8, lido_module_id = 1, enable_refreshing = false }
 # loader = { registry = "ssv", node_operator_id = 8, enable_refreshing = false }
+# loader = { registry = "stader", node_operator_id = 8, stader_pool = "permissionless", enable_refreshing = false }
 late_in_slot_time_ms = 1500
 timeout_get_header_ms = 900
 # For each mux, one or more [[mux.relays]] can be defined, which will be used for the matching validator pubkeys
@@ -208,10 +210,9 @@ jwt_auth_fail_timeout_seconds = 300
 # [signer.tls_mode]
 # How to use TLS for the Signer's HTTP server; two modes are supported:
 # - type = "insecure": disable TLS, so the server runs in HTTP mode (not recommended for production).
-# - type = "certificate": Use TLS. Include a property named "path" below this with the provided path; `path` should be a directory containing `cert.pem` and `key.pem` files to use. If they don't exist, they'll be automatically generated in self-signed mode.
+# - type = "certificate": Use TLS. Include a property named "path" below this with the provided path; `path` should be a directory containing existing `cert.pem` and `key.pem` files to use (they are not auto-generated).
 # OPTIONAL, DEFAULT:
-# type = "certificate"
-# path = "./certs"
+# type = "insecure"
 
 # For Remote signer:
 # [signer.remote]
@@ -240,12 +241,12 @@ jwt_auth_fail_timeout_seconds = 300
 # Complete URL of a Dirk gateway
 # url = "https://localhost:8881"
 # Wallets to load consensus keys from
-# accounts = ["Wallet1", "DistributedWallet"]
+# wallets = ["Wallet1", "DistributedWallet"]
 
 # [[signer.dirk.hosts]]
 # server_name = "localhost-2"
 # url = "https://localhost:8882"
-# accounts = ["Wallet2", "DistributedWallet"]
+# wallets = ["Wallet2", "DistributedWallet"]
 
 # Configuration for how the Signer service should store proxy delegations.
 # OPTIONAL
