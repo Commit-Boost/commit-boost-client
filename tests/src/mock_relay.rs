@@ -93,6 +93,9 @@ pub struct MockRelayState {
     received_register_validator: Arc<AtomicU64>,
     received_submit_block: Arc<AtomicU64>,
     received_execution_payload_bid: Arc<AtomicU64>,
+    /// `data` bytes of the last `SignedRequestAuthV1` forwarded on a bid
+    /// request
+    received_auth_data: RwLock<Option<Vec<u8>>>,
     response_override: RwLock<Option<StatusCode>>,
     bid_value: RwLock<U256>,
     /// The raw `Accept` header PBS sent on the most recent get_header request,
@@ -126,6 +129,9 @@ impl MockRelayState {
     }
     pub fn received_execution_payload_bid(&self) -> u64 {
         self.received_execution_payload_bid.load(Ordering::Relaxed)
+    }
+    pub fn received_auth_data(&self) -> Option<Vec<u8>> {
+        self.received_auth_data.read().unwrap().clone()
     }
     pub fn large_body(&self) -> bool {
         self.large_body
@@ -166,6 +172,7 @@ impl MockRelayState {
             received_register_validator: Default::default(),
             received_submit_block: Default::default(),
             received_execution_payload_bid: Default::default(),
+            received_auth_data: RwLock::new(None),
             response_override: RwLock::new(None),
             bid_value: RwLock::new(U256::from(10)),
             received_get_header_accept: RwLock::new(None),
@@ -273,9 +280,12 @@ pub fn mock_relay_app_router(state: Arc<MockRelayState>) -> Router {
 async fn handle_get_execution_payload_bid(
     State(state): State<Arc<MockRelayState>>,
     Path((slot, parent_hash, parent_root, _pubkey)): Path<(u64, B256, B256, BlsPublicKey)>,
-    _auth: Option<Json<SignedRequestAuthV1>>,
+    auth: Option<Json<SignedRequestAuthV1>>,
 ) -> Response {
     state.received_execution_payload_bid.fetch_add(1, Ordering::Relaxed);
+    if let Some(Json(auth)) = auth {
+        *state.received_auth_data.write().unwrap() = Some(auth.message.data.to_vec());
+    }
 
     if state.epbs_no_bid {
         return StatusCode::NO_CONTENT.into_response();

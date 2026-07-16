@@ -1,6 +1,9 @@
 use alloy::{primitives::B256, rpc::types::beacon::relay::ValidatorRegistration};
 use cb_common::{
-    pbs::{BuilderApiVersion, RelayClient, SignedBlindedBeaconBlock, SignedRequestAuthV1},
+    pbs::{
+        BuilderApiVersion, HEADER_BUILDER_URL, RelayClient, SignedBlindedBeaconBlock,
+        SignedRequestAuthV1,
+    },
     types::{BlsPublicKey, KnownChain},
     utils::bls_pubkey_from_hex,
     wire::{CONSENSUS_VERSION_HEADER, EncodingType},
@@ -70,6 +73,7 @@ impl MockValidator {
         parent_root: B256,
         pubkey: Option<BlsPublicKey>,
         auth: Option<&SignedRequestAuthV1>,
+        eth_builder_url: Option<&str>,
     ) -> eyre::Result<Response> {
         let default_pubkey = bls_pubkey_from_hex(
             "0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae",
@@ -80,7 +84,10 @@ impl MockValidator {
             &parent_root,
             &pubkey.unwrap_or(default_pubkey),
         )?;
-        let req = self.comm_boost.client.post(url);
+        let mut req = self.comm_boost.client.post(url);
+        if let Some(builder_url) = eth_builder_url {
+            req = req.header(HEADER_BUILDER_URL, builder_url);
+        }
         let req = match auth {
             Some(auth) => req.json(auth),
             None => req,
