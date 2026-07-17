@@ -274,7 +274,9 @@ fn total_payment(bid: &impl GetExecutionPayloadBidInfo) -> u64 {
     bid.value().saturating_add(bid.execution_payment())
 }
 
-fn select_max_bid<I: GetExecutionPayloadBidInfo>(bids: Vec<(&str, I)>) -> Option<(&str, I)> {
+// `L` is an opaque label (relay id for the cross-relay layer, request start
+// time for the per-relay in-flight layer) carried through to the winner.
+fn select_max_bid<L, I: GetExecutionPayloadBidInfo>(bids: Vec<(L, I)>) -> Option<(L, I)> {
     bids.into_iter().max_by_key(|(_, bid)| total_payment(bid))
 }
 
@@ -376,21 +378,18 @@ async fn send_timed_get_execution_payload_bid(
             let results = join_all(handles).await;
             let mut n_headers = 0;
 
-            if let Some((_, maybe_header)) = results
+            let bids: Vec<_> = results
                 .into_iter()
                 .filter_map(|res| {
                     // ignore join error and timeouts, log other errors
                     res.ok().and_then(|inner_res| match inner_res {
-                        Ok(maybe_header) => {
-                            if maybe_header.1.is_some() {
-                                n_headers += 1;
-                                Some(maybe_header)
-                            } else {
-                                // filter out 204 responses that are returned if the request
-                                // is after the relay cutoff
-                                None
-                            }
+                        Ok((start_time, Some(header))) => {
+                            n_headers += 1;
+                            Some((start_time, header))
                         }
+                        // filter out 204 responses that are returned if the request
+                        // is after the relay cutoff
+                        Ok((_, None)) => None,
                         Err(err) if err.is_timeout() => None,
                         Err(err) => {
                             error!(relay_id = relay.id.as_ref(),%err, "TG: error sending header request");
@@ -398,10 +397,12 @@ async fn send_timed_get_execution_payload_bid(
                         }
                     })
                 })
-                .max_by_key(|(start_time, _)| *start_time)
-            {
+                .collect();
+
+            // Pick the highest total payment across this relay's in-flight responses
+            if let Some((_, header)) = select_max_bid(bids) {
                 debug!(relay_id = relay.id.as_ref(), n_headers, "TG: received headers from relay");
-                return Ok(maybe_header);
+                return Ok(Some(header));
             } else {
                 // all requests failed
                 warn!(relay_id = relay.id.as_ref(), "TG: no headers received");
@@ -450,8 +451,7 @@ async fn send_one_get_execution_payload_bid(
     validation: ValidationContext,
 ) -> Result<(u64, Option<GetExecutionPayloadBidResponse>), PbsError> {
     // the timestamp in the header is the consensus block time which is fixed,
-    // use the beginning of the request as proxy to make sure we use only the
-    // last one received
+    // request send time, forwarded to the relay in HEADER_START_TIME_UNIX_MS
     let start_request_time = utcnow_ms();
     req_config.headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(start_request_time));
 
@@ -955,5 +955,24 @@ mod tests {
         ];
         let (winner, _) = select_max_bid(bids).unwrap();
         assert_eq!(winner, "overflow");
+    }
+
+    // Per-relay in-flight aggregation (timing games) must pick the highest
+    // TOTAL payment, not the latest-started response.
+    #[test]
+    fn test_inflight_selection_prefers_max_total_not_latest() {
+        // Labels are request start times (utcnow_ms), as in the timing-games path.
+        let early = 1_000u64;
+        let late = 1_050u64;
+        let mid = 1_025u64;
+        // Max total is neither first nor last, and the later-started response
+        // pays LESS: this fails both latest-wins and first-wins.
+        let bids = vec![
+            (late, MockBid { value: 3, execution_payment: 1 }), // total 4
+            (early, MockBid { value: 10, execution_payment: 5 }), // total 15 (winner)
+            (mid, MockBid { value: 6, execution_payment: 2 }),  // total 8
+        ];
+        let (winner_start, _) = select_max_bid(bids).unwrap();
+        assert_eq!(winner_start, early, "must pick highest total, not latest- or first-started");
     }
 }
