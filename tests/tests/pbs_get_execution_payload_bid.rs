@@ -6,11 +6,12 @@ use cb_common::{
     constants::{GENESIS_VALIDATORS_ROOT, GLOAS_FORK_VERSION},
     pbs::{
         GetExecutionPayloadBidInfo, GetExecutionPayloadBidResponse, RequestAuthV1,
-        SignedRequestAuthV1,
+        SignedExecutionPayloadBid, SignedRequestAuthV1,
     },
     signature::sign_execution_payload_bid_root,
     signer::random_secret,
     types::{BlsSignature, Chain},
+    wire::EncodingType,
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
@@ -22,7 +23,8 @@ use cb_tests::{
 };
 use eyre::Result;
 use lh_types::Slot;
-use reqwest::StatusCode;
+use reqwest::{StatusCode, header::CONTENT_TYPE};
+use ssz::Decode;
 use tracing::info;
 use tree_hash::TreeHash;
 
@@ -201,7 +203,9 @@ async fn test_get_execution_payload_bid_below_min_bid_rejected() -> Result<()> {
     wait_for_ready(&mock_validator).await?;
 
     let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, None)
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, None, vec![
+            EncodingType::Json,
+        ])
         .await?;
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
     assert_eq!(mock_state.received_execution_payload_bid(), 1);
@@ -233,7 +237,9 @@ async fn test_get_execution_payload_bid_wrong_fee_recipient_rejected() -> Result
     wait_for_ready(&mock_validator).await?;
 
     let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, None)
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, None, vec![
+            EncodingType::Json,
+        ])
         .await?;
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
     assert_eq!(mock_state.received_execution_payload_bid(), 1);
@@ -283,13 +289,16 @@ async fn test_get_execution_payload_bid_mux_fee_recipient() -> Result<()> {
             Some(mux_pubkey),
             None,
             None,
+            vec![EncodingType::Json],
         )
         .await?;
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
 
     // A non-mux validator uses the default config and gets the bid
     let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, None)
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, None, vec![
+            EncodingType::Json,
+        ])
         .await?;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(mock_state.received_execution_payload_bid(), 2);
@@ -363,6 +372,7 @@ async fn test_get_execution_payload_bid_malformed_builder_url_400() -> Result<()
             None,
             None,
             Some("not-a-url"),
+            vec![EncodingType::Json],
         )
         .await?;
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
@@ -405,6 +415,7 @@ async fn test_get_execution_payload_bid_forwards_opaque_auth() -> Result<()> {
             None,
             Some(&auth),
             Some(&relay_url),
+            vec![EncodingType::Json],
         )
         .await?;
     assert_eq!(res.status(), StatusCode::OK);
@@ -459,6 +470,93 @@ async fn test_get_execution_payload_bid_spec_url() -> Result<()> {
     let res = mock_validator.comm_boost.client.post(url).send().await?;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(mock_state.received_execution_payload_bid(), 1);
+    Ok(())
+}
+
+/// The bid response is served as SSZ when the caller sends
+/// Accept: application/octet-stream, with Eth-Consensus-Version on the 200.
+#[tokio::test]
+async fn test_get_execution_payload_bid_ssz_response() -> Result<()> {
+    setup_test_env();
+    let chain = Chain::Hoodi;
+    let pbs_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr()?.port();
+    let relay_listener = get_free_listener().await;
+    let relay_port = relay_listener.local_addr()?.port();
+
+    let mock_state = Arc::new(MockRelayState::new(chain, random_secret()));
+    let mock_relay = generate_mock_relay(relay_port, mock_state.signer.public_key())?;
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
+
+    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay]);
+    let state = PbsState::new(config, PathBuf::new());
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
+
+    let mock_validator = MockValidator::new(pbs_port)?;
+    wait_for_ready(&mock_validator).await?;
+
+    let res = mock_validator
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, None, vec![
+            EncodingType::Ssz,
+        ])
+        .await?;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let content_type =
+        res.headers().get(CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or_default();
+    assert_eq!(content_type, EncodingType::Ssz.to_string(), "response must be SSZ");
+
+    let version =
+        res.headers().get("eth-consensus-version").and_then(|v| v.to_str().ok()).map(str::to_owned);
+    assert_eq!(version.as_deref(), Some("gloas"), "200 must set Eth-Consensus-Version");
+
+    let bid = SignedExecutionPayloadBid::from_ssz_bytes(&res.bytes().await?)
+        .expect("body must SSZ-decode to a SignedExecutionPayloadBid");
+    assert_ne!(bid.message.block_hash.0, B256::ZERO);
+    assert_eq!(bid.message.slot.as_u64(), TEST_SLOT);
+    Ok(())
+}
+
+/// An unsupported Accept type is rejected with 406 before any relay is queried
+/// (a typed error, not a 500).
+#[tokio::test]
+async fn test_get_execution_payload_bid_unsupported_accept_406() -> Result<()> {
+    setup_test_env();
+    let chain = Chain::Hoodi;
+    let pbs_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr()?.port();
+    let relay_listener = get_free_listener().await;
+    let relay_port = relay_listener.local_addr()?.port();
+
+    let mock_state = Arc::new(MockRelayState::new(chain, random_secret()));
+    let mock_relay = generate_mock_relay(relay_port, mock_state.signer.public_key())?;
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
+
+    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay]);
+    let state = PbsState::new(config, PathBuf::new());
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
+
+    let mock_validator = MockValidator::new(pbs_port)?;
+    wait_for_ready(&mock_validator).await?;
+
+    let pubkey = "0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae";
+    let url = format!(
+        "{}eth/v1/builder/execution_payload_bid/{}/{}/{}/{}",
+        mock_validator.comm_boost.config.entry.url,
+        TEST_SLOT,
+        B256::ZERO,
+        B256::ZERO,
+        pubkey,
+    );
+    let res = mock_validator
+        .comm_boost
+        .client
+        .post(url)
+        .header("accept", "application/xml")
+        .send()
+        .await?;
+    assert_eq!(res.status(), StatusCode::NOT_ACCEPTABLE);
+    assert_eq!(mock_state.received_execution_payload_bid(), 0, "406 short-circuits before relays");
     Ok(())
 }
 
@@ -517,6 +615,7 @@ async fn test_get_execution_payload_bid_impl(
             None,
             None,
             builder_url.as_deref(),
+            vec![EncodingType::Json],
         )
         .await?;
     assert_eq!(res.status(), expected_code);

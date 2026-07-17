@@ -66,6 +66,7 @@ impl MockValidator {
         Ok(res)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn do_get_execution_payload_bid(
         &self,
         slot: u64,
@@ -74,6 +75,7 @@ impl MockValidator {
         pubkey: Option<BlsPublicKey>,
         auth: Option<&SignedRequestAuthV1>,
         eth_builder_url: Option<&str>,
+        accept: Vec<EncodingType>,
     ) -> eyre::Result<Response> {
         let default_pubkey = bls_pubkey_from_hex(
             "0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae",
@@ -87,6 +89,10 @@ impl MockValidator {
         let mut req = self.comm_boost.client.post(url);
         if let Some(builder_url) = eth_builder_url {
             req = req.header(HEADER_BUILDER_URL, builder_url);
+        }
+        if !accept.is_empty() {
+            let accept_header = accept.iter().map(|e| e.to_string()).collect::<Vec<_>>().join(", ");
+            req = req.header(ACCEPT, accept_header);
         }
         let req = match auth {
             Some(auth) => req.json(auth),

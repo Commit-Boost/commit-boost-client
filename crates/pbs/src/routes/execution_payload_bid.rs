@@ -27,13 +27,17 @@ use cb_common::{
     types::{BlsPublicKey, BlsSignature},
     utils::{ms_into_slot, utcnow_ms},
     wire::{
-        CONSENSUS_VERSION_HEADER, get_user_agent, get_user_agent_with_version,
-        safe_read_http_response,
+        AcceptedEncodingsError, CONSENSUS_VERSION_HEADER, EncodingType, get_accept_types,
+        get_user_agent, get_user_agent_with_version, safe_read_http_response,
     },
 };
 use futures::future::join_all;
 use parking_lot::RwLock;
-use reqwest::{StatusCode, header::USER_AGENT};
+use reqwest::{
+    StatusCode,
+    header::{CONTENT_TYPE, USER_AGENT},
+};
+use ssz::Encode;
 use tokio::time::sleep;
 use tracing::{Instrument, debug, error, info, warn};
 use tree_hash::TreeHash;
@@ -75,6 +79,11 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
     let ua = get_user_agent(&req_headers);
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
 
+    // Parse Accept before req_headers is consumed below; server tiebreak = SSZ.
+    let response_encoding = get_accept_types(&req_headers)
+        .inspect_err(|err| error!(%err, "error parsing accept header"))?
+        .preferred(&[EncodingType::Ssz, EncodingType::Json]);
+
     info!(ua, ms_into_slot, "new request");
 
     match get_execution_payload_bid(params, body, req_headers, state).await {
@@ -82,15 +91,42 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
             if let Some(max_bid) = res {
                 info!(trustless_bid_eth = format_ether(max_bid.value()), execution_payment_eth = format_ether(max_bid.execution_payment()), block_hash =% max_bid.block_hash(), builder_index = max_bid.builder_index(), "received header");
 
-                BEACON_NODE_STATUS
-                    .with_label_values(&["200", GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG])
-                    .inc();
-                // Eth-Consensus-Version required on 200
+                // Eth-Consensus-Version is required on the 200 for both encodings
                 let consensus_version_header = HeaderValue::from_str(&max_bid.version.to_string())
                     .expect("fork name is always a valid header value");
-                let mut res = axum::Json(max_bid).into_response();
-                res.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
-                Ok(res)
+
+                match response_encoding {
+                    // Unreachable in practice: get_accept_types errors (-> 406
+                    // above) when the caller offers nothing we support.
+                    None => {
+                        BEACON_NODE_STATUS
+                            .with_label_values(&["406", GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG])
+                            .inc();
+                        Err(PbsClientError::HeaderError(
+                            AcceptedEncodingsError::UnsupportedAcceptType,
+                        ))
+                    }
+                    Some(EncodingType::Ssz) => {
+                        BEACON_NODE_STATUS
+                            .with_label_values(&["200", GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG])
+                            .inc();
+                        let mut res = max_bid.data.as_ssz_bytes().into_response();
+                        res.headers_mut()
+                            .insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
+                        res.headers_mut()
+                            .insert(CONTENT_TYPE, EncodingType::Ssz.content_type_header().clone());
+                        Ok(res)
+                    }
+                    Some(EncodingType::Json) => {
+                        BEACON_NODE_STATUS
+                            .with_label_values(&["200", GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG])
+                            .inc();
+                        let mut res = axum::Json(max_bid).into_response();
+                        res.headers_mut()
+                            .insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
+                        Ok(res)
+                    }
+                }
             } else {
                 // spec: return 204 if request is valid but no bid available
                 info!("no header available for slot");
