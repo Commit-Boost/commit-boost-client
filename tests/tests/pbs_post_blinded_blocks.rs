@@ -6,7 +6,7 @@ use cb_common::{
     },
     signer::random_secret,
     types::Chain,
-    wire::EncodingType,
+    wire::{CONSENSUS_VERSION_HEADER, EncodingType},
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
@@ -18,7 +18,10 @@ use cb_tests::{
 };
 use eyre::Result;
 use lh_types::ForkVersionDecode;
-use reqwest::{Response, StatusCode};
+use reqwest::{
+    Response, StatusCode,
+    header::{ACCEPT, CONTENT_TYPE},
+};
 use tracing::info;
 
 #[tokio::test]
@@ -61,31 +64,24 @@ async fn test_submit_block_v2() -> Result<()> {
     Ok(())
 }
 
-// Test that when submitting a block using v2 to a relay that does not support
-// v2, PBS falls back to v1 and forwards the v1 response body to the beacon
-// node (a 200 with the execution payload), rather than swallowing the payload
-// and replying 202 with an empty body — which would cause silent block loss.
+// A v2 submission to a relay that does not support v2 must fail loud, not fake
+// success. v2's contract is an empty 202 after which the relay publishes the
+// block; a v1 payload is useless because the beacon node expects 202 and will
+// not read a 200 body. So PBS returns an error (no relay could serve v2) rather
+// than forwarding a v1 body the caller silently drops.
 #[tokio::test]
 async fn test_submit_block_v2_without_relay_support() -> Result<()> {
-    let res = submit_block_impl(
+    let _res = submit_block_impl(
         BuilderApiVersion::V2,
         vec![EncodingType::Json],
         HashSet::from([EncodingType::Ssz, EncodingType::Json]),
         EncodingType::Json,
-        1,
-        StatusCode::OK,
+        0, // relay 404s v2 and there is no v1 fallback, so it never receives a submit
+        StatusCode::BAD_GATEWAY,
         true,
         false,
     )
     .await?;
-    // Payload must be forwarded so the BN can broadcast.
-    let signed_blinded_block = load_test_signed_blinded_block();
-    let response_body = serde_json::from_slice::<SubmitBlindedBlockResponse>(&res.bytes().await?)?;
-    assert_eq!(
-        response_body.data.execution_payload.block_hash(),
-        signed_blinded_block.block_hash().into(),
-        "v2->v1 fallback must forward the execution payload to the BN"
-    );
     Ok(())
 }
 
@@ -327,6 +323,52 @@ async fn test_submit_block_rejects_fork_mismatch() -> Result<()> {
     // response is rejected rather than trusted.
     assert_eq!(mock_state.received_submit_block(), 2);
     assert_eq!(res.status(), StatusCode::BAD_GATEWAY);
+    Ok(())
+}
+
+// A v2 submission does no content negotiation (its success is an empty 202), so
+// an unsupported Accept header must NOT 406 the request before it reaches a
+// relay. Only v1, which returns a body, negotiates on Accept.
+#[tokio::test]
+async fn test_submit_block_v2_ignores_unsupported_accept() -> Result<()> {
+    setup_test_env();
+    let signer = random_secret();
+    let pubkey = signer.public_key();
+    let chain = Chain::Holesky;
+    let pbs_listener = get_free_listener().await;
+    let relay_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr().unwrap().port();
+    let relay_port = relay_listener.local_addr().unwrap().port();
+
+    let mock_relay = generate_mock_relay(relay_port, pubkey)?;
+    // Default mock supports v2.
+    let mock_state = Arc::new(MockRelayState::new(chain, signer));
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
+
+    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay]);
+    let state = PbsState::new(config, PathBuf::new());
+    drop(pbs_listener);
+    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let mock_validator = MockValidator::new(pbs_port)?;
+    let url = mock_validator.comm_boost.submit_block_url(BuilderApiVersion::V2).unwrap();
+    let body = serde_json::to_vec(&load_test_signed_blinded_block()).unwrap();
+    let res = mock_validator
+        .comm_boost
+        .client
+        .post(url)
+        .body(body)
+        .header(CONTENT_TYPE, EncodingType::Json.to_string())
+        .header(CONSENSUS_VERSION_HEADER, ForkName::Electra.to_string())
+        .header(ACCEPT, "application/garbage")
+        .send()
+        .await?;
+
+    // Reaches the relay and returns the v2 empty-202 rather than a 406.
+    assert_ne!(res.status(), StatusCode::NOT_ACCEPTABLE);
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
+    assert_eq!(mock_state.received_submit_block(), 1);
     Ok(())
 }
 

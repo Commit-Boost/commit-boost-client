@@ -254,9 +254,10 @@ pub fn get_accept_types(
         return Err(AcceptedEncodingsError::UnsupportedAcceptType)
     }
 
-    // No accept header (or only q=0 rejections): fall back to the request
-    // Content-Type, which mirrors the historical behavior.
-    Ok(AcceptedEncodings::single(get_content_type(req_headers)))
+    // No Accept header (or only q=0 rejections): per the Builder API a missing
+    // Accept means JSON, and request/response encodings are independent — so do
+    // NOT inherit the request Content-Type (an SSZ request still gets JSON).
+    Ok(AcceptedEncodings::single(NO_PREFERENCE_DEFAULT))
 }
 
 fn essence_encoding(mt: &MediaType) -> Option<EncodingType> {
@@ -464,6 +465,17 @@ mod test {
     #[test]
     fn test_missing_accept_header() {
         let headers = HeaderMap::new();
+        let result = get_accept_types(&headers).unwrap();
+        assert_eq!(result, AcceptedEncodings::single(EncodingType::Json));
+    }
+
+    /// A missing Accept header defaults to JSON even when the request body is
+    /// SSZ: request and response encodings are independent, so the response
+    /// encoding MUST NOT inherit the request Content-Type.
+    #[test]
+    fn test_missing_accept_header_ignores_ssz_content_type() {
+        let mut headers = HeaderMap::new();
+        headers.append(CONTENT_TYPE, HeaderValue::from_str(APPLICATION_OCTET_STREAM).unwrap());
         let result = get_accept_types(&headers).unwrap();
         assert_eq!(result, AcceptedEncodings::single(EncodingType::Json));
     }

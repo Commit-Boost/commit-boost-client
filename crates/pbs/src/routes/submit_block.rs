@@ -10,8 +10,8 @@ use cb_common::{
     pbs::{BuilderApiVersion, GetPayloadInfo},
     utils::{timestamp_of_slot_start_millis, utcnow_ms},
     wire::{
-        AcceptedEncodingsError, CONSENSUS_VERSION_HEADER, EncodingType, deserialize_body,
-        get_accept_types, get_user_agent,
+        AcceptedEncodings, AcceptedEncodingsError, CONSENSUS_VERSION_HEADER, EncodingType,
+        NO_PREFERENCE_DEFAULT, deserialize_body, get_accept_types, get_user_agent,
     },
 };
 use reqwest::{StatusCode, header::CONTENT_TYPE};
@@ -63,9 +63,16 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
     let block_hash = signed_blinded_block.block_hash();
     let slot_start_ms = timestamp_of_slot_start_millis(slot.into(), state.config.chain);
     let ua = get_user_agent(&req_headers);
-    let accept_types = get_accept_types(&req_headers).inspect_err(|err| {
-        error!(%err, "error parsing accept header");
-    })?;
+    // v1 enforces Accept (a bad one is a 406). v2 succeeds with an empty 202 and
+    // has no response body to negotiate, so skip Accept for it entirely: a bad
+    // Accept must not 406 a v2 submission before it reaches a relay.
+    let accept_types = if api_version == BuilderApiVersion::V1 {
+        get_accept_types(&req_headers).inspect_err(|err| {
+            error!(%err, "error parsing accept header");
+        })?
+    } else {
+        AcceptedEncodings::single(NO_PREFERENCE_DEFAULT)
+    };
     // Honor caller q-value preference: pick the highest-priority encoding that
     // we can actually produce. Server preference for tiebreaks is SSZ first.
     let response_encoding = accept_types.preferred(&[EncodingType::Ssz, EncodingType::Json]);

@@ -15,8 +15,7 @@ use cb_common::{
     utils::utcnow_ms,
     wire::{
         AcceptedEncodings, CONSENSUS_VERSION_HEADER, EncodingType, build_outbound_accept,
-        get_accept_types, get_user_agent_with_version, parse_response_encoding_and_fork,
-        read_chunked_body_with_max,
+        get_user_agent_with_version, parse_response_encoding_and_fork, read_chunked_body_with_max,
     },
 };
 use futures::{FutureExt, future::select_ok};
@@ -25,13 +24,13 @@ use reqwest::{
     header::{ACCEPT, CONTENT_TYPE, USER_AGENT},
 };
 use ssz::Encode;
-use tracing::{debug, error, warn};
+use tracing::{debug, warn};
 use url::Url;
 
 use crate::{
     TIMEOUT_ERROR_CODE_STR,
     constants::{MAX_SIZE_SUBMIT_BLOCK_RESPONSE, SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG},
-    metrics::{RELAY_LATENCY, RELAY_STATUS_CODE, V2_FALLBACK_TO_V1},
+    metrics::{RELAY_LATENCY, RELAY_STATUS_CODE, RELAY_V2_UNSUPPORTED},
     state::{BuilderApiState, PbsState},
 };
 
@@ -55,8 +54,8 @@ struct SubmitBlockResponseInfo {
     /// ACCEPTED/OK paths where no body is returned.
     content_type: Option<EncodingType>,
 
-    /// Which fork the response bid is for (if provided as a header, rather than
-    /// part of the body)
+    /// Which fork the response payload is for (if provided as a header, rather
+    /// than part of the body)
     fork: Option<ForkName>,
 
     /// The status code of the response, for logging
@@ -82,21 +81,21 @@ pub async fn submit_block<S: BuilderApiState>(
     send_headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(utcnow_ms()));
     send_headers.insert(USER_AGENT, get_user_agent_with_version(&req_headers)?);
 
-    // Forward the caller's Accept preference to the relay so the relay
-    // returns data in the format the BN expects, avoiding decode→re-encode.
-    // Always offer both encodings as fallback so a format-limited relay
-    // still returns a bid (PBS converts if needed).
-    let caller_accept = get_accept_types(&req_headers).inspect_err(|err| {
-        error!(%err, "error parsing accept header");
-    })?;
-    let relay_accept = AcceptedEncodings {
-        primary: caller_accept.primary,
-        fallback: Some(match caller_accept.primary {
-            EncodingType::Ssz => EncodingType::Json,
-            EncodingType::Json => EncodingType::Ssz,
-        }),
-    };
-    send_headers.insert(ACCEPT, build_outbound_accept(relay_accept));
+    // PBS always decodes and re-validates the relay payload, then the route
+    // re-encodes it to the BN's Accept. So always request SSZ from the relay
+    // (smaller on the wire, faster to decode than JSON); JSON is the fallback for
+    // a relay that can't do SSZ. The BN's own format preference is applied later
+    // by the route, not here. Skip for v2, whose success is an empty 202 with no
+    // body to negotiate.
+    if api_version == BuilderApiVersion::V1 {
+        send_headers.insert(
+            ACCEPT,
+            build_outbound_accept(AcceptedEncodings {
+                primary: EncodingType::Ssz,
+                fallback: Some(EncodingType::Json),
+            }),
+        );
+    }
 
     // Send requests to all relays concurrently
     let proposal_info =
@@ -130,11 +129,11 @@ async fn submit_block_with_timeout(
     relay: RelayClient,
     timeout_ms: u64,
 ) -> Result<Option<SubmitBlindedBlockResponse>, PbsError> {
-    let mut url = Arc::new(relay.submit_block_url(proposal_info.api_version)?);
+    let url = Arc::new(relay.submit_block_url(proposal_info.api_version)?);
     let mut remaining_timeout_ms = timeout_ms;
     let mut retry = 0;
     let mut backoff = Duration::from_millis(250);
-    let mut request_api_version = proposal_info.api_version;
+    let request_api_version = proposal_info.api_version;
 
     loop {
         let start_request = Instant::now();
@@ -148,23 +147,7 @@ async fn submit_block_with_timeout(
         )
         .await
         {
-            Ok(response) => {
-                // If the original request was for v2 but we had to fall back to v1, the
-                // V1 response body (execution payload + blobs bundle) MUST be forwarded
-                // back to the beacon node so the proposer can broadcast. Returning an
-                // empty 202 here would cause silent block loss because the BN never
-                // receives the unblinded payload.
-                if request_api_version == BuilderApiVersion::V1 &&
-                    proposal_info.api_version != request_api_version
-                {
-                    warn!(
-                        relay_id = relay.id.as_ref(),
-                        "v2 submit_block fell back to v1; forwarding v1 payload to beacon node"
-                    );
-                    V2_FALLBACK_TO_V1.with_label_values(&[relay.id.as_ref()]).inc();
-                }
-                return Ok(response);
-            }
+            Ok(response) => return Ok(response),
 
             Err(err) if err.should_retry() => {
                 tokio::time::sleep(backoff).await;
@@ -178,15 +161,18 @@ async fn submit_block_with_timeout(
                 }
             }
 
-            Err(err)
-                if err.is_not_found() && matches!(request_api_version, BuilderApiVersion::V2) =>
-            {
+            // A relay that 404s the v2 endpoint cannot serve a v2 submission. In
+            // v2 the relay itself publishes the block after an empty 202, so a v1
+            // payload is useless here: the beacon node expects 202 and will not
+            // read a 200 body, so forwarding it would silently drop the block.
+            // Fail loud instead, and let another relay (if any) serve v2.
+            Err(err) if err.is_not_found() && request_api_version == BuilderApiVersion::V2 => {
                 warn!(
                     relay_id = relay.id.as_ref(),
-                    "relay does not support v2 endpoint, retrying with v1"
+                    "relay does not support the v2 submit_block endpoint; cannot serve this submission"
                 );
-                url = Arc::new(relay.submit_block_url(BuilderApiVersion::V1)?);
-                request_api_version = BuilderApiVersion::V1;
+                RELAY_V2_UNSUPPORTED.with_label_values(&[relay.id.as_ref()]).inc();
+                return Err(err);
             }
 
             Err(err) => return Err(err),
