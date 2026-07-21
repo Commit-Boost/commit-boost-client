@@ -207,6 +207,20 @@ impl IntoIterator for AcceptedEncodings {
 pub fn get_accept_types(
     req_headers: &HeaderMap,
 ) -> Result<AcceptedEncodings, AcceptedEncodingsError> {
+    get_accept_types_with_default(req_headers, NO_PREFERENCE_DEFAULT)
+}
+
+/// Like `get_accept_types`, but the caller chooses the encoding used when the
+/// request expresses NO format preference. This covers both the wildcard
+/// (`*/*`, `application/*`) Accept ranges and the "no Accept header AND no
+/// Content-Type" case. An explicit `Accept`/`Content-Type` is always obeyed —
+/// only the no-preference tiebreak changes. Legacy callers use
+/// [`get_accept_types`] (default JSON); SSZ-by-default endpoints pass
+/// `EncodingType::Ssz`.
+pub fn get_accept_types_with_default(
+    req_headers: &HeaderMap,
+    no_preference_default: EncodingType,
+) -> Result<AcceptedEncodings, AcceptedEncodingsError> {
     // Only two supported media types, so the ordered set is at most two
     // entries: primary + optional fallback.
     let mut primary: Option<EncodingType> = None;
@@ -235,7 +249,7 @@ pub fn get_accept_types(
                 continue;
             }
 
-            if let Some(enc) = essence_encoding(&mt.essence()) {
+            if let Some(enc) = essence_encoding(&mt.essence(), no_preference_default) {
                 had_supported = true;
                 match primary {
                     None => primary = Some(enc),
@@ -254,24 +268,24 @@ pub fn get_accept_types(
         return Err(AcceptedEncodingsError::UnsupportedAcceptType)
     }
 
-    // No Accept header (or only q=0 rejections): per the Builder API a missing
-    // Accept means JSON, and request/response encodings are independent — so do
-    // NOT inherit the request Content-Type (an SSZ request still gets JSON).
-    Ok(AcceptedEncodings::single(NO_PREFERENCE_DEFAULT))
+    // No Accept header (or only q=0 rejections): request and response encodings
+    // are independent, so do NOT inherit the request Content-Type; fall back to
+    // this endpoint's no-preference default.
+    Ok(AcceptedEncodings::single(no_preference_default))
 }
 
-fn essence_encoding(mt: &MediaType) -> Option<EncodingType> {
+fn essence_encoding(mt: &MediaType, default: EncodingType) -> Option<EncodingType> {
     if mt.suffix.is_some() {
         return None;
     }
 
     match () {
-        _ if mt.ty == names::_STAR && mt.subty == names::_STAR => Some(NO_PREFERENCE_DEFAULT),
+        _ if mt.ty == names::_STAR && mt.subty == names::_STAR => Some(default),
         _ if mt.ty == names::APPLICATION && mt.subty == names::OCTET_STREAM => {
             Some(EncodingType::Ssz)
         }
         _ if mt.ty == names::APPLICATION && mt.subty == names::JSON => Some(EncodingType::Json),
-        _ if mt.ty == names::APPLICATION && mt.subty == names::_STAR => Some(NO_PREFERENCE_DEFAULT),
+        _ if mt.ty == names::APPLICATION && mt.subty == names::_STAR => Some(default),
         _ => None,
     }
 }
@@ -343,7 +357,8 @@ impl FromStr for EncodingType {
         // (e.g. `application/json; charset=utf-8`). Compare essence only.
         let parsed =
             MediaType::parse(value).map_err(|e| format!("invalid content type {value}: {e}"))?;
-        essence_encoding(&parsed).ok_or_else(|| format!("unsupported encoding type: {value}"))
+        essence_encoding(&parsed, EncodingType::Json)
+            .ok_or_else(|| format!("unsupported encoding type: {value}"))
     }
 }
 
@@ -386,23 +401,25 @@ pub enum BodyDeserializeError {
     MissingVersionHeader,
 }
 
+/// The request body encoding to decode with, from the Content-Type. Precedence:
+///   - Content-Type absent     → NO_PREFERENCE_DEFAULT (JSON)
+///   - Content-Type recognized → use it
+///   - Content-Type present but unrecognized → UnsupportedMediaType
+pub fn content_type_encoding(headers: &HeaderMap) -> Result<EncodingType, BodyDeserializeError> {
+    match headers.get(CONTENT_TYPE) {
+        None => Ok(NO_PREFERENCE_DEFAULT),
+        Some(hv) => {
+            let value = hv.to_str().map_err(|_| BodyDeserializeError::UnsupportedMediaType)?;
+            EncodingType::from_str(value).map_err(|_| BodyDeserializeError::UnsupportedMediaType)
+        }
+    }
+}
+
 pub fn deserialize_body(
     headers: &HeaderMap,
     body: Bytes,
 ) -> Result<SignedBlindedBeaconBlock, BodyDeserializeError> {
-    // Determine the encoding to decode with. Precedence:
-    //   - Content-Type absent     → NO_PREFERENCE_DEFAULT
-    //   - Content-Type recognized → use it.
-    //   - Content-Type present but unrecognized → UnsupportedMediaType.
-    let encoding = match headers.get(CONTENT_TYPE) {
-        None => NO_PREFERENCE_DEFAULT,
-        Some(hv) => {
-            let value = hv.to_str().map_err(|_| BodyDeserializeError::UnsupportedMediaType)?;
-            EncodingType::from_str(value).map_err(|_| BodyDeserializeError::UnsupportedMediaType)?
-        }
-    };
-
-    match encoding {
+    match content_type_encoding(headers)? {
         EncodingType::Json => serde_json::from_slice::<SignedBlindedBeaconBlock>(&body)
             .map_err(BodyDeserializeError::SerdeJsonError),
         EncodingType::Ssz => match get_consensus_version_header(headers) {

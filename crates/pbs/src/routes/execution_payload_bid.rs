@@ -10,7 +10,7 @@ use alloy::{
     rpc::types::Block,
 };
 use axum::{
-    Json,
+    body::Bytes,
     extract::{Path, State},
     http::{HeaderMap, HeaderValue},
     response::IntoResponse,
@@ -20,24 +20,26 @@ use cb_common::{
     pbs::{
         GetExecutionPayloadBidInfo, GetExecutionPayloadBidParams, GetExecutionPayloadBidResponse,
         HEADER_BUILDER_URL, HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS, RelayClient,
-        SignedRequestAuthV1,
+        SignedExecutionPayloadBid, SignedRequestAuthV1,
         error::{PbsError, ValidationError},
     },
     signature::verify_execution_payload_bid_signature,
     types::{BlsPublicKey, BlsSignature},
     utils::{ms_into_slot, utcnow_ms},
     wire::{
-        AcceptedEncodingsError, CONSENSUS_VERSION_HEADER, EncodingType, get_accept_types,
-        get_user_agent, get_user_agent_with_version, safe_read_http_response,
+        AcceptedEncodings, AcceptedEncodingsError, BodyDeserializeError, CONSENSUS_VERSION_HEADER,
+        EncodingType, build_outbound_accept, content_type_encoding, get_accept_types_with_default,
+        get_user_agent, get_user_agent_with_version, parse_response_encoding_and_fork,
+        safe_read_http_response,
     },
 };
 use futures::future::join_all;
 use parking_lot::RwLock;
 use reqwest::{
     StatusCode,
-    header::{CONTENT_TYPE, USER_AGENT},
+    header::{ACCEPT, CONTENT_TYPE, USER_AGENT},
 };
-use ssz::Encode;
+use ssz::{Decode, Encode};
 use tokio::time::sleep;
 use tracing::{Instrument, debug, error, info, warn};
 use tree_hash::TreeHash;
@@ -57,13 +59,42 @@ use crate::{
     utils::check_gas_limit,
 };
 
+/// Decode the optional `SignedRequestAuthV1` request body. Empty body -> None.
+/// An explicit `Content-Type` is obeyed (JSON or SSZ); when NO `Content-Type`
+/// header is present the no-preference default is SSZ (this endpoint is
+/// SSZ-by-default), unlike the JSON-default legacy paths.
+///
+/// NOTE: `RequestAuthV1` is not fork-versioned, so unlike submit_block we do
+/// NOT require `Eth-Consensus-Version` to decode the SSZ form.
+/// If the container ever gains fork variants, require the header.
+fn decode_request_auth(
+    headers: &HeaderMap,
+    body: &Bytes,
+) -> Result<Option<SignedRequestAuthV1>, BodyDeserializeError> {
+    if body.is_empty() {
+        return Ok(None);
+    }
+    // No-preference default is SSZ here; an explicit Content-Type still wins.
+    let encoding = match headers.get(CONTENT_TYPE) {
+        None => EncodingType::Ssz,
+        Some(_) => content_type_encoding(headers)?,
+    };
+    let auth = match encoding {
+        EncodingType::Json => serde_json::from_slice::<SignedRequestAuthV1>(body.as_ref())
+            .map_err(BodyDeserializeError::SerdeJsonError)?,
+        EncodingType::Ssz => SignedRequestAuthV1::from_ssz_bytes(body.as_ref())
+            .map_err(BodyDeserializeError::SszDecodeError)?,
+    };
+    Ok(Some(auth))
+}
+
 pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
     State(state): State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
     Path(params): Path<GetExecutionPayloadBidParams>,
-    body: Option<Json<Arc<SignedRequestAuthV1>>>,
+    body: Bytes,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    let body = body.map(|Json(auth)| auth);
+    let body = decode_request_auth(&req_headers, &body)?.map(Arc::new);
     tracing::Span::current().record("slot", params.slot);
     tracing::Span::current().record("parent_hash", tracing::field::debug(params.parent_hash));
     tracing::Span::current().record("parent_root", tracing::field::debug(params.parent_root));
@@ -80,7 +111,9 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
 
     // Parse Accept before req_headers is consumed below; server tiebreak = SSZ.
-    let response_encoding = get_accept_types(&req_headers)
+    // No-preference (absent Accept / wildcard) defaults to SSZ; an explicit
+    // Accept header is still obeyed.
+    let response_encoding = get_accept_types_with_default(&req_headers, EncodingType::Ssz)
         .inspect_err(|err| error!(%err, "error parsing accept header"))?
         .preferred(&[EncodingType::Ssz, EncodingType::Json]);
 
@@ -232,6 +265,21 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
         USER_AGENT,
         get_user_agent_with_version(&req_headers).map_err(|_| PbsClientError::Internal)?,
     );
+
+    // Forward the caller's Accept preference to the relay so it returns the
+    // format the BN wants, avoiding a decode->re-encode. No-preference defaults
+    // to SSZ (this endpoint is SSZ-by-default). Always offer both encodings as
+    // fallback so a format-limited relay still returns a bid.
+    let caller_accept = get_accept_types_with_default(&req_headers, EncodingType::Ssz)
+        .map_err(|_| PbsClientError::Internal)?;
+    let relay_accept = AcceptedEncodings {
+        primary: caller_accept.primary,
+        fallback: Some(match caller_accept.primary {
+            EncodingType::Ssz => EncodingType::Json,
+            EncodingType::Json => EncodingType::Ssz,
+        }),
+    };
+    send_headers.insert(ACCEPT, build_outbound_accept(relay_accept));
 
     let mut handles = Vec::with_capacity(relays.len());
     for &relay in relays.iter() {
@@ -496,14 +544,20 @@ async fn send_one_get_execution_payload_bid(
     req_config.headers.insert(HEADER_TIMEOUT_MS, HeaderValue::from(req_config.timeout_ms));
 
     let start_request = Instant::now();
-    // Only attach a JSON body when the caller supplied a request auth
+    // Only attach a body when the caller supplied a request auth
     let request = relay
         .client
         .post(req_config.url)
         .timeout(Duration::from_millis(req_config.timeout_ms))
         .headers(req_config.headers);
+    // This is a new endpoint, so every builder is expected to implement SSZ; we
+    // therefore send the request body in SSZ (the most performant encoding)
+    // unconditionally rather than negotiating it. The response encoding still
+    // honors what the beacon node asked for via its Accept header.
     let request = match body.as_ref() {
-        Some(auth) => request.json(auth),
+        Some(auth) => request
+            .header(CONTENT_TYPE, EncodingType::Ssz.content_type_header().clone())
+            .body(auth.as_ssz_bytes()),
         None => request,
     };
     let res = match request.send().await {
@@ -524,6 +578,16 @@ async fn send_one_get_execution_payload_bid(
     let code = res.status();
     RELAY_STATUS_CODE.with_label_values(&[code.as_str(), GET_HEADER_ENDPOINT_TAG, &relay.id]).inc();
 
+    // Parse the negotiated Content-Type (and optional fork) before the body is
+    // consumed. Only successful responses carry a meaningful encoding; on
+    // non-success we fall through to safe_read_http_response's NonSuccess error,
+    // so these values are never consumed.
+    let (content_type, fork) = if code.is_success() {
+        parse_response_encoding_and_fork(res.headers(), code.as_u16())?
+    } else {
+        (EncodingType::Json, None)
+    };
+
     let response_bytes = safe_read_http_response(res, MAX_SIZE_GET_HEADER_RESPONSE).await?;
     let header_size_bytes = response_bytes.len();
     if code == StatusCode::NO_CONTENT {
@@ -537,16 +601,32 @@ async fn send_one_get_execution_payload_bid(
         return Ok((start_request_time, None));
     }
 
-    let get_header_response =
-        match serde_json::from_slice::<GetExecutionPayloadBidResponse>(&response_bytes) {
-            Ok(parsed) => parsed,
-            Err(err) => {
-                return Err(PbsError::JsonDecode {
-                    err,
-                    raw: String::from_utf8_lossy(&response_bytes).into_owned(),
-                });
+    let get_header_response = match content_type {
+        EncodingType::Json => {
+            match serde_json::from_slice::<GetExecutionPayloadBidResponse>(&response_bytes) {
+                Ok(parsed) => parsed,
+                Err(err) => {
+                    return Err(PbsError::JsonDecode {
+                        err,
+                        raw: String::from_utf8_lossy(&response_bytes).into_owned(),
+                    });
+                }
             }
-        };
+        }
+        EncodingType::Ssz => {
+            // SSZ requires the fork from Eth-Consensus-Version; its absence is a
+            // relay protocol violation.
+            let fork = fork.ok_or_else(|| PbsError::RelayResponse {
+                error_msg: "relay did not provide consensus version header for ssz payload"
+                    .to_string(),
+                code: code.as_u16(),
+            })?;
+            let data = SignedExecutionPayloadBid::from_ssz_bytes(&response_bytes).map_err(|e| {
+                PbsError::SSZDecode { err: format!("error decoding relay payload: {e:?}"), fork }
+            })?;
+            GetExecutionPayloadBidResponse { version: fork, data, metadata: Default::default() }
+        }
+    };
 
     info!(
         relay_id = relay.id.as_ref(),

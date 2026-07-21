@@ -43,7 +43,7 @@ use cb_common::{
 use cb_pbs::MAX_SIZE_SUBMIT_BLOCK_RESPONSE;
 use lh_types::{KzgProof, Slot};
 use reqwest::header::{ACCEPT, CONTENT_TYPE};
-use ssz::Encode;
+use ssz::{Decode, Encode};
 use tokio::net::TcpListener;
 use tracing::{debug, error};
 use tree_hash::TreeHash;
@@ -109,6 +109,10 @@ pub struct MockRelayState {
     epbs_invalid_signature: bool,
     epbs_wrong_parent_hash: bool,
     epbs_wrong_parent_root: bool,
+    /// When true, `handle_get_execution_payload_bid` omits the
+    /// `Eth-Consensus-Version` header on an SSZ 200. Drives the PBS error path
+    /// for an SSZ bid response that lacks the fork header.
+    epbs_omit_consensus_version: bool,
 }
 
 impl MockRelayState {
@@ -182,6 +186,7 @@ impl MockRelayState {
             epbs_invalid_signature: false,
             epbs_wrong_parent_hash: false,
             epbs_wrong_parent_root: false,
+            epbs_omit_consensus_version: false,
             supported_content_types: Arc::new(
                 [EncodingType::Json, EncodingType::Ssz].iter().cloned().collect(),
             ),
@@ -255,6 +260,29 @@ impl MockRelayState {
     pub fn with_epbs_wrong_parent_root(self) -> Self {
         Self { epbs_wrong_parent_root: true, ..self }
     }
+
+    /// Restrict this relay to SSZ responses on the bid endpoint, so the bid
+    /// 200 is served as SSZ regardless of the caller's fallback preference.
+    pub fn with_ssz_only_response(self) -> Self {
+        Self {
+            supported_content_types: Arc::new([EncodingType::Ssz].into_iter().collect()),
+            ..self
+        }
+    }
+
+    /// Restrict this relay to JSON responses on the bid endpoint.
+    pub fn with_json_only_response(self) -> Self {
+        Self {
+            supported_content_types: Arc::new([EncodingType::Json].into_iter().collect()),
+            ..self
+        }
+    }
+
+    /// Serve an SSZ bid 200 WITHOUT the `Eth-Consensus-Version` header, to
+    /// exercise the PBS missing-fork error path on the outbound SSZ decode.
+    pub fn with_epbs_omit_consensus_version(self) -> Self {
+        Self { epbs_omit_consensus_version: true, ..self }
+    }
 }
 
 pub fn mock_relay_app_router(state: Arc<MockRelayState>) -> Router {
@@ -280,11 +308,21 @@ pub fn mock_relay_app_router(state: Arc<MockRelayState>) -> Router {
 async fn handle_get_execution_payload_bid(
     State(state): State<Arc<MockRelayState>>,
     Path((slot, parent_hash, parent_root, _pubkey)): Path<(u64, B256, B256, BlsPublicKey)>,
-    auth: Option<Json<SignedRequestAuthV1>>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
 ) -> Response {
     state.received_execution_payload_bid.fetch_add(1, Ordering::Relaxed);
-    if let Some(Json(auth)) = auth {
-        *state.received_auth_data.write().unwrap() = Some(auth.message.data.to_vec());
+    // Decode the optional request auth the way a real builder does: Content-Type
+    // selects JSON vs SSZ. RequestAuthV1 is not fork-versioned, so no
+    // Eth-Consensus-Version header is needed to decode the SSZ form.
+    if !body.is_empty() {
+        let auth = match get_content_type(&headers) {
+            EncodingType::Ssz => SignedRequestAuthV1::from_ssz_bytes(&body).ok(),
+            EncodingType::Json => serde_json::from_slice::<SignedRequestAuthV1>(&body).ok(),
+        };
+        if let Some(auth) = auth {
+            *state.received_auth_data.write().unwrap() = Some(auth.message.data.to_vec());
+        }
     }
 
     if state.epbs_no_bid {
@@ -329,12 +367,58 @@ async fn handle_get_execution_payload_bid(
         )
     };
 
-    let response = GetExecutionPayloadBidResponse {
-        version: ForkName::Gloas,
-        data: SignedExecutionPayloadBid { message, signature },
-        metadata: Default::default(),
+    let data = SignedExecutionPayloadBid { message, signature };
+
+    // Negotiate the RESPONSE encoding from the forwarded Accept, mirroring
+    // handle_get_header: honor supported_content_types + the caller's Accept.
+    let accept_types = match get_accept_types(&headers) {
+        Ok(a) => a,
+        Err(e) => {
+            return (StatusCode::BAD_REQUEST, format!("error parsing accept header: {e}"))
+                .into_response();
+        }
     };
-    (StatusCode::OK, Json(response)).into_response()
+    let content_type = if state.supported_content_types.contains(&EncodingType::Ssz) &&
+        accept_types.contains(EncodingType::Ssz)
+    {
+        EncodingType::Ssz
+    } else if state.supported_content_types.contains(&EncodingType::Json) &&
+        accept_types.contains(EncodingType::Json)
+    {
+        EncodingType::Json
+    } else {
+        return (StatusCode::NOT_ACCEPTABLE, "No acceptable content type found".to_string())
+            .into_response();
+    };
+
+    let response_body = match content_type {
+        // SSZ carries the inner bid; the fork travels in Eth-Consensus-Version.
+        EncodingType::Ssz => data.as_ssz_bytes(),
+        // JSON carries the fork-versioned wrapper (fork is in the body).
+        EncodingType::Json => {
+            let versioned = GetExecutionPayloadBidResponse {
+                version: ForkName::Gloas,
+                data,
+                metadata: Default::default(),
+            };
+            serde_json::to_vec(&versioned).unwrap()
+        }
+    };
+
+    let mut response = (StatusCode::OK, response_body).into_response();
+    // A real builder tags the 200 with the fork so a client can decode the
+    // (non-self-describing) SSZ bytes. The omit knob drives the PBS
+    // "SSZ response missing Eth-Consensus-Version" error path.
+    if !state.epbs_omit_consensus_version {
+        response.headers_mut().insert(
+            CONSENSUS_VERSION_HEADER,
+            HeaderValue::from_str(&ForkName::Gloas.to_string()).unwrap(),
+        );
+    }
+    response
+        .headers_mut()
+        .insert(CONTENT_TYPE, HeaderValue::from_str(&content_type.to_string()).unwrap());
+    response
 }
 
 async fn handle_get_header(

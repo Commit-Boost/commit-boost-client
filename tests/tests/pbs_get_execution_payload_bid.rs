@@ -24,7 +24,7 @@ use cb_tests::{
 use eyre::Result;
 use lh_types::Slot;
 use reqwest::{StatusCode, header::CONTENT_TYPE};
-use ssz::Decode;
+use ssz::{Decode, Encode};
 use tracing::info;
 use tree_hash::TreeHash;
 
@@ -517,6 +517,179 @@ async fn test_get_execution_payload_bid_ssz_response() -> Result<()> {
     Ok(())
 }
 
+/// With NO Accept header the response defaults to SSZ (this endpoint is
+/// SSZ-by-default): the 200 carries Content-Type: application/octet-stream and
+/// the body SSZ-decodes to a SignedExecutionPayloadBid. Proves the
+/// no-preference tiebreak is SSZ, not the legacy JSON default.
+#[tokio::test]
+async fn test_get_execution_payload_bid_no_accept_defaults_to_ssz() -> Result<()> {
+    setup_test_env();
+    let chain = Chain::Hoodi;
+    let pbs_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr()?.port();
+    let relay_listener = get_free_listener().await;
+    let relay_port = relay_listener.local_addr()?.port();
+
+    let mock_state = Arc::new(MockRelayState::new(chain, random_secret()));
+    let mock_relay = generate_mock_relay(relay_port, mock_state.signer.public_key())?;
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
+
+    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay]);
+    let state = PbsState::new(config, PathBuf::new());
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
+
+    let mock_validator = MockValidator::new(pbs_port)?;
+    wait_for_ready(&mock_validator).await?;
+
+    // An empty accept vec makes MockValidator send NO Accept header at all.
+    let res = mock_validator
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, None, vec![])
+        .await?;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let content_type =
+        res.headers().get(CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or_default();
+    assert_eq!(content_type, EncodingType::Ssz.to_string(), "no Accept header must default to SSZ");
+
+    let bid = SignedExecutionPayloadBid::from_ssz_bytes(&res.bytes().await?)
+        .expect("body must SSZ-decode to a SignedExecutionPayloadBid");
+    assert_ne!(bid.message.block_hash.0, B256::ZERO);
+    assert_eq!(bid.message.slot.as_u64(), TEST_SLOT);
+    Ok(())
+}
+
+/// An explicit `Accept: application/json` is still obeyed even though the
+/// endpoint defaults to SSZ when no preference is expressed. The 200 is JSON
+/// and decodes to a GetExecutionPayloadBidResponse. The relay is JSON-only so
+/// this also covers the JSON relay-leg decode path end to end.
+#[tokio::test]
+async fn test_get_execution_payload_bid_explicit_json_obeyed() -> Result<()> {
+    setup_test_env();
+    let chain = Chain::Hoodi;
+    let pbs_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr()?.port();
+    let relay_listener = get_free_listener().await;
+    let relay_port = relay_listener.local_addr()?.port();
+
+    let mock_state =
+        Arc::new(MockRelayState::new(chain, random_secret()).with_json_only_response());
+    let mock_relay = generate_mock_relay(relay_port, mock_state.signer.public_key())?;
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
+
+    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay]);
+    let state = PbsState::new(config, PathBuf::new());
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
+
+    let mock_validator = MockValidator::new(pbs_port)?;
+    wait_for_ready(&mock_validator).await?;
+
+    let res = mock_validator
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, None, vec![
+            EncodingType::Json,
+        ])
+        .await?;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let content_type =
+        res.headers().get(CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or_default();
+    assert_eq!(
+        content_type,
+        EncodingType::Json.to_string(),
+        "explicit Accept: application/json must be obeyed over the SSZ default"
+    );
+
+    let decoded = serde_json::from_slice::<GetExecutionPayloadBidResponse>(&res.bytes().await?)?;
+    assert_eq!(decoded.slot(), TEST_SLOT);
+    assert_ne!(decoded.block_hash(), B256::ZERO);
+    Ok(())
+}
+
+/// End-to-end outbound SSZ decode: the relay serves the bid as SSZ (with the
+/// Eth-Consensus-Version header), PBS decodes it on the relay leg and returns
+/// 200 with the correct bid. A decode failure would drop the only relay and
+/// yield 204, so a 200 with matching fields proves the SSZ relay-response
+/// decode path actually ran.
+#[tokio::test]
+async fn test_get_execution_payload_bid_relay_ssz_response_roundtrip() -> Result<()> {
+    setup_test_env();
+    let chain = Chain::Hoodi;
+    let pbs_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr()?.port();
+    let relay_listener = get_free_listener().await;
+    let relay_port = relay_listener.local_addr()?.port();
+
+    // Relay serves ONLY SSZ, so PBS must decode the SSZ bid on the relay leg.
+    let mock_state = Arc::new(
+        MockRelayState::new(chain, random_secret())
+            .with_ssz_only_response()
+            .with_trustless_bid_gwei(42),
+    );
+    let mock_relay = generate_mock_relay(relay_port, mock_state.signer.public_key())?;
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
+
+    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay]);
+    let state = PbsState::new(config, PathBuf::new());
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
+
+    let mock_validator = MockValidator::new(pbs_port)?;
+    wait_for_ready(&mock_validator).await?;
+
+    // BN asks for JSON; PBS decodes SSZ from the relay and re-encodes to JSON.
+    let res = mock_validator
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, None, vec![
+            EncodingType::Json,
+        ])
+        .await?;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(mock_state.received_execution_payload_bid(), 1);
+
+    let decoded = serde_json::from_slice::<GetExecutionPayloadBidResponse>(&res.bytes().await?)?;
+    assert_eq!(decoded.slot(), TEST_SLOT);
+    assert_eq!(decoded.value(), 42, "bid value must survive the SSZ relay-leg round-trip");
+    assert_ne!(decoded.block_hash(), B256::ZERO);
+    Ok(())
+}
+
+/// The relay serves an SSZ bid 200 WITHOUT the Eth-Consensus-Version header.
+/// PBS cannot decode the (non-self-describing) SSZ without the fork, so it
+/// surfaces a clean PbsError and drops the bid rather than returning a bogus
+/// 200 or panicking. With a single relay this drop yields a 204 to the BN.
+#[tokio::test]
+async fn test_get_execution_payload_bid_relay_ssz_missing_version_header() -> Result<()> {
+    setup_test_env();
+    let chain = Chain::Hoodi;
+    let pbs_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr()?.port();
+    let relay_listener = get_free_listener().await;
+    let relay_port = relay_listener.local_addr()?.port();
+
+    let mock_state = Arc::new(
+        MockRelayState::new(chain, random_secret())
+            .with_ssz_only_response()
+            .with_epbs_omit_consensus_version(),
+    );
+    let mock_relay = generate_mock_relay(relay_port, mock_state.signer.public_key())?;
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
+
+    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay]);
+    let state = PbsState::new(config, PathBuf::new());
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
+
+    let mock_validator = MockValidator::new(pbs_port)?;
+    wait_for_ready(&mock_validator).await?;
+
+    let res = mock_validator
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, None, vec![])
+        .await?;
+    // The relay was contacted, but its undecodable SSZ bid was dropped.
+    assert_eq!(mock_state.received_execution_payload_bid(), 1);
+    // Never a bogus 200; the response exists (no panic). Single dropped relay ->
+    // 204.
+    assert_ne!(res.status(), StatusCode::OK, "an undecodable SSZ bid must not yield 200");
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    Ok(())
+}
+
 /// An unsupported Accept type is rejected with 406 before any relay is queried
 /// (a typed error, not a 500).
 #[tokio::test]
@@ -557,6 +730,104 @@ async fn test_get_execution_payload_bid_unsupported_accept_406() -> Result<()> {
         .await?;
     assert_eq!(res.status(), StatusCode::NOT_ACCEPTABLE);
     assert_eq!(mock_state.received_execution_payload_bid(), 0, "406 short-circuits before relays");
+    Ok(())
+}
+
+/// An SSZ-encoded auth body (application/octet-stream) is decoded and forwarded
+/// to the relay, same as JSON.
+#[tokio::test]
+async fn test_get_execution_payload_bid_ssz_auth_forwarded() -> Result<()> {
+    setup_test_env();
+    let chain = Chain::Hoodi;
+    let pbs_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr()?.port();
+    let relay_listener = get_free_listener().await;
+    let relay_port = relay_listener.local_addr()?.port();
+
+    let mock_state = Arc::new(MockRelayState::new(chain, random_secret()));
+    let mock_relay = generate_mock_relay(relay_port, mock_state.signer.public_key())?;
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
+
+    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay]);
+    let state = PbsState::new(config, PathBuf::new());
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
+
+    let mock_validator = MockValidator::new(pbs_port)?;
+    wait_for_ready(&mock_validator).await?;
+
+    let data = vec![0xde, 0xad, 0xbe, 0xef];
+    let ssz_body = opaque_auth(&data, TEST_SLOT).as_ssz_bytes();
+    let url = format!(
+        "{}eth/v1/builder/execution_payload_bid/{}/{}/{}/{}",
+        mock_validator.comm_boost.config.entry.url,
+        TEST_SLOT,
+        B256::ZERO,
+        B256::ZERO,
+        "0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae",
+    );
+    let res = mock_validator
+        .comm_boost
+        .client
+        .post(url)
+        .header(CONTENT_TYPE, "application/octet-stream")
+        .body(ssz_body)
+        .send()
+        .await?;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(mock_state.received_auth_data(), Some(data), "relay must receive the decoded auth");
+    Ok(())
+}
+
+/// A present-but-malformed auth body is rejected with 400 and an ErrorMessage
+/// JSON body, before any relay is queried.
+#[tokio::test]
+async fn test_get_execution_payload_bid_malformed_auth_400() -> Result<()> {
+    setup_test_env();
+    let chain = Chain::Hoodi;
+    let pbs_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr()?.port();
+    let relay_listener = get_free_listener().await;
+    let relay_port = relay_listener.local_addr()?.port();
+
+    let mock_state = Arc::new(MockRelayState::new(chain, random_secret()));
+    let mock_relay = generate_mock_relay(relay_port, mock_state.signer.public_key())?;
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
+
+    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay]);
+    let state = PbsState::new(config, PathBuf::new());
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
+
+    let mock_validator = MockValidator::new(pbs_port)?;
+    wait_for_ready(&mock_validator).await?;
+
+    let url = format!(
+        "{}eth/v1/builder/execution_payload_bid/{}/{}/{}/{}",
+        mock_validator.comm_boost.config.entry.url,
+        TEST_SLOT,
+        B256::ZERO,
+        B256::ZERO,
+        "0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae",
+    );
+    let res = mock_validator
+        .comm_boost
+        .client
+        .post(url)
+        .header(CONTENT_TYPE, "application/json")
+        .body(vec![0xff, 0x00, 0x99])
+        .send()
+        .await?;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        mock_state.received_execution_payload_bid(),
+        0,
+        "malformed auth rejected before relays"
+    );
+    let body: serde_json::Value = serde_json::from_slice(&res.bytes().await?)?;
+    assert_eq!(body["code"], 400);
+    assert!(
+        body["message"].as_str().unwrap_or_default().contains("decoding"),
+        "error body must be an ErrorMessage describing the decode failure"
+    );
     Ok(())
 }
 
