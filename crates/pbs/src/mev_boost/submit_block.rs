@@ -221,8 +221,19 @@ async fn send_submit_block(
     // Extract the info needed for validation
     let got_block_hash = response.data.execution_payload.block_hash().0;
 
-    // request has different type so cant be deserialized in the wrong version,
-    // response has a "version" field
+    // Reject if response's fork mismatches BlindedBeaconBlock's fork
+    let expected_fork = match &proposal_info.signed_blinded_block.message() {
+        BlindedBeaconBlock::Electra(_) => ForkName::Electra,
+        BlindedBeaconBlock::Fulu(_) => ForkName::Fulu,
+        _ => return Err(PbsError::Validation(ValidationError::UnsupportedFork)),
+    };
+    if response.version != expected_fork {
+        return Err(PbsError::Validation(ValidationError::ForkMismatch {
+            expected: expected_fork,
+            got: response.version,
+        }));
+    }
+
     match &proposal_info.signed_blinded_block.message() {
         BlindedBeaconBlock::Electra(blinded_block) => {
             let expected_block_hash =
@@ -234,7 +245,7 @@ async fn send_submit_block(
                 got_block_hash,
                 expected_commitments,
                 &response.data.blobs_bundle,
-                response.version,
+                expected_fork,
             )
         }
 
@@ -248,7 +259,7 @@ async fn send_submit_block(
                 got_block_hash,
                 expected_commitments,
                 &response.data.blobs_bundle,
-                response.version,
+                expected_fork,
             )
         }
 
@@ -525,12 +536,6 @@ fn validate_unblinded_block(
     fork_name: ForkName,
 ) -> Result<(), PbsError> {
     match fork_name {
-        ForkName::Base |
-        ForkName::Altair |
-        ForkName::Bellatrix |
-        ForkName::Capella |
-        ForkName::Deneb |
-        ForkName::Gloas => Err(PbsError::Validation(ValidationError::UnsupportedFork)),
         ForkName::Electra => validate_unblinded_block_electra(
             expected_block_hash,
             got_block_hash,
@@ -543,6 +548,7 @@ fn validate_unblinded_block(
             expected_commitments,
             blobs_bundle,
         ),
+        _ => Err(PbsError::Validation(ValidationError::UnsupportedFork)),
     }
 }
 

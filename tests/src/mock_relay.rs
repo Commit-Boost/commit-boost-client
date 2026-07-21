@@ -8,7 +8,10 @@ use std::{
     time::Duration,
 };
 
-use alloy::{primitives::U256, rpc::types::beacon::relay::ValidatorRegistration};
+use alloy::{
+    eips::eip7594::CELLS_PER_EXT_BLOB, primitives::U256,
+    rpc::types::beacon::relay::ValidatorRegistration,
+};
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -76,6 +79,10 @@ pub struct MockRelayState {
     /// negotiated via `Accept`. Used to exercise PBS tolerance of
     /// MIME-parameter suffixes like `application/octet-stream; charset=binary`.
     response_content_type_override: Option<String>,
+    /// If set, `handle_submit_block_v1` labels its JSON response with this fork
+    /// in the `version` field instead of the request's fork. Used to drive the
+    /// fork-mismatch rejection test
+    submit_block_version_override: Option<ForkName>,
     received_get_header: Arc<AtomicU64>,
     received_get_status: Arc<AtomicU64>,
     received_register_validator: Arc<AtomicU64>,
@@ -112,6 +119,9 @@ impl MockRelayState {
     pub fn response_content_type_override(&self) -> Option<&str> {
         self.response_content_type_override.as_deref()
     }
+    pub fn submit_block_version_override(&self) -> Option<ForkName> {
+        self.submit_block_version_override
+    }
     pub fn set_response_override(&self, status: StatusCode) {
         *self.response_override.write().unwrap() = Some(status);
     }
@@ -127,6 +137,7 @@ impl MockRelayState {
             use_not_found_for_submit_block: false,
             submit_block_ssz_status_override: None,
             response_content_type_override: None,
+            submit_block_version_override: None,
             received_get_header: Default::default(),
             received_get_status: Default::default(),
             received_register_validator: Default::default(),
@@ -173,6 +184,13 @@ impl MockRelayState {
     /// suffixes (e.g. `application/octet-stream; charset=binary`).
     pub fn with_response_content_type(self, raw_content_type: impl Into<String>) -> Self {
         Self { response_content_type_override: Some(raw_content_type.into()), ..self }
+    }
+
+    /// Make `handle_submit_block_v1` label its JSON response with `fork` in the
+    /// `version` field, regardless of the request's fork. Used to exercise the
+    /// PBS fork-mismatch rejection.
+    pub fn with_submit_block_version(self, fork: ForkName) -> Self {
+        Self { submit_block_version_override: Some(fork), ..self }
     }
 }
 
@@ -366,7 +384,17 @@ async fn handle_submit_block_v1(
         blobs_bundle.blobs.push(Default::default()).unwrap();
         blobs_bundle.commitments =
             submit_block.as_electra().unwrap().message.body.blob_kzg_commitments.clone();
-        blobs_bundle.proofs.push(KzgProof([0; 48])).unwrap();
+        // Emit a proof layout matching the fork we label the response with, so a
+        // mismatch-labelled response still passes that fork's blob validation and
+        // the only thing left to reject it is the fork check itself. Electra uses
+        // one proof per blob; Fulu uses CELLS_PER_EXT_BLOB per blob.
+        let proofs_per_blob = match state.submit_block_version_override() {
+            Some(ForkName::Fulu) => CELLS_PER_EXT_BLOB,
+            _ => 1,
+        };
+        for _ in 0..(blobs_bundle.blobs.len() * proofs_per_blob) {
+            blobs_bundle.proofs.push(KzgProof([0; 48])).unwrap();
+        }
 
         let response =
             PayloadAndBlobs { execution_payload: execution_payload.into(), blobs_bundle };
@@ -376,7 +404,7 @@ async fn handle_submit_block_v1(
         } else {
             // Return JSON for everything else; this is fine for the mock
             let response = SubmitBlindedBlockResponse {
-                version: ForkName::Electra,
+                version: state.submit_block_version_override().unwrap_or(ForkName::Electra),
                 metadata: Default::default(),
                 data: response,
             };

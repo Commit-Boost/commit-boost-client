@@ -281,6 +281,55 @@ async fn test_submit_block_too_large() -> Result<()> {
     Ok(())
 }
 
+// A relay must not be able to have its response validated, or its version
+// header forwarded to the beacon node, under a fork other than the one the
+// request was for. Here the relay answers an Electra request but labels the
+// JSON response Fulu; PBS must reject it rather than trust the relay-controlled
+// version.
+#[tokio::test]
+async fn test_submit_block_rejects_fork_mismatch() -> Result<()> {
+    setup_test_env();
+    let signer = random_secret();
+    let pubkey = signer.public_key();
+    let chain = Chain::Holesky;
+    let pbs_listener = get_free_listener().await;
+    let relay_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr().unwrap().port();
+    let relay_port = relay_listener.local_addr().unwrap().port();
+
+    let mock_relay = generate_mock_relay(relay_port, pubkey)?;
+    let mut mock_relay_state =
+        MockRelayState::new(chain, signer).with_submit_block_version(ForkName::Fulu);
+    // JSON-only so the response parses cleanly and the rejection is on the fork
+    // mismatch, not an SSZ decode error.
+    mock_relay_state.supported_content_types = Arc::new(HashSet::from([EncodingType::Json]));
+    let mock_state = Arc::new(mock_relay_state);
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
+
+    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay]);
+    let state = PbsState::new(config, PathBuf::new());
+    drop(pbs_listener);
+    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let mock_validator = MockValidator::new(pbs_port)?;
+    let res = mock_validator
+        .do_submit_block_v1(
+            Some(load_test_signed_blinded_block()),
+            vec![EncodingType::Json],
+            EncodingType::Json,
+            ForkName::Electra,
+        )
+        .await?;
+
+    // The relay was reached (SSZ attempt 415s on this JSON-only relay, then a
+    // JSON retry carries the mismatched version), but the fork-mismatched
+    // response is rejected rather than trusted.
+    assert_eq!(mock_state.received_submit_block(), 2);
+    assert_eq!(res.status(), StatusCode::BAD_GATEWAY);
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn submit_block_impl(
     api_version: BuilderApiVersion,

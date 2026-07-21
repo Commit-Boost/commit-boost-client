@@ -119,6 +119,9 @@ pub enum ValidationError {
 
     #[error("unsupported fork")]
     UnsupportedFork,
+
+    #[error("fork mismatch: request is {expected} but relay response is {got}")]
+    ForkMismatch { expected: ForkName, got: ForkName },
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
