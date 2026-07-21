@@ -1,3 +1,4 @@
+
 // @ts-check
 // `@type` JSDoc annotations allow editor autocompletion and type checking
 // (when paired with `@ts-check`).
@@ -5,6 +6,7 @@
 // See: https://docusaurus.io/docs/api/docusaurus-config
 
 import { themes as prismThemes } from 'prism-react-renderer';
+import path from 'path';
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
@@ -26,9 +28,12 @@ const config = {
   onBrokenLinks: 'throw',
   onBrokenMarkdownLinks: 'warn',
 
-  // Even if you don't use internationalization, you can use this field to set
-  // useful metadata like html lang. For example, if your site is Chinese, you
-  // may want to replace "en" with "zh-Hans".
+  customFields: {
+    // Keep in sync with lastVersion below: the homepage meta-refresh
+    // (src/pages/index.js) redirects to this version's docs
+    latestVersion: '0.9.6',
+  },
+
   i18n: {
     defaultLocale: 'en',
     locales: ['en'],
@@ -40,12 +45,22 @@ const config = {
       /** @type {import('@docusaurus/preset-classic').Options} */
       ({
         docs: {
-          routeBasePath: '/',
+          routeBasePath: '/docs',
           sidebarPath: './sidebars.js',
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.
           editUrl:
             'https://github.com/Commit-Boost/commit-boost-client/tree/main/docs/',
+
+          versions: {
+              current: { label: 'Next', banner: 'unreleased' },
+              '0.10.0-rc4': { label: 'v0.10.0-rc4 (pre-release)', path: '0.10.0-rc4', banner: 'unreleased' },
+              '0.9.6': { label: 'v0.9.6 (stable)', path: '0.9.6' },
+            },
+            // Default version served at /docs/<path>; keep in sync with
+            // customFields.latestVersion above
+            lastVersion: '0.9.6',
+            includeCurrentVersion: true,
         },
         blog: false,
         theme: {
@@ -67,7 +82,8 @@ const config = {
           src: 'img/icon.png',
         },
         items: [
-          { to: '/', label: 'Docs', position: 'left' },
+          { type: 'docsVersion', label: 'Docs', position: 'left' },
+          { type: 'docsVersionDropdown', position: 'right' },
           { to: '/api', label: 'API', position: 'left' },
           {
             href: 'https://github.com/Commit-Boost/commit-boost-client',
@@ -110,6 +126,37 @@ const config = {
         additionalLanguages: ['bash','toml'],
       },
     }),
+
+  plugins: [
+    [
+      '@docusaurus/plugin-client-redirects',
+      {
+        // Docs used to live at the site root (routeBasePath '/'); redirect
+        // those published URLs to the same page in the default docs version
+        createRedirects(existingPath) {
+          const defaultPrefix = '/docs/0.9.6/';
+          if (existingPath.startsWith(defaultPrefix)) {
+            return [existingPath.replace(defaultPrefix, '/')];
+          }
+          return [];
+        },
+      },
+    ],
+    function webpackAliasPlugin() {
+      return {
+        name: 'webpack-alias-plugin',
+        configureWebpack() {
+          return {
+            resolve: {
+              alias: {
+                '@signer-api-spec': path.resolve(__dirname, '..', 'api', 'signer-api.yml'),
+              },
+            },
+          };
+        },
+      };
+    },
+  ],
 };
 
 export default config;
