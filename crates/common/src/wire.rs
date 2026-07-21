@@ -294,11 +294,10 @@ fn format_accept_entry(enc: EncodingType, q: f32) -> String {
     format!("{};q={:.1}", enc.content_type(), q)
 }
 
-/// Build an `Accept` header that mirrors the caller's preference order
-/// so the relay sees the same priority the beacon node asked us for. Each
-/// subsequent entry receives a q-value 0.1 lower than the previous one,
-/// starting at 1.0. Returns a ready-to-use `HeaderValue` — the output is
-/// always valid ASCII, so infallible.
+/// Build an `Accept` header listing the given encodings in preference order:
+/// the first entry gets q=1.0 and each subsequent one a q-value 0.1 lower.
+/// Returns a ready-to-use `HeaderValue` — the output is always valid ASCII, so
+/// infallible.
 pub fn build_outbound_accept(preferred: AcceptedEncodings) -> HeaderValue {
     let s = preferred
         .iter()
