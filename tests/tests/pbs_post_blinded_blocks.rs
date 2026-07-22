@@ -372,6 +372,73 @@ async fn test_submit_block_v2_ignores_unsupported_accept() -> Result<()> {
     Ok(())
 }
 
+/// Error responses on submit_block follow the Builder API `ErrorMessage`
+/// schema: JSON `{code, message}` with `application/json`, not plain text.
+#[tokio::test]
+async fn test_submit_block_error_response_is_json() -> Result<()> {
+    setup_test_env();
+    let signer = random_secret();
+    let pubkey = signer.public_key();
+    let chain = Chain::Holesky;
+    let pbs_listener = get_free_listener().await;
+    let relay_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr().unwrap().port();
+    let relay_port = relay_listener.local_addr().unwrap().port();
+
+    let mut mock_relay_state = MockRelayState::new(chain, signer);
+    mock_relay_state.supported_content_types =
+        Arc::new(HashSet::from([EncodingType::Ssz, EncodingType::Json]));
+    let mock_state = Arc::new(mock_relay_state);
+    let mock_relay = generate_mock_relay(relay_port, pubkey)?;
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
+
+    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay]);
+    let state = PbsState::new(config, PathBuf::new());
+    drop(pbs_listener);
+    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let mock_validator = MockValidator::new(pbs_port)?;
+
+    // Happy path: a valid v1 submit returns 200 with the payload (parses as the
+    // payload, which an error envelope would not).
+    let ok = mock_validator
+        .do_submit_block_v1(
+            Some(load_test_signed_blinded_block()),
+            vec![EncodingType::Json],
+            EncodingType::Json,
+            ForkName::Electra,
+        )
+        .await?;
+    assert_eq!(ok.status(), StatusCode::OK);
+    serde_json::from_slice::<SubmitBlindedBlockResponse>(&ok.bytes().await?)
+        .expect("happy response is the payload, not an error object");
+
+    // Unhappy path: an unrecognized request Content-Type must yield a spec JSON
+    // error (415).
+    let url = mock_validator.comm_boost.submit_block_url(BuilderApiVersion::V1).unwrap();
+    let body = serde_json::to_vec(&load_test_signed_blinded_block()).unwrap();
+    let err = mock_validator
+        .comm_boost
+        .client
+        .post(url)
+        .body(body)
+        .header(CONTENT_TYPE, "application/garbage")
+        .send()
+        .await?;
+
+    assert_eq!(err.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert_eq!(
+        err.headers().get(CONTENT_TYPE).and_then(|v| v.to_str().ok()),
+        Some("application/json"),
+        "error body must be JSON per the Builder API",
+    );
+    let json: serde_json::Value = err.json().await?;
+    assert_eq!(json["code"], 415);
+    assert!(json["message"].is_string(), "error must carry a message string");
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn submit_block_impl(
     api_version: BuilderApiVersion,
