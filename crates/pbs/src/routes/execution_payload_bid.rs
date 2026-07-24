@@ -23,8 +23,8 @@ use cb_common::{
         SignedRequestAuthV1,
         error::{PbsError, ValidationError},
     },
-    signature::verify_execution_payload_bid_signature,
-    types::{BlsPublicKey, BlsSignature},
+    signature::{verify_execution_payload_bid_signature, verify_request_auth_signature},
+    types::{BlsPublicKey, BlsSignature, Chain},
     utils::{ms_into_slot, utcnow_ms},
     wire::{
         AcceptedEncodings, AcceptedEncodingsError, BodyDeserializeError, CONSENSUS_VERSION_HEADER,
@@ -59,7 +59,8 @@ use crate::{
     utils::{check_gas_limit, match_relays_by_auth_data},
 };
 
-/// Decode the optional `SignedRequestAuthV1` request body. Empty body -> None.
+/// Decode the required `SignedRequestAuthV1` request body. The spec makes the
+/// body mandatory, so an empty one is a 400 like a malformed one.
 /// An explicit `Content-Type` is obeyed (JSON or SSZ); when NO `Content-Type`
 /// header is present the no-preference default is SSZ (this endpoint is
 /// SSZ-by-default), unlike the JSON-default legacy paths.
@@ -70,9 +71,9 @@ use crate::{
 fn decode_request_auth(
     headers: &HeaderMap,
     body: &Bytes,
-) -> Result<Option<SignedRequestAuthV1>, BodyDeserializeError> {
+) -> Result<SignedRequestAuthV1, BodyDeserializeError> {
     if body.is_empty() {
-        return Ok(None);
+        return Err(BodyDeserializeError::MissingBody);
     }
     // No-preference default is SSZ here; an explicit Content-Type still wins.
     let encoding = match headers.get(CONTENT_TYPE) {
@@ -85,7 +86,7 @@ fn decode_request_auth(
         EncodingType::Ssz => SignedRequestAuthV1::from_ssz_bytes(body.as_ref())
             .map_err(BodyDeserializeError::SszDecodeError)?,
     };
-    Ok(Some(auth))
+    Ok(auth)
 }
 
 pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
@@ -94,16 +95,14 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
     Path(params): Path<GetExecutionPayloadBidParams>,
     body: Bytes,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    let body = decode_request_auth(&req_headers, &body)?.map(Arc::new);
+    let body = Arc::new(decode_request_auth(&req_headers, &body)?);
     tracing::Span::current().record("slot", params.slot);
     tracing::Span::current().record("parent_hash", tracing::field::debug(params.parent_hash));
     tracing::Span::current().record("parent_root", tracing::field::debug(params.parent_root));
     tracing::Span::current().record("validator", tracing::field::debug(&params.proposer_pubkey));
-    if let Some(auth) = body.as_ref() {
-        tracing::Span::current()
-            .record("auth data", tracing::field::debug(&auth.message.data.to_vec()));
-        tracing::Span::current().record("auth signature", tracing::field::debug(&auth.signature));
-    }
+    tracing::Span::current()
+        .record("auth data", tracing::field::debug(&body.message.data.to_vec()));
+    tracing::Span::current().record("auth signature", tracing::field::debug(&body.signature));
 
     let state = state.read().clone();
 
@@ -189,19 +188,10 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
 /// with Internal (-> 500).
 pub async fn get_execution_payload_bid<S: BuilderApiState>(
     params: GetExecutionPayloadBidParams,
-    body: Option<Arc<SignedRequestAuthV1>>,
+    body: Arc<SignedRequestAuthV1>,
     req_headers: HeaderMap,
     state: PbsState<S>,
 ) -> Result<Option<GetExecutionPayloadBidResponse>, PbsClientError> {
-    let parent_block = Arc::new(RwLock::new(None));
-    if state.extra_validation_enabled() &&
-        let Some(rpc_url) = state.pbs_config().rpc_url.clone()
-    {
-        tokio::spawn(
-            fetch_parent_block(rpc_url, params.parent_hash, parent_block.clone()).in_current_span(),
-        );
-    }
-
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
     let (pbs_config, relays, maybe_mux_id) = state.mux_config_and_relays(&params.proposer_pubkey);
 
@@ -212,8 +202,20 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
         debug!(relays = relays.len(), pubkey = %params.proposer_pubkey, "using default config");
     }
 
-    let received_data: Option<&[u8]> = body.as_ref().map(|auth| auth.message.data.as_ref());
-    let relays = match_relays_by_auth_data(relays, received_data, pbs_config.strict_auth_data);
+    // Validate before any outbound work so a rejected request costs nothing
+    validate_request_auth(&body, &params, state.config.chain, pbs_config.verify_request_auth)?;
+
+    let parent_block = Arc::new(RwLock::new(None));
+    if state.extra_validation_enabled() &&
+        let Some(rpc_url) = state.pbs_config().rpc_url.clone()
+    {
+        tokio::spawn(
+            fetch_parent_block(rpc_url, params.parent_hash, parent_block.clone()).in_current_span(),
+        );
+    }
+
+    let relays =
+        match_relays_by_auth_data(relays, body.message.data.as_ref(), pbs_config.strict_auth_data);
     if relays.is_empty() {
         return Err(PbsClientError::AuthDataMismatch);
     }
@@ -333,6 +335,37 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
     Ok(max_bid.map(|(_, bid)| bid))
 }
 
+/// Validates the caller's `SignedRequestAuthV1` against the request path. The
+/// `auth.message.data` check is the demux's job (`match_relays_by_auth_data`),
+/// so only the slot is checked here, plus the signature when
+/// `verify_request_auth` is on. The downstream builder verifies the signature
+/// regardless, which is why the crypto is opt-in.
+fn validate_request_auth(
+    auth: &SignedRequestAuthV1,
+    params: &GetExecutionPayloadBidParams,
+    chain: Chain,
+    verify_signature: bool,
+) -> Result<(), PbsClientError> {
+    if auth.message.slot.as_u64() != params.slot {
+        warn!(auth_slot = %auth.message.slot, path_slot = params.slot, "auth slot mismatch");
+        return Err(PbsClientError::AuthSlotMismatch);
+    }
+
+    if verify_signature &&
+        !verify_request_auth_signature(
+            &params.proposer_pubkey,
+            &auth.message,
+            &auth.signature,
+            chain,
+        )
+    {
+        warn!(pubkey = %params.proposer_pubkey, "auth signature verification failed");
+        return Err(PbsClientError::AuthSigVerify);
+    }
+
+    Ok(())
+}
+
 fn total_payment(bid: &impl GetExecutionPayloadBidInfo) -> u64 {
     bid.value().saturating_add(bid.execution_payment())
 }
@@ -370,7 +403,7 @@ async fn fetch_parent_block(
 
 async fn send_timed_get_execution_payload_bid(
     params: GetExecutionPayloadBidParams,
-    body: Option<Arc<SignedRequestAuthV1>>,
+    body: Arc<SignedRequestAuthV1>,
     relay: RelayClient,
     headers: HeaderMap,
     ms_into_slot: u64,
@@ -508,7 +541,7 @@ struct ValidationContext {
 
 async fn send_one_get_execution_payload_bid(
     params: GetExecutionPayloadBidParams,
-    body: Option<Arc<SignedRequestAuthV1>>,
+    body: Arc<SignedRequestAuthV1>,
     relay: RelayClient,
     mut req_config: RequestContext,
     validation: ValidationContext,
@@ -523,22 +556,19 @@ async fn send_one_get_execution_payload_bid(
     req_config.headers.insert(HEADER_TIMEOUT_MS, HeaderValue::from(req_config.timeout_ms));
 
     let start_request = Instant::now();
-    // Only attach a body when the caller supplied a request auth
+    // This is a new endpoint, so every builder is expected to implement SSZ; we
+    // therefore send the request body in SSZ (the most performant encoding)
+    // unconditionally rather than negotiating it. The auth is forwarded
+    // byte-for-byte so the builder verifies what the validator signed. The
+    // response encoding still honors what the beacon node asked for via its
+    // Accept header.
     let request = relay
         .client
         .post(req_config.url)
         .timeout(Duration::from_millis(req_config.timeout_ms))
-        .headers(req_config.headers);
-    // This is a new endpoint, so every builder is expected to implement SSZ; we
-    // therefore send the request body in SSZ (the most performant encoding)
-    // unconditionally rather than negotiating it. The response encoding still
-    // honors what the beacon node asked for via its Accept header.
-    let request = match body.as_ref() {
-        Some(auth) => request
-            .header(CONTENT_TYPE, EncodingType::Ssz.content_type_header().clone())
-            .body(auth.as_ssz_bytes()),
-        None => request,
-    };
+        .headers(req_config.headers)
+        .header(CONTENT_TYPE, EncodingType::Ssz.content_type_header().clone())
+        .body(body.as_ssz_bytes());
     let res = match request.send().await {
         Ok(res) => res,
         Err(err) => {
@@ -785,14 +815,18 @@ fn extra_validation(
 #[cfg(test)]
 mod tests {
 
-    use alloy::primitives::B256;
+    use alloy::primitives::{B256, aliases::B32};
     use cb_common::{
-        constants::{GENESIS_VALIDATORS_ROOT, GLOAS_FORK_VERSION},
-        pbs::error::ValidationError,
-        signature::{sign_builder_message, sign_execution_payload_bid_root},
+        constants::{DOMAIN_REQUEST_AUTH, GENESIS_VALIDATORS_ROOT, GLOAS_FORK_VERSION},
+        pbs::{RequestAuthV1, error::ValidationError},
+        signature::{
+            compute_domain, compute_domain_with_fork_version, request_auth_domain,
+            sign_builder_message, sign_execution_payload_bid_root, sign_request_auth_root,
+        },
         types::{BlsSecretKey, Chain},
         utils::TestRandomSeed,
     };
+    use lh_types::Slot;
 
     use super::{validate_header_data, *};
 
@@ -969,6 +1003,106 @@ mod tests {
             Err(ValidationError::Sigverify)
         ));
         assert!(validate_signature(&pubkey, &message, &bid_domain_sig).is_ok());
+    }
+
+    fn test_auth(slot: u64, signature: BlsSignature) -> SignedRequestAuthV1 {
+        SignedRequestAuthV1 {
+            // `data` is the demux's input, not this validator's: it is unused here
+            message: RequestAuthV1 { data: Default::default(), slot: Slot::new(slot) },
+            signature,
+        }
+    }
+
+    // An empty body is as invalid as a malformed one: the spec requires the auth
+    #[test]
+    fn test_decode_request_auth_rejects_empty_body() {
+        assert!(matches!(
+            decode_request_auth(&HeaderMap::new(), &Bytes::new()),
+            Err(BodyDeserializeError::MissingBody)
+        ));
+    }
+
+    // The auth domain is NOT fork-versioned: it must equal the spec's
+    // compute_domain(DOMAIN_REQUEST_AUTH), i.e. genesis fork version and a zero
+    // root. A sign/verify round trip cannot catch a wrong domain, so pin it.
+    #[test]
+    fn test_request_auth_domain_is_not_fork_versioned() {
+        for chain in [Chain::Mainnet, Chain::Hoodi, Chain::Holesky] {
+            assert_eq!(
+                request_auth_domain(chain),
+                compute_domain(chain, &B32::from(DOMAIN_REQUEST_AUTH)),
+            );
+            // A fork-versioned domain would differ; that is the bug this guards
+            assert_ne!(
+                request_auth_domain(chain),
+                compute_domain_with_fork_version(
+                    GLOAS_FORK_VERSION,
+                    GENESIS_VALIDATORS_ROOT.into(),
+                    &B32::from(DOMAIN_REQUEST_AUTH),
+                ),
+            );
+        }
+        // Chains are separated by their genesis fork version
+        assert_ne!(request_auth_domain(Chain::Mainnet), request_auth_domain(Chain::Hoodi));
+    }
+
+    #[test]
+    fn test_validate_request_auth() {
+        let chain = Chain::Hoodi;
+        let secret_key = BlsSecretKey::test_random();
+        let pubkey = secret_key.public_key();
+        let slot = 5;
+        let params = GetExecutionPayloadBidParams {
+            slot,
+            parent_hash: B256::ZERO,
+            parent_root: B256::ZERO,
+            proposer_pubkey: pubkey,
+        };
+
+        // Slot mismatch is a 400 whether or not sigverify is on
+        for verify in [false, true] {
+            assert!(matches!(
+                validate_request_auth(
+                    &test_auth(slot + 1, BlsSignature::empty()),
+                    &params,
+                    chain,
+                    verify
+                ),
+                Err(PbsClientError::AuthSlotMismatch)
+            ));
+        }
+
+        // With verification off a bad signature passes through to the builder
+        let bad = test_auth(slot, BlsSignature::test_random());
+        validate_request_auth(&bad, &params, chain, false).unwrap();
+        assert!(matches!(
+            validate_request_auth(&bad, &params, chain, true),
+            Err(PbsClientError::AuthSigVerify)
+        ));
+
+        // The bid domain must not be accepted for a request auth
+        let message = test_auth(slot, BlsSignature::empty()).message;
+        let bid_domain_sig = sign_execution_payload_bid_root(
+            &secret_key,
+            &message.tree_hash_root(),
+            GLOAS_FORK_VERSION,
+            GENESIS_VALIDATORS_ROOT.into(),
+        );
+        assert!(matches!(
+            validate_request_auth(&test_auth(slot, bid_domain_sig), &params, chain, true),
+            Err(PbsClientError::AuthSigVerify)
+        ));
+
+        // A signature made for another chain must not verify here
+        let other_chain_sig =
+            sign_request_auth_root(&secret_key, &message.tree_hash_root(), Chain::Mainnet);
+        assert!(matches!(
+            validate_request_auth(&test_auth(slot, other_chain_sig), &params, chain, true),
+            Err(PbsClientError::AuthSigVerify)
+        ));
+
+        let good_sig = sign_request_auth_root(&secret_key, &message.tree_hash_root(), chain);
+        validate_request_auth(&test_auth(slot, good_sig), &params, chain, true).unwrap();
     }
 
     struct MockBid {

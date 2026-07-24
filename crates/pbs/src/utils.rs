@@ -36,9 +36,9 @@ pub fn check_gas_limit(gas_limit: u64, parent_gas_limit: u64) -> bool {
 /// 2. Otherwise, data carrying a builder URL (see [`decode_auth_data_url`])
 ///    matches the relays whose configured URL it names. Comparison ignores
 ///    userinfo, so a bare URL matches a relay entry that embeds its pubkey.
-/// 3. Data carrying no URL, or no request body at all, matches every relay with
-///    no `expected_auth_data` configured. `strict_auth_data` disables this
-///    catch-all, requiring every relay to declare the data it serves.
+/// 3. Data carrying no URL matches every relay with no `expected_auth_data`
+///    configured. `strict_auth_data` disables this catch-all, requiring every
+///    relay to declare the data it serves.
 ///
 /// The result is usually one relay, several when multiple builders are
 /// configured behind the same agreement, and empty when the data names nothing
@@ -47,15 +47,15 @@ pub fn check_gas_limit(gas_limit: u64, parent_gas_limit: u64) -> bool {
 /// matched set the winner is the highest total payment.
 pub(crate) fn match_relays_by_auth_data<'a>(
     relays: &'a [RelayClient],
-    received_data: Option<&[u8]>,
+    received_data: &[u8],
     strict_auth_data: bool,
 ) -> Vec<&'a RelayClient> {
-    let data_url = received_data.and_then(decode_auth_data_url);
+    let data_url = decode_auth_data_url(received_data);
     relays
         .iter()
         .filter(|relay| {
             if let Some(expected) = &relay.config.expected_auth_data {
-                return received_data == Some(expected.as_ref());
+                return received_data == expected.as_ref();
             }
             if strict_auth_data {
                 return false;
@@ -120,22 +120,25 @@ mod tests {
     }
 
     #[test]
+    fn match_relays_configured_data_never_matches_empty() {
+        let relays = vec![test_relay("http://a.example.com", Some(&[0xaa]))];
+        // An empty `data` field must not satisfy a relay that declared its data
+        assert!(match_relays_by_auth_data(&relays, &[], false).is_empty());
+    }
+
+    #[test]
     fn match_relays_prefers_configured_auth_data() {
         let relays = vec![
             test_relay("http://a.example.com", Some(&[0xaa])),
             test_relay("http://b.example.com", Some(&[0xbb])),
         ];
         // Exact-bytes match selects exactly one relay
-        let matched = match_relays_by_auth_data(&relays, Some(&[0xbb]), false);
+        let matched = match_relays_by_auth_data(&relays, &[0xbb], false);
         assert_eq!(matched.len(), 1);
         assert_eq!(matched[0].config.entry.url.host_str(), Some("b.example.com"));
         // Data matching no configured value selects none, even though the data
         // is a URL naming a configured relay: configured bytes take precedence
-        assert!(
-            match_relays_by_auth_data(&relays, Some(b"http://a.example.com"), false).is_empty()
-        );
-        // A request with no body matches no relay that declared its data
-        assert!(match_relays_by_auth_data(&relays, None, false).is_empty());
+        assert!(match_relays_by_auth_data(&relays, b"http://a.example.com", false).is_empty());
     }
 
     #[test]
@@ -145,27 +148,25 @@ mod tests {
             test_relay("http://b.example.com", None),
         ];
         // URL-carrying data selects the named relay only
-        let matched = match_relays_by_auth_data(&relays, Some(b"http://a.example.com"), false);
+        let matched = match_relays_by_auth_data(&relays, b"http://a.example.com", false);
         assert_eq!(matched.len(), 1);
         assert_eq!(matched[0].config.entry.url.host_str(), Some("a.example.com"));
         // NUL-suffixed extra bytes route identically
         let mut with_extra = b"http://a.example.com".to_vec();
         with_extra.push(0);
         with_extra.extend_from_slice(&[0xde, 0xad]);
-        assert_eq!(match_relays_by_auth_data(&relays, Some(&with_extra), false).len(), 1);
+        assert_eq!(match_relays_by_auth_data(&relays, &with_extra, false).len(), 1);
         // A URL naming nothing configured selects none
-        assert!(
-            match_relays_by_auth_data(&relays, Some(b"http://z.example.com"), false).is_empty()
-        );
-        // Opaque non-URL data (or no body) hits the catch-all
-        assert_eq!(match_relays_by_auth_data(&relays, Some(&[0xde, 0xad]), false).len(), 2);
-        assert_eq!(match_relays_by_auth_data(&relays, None, false).len(), 2);
+        assert!(match_relays_by_auth_data(&relays, b"http://z.example.com", false).is_empty());
+        // Opaque non-URL data hits the catch-all
+        assert_eq!(match_relays_by_auth_data(&relays, &[0xde, 0xad], false).len(), 2);
+        // Empty data carries no URL, so it hits the catch-all too
+        assert_eq!(match_relays_by_auth_data(&relays, &[], false).len(), 2);
         // strict_auth_data disables the catch-all entirely
-        assert!(match_relays_by_auth_data(&relays, Some(&[0xde, 0xad]), true).is_empty());
-        assert!(match_relays_by_auth_data(&relays, None, true).is_empty());
+        assert!(match_relays_by_auth_data(&relays, &[0xde, 0xad], true).is_empty());
         // URL matching still works under strict mode? No: strict requires
         // expected_auth_data on every relay
-        assert!(match_relays_by_auth_data(&relays, Some(b"http://a.example.com"), true).is_empty());
+        assert!(match_relays_by_auth_data(&relays, b"http://a.example.com", true).is_empty());
     }
 
     #[test]

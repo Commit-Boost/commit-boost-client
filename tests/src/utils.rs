@@ -107,6 +107,7 @@ pub fn get_pbs_config(port: u16) -> PbsConfig {
         late_in_slot_time_ms: u64::MAX,
         extra_validation_enabled: false,
         strict_auth_data: false,
+        verify_request_auth: false,
 
         ssv_node_api_url: Url::parse("http://localhost:0").unwrap(),
         ssv_public_api_url: Url::parse("http://localhost:0").unwrap(),

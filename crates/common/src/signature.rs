@@ -3,7 +3,9 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    constants::{COMMIT_BOOST_DOMAIN, DOMAIN_BEACON_BUILDER, GENESIS_VALIDATORS_ROOT},
+    constants::{
+        COMMIT_BOOST_DOMAIN, DOMAIN_BEACON_BUILDER, DOMAIN_REQUEST_AUTH, GENESIS_VALIDATORS_ROOT,
+    },
     signer::{EcdsaSignature, verify_bls_signature, verify_ecdsa_signature},
     types::{self, BlsPublicKey, BlsSecretKey, BlsSignature, Chain, SignatureRequestInfo},
 };
@@ -75,6 +77,41 @@ pub fn execution_payload_bid_domain(fork_version: [u8; 4], genesis_validators_ro
         genesis_validators_root,
         &B32::from(DOMAIN_BEACON_BUILDER),
     )
+}
+
+/// Builder API request-auth signing domain. `RequestAuthV1` is an
+/// out-of-protocol Builder API message and is NOT fork-versioned, so the spec's
+/// `compute_domain(DOMAIN_REQUEST_AUTH)` takes the genesis fork version and a
+/// zero root, exactly like the validator registrations it replaces.
+pub fn request_auth_domain(chain: Chain) -> B256 {
+    compute_domain(chain, &B32::from(DOMAIN_REQUEST_AUTH))
+}
+
+/// Signs a `RequestAuthV1` message root under the request-auth domain.
+pub fn sign_request_auth_root(
+    secret_key: &BlsSecretKey,
+    object_root: &B256,
+    chain: Chain,
+) -> BlsSignature {
+    let signing_data = types::SigningData {
+        object_root: *object_root,
+        signing_domain: request_auth_domain(chain),
+    };
+    sign_message(secret_key, signing_data.tree_hash_root())
+}
+
+/// Verifies a `SignedRequestAuthV1` signature under the request-auth domain.
+pub fn verify_request_auth_signature<T: TreeHash>(
+    pubkey: &BlsPublicKey,
+    msg: &T,
+    signature: &BlsSignature,
+    chain: Chain,
+) -> bool {
+    let signing_data = types::SigningData {
+        object_root: msg.tree_hash_root(),
+        signing_domain: request_auth_domain(chain),
+    };
+    verify_bls_signature(pubkey, signing_data.tree_hash_root(), signature)
 }
 
 pub fn verify_signed_message<T: TreeHash>(

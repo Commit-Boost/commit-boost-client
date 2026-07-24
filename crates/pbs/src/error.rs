@@ -22,6 +22,10 @@ pub enum PbsClientError {
     NoResponse,
     #[error("auth data does not match a configured builder")]
     AuthDataMismatch,
+    #[error("auth slot does not match the request path")]
+    AuthSlotMismatch,
+    #[error("auth signature verification failed")]
+    AuthSigVerify,
     #[error("no payload from relays")]
     NoPayload,
     #[error("internal server error")]
@@ -37,6 +41,8 @@ impl PbsClientError {
         match self {
             PbsClientError::NoResponse => StatusCode::BAD_GATEWAY,
             PbsClientError::AuthDataMismatch => StatusCode::BAD_REQUEST,
+            PbsClientError::AuthSlotMismatch => StatusCode::BAD_REQUEST,
+            PbsClientError::AuthSigVerify => StatusCode::UNAUTHORIZED,
             PbsClientError::NoPayload => StatusCode::BAD_GATEWAY,
             PbsClientError::Internal => StatusCode::INTERNAL_SERVER_ERROR,
             PbsClientError::DecodeError(BodyDeserializeError::UnsupportedMediaType) => {
@@ -55,6 +61,12 @@ impl IntoResponse for PbsClientError {
             PbsClientError::NoResponse => "no response from relays".to_string(),
             PbsClientError::AuthDataMismatch => {
                 "Invalid SignedRequestAuthV1: auth.message.data does not match the value agreed with this builder".to_string()
+            }
+            PbsClientError::AuthSlotMismatch => {
+                "Invalid SignedRequestAuthV1: auth.message.slot does not match the proposal slot in the request path".to_string()
+            }
+            PbsClientError::AuthSigVerify => {
+                "Invalid SignedRequestAuthV1: signature verification failed".to_string()
             }
             PbsClientError::NoPayload => "no payload from relays".to_string(),
             PbsClientError::Internal => "internal server error".to_string(),
@@ -84,6 +96,16 @@ mod test {
     fn other_decode_errors_map_to_400() {
         assert_eq!(
             PbsClientError::DecodeError(BodyDeserializeError::MissingVersionHeader).status_code(),
+            StatusCode::BAD_REQUEST,
+        );
+    }
+
+    #[test]
+    fn auth_errors_map_to_spec_status_codes() {
+        assert_eq!(PbsClientError::AuthSlotMismatch.status_code(), StatusCode::BAD_REQUEST);
+        assert_eq!(PbsClientError::AuthSigVerify.status_code(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            PbsClientError::DecodeError(BodyDeserializeError::MissingBody).status_code(),
             StatusCode::BAD_REQUEST,
         );
     }

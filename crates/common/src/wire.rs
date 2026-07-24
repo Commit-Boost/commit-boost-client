@@ -399,6 +399,8 @@ pub enum BodyDeserializeError {
     UnsupportedMediaType,
     #[error("missing consensus version header")]
     MissingVersionHeader,
+    #[error("missing request body")]
+    MissingBody,
 }
 
 /// The request body encoding to decode with, from the Content-Type. Precedence:

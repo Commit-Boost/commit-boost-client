@@ -5,6 +5,7 @@ use lh_types::{BlindedPayload, ExecPayload, MainnetEthSpec, Slot};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
+use tree_hash_derive::TreeHash;
 
 use crate::types::{BlsPublicKey, BlsSignature};
 
@@ -188,7 +189,7 @@ pub type MAX_DATA_SIZE = typenum::U4096;
 
 // `RequestAuthV1` is used to authenticate requests to a builder. This is useful
 // so that other builders do not DDOS or run replay attacks on the builder.
-#[derive(Debug, Serialize, Deserialize, Encode, Decode, Clone)]
+#[derive(Debug, Serialize, Deserialize, Encode, Decode, Clone, TreeHash)]
 pub struct RequestAuthV1 {
     /// Opaque authentication data agreed with the builder out of band; hex
     /// string on the JSON wire

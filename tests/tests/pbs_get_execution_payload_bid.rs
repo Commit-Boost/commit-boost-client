@@ -8,9 +8,9 @@ use cb_common::{
         GetExecutionPayloadBidInfo, GetExecutionPayloadBidResponse, RequestAuthV1,
         SignedExecutionPayloadBid, SignedRequestAuthV1,
     },
-    signature::sign_execution_payload_bid_root,
+    signature::{sign_execution_payload_bid_root, sign_request_auth_root},
     signer::random_secret,
-    types::{BlsSignature, Chain},
+    types::{BlsSecretKey, BlsSignature, Chain},
     wire::EncodingType,
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
@@ -184,8 +184,9 @@ async fn test_get_execution_payload_bid_below_min_bid_rejected() -> Result<()> {
     let mock_validator = MockValidator::new(pbs_port)?;
     wait_for_ready(&mock_validator).await?;
 
+    let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);
     let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, vec![
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
             EncodingType::Json,
         ])
         .await?;
@@ -218,8 +219,9 @@ async fn test_get_execution_payload_bid_wrong_fee_recipient_rejected() -> Result
     let mock_validator = MockValidator::new(pbs_port)?;
     wait_for_ready(&mock_validator).await?;
 
+    let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);
     let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, vec![
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
             EncodingType::Json,
         ])
         .await?;
@@ -263,13 +265,14 @@ async fn test_get_execution_payload_bid_mux_fee_recipient() -> Result<()> {
     wait_for_ready(&mock_validator).await?;
 
     // The mux validator's bid fails the fee_recipient check
+    let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);
     let res = mock_validator
         .do_get_execution_payload_bid(
             TEST_SLOT,
             B256::ZERO,
             B256::ZERO,
             Some(mux_pubkey),
-            None,
+            Some(&auth),
             vec![EncodingType::Json],
         )
         .await?;
@@ -277,7 +280,7 @@ async fn test_get_execution_payload_bid_mux_fee_recipient() -> Result<()> {
 
     // A non-mux validator uses the default config and gets the bid
     let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, vec![
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
             EncodingType::Json,
         ])
         .await?;
@@ -519,7 +522,8 @@ async fn test_get_execution_payload_bid_forwards_opaque_auth() -> Result<()> {
 }
 
 /// Build a `SignedRequestAuthV1` carrying opaque `data`. CB forwards it
-/// unmodified; the signature is not verified, so an empty one suffices.
+/// unmodified; the signature is only verified when `verify_request_auth` is on,
+/// so an empty one suffices elsewhere.
 fn opaque_auth(data: &[u8], slot: u64) -> SignedRequestAuthV1 {
     SignedRequestAuthV1 {
         message: RequestAuthV1 {
@@ -528,6 +532,166 @@ fn opaque_auth(data: &[u8], slot: u64) -> SignedRequestAuthV1 {
         },
         signature: BlsSignature::empty(),
     }
+}
+
+/// Same, but signed under the spec's `DOMAIN_REQUEST_AUTH` by `secret_key`.
+fn signed_auth(
+    secret_key: &BlsSecretKey,
+    data: &[u8],
+    slot: u64,
+    chain: Chain,
+) -> SignedRequestAuthV1 {
+    let mut auth = opaque_auth(data, slot);
+    auth.signature = sign_request_auth_root(secret_key, &auth.message.tree_hash_root(), chain);
+    auth
+}
+
+/// Boot a PBS instance in front of one default mock relay, applying `tweak` to
+/// the PBS config first.
+async fn setup_single_relay(
+    chain: Chain,
+    tweak: impl FnOnce(&mut cb_common::config::PbsConfig),
+) -> Result<(MockValidator, Arc<MockRelayState>)> {
+    setup_test_env();
+    let pbs_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr()?.port();
+    let relay_listener = get_free_listener().await;
+    let relay_port = relay_listener.local_addr()?.port();
+
+    let mock_state = Arc::new(MockRelayState::new(chain, random_secret()));
+    let mock_relay = generate_mock_relay(relay_port, mock_state.signer.public_key())?;
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
+
+    let mut pbs_config = get_pbs_config(pbs_port);
+    tweak(&mut pbs_config);
+    let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
+    let state = PbsState::new(config, PathBuf::new());
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
+
+    let mock_validator = MockValidator::new(pbs_port)?;
+    wait_for_ready(&mock_validator).await?;
+    Ok((mock_validator, mock_state))
+}
+
+/// The spec makes the auth body mandatory: a request without one is a 400 with
+/// an ErrorMessage body, before any relay is queried.
+#[tokio::test]
+async fn test_get_execution_payload_bid_missing_auth_400() -> Result<()> {
+    let (mock_validator, mock_state) = setup_single_relay(Chain::Hoodi, |_| {}).await?;
+
+    let res = mock_validator
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, vec![
+            EncodingType::Json,
+        ])
+        .await?;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(mock_state.received_execution_payload_bid(), 0, "no auth means no relay call");
+    let body: serde_json::Value = serde_json::from_slice(&res.bytes().await?)?;
+    assert_eq!(body["code"], 400);
+    assert!(
+        body["message"].as_str().unwrap_or_default().contains("missing request body"),
+        "error body must name the missing body, got: {}",
+        body["message"]
+    );
+    Ok(())
+}
+
+/// `auth.message.slot` must match the proposal slot in the request path.
+#[tokio::test]
+async fn test_get_execution_payload_bid_auth_slot_mismatch_400() -> Result<()> {
+    let (mock_validator, mock_state) = setup_single_relay(Chain::Hoodi, |_| {}).await?;
+
+    let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT + 1);
+    let res = mock_validator
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
+            EncodingType::Json,
+        ])
+        .await?;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        mock_state.received_execution_payload_bid(),
+        0,
+        "slot mismatch precedes relay calls"
+    );
+    let body: serde_json::Value = serde_json::from_slice(&res.bytes().await?)?;
+    assert_eq!(body["code"], 400);
+    assert_eq!(
+        body["message"],
+        "Invalid SignedRequestAuthV1: auth.message.slot does not match the proposal slot in the request path"
+    );
+    Ok(())
+}
+
+/// With `verify_request_auth` on, a bad auth signature is a 401 and a good one
+/// passes through to the relay.
+#[tokio::test]
+async fn test_get_execution_payload_bid_verify_request_auth_enabled() -> Result<()> {
+    let secret_key = random_secret();
+    let proposer_pubkey = secret_key.public_key();
+    let (mock_validator, mock_state) =
+        setup_single_relay(Chain::Hoodi, |cfg| cfg.verify_request_auth = true).await?;
+
+    // An empty signature never verifies under DOMAIN_REQUEST_AUTH
+    let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);
+    let res = mock_validator
+        .do_get_execution_payload_bid(
+            TEST_SLOT,
+            B256::ZERO,
+            B256::ZERO,
+            Some(proposer_pubkey.clone()),
+            Some(&auth),
+            vec![EncodingType::Json],
+        )
+        .await?;
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(mock_state.received_execution_payload_bid(), 0, "bad auth precedes relay calls");
+    let body: serde_json::Value = serde_json::from_slice(&res.bytes().await?)?;
+    assert_eq!(body["code"], 401);
+    assert_eq!(body["message"], "Invalid SignedRequestAuthV1: signature verification failed");
+
+    let auth = signed_auth(&secret_key, &[0xde, 0xad], TEST_SLOT, Chain::Hoodi);
+    let res = mock_validator
+        .do_get_execution_payload_bid(
+            TEST_SLOT,
+            B256::ZERO,
+            B256::ZERO,
+            Some(proposer_pubkey),
+            Some(&auth),
+            vec![EncodingType::Json],
+        )
+        .await?;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(mock_state.received_execution_payload_bid(), 1);
+    Ok(())
+}
+
+/// By default CB does not verify the auth signature: a bad one is forwarded to
+/// the builder, which verifies it itself.
+#[tokio::test]
+async fn test_get_execution_payload_bid_bad_auth_signature_forwarded_by_default() -> Result<()> {
+    let proposer_pubkey = random_secret().public_key();
+    let (mock_validator, mock_state) = setup_single_relay(Chain::Hoodi, |_| {}).await?;
+
+    let data = vec![0xde, 0xad];
+    let auth = opaque_auth(&data, TEST_SLOT);
+    let res = mock_validator
+        .do_get_execution_payload_bid(
+            TEST_SLOT,
+            B256::ZERO,
+            B256::ZERO,
+            Some(proposer_pubkey),
+            Some(&auth),
+            vec![EncodingType::Json],
+        )
+        .await?;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(mock_state.received_execution_payload_bid(), 1);
+    // The spec requires message AND signature to reach the builder unchanged
+    let seen = mock_state.received_auth().expect("relay saw an auth");
+    assert_eq!(seen.message.data.to_vec(), data);
+    assert_eq!(seen.message.slot, auth.message.slot);
+    assert_eq!(seen.signature, auth.signature, "signature must be forwarded byte-for-byte");
+    Ok(())
 }
 
 #[tokio::test]
@@ -561,7 +725,14 @@ async fn test_get_execution_payload_bid_spec_url() -> Result<()> {
         B256::ZERO,
         pubkey,
     );
-    let res = mock_validator.comm_boost.client.post(url).send().await?;
+    // The auth body is required, so even the bare-URL shape test must carry one
+    let res = mock_validator
+        .comm_boost
+        .client
+        .post(url)
+        .body(opaque_auth(&[0xde, 0xad], TEST_SLOT).as_ssz_bytes())
+        .send()
+        .await?;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(mock_state.received_execution_payload_bid(), 1);
     Ok(())
@@ -589,8 +760,9 @@ async fn test_get_execution_payload_bid_ssz_response() -> Result<()> {
     let mock_validator = MockValidator::new(pbs_port)?;
     wait_for_ready(&mock_validator).await?;
 
+    let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);
     let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, vec![
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
             EncodingType::Ssz,
         ])
         .await?;
@@ -636,8 +808,9 @@ async fn test_get_execution_payload_bid_no_accept_defaults_to_ssz() -> Result<()
     wait_for_ready(&mock_validator).await?;
 
     // An empty accept vec makes MockValidator send NO Accept header at all.
+    let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);
     let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, vec![])
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![])
         .await?;
     assert_eq!(res.status(), StatusCode::OK);
 
@@ -677,8 +850,9 @@ async fn test_get_execution_payload_bid_explicit_json_obeyed() -> Result<()> {
     let mock_validator = MockValidator::new(pbs_port)?;
     wait_for_ready(&mock_validator).await?;
 
+    let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);
     let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, vec![
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
             EncodingType::Json,
         ])
         .await?;
@@ -729,8 +903,9 @@ async fn test_get_execution_payload_bid_relay_ssz_response_roundtrip() -> Result
     wait_for_ready(&mock_validator).await?;
 
     // BN asks for JSON; PBS decodes SSZ from the relay and re-encodes to JSON.
+    let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);
     let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, vec![
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
             EncodingType::Json,
         ])
         .await?;
@@ -772,8 +947,9 @@ async fn test_get_execution_payload_bid_relay_ssz_missing_version_header() -> Re
     let mock_validator = MockValidator::new(pbs_port)?;
     wait_for_ready(&mock_validator).await?;
 
+    let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);
     let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, vec![])
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![])
         .await?;
     // The relay was contacted, but its undecodable SSZ bid was dropped.
     assert_eq!(mock_state.received_execution_payload_bid(), 1);
@@ -820,6 +996,7 @@ async fn test_get_execution_payload_bid_unsupported_accept_406() -> Result<()> {
         .client
         .post(url)
         .header("accept", "application/xml")
+        .body(opaque_auth(&[0xde, 0xad], TEST_SLOT).as_ssz_bytes())
         .send()
         .await?;
     assert_eq!(res.status(), StatusCode::NOT_ACCEPTABLE);
@@ -962,8 +1139,9 @@ async fn test_get_execution_payload_bid_impl(
     wait_for_ready(&mock_validator).await?;
 
     info!("Sending get execution payload bid");
+    let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);
     let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, vec![
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
             EncodingType::Json,
         ])
         .await?;

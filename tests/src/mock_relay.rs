@@ -95,7 +95,7 @@ pub struct MockRelayState {
     received_execution_payload_bid: Arc<AtomicU64>,
     /// `data` bytes of the last `SignedRequestAuthV1` forwarded on a bid
     /// request
-    received_auth_data: RwLock<Option<Vec<u8>>>,
+    received_auth: RwLock<Option<SignedRequestAuthV1>>,
     response_override: RwLock<Option<StatusCode>>,
     bid_value: RwLock<U256>,
     /// The raw `Accept` header PBS sent on the most recent get_header request,
@@ -135,7 +135,13 @@ impl MockRelayState {
         self.received_execution_payload_bid.load(Ordering::Relaxed)
     }
     pub fn received_auth_data(&self) -> Option<Vec<u8>> {
-        self.received_auth_data.read().unwrap().clone()
+        self.received_auth.read().unwrap().as_ref().map(|a| a.message.data.to_vec())
+    }
+
+    /// The full `SignedRequestAuthV1` the relay saw, so a test can assert the
+    /// signature was forwarded byte-for-byte.
+    pub fn received_auth(&self) -> Option<SignedRequestAuthV1> {
+        self.received_auth.read().unwrap().clone()
     }
     pub fn large_body(&self) -> bool {
         self.large_body
@@ -176,7 +182,7 @@ impl MockRelayState {
             received_register_validator: Default::default(),
             received_submit_block: Default::default(),
             received_execution_payload_bid: Default::default(),
-            received_auth_data: RwLock::new(None),
+            received_auth: RwLock::new(None),
             response_override: RwLock::new(None),
             bid_value: RwLock::new(U256::from(10)),
             received_get_header_accept: RwLock::new(None),
@@ -321,7 +327,7 @@ async fn handle_get_execution_payload_bid(
             EncodingType::Json => serde_json::from_slice::<SignedRequestAuthV1>(&body).ok(),
         };
         if let Some(auth) = auth {
-            *state.received_auth_data.write().unwrap() = Some(auth.message.data.to_vec());
+            *state.received_auth.write().unwrap() = Some(auth);
         }
     }
 

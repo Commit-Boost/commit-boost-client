@@ -131,6 +131,11 @@ pub struct PbsConfig {
     /// ePBS bid request: every relay must declare the auth data it serves
     #[serde(default = "default_bool::<false>")]
     pub strict_auth_data: bool,
+    /// When enabled, the BLS signature of an ePBS bid request's
+    /// `SignedRequestAuthV1` is verified against the proposer pubkey; false by
+    /// default since the downstream builder verifies it too
+    #[serde(default = "default_bool::<false>")]
+    pub verify_request_auth: bool,
     /// Expected fee recipient in ePBS bids; when set, bids with a different
     /// fee_recipient are rejected
     pub fee_recipient: Option<Address>,
