@@ -1,13 +1,22 @@
 use std::sync::Arc;
 
-use axum::{Json, extract::State, http::HeaderMap, response::IntoResponse};
-use cb_common::{
-    pbs::{BuilderApiVersion, GetPayloadInfo, SignedBlindedBeaconBlock},
-    utils::{timestamp_of_slot_start_millis, utcnow_ms},
-    wire::get_user_agent,
+use axum::{
+    body::Bytes,
+    extract::State,
+    http::{HeaderMap, HeaderValue},
+    response::IntoResponse,
 };
-use reqwest::StatusCode;
-use tracing::{error, info, trace};
+use cb_common::{
+    pbs::{BuilderApiVersion, GetPayloadInfo},
+    utils::{timestamp_of_slot_start_millis, utcnow_ms},
+    wire::{
+        AcceptedEncodings, AcceptedEncodingsError, CONSENSUS_VERSION_HEADER, EncodingType,
+        NO_PREFERENCE_DEFAULT, deserialize_body, get_accept_types, get_user_agent,
+    },
+};
+use reqwest::{StatusCode, header::CONTENT_TYPE};
+use ssz::Encode;
+use tracing::{debug, error, info, trace};
 
 use crate::{
     api::BuilderApi,
@@ -20,37 +29,26 @@ use crate::{
 pub async fn handle_submit_block_v1<S: BuilderApiState, A: BuilderApi<S>>(
     state: State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
-    Json(signed_blinded_block): Json<Arc<SignedBlindedBeaconBlock>>,
+    body_bytes: Bytes,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    handle_submit_block_impl::<S, A>(
-        state,
-        req_headers,
-        signed_blinded_block,
-        BuilderApiVersion::V1,
-    )
-    .await
+    handle_submit_block_impl::<S, A>(state, req_headers, body_bytes, BuilderApiVersion::V1).await
 }
 
 pub async fn handle_submit_block_v2<S: BuilderApiState, A: BuilderApi<S>>(
     state: State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
-    Json(signed_blinded_block): Json<Arc<SignedBlindedBeaconBlock>>,
+    body_bytes: Bytes,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    handle_submit_block_impl::<S, A>(
-        state,
-        req_headers,
-        signed_blinded_block,
-        BuilderApiVersion::V2,
-    )
-    .await
+    handle_submit_block_impl::<S, A>(state, req_headers, body_bytes, BuilderApiVersion::V2).await
 }
 
 async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
     State(state): State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
-    signed_blinded_block: Arc<SignedBlindedBeaconBlock>,
+    body_bytes: Bytes,
     api_version: BuilderApiVersion,
 ) -> Result<impl IntoResponse, PbsClientError> {
+    let signed_blinded_block = Arc::new(deserialize_body(&req_headers, body_bytes)?);
     tracing::Span::current().record("slot", signed_blinded_block.slot().as_u64() as i64);
     tracing::Span::current()
         .record("block_hash", tracing::field::debug(signed_blinded_block.block_hash()));
@@ -65,27 +63,76 @@ async fn handle_submit_block_impl<S: BuilderApiState, A: BuilderApi<S>>(
     let block_hash = signed_blinded_block.block_hash();
     let slot_start_ms = timestamp_of_slot_start_millis(slot.into(), state.config.chain);
     let ua = get_user_agent(&req_headers);
+    // v1 enforces Accept (a bad one is a 406). v2 succeeds with an empty 202 and
+    // has no response body to negotiate, so skip Accept for it entirely: a bad
+    // Accept must not 406 a v2 submission before it reaches a relay.
+    let accept_types = if api_version == BuilderApiVersion::V1 {
+        get_accept_types(&req_headers).inspect_err(|err| {
+            error!(%err, "error parsing accept header");
+        })?
+    } else {
+        AcceptedEncodings::single(NO_PREFERENCE_DEFAULT)
+    };
+    // Honor caller q-value preference: pick the highest-priority encoding that
+    // we can actually produce. Server preference for tiebreaks is SSZ first.
+    let response_encoding = accept_types.preferred(&[EncodingType::Ssz, EncodingType::Json]);
 
     info!(ua, ms_into_slot = now.saturating_sub(slot_start_ms), "new request");
 
     match A::submit_block(signed_blinded_block, req_headers, state, api_version).await {
         Ok(res) => match res {
-            Some(block_response) => {
-                trace!(?block_response);
+            Some(payload_and_blobs) => {
+                trace!(?payload_and_blobs);
                 info!("received unblinded block (v1)");
 
-                BEACON_NODE_STATUS
-                    .with_label_values(&["200", SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG])
-                    .inc();
-                Ok((StatusCode::OK, Json(block_response).into_response()))
+                // Respond based on requester accept types. Three arms: no viable
+                // encoding (unreachable in practice — `get_accept_types` errors
+                // earlier if the caller offers nothing we support), SSZ, or JSON.
+                match response_encoding {
+                    None => {
+                        BEACON_NODE_STATUS
+                            .with_label_values(&["406", SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG])
+                            .inc();
+                        Err(PbsClientError::HeaderError(
+                            AcceptedEncodingsError::UnsupportedAcceptType,
+                        ))
+                    }
+                    Some(EncodingType::Ssz) => {
+                        BEACON_NODE_STATUS
+                            .with_label_values(&["200", SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG])
+                            .inc();
+                        let mut response = payload_and_blobs.data.as_ssz_bytes().into_response();
+
+                        let content_type_header = EncodingType::Ssz.content_type_header().clone();
+                        response.headers_mut().insert(CONTENT_TYPE, content_type_header);
+                        // ForkName::to_string() always yields valid ASCII, so
+                        // HeaderValue::from_str cannot fail here.
+                        response.headers_mut().insert(
+                            CONSENSUS_VERSION_HEADER,
+                            HeaderValue::from_str(&payload_and_blobs.version.to_string())
+                                .expect("fork name is always a valid header value"),
+                        );
+                        debug!("sending submit_block response to BN as SSZ");
+                        Ok(response)
+                    }
+                    Some(EncodingType::Json) => {
+                        BEACON_NODE_STATUS
+                            .with_label_values(&["200", SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG])
+                            .inc();
+                        info!("sending response as JSON");
+                        Ok((StatusCode::OK, axum::Json(payload_and_blobs)).into_response())
+                    }
+                }
             }
             None => {
                 info!("received unblinded block (v2)");
 
+                // Note: this doesn't provide consensus_version_header because it doesn't pass
+                // the body through, and there's no content-type header since the body is empty.
                 BEACON_NODE_STATUS
                     .with_label_values(&["202", SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG])
                     .inc();
-                Ok((StatusCode::ACCEPTED, "".into_response()))
+                Ok((StatusCode::ACCEPTED, "").into_response())
             }
         },
 

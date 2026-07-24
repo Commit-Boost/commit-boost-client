@@ -60,4 +60,15 @@ lazy_static! {
         &["http_status_code", "endpoint"],
         PBS_METRICS_REGISTRY
     ).unwrap();
+
+    /// Count of v2 submit_block requests that could not be served because the
+    /// relay returned 404 on the v2 endpoint. A non-zero value means the relay
+    /// fleet has not been upgraded to support submitBlindedBlockV2 and those
+    /// blocks were not submitted.
+    pub static ref RELAY_V2_UNSUPPORTED: IntCounterVec = register_int_counter_vec_with_registry!(
+        "pbs_submit_block_v2_unsupported_total",
+        "Count of v2 submit_block requests a relay could not serve because it does not support v2",
+        &["relay_id"],
+        PBS_METRICS_REGISTRY
+    ).unwrap();
 }

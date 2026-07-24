@@ -26,6 +26,9 @@ impl PbsClientError {
             PbsClientError::NoResponse => StatusCode::BAD_GATEWAY,
             PbsClientError::NoPayload => StatusCode::BAD_GATEWAY,
             PbsClientError::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+            PbsClientError::DecodeError(BodyDeserializeError::UnsupportedMediaType) => {
+                StatusCode::UNSUPPORTED_MEDIA_TYPE
+            }
             PbsClientError::DecodeError(_) => StatusCode::BAD_REQUEST,
             PbsClientError::HeaderError(_) => StatusCode::NOT_ACCEPTABLE,
         }
@@ -43,5 +46,26 @@ impl IntoResponse for PbsClientError {
         };
 
         (self.status_code(), msg).into_response()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn unsupported_media_type_maps_to_415() {
+        assert_eq!(
+            PbsClientError::DecodeError(BodyDeserializeError::UnsupportedMediaType).status_code(),
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        );
+    }
+
+    #[test]
+    fn other_decode_errors_map_to_400() {
+        assert_eq!(
+            PbsClientError::DecodeError(BodyDeserializeError::MissingVersionHeader).status_code(),
+            StatusCode::BAD_REQUEST,
+        );
     }
 }
