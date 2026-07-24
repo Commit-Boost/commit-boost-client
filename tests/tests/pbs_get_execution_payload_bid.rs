@@ -5,12 +5,13 @@ use cb_common::{
     config::RuntimeMuxConfig,
     constants::{GENESIS_VALIDATORS_ROOT, GLOAS_FORK_VERSION},
     pbs::{
-        GetExecutionPayloadBidInfo, GetExecutionPayloadBidResponse, RequestAuthV1,
-        SignedExecutionPayloadBid, SignedRequestAuthV1,
+        GetExecutionPayloadBidInfo, GetExecutionPayloadBidResponse, HEADER_START_TIME_UNIX_MS,
+        HEADER_TIMEOUT_MS, RequestAuthV1, SignedExecutionPayloadBid, SignedRequestAuthV1,
     },
     signature::{sign_execution_payload_bid_root, sign_request_auth_root},
     signer::random_secret,
     types::{BlsSecretKey, BlsSignature, Chain},
+    utils::utcnow_ms,
     wire::EncodingType,
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
@@ -665,6 +666,73 @@ async fn test_get_execution_payload_bid_verify_request_auth_enabled() -> Result<
     Ok(())
 }
 
+/// Both timing headers are required: the send time and the timeout are what
+/// bound every downstream call, so a request missing either is a 400 and no
+/// relay is contacted.
+#[tokio::test]
+async fn test_get_execution_payload_bid_missing_timing_headers_400() -> Result<()> {
+    let (mock_validator, mock_state) = setup_single_relay(Chain::Hoodi, |_| {}).await?;
+    let url = mock_validator.comm_boost.get_execution_payload_bid_url(
+        TEST_SLOT,
+        &B256::ZERO,
+        &B256::ZERO,
+        &random_secret().public_key(),
+    )?;
+    let body = opaque_auth(&[0xde, 0xad], TEST_SLOT).as_ssz_bytes();
+
+    // no headers at all / only the send time / only the timeout / zero timeout
+    let cases: Vec<Vec<(&str, String)>> = vec![
+        vec![],
+        vec![(HEADER_START_TIME_UNIX_MS, utcnow_ms().to_string())],
+        vec![(HEADER_TIMEOUT_MS, "1000".to_string())],
+        vec![
+            (HEADER_START_TIME_UNIX_MS, utcnow_ms().to_string()),
+            (HEADER_TIMEOUT_MS, "0".to_string()),
+        ],
+    ];
+    for headers in cases {
+        let mut req = mock_validator.comm_boost.client.post(url.clone()).body(body.clone());
+        for (name, value) in &headers {
+            req = req.header(*name, value);
+        }
+        let res = req.send().await?;
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST, "headers: {headers:?}");
+        let json: serde_json::Value = serde_json::from_slice(&res.bytes().await?)?;
+        assert_eq!(json["code"], 400);
+        assert_eq!(
+            json["message"],
+            "Invalid request: Date-Milliseconds and X-Timeout-Ms headers are required"
+        );
+    }
+    assert_eq!(mock_state.received_execution_payload_bid(), 0, "no relay call for a 400");
+    Ok(())
+}
+
+/// A deadline that has already passed means there is no time to serve the
+/// request: CB returns 204 rather than calling a relay it cannot beat.
+#[tokio::test]
+async fn test_get_execution_payload_bid_expired_deadline_204() -> Result<()> {
+    let (mock_validator, mock_state) = setup_single_relay(Chain::Hoodi, |_| {}).await?;
+    let url = mock_validator.comm_boost.get_execution_payload_bid_url(
+        TEST_SLOT,
+        &B256::ZERO,
+        &B256::ZERO,
+        &random_secret().public_key(),
+    )?;
+    let res = mock_validator
+        .comm_boost
+        .client
+        .post(url)
+        .header(HEADER_START_TIME_UNIX_MS, utcnow_ms() - 5_000)
+        .header(HEADER_TIMEOUT_MS, 1_000u64)
+        .body(opaque_auth(&[0xde, 0xad], TEST_SLOT).as_ssz_bytes())
+        .send()
+        .await?;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    assert_eq!(mock_state.received_execution_payload_bid(), 0, "no relay call past the deadline");
+    Ok(())
+}
+
 /// By default CB does not verify the auth signature: a bad one is forwarded to
 /// the builder, which verifies it itself.
 #[tokio::test]
@@ -725,11 +793,14 @@ async fn test_get_execution_payload_bid_spec_url() -> Result<()> {
         B256::ZERO,
         pubkey,
     );
-    // The auth body is required, so even the bare-URL shape test must carry one
+    // The auth body and timing headers are required, so even the bare-URL shape
+    // test must carry them
     let res = mock_validator
         .comm_boost
         .client
         .post(url)
+        .header(HEADER_START_TIME_UNIX_MS, utcnow_ms())
+        .header(HEADER_TIMEOUT_MS, 60_000u64)
         .body(opaque_auth(&[0xde, 0xad], TEST_SLOT).as_ssz_bytes())
         .send()
         .await?;
@@ -1041,6 +1112,8 @@ async fn test_get_execution_payload_bid_ssz_auth_forwarded() -> Result<()> {
         .client
         .post(url)
         .header(CONTENT_TYPE, "application/octet-stream")
+        .header(HEADER_START_TIME_UNIX_MS, utcnow_ms())
+        .header(HEADER_TIMEOUT_MS, 60_000u64)
         .body(ssz_body)
         .send()
         .await?;

@@ -138,6 +138,12 @@ target_first_request_ms = 200
 # Frequency in ms to send get_header requests
 # OPTIONAL
 frequency_get_header_ms = 300
+# How long each ePBS bid poll may take, in ms. Every poll shares the proposer's deadline, so bounding
+# the early ones lands a floor of progressively better bids instead of leaving everything to the last
+# instant; the final poll always holds for the remaining budget. Set this above your round trip to
+# the builder, or every early poll times out
+# OPTIONAL, DEFAULT: 500
+# bid_poll_timeout_ms = 500
 # Maximum trusted execution payment in Gwei accepted in an ePBS bid from this relay
 # OPTIONAL, DEFAULT: the PBS-level `max_execution_payment_gwei`
 # max_execution_payment_gwei = 0

@@ -36,6 +36,12 @@ impl DefaultTimeout {
 
 pub const LATE_IN_SLOT_TIME_MS: u64 = 2000;
 
+/// How long each ePBS bid poll may take before the next one supersedes it. Set
+/// generously: a proposer far from its builders needs more than the poll
+/// cadence to land any bid at all, and a value below the round trip would time
+/// out every poll. The final poll ignores this and holds until the deadline.
+pub const DEFAULT_BID_POLL_TIMEOUT_MS: u64 = 500;
+
 // Maximum number of retries for validator registration request per relay
 pub const REGISTER_VALIDATOR_RETRY_LIMIT: u32 = 3;
 

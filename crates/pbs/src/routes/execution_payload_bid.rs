@@ -18,9 +18,9 @@ use axum::{
 use cb_common::{
     constants::{GENESIS_VALIDATORS_ROOT, GLOAS_FORK_VERSION},
     pbs::{
-        GetExecutionPayloadBidInfo, GetExecutionPayloadBidParams, GetExecutionPayloadBidResponse,
-        HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS, RelayClient, SignedExecutionPayloadBid,
-        SignedRequestAuthV1,
+        DEFAULT_BID_POLL_TIMEOUT_MS, GetExecutionPayloadBidInfo, GetExecutionPayloadBidParams,
+        GetExecutionPayloadBidResponse, HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS, RelayClient,
+        SignedExecutionPayloadBid, SignedRequestAuthV1,
         error::{PbsError, ValidationError},
     },
     signature::{verify_execution_payload_bid_signature, verify_request_auth_signature},
@@ -234,18 +234,13 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
         return Ok(None);
     }
 
-    // Use the minimum of the time left and the user provided timeout header
-    let max_timeout_ms = req_headers
-        .get(HEADER_TIMEOUT_MS)
-        .map(|header| match header.to_str().ok().and_then(|v| v.parse::<u64>().ok()) {
-            None | Some(0) => {
-                // Header can't be stringified, or parsed, or it's set to 0
-                warn!(?header, "invalid user-supplied timeout header, using {max_timeout_ms}ms");
-                max_timeout_ms
-            }
-            Some(user_timeout) => user_timeout.min(max_timeout_ms),
-        })
-        .unwrap_or(max_timeout_ms);
+    // The proposer's deadline bounds everything below it
+    let budget_ms = request_budget_ms(&req_headers, utcnow_ms())?;
+    if budget_ms == 0 {
+        warn!("proposer deadline already passed, skipping relay requests");
+        return Ok(None);
+    }
+    let max_timeout_ms = max_timeout_ms.min(budget_ms);
 
     // prepare headers, except for start time which is set in `send_one_get_header`
     let mut send_headers = HeaderMap::new();
@@ -333,6 +328,37 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
     }
 
     Ok(max_bid.map(|(_, bid)| bid))
+}
+
+/// Timeout for one bid poll. Every poll shares the proposer's deadline, so an
+/// early poll is bounded to land a bid in hand while there is still time to use
+/// it; only the last poll holds for the full remainder.
+fn poll_call_timeout_ms(timeout_left_ms: u64, poll_timeout_ms: u64, is_last: bool) -> u64 {
+    if is_last { timeout_left_ms } else { poll_timeout_ms.min(timeout_left_ms) }
+}
+
+/// Milliseconds left to serve this request, from the proposer's required timing
+/// headers. `X-Timeout-Ms` is measured from `Date-Milliseconds`, so the
+/// deadline is absolute and survives transit delay. It is also clamped to
+/// `now + X-Timeout-Ms` so a proposer whose clock runs ahead cannot hand out
+/// more time than it meant to. Returns 0 when the deadline has already passed.
+fn request_budget_ms(req_headers: &HeaderMap, now_ms: u64) -> Result<u64, PbsClientError> {
+    fn header_u64(req_headers: &HeaderMap, name: &str) -> Result<u64, PbsClientError> {
+        req_headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse::<u64>().ok())
+            .ok_or(PbsClientError::MissingTimingHeader)
+    }
+
+    let sent_at_ms = header_u64(req_headers, HEADER_START_TIME_UNIX_MS)?;
+    let timeout_ms = header_u64(req_headers, HEADER_TIMEOUT_MS)?;
+    if timeout_ms == 0 {
+        return Err(PbsClientError::MissingTimingHeader);
+    }
+
+    let until_deadline = sent_at_ms.saturating_add(timeout_ms).saturating_sub(now_ms);
+    Ok(until_deadline.min(timeout_ms))
 }
 
 /// Validates the caller's `SignedRequestAuthV1` against the request path. The
@@ -445,7 +471,18 @@ async fn send_timed_get_execution_payload_bid(
                 send_freq_ms, timeout_left_ms, "TG: sending multiple header requests"
             );
 
+            // Every poll shares the proposer's deadline, so granting each one all
+            // the time left would let a builder hold them all until that instant
+            // and leave nothing in hand if it is missed. Bound the early polls so
+            // they land as a floor of progressively better bids; only the last
+            // poll holds for the full remainder.
+            let poll_timeout_ms =
+                relay.config.bid_poll_timeout_ms.unwrap_or(DEFAULT_BID_POLL_TIMEOUT_MS);
+
             loop {
+                let is_last = timeout_left_ms <= send_freq_ms;
+                let call_timeout_ms =
+                    poll_call_timeout_ms(timeout_left_ms, poll_timeout_ms, is_last);
                 let params = params.clone();
                 handles.push(tokio::spawn(
                     send_one_get_execution_payload_bid(
@@ -453,7 +490,7 @@ async fn send_timed_get_execution_payload_bid(
                         body.clone(),
                         relay.clone(),
                         RequestContext {
-                            timeout_ms: timeout_left_ms,
+                            timeout_ms: call_timeout_ms,
                             url: url.clone(),
                             headers: headers.clone(),
                         },
@@ -462,13 +499,11 @@ async fn send_timed_get_execution_payload_bid(
                     .in_current_span(),
                 ));
 
-                if timeout_left_ms > send_freq_ms {
-                    // enough time for one more
-                    timeout_left_ms = timeout_left_ms.saturating_sub(send_freq_ms);
-                    sleep(Duration::from_millis(send_freq_ms)).await;
-                } else {
+                if is_last {
                     break;
                 }
+                timeout_left_ms = timeout_left_ms.saturating_sub(send_freq_ms);
+                sleep(Duration::from_millis(send_freq_ms)).await;
             }
 
             let results = join_all(handles).await;
@@ -1020,6 +1055,65 @@ mod tests {
             decode_request_auth(&HeaderMap::new(), &Bytes::new()),
             Err(BodyDeserializeError::MissingBody)
         ));
+    }
+
+    #[test]
+    fn test_poll_call_timeout_ms() {
+        // Early polls are bounded so a bid lands while there is time to use it,
+        // even when the deadline is far away
+        assert_eq!(poll_call_timeout_ms(4000, 1000, false), 1000);
+        // The last poll holds for everything that is left
+        assert_eq!(poll_call_timeout_ms(4000, 1000, true), 4000);
+        // Never promise more time than remains before the shared deadline
+        assert_eq!(poll_call_timeout_ms(600, 1000, false), 600);
+        // A budget shorter than the poll timeout degrades to today's behavior:
+        // one poll that holds until the deadline
+        assert_eq!(poll_call_timeout_ms(800, 1000, true), 800);
+    }
+
+    #[test]
+    fn test_request_budget_ms() {
+        let headers = |sent: u64, timeout: u64| {
+            let mut h = HeaderMap::new();
+            h.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(sent));
+            h.insert(HEADER_TIMEOUT_MS, HeaderValue::from(timeout));
+            h
+        };
+        let now = 1_000_000;
+
+        // Transit delay eats the budget: the deadline is absolute
+        assert_eq!(request_budget_ms(&headers(now, 1000), now).unwrap(), 1000);
+        assert_eq!(request_budget_ms(&headers(now - 400, 1000), now).unwrap(), 600);
+
+        // A deadline already in the past leaves nothing
+        assert_eq!(request_budget_ms(&headers(now - 5000, 1000), now).unwrap(), 0);
+
+        // A proposer clock running ahead cannot grant more than it advertised
+        assert_eq!(request_budget_ms(&headers(now + 10_000, 1000), now).unwrap(), 1000);
+
+        // Both headers are required, and a zero timeout is not a valid request
+        for h in [
+            HeaderMap::new(),
+            {
+                let mut h = HeaderMap::new();
+                h.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(now));
+                h
+            },
+            {
+                let mut h = HeaderMap::new();
+                h.insert(HEADER_TIMEOUT_MS, HeaderValue::from(1000u64));
+                h
+            },
+            headers(now, 0),
+            {
+                let mut h = HeaderMap::new();
+                h.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from_static("soon"));
+                h.insert(HEADER_TIMEOUT_MS, HeaderValue::from(1000u64));
+                h
+            },
+        ] {
+            assert!(matches!(request_budget_ms(&h, now), Err(PbsClientError::MissingTimingHeader)));
+        }
     }
 
     // The auth domain is NOT fork-versioned: it must equal the spec's

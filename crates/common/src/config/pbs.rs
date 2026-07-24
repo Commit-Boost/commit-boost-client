@@ -57,6 +57,9 @@ pub struct RelayConfig {
     pub target_first_request_ms: Option<u64>,
     /// Frequency in ms to send get_header requests
     pub frequency_get_header_ms: Option<u64>,
+    /// How long each ePBS bid poll may take, except the last which holds until
+    /// the proposer's deadline
+    pub bid_poll_timeout_ms: Option<u64>,
     /// Maximum number of validators to send to relays in one registration
     /// request
     #[serde(deserialize_with = "empty_string_as_none", default)]

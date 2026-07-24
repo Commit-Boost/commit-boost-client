@@ -1,8 +1,11 @@
 use alloy::{primitives::B256, rpc::types::beacon::relay::ValidatorRegistration};
 use cb_common::{
-    pbs::{BuilderApiVersion, RelayClient, SignedBlindedBeaconBlock, SignedRequestAuthV1},
+    pbs::{
+        BuilderApiVersion, HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS, RelayClient,
+        SignedBlindedBeaconBlock, SignedRequestAuthV1,
+    },
     types::{BlsPublicKey, KnownChain},
-    utils::bls_pubkey_from_hex,
+    utils::{bls_pubkey_from_hex, utcnow_ms},
     wire::{CONSENSUS_VERSION_HEADER, EncodingType},
 };
 use lh_types::ForkName;
@@ -13,6 +16,10 @@ use reqwest::{
 use ssz::Encode;
 
 use crate::utils::generate_mock_relay;
+
+/// Timeout a test beacon node advertises on bid requests; long enough that the
+/// deadline never bites in tests.
+const DEFAULT_TEST_TIMEOUT_MS: u64 = 60_000;
 
 pub struct MockValidator {
     pub comm_boost: RelayClient,
@@ -82,7 +89,13 @@ impl MockValidator {
             &parent_root,
             &pubkey.unwrap_or(default_pubkey),
         )?;
-        let mut req = self.comm_boost.client.post(url);
+        // The spec requires both timing headers on every bid request
+        let mut req = self
+            .comm_boost
+            .client
+            .post(url)
+            .header(HEADER_START_TIME_UNIX_MS, utcnow_ms())
+            .header(HEADER_TIMEOUT_MS, DEFAULT_TEST_TIMEOUT_MS);
         if !accept.is_empty() {
             let accept_header = accept.iter().map(|e| e.to_string()).collect::<Vec<_>>().join(", ");
             req = req.header(ACCEPT, accept_header);

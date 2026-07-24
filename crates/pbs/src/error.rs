@@ -22,6 +22,8 @@ pub enum PbsClientError {
     NoResponse,
     #[error("auth data does not match a configured builder")]
     AuthDataMismatch,
+    #[error("missing or invalid timing headers")]
+    MissingTimingHeader,
     #[error("auth slot does not match the request path")]
     AuthSlotMismatch,
     #[error("auth signature verification failed")]
@@ -41,6 +43,7 @@ impl PbsClientError {
         match self {
             PbsClientError::NoResponse => StatusCode::BAD_GATEWAY,
             PbsClientError::AuthDataMismatch => StatusCode::BAD_REQUEST,
+            PbsClientError::MissingTimingHeader => StatusCode::BAD_REQUEST,
             PbsClientError::AuthSlotMismatch => StatusCode::BAD_REQUEST,
             PbsClientError::AuthSigVerify => StatusCode::UNAUTHORIZED,
             PbsClientError::NoPayload => StatusCode::BAD_GATEWAY,
@@ -61,6 +64,9 @@ impl IntoResponse for PbsClientError {
             PbsClientError::NoResponse => "no response from relays".to_string(),
             PbsClientError::AuthDataMismatch => {
                 "Invalid SignedRequestAuthV1: auth.message.data does not match the value agreed with this builder".to_string()
+            }
+            PbsClientError::MissingTimingHeader => {
+                "Invalid request: Date-Milliseconds and X-Timeout-Ms headers are required".to_string()
             }
             PbsClientError::AuthSlotMismatch => {
                 "Invalid SignedRequestAuthV1: auth.message.slot does not match the proposal slot in the request path".to_string()
