@@ -52,8 +52,21 @@ pub fn generate_mock_relay(port: u16, pubkey: BlsPublicKey) -> Result<RelayClien
         frequency_get_header_ms: None,
         validator_registration_batch_size: None,
         max_execution_payment_gwei: None,
+        expected_auth_data: None,
     };
     RelayClient::new(config)
+}
+
+pub fn generate_mock_relay_with_auth_data(
+    port: u16,
+    pubkey: BlsPublicKey,
+    expected_auth_data: &[u8],
+) -> Result<RelayClient> {
+    let mut relay = generate_mock_relay(port, pubkey)?;
+    let mut config = (*relay.config).clone();
+    config.expected_auth_data = Some(expected_auth_data.to_vec().into());
+    relay.config = std::sync::Arc::new(config);
+    Ok(relay)
 }
 
 pub fn generate_mock_relay_with_batch_size(
@@ -73,6 +86,7 @@ pub fn generate_mock_relay_with_batch_size(
         frequency_get_header_ms: None,
         validator_registration_batch_size: Some(batch_size),
         max_execution_payment_gwei: None,
+        expected_auth_data: None,
     };
     RelayClient::new(config)
 }
@@ -92,6 +106,7 @@ pub fn get_pbs_config(port: u16) -> PbsConfig {
         fee_recipient: None,
         late_in_slot_time_ms: u64::MAX,
         extra_validation_enabled: false,
+        strict_auth_data: false,
 
         ssv_node_api_url: Url::parse("http://localhost:0").unwrap(),
         ssv_public_api_url: Url::parse("http://localhost:0").unwrap(),

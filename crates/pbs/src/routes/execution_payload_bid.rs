@@ -19,8 +19,8 @@ use cb_common::{
     constants::{GENESIS_VALIDATORS_ROOT, GLOAS_FORK_VERSION},
     pbs::{
         GetExecutionPayloadBidInfo, GetExecutionPayloadBidParams, GetExecutionPayloadBidResponse,
-        HEADER_BUILDER_URL, HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS, RelayClient,
-        SignedExecutionPayloadBid, SignedRequestAuthV1,
+        HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS, RelayClient, SignedExecutionPayloadBid,
+        SignedRequestAuthV1,
         error::{PbsError, ValidationError},
     },
     signature::verify_execution_payload_bid_signature,
@@ -56,7 +56,7 @@ use crate::{
         BEACON_NODE_STATUS, RELAY_HEADER_VALUE, RELAY_LAST_SLOT, RELAY_LATENCY, RELAY_STATUS_CODE,
     },
     state::{BuilderApiState, PbsState},
-    utils::check_gas_limit,
+    utils::{check_gas_limit, match_relays_by_auth_data},
 };
 
 /// Decode the optional `SignedRequestAuthV1` request body. Empty body -> None.
@@ -186,7 +186,7 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
 
 /// Implements https://ethereum.github.io/builder-specs/?urls.primaryName=dev#/Builder/getExecutionPayloadBid
 /// Some(bid) if a relay serves one (-> 200), None if none do (-> 204); errors
-/// with UnknownBuilder (-> 400) or Internal (-> 500).
+/// with Internal (-> 500).
 pub async fn get_execution_payload_bid<S: BuilderApiState>(
     params: GetExecutionPayloadBidParams,
     body: Option<Arc<SignedRequestAuthV1>>,
@@ -212,25 +212,11 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
         debug!(relays = relays.len(), pubkey = %params.proposer_pubkey, "using default config");
     }
 
-    // Route to a specific builder when Eth-Builder-Url is set
-    // No header fans out to all configured relays.
-    let relays: Vec<&RelayClient> = match req_headers.get(HEADER_BUILDER_URL) {
-        Some(hdr) => {
-            let dest = hdr.to_str().ok().and_then(|s| Url::parse(s).ok());
-            let matched: Vec<&RelayClient> = match dest {
-                Some(url) => {
-                    relays.iter().filter(|r| same_builder(&r.config.entry.url, &url)).collect()
-                }
-                None => Vec::new(),
-            };
-            if matched.is_empty() {
-                return Err(PbsClientError::UnknownBuilder);
-            }
-            matched
-        }
-        // TODO revisit if fanout is the desired policy if no header
-        None => relays.iter().collect(),
-    };
+    let received_data: Option<&[u8]> = body.as_ref().map(|auth| auth.message.data.as_ref());
+    let relays = match_relays_by_auth_data(relays, received_data, pbs_config.strict_auth_data);
+    if relays.is_empty() {
+        return Err(PbsClientError::AuthDataMismatch);
+    }
 
     let max_timeout_ms = pbs_config
         .timeout_get_header_ms
@@ -345,13 +331,6 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
     }
 
     Ok(max_bid.map(|(_, bid)| bid))
-}
-
-/// Compares two URLs without checking userinfo/path/queries/frags
-fn same_builder(a: &Url, b: &Url) -> bool {
-    a.scheme() == b.scheme() &&
-        a.host_str() == b.host_str() &&
-        a.port_or_known_default() == b.port_or_known_default()
 }
 
 fn total_payment(bid: &impl GetExecutionPayloadBidInfo) -> u64 {
@@ -816,31 +795,6 @@ mod tests {
     };
 
     use super::{validate_header_data, *};
-
-    fn url(s: &str) -> Url {
-        Url::parse(s).unwrap()
-    }
-
-    #[test]
-    fn same_builder_ignores_userinfo_and_default_port() {
-        // A bare Eth-Builder-Url matches a configured relay whose URL embeds the
-        // relay pubkey as userinfo and omits the default port.
-        assert!(same_builder(
-            &url("https://0xdeadbeef@builder.example.com"),
-            &url("https://builder.example.com"),
-        ));
-        assert!(same_builder(
-            &url("https://builder.example.com:443"),
-            &url("https://builder.example.com"),
-        ));
-    }
-
-    #[test]
-    fn same_builder_distinguishes_scheme_host_and_port() {
-        assert!(!same_builder(&url("http://a.com"), &url("https://a.com")));
-        assert!(!same_builder(&url("https://a.com"), &url("https://b.com")));
-        assert!(!same_builder(&url("http://a.com:8001"), &url("http://a.com:8002")));
-    }
 
     #[test]
     fn test_validate_header() {

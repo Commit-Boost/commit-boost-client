@@ -20,10 +20,10 @@ struct ErrorResponse {
 pub enum PbsClientError {
     #[error("no response from relays")]
     NoResponse,
+    #[error("auth data does not match a configured builder")]
+    AuthDataMismatch,
     #[error("no payload from relays")]
     NoPayload,
-    #[error("unknown builder")]
-    UnknownBuilder,
     #[error("internal server error")]
     Internal,
     #[error("failed to deserialize body: {0}")]
@@ -36,8 +36,8 @@ impl PbsClientError {
     pub fn status_code(&self) -> StatusCode {
         match self {
             PbsClientError::NoResponse => StatusCode::BAD_GATEWAY,
+            PbsClientError::AuthDataMismatch => StatusCode::BAD_REQUEST,
             PbsClientError::NoPayload => StatusCode::BAD_GATEWAY,
-            PbsClientError::UnknownBuilder => StatusCode::BAD_REQUEST,
             PbsClientError::Internal => StatusCode::INTERNAL_SERVER_ERROR,
             PbsClientError::DecodeError(BodyDeserializeError::UnsupportedMediaType) => {
                 StatusCode::UNSUPPORTED_MEDIA_TYPE
@@ -53,10 +53,10 @@ impl IntoResponse for PbsClientError {
         let status = self.status_code();
         let message = match &self {
             PbsClientError::NoResponse => "no response from relays".to_string(),
-            PbsClientError::NoPayload => "no payload from relays".to_string(),
-            PbsClientError::UnknownBuilder => {
-                "Eth-Builder-Url does not resolve to a configured builder".to_string()
+            PbsClientError::AuthDataMismatch => {
+                "Invalid SignedRequestAuthV1: auth.message.data does not match the value agreed with this builder".to_string()
             }
+            PbsClientError::NoPayload => "no payload from relays".to_string(),
             PbsClientError::Internal => "internal server error".to_string(),
             PbsClientError::DecodeError(e) => format!("error decoding request: {e}"),
             PbsClientError::HeaderError(e) => format!("header error: {e}"),

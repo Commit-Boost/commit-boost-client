@@ -8,7 +8,7 @@ use std::{
 };
 
 use alloy::{
-    primitives::{Address, U256, utils::format_ether},
+    primitives::{Address, Bytes, U256, utils::format_ether},
     providers::{Provider, ProviderBuilder},
 };
 use docker_image::DockerImage;
@@ -63,6 +63,10 @@ pub struct RelayConfig {
     pub validator_registration_batch_size: Option<usize>,
     /// Maximum trusted execution payment in Gwei accepted in an ePBS bid
     pub max_execution_payment_gwei: Option<u64>,
+    /// ePBS auth data this relay serves: a bid request routes here only when
+    /// its `auth.message.data` equals this value. When unset, the relay
+    /// accepts any auth data unless `strict_auth_data` is enabled
+    pub expected_auth_data: Option<Bytes>,
 }
 
 fn empty_string_as_none<'de, D>(deserializer: D) -> Result<Option<usize>, D::Error>
@@ -123,6 +127,10 @@ pub struct PbsConfig {
     /// Maximum trusted execution payment in Gwei accepted in an ePBS bid
     #[serde(default = "default_u64::<0>")]
     pub max_execution_payment_gwei: u64,
+    /// When enabled, a relay without `expected_auth_data` never matches an
+    /// ePBS bid request: every relay must declare the auth data it serves
+    #[serde(default = "default_bool::<false>")]
+    pub strict_auth_data: bool,
     /// Expected fee recipient in ePBS bids; when set, bids with a different
     /// fee_recipient are rejected
     pub fee_recipient: Option<Address>,

@@ -18,7 +18,8 @@ use cb_tests::{
     mock_relay::{MockRelayState, start_mock_relay_service_with_listener},
     mock_validator::MockValidator,
     utils::{
-        generate_mock_relay, get_free_listener, get_pbs_config, setup_test_env, to_pbs_config,
+        generate_mock_relay, generate_mock_relay_with_auth_data, get_free_listener, get_pbs_config,
+        setup_test_env, to_pbs_config,
     },
 };
 use eyre::Result;
@@ -30,22 +31,11 @@ use tree_hash::TreeHash;
 
 const TEST_SLOT: u64 = 100;
 
-/// Which builder to route the request to via the `Eth-Builder-Url` header
-enum BuilderRoute {
-    /// No header: fan out to all configured relays
-    None,
-    /// Index into the relay list
-    Relay(usize),
-    /// A URL matching no configured relay
-    UnknownBuilder,
-}
-
 /// Test requesting a bid with a single default relay
 #[tokio::test]
 async fn test_get_execution_payload_bid() -> Result<()> {
     test_get_execution_payload_bid_impl(
         vec![MockRelayState::new(Chain::Hoodi, random_secret())],
-        BuilderRoute::None,
         StatusCode::OK,
         &[1],
         Some(10),
@@ -59,7 +49,6 @@ async fn test_get_execution_payload_bid() -> Result<()> {
 async fn test_get_execution_payload_bid_no_bid() -> Result<()> {
     test_get_execution_payload_bid_impl(
         vec![MockRelayState::new(Chain::Hoodi, random_secret()).with_no_epbs_bid()],
-        BuilderRoute::None,
         StatusCode::NO_CONTENT,
         &[1],
         None,
@@ -73,7 +62,6 @@ async fn test_get_execution_payload_bid_no_bid() -> Result<()> {
 async fn test_get_execution_payload_bid_invalid_signature() -> Result<()> {
     test_get_execution_payload_bid_impl(
         vec![MockRelayState::new(Chain::Hoodi, random_secret()).with_epbs_invalid_signature()],
-        BuilderRoute::None,
         StatusCode::NO_CONTENT,
         &[1],
         None,
@@ -87,7 +75,6 @@ async fn test_get_execution_payload_bid_invalid_signature() -> Result<()> {
 async fn test_get_execution_payload_bid_wrong_parent_hash() -> Result<()> {
     test_get_execution_payload_bid_impl(
         vec![MockRelayState::new(Chain::Hoodi, random_secret()).with_epbs_wrong_parent_hash()],
-        BuilderRoute::None,
         StatusCode::NO_CONTENT,
         &[1],
         None,
@@ -101,7 +88,6 @@ async fn test_get_execution_payload_bid_wrong_parent_hash() -> Result<()> {
 async fn test_get_execution_payload_bid_wrong_parent_root() -> Result<()> {
     test_get_execution_payload_bid_impl(
         vec![MockRelayState::new(Chain::Hoodi, random_secret()).with_epbs_wrong_parent_root()],
-        BuilderRoute::None,
         StatusCode::NO_CONTENT,
         &[1],
         None,
@@ -116,7 +102,6 @@ async fn test_get_execution_payload_bid_wrong_parent_root() -> Result<()> {
 async fn test_get_execution_payload_bid_nonzero_execution_payment_rejected() -> Result<()> {
     test_get_execution_payload_bid_impl(
         vec![MockRelayState::new(Chain::Hoodi, random_secret()).with_trusted_bid_gwei(1)],
-        BuilderRoute::None,
         StatusCode::NO_CONTENT,
         &[1],
         None,
@@ -132,7 +117,6 @@ async fn test_get_execution_payload_bid_highest_wins() -> Result<()> {
             MockRelayState::new(Chain::Hoodi, random_secret()).with_trustless_bid_gwei(10),
             MockRelayState::new(Chain::Hoodi, random_secret()).with_trustless_bid_gwei(42),
         ],
-        BuilderRoute::None,
         StatusCode::OK,
         &[1, 1],
         Some(42),
@@ -147,7 +131,6 @@ async fn test_get_execution_payload_bid_highest_wins() -> Result<()> {
 async fn test_get_execution_payload_bid_execution_payment_within_cap() -> Result<()> {
     test_get_execution_payload_bid_impl(
         vec![MockRelayState::new(Chain::Hoodi, random_secret()).with_trusted_bid_gwei(5)],
-        BuilderRoute::None,
         StatusCode::OK,
         &[1],
         None,
@@ -167,7 +150,6 @@ async fn test_get_execution_payload_bid_highest_total_payment_wins() -> Result<(
                 .with_trustless_bid_gwei(5)
                 .with_trusted_bid_gwei(10),
         ],
-        BuilderRoute::None,
         StatusCode::OK,
         &[1, 1],
         Some(5),
@@ -203,7 +185,7 @@ async fn test_get_execution_payload_bid_below_min_bid_rejected() -> Result<()> {
     wait_for_ready(&mock_validator).await?;
 
     let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, None, vec![
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, vec![
             EncodingType::Json,
         ])
         .await?;
@@ -237,7 +219,7 @@ async fn test_get_execution_payload_bid_wrong_fee_recipient_rejected() -> Result
     wait_for_ready(&mock_validator).await?;
 
     let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, None, vec![
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, vec![
             EncodingType::Json,
         ])
         .await?;
@@ -288,7 +270,6 @@ async fn test_get_execution_payload_bid_mux_fee_recipient() -> Result<()> {
             B256::ZERO,
             Some(mux_pubkey),
             None,
-            None,
             vec![EncodingType::Json],
         )
         .await?;
@@ -296,7 +277,7 @@ async fn test_get_execution_payload_bid_mux_fee_recipient() -> Result<()> {
 
     // A non-mux validator uses the default config and gets the bid
     let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, None, vec![
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, vec![
             EncodingType::Json,
         ])
         .await?;
@@ -305,47 +286,123 @@ async fn test_get_execution_payload_bid_mux_fee_recipient() -> Result<()> {
     Ok(())
 }
 
-/// Test that the Eth-Builder-Url header forwards the request ONLY to the relay
-/// whose configured URL matches. Targets the lower bid to prove the response
-/// came from the routing target, not max-bid selection.
+/// The caller's auth data designates the downstream: only the relay whose
+/// `expected_auth_data` matches is contacted, and its bid is returned.
 #[tokio::test]
-async fn test_get_execution_payload_bid_routes_to_target_builder() -> Result<()> {
-    test_get_execution_payload_bid_impl(
-        vec![
-            MockRelayState::new(Chain::Hoodi, random_secret()).with_trustless_bid_gwei(10),
-            MockRelayState::new(Chain::Hoodi, random_secret()).with_trustless_bid_gwei(42),
-        ],
-        BuilderRoute::Relay(0),
-        StatusCode::OK,
-        &[1, 0],
-        Some(10),
-        0,
-    )
-    .await
+async fn test_get_execution_payload_bid_demux_routes_by_auth_data() -> Result<()> {
+    setup_test_env();
+    let chain = Chain::Hoodi;
+    let pbs_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr()?.port();
+
+    let data_a = vec![0xaa, 0x01];
+    let data_b = vec![0xbb, 0x02];
+    let mut relays = Vec::new();
+    let mut states = Vec::new();
+    for data in [&data_a, &data_b] {
+        let relay_listener = get_free_listener().await;
+        let relay_port = relay_listener.local_addr()?.port();
+        let state = Arc::new(MockRelayState::new(chain, random_secret()));
+        relays.push(generate_mock_relay_with_auth_data(
+            relay_port,
+            state.signer.public_key(),
+            data,
+        )?);
+        tokio::spawn(start_mock_relay_service_with_listener(state.clone(), relay_listener));
+        states.push(state);
+    }
+
+    let config = to_pbs_config(chain, get_pbs_config(pbs_port), relays);
+    let state = PbsState::new(config, PathBuf::new());
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
+
+    let mock_validator = MockValidator::new(pbs_port)?;
+    wait_for_ready(&mock_validator).await?;
+
+    let auth = opaque_auth(&data_a, TEST_SLOT);
+    let res = mock_validator
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
+            EncodingType::Json,
+        ])
+        .await?;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(states[0].received_execution_payload_bid(), 1);
+    assert_eq!(states[1].received_execution_payload_bid(), 0);
+    Ok(())
 }
 
-/// Test that an Eth-Builder-Url resolving to no configured builder is rejected
-/// with 400 and no relay is contacted.
+/// Auth data carrying a builder URL (raw UTF-8 bytes, the spec default) routes
+/// to the relay whose configured URL matches, ignoring the entry's userinfo.
 #[tokio::test]
-async fn test_get_execution_payload_bid_unknown_builder_400() -> Result<()> {
-    test_get_execution_payload_bid_impl(
-        vec![
-            MockRelayState::new(Chain::Hoodi, random_secret()),
-            MockRelayState::new(Chain::Hoodi, random_secret()),
-        ],
-        BuilderRoute::UnknownBuilder,
-        StatusCode::BAD_REQUEST,
-        &[0, 0],
-        None,
-        0,
-    )
-    .await
+async fn test_get_execution_payload_bid_demux_by_url_bytes() -> Result<()> {
+    setup_test_env();
+    let chain = Chain::Hoodi;
+    let pbs_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr()?.port();
+
+    let mut relays = Vec::new();
+    let mut states = Vec::new();
+    let mut urls = Vec::new();
+    for _ in 0..2 {
+        let relay_listener = get_free_listener().await;
+        let relay_port = relay_listener.local_addr()?.port();
+        let state = Arc::new(MockRelayState::new(chain, random_secret()));
+        let relay = generate_mock_relay(relay_port, state.signer.public_key())?;
+        urls.push(format!("http://0.0.0.0:{relay_port}/"));
+        tokio::spawn(start_mock_relay_service_with_listener(state.clone(), relay_listener));
+        relays.push(relay);
+        states.push(state);
+    }
+
+    let config = to_pbs_config(chain, get_pbs_config(pbs_port), relays);
+    let state = PbsState::new(config, PathBuf::new());
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
+
+    let mock_validator = MockValidator::new(pbs_port)?;
+    wait_for_ready(&mock_validator).await?;
+
+    // data = UTF-8 bytes of relay-0's URL
+    let auth = opaque_auth(urls[0].as_bytes(), TEST_SLOT);
+    let res = mock_validator
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
+            EncodingType::Json,
+        ])
+        .await?;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(states[0].received_execution_payload_bid(), 1);
+    assert_eq!(states[1].received_execution_payload_bid(), 0);
+
+    // URL bytes with a NUL-suffixed extra payload route the same way
+    let mut with_extra = urls[1].as_bytes().to_vec();
+    with_extra.push(0);
+    with_extra.extend_from_slice(&[0xde, 0xad]);
+    let auth = opaque_auth(&with_extra, TEST_SLOT);
+    let res = mock_validator
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
+            EncodingType::Json,
+        ])
+        .await?;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(states[0].received_execution_payload_bid(), 1);
+    assert_eq!(states[1].received_execution_payload_bid(), 1);
+
+    // a URL matching no configured relay is a 400, nothing contacted
+    let auth = opaque_auth(b"https://unknown-builder.example:9999/", TEST_SLOT);
+    let res = mock_validator
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
+            EncodingType::Json,
+        ])
+        .await?;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(states[0].received_execution_payload_bid(), 1);
+    assert_eq!(states[1].received_execution_payload_bid(), 1);
+    Ok(())
 }
 
-/// A malformed Eth-Builder-Url (not a valid URL) resolves to no builder and is
-/// rejected with 400 and the spec error message; no relay is contacted.
+/// Auth data matching no configured relay is rejected with 400 and the spec
+/// data-mismatch message; no relay is contacted.
 #[tokio::test]
-async fn test_get_execution_payload_bid_malformed_builder_url_400() -> Result<()> {
+async fn test_get_execution_payload_bid_demux_no_match_400() -> Result<()> {
     setup_test_env();
     let chain = Chain::Hoodi;
     let pbs_listener = get_free_listener().await;
@@ -354,7 +411,8 @@ async fn test_get_execution_payload_bid_malformed_builder_url_400() -> Result<()
     let relay_port = relay_listener.local_addr()?.port();
 
     let mock_state = Arc::new(MockRelayState::new(chain, random_secret()));
-    let mock_relay = generate_mock_relay(relay_port, mock_state.signer.public_key())?;
+    let mock_relay =
+        generate_mock_relay_with_auth_data(relay_port, mock_state.signer.public_key(), &[0xaa])?;
     tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
 
     let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay]);
@@ -364,26 +422,69 @@ async fn test_get_execution_payload_bid_malformed_builder_url_400() -> Result<()
     let mock_validator = MockValidator::new(pbs_port)?;
     wait_for_ready(&mock_validator).await?;
 
+    let auth = opaque_auth(&[0xbb], TEST_SLOT);
     let res = mock_validator
-        .do_get_execution_payload_bid(
-            TEST_SLOT,
-            B256::ZERO,
-            B256::ZERO,
-            None,
-            None,
-            Some("not-a-url"),
-            vec![EncodingType::Json],
-        )
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
+            EncodingType::Json,
+        ])
         .await?;
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     assert_eq!(mock_state.received_execution_payload_bid(), 0);
     let body: serde_json::Value = serde_json::from_slice(&res.bytes().await?)?;
     assert_eq!(body["code"], 400);
-    assert_eq!(body["message"], "Eth-Builder-Url does not resolve to a configured builder");
+    assert_eq!(
+        body["message"],
+        "Invalid SignedRequestAuthV1: auth.message.data does not match the value agreed with this builder"
+    );
     Ok(())
 }
 
-/// An opaque (non-URL) auth body is forwarded to the routed builder verbatim.
+/// A relay without `expected_auth_data` accepts any auth data by default, but
+/// matches nothing when `strict_auth_data` is enabled.
+#[tokio::test]
+async fn test_get_execution_payload_bid_strict_auth_data() -> Result<()> {
+    setup_test_env();
+    let chain = Chain::Hoodi;
+
+    for (strict, expected_status, expected_count) in
+        [(false, StatusCode::OK, 1), (true, StatusCode::BAD_REQUEST, 0)]
+    {
+        let pbs_listener = get_free_listener().await;
+        let pbs_port = pbs_listener.local_addr()?.port();
+        let relay_listener = get_free_listener().await;
+        let relay_port = relay_listener.local_addr()?.port();
+
+        let mock_state = Arc::new(MockRelayState::new(chain, random_secret()));
+        let mock_relay = generate_mock_relay(relay_port, mock_state.signer.public_key())?;
+        tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
+
+        let mut pbs_config = get_pbs_config(pbs_port);
+        pbs_config.strict_auth_data = strict;
+        let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
+        let state = PbsState::new(config, PathBuf::new());
+        tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
+
+        let mock_validator = MockValidator::new(pbs_port)?;
+        wait_for_ready(&mock_validator).await?;
+
+        let auth = opaque_auth(&[0xcc], TEST_SLOT);
+        let res = mock_validator
+            .do_get_execution_payload_bid(
+                TEST_SLOT,
+                B256::ZERO,
+                B256::ZERO,
+                None,
+                Some(&auth),
+                vec![EncodingType::Json],
+            )
+            .await?;
+        assert_eq!(res.status(), expected_status, "strict={strict}");
+        assert_eq!(mock_state.received_execution_payload_bid(), expected_count, "strict={strict}");
+    }
+    Ok(())
+}
+
+/// An opaque (non-URL) auth body is forwarded to the relays verbatim.
 #[tokio::test]
 async fn test_get_execution_payload_bid_forwards_opaque_auth() -> Result<()> {
     setup_test_env();
@@ -395,7 +496,6 @@ async fn test_get_execution_payload_bid_forwards_opaque_auth() -> Result<()> {
 
     let mock_state = Arc::new(MockRelayState::new(chain, random_secret()));
     let mock_relay = generate_mock_relay(relay_port, mock_state.signer.public_key())?;
-    let relay_url = mock_relay.config.entry.url.to_string();
     tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
 
     let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay]);
@@ -408,15 +508,9 @@ async fn test_get_execution_payload_bid_forwards_opaque_auth() -> Result<()> {
     let data = vec![0xde, 0xad, 0xbe, 0xef];
     let auth = opaque_auth(&data, TEST_SLOT);
     let res = mock_validator
-        .do_get_execution_payload_bid(
-            TEST_SLOT,
-            B256::ZERO,
-            B256::ZERO,
-            None,
-            Some(&auth),
-            Some(&relay_url),
-            vec![EncodingType::Json],
-        )
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
+            EncodingType::Json,
+        ])
         .await?;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(mock_state.received_execution_payload_bid(), 1);
@@ -496,7 +590,7 @@ async fn test_get_execution_payload_bid_ssz_response() -> Result<()> {
     wait_for_ready(&mock_validator).await?;
 
     let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, None, vec![
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, vec![
             EncodingType::Ssz,
         ])
         .await?;
@@ -543,7 +637,7 @@ async fn test_get_execution_payload_bid_no_accept_defaults_to_ssz() -> Result<()
 
     // An empty accept vec makes MockValidator send NO Accept header at all.
     let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, None, vec![])
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, vec![])
         .await?;
     assert_eq!(res.status(), StatusCode::OK);
 
@@ -584,7 +678,7 @@ async fn test_get_execution_payload_bid_explicit_json_obeyed() -> Result<()> {
     wait_for_ready(&mock_validator).await?;
 
     let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, None, vec![
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, vec![
             EncodingType::Json,
         ])
         .await?;
@@ -636,7 +730,7 @@ async fn test_get_execution_payload_bid_relay_ssz_response_roundtrip() -> Result
 
     // BN asks for JSON; PBS decodes SSZ from the relay and re-encodes to JSON.
     let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, None, vec![
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, vec![
             EncodingType::Json,
         ])
         .await?;
@@ -679,7 +773,7 @@ async fn test_get_execution_payload_bid_relay_ssz_missing_version_header() -> Re
     wait_for_ready(&mock_validator).await?;
 
     let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, None, vec![])
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, vec![])
         .await?;
     // The relay was contacted, but its undecodable SSZ bid was dropped.
     assert_eq!(mock_state.received_execution_payload_bid(), 1);
@@ -833,7 +927,6 @@ async fn test_get_execution_payload_bid_malformed_auth_400() -> Result<()> {
 
 async fn test_get_execution_payload_bid_impl(
     relay_states: Vec<MockRelayState>,
-    route: BuilderRoute,
     expected_code: StatusCode,
     expected_relay_counts: &[u64],
     expected_value: Option<u64>,
@@ -848,13 +941,11 @@ async fn test_get_execution_payload_bid_impl(
     // Run one mock relay per state so per-relay knobs and counters work
     let mut relays = Vec::new();
     let mut states = Vec::new();
-    let mut relay_urls = Vec::new();
     for state in relay_states {
         let relay_listener = get_free_listener().await;
         let relay_port = relay_listener.local_addr()?.port();
         let state = Arc::new(state);
         let relay = generate_mock_relay(relay_port, state.signer.public_key())?;
-        relay_urls.push(relay.config.entry.url.to_string());
         tokio::spawn(start_mock_relay_service_with_listener(state.clone(), relay_listener));
         relays.push(relay);
         states.push(state);
@@ -870,24 +961,11 @@ async fn test_get_execution_payload_bid_impl(
     let mock_validator = MockValidator::new(pbs_port)?;
     wait_for_ready(&mock_validator).await?;
 
-    // Route via the Eth-Builder-Url header; opaque auth.data no longer selects a
-    // builder
-    let builder_url = match route {
-        BuilderRoute::None => None,
-        BuilderRoute::Relay(i) => Some(relay_urls[i].clone()),
-        BuilderRoute::UnknownBuilder => Some("http://unknown-builder.example:9999/".to_string()),
-    };
     info!("Sending get execution payload bid");
     let res = mock_validator
-        .do_get_execution_payload_bid(
-            TEST_SLOT,
-            B256::ZERO,
-            B256::ZERO,
-            None,
-            None,
-            builder_url.as_deref(),
-            vec![EncodingType::Json],
-        )
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, vec![
+            EncodingType::Json,
+        ])
         .await?;
     assert_eq!(res.status(), expected_code);
     for (state, expected) in states.iter().zip(expected_relay_counts) {
