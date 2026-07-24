@@ -80,6 +80,31 @@ impl MockValidator {
         auth: Option<&SignedRequestAuthV1>,
         accept: Vec<EncodingType>,
     ) -> eyre::Result<Response> {
+        self.do_get_execution_payload_bid_with_timeout(
+            slot,
+            parent_hash,
+            parent_root,
+            pubkey,
+            auth,
+            accept,
+            DEFAULT_TEST_TIMEOUT_MS,
+        )
+        .await
+    }
+
+    /// Same, but with the proposer's `X-Timeout-Ms` under the test's control:
+    /// that header is what bounds the whole bid poll ladder.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn do_get_execution_payload_bid_with_timeout(
+        &self,
+        slot: u64,
+        parent_hash: B256,
+        parent_root: B256,
+        pubkey: Option<BlsPublicKey>,
+        auth: Option<&SignedRequestAuthV1>,
+        accept: Vec<EncodingType>,
+        timeout_ms: u64,
+    ) -> eyre::Result<Response> {
         let default_pubkey = bls_pubkey_from_hex(
             "0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae",
         )?;
@@ -95,7 +120,7 @@ impl MockValidator {
             .client
             .post(url)
             .header(HEADER_START_TIME_UNIX_MS, utcnow_ms())
-            .header(HEADER_TIMEOUT_MS, DEFAULT_TEST_TIMEOUT_MS);
+            .header(HEADER_TIMEOUT_MS, timeout_ms);
         if !accept.is_empty() {
             let accept_header = accept.iter().map(|e| e.to_string()).collect::<Vec<_>>().join(", ");
             req = req.header(ACCEPT, accept_header);

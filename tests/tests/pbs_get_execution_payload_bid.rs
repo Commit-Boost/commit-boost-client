@@ -5,8 +5,9 @@ use cb_common::{
     config::RuntimeMuxConfig,
     constants::{GENESIS_VALIDATORS_ROOT, GLOAS_FORK_VERSION},
     pbs::{
-        GetExecutionPayloadBidInfo, GetExecutionPayloadBidResponse, HEADER_START_TIME_UNIX_MS,
-        HEADER_TIMEOUT_MS, RequestAuthV1, SignedExecutionPayloadBid, SignedRequestAuthV1,
+        DEFAULT_BID_POLL_TIMEOUT_MS, GetExecutionPayloadBidInfo, GetExecutionPayloadBidResponse,
+        HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS, RequestAuthV1, SignedExecutionPayloadBid,
+        SignedRequestAuthV1,
     },
     signature::{sign_execution_payload_bid_root, sign_request_auth_root},
     signer::random_secret,
@@ -19,8 +20,9 @@ use cb_tests::{
     mock_relay::{MockRelayState, start_mock_relay_service_with_listener},
     mock_validator::MockValidator,
     utils::{
-        generate_mock_relay, generate_mock_relay_with_auth_data, get_free_listener, get_pbs_config,
-        setup_test_env, to_pbs_config,
+        generate_mock_relay, generate_mock_relay_with_auth_data,
+        generate_mock_relay_with_timing_games, get_free_listener, get_pbs_config, setup_test_env,
+        to_pbs_config,
     },
 };
 use eyre::Result;
@@ -1172,6 +1174,322 @@ async fn test_get_execution_payload_bid_malformed_auth_400() -> Result<()> {
         body["message"].as_str().unwrap_or_default().contains("decoding"),
         "error body must be an ErrorMessage describing the decode failure"
     );
+    Ok(())
+}
+
+/// Boot PBS in front of a single timing-games relay driven by `mock_state`, so
+/// a test can observe the bid poll ladder from the builder's side.
+async fn setup_timing_games_relay(
+    mock_state: Arc<MockRelayState>,
+    frequency_get_header_ms: u64,
+    bid_poll_timeout_ms: Option<u64>,
+) -> Result<MockValidator> {
+    setup_test_env();
+    let chain = Chain::Hoodi;
+    let pbs_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr()?.port();
+    let relay_listener = get_free_listener().await;
+    let relay_port = relay_listener.local_addr()?.port();
+
+    let mock_relay = generate_mock_relay_with_timing_games(
+        relay_port,
+        mock_state.signer.public_key(),
+        frequency_get_header_ms,
+        bid_poll_timeout_ms,
+    )?;
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state, relay_listener));
+
+    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay]);
+    let state = PbsState::new(config, PathBuf::new());
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
+
+    let mock_validator = MockValidator::new(pbs_port)?;
+    wait_for_ready(&mock_validator).await?;
+    Ok(mock_validator)
+}
+
+/// Request a bid advertising `budget_ms` as the proposer's `X-Timeout-Ms`.
+async fn get_bid_with_budget(
+    mock_validator: &MockValidator,
+    budget_ms: u64,
+) -> Result<reqwest::Response> {
+    let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);
+    Ok(mock_validator
+        .do_get_execution_payload_bid_with_timeout(
+            TEST_SLOT,
+            B256::ZERO,
+            B256::ZERO,
+            None,
+            Some(&auth),
+            vec![EncodingType::Json],
+            budget_ms,
+        )
+        .await?)
+}
+
+/// No poll may promise the builder more time than the shared deadline still has
+/// left when it is sent. Poll `i` goes out one cadence step after poll `i - 1`,
+/// so the budget left for it is at most `budget_ms - i * frequency_ms`.
+fn assert_no_poll_overspends(timeouts: &[u64], budget_ms: u64, frequency_ms: u64) {
+    for (i, timeout) in timeouts.iter().enumerate() {
+        assert!(
+            timeout + i as u64 * frequency_ms <= budget_ms,
+            "poll {i} promised more than the deadline had left: {timeouts:?}"
+        );
+    }
+}
+
+/// The ladder's shape: with timing games on, a known cadence and a generous
+/// deadline, every poll but the last carries the bounded `bid_poll_timeout_ms`
+/// and the last one carries the whole remaining budget.
+#[tokio::test]
+async fn test_get_execution_payload_bid_ladder_timeout_shape() -> Result<()> {
+    const FREQ_MS: u64 = 500;
+    const POLL_TIMEOUT_MS: u64 = 100;
+    const BUDGET_MS: u64 = 2_000;
+
+    let mock_state = Arc::new(MockRelayState::new(Chain::Hoodi, random_secret()));
+    let mock_validator =
+        setup_timing_games_relay(mock_state.clone(), FREQ_MS, Some(POLL_TIMEOUT_MS)).await?;
+
+    let res = get_bid_with_budget(&mock_validator, BUDGET_MS).await?;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // Budget = BUDGET_MS minus transit, so the 4th poll is the last for any transit
+    // under 500ms
+    let timeouts = mock_state.received_bid_timeouts();
+    assert_eq!(timeouts.len(), 4, "cadence and budget imply 4 polls, got {timeouts:?}");
+    let (last, bounded) = timeouts.split_last().unwrap();
+    assert!(
+        bounded.iter().all(|timeout| *timeout == POLL_TIMEOUT_MS),
+        "every poll but the last must be bounded by bid_poll_timeout_ms: {timeouts:?}"
+    );
+    assert!(
+        *last > POLL_TIMEOUT_MS && *last <= FREQ_MS,
+        "the last poll must hold for the remaining budget, got {last}"
+    );
+    // Remaining = budget - 3 cadence steps = 500ms minus transit; 300ms of transit
+    // slack
+    assert!(*last >= 200, "the last poll must carry what is left of the budget, got {last}");
+    assert_no_poll_overspends(&timeouts, BUDGET_MS, FREQ_MS);
+
+    // A sleep never returns early, so arrivals only drift later; 10ms covers ms
+    // rounding
+    let arrivals = mock_state.received_bid_arrivals_ms();
+    for pair in arrivals.windows(2) {
+        assert!(
+            pair[1].saturating_sub(pair[0]) + 10 >= FREQ_MS,
+            "polls must be spaced by the configured cadence: {arrivals:?}"
+        );
+    }
+    Ok(())
+}
+
+/// Best-of across the whole ladder: with a builder improving its bid on every
+/// poll, the returned bid is the LAST poll's, proving `select_max_bid` spans
+/// every rung instead of returning the first one that landed.
+#[tokio::test]
+async fn test_get_execution_payload_bid_ladder_returns_best_poll() -> Result<()> {
+    const FREQ_MS: u64 = 400;
+    const POLL_TIMEOUT_MS: u64 = 300;
+    const BUDGET_MS: u64 = 1_200;
+    const STEP_GWEI: u64 = 7;
+    const BASE_GWEI: u64 = 10;
+
+    let mock_state = Arc::new(
+        MockRelayState::new(Chain::Hoodi, random_secret())
+            .with_trustless_bid_gwei(BASE_GWEI)
+            .with_improving_bids(STEP_GWEI),
+    );
+    let mock_validator =
+        setup_timing_games_relay(mock_state.clone(), FREQ_MS, Some(POLL_TIMEOUT_MS)).await?;
+
+    let res = get_bid_with_budget(&mock_validator, BUDGET_MS).await?;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // This builder answers instantly, so every rung lands a bid and the last is the
+    // best
+    let polls = mock_state.received_execution_payload_bid();
+    assert!(polls > 1, "the ladder must have fired more than one poll, got {polls}");
+
+    let decoded = serde_json::from_slice::<GetExecutionPayloadBidResponse>(&res.bytes().await?)?;
+    assert_eq!(
+        decoded.value(),
+        BASE_GWEI + STEP_GWEI * (polls - 1),
+        "the winner must be the last poll's bid, not the first one to land"
+    );
+    Ok(())
+}
+
+/// A builder that holds every request longer than `bid_poll_timeout_ms` times
+/// out the early rungs, but the last poll holds for the full remainder, so the
+/// run still yields a bid.
+#[tokio::test]
+async fn test_get_execution_payload_bid_ladder_slow_builder_still_bids() -> Result<()> {
+    const FREQ_MS: u64 = 500;
+    const POLL_TIMEOUT_MS: u64 = 100;
+    const DELAY_MS: u64 = 150;
+    const BUDGET_MS: u64 = 1_500;
+
+    let mock_state =
+        Arc::new(MockRelayState::new(Chain::Hoodi, random_secret()).with_bid_delay_ms(DELAY_MS));
+    let mock_validator =
+        setup_timing_games_relay(mock_state.clone(), FREQ_MS, Some(POLL_TIMEOUT_MS)).await?;
+
+    let res = get_bid_with_budget(&mock_validator, BUDGET_MS).await?;
+    assert_eq!(res.status(), StatusCode::OK, "the last poll outlasts the builder's delay");
+
+    let timeouts = mock_state.received_bid_timeouts();
+    assert_eq!(timeouts.len(), 3, "cadence and budget imply 3 polls, got {timeouts:?}");
+    let (last, early) = timeouts.split_last().unwrap();
+    assert!(
+        early.iter().all(|timeout| *timeout < DELAY_MS),
+        "the early polls must expire before this builder answers: {timeouts:?}"
+    );
+    assert!(*last > DELAY_MS, "the last poll must outlast the builder's delay, got {last}");
+    assert_no_poll_overspends(&timeouts, BUDGET_MS, FREQ_MS);
+    Ok(())
+}
+
+/// The converse that motivates the ladder: when the builder answers inside
+/// `bid_poll_timeout_ms`, the early rungs land bids in hand well before the
+/// deadline instead of every poll being staked on the final instant.
+#[tokio::test]
+async fn test_get_execution_payload_bid_ladder_early_polls_land_bids() -> Result<()> {
+    const FREQ_MS: u64 = 400;
+    const POLL_TIMEOUT_MS: u64 = 300;
+    const DELAY_MS: u64 = 100;
+    const BUDGET_MS: u64 = 1_500;
+
+    let mock_state =
+        Arc::new(MockRelayState::new(Chain::Hoodi, random_secret()).with_bid_delay_ms(DELAY_MS));
+    let mock_validator =
+        setup_timing_games_relay(mock_state.clone(), FREQ_MS, Some(POLL_TIMEOUT_MS)).await?;
+
+    let res = get_bid_with_budget(&mock_validator, BUDGET_MS).await?;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // Each early poll has 200ms of slack over the builder's delay
+    let served = mock_state.served_execution_payload_bid();
+    assert!(served > 1, "the early rungs must land bids, only {served} poll(s) were answered");
+    let timeouts = mock_state.received_bid_timeouts();
+    assert!(
+        timeouts.split_last().unwrap().1.iter().all(|timeout| *timeout > DELAY_MS),
+        "the early polls must outlast this builder's delay: {timeouts:?}"
+    );
+    Ok(())
+}
+
+/// The proposer's deadline, not the cadence alone, sizes the ladder: a small
+/// `X-Timeout-Ms` buys fewer polls than a large one, and no poll ever promises
+/// more than the budget it was cut from.
+#[tokio::test]
+async fn test_get_execution_payload_bid_deadline_clamps_ladder() -> Result<()> {
+    const FREQ_MS: u64 = 200;
+    const POLL_TIMEOUT_MS: u64 = 100;
+    const SMALL_BUDGET_MS: u64 = 400;
+    const LARGE_BUDGET_MS: u64 = 1_600;
+
+    let mut polls = Vec::new();
+    for budget_ms in [SMALL_BUDGET_MS, LARGE_BUDGET_MS] {
+        let mock_state = Arc::new(MockRelayState::new(Chain::Hoodi, random_secret()));
+        let mock_validator =
+            setup_timing_games_relay(mock_state.clone(), FREQ_MS, Some(POLL_TIMEOUT_MS)).await?;
+
+        let res = get_bid_with_budget(&mock_validator, budget_ms).await?;
+        assert_eq!(res.status(), StatusCode::OK, "budget {budget_ms}");
+
+        let timeouts = mock_state.received_bid_timeouts();
+        assert_no_poll_overspends(&timeouts, budget_ms, FREQ_MS);
+        polls.push(timeouts);
+    }
+
+    // 400ms of budget buys the first poll plus a last one for the remainder
+    assert_eq!(polls[0].len(), 2, "a tight deadline must cut the ladder short: {:?}", polls[0]);
+    assert!(
+        polls[1].len() > polls[0].len(),
+        "a larger deadline must buy more polls: {:?} vs {:?}",
+        polls[1],
+        polls[0]
+    );
+    Ok(())
+}
+
+/// Degradation to the pre-ladder behavior: a budget shorter than
+/// `bid_poll_timeout_ms` leaves no room to bound anything, so CB sends exactly
+/// one poll carrying the whole budget.
+#[tokio::test]
+async fn test_get_execution_payload_bid_short_budget_single_poll() -> Result<()> {
+    const FREQ_MS: u64 = 1_000;
+    const BUDGET_MS: u64 = 300;
+
+    // Default bid_poll_timeout_ms, which is larger than the whole budget here
+    assert!(DEFAULT_BID_POLL_TIMEOUT_MS > BUDGET_MS);
+    let mock_state = Arc::new(MockRelayState::new(Chain::Hoodi, random_secret()));
+    let mock_validator = setup_timing_games_relay(mock_state.clone(), FREQ_MS, None).await?;
+
+    let res = get_bid_with_budget(&mock_validator, BUDGET_MS).await?;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let timeouts = mock_state.received_bid_timeouts();
+    assert_eq!(timeouts.len(), 1, "a budget under one cadence step is a single poll: {timeouts:?}");
+    // The single poll gets the budget minus transit; 150ms of slack for transit
+    assert!(
+        timeouts[0] <= BUDGET_MS && timeouts[0] >= 150,
+        "the only poll must carry the whole budget, got {}",
+        timeouts[0]
+    );
+    Ok(())
+}
+
+/// A relay's `bid_poll_timeout_ms` overrides the default bound on every poll
+/// but the last.
+#[tokio::test]
+async fn test_get_execution_payload_bid_poll_timeout_override() -> Result<()> {
+    const FREQ_MS: u64 = 600;
+    const BUDGET_MS: u64 = 2_000;
+    const CUSTOM_POLL_TIMEOUT_MS: u64 = 150;
+
+    for (configured, expected) in [
+        (None, DEFAULT_BID_POLL_TIMEOUT_MS),
+        (Some(CUSTOM_POLL_TIMEOUT_MS), CUSTOM_POLL_TIMEOUT_MS),
+    ] {
+        let mock_state = Arc::new(MockRelayState::new(Chain::Hoodi, random_secret()));
+        let mock_validator =
+            setup_timing_games_relay(mock_state.clone(), FREQ_MS, configured).await?;
+
+        let res = get_bid_with_budget(&mock_validator, BUDGET_MS).await?;
+        assert_eq!(res.status(), StatusCode::OK, "configured={configured:?}");
+
+        let timeouts = mock_state.received_bid_timeouts();
+        assert!(timeouts.len() > 1, "configured={configured:?}, got {timeouts:?}");
+        assert!(
+            timeouts.split_last().unwrap().1.iter().all(|timeout| *timeout == expected),
+            "configured={configured:?} must bound the early polls at {expected}: {timeouts:?}"
+        );
+    }
+    Ok(())
+}
+
+/// A relay with nothing to offer answers 204 on every poll. That is an answer,
+/// not a failure, so the ladder must surface it exactly like the single-request
+/// path does rather than reporting the relay as timed out.
+#[tokio::test]
+async fn test_get_execution_payload_bid_ladder_no_bid_is_204() -> Result<()> {
+    const FREQ_MS: u64 = 300;
+    const POLL_TIMEOUT_MS: u64 = 200;
+    const BUDGET_MS: u64 = 1_000;
+
+    let mock_state =
+        Arc::new(MockRelayState::new(Chain::Hoodi, random_secret()).with_no_epbs_bid());
+    let mock_validator =
+        setup_timing_games_relay(mock_state.clone(), FREQ_MS, Some(POLL_TIMEOUT_MS)).await?;
+
+    let res = get_bid_with_budget(&mock_validator, BUDGET_MS).await?;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT, "a 204 from every poll must stay a 204");
+
+    let polls = mock_state.received_execution_payload_bid();
+    assert!(polls > 1, "the ladder must have polled more than once, got {polls}");
     Ok(())
 }
 

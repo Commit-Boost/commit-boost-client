@@ -70,6 +70,24 @@ pub fn generate_mock_relay_with_auth_data(
     Ok(relay)
 }
 
+/// A relay that plays timing games: repeated bid polls every
+/// `frequency_get_header_ms`, each bounded by `bid_poll_timeout_ms` (None
+/// leaves the `DEFAULT_BID_POLL_TIMEOUT_MS` default in place).
+pub fn generate_mock_relay_with_timing_games(
+    port: u16,
+    pubkey: BlsPublicKey,
+    frequency_get_header_ms: u64,
+    bid_poll_timeout_ms: Option<u64>,
+) -> Result<RelayClient> {
+    let mut relay = generate_mock_relay(port, pubkey)?;
+    let mut config = (*relay.config).clone();
+    config.enable_timing_games = true;
+    config.frequency_get_header_ms = Some(frequency_get_header_ms);
+    config.bid_poll_timeout_ms = bid_poll_timeout_ms;
+    relay.config = std::sync::Arc::new(config);
+    Ok(relay)
+}
+
 pub fn generate_mock_relay_with_batch_size(
     port: u16,
     pubkey: BlsPublicKey,

@@ -27,14 +27,14 @@ use cb_common::{
         ExecutionPayloadBid, ExecutionPayloadElectra, ExecutionPayloadHeaderFulu,
         ExecutionRequests, ForkName, GET_EXECUTION_PAYLOAD_BID_PATH, GET_HEADER_PATH,
         GET_STATUS_PATH, GetExecutionPayloadBidResponse, GetHeaderParams, GetHeaderResponse,
-        GetPayloadInfo, PayloadAndBlobs, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
-        SignedBuilderBid, SignedExecutionPayloadBid, SignedRequestAuthV1,
+        GetPayloadInfo, HEADER_TIMEOUT_MS, PayloadAndBlobs, REGISTER_VALIDATOR_PATH,
+        SUBMIT_BLOCK_PATH, SignedBuilderBid, SignedExecutionPayloadBid, SignedRequestAuthV1,
         SubmitBlindedBlockResponse,
     },
     signature::{sign_builder_root, sign_execution_payload_bid_root},
     signer::random_secret,
     types::{BlsPublicKey, BlsSecretKey, Chain},
-    utils::{TestRandomSeed, timestamp_of_slot_start_sec},
+    utils::{TestRandomSeed, timestamp_of_slot_start_sec, utcnow_ms},
     wire::{
         CONSENSUS_VERSION_HEADER, EncodingType, deserialize_body, get_accept_types,
         get_consensus_version_header, get_content_type,
@@ -62,6 +62,15 @@ pub async fn start_mock_relay_service_with_listener(
     let app = mock_relay_app_router(state);
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+/// One inbound `getExecutionPayloadBid` request, recorded on arrival. Both
+/// fields are captured under a single lock so the two derived sequences cannot
+/// interleave differently when polls overlap.
+struct BidRequestRecord {
+    /// `X-Timeout-Ms` the caller granted this request
+    timeout_ms: u64,
+    arrival_ms: u64,
 }
 
 pub struct MockRelayState {
@@ -93,6 +102,18 @@ pub struct MockRelayState {
     received_register_validator: Arc<AtomicU64>,
     received_submit_block: Arc<AtomicU64>,
     received_execution_payload_bid: Arc<AtomicU64>,
+    /// Bid requests answered after `bid_delay_ms` elapsed. A poll the caller
+    /// timed out on is cancelled during the delay and never lands here, so this
+    /// counts the polls that actually got a response.
+    served_execution_payload_bid: Arc<AtomicU64>,
+    /// Every inbound bid request, in arrival order
+    received_bid_requests: RwLock<Vec<BidRequestRecord>>,
+    /// Each successive bid request serves this many more gwei than the last,
+    /// so a test can tell which poll's bid won
+    improving_bid_step_gwei: Option<u64>,
+    /// Hold every bid request this long before answering, simulating a builder
+    /// that sits on a request instead of answering promptly
+    bid_delay_ms: Option<u64>,
     /// `data` bytes of the last `SignedRequestAuthV1` forwarded on a bid
     /// request
     received_auth: RwLock<Option<SignedRequestAuthV1>>,
@@ -133,6 +154,21 @@ impl MockRelayState {
     }
     pub fn received_execution_payload_bid(&self) -> u64 {
         self.received_execution_payload_bid.load(Ordering::Relaxed)
+    }
+    pub fn served_execution_payload_bid(&self) -> u64 {
+        self.served_execution_payload_bid.load(Ordering::Relaxed)
+    }
+
+    /// `X-Timeout-Ms` of every inbound bid request, in arrival order: the shape
+    /// of the poll ladder as the builder saw it.
+    pub fn received_bid_timeouts(&self) -> Vec<u64> {
+        self.received_bid_requests.read().unwrap().iter().map(|r| r.timeout_ms).collect()
+    }
+
+    /// Arrival time of every inbound bid request, in arrival order, for
+    /// asserting the poll cadence.
+    pub fn received_bid_arrivals_ms(&self) -> Vec<u64> {
+        self.received_bid_requests.read().unwrap().iter().map(|r| r.arrival_ms).collect()
     }
     pub fn received_auth_data(&self) -> Option<Vec<u8>> {
         self.received_auth.read().unwrap().as_ref().map(|a| a.message.data.to_vec())
@@ -182,6 +218,10 @@ impl MockRelayState {
             received_register_validator: Default::default(),
             received_submit_block: Default::default(),
             received_execution_payload_bid: Default::default(),
+            served_execution_payload_bid: Default::default(),
+            received_bid_requests: RwLock::new(Vec::new()),
+            improving_bid_step_gwei: None,
+            bid_delay_ms: None,
             received_auth: RwLock::new(None),
             response_override: RwLock::new(None),
             bid_value: RwLock::new(U256::from(10)),
@@ -284,6 +324,20 @@ impl MockRelayState {
         }
     }
 
+    /// Serve a strictly better bid on each successive bid request: the nth
+    /// request (0-indexed) is worth `trustless_bid_gwei + n * step_gwei`. Lets
+    /// a test prove WHICH poll of a ladder produced the winning bid.
+    pub fn with_improving_bids(self, step_gwei: u64) -> Self {
+        Self { improving_bid_step_gwei: Some(step_gwei), ..self }
+    }
+
+    /// Hold every bid request `delay_ms` before answering. Polls whose
+    /// `X-Timeout-Ms` is shorter than this are dropped by the caller, which is
+    /// what makes the early rungs of the ladder observable.
+    pub fn with_bid_delay_ms(self, delay_ms: u64) -> Self {
+        Self { bid_delay_ms: Some(delay_ms), ..self }
+    }
+
     /// Serve an SSZ bid 200 WITHOUT the `Eth-Consensus-Version` header, to
     /// exercise the PBS missing-fork error path on the outbound SSZ decode.
     pub fn with_epbs_omit_consensus_version(self) -> Self {
@@ -317,7 +371,15 @@ async fn handle_get_execution_payload_bid(
     headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> Response {
-    state.received_execution_payload_bid.fetch_add(1, Ordering::Relaxed);
+    let request_index = state.received_execution_payload_bid.fetch_add(1, Ordering::Relaxed);
+    state.received_bid_requests.write().unwrap().push(BidRequestRecord {
+        timeout_ms: headers
+            .get(HEADER_TIMEOUT_MS)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse().ok())
+            .unwrap_or_default(),
+        arrival_ms: utcnow_ms(),
+    });
     // Decode the optional request auth the way a real builder does: Content-Type
     // selects JSON vs SSZ. RequestAuthV1 is not fork-versioned, so no
     // Eth-Consensus-Version header is needed to decode the SSZ form.
@@ -330,6 +392,12 @@ async fn handle_get_execution_payload_bid(
             *state.received_auth.write().unwrap() = Some(auth);
         }
     }
+
+    // Sleep, never block: concurrent polls must overlap, not serialize
+    if let Some(delay_ms) = state.bid_delay_ms {
+        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+    }
+    state.served_execution_payload_bid.fetch_add(1, Ordering::Relaxed);
 
     if state.epbs_no_bid {
         return StatusCode::NO_CONTENT.into_response();
@@ -350,7 +418,9 @@ async fn handle_get_execution_payload_bid(
         gas_limit: 30_000_000,
         builder_index: 42,
         slot: Slot::new(slot),
-        value: state.trustless_bid_gwei,
+        value: state.trustless_bid_gwei.saturating_add(
+            state.improving_bid_step_gwei.unwrap_or(0).saturating_mul(request_index),
+        ),
         execution_payment: state.trusted_bid_gwei,
         ..Default::default()
     };
