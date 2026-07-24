@@ -98,12 +98,12 @@ mod tests {
     use super::*;
 
     fn test_relay(url: &str, expected_auth_data: Option<&[u8]>) -> RelayClient {
-        let entry = cb_common::pbs::RelayEntry {
+        let entry = RelayEntry {
             id: url.to_string(),
             pubkey: BlsSecretKey::random().public_key().into(),
             url: Url::parse(url).unwrap(),
         };
-        let mut config = cb_common::config::RelayConfig {
+        let mut config = RelayConfig {
             entry,
             id: None,
             headers: None,

@@ -508,6 +508,7 @@ async fn send_timed_get_execution_payload_bid(
 
             let results = join_all(handles).await;
             let mut n_headers = 0;
+            let mut served_no_bid = false;
 
             let bids: Vec<_> = results
                 .into_iter()
@@ -518,9 +519,11 @@ async fn send_timed_get_execution_payload_bid(
                             n_headers += 1;
                             Some((start_time, header))
                         }
-                        // filter out 204 responses that are returned if the request
-                        // is after the relay cutoff
-                        Ok((_, None)) => None,
+                        // a 204 is the relay answering "no bid", not failing
+                        Ok((_, None)) => {
+                            served_no_bid = true;
+                            None
+                        }
                         Err(err) if err.is_timeout() => None,
                         Err(err) => {
                             error!(relay_id = relay.id.as_ref(),%err, "TG: error sending header request");
@@ -534,6 +537,10 @@ async fn send_timed_get_execution_payload_bid(
             if let Some((_, header)) = select_max_bid(bids) {
                 debug!(relay_id = relay.id.as_ref(), n_headers, "TG: received headers from relay");
                 return Ok(Some(header));
+            } else if served_no_bid {
+                // Answered, just with nothing to offer: same result as the single-request path
+                debug!(relay_id = relay.id.as_ref(), "TG: relay served no bid");
+                return Ok(None);
             } else {
                 // all requests failed
                 warn!(relay_id = relay.id.as_ref(), "TG: no headers received");
