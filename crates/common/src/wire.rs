@@ -308,6 +308,10 @@ pub fn build_outbound_accept(preferred: AcceptedEncodings) -> HeaderValue {
     HeaderValue::from_str(&s).expect("build_outbound_accept produces valid header value")
 }
 
+/// The `Accept` header PBS sends to relays: SSZ first, JSON as fallback.
+pub static OUTBOUND_ACCEPT_SSZ_FIRST: HeaderValue =
+    HeaderValue::from_static("application/octet-stream;q=1.0,application/json;q=0.9");
+
 pub fn get_content_type(req_headers: &HeaderMap) -> EncodingType {
     EncodingType::from_str(
         req_headers
@@ -452,9 +456,9 @@ mod test {
 
     use super::{
         APPLICATION_JSON, APPLICATION_OCTET_STREAM, AcceptedEncodings, BodyDeserializeError,
-        CONSENSUS_VERSION_HEADER, EncodingType, NO_PREFERENCE_DEFAULT, WILDCARD,
-        accept_q_value_for_index, build_outbound_accept, deserialize_body, format_accept_entry,
-        get_accept_types, get_consensus_version_header, get_content_type,
+        CONSENSUS_VERSION_HEADER, EncodingType, NO_PREFERENCE_DEFAULT, OUTBOUND_ACCEPT_SSZ_FIRST,
+        WILDCARD, accept_q_value_for_index, build_outbound_accept, deserialize_body,
+        format_accept_entry, get_accept_types, get_consensus_version_header, get_content_type,
         parse_response_encoding_and_fork,
     };
 
@@ -978,6 +982,15 @@ mod test {
             matches!(err, BodyDeserializeError::SerdeJsonError(_)),
             "expected SerdeJsonError (JSON decode attempted), got: {err}"
         );
+    }
+
+    /// The precomputed constant must equal what the builder produces for the
+    /// SSZ-first pair, so the two cannot drift.
+    #[test]
+    fn test_outbound_accept_ssz_first_matches_builder() {
+        let ssz_then_json =
+            AcceptedEncodings { primary: EncodingType::Ssz, fallback: Some(EncodingType::Json) };
+        assert_eq!(OUTBOUND_ACCEPT_SSZ_FIRST, build_outbound_accept(ssz_then_json));
     }
 
     /// Present-but-unrecognized Content-Type still bails as

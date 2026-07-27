@@ -21,7 +21,7 @@ use cb_common::{
     types::{BlsPublicKey, BlsPublicKeyBytes, BlsSignature, Chain},
     utils::{ms_into_slot, timestamp_of_slot_start_sec, utcnow_ms},
     wire::{
-        AcceptedEncodings, EncodingType, build_outbound_accept, get_user_agent_with_version,
+        EncodingType, OUTBOUND_ACCEPT_SSZ_FIRST, get_user_agent_with_version,
         parse_response_encoding_and_fork, safe_read_http_response,
     },
 };
@@ -152,13 +152,7 @@ pub async fn get_header<S: BuilderApiState>(
     // the relay (smaller on the wire, faster to decode than JSON); JSON is the
     // fallback for a relay that can't do SSZ. The BN's own format preference is
     // applied later by the route, not here.
-    send_headers.insert(
-        ACCEPT,
-        build_outbound_accept(AcceptedEncodings {
-            primary: EncodingType::Ssz,
-            fallback: Some(EncodingType::Json),
-        }),
-    );
+    send_headers.insert(ACCEPT, OUTBOUND_ACCEPT_SSZ_FIRST.clone());
 
     // Send requests to all relays concurrently
     let slot = params.slot as i64;
