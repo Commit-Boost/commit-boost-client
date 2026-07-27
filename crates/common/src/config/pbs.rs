@@ -131,10 +131,10 @@ pub struct PbsConfig {
     #[serde(default = "default_u64::<0>")]
     pub max_execution_payment_gwei: u64,
     /// When enabled, a relay without `expected_auth_data` never matches an
-    /// ePBS bid request: every relay must declare the auth data it serves
+    /// ePBS request: every relay must declare the auth data it serves
     #[serde(default = "default_bool::<false>")]
     pub strict_auth_data: bool,
-    /// When enabled, the BLS signature of an ePBS bid request's
+    /// When enabled, the BLS signature of an ePBS request's
     /// `SignedRequestAuthV1` is verified against the proposer pubkey; false by
     /// default since the downstream builder verifies it too
     #[serde(default = "default_bool::<false>")]

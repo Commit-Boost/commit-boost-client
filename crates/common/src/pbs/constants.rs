@@ -11,6 +11,7 @@ pub const RELOAD_PATH: &str = "/reload";
 
 pub const GET_EXECUTION_PAYLOAD_BID_PATH: &str =
     "/execution_payload_bid/{slot}/{parent_hash}/{parent_root}/{proposer_pubkey}";
+pub const SUBMIT_BUILDER_PREFERENCES_PATH: &str = "/builder_preferences/{proposer_pubkey}";
 
 // https://ethereum.github.io/builder-specs/#/Builder
 

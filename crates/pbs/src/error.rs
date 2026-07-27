@@ -26,6 +26,10 @@ pub enum PbsClientError {
     MissingTimingHeader,
     #[error("auth slot does not match the request path")]
     AuthSlotMismatch,
+    #[error("auth slot has already passed")]
+    AuthSlotPassed,
+    #[error("the addressed builder rejected the request with {code}")]
+    BuilderRejected { code: u16 },
     #[error("auth signature verification failed")]
     AuthSigVerify,
     #[error("no payload from relays")]
@@ -45,6 +49,12 @@ impl PbsClientError {
             PbsClientError::AuthDataMismatch => StatusCode::BAD_REQUEST,
             PbsClientError::MissingTimingHeader => StatusCode::BAD_REQUEST,
             PbsClientError::AuthSlotMismatch => StatusCode::BAD_REQUEST,
+            PbsClientError::AuthSlotPassed => StatusCode::BAD_REQUEST,
+            // Only a lone addressed builder's 400/401 is propagated, so anything
+            // else here means the mapping was built wrong
+            PbsClientError::BuilderRejected { code } => {
+                StatusCode::from_u16(*code).unwrap_or(StatusCode::BAD_GATEWAY)
+            }
             PbsClientError::AuthSigVerify => StatusCode::UNAUTHORIZED,
             PbsClientError::NoPayload => StatusCode::BAD_GATEWAY,
             PbsClientError::Internal => StatusCode::INTERNAL_SERVER_ERROR,
@@ -70,6 +80,14 @@ impl IntoResponse for PbsClientError {
             }
             PbsClientError::AuthSlotMismatch => {
                 "Invalid SignedRequestAuthV1: auth.message.slot does not match the proposal slot in the request path".to_string()
+            }
+            PbsClientError::AuthSlotPassed => {
+                "Invalid SignedRequestAuthV1: auth.message.slot has already passed".to_string()
+            }
+            // The builder's own body is never forwarded: it is untrusted and may be
+            // arbitrarily large
+            PbsClientError::BuilderRejected { code } => {
+                format!("The addressed builder rejected the submission with status {code}")
             }
             PbsClientError::AuthSigVerify => {
                 "Invalid SignedRequestAuthV1: signature verification failed".to_string()

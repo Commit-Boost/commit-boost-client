@@ -46,7 +46,7 @@ impl PbsError {
     }
 
     /// Extract the HTTP status code from relay-originated errors.
-    fn relay_status_code(&self) -> Option<u16> {
+    pub fn relay_status_code(&self) -> Option<u16> {
         match self {
             PbsError::RelayResponse { code, .. } => Some(*code),
             PbsError::ReadResponse(ResponseReadError::NonSuccess { status_code, .. }) => {

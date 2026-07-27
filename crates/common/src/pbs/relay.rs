@@ -148,6 +148,17 @@ impl RelayClient {
             BuilderApiVersion::V1,
         )
     }
+
+    /// builder-API: POST /eth/v1/builder/builder_preferences/{proposer_pubkey}
+    pub fn submit_builder_preferences_url(
+        &self,
+        validator_pubkey: &BlsPublicKey,
+    ) -> Result<Url, PbsError> {
+        self.builder_api_url(
+            &format!("/builder_preferences/{validator_pubkey}"),
+            BuilderApiVersion::V1,
+        )
+    }
 }
 
 #[cfg(test)]

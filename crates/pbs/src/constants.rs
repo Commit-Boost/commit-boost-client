@@ -3,6 +3,7 @@ pub const REGISTER_VALIDATOR_ENDPOINT_TAG: &str = "register_validator";
 pub const SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG: &str = "submit_blinded_block";
 pub const GET_HEADER_ENDPOINT_TAG: &str = "get_header";
 pub const GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG: &str = "get_execution_payload_bid";
+pub const SUBMIT_BUILDER_PREFERENCES_ENDPOINT_TAG: &str = "submit_builder_preferences";
 pub const RELOAD_ENDPOINT_TAG: &str = "reload";
 
 /// For metrics recorded when a request times out

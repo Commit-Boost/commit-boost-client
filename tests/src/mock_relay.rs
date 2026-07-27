@@ -24,11 +24,12 @@ use cb_common::{
     constants::{GENESIS_VALIDATORS_ROOT, GLOAS_FORK_VERSION},
     pbs::{
         BUILDER_V1_API_PATH, BUILDER_V2_API_PATH, BlobsBundle, BuilderBid, BuilderBidFulu,
-        ExecutionPayloadBid, ExecutionPayloadElectra, ExecutionPayloadHeaderFulu,
-        ExecutionRequests, ForkName, GET_EXECUTION_PAYLOAD_BID_PATH, GET_HEADER_PATH,
-        GET_STATUS_PATH, GetExecutionPayloadBidResponse, GetHeaderParams, GetHeaderResponse,
-        GetPayloadInfo, HEADER_TIMEOUT_MS, PayloadAndBlobs, REGISTER_VALIDATOR_PATH,
-        SUBMIT_BLOCK_PATH, SignedBuilderBid, SignedExecutionPayloadBid, SignedRequestAuthV1,
+        BuilderPreferencesRequestV1, ExecutionPayloadBid, ExecutionPayloadElectra,
+        ExecutionPayloadHeaderFulu, ExecutionRequests, ForkName, GET_EXECUTION_PAYLOAD_BID_PATH,
+        GET_HEADER_PATH, GET_STATUS_PATH, GetExecutionPayloadBidResponse, GetHeaderParams,
+        GetHeaderResponse, GetPayloadInfo, HEADER_TIMEOUT_MS, PayloadAndBlobs,
+        REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH, SUBMIT_BUILDER_PREFERENCES_PATH,
+        SignedBuilderBid, SignedExecutionPayloadBid, SignedRequestAuthV1,
         SubmitBlindedBlockResponse,
     },
     signature::{sign_builder_root, sign_execution_payload_bid_root},
@@ -102,6 +103,12 @@ pub struct MockRelayState {
     received_register_validator: Arc<AtomicU64>,
     received_submit_block: Arc<AtomicU64>,
     received_execution_payload_bid: Arc<AtomicU64>,
+    received_builder_preferences: Arc<AtomicU64>,
+    /// The last `BuilderPreferencesRequestV1` submitted, so a test can assert
+    /// both the preferences and the auth were forwarded unchanged
+    received_preferences: RwLock<Option<BuilderPreferencesRequestV1>>,
+    /// The `{proposer_pubkey}` path segment of the last preferences submission
+    received_preferences_pubkey: RwLock<Option<BlsPublicKey>>,
     /// Bid requests answered after `bid_delay_ms` elapsed. A poll the caller
     /// timed out on is cancelled during the delay and never lands here, so this
     /// counts the polls that actually got a response.
@@ -157,6 +164,28 @@ impl MockRelayState {
     }
     pub fn served_execution_payload_bid(&self) -> u64 {
         self.served_execution_payload_bid.load(Ordering::Relaxed)
+    }
+    pub fn received_builder_preferences(&self) -> u64 {
+        self.received_builder_preferences.load(Ordering::Relaxed)
+    }
+
+    /// `max_execution_payment` of the last submitted preferences
+    pub fn received_max_execution_payment(&self) -> Option<u64> {
+        self.received_preferences
+            .read()
+            .unwrap()
+            .as_ref()
+            .map(|r| r.preferences.max_execution_payment)
+    }
+
+    /// The `SignedRequestAuthV1` carried by the last submitted preferences
+    pub fn received_preferences_auth(&self) -> Option<SignedRequestAuthV1> {
+        self.received_preferences.read().unwrap().as_ref().map(|r| r.auth.clone())
+    }
+
+    /// The proposer the last preferences submission was filed under
+    pub fn received_preferences_pubkey(&self) -> Option<BlsPublicKey> {
+        self.received_preferences_pubkey.read().unwrap().clone()
     }
 
     /// `X-Timeout-Ms` of every inbound bid request, in arrival order: the shape
@@ -218,6 +247,9 @@ impl MockRelayState {
             received_register_validator: Default::default(),
             received_submit_block: Default::default(),
             received_execution_payload_bid: Default::default(),
+            received_builder_preferences: Default::default(),
+            received_preferences: RwLock::new(None),
+            received_preferences_pubkey: RwLock::new(None),
             served_execution_payload_bid: Default::default(),
             received_bid_requests: RwLock::new(Vec::new()),
             improving_bid_step_gwei: None,
@@ -352,7 +384,8 @@ pub fn mock_relay_app_router(state: Arc<MockRelayState>) -> Router {
         .route(REGISTER_VALIDATOR_PATH, post(handle_register_validator))
         .route(SUBMIT_BLOCK_PATH, post(handle_submit_block_v1))
         // ePBS endpoints are v1 of new resources per builder-specs
-        .route(GET_EXECUTION_PAYLOAD_BID_PATH, post(handle_get_execution_payload_bid));
+        .route(GET_EXECUTION_PAYLOAD_BID_PATH, post(handle_get_execution_payload_bid))
+        .route(SUBMIT_BUILDER_PREFERENCES_PATH, post(handle_submit_builder_preferences));
 
     let v2_builder_routes = if state.supports_submit_block_v2 {
         Router::new().route(SUBMIT_BLOCK_PATH, post(handle_submit_block_v2))
@@ -592,6 +625,35 @@ async fn handle_get_status(State(state): State<Arc<MockRelayState>>) -> impl Int
     // eliminating the flake without altering production behavior.
     tokio::time::sleep(Duration::from_millis(20)).await;
     StatusCode::OK
+}
+
+/// Decodes the submission the way a real builder does (Content-Type selects
+/// JSON vs SSZ), records it, and 202s unless the test overrode the response.
+async fn handle_submit_builder_preferences(
+    Path(proposer_pubkey): Path<BlsPublicKey>,
+    headers: HeaderMap,
+    State(state): State<Arc<MockRelayState>>,
+    body: axum::body::Bytes,
+) -> Response {
+    state.received_builder_preferences.fetch_add(1, Ordering::Relaxed);
+    // A real builder keys preferences by proposer, so the path segment PBS sent
+    // is part of what a test must be able to assert
+    *state.received_preferences_pubkey.write().unwrap() = Some(proposer_pubkey);
+
+    let decoded = match get_content_type(&headers) {
+        EncodingType::Json => serde_json::from_slice::<BuilderPreferencesRequestV1>(&body).ok(),
+        EncodingType::Ssz => BuilderPreferencesRequestV1::from_ssz_bytes(&body).ok(),
+    };
+    let Some(request) = decoded else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
+    *state.received_preferences.write().unwrap() = Some(request);
+
+    if let Some(status) = state.response_override.read().unwrap().as_ref() {
+        return (*status).into_response();
+    }
+
+    StatusCode::ACCEPTED.into_response()
 }
 
 async fn handle_register_validator(

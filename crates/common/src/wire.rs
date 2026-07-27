@@ -12,6 +12,7 @@ use reqwest::{
     Response,
     header::{ACCEPT, CONTENT_TYPE, HeaderMap, ToStrError},
 };
+use ssz::Decode;
 use thiserror::Error;
 
 use crate::pbs::{HEADER_VERSION_VALUE, SignedBlindedBeaconBlock};
@@ -431,6 +432,31 @@ pub fn deserialize_body(
             .map_err(BodyDeserializeError::SszDecodeError),
             None => Err(BodyDeserializeError::MissingVersionHeader),
         },
+    }
+}
+
+/// Decode an ePBS request body as JSON or SSZ. These endpoints default to SSZ
+/// when no `Content-Type` is set; an explicit one still wins. An empty body is
+/// rejected before decoding so a missing body reads as `MissingBody`, not a
+/// deserialization error.
+pub fn decode_request_body<T>(headers: &HeaderMap, body: &Bytes) -> Result<T, BodyDeserializeError>
+where
+    T: serde::de::DeserializeOwned + Decode,
+{
+    if body.is_empty() {
+        return Err(BodyDeserializeError::MissingBody);
+    }
+    let encoding = match headers.get(CONTENT_TYPE) {
+        None => EncodingType::Ssz,
+        Some(_) => content_type_encoding(headers)?,
+    };
+    match encoding {
+        EncodingType::Json => {
+            serde_json::from_slice(body.as_ref()).map_err(BodyDeserializeError::SerdeJsonError)
+        }
+        EncodingType::Ssz => {
+            T::from_ssz_bytes(body.as_ref()).map_err(BodyDeserializeError::SszDecodeError)
+        }
     }
 }
 

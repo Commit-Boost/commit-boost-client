@@ -1,8 +1,8 @@
 use alloy::{primitives::B256, rpc::types::beacon::relay::ValidatorRegistration};
 use cb_common::{
     pbs::{
-        BuilderApiVersion, HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS, RelayClient,
-        SignedBlindedBeaconBlock, SignedRequestAuthV1,
+        BuilderApiVersion, BuilderPreferencesRequestV1, HEADER_START_TIME_UNIX_MS,
+        HEADER_TIMEOUT_MS, RelayClient, SignedBlindedBeaconBlock, SignedRequestAuthV1,
     },
     types::{BlsPublicKey, KnownChain},
     utils::{bls_pubkey_from_hex, utcnow_ms},
@@ -67,6 +67,35 @@ impl MockValidator {
             res = res.header(ACCEPT, accept_header);
         }
         let res = res.send().await?;
+        Ok(res)
+    }
+
+    /// Submits builder preferences for `pubkey`, encoding the body as
+    /// `content_type` so a test can exercise both wire formats.
+    pub async fn do_submit_builder_preferences(
+        &self,
+        pubkey: Option<BlsPublicKey>,
+        request: &BuilderPreferencesRequestV1,
+        content_type: EncodingType,
+    ) -> eyre::Result<Response> {
+        let default_pubkey = bls_pubkey_from_hex(
+            "0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae",
+        )?;
+        let url =
+            self.comm_boost.submit_builder_preferences_url(&pubkey.unwrap_or(default_pubkey))?;
+
+        let body = match content_type {
+            EncodingType::Json => serde_json::to_vec(request)?,
+            EncodingType::Ssz => request.as_ssz_bytes(),
+        };
+        let res = self
+            .comm_boost
+            .client
+            .post(url)
+            .header(CONTENT_TYPE, content_type.content_type_header().clone())
+            .body(body)
+            .send()
+            .await?;
         Ok(res)
     }
 

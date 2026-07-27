@@ -23,12 +23,12 @@ pub fn check_gas_limit(gas_limit: u64, parent_gas_limit: u64) -> bool {
     true
 }
 
-/// Selects the relays a bid request is addressed to.
+/// Selects the relays an ePBS request is addressed to.
 ///
-/// Each `getExecutionPayloadBid` call is one builder solicitation: the caller's
-/// `auth.message.data` designates which downstream builder it is for, since the
-/// Builder API carries no routing header. Relays are matched in three layers,
-/// most specific first:
+/// Each `getExecutionPayloadBid` or `submitBuilderPreferences` call is for one
+/// builder: the caller's `auth.message.data` designates which downstream
+/// builder it is for, since the Builder API carries no routing header. Relays
+/// are matched in three layers, most specific first:
 ///
 /// 1. A relay with `expected_auth_data` configured matches only that exact byte
 ///    string. This is the authoritative form for bilateral agreements where the
@@ -45,6 +45,10 @@ pub fn check_gas_limit(gas_limit: u64, parent_gas_limit: u64) -> bool {
 /// this instance serves (a 400 to the caller). Comparing bids across different
 /// builders is the beacon node's job across its per-entry calls; within the
 /// matched set the winner is the highest total payment.
+///
+/// NOTE for callers that WRITE rather than read: layer 3 sends the request to
+/// every relay, so an endpoint carrying proposer-private data reaches builders
+/// the proposer did not address unless `strict_auth_data` is set.
 pub(crate) fn match_relays_by_auth_data<'a>(
     relays: &'a [RelayClient],
     received_data: &[u8],

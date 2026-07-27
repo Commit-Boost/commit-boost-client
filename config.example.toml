@@ -52,13 +52,13 @@ max_execution_payment_gwei = 0
 # Expected fee recipient in ePBS bids. When set, bids whose fee_recipient differs are rejected
 # OPTIONAL, DEFAULT: unset (no check)
 # fee_recipient = "0x1234567890123456789012345678901234567890"
-# Whether to verify the BLS signature of the `SignedRequestAuthV1` on an ePBS bid request against the
+# Whether to verify the BLS signature of the `SignedRequestAuthV1` on an ePBS request against the
 # proposer pubkey in the request path, rejecting a bad signature with 401. The downstream builder
 # verifies it too, so this is extra insurance rather than a requirement
 # OPTIONAL, DEFAULT: false
 verify_request_auth = false
 # Whether every relay must declare the ePBS auth data it serves via `expected_auth_data`. When false,
-# a relay without it accepts any bid request whose auth data names no other configured builder
+# a relay without it accepts any ePBS request whose auth data names no other configured builder
 # OPTIONAL, DEFAULT: false
 strict_auth_data = false
 # How late in milliseconds in the slot is "late". This impacts the `get_header` requests, by shortening timeouts for `get_header` calls to

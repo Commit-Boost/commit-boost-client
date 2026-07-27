@@ -27,10 +27,9 @@ use cb_common::{
     types::{BlsPublicKey, BlsSignature, Chain},
     utils::{ms_into_slot, utcnow_ms},
     wire::{
-        AcceptedEncodings, AcceptedEncodingsError, BodyDeserializeError, CONSENSUS_VERSION_HEADER,
-        EncodingType, build_outbound_accept, content_type_encoding, get_accept_types_with_default,
-        get_user_agent, get_user_agent_with_version, parse_response_encoding_and_fork,
-        safe_read_http_response,
+        AcceptedEncodings, AcceptedEncodingsError, CONSENSUS_VERSION_HEADER, EncodingType,
+        build_outbound_accept, decode_request_body, get_accept_types_with_default, get_user_agent,
+        get_user_agent_with_version, parse_response_encoding_and_fork, safe_read_http_response,
     },
 };
 use futures::future::join_all;
@@ -59,43 +58,17 @@ use crate::{
     utils::{check_gas_limit, match_relays_by_auth_data},
 };
 
-/// Decode the required `SignedRequestAuthV1` request body. The spec makes the
-/// body mandatory, so an empty one is a 400 like a malformed one.
-/// An explicit `Content-Type` is obeyed (JSON or SSZ); when NO `Content-Type`
-/// header is present the no-preference default is SSZ (this endpoint is
-/// SSZ-by-default), unlike the JSON-default legacy paths.
-///
-/// NOTE: `RequestAuthV1` is not fork-versioned, so unlike submit_block we do
-/// NOT require `Eth-Consensus-Version` to decode the SSZ form.
-/// If the container ever gains fork variants, require the header.
-fn decode_request_auth(
-    headers: &HeaderMap,
-    body: &Bytes,
-) -> Result<SignedRequestAuthV1, BodyDeserializeError> {
-    if body.is_empty() {
-        return Err(BodyDeserializeError::MissingBody);
-    }
-    // No-preference default is SSZ here; an explicit Content-Type still wins.
-    let encoding = match headers.get(CONTENT_TYPE) {
-        None => EncodingType::Ssz,
-        Some(_) => content_type_encoding(headers)?,
-    };
-    let auth = match encoding {
-        EncodingType::Json => serde_json::from_slice::<SignedRequestAuthV1>(body.as_ref())
-            .map_err(BodyDeserializeError::SerdeJsonError)?,
-        EncodingType::Ssz => SignedRequestAuthV1::from_ssz_bytes(body.as_ref())
-            .map_err(BodyDeserializeError::SszDecodeError)?,
-    };
-    Ok(auth)
-}
-
+/// The body is the required `SignedRequestAuthV1` (`decode_request_body`).
+/// `RequestAuthV1` is not fork-versioned, so unlike submit_block the SSZ form
+/// needs no `Eth-Consensus-Version`; if it ever gains fork variants, require
+/// it.
 pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
     State(state): State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
     Path(params): Path<GetExecutionPayloadBidParams>,
     body: Bytes,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    let body = Arc::new(decode_request_auth(&req_headers, &body)?);
+    let body = Arc::new(decode_request_body::<SignedRequestAuthV1>(&req_headers, &body)?);
     tracing::Span::current().record("slot", params.slot);
     tracing::Span::current().record("parent_hash", tracing::field::debug(params.parent_hash));
     tracing::Span::current().record("parent_root", tracing::field::debug(params.parent_root));
@@ -867,6 +840,7 @@ mod tests {
         },
         types::{BlsSecretKey, Chain},
         utils::TestRandomSeed,
+        wire::BodyDeserializeError,
     };
     use lh_types::Slot;
 
@@ -1059,7 +1033,7 @@ mod tests {
     #[test]
     fn test_decode_request_auth_rejects_empty_body() {
         assert!(matches!(
-            decode_request_auth(&HeaderMap::new(), &Bytes::new()),
+            decode_request_body::<SignedRequestAuthV1>(&HeaderMap::new(), &Bytes::new()),
             Err(BodyDeserializeError::MissingBody)
         ));
     }

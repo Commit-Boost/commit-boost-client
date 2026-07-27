@@ -205,6 +205,29 @@ pub struct SignedRequestAuthV1 {
     pub signature: BlsSignature,
 }
 
+/// Per-builder preferences a proposer submits ahead of the bid request.
+#[derive(Debug, Serialize, Deserialize, Encode, Decode, Clone)]
+pub struct BuilderPreferencesV1 {
+    /// Maximum execution-layer payment, in Gwei, this proposer will accept from
+    /// this builder; quoted string on the JSON wire
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_execution_payment: u64,
+}
+
+/// The `submitBuilderPreferences` request body.
+#[derive(Debug, Serialize, Deserialize, Encode, Decode, Clone)]
+pub struct BuilderPreferencesRequestV1 {
+    pub preferences: BuilderPreferencesV1,
+    pub auth: SignedRequestAuthV1,
+}
+
+/// Path params for `POST /eth/v1/builder/builder_preferences/{proposer_pubkey}`
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SubmitBuilderPreferencesParams {
+    /// The public key of the proposer expressing these preferences
+    pub proposer_pubkey: BlsPublicKey,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
