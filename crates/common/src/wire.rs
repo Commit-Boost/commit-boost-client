@@ -276,38 +276,6 @@ fn essence_encoding(mt: &MediaType) -> Option<EncodingType> {
     }
 }
 
-/// Compute the q-value for the `index`-th preferred encoding when building an
-/// outbound `Accept` header. The first entry gets q=1.0, each subsequent entry
-/// decreases by 0.1, and the value is clamped to a minimum of 0.1 so we never
-/// emit q=0 (which per RFC 7231 §5.3.1 means "not acceptable").
-fn accept_q_value_for_index(index: usize) -> f32 {
-    // `as i32` would silently wrap for large indices (e.g. usize::MAX → -1),
-    // which would invert the clamp. Saturate the cast explicitly.
-    let idx = i32::try_from(index).unwrap_or(i32::MAX);
-    let step = 10_i32.saturating_sub(idx).max(1);
-    step as f32 / 10.0
-}
-
-/// Format a single `Accept` header entry as `"<media-type>;q=<x.x>"`.
-#[inline]
-fn format_accept_entry(enc: EncodingType, q: f32) -> String {
-    format!("{};q={:.1}", enc.content_type(), q)
-}
-
-/// Build an `Accept` header listing the given encodings in preference order:
-/// the first entry gets q=1.0 and each subsequent one a q-value 0.1 lower.
-/// Returns a ready-to-use `HeaderValue` — the output is always valid ASCII, so
-/// infallible.
-pub fn build_outbound_accept(preferred: AcceptedEncodings) -> HeaderValue {
-    let s = preferred
-        .iter()
-        .enumerate()
-        .map(|(i, enc)| format_accept_entry(enc, accept_q_value_for_index(i)))
-        .collect::<Vec<_>>()
-        .join(",");
-    HeaderValue::from_str(&s).expect("build_outbound_accept produces valid header value")
-}
-
 /// The `Accept` header PBS sends to relays: SSZ first, JSON as fallback.
 pub static OUTBOUND_ACCEPT_SSZ_FIRST: HeaderValue =
     HeaderValue::from_static("application/octet-stream;q=1.0,application/json;q=0.9");
@@ -457,9 +425,8 @@ mod test {
     use super::{
         APPLICATION_JSON, APPLICATION_OCTET_STREAM, AcceptedEncodings, BodyDeserializeError,
         CONSENSUS_VERSION_HEADER, EncodingType, NO_PREFERENCE_DEFAULT, OUTBOUND_ACCEPT_SSZ_FIRST,
-        WILDCARD, accept_q_value_for_index, build_outbound_accept, deserialize_body,
-        format_accept_entry, get_accept_types, get_consensus_version_header, get_content_type,
-        parse_response_encoding_and_fork,
+        WILDCARD, deserialize_body, get_accept_types, get_consensus_version_header,
+        get_content_type, parse_response_encoding_and_fork,
     };
 
     const APPLICATION_TEXT: &str = "application/text";
@@ -649,32 +616,6 @@ mod test {
         assert_eq!(accepts.preferred(&supported), None);
     }
 
-    /// Outbound Accept should be deterministic and q-ordered to match caller
-    /// preference.
-    #[test]
-    fn test_build_outbound_accept_deterministic() {
-        let ssz_then_json =
-            AcceptedEncodings { primary: EncodingType::Ssz, fallback: Some(EncodingType::Json) };
-        let json_then_ssz =
-            AcceptedEncodings { primary: EncodingType::Json, fallback: Some(EncodingType::Ssz) };
-        assert_eq!(
-            build_outbound_accept(ssz_then_json),
-            "application/octet-stream;q=1.0,application/json;q=0.9"
-        );
-        assert_eq!(
-            build_outbound_accept(json_then_ssz),
-            "application/json;q=1.0,application/octet-stream;q=0.9"
-        );
-
-        // Stable across repeats
-        for _ in 0..100 {
-            assert_eq!(
-                build_outbound_accept(ssz_then_json),
-                "application/octet-stream;q=1.0,application/json;q=0.9"
-            );
-        }
-    }
-
     /// `AcceptedEncodings::single` produces a primary with no fallback.
     #[test]
     fn test_accepted_encodings_single() {
@@ -786,17 +727,6 @@ mod test {
         );
     }
 
-    /// `build_outbound_accept` on a single-value `AcceptedEncodings` emits
-    /// exactly one entry at q=1.0 (no trailing comma, no orphan fallback).
-    #[test]
-    fn test_build_outbound_accept_single_value() {
-        let only_ssz = AcceptedEncodings::single(EncodingType::Ssz);
-        assert_eq!(build_outbound_accept(only_ssz), "application/octet-stream;q=1.0");
-
-        let only_json = AcceptedEncodings::single(EncodingType::Json);
-        assert_eq!(build_outbound_accept(only_json), "application/json;q=1.0");
-    }
-
     /// `preferred` walks the caller's preference order and returns the
     /// first supported match — not the server's first choice.
     #[test]
@@ -808,25 +738,6 @@ mod test {
             accepts.preferred(&[EncodingType::Ssz, EncodingType::Json]),
             Some(EncodingType::Json)
         );
-    }
-
-    /// q-value ladder: first entry is 1.0, each subsequent entry drops by 0.1.
-    #[test]
-    fn test_accept_q_value_for_index_ladder() {
-        assert!((accept_q_value_for_index(0) - 1.0).abs() < f32::EPSILON);
-        assert!((accept_q_value_for_index(1) - 0.9).abs() < f32::EPSILON);
-        assert!((accept_q_value_for_index(5) - 0.5).abs() < f32::EPSILON);
-        assert!((accept_q_value_for_index(9) - 0.1).abs() < f32::EPSILON);
-    }
-
-    /// Clamp at 0.1: we never emit q=0 (which per RFC 7231 §5.3.1 would mean
-    /// "not acceptable").
-    #[test]
-    fn test_accept_q_value_for_index_clamps_to_minimum() {
-        assert!((accept_q_value_for_index(10) - 0.1).abs() < f32::EPSILON);
-        assert!((accept_q_value_for_index(100) - 0.1).abs() < f32::EPSILON);
-        // Even an adversarial usize::MAX must not underflow or drop to zero.
-        assert!((accept_q_value_for_index(usize::MAX) - 0.1).abs() < f32::EPSILON);
     }
 
     /// Entry formatter emits the spec-shaped string.
@@ -984,13 +895,20 @@ mod test {
         );
     }
 
-    /// The precomputed constant must equal what the builder produces for the
-    /// SSZ-first pair, so the two cannot drift.
+    /// Format a single `Accept` header entry as `"<media-type>;q=<x.x>"`.
+    #[inline]
+    fn format_accept_entry(enc: EncodingType, q: f32) -> String {
+        format!("{};q={:.1}", enc.content_type(), q)
+    }
+
+    // Pins the wire format PBS sends to relays: SSZ preferred (q=1.0), JSON as
+    // fallback (q=0.9).
     #[test]
-    fn test_outbound_accept_ssz_first_matches_builder() {
-        let ssz_then_json =
-            AcceptedEncodings { primary: EncodingType::Ssz, fallback: Some(EncodingType::Json) };
-        assert_eq!(OUTBOUND_ACCEPT_SSZ_FIRST, build_outbound_accept(ssz_then_json));
+    fn test_outbound_accept_ssz_first() {
+        assert_eq!(
+            OUTBOUND_ACCEPT_SSZ_FIRST,
+            "application/octet-stream;q=1.0,application/json;q=0.9"
+        );
     }
 
     /// Present-but-unrecognized Content-Type still bails as
