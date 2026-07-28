@@ -1,4 +1,5 @@
 mod get_header;
+mod get_header_ws;
 mod register_validator;
 mod reload;
 mod status;

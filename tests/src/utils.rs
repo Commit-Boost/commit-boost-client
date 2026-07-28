@@ -8,11 +8,11 @@ use std::{
 use alloy::primitives::{B256, U256};
 use cb_common::{
     config::{
-        COMMIT_BOOST_IMAGE_DEFAULT, CommitBoostConfig, LogsSettings, ModuleKind,
-        ModuleSigningConfig, PbsConfig, PbsModuleConfig, RelayConfig, ReverseProxyHeaderSetup,
-        SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT, SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT,
-        SIGNER_PORT_DEFAULT, SignerConfig, SignerType, StartSignerConfig, StaticModuleConfig,
-        StaticPbsConfig, TlsMode,
+        COMMIT_BOOST_IMAGE_DEFAULT, CommitBoostConfig, GetHeaderTransport, LogsSettings,
+        ModuleKind, ModuleSigningConfig, PbsConfig, PbsModuleConfig, RelayConfig,
+        ReverseProxyHeaderSetup, SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT,
+        SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT, SIGNER_PORT_DEFAULT, SignerConfig,
+        SignerType, StartSignerConfig, StaticModuleConfig, StaticPbsConfig, TlsMode,
     },
     pbs::{RelayClient, RelayEntry},
     signer::SignerLoader,
@@ -47,6 +47,7 @@ pub fn generate_mock_relay(port: u16, pubkey: BlsPublicKey) -> Result<RelayClien
         id: None,
         headers: None,
         get_params: None,
+        get_header: GetHeaderTransport::Http,
         enable_timing_games: false,
         target_first_request_ms: None,
         frequency_get_header_ms: None,
@@ -67,6 +68,7 @@ pub fn generate_mock_relay_with_batch_size(
         id: None,
         headers: None,
         get_params: None,
+        get_header: GetHeaderTransport::Http,
         enable_timing_games: false,
         target_first_request_ms: None,
         frequency_get_header_ms: None,

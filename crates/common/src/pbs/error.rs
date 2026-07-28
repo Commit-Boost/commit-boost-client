@@ -38,6 +38,9 @@ pub enum PbsError {
 
     #[error("SSZ error: {0}")]
     SszError(#[from] SszValueError),
+
+    #[error("websocket error: {0}")]
+    WebSocket(String),
 }
 
 impl PbsError {

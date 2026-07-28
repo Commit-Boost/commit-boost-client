@@ -92,6 +92,15 @@ headers = { X-MyCustomHeader = "MyCustomValue" }
 # GET parameters to add to each request URL for this relay
 # OPTIONAL
 get_params = { param1 = "value1", param2 = "value2" }
+# How to fetch headers from this relay.
+#   "http"                                -> one request per get_header, at the relay url above
+#   { stream = "wss://abc.xyz/stream" }   -> websocket stream of bid updates, only for relays that
+#                                            support it. The stream stays open for the request
+#                                            window and the last bid pushed is the one used, so the
+#                                            timing game settings below are ignored.
+#                                            `{slot}/{parent_hash}/{pubkey}` is appended to the url.
+# OPTIONAL, DEFAULT: "http"
+get_header = "http"
 # Whether to enable timing games, as tuned by `target_first_request_ms` and `frequency_get_header_ms`.
 # NOTE: if neither `target_first_request_ms` nor `frequency_get_header_ms` is set, this flag has no effect.
 #

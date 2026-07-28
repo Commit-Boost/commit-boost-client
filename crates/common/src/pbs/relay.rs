@@ -12,7 +12,10 @@ use super::{
     error::PbsError,
 };
 use crate::{
-    DEFAULT_REQUEST_TIMEOUT, config::RelayConfig, pbs::BuilderApiVersion, types::BlsPublicKey,
+    DEFAULT_REQUEST_TIMEOUT,
+    config::{GetHeaderTransport, RelayConfig},
+    pbs::BuilderApiVersion,
+    types::BlsPublicKey,
 };
 
 /// A parsed entry of the relay url in the format: scheme://pubkey@host
@@ -49,6 +52,12 @@ impl<'de> Deserialize<'de> for RelayEntry {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum GetHeaderRequest {
+    Http(Url),
+    Stream(Url),
+}
+
 /// A client to interact with a relay, safe to share across threads and cheaply
 /// cloneable
 #[derive(Debug, Clone)]
@@ -62,7 +71,21 @@ pub struct RelayClient {
 }
 
 impl RelayClient {
-    pub fn new(config: RelayConfig) -> eyre::Result<Self> {
+    pub fn new(mut config: RelayConfig) -> eyre::Result<Self> {
+        if let GetHeaderTransport::Stream(url) = &mut config.get_header {
+            eyre::ensure!(
+                matches!(url.scheme(), "ws" | "wss"),
+                "get_header stream url must be ws:// or wss://, got {}",
+                url.scheme()
+            );
+
+            // Url::join drops the last segment of a base without a trailing slash
+            if !url.path().ends_with('/') {
+                let path = format!("{}/", url.path());
+                url.set_path(&path);
+            }
+        }
+
         let mut headers = HeaderMap::new();
         headers.insert(HEADER_VERSION_KEY, HeaderValue::from_static(HEADER_VERSION_VALUE));
 
@@ -89,7 +112,11 @@ impl RelayClient {
 
     // URL builders
     pub fn get_url(&self, path: &str) -> Result<Url, PbsError> {
-        let mut url = self.config.entry.url.join(path).map_err(PbsError::UrlParsing)?;
+        self.join_url(&self.config.entry.url, path)
+    }
+
+    fn join_url(&self, base: &Url, path: &str) -> Result<Url, PbsError> {
+        let mut url = base.join(path).map_err(PbsError::UrlParsing)?;
 
         if let Some(get_params) = &self.config.get_params {
             let mut query_pairs = url.query_pairs_mut();
@@ -120,6 +147,22 @@ impl RelayClient {
         )
     }
 
+    pub fn get_header_request(
+        &self,
+        slot: u64,
+        parent_hash: &B256,
+        validator_pubkey: &BlsPublicKey,
+    ) -> Result<GetHeaderRequest, PbsError> {
+        Ok(match &self.config.get_header {
+            GetHeaderTransport::Http => {
+                GetHeaderRequest::Http(self.get_header_url(slot, parent_hash, validator_pubkey)?)
+            }
+            GetHeaderTransport::Stream(base) => GetHeaderRequest::Stream(
+                self.join_url(base, &format!("{slot}/{parent_hash}/{validator_pubkey}"))?,
+            ),
+        })
+    }
+
     pub fn get_status_url(&self) -> Result<Url, PbsError> {
         self.builder_api_url(GET_STATUS_PATH, BuilderApiVersion::V1)
     }
@@ -139,8 +182,11 @@ mod tests {
 
     use alloy::primitives::B256;
 
-    use super::{RelayClient, RelayEntry};
-    use crate::{config::RelayConfig, utils::bls_pubkey_from_hex_unchecked};
+    use super::{GetHeaderRequest, RelayClient, RelayEntry};
+    use crate::{
+        config::{GetHeaderTransport, RelayConfig},
+        utils::bls_pubkey_from_hex_unchecked,
+    };
 
     #[test]
     fn test_relay_entry() {
@@ -225,5 +271,95 @@ mod tests {
         assert!(url.starts_with(&url_prefix));
         assert!(url.contains("param1=value1"));
         assert!(url.contains("param2=value2"));
+    }
+
+    #[test]
+    fn test_get_header_request() {
+        let slot = 0;
+        let parent_hash = B256::ZERO;
+        let validator_pubkey = bls_pubkey_from_hex_unchecked(
+            "0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae",
+        );
+        let relay_config = r#"
+        {
+            "url": "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz"
+        }"#;
+        let base_config = serde_json::from_str::<RelayConfig>(relay_config).unwrap();
+
+        // No ws url configured: plain HTTP endpoint
+        let relay = RelayClient::new(base_config.clone()).unwrap();
+        let GetHeaderRequest::Http(url) =
+            relay.get_header_request(slot, &parent_hash, &validator_pubkey).unwrap()
+        else {
+            panic!("expected http request");
+        };
+        assert_eq!(
+            url,
+            relay.get_header_url(slot, &parent_hash, &validator_pubkey).unwrap(),
+            "http dispatch must match the plain url builder"
+        );
+
+        // A stream url takes over, and a missing trailing slash is normalized so
+        // the configured path isn't dropped by Url::join
+        for base in ["wss://abc.xyz/stream", "wss://abc.xyz/stream/"] {
+            let mut config = base_config.clone();
+            config.get_header = GetHeaderTransport::Stream(base.parse().unwrap());
+            let relay = RelayClient::new(config).unwrap();
+
+            let GetHeaderRequest::Stream(url) =
+                relay.get_header_request(slot, &parent_hash, &validator_pubkey).unwrap()
+            else {
+                panic!("expected stream request");
+            };
+            assert_eq!(
+                url.to_string(),
+                format!("wss://abc.xyz/stream/{slot}/{parent_hash}/{validator_pubkey}")
+            );
+        }
+
+        // Non-ws schemes are rejected at construction
+        let mut config = base_config;
+        config.get_header = GetHeaderTransport::Stream("https://abc.xyz/stream/".parse().unwrap());
+        assert!(RelayClient::new(config).is_err());
+    }
+
+    #[test]
+    fn test_get_header_transport_config() {
+        let with_transport = |value: &str| {
+            let relay_config = format!(
+                r#"
+                {{
+                    "url": "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz",
+                    "get_header": {value}
+                }}"#
+            );
+            serde_json::from_str::<RelayConfig>(&relay_config).map(|config| config.get_header)
+        };
+
+        assert_eq!(with_transport(r#""http""#).unwrap(), GetHeaderTransport::Http);
+        assert_eq!(
+            with_transport(r#"{ "stream": "wss://abc.xyz/stream" }"#).unwrap(),
+            GetHeaderTransport::Stream("wss://abc.xyz/stream".parse().unwrap())
+        );
+        assert!(with_transport(r#""grpc""#).is_err());
+
+        // Same shapes in the toml the operator actually writes
+        let toml_config = r#"
+            url = "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz"
+            get_header = { stream = "wss://abc.xyz/stream" }
+        "#;
+        let config = toml::from_str::<RelayConfig>(toml_config).unwrap();
+        assert_eq!(
+            config.get_header,
+            GetHeaderTransport::Stream("wss://abc.xyz/stream".parse().unwrap())
+        );
+
+        // Defaults to http when omitted
+        let relay_config = r#"
+        {
+            "url": "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz"
+        }"#;
+        let config = serde_json::from_str::<RelayConfig>(relay_config).unwrap();
+        assert_eq!(config.get_header, GetHeaderTransport::Http);
     }
 }
