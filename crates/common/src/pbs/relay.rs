@@ -66,24 +66,20 @@ pub struct RelayClient {
     pub id: Arc<String>,
     /// HTTP client to send requests
     pub client: reqwest::Client,
+    /// Baseline headers for the get_header stream handshake.
+    stream_headers: Arc<HeaderMap>,
     /// Configuration of the relay
     pub config: Arc<RelayConfig>,
 }
 
 impl RelayClient {
-    pub fn new(mut config: RelayConfig) -> eyre::Result<Self> {
-        if let GetHeaderTransport::Stream(url) = &mut config.get_header {
+    pub fn new(config: RelayConfig) -> eyre::Result<Self> {
+        if let GetHeaderTransport::Stream(url) = &config.get_header {
             eyre::ensure!(
                 matches!(url.scheme(), "ws" | "wss"),
                 "get_header stream url must be ws:// or wss://, got {}",
                 url.scheme()
             );
-
-            // Url::join drops the last segment of a base without a trailing slash
-            if !url.path().ends_with('/') {
-                let path = format!("{}/", url.path());
-                url.set_path(&path);
-            }
         }
 
         let mut headers = HeaderMap::new();
@@ -98,35 +94,48 @@ impl RelayClient {
             }
         }
 
+        let stream_headers = match config.get_header {
+            GetHeaderTransport::Http => HeaderMap::new(),
+            GetHeaderTransport::Stream(_) => headers.clone(),
+        };
+
         let client = reqwest::Client::builder()
             .default_headers(headers)
             .timeout(DEFAULT_REQUEST_TIMEOUT)
             .build()?;
 
-        Ok(Self { id: Arc::new(config.id().to_owned()), client, config: Arc::new(config) })
+        Ok(Self {
+            id: Arc::new(config.id().to_owned()),
+            client,
+            stream_headers: Arc::new(stream_headers),
+            config: Arc::new(config),
+        })
     }
 
     pub fn pubkey(&self) -> &BlsPublicKey {
         &self.config.entry.pubkey
     }
 
-    // URL builders
-    pub fn get_url(&self, path: &str) -> Result<Url, PbsError> {
-        self.join_url(&self.config.entry.url, path)
+    pub fn stream_headers(&self) -> &HeaderMap {
+        &self.stream_headers
     }
 
-    fn join_url(&self, base: &Url, path: &str) -> Result<Url, PbsError> {
-        let mut url = base.join(path).map_err(PbsError::UrlParsing)?;
+    // URL builders
+    pub fn get_url(&self, path: &str) -> Result<Url, PbsError> {
+        let mut url = self.config.entry.url.join(path).map_err(PbsError::UrlParsing)?;
+        self.append_get_params(&mut url);
+        Ok(url)
+    }
 
+    fn append_get_params(&self, url: &mut Url) {
         if let Some(get_params) = &self.config.get_params {
             let mut query_pairs = url.query_pairs_mut();
             for (key, value) in get_params {
                 query_pairs.append_pair(key, value);
             }
         }
-
-        Ok(url)
     }
+
     pub fn builder_api_url(
         &self,
         path: &str,
@@ -157,9 +166,22 @@ impl RelayClient {
             GetHeaderTransport::Http => {
                 GetHeaderRequest::Http(self.get_header_url(slot, parent_hash, validator_pubkey)?)
             }
-            GetHeaderTransport::Stream(base) => GetHeaderRequest::Stream(
-                self.join_url(base, &format!("{slot}/{parent_hash}/{validator_pubkey}"))?,
-            ),
+            GetHeaderTransport::Stream(base) => {
+                let mut url = base.clone();
+                // Push segments rather than Url::join: join drops both the last
+                // segment of a base without a trailing slash and its query
+                url.path_segments_mut()
+                    .map_err(|_| PbsError::WebSocket("stream url cannot be a base".to_string()))?
+                    .pop_if_empty()
+                    .extend([
+                        slot.to_string(),
+                        parent_hash.to_string(),
+                        validator_pubkey.to_string(),
+                    ]);
+
+                self.append_get_params(&mut url);
+                GetHeaderRequest::Stream(url)
+            }
         })
     }
 
@@ -299,8 +321,8 @@ mod tests {
             "http dispatch must match the plain url builder"
         );
 
-        // A stream url takes over, and a missing trailing slash is normalized so
-        // the configured path isn't dropped by Url::join
+        // A stream url takes over, and a missing trailing slash doesn't drop the
+        // configured path
         for base in ["wss://abc.xyz/stream", "wss://abc.xyz/stream/"] {
             let mut config = base_config.clone();
             config.get_header = GetHeaderTransport::Stream(base.parse().unwrap());
@@ -316,6 +338,21 @@ mod tests {
                 format!("wss://abc.xyz/stream/{slot}/{parent_hash}/{validator_pubkey}")
             );
         }
+
+        // An auth token on the stream url survives the path append
+        let mut config = base_config.clone();
+        config.get_header =
+            GetHeaderTransport::Stream("wss://abc.xyz/stream?token=abc".parse().unwrap());
+        let relay = RelayClient::new(config).unwrap();
+        let GetHeaderRequest::Stream(url) =
+            relay.get_header_request(slot, &parent_hash, &validator_pubkey).unwrap()
+        else {
+            panic!("expected stream request");
+        };
+        assert_eq!(
+            url.to_string(),
+            format!("wss://abc.xyz/stream/{slot}/{parent_hash}/{validator_pubkey}?token=abc")
+        );
 
         // Non-ws schemes are rejected at construction
         let mut config = base_config;

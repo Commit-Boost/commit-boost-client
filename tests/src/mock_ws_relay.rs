@@ -52,6 +52,9 @@ pub struct MockWsRelayState {
     /// Keep the connection open after the last update, so PBS returns on its
     /// own deadline instead of on close
     hold_open: bool,
+    /// Precede each bid with frames PBS can't parse, which it must skip rather
+    /// than treat as the end of the stream
+    unknown_frames: bool,
     received_connections: AtomicU64,
     last_request: Mutex<Option<StreamRequest>>,
 }
@@ -64,6 +67,7 @@ impl MockWsRelayState {
             bid_values: vec![U256::from(10)],
             update_interval: Duration::ZERO,
             hold_open: false,
+            unknown_frames: false,
             received_connections: AtomicU64::new(0),
             last_request: Mutex::new(None),
         }
@@ -79,6 +83,10 @@ impl MockWsRelayState {
 
     pub fn hold_open(self) -> Self {
         Self { hold_open: true, ..self }
+    }
+
+    pub fn with_unknown_frames(self) -> Self {
+        Self { unknown_frames: true, ..self }
     }
 
     pub fn received_connections(&self) -> u64 {
@@ -120,6 +128,13 @@ async fn serve_stream(state: Arc<MockWsRelayState>, stream: TcpStream) -> eyre::
     *state.last_request.lock().unwrap() = Some(request.clone());
 
     for value in &state.bid_values {
+        if state.unknown_frames {
+            // Unknown message type, unknown fork, truncated prefix
+            for frame in [vec![0x7f, FORK_FULU, 1], vec![MSG_BID, 0xff, 1], vec![MSG_BID]] {
+                ws.send(Message::Binary(frame.into())).await?;
+            }
+        }
+
         let bid = mock_signed_builder_bid(
             state.chain,
             &state.signer,

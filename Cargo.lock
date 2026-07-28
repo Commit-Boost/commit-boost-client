@@ -1944,7 +1944,6 @@ dependencies = [
  "async-trait",
  "axum 0.8.9",
  "axum-extra",
- "bytes",
  "cb-common",
  "cb-metrics",
  "ethereum_serde_utils 0.7.0",
@@ -1969,6 +1968,7 @@ dependencies = [
  "types",
  "url",
  "uuid 1.24.0",
+ "webpki-roots 1.0.9",
 ]
 
 [[package]]

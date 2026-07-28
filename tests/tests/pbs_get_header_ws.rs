@@ -135,6 +135,31 @@ async fn test_get_header_ws_returns_latest_bid() -> Result<()> {
     Ok(())
 }
 
+/// Frames PBS can't parse are skipped, not treated as the end of the stream:
+/// the updates after them still count.
+#[tokio::test]
+async fn test_get_header_ws_skips_unknown_frames() -> Result<()> {
+    setup_test_env();
+    let signer = random_secret();
+    let pubkey = signer.public_key();
+    let chain = Chain::Hoodi;
+
+    let (_relay_state, relay) = start_stream_relay(
+        MockWsRelayState::new(chain, signer.clone())
+            .with_bid_values(vec![U256::from(10), U256::from(20)])
+            .with_unknown_frames(),
+        pubkey,
+    )
+    .await?;
+
+    let validator = start_pbs(chain, vec![relay], 1_000).await?;
+
+    let (code, res) = get_header_json(&validator).await?;
+    assert_eq!(code, StatusCode::OK);
+    assert_bid(&res.unwrap(), chain, &signer, U256::from(20));
+    Ok(())
+}
+
 /// The handshake carries the same request data as the HTTP call
 #[tokio::test]
 async fn test_get_header_ws_handshake_carries_request() -> Result<()> {

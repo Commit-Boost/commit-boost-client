@@ -393,8 +393,6 @@ async fn send_one_get_header(
     Ok((start_request_time, Some(get_header_response)))
 }
 
-/// Validate a decoded header from a relay: header contents, relay signature,
-/// and, if enabled, consistency with the parent block.
 pub(super) fn validate_get_header_response(
     request_info: &RequestInfo,
     relay: &RelayClient,

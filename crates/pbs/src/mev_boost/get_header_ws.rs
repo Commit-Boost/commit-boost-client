@@ -1,6 +1,6 @@
 //! Streaming get_header over a websocket, for relays configured with
-//! `get_header_ws_url`. One connection per get_header call, dropped when the
-//! call returns.
+//! `get_header = { stream = "wss://..." }`. One connection per get_header
+//! call, dropped when the call returns.
 //!
 //! The request is the handshake itself: slot / parent_hash / pubkey in the
 //! path, deadline and timestamp in headers, same data the HTTP request carries.
@@ -12,25 +12,26 @@
 //! ..  SSZ SignedBuilderBid
 //! ```
 
-use std::{str::FromStr, sync::Once, time::Duration};
+use std::{
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
 
 use alloy::primitives::utils::format_ether;
-use axum::http::{HeaderName, HeaderValue, Request, header::USER_AGENT};
-use bytes::Bytes;
+use axum::http::{HeaderValue, Request, header::USER_AGENT};
 use cb_common::{
     pbs::{
         ForkName, ForkVersionDecode, GetHeaderInfo, GetHeaderResponse, HEADER_START_TIME_UNIX_MS,
-        HEADER_TIMEOUT_MS, HEADER_VERSION_KEY, HEADER_VERSION_VALUE, RelayClient, SignedBuilderBid,
-        error::PbsError,
+        HEADER_TIMEOUT_MS, RelayClient, SignedBuilderBid, error::PbsError,
     },
     utils::utcnow_ms,
 };
 use futures::StreamExt;
-use rustls::crypto::{CryptoProvider, aws_lc_rs};
+use rustls::{ClientConfig, RootCertStore, crypto::aws_lc_rs};
 use tokio::time::{Instant, sleep_until, timeout_at};
 use tokio_tungstenite::{
-    connect_async_with_config,
-    tungstenite::{Message, client::IntoClientRequest, protocol::WebSocketConfig},
+    Connector, connect_async_tls_with_config,
+    tungstenite::{Bytes, Message, client::IntoClientRequest, protocol::WebSocketConfig},
 };
 use tracing::{debug, info, warn};
 use url::Url;
@@ -77,10 +78,13 @@ pub(super) async fn get_header_ws(
         .max_message_size(Some(MAX_SIZE_GET_HEADER_RESPONSE))
         .max_frame_size(Some(MAX_SIZE_GET_HEADER_RESPONSE));
 
-    install_crypto_provider();
-
     let start_request = Instant::now();
-    let connect = connect_async_with_config(request, Some(config), true);
+    let connect = connect_async_tls_with_config(
+        request,
+        Some(config),
+        true,
+        Some(Connector::Rustls(tls_config().clone())),
+    );
     let (mut stream, _) = match timeout_at(deadline, connect).await {
         Ok(Ok(connected)) => connected,
         Ok(Err(err)) => {
@@ -89,17 +93,20 @@ pub(super) async fn get_header_ws(
         }
         Err(_) => {
             record_status(TIMEOUT_ERROR_CODE_STR, relay);
-            return Err(PbsError::WebSocket("timed out connecting".to_string()));
+            return Err(PbsError::WebSocketTimeout);
         }
     };
-    debug!(relay_id = relay.id.as_ref(), latency = ?start_request.elapsed(), "ws connected");
+    let connect_latency = start_request.elapsed();
+    debug!(relay_id = relay.id.as_ref(), ?connect_latency, "ws connected");
 
     let timer = sleep_until(deadline);
     tokio::pin!(timer);
 
     let mut latest: Option<(ForkName, Bytes)> = None;
-    let mut first_bid_latency = None;
+    let mut first_bid_latency: Option<Duration> = None;
     let mut updates = 0usize;
+    let mut invalid_frames = 0usize;
+    let mut stream_error = None;
 
     loop {
         let message = tokio::select! {
@@ -112,6 +119,7 @@ pub(super) async fn get_header_ws(
             Some(Ok(message)) => message,
             Some(Err(err)) => {
                 warn!(relay_id = relay.id.as_ref(), %err, "ws stream error");
+                stream_error = Some(PbsError::WebSocket(format!("stream error: {err}")));
                 break;
             }
             None => break,
@@ -126,12 +134,16 @@ pub(super) async fn get_header_ws(
         match parse_frame(payload) {
             Ok((fork, bid)) => {
                 updates += 1;
-                first_bid_latency.get_or_insert_with(|| start_request.elapsed());
+                if first_bid_latency.is_none() {
+                    first_bid_latency = Some(start_request.elapsed());
+                }
                 latest = Some((fork, bid));
             }
             Err(err) => {
-                warn!(relay_id = relay.id.as_ref(), %err, "invalid ws frame");
-                break;
+                invalid_frames += 1;
+                if invalid_frames == 1 {
+                    warn!(relay_id = relay.id.as_ref(), %err, "invalid ws frame, skipping");
+                }
             }
         }
     }
@@ -139,14 +151,21 @@ pub(super) async fn get_header_ws(
     drop(stream);
 
     let Some((fork, bid_bytes)) = latest else {
-        debug!(relay_id = relay.id.as_ref(), "no header from relay");
+        if let Some(err) = stream_error {
+            record_status(TIMEOUT_ERROR_CODE_STR, relay);
+            return Err(err);
+        }
+
+        debug!(relay_id = relay.id.as_ref(), ?connect_latency, invalid_frames, "no header");
         record_status("204", relay);
         return Ok(None);
     };
 
-    RELAY_LATENCY
-        .with_label_values(&[GET_HEADER_ENDPOINT_TAG, &relay.id])
-        .observe(first_bid_latency.unwrap_or_default().as_secs_f64());
+    if let Some(first_bid_latency) = first_bid_latency {
+        RELAY_LATENCY
+            .with_label_values(&[GET_HEADER_ENDPOINT_TAG, &relay.id])
+            .observe(first_bid_latency.as_secs_f64());
+    }
     record_status("200", relay);
 
     let data = SignedBuilderBid::from_ssz_bytes_by_fork(&bid_bytes, fork).map_err(|err| {
@@ -157,24 +176,29 @@ pub(super) async fn get_header_ws(
     })?;
     let response = GetHeaderResponse { version: fork, data, metadata: Default::default() };
 
+    let start_validate = Instant::now();
+    let validated = validate_get_header_response(request_info, relay, &response);
+    let validate_latency = start_validate.elapsed();
+
     info!(
         relay_id = relay.id.as_ref(),
         header_size_bytes = bid_bytes.len(),
-        latency = ?start_request.elapsed(),
+        ?connect_latency,
+        ?first_bid_latency,
+        ?validate_latency,
         version = ?fork,
         value_eth = format_ether(*response.value()),
         block_hash = %response.block_hash(),
         updates,
+        invalid_frames,
         "received new header from ws stream"
     );
 
-    validate_get_header_response(request_info, relay, &response)?;
+    validated?;
 
     Ok(Some(response))
 }
 
-/// The handshake carries the request: same headers as the HTTP path, minus
-/// `Accept` (the stream is SSZ only).
 fn build_handshake_request(
     request_info: &RequestInfo,
     relay: &RelayClient,
@@ -190,16 +214,9 @@ fn build_handshake_request(
     if let Some(user_agent) = request_info.headers.get(USER_AGENT) {
         headers.insert(USER_AGENT, user_agent.clone());
     }
-    headers.insert(HEADER_VERSION_KEY, HeaderValue::from_static(HEADER_VERSION_VALUE));
 
-    // The HTTP client bakes these into its default headers, the ws handshake
-    // needs them explicitly. Validated in RelayClient::new.
-    for (key, value) in relay.config.headers.iter().flatten() {
-        let key = HeaderName::from_str(key)
-            .map_err(|_| PbsError::WebSocket(format!("invalid header name: {key}")))?;
-        let value = HeaderValue::from_str(value)
-            .map_err(|_| PbsError::WebSocket(format!("invalid header value for: {key}")))?;
-        headers.insert(key, value);
+    for (key, value) in relay.stream_headers() {
+        headers.insert(key, value.clone());
     }
 
     headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(utcnow_ms()));
@@ -227,16 +244,26 @@ fn record_status(code: &str, relay: &RelayClient) {
     RELAY_STATUS_CODE.with_label_values(&[code, GET_HEADER_ENDPOINT_TAG, &relay.id]).inc();
 }
 
-/// rustls is built with both `ring` and `aws-lc-rs` here, so the default
-/// `ClientConfig::builder()` inside tokio-tungstenite panics unless a
-/// process-level provider is installed. Match the signer and use aws-lc-rs.
-fn install_crypto_provider() {
-    static INIT: Once = Once::new();
-    INIT.call_once(|| {
-        if CryptoProvider::get_default().is_none() {
-            let _ = aws_lc_rs::default_provider().install_default();
-        }
-    });
+/// One TLS config for every stream connection. Left to tokio-tungstenite it is
+/// rebuilt per connect, which reparses the root store and, worse, gives each
+/// connection its own session cache: every slot then pays a full handshake
+/// instead of a resumed one. The provider is named explicitly because rustls is
+/// built with both `ring` and `aws-lc-rs` here, so the default builder needs a
+/// process-wide install to pick one.
+fn tls_config() -> &'static Arc<ClientConfig> {
+    static CONFIG: OnceLock<Arc<ClientConfig>> = OnceLock::new();
+    CONFIG.get_or_init(|| {
+        let mut roots = RootCertStore::empty();
+        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+
+        Arc::new(
+            ClientConfig::builder_with_provider(Arc::new(aws_lc_rs::default_provider()))
+                .with_safe_default_protocol_versions()
+                .expect("aws-lc-rs supports tls 1.2 and 1.3")
+                .with_root_certificates(roots)
+                .with_no_client_auth(),
+        )
+    })
 }
 
 #[cfg(test)]
