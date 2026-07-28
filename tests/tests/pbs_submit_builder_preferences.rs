@@ -1,30 +1,16 @@
-use std::{path::PathBuf, sync::Arc, time::Duration};
-
 use cb_common::{
-    pbs::{
-        BuilderPreferencesRequestV1, BuilderPreferencesV1, RelayClient, RequestAuthV1,
-        SignedRequestAuthV1,
-    },
-    signature::sign_request_auth_root,
+    pbs::{BuilderPreferencesRequestV1, BuilderPreferencesV1, SignedRequestAuthV1},
     signer::random_secret,
-    types::{BlsSecretKey, BlsSignature, Chain},
+    types::Chain,
     utils::utcnow_ms,
     wire::EncodingType,
 };
-use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
-use cb_tests::{
-    mock_relay::{MockRelayState, start_mock_relay_service_with_listener},
-    mock_validator::MockValidator,
-    utils::{
-        generate_mock_relay, generate_mock_relay_with_auth_data, get_free_listener, get_pbs_config,
-        setup_test_env, to_pbs_config,
-    },
+use cb_tests::utils::{
+    generate_mock_relay, generate_mock_relay_with_auth_data, opaque_auth, setup_relay, signed_auth,
 };
 use eyre::Result;
-use lh_types::Slot;
 use reqwest::{StatusCode, header::CONTENT_TYPE};
 use ssz::Encode;
-use tree_hash::TreeHash;
 
 const TEST_AUTH_DATA: &[u8] = &[0xde, 0xad];
 const TEST_MAX_EXECUTION_PAYMENT: u64 = 1_000_000_000;
@@ -44,27 +30,6 @@ fn past_slot(chain: Chain) -> u64 {
     ((now_sec.saturating_sub(chain.genesis_time_sec())) / chain.slot_time_sec()).saturating_sub(10)
 }
 
-fn opaque_auth(data: &[u8], slot: u64) -> SignedRequestAuthV1 {
-    SignedRequestAuthV1 {
-        message: RequestAuthV1 {
-            data: ssz_types::VariableList::new(data.to_vec()).expect("data fits in MAX_DATA_SIZE"),
-            slot: Slot::new(slot),
-        },
-        signature: BlsSignature::empty(),
-    }
-}
-
-fn signed_auth(
-    secret_key: &BlsSecretKey,
-    data: &[u8],
-    slot: u64,
-    chain: Chain,
-) -> SignedRequestAuthV1 {
-    let mut auth = opaque_auth(data, slot);
-    auth.signature = sign_request_auth_root(secret_key, &auth.message.tree_hash_root(), chain);
-    auth
-}
-
 fn preferences(
     auth: SignedRequestAuthV1,
     max_execution_payment: u64,
@@ -73,46 +38,6 @@ fn preferences(
         preferences: BuilderPreferencesV1 { max_execution_payment },
         auth,
     }
-}
-
-/// Boot PBS in front of one mock relay, letting the test shape both the PBS
-/// config and the relay entry.
-async fn setup_relay(
-    chain: Chain,
-    tweak: impl FnOnce(&mut cb_common::config::PbsConfig),
-    make_relay: impl FnOnce(u16, cb_common::types::BlsPublicKey) -> Result<RelayClient>,
-) -> Result<(MockValidator, Arc<MockRelayState>)> {
-    setup_test_env();
-    let pbs_listener = get_free_listener().await;
-    let pbs_port = pbs_listener.local_addr()?.port();
-    let relay_listener = get_free_listener().await;
-    let relay_port = relay_listener.local_addr()?.port();
-
-    let mock_state = Arc::new(MockRelayState::new(chain, random_secret()));
-    let mock_relay = make_relay(relay_port, mock_state.signer.public_key())?;
-    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
-
-    let mut pbs_config = get_pbs_config(pbs_port);
-    tweak(&mut pbs_config);
-    let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
-    let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
-
-    let mock_validator = MockValidator::new(pbs_port)?;
-    wait_for_ready(&mock_validator).await?;
-    Ok((mock_validator, mock_state))
-}
-
-async fn wait_for_ready(mock_validator: &MockValidator) -> Result<()> {
-    for _ in 0..100 {
-        if let Ok(res) = mock_validator.do_get_status().await &&
-            res.status() == StatusCode::OK
-        {
-            return Ok(());
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    eyre::bail!("PBS/relays did not become ready within 2s")
 }
 
 /// The happy path: an SSZ submission reaches the builder as a 202, with the

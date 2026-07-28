@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use alloy::primitives::{Address, B256, U256};
 use cb_common::{
@@ -6,12 +6,11 @@ use cb_common::{
     constants::{GENESIS_VALIDATORS_ROOT, GLOAS_FORK_VERSION},
     pbs::{
         DEFAULT_BID_POLL_TIMEOUT_MS, GetExecutionPayloadBidInfo, GetExecutionPayloadBidResponse,
-        HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS, RequestAuthV1, SignedExecutionPayloadBid,
-        SignedRequestAuthV1,
+        HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS, SignedExecutionPayloadBid,
     },
-    signature::{sign_execution_payload_bid_root, sign_request_auth_root},
+    signature::sign_execution_payload_bid_root,
     signer::random_secret,
-    types::{BlsSecretKey, BlsSignature, Chain},
+    types::Chain,
     utils::utcnow_ms,
     wire::EncodingType,
 };
@@ -21,12 +20,11 @@ use cb_tests::{
     mock_validator::MockValidator,
     utils::{
         generate_mock_relay, generate_mock_relay_with_auth_data,
-        generate_mock_relay_with_timing_games, get_free_listener, get_pbs_config, setup_test_env,
-        to_pbs_config,
+        generate_mock_relay_with_timing_games, get_free_listener, get_pbs_config, opaque_auth,
+        setup_relay, setup_test_env, signed_auth, to_pbs_config, wait_for_ready,
     },
 };
 use eyre::Result;
-use lh_types::Slot;
 use reqwest::{StatusCode, header::CONTENT_TYPE};
 use ssz::{Decode, Encode};
 use tracing::info;
@@ -524,63 +522,12 @@ async fn test_get_execution_payload_bid_forwards_opaque_auth() -> Result<()> {
     Ok(())
 }
 
-/// Build a `SignedRequestAuthV1` carrying opaque `data`. CB forwards it
-/// unmodified; the signature is only verified when `verify_request_auth` is on,
-/// so an empty one suffices elsewhere.
-fn opaque_auth(data: &[u8], slot: u64) -> SignedRequestAuthV1 {
-    SignedRequestAuthV1 {
-        message: RequestAuthV1 {
-            data: ssz_types::VariableList::new(data.to_vec()).expect("data fits in MAX_DATA_SIZE"),
-            slot: Slot::new(slot),
-        },
-        signature: BlsSignature::empty(),
-    }
-}
-
-/// Same, but signed under the spec's `DOMAIN_REQUEST_AUTH` by `secret_key`.
-fn signed_auth(
-    secret_key: &BlsSecretKey,
-    data: &[u8],
-    slot: u64,
-    chain: Chain,
-) -> SignedRequestAuthV1 {
-    let mut auth = opaque_auth(data, slot);
-    auth.signature = sign_request_auth_root(secret_key, &auth.message.tree_hash_root(), chain);
-    auth
-}
-
-/// Boot a PBS instance in front of one default mock relay, applying `tweak` to
-/// the PBS config first.
-async fn setup_single_relay(
-    chain: Chain,
-    tweak: impl FnOnce(&mut cb_common::config::PbsConfig),
-) -> Result<(MockValidator, Arc<MockRelayState>)> {
-    setup_test_env();
-    let pbs_listener = get_free_listener().await;
-    let pbs_port = pbs_listener.local_addr()?.port();
-    let relay_listener = get_free_listener().await;
-    let relay_port = relay_listener.local_addr()?.port();
-
-    let mock_state = Arc::new(MockRelayState::new(chain, random_secret()));
-    let mock_relay = generate_mock_relay(relay_port, mock_state.signer.public_key())?;
-    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
-
-    let mut pbs_config = get_pbs_config(pbs_port);
-    tweak(&mut pbs_config);
-    let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
-    let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
-
-    let mock_validator = MockValidator::new(pbs_port)?;
-    wait_for_ready(&mock_validator).await?;
-    Ok((mock_validator, mock_state))
-}
-
 /// The spec makes the auth body mandatory: a request without one is a 400 with
 /// an ErrorMessage body, before any relay is queried.
 #[tokio::test]
 async fn test_get_execution_payload_bid_missing_auth_400() -> Result<()> {
-    let (mock_validator, mock_state) = setup_single_relay(Chain::Hoodi, |_| {}).await?;
+    let (mock_validator, mock_state) =
+        setup_relay(Chain::Hoodi, |_| {}, generate_mock_relay).await?;
 
     let res = mock_validator
         .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, None, vec![
@@ -602,7 +549,8 @@ async fn test_get_execution_payload_bid_missing_auth_400() -> Result<()> {
 /// `auth.message.slot` must match the proposal slot in the request path.
 #[tokio::test]
 async fn test_get_execution_payload_bid_auth_slot_mismatch_400() -> Result<()> {
-    let (mock_validator, mock_state) = setup_single_relay(Chain::Hoodi, |_| {}).await?;
+    let (mock_validator, mock_state) =
+        setup_relay(Chain::Hoodi, |_| {}, generate_mock_relay).await?;
 
     let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT + 1);
     let res = mock_validator
@@ -632,7 +580,8 @@ async fn test_get_execution_payload_bid_verify_request_auth_enabled() -> Result<
     let secret_key = random_secret();
     let proposer_pubkey = secret_key.public_key();
     let (mock_validator, mock_state) =
-        setup_single_relay(Chain::Hoodi, |cfg| cfg.verify_request_auth = true).await?;
+        setup_relay(Chain::Hoodi, |cfg| cfg.verify_request_auth = true, generate_mock_relay)
+            .await?;
 
     // An empty signature never verifies under DOMAIN_REQUEST_AUTH
     let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);
@@ -673,7 +622,8 @@ async fn test_get_execution_payload_bid_verify_request_auth_enabled() -> Result<
 /// relay is contacted.
 #[tokio::test]
 async fn test_get_execution_payload_bid_missing_timing_headers_400() -> Result<()> {
-    let (mock_validator, mock_state) = setup_single_relay(Chain::Hoodi, |_| {}).await?;
+    let (mock_validator, mock_state) =
+        setup_relay(Chain::Hoodi, |_| {}, generate_mock_relay).await?;
     let url = mock_validator.comm_boost.get_execution_payload_bid_url(
         TEST_SLOT,
         &B256::ZERO,
@@ -714,7 +664,8 @@ async fn test_get_execution_payload_bid_missing_timing_headers_400() -> Result<(
 /// request: CB returns 204 rather than calling a relay it cannot beat.
 #[tokio::test]
 async fn test_get_execution_payload_bid_expired_deadline_204() -> Result<()> {
-    let (mock_validator, mock_state) = setup_single_relay(Chain::Hoodi, |_| {}).await?;
+    let (mock_validator, mock_state) =
+        setup_relay(Chain::Hoodi, |_| {}, generate_mock_relay).await?;
     let url = mock_validator.comm_boost.get_execution_payload_bid_url(
         TEST_SLOT,
         &B256::ZERO,
@@ -740,7 +691,8 @@ async fn test_get_execution_payload_bid_expired_deadline_204() -> Result<()> {
 #[tokio::test]
 async fn test_get_execution_payload_bid_bad_auth_signature_forwarded_by_default() -> Result<()> {
     let proposer_pubkey = random_secret().public_key();
-    let (mock_validator, mock_state) = setup_single_relay(Chain::Hoodi, |_| {}).await?;
+    let (mock_validator, mock_state) =
+        setup_relay(Chain::Hoodi, |_| {}, generate_mock_relay).await?;
 
     let data = vec![0xde, 0xad];
     let auth = opaque_auth(&data, TEST_SLOT);
@@ -1576,19 +1528,4 @@ async fn test_get_execution_payload_bid_impl(
         "bid signature does not match any configured relay"
     );
     Ok(())
-}
-
-/// Poll /status until PBS and its relays are up. relay_check makes a 200 mean
-/// the whole chain is ready; the fixed 100ms sleep used elsewhere flakes under
-/// parallel suite load.
-async fn wait_for_ready(mock_validator: &MockValidator) -> Result<()> {
-    for _ in 0..100 {
-        if let Ok(res) = mock_validator.do_get_status().await &&
-            res.status() == StatusCode::OK
-        {
-            return Ok(());
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    eyre::bail!("PBS/relays did not become ready within 2s")
 }

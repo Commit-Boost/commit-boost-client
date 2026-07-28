@@ -11,7 +11,6 @@ use cb_common::{
         BuilderPreferencesRequestV1, RelayClient, SignedRequestAuthV1,
         SubmitBuilderPreferencesParams, error::PbsError,
     },
-    signature::verify_request_auth_signature,
     types::Chain,
     utils::ms_into_slot,
     wire::{
@@ -35,7 +34,7 @@ use crate::{
     error::PbsClientError,
     metrics::{BEACON_NODE_STATUS, RELAY_LATENCY, RELAY_STATUS_CODE},
     state::{BuilderApiState, PbsState},
-    utils::match_relays_by_auth_data,
+    utils::{match_relays_by_auth_data, verify_auth_signature},
 };
 
 /// The body is the required `BuilderPreferencesRequestV1`
@@ -189,19 +188,7 @@ fn validate_preferences_auth(
         return Err(PbsClientError::AuthSlotPassed);
     }
 
-    if verify_signature &&
-        !verify_request_auth_signature(
-            &params.proposer_pubkey,
-            &auth.message,
-            &auth.signature,
-            chain,
-        )
-    {
-        warn!(pubkey = %params.proposer_pubkey, "auth signature verification failed");
-        return Err(PbsClientError::AuthSigVerify);
-    }
-
-    Ok(())
+    verify_auth_signature(&params.proposer_pubkey, auth, chain, verify_signature)
 }
 
 /// `ms_into_slot` saturates at 0 for a future slot, so a full slot's worth of

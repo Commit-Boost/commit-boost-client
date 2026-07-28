@@ -404,13 +404,27 @@ pub enum BodyDeserializeError {
     MissingBody,
 }
 
-/// The request body encoding to decode with, from the Content-Type. Precedence:
-///   - Content-Type absent     → NO_PREFERENCE_DEFAULT (JSON)
+/// The request body encoding to decode with, from the Content-Type, using the
+/// shared `NO_PREFERENCE_DEFAULT` (JSON) when no Content-Type is present.
+pub fn content_type_encoding(headers: &HeaderMap) -> Result<EncodingType, BodyDeserializeError> {
+    content_type_encoding_with_default(headers, NO_PREFERENCE_DEFAULT)
+}
+
+/// Like `content_type_encoding`, but the caller chooses the encoding used when
+/// the request has no Content-Type header. This is the Content-Type analogue of
+/// [`get_accept_types_with_default`]. Precedence:
+///   - Content-Type absent     → `no_preference_default`
 ///   - Content-Type recognized → use it
 ///   - Content-Type present but unrecognized → UnsupportedMediaType
-pub fn content_type_encoding(headers: &HeaderMap) -> Result<EncodingType, BodyDeserializeError> {
+///
+/// Legacy callers use [`content_type_encoding`] (default JSON); SSZ-by-default
+/// endpoints pass `EncodingType::Ssz`.
+pub fn content_type_encoding_with_default(
+    headers: &HeaderMap,
+    no_preference_default: EncodingType,
+) -> Result<EncodingType, BodyDeserializeError> {
     match headers.get(CONTENT_TYPE) {
-        None => Ok(NO_PREFERENCE_DEFAULT),
+        None => Ok(no_preference_default),
         Some(hv) => {
             let value = hv.to_str().map_err(|_| BodyDeserializeError::UnsupportedMediaType)?;
             EncodingType::from_str(value).map_err(|_| BodyDeserializeError::UnsupportedMediaType)
@@ -446,10 +460,7 @@ where
     if body.is_empty() {
         return Err(BodyDeserializeError::MissingBody);
     }
-    let encoding = match headers.get(CONTENT_TYPE) {
-        None => EncodingType::Ssz,
-        Some(_) => content_type_encoding(headers)?,
-    };
+    let encoding = content_type_encoding_with_default(headers, EncodingType::Ssz)?;
     match encoding {
         EncodingType::Json => {
             serde_json::from_slice(body.as_ref()).map_err(BodyDeserializeError::SerdeJsonError)
@@ -470,7 +481,9 @@ mod test {
     use super::{
         APPLICATION_JSON, APPLICATION_OCTET_STREAM, AcceptedEncodings, BodyDeserializeError,
         CONSENSUS_VERSION_HEADER, EncodingType, NO_PREFERENCE_DEFAULT, OUTBOUND_ACCEPT_SSZ_FIRST,
-        WILDCARD, deserialize_body, get_accept_types, get_consensus_version_header,
+        WILDCARD, accept_q_value_for_index, build_outbound_accept,
+        content_type_encoding_with_default, deserialize_body, format_accept_entry,
+        get_accept_types, get_consensus_version_header,
         get_content_type, parse_response_encoding_and_fork,
     };
 
@@ -974,5 +987,41 @@ mod test {
         let body = Bytes::from_static(b"\x00\x01\x02\x03");
         let err = deserialize_body(&headers, body).unwrap_err();
         assert!(matches!(err, BodyDeserializeError::MissingVersionHeader));
+    }
+
+    // ── content_type_encoding_with_default ───────────────────────────────────
+
+    /// With no Content-Type the caller's default wins: SSZ for the
+    /// SSZ-by-default endpoints, not the shared JSON default.
+    #[test]
+    fn test_content_type_encoding_with_default_absent_uses_default() {
+        let headers = HeaderMap::new();
+        assert_eq!(
+            content_type_encoding_with_default(&headers, EncodingType::Ssz).unwrap(),
+            EncodingType::Ssz
+        );
+        assert_eq!(
+            content_type_encoding_with_default(&headers, EncodingType::Json).unwrap(),
+            EncodingType::Json
+        );
+    }
+
+    /// An explicit recognized Content-Type is obeyed regardless of the default,
+    /// while an unrecognized one is UnsupportedMediaType.
+    #[test]
+    fn test_content_type_encoding_with_default_explicit_obeyed() {
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static(APPLICATION_JSON));
+        assert_eq!(
+            content_type_encoding_with_default(&headers, EncodingType::Ssz).unwrap(),
+            EncodingType::Json
+        );
+
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/plain"));
+        assert!(matches!(
+            content_type_encoding_with_default(&headers, EncodingType::Ssz),
+            Err(BodyDeserializeError::UnsupportedMediaType)
+        ));
     }
 }

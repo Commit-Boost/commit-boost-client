@@ -23,7 +23,7 @@ use cb_common::{
         SignedExecutionPayloadBid, SignedRequestAuthV1,
         error::{PbsError, ValidationError},
     },
-    signature::{verify_execution_payload_bid_signature, verify_request_auth_signature},
+    signature::verify_execution_payload_bid_signature,
     types::{BlsPublicKey, BlsSignature, Chain},
     utils::{ms_into_slot, utcnow_ms},
     wire::{
@@ -47,15 +47,15 @@ use url::Url;
 use crate::{
     PbsStateGuard,
     constants::{
-        GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG, GET_HEADER_ENDPOINT_TAG,
-        MAX_SIZE_GET_HEADER_RESPONSE, TIMEOUT_ERROR_CODE, TIMEOUT_ERROR_CODE_STR,
+        GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG, MAX_SIZE_GET_HEADER_RESPONSE, TIMEOUT_ERROR_CODE,
+        TIMEOUT_ERROR_CODE_STR,
     },
     error::PbsClientError,
     metrics::{
         BEACON_NODE_STATUS, RELAY_HEADER_VALUE, RELAY_LAST_SLOT, RELAY_LATENCY, RELAY_STATUS_CODE,
     },
     state::{BuilderApiState, PbsState},
-    utils::{check_gas_limit, match_relays_by_auth_data},
+    utils::{check_gas_limit, match_relays_by_auth_data, verify_auth_signature},
 };
 
 /// The body is the required `SignedRequestAuthV1` (`decode_request_body`).
@@ -180,7 +180,7 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
 
     let parent_block = Arc::new(RwLock::new(None));
     if state.extra_validation_enabled() &&
-        let Some(rpc_url) = state.pbs_config().rpc_url.clone()
+        let Some(rpc_url) = pbs_config.rpc_url.clone()
     {
         tokio::spawn(
             fetch_parent_block(rpc_url, params.parent_hash, parent_block.clone()).in_current_span(),
@@ -248,7 +248,7 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
                 ms_into_slot,
                 max_timeout_ms,
                 ValidationContext {
-                    skip_sigverify: state.pbs_config().skip_sigverify,
+                    skip_sigverify: pbs_config.skip_sigverify,
                     // the ePBS floor is the same min_bid policy knob, in gwei
                     min_bid_gwei: (pbs_config.min_bid_wei / U256::from(1_000_000_000))
                         .try_into()
@@ -350,19 +350,7 @@ fn validate_request_auth(
         return Err(PbsClientError::AuthSlotMismatch);
     }
 
-    if verify_signature &&
-        !verify_request_auth_signature(
-            &params.proposer_pubkey,
-            &auth.message,
-            &auth.signature,
-            chain,
-        )
-    {
-        warn!(pubkey = %params.proposer_pubkey, "auth signature verification failed");
-        return Err(PbsClientError::AuthSigVerify);
-    }
-
-    Ok(())
+    verify_auth_signature(&params.proposer_pubkey, auth, chain, verify_signature)
 }
 
 fn total_payment(bid: &impl GetExecutionPayloadBidInfo) -> u64 {
@@ -588,7 +576,11 @@ async fn send_one_get_execution_payload_bid(
         Ok(res) => res,
         Err(err) => {
             RELAY_STATUS_CODE
-                .with_label_values(&[TIMEOUT_ERROR_CODE_STR, GET_HEADER_ENDPOINT_TAG, &relay.id])
+                .with_label_values(&[
+                    TIMEOUT_ERROR_CODE_STR,
+                    GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG,
+                    &relay.id,
+                ])
                 .inc();
             return Err(err.into());
         }
@@ -596,11 +588,13 @@ async fn send_one_get_execution_payload_bid(
 
     let request_latency = start_request.elapsed();
     RELAY_LATENCY
-        .with_label_values(&[GET_HEADER_ENDPOINT_TAG, &relay.id])
+        .with_label_values(&[GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG, &relay.id])
         .observe(request_latency.as_secs_f64());
 
     let code = res.status();
-    RELAY_STATUS_CODE.with_label_values(&[code.as_str(), GET_HEADER_ENDPOINT_TAG, &relay.id]).inc();
+    RELAY_STATUS_CODE
+        .with_label_values(&[code.as_str(), GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG, &relay.id])
+        .inc();
 
     // Parse the negotiated Content-Type (and optional fork) before the body is
     // consumed. Only successful responses carry a meaningful encoding; on

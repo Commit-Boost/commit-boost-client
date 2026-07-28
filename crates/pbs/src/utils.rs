@@ -1,5 +1,12 @@
-use cb_common::pbs::RelayClient;
+use cb_common::{
+    pbs::{RelayClient, SignedRequestAuthV1},
+    signature::verify_request_auth_signature,
+    types::{BlsPublicKey, Chain},
+};
+use tracing::warn;
 use url::Url;
+
+use crate::error::PbsClientError;
 
 const GAS_LIMIT_ADJUSTMENT_FACTOR: u64 = 1024;
 const GAS_LIMIT_MINIMUM: u64 = 5_000;
@@ -21,6 +28,26 @@ pub fn check_gas_limit(gas_limit: u64, parent_gas_limit: u64) -> bool {
     }
 
     true
+}
+
+/// Verifies the request auth signature when `verify_signature` is on. The
+/// downstream builder verifies it regardless, which is why the crypto is
+/// opt-in. Shared by the request-auth validators of both ePBS endpoints; the
+/// slot rule differs between them and stays with each caller.
+pub fn verify_auth_signature(
+    pubkey: &BlsPublicKey,
+    auth: &SignedRequestAuthV1,
+    chain: Chain,
+    verify_signature: bool,
+) -> Result<(), PbsClientError> {
+    if verify_signature &&
+        !verify_request_auth_signature(pubkey, &auth.message, &auth.signature, chain)
+    {
+        warn!(pubkey = %pubkey, "auth signature verification failed");
+        return Err(PbsClientError::AuthSigVerify);
+    }
+
+    Ok(())
 }
 
 /// Selects the relays an ePBS request is addressed to.
