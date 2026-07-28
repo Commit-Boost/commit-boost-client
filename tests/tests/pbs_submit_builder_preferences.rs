@@ -5,8 +5,12 @@ use cb_common::{
     utils::utcnow_ms,
     wire::EncodingType,
 };
-use cb_tests::utils::{
-    generate_mock_relay, generate_mock_relay_with_auth_data, opaque_auth, setup_relay, signed_auth,
+use cb_tests::{
+    mock_relay::MockRelayState,
+    utils::{
+        generate_mock_relay, generate_mock_relay_with_auth_data, opaque_auth, setup_relay,
+        setup_relays, signed_auth,
+    },
 };
 use eyre::Result;
 use reqwest::{StatusCode, header::CONTENT_TYPE};
@@ -429,5 +433,69 @@ async fn test_submit_builder_preferences_builder_500_is_502() -> Result<()> {
         mock_validator.do_submit_builder_preferences(None, &request, EncodingType::Ssz).await?;
 
     assert_eq!(res.status(), StatusCode::BAD_GATEWAY);
+    Ok(())
+}
+
+/// Two addressed builders both reject: with more than one addressed builder no
+/// single verdict is unambiguous, so even a 400 (which passes through for a
+/// lone builder) must NOT be handed back — the result is a 502 NoResponse. The
+/// inverse of `lone_builder_400_propagates`, guarding the `relays.len() == 1`
+/// condition in the route.
+#[tokio::test]
+async fn test_submit_builder_preferences_two_relays_all_reject_502() -> Result<()> {
+    let chain = Chain::Hoodi;
+    let (mock_validator, states) = setup_relays(chain, vec![
+        MockRelayState::new(chain, random_secret()),
+        MockRelayState::new(chain, random_secret()),
+    ])
+    .await?;
+
+    // Both reject with a 400: a lone builder's 400 propagates, so two of them
+    // must prove the multi-builder path collapses to 502 instead.
+    for state in &states {
+        state.set_response_override(StatusCode::BAD_REQUEST);
+    }
+
+    let request =
+        preferences(opaque_auth(TEST_AUTH_DATA, future_slot(chain)), TEST_MAX_EXECUTION_PAYMENT);
+    let res =
+        mock_validator.do_submit_builder_preferences(None, &request, EncodingType::Ssz).await?;
+
+    assert_eq!(
+        res.status(),
+        StatusCode::BAD_GATEWAY,
+        "two rejecting builders collapse to 502, not a 400 passthrough"
+    );
+    assert_eq!(states[0].received_builder_preferences(), 1, "each addressed builder is asked");
+    assert_eq!(states[1].received_builder_preferences(), 1, "each addressed builder is asked");
+    Ok(())
+}
+
+/// Two addressed builders, one accepts and one rejects: they are separate
+/// destinations, not replicas, so a single acceptance is a successful 202.
+#[tokio::test]
+async fn test_submit_builder_preferences_two_relays_one_accepts_202() -> Result<()> {
+    let chain = Chain::Hoodi;
+    let (mock_validator, states) = setup_relays(chain, vec![
+        MockRelayState::new(chain, random_secret()),
+        MockRelayState::new(chain, random_secret()),
+    ])
+    .await?;
+
+    // The first rejects; the second accepts by default
+    states[0].set_response_override(StatusCode::INTERNAL_SERVER_ERROR);
+
+    let request =
+        preferences(opaque_auth(TEST_AUTH_DATA, future_slot(chain)), TEST_MAX_EXECUTION_PAYMENT);
+    let res =
+        mock_validator.do_submit_builder_preferences(None, &request, EncodingType::Ssz).await?;
+
+    assert_eq!(
+        res.status(),
+        StatusCode::ACCEPTED,
+        "one accepting builder makes the submission a success"
+    );
+    assert_eq!(states[0].received_builder_preferences(), 1, "each addressed builder is asked");
+    assert_eq!(states[1].received_builder_preferences(), 1, "each addressed builder is asked");
     Ok(())
 }

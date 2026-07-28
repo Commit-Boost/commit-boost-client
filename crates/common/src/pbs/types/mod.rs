@@ -16,6 +16,8 @@ pub type ExecutionRequests = lh_types::ExecutionRequests<MainnetEthSpec>;
 
 /// Request object of POST `/eth/v1/builder/blinded_blocks`
 pub type SignedBlindedBeaconBlock = lh_types::SignedBlindedBeaconBlock<MainnetEthSpec>;
+/// Request object of POST `/eth/v1/builder/beacon_blocks` (Gloas onwards)
+pub type SignedBeaconBlock = lh_types::SignedBeaconBlock<MainnetEthSpec>;
 pub type BlindedBeaconBlock<'a> =
     lh_types::BeaconBlockRef<'a, MainnetEthSpec, BlindedPayload<MainnetEthSpec>>;
 pub type BlindedBeaconBlockElectra =
@@ -67,6 +69,12 @@ pub struct GetHeaderParams {
 
 pub type ExecutionPayloadBid = lh_types::ExecutionPayloadBid;
 pub type SignedExecutionPayloadBid = lh_types::SignedExecutionPayloadBid;
+
+/// Whether `block` is a Gloas block. The submit endpoint is Gloas-only per
+/// spec.
+pub fn is_gloas(block: &SignedBeaconBlock) -> bool {
+    matches!(block, lh_types::SignedBeaconBlock::Gloas(_))
+}
 
 /// Response object of POST
 /// `/eth/v1/builder/execution_payload_bid/{slot}/{parent_hash}/{parent_root}/

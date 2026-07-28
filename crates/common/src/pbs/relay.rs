@@ -8,7 +8,10 @@ use url::Url;
 
 use super::{
     HEADER_VERSION_KEY, HEADER_VERSION_VALUE,
-    constants::{GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH},
+    constants::{
+        GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
+        SUBMIT_SIGNED_BEACON_BLOCK_PATH,
+    },
     error::PbsError,
 };
 use crate::{
@@ -158,6 +161,11 @@ impl RelayClient {
             &format!("/builder_preferences/{validator_pubkey}"),
             BuilderApiVersion::V1,
         )
+    }
+
+    /// builder-API: POST /eth/v1/builder/beacon_blocks
+    pub fn submit_signed_beacon_block_url(&self) -> Result<Url, PbsError> {
+        self.builder_api_url(SUBMIT_SIGNED_BEACON_BLOCK_PATH, BuilderApiVersion::V1)
     }
 }
 

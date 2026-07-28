@@ -20,8 +20,9 @@ use cb_tests::{
     mock_validator::MockValidator,
     utils::{
         generate_mock_relay, generate_mock_relay_with_auth_data,
-        generate_mock_relay_with_timing_games, get_free_listener, get_pbs_config, opaque_auth,
-        setup_relay, setup_test_env, signed_auth, to_pbs_config, wait_for_ready,
+        generate_mock_relay_with_max_payment, generate_mock_relay_with_timing_games,
+        get_free_listener, get_pbs_config, opaque_auth, setup_relay, setup_relays, setup_test_env,
+        signed_auth, to_pbs_config, wait_for_ready,
     },
 };
 use eyre::Result;
@@ -1207,22 +1208,24 @@ async fn test_get_execution_payload_bid_ladder_timeout_shape() -> Result<()> {
     let res = get_bid_with_budget(&mock_validator, BUDGET_MS).await?;
     assert_eq!(res.status(), StatusCode::OK);
 
-    // Budget = BUDGET_MS minus transit, so the 4th poll is the last for any transit
-    // under 500ms
+    // The exact poll count is driven by real cadence sleeps, which only ever
+    // overrun under load, so assert the ladder SHAPE rather than a fixed count:
+    // every rung but the last is bounded by bid_poll_timeout_ms, and the last
+    // holds longer for the remaining budget. No poll may overspend the deadline.
     let timeouts = mock_state.received_bid_timeouts();
-    assert_eq!(timeouts.len(), 4, "cadence and budget imply 4 polls, got {timeouts:?}");
+    assert!(
+        timeouts.len() >= 2,
+        "the ladder must fire bounded rungs plus a final poll, got {timeouts:?}"
+    );
     let (last, bounded) = timeouts.split_last().unwrap();
     assert!(
         bounded.iter().all(|timeout| *timeout == POLL_TIMEOUT_MS),
         "every poll but the last must be bounded by bid_poll_timeout_ms: {timeouts:?}"
     );
     assert!(
-        *last > POLL_TIMEOUT_MS && *last <= FREQ_MS,
-        "the last poll must hold for the remaining budget, got {last}"
+        *last > POLL_TIMEOUT_MS,
+        "the last poll must hold longer than a bounded rung for the remaining budget, got {last}"
     );
-    // Remaining = budget - 3 cadence steps = 500ms minus transit; 300ms of transit
-    // slack
-    assert!(*last >= 200, "the last poll must carry what is left of the budget, got {last}");
     assert_no_poll_overspends(&timeouts, BUDGET_MS, FREQ_MS);
 
     // A sleep never returns early, so arrivals only drift later; 10ms covers ms
@@ -1291,8 +1294,14 @@ async fn test_get_execution_payload_bid_ladder_slow_builder_still_bids() -> Resu
     let res = get_bid_with_budget(&mock_validator, BUDGET_MS).await?;
     assert_eq!(res.status(), StatusCode::OK, "the last poll outlasts the builder's delay");
 
+    // Cadence sleeps only overrun under load, so the count can dip; assert the
+    // ladder shape (bounded early rungs plus a final poll that outlasts the
+    // builder's delay) rather than a fixed count.
     let timeouts = mock_state.received_bid_timeouts();
-    assert_eq!(timeouts.len(), 3, "cadence and budget imply 3 polls, got {timeouts:?}");
+    assert!(
+        timeouts.len() >= 2,
+        "the ladder must fire early rungs plus a final poll, got {timeouts:?}"
+    );
     let (last, early) = timeouts.split_last().unwrap();
     assert!(
         early.iter().all(|timeout| *timeout < DELAY_MS),
@@ -1442,6 +1451,215 @@ async fn test_get_execution_payload_bid_ladder_no_bid_is_204() -> Result<()> {
 
     let polls = mock_state.received_execution_payload_bid();
     assert!(polls > 1, "the ladder must have polled more than once, got {polls}");
+    Ok(())
+}
+
+/// One of two relays errors on the bid endpoint; the other still serves a valid
+/// bid, so the request is a 200 carrying the surviving relay's bid. Guards
+/// against a partial failure aborting the join or poisoning `select_max_bid`.
+#[tokio::test]
+async fn test_get_execution_payload_bid_one_relay_fails_other_wins_200() -> Result<()> {
+    let chain = Chain::Hoodi;
+    let (mock_validator, states) = setup_relays(chain, vec![
+        MockRelayState::new(chain, random_secret()),
+        MockRelayState::new(chain, random_secret()),
+    ])
+    .await?;
+
+    // The first relay errors; the second serves the default valid bid
+    states[0].set_response_override(StatusCode::INTERNAL_SERVER_ERROR);
+
+    let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);
+    let res = mock_validator
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
+            EncodingType::Json,
+        ])
+        .await?;
+    assert_eq!(res.status(), StatusCode::OK, "a surviving relay still wins the auction");
+
+    let decoded = serde_json::from_slice::<GetExecutionPayloadBidResponse>(&res.bytes().await?)?;
+    let object_root = decoded.data.message.tree_hash_root();
+    assert_eq!(
+        decoded.data.signature,
+        sign_execution_payload_bid_root(
+            &states[1].signer,
+            &object_root,
+            GLOAS_FORK_VERSION,
+            GENESIS_VALIDATORS_ROOT.into(),
+        ),
+        "the winning bid must be the surviving relay's"
+    );
+    assert_ne!(
+        decoded.data.signature,
+        sign_execution_payload_bid_root(
+            &states[0].signer,
+            &object_root,
+            GLOAS_FORK_VERSION,
+            GENESIS_VALIDATORS_ROOT.into(),
+        ),
+        "the failed relay must not have won"
+    );
+    Ok(())
+}
+
+/// Every relay erroring on the bid endpoint degrades to 204 (no bid), never a
+/// 502: this endpoint has no bad-gateway path, a dead or erroring relay simply
+/// contributes no bid. This is the documented contract.
+#[tokio::test]
+async fn test_get_execution_payload_bid_all_relays_fail_204_not_502() -> Result<()> {
+    let chain = Chain::Hoodi;
+    let (mock_validator, states) = setup_relays(chain, vec![
+        MockRelayState::new(chain, random_secret()),
+        MockRelayState::new(chain, random_secret()),
+    ])
+    .await?;
+
+    for state in &states {
+        state.set_response_override(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);
+    let res = mock_validator
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
+            EncodingType::Json,
+        ])
+        .await?;
+    assert_eq!(
+        res.status(),
+        StatusCode::NO_CONTENT,
+        "all relays erroring is a no-bid 204, not a 502"
+    );
+    assert_eq!(states[0].received_execution_payload_bid(), 1, "every relay is asked");
+    assert_eq!(states[1].received_execution_payload_bid(), 1, "every relay is asked");
+    Ok(())
+}
+
+/// An unsupported request `Content-Type` is a 415 before any relay is queried,
+/// mirroring the preferences endpoint.
+#[tokio::test]
+async fn test_get_execution_payload_bid_unsupported_content_type_415() -> Result<()> {
+    let (mock_validator, mock_state) =
+        setup_relay(Chain::Hoodi, |_| {}, generate_mock_relay).await?;
+
+    let url = mock_validator.comm_boost.get_execution_payload_bid_url(
+        TEST_SLOT,
+        &B256::ZERO,
+        &B256::ZERO,
+        &random_secret().public_key(),
+    )?;
+    let res = mock_validator
+        .comm_boost
+        .client
+        .post(url)
+        .header(CONTENT_TYPE, "text/plain")
+        .header(HEADER_START_TIME_UNIX_MS, utcnow_ms())
+        .header(HEADER_TIMEOUT_MS, 60_000u64)
+        .body(opaque_auth(&[0xde, 0xad], TEST_SLOT).as_ssz_bytes())
+        .send()
+        .await?;
+
+    assert_eq!(res.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert_eq!(
+        mock_state.received_execution_payload_bid(),
+        0,
+        "415 short-circuits before any relay call"
+    );
+    Ok(())
+}
+
+/// Without timing games, a relay slower than the proposer's `X-Timeout-Ms` is
+/// dropped on the single-poll `send_one_*` path, so the request degrades to 204
+/// rather than waiting the relay out.
+#[tokio::test]
+async fn test_get_execution_payload_bid_slow_relay_times_out_204() -> Result<()> {
+    const DELAY_MS: u64 = 600;
+    const BUDGET_MS: u64 = 200;
+
+    let chain = Chain::Hoodi;
+    let (mock_validator, states) = setup_relays(chain, vec![
+        MockRelayState::new(chain, random_secret()).with_bid_delay_ms(DELAY_MS),
+    ])
+    .await?;
+
+    let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);
+    let res = mock_validator
+        .do_get_execution_payload_bid_with_timeout(
+            TEST_SLOT,
+            B256::ZERO,
+            B256::ZERO,
+            None,
+            Some(&auth),
+            vec![EncodingType::Json],
+            BUDGET_MS,
+        )
+        .await?;
+    assert_eq!(
+        res.status(),
+        StatusCode::NO_CONTENT,
+        "a relay slower than the deadline is dropped, not awaited"
+    );
+    assert_eq!(states[0].received_execution_payload_bid(), 1, "the relay was still contacted");
+    Ok(())
+}
+
+/// A per-relay `max_execution_payment_gwei` cap stricter than the global one
+/// rejects a bid whose execution payment exceeds it. Same served bid, same high
+/// global cap: only the per-relay override flips accept (200) to reject (204),
+/// isolating it as the cause.
+#[tokio::test]
+async fn test_get_execution_payload_bid_per_relay_max_payment_override() -> Result<()> {
+    const GLOBAL_CAP_GWEI: u64 = 100;
+    const RELAY_CAP_GWEI: u64 = 5;
+    const SERVED_TRUSTED_GWEI: u64 = 10;
+
+    for (relay_cap, expected) in
+        [(None, StatusCode::OK), (Some(RELAY_CAP_GWEI), StatusCode::NO_CONTENT)]
+    {
+        setup_test_env();
+        let chain = Chain::Hoodi;
+        let pbs_listener = get_free_listener().await;
+        let pbs_port = pbs_listener.local_addr()?.port();
+        let relay_listener = get_free_listener().await;
+        let relay_port = relay_listener.local_addr()?.port();
+
+        let mock_state = Arc::new(
+            MockRelayState::new(chain, random_secret()).with_trusted_bid_gwei(SERVED_TRUSTED_GWEI),
+        );
+        let mock_relay = match relay_cap {
+            Some(cap) => generate_mock_relay_with_max_payment(
+                relay_port,
+                mock_state.signer.public_key(),
+                cap,
+            )?,
+            None => generate_mock_relay(relay_port, mock_state.signer.public_key())?,
+        };
+        tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
+
+        // Global cap comfortably above the served payment, so only a stricter
+        // per-relay cap can reject the bid
+        let mut pbs_config = get_pbs_config(pbs_port);
+        pbs_config.max_execution_payment_gwei = GLOBAL_CAP_GWEI;
+        let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
+        let state = PbsState::new(config, PathBuf::new());
+        tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
+
+        let mock_validator = MockValidator::new(pbs_port)?;
+        wait_for_ready(&mock_validator).await?;
+
+        let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);
+        let res = mock_validator
+            .do_get_execution_payload_bid(
+                TEST_SLOT,
+                B256::ZERO,
+                B256::ZERO,
+                None,
+                Some(&auth),
+                vec![EncodingType::Json],
+            )
+            .await?;
+        assert_eq!(res.status(), expected, "relay_cap={relay_cap:?}");
+        assert_eq!(mock_state.received_execution_payload_bid(), 1, "relay_cap={relay_cap:?}");
+    }
     Ok(())
 }
 

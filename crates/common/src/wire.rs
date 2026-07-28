@@ -6,7 +6,7 @@ use axum::http::HeaderValue;
 use bytes::Bytes;
 use futures::StreamExt;
 use headers_accept::Accept;
-use lh_types::{BeaconBlock, ForkName};
+use lh_types::{BeaconBlock, ForkName, ForkVersionDecode};
 use mediatype::{MediaType, ReadParams, names};
 use reqwest::{
     Response,
@@ -15,7 +15,7 @@ use reqwest::{
 use ssz::Decode;
 use thiserror::Error;
 
-use crate::pbs::{HEADER_VERSION_VALUE, SignedBlindedBeaconBlock};
+use crate::pbs::{HEADER_VERSION_VALUE, SignedBeaconBlock, SignedBlindedBeaconBlock};
 
 pub const APPLICATION_JSON: &str = "application/json";
 pub const APPLICATION_OCTET_STREAM: &str = "application/octet-stream";
@@ -471,21 +471,53 @@ where
     }
 }
 
+/// Decode a `submitSignedBeaconBlock` request body. Like the other ePBS
+/// endpoints it defaults to SSZ when no `Content-Type` is set. Unlike the
+/// fork-agnostic `decode_request_body`, `SignedBeaconBlock` is fork-versioned:
+/// its enum has no plain `ssz::Decode`, so the SSZ form needs the fork from
+/// `Eth-Consensus-Version` to select the variant. The JSON form is `untagged`
+/// with `deny_unknown_fields`, so it selects the variant on its own.
+pub fn decode_signed_beacon_block(
+    headers: &HeaderMap,
+    body: &Bytes,
+) -> Result<SignedBeaconBlock, BodyDeserializeError> {
+    if body.is_empty() {
+        return Err(BodyDeserializeError::MissingBody);
+    }
+    // `submitSignedBeaconBlock` (builder-specs beacon_blocks.yaml) requires
+    // `Eth-Consensus-Version` on every submission even for JSON.
+    // SSZ genuinely needs it to pick the fork, so it stays required there.
+    // JSON is self-describing, so rather than fail an otherwise-valid block
+    // over a missing header CB does best effort: it decodes the JSON body
+    // regardless, ignoring the header's value if present.
+    match content_type_encoding_with_default(headers, EncodingType::Ssz)? {
+        EncodingType::Json => serde_json::from_slice::<SignedBeaconBlock>(body.as_ref())
+            .map_err(BodyDeserializeError::SerdeJsonError),
+        EncodingType::Ssz => match get_consensus_version_header(headers) {
+            Some(fork) => SignedBeaconBlock::from_ssz_bytes_by_fork(body.as_ref(), fork)
+                .map_err(BodyDeserializeError::SszDecodeError),
+            None => Err(BodyDeserializeError::MissingVersionHeader),
+        },
+    }
+}
+
 #[cfg(test)]
 mod test {
     use axum::http::{HeaderMap, HeaderName, HeaderValue};
     use bytes::Bytes;
-    use lh_types::ForkName;
+    use lh_types::{ForkName, MainnetEthSpec, SignedBeaconBlockElectra, SignedBeaconBlockGloas};
     use reqwest::header::{ACCEPT, CONTENT_TYPE};
+    use ssz::Encode;
 
     use super::{
         APPLICATION_JSON, APPLICATION_OCTET_STREAM, AcceptedEncodings, BodyDeserializeError,
         CONSENSUS_VERSION_HEADER, EncodingType, NO_PREFERENCE_DEFAULT, OUTBOUND_ACCEPT_SSZ_FIRST,
         WILDCARD, accept_q_value_for_index, build_outbound_accept,
-        content_type_encoding_with_default, deserialize_body, format_accept_entry,
-        get_accept_types, get_consensus_version_header,
+        content_type_encoding_with_default, decode_signed_beacon_block, deserialize_body,
+        format_accept_entry, get_accept_types, get_consensus_version_header,
         get_content_type, parse_response_encoding_and_fork,
     };
+    use crate::{pbs::SignedBeaconBlock, utils::TestRandomSeed};
 
     const APPLICATION_TEXT: &str = "application/text";
 
@@ -1023,5 +1055,67 @@ mod test {
             content_type_encoding_with_default(&headers, EncodingType::Ssz),
             Err(BodyDeserializeError::UnsupportedMediaType)
         ));
+    }
+
+    // ── decode_signed_beacon_block ───────────────────────────────────────────
+
+    /// The spec requires `Eth-Consensus-Version` on every submission, but JSON
+    /// is self-describing, so CB does best effort: a JSON body with no version
+    /// header still decodes rather than failing the block, recovering a
+    /// publication that a missing header would otherwise have cost.
+    #[test]
+    fn test_decode_signed_beacon_block_json_missing_version_header_recovers() {
+        let block =
+            SignedBeaconBlock::Gloas(SignedBeaconBlockGloas::<MainnetEthSpec>::test_random());
+        let body = Bytes::from(serde_json::to_vec(&block).unwrap());
+
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static(APPLICATION_JSON));
+        // no Eth-Consensus-Version header
+
+        let decoded = decode_signed_beacon_block(&headers, &body).unwrap();
+        assert!(matches!(decoded, SignedBeaconBlock::Gloas(_)));
+    }
+
+    /// With the required header present, the JSON body is self-describing: a
+    /// Gloas body decodes as Gloas regardless of the header's fork value, since
+    /// the header's presence is mandated but its value is not used to select
+    /// the JSON variant.
+    #[test]
+    fn test_decode_signed_beacon_block_json_body_is_self_describing() {
+        let block =
+            SignedBeaconBlock::Gloas(SignedBeaconBlockGloas::<MainnetEthSpec>::test_random());
+        let body = Bytes::from(serde_json::to_vec(&block).unwrap());
+
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static(APPLICATION_JSON));
+        headers.insert(
+            HeaderName::try_from(CONSENSUS_VERSION_HEADER).unwrap(),
+            HeaderValue::from_static("electra"),
+        );
+
+        let decoded = decode_signed_beacon_block(&headers, &body).unwrap();
+        assert!(matches!(decoded, SignedBeaconBlock::Gloas(_)));
+    }
+
+    /// An SSZ body whose bytes are a different fork than the header claims is a
+    /// clean `SszDecodeError`, never a panic: Electra bytes decoded as Gloas
+    /// cannot succeed, and the decode must surface an error rather than
+    /// aborting.
+    #[test]
+    fn test_decode_signed_beacon_block_ssz_fork_bytes_mismatch() {
+        let electra =
+            SignedBeaconBlock::Electra(SignedBeaconBlockElectra::<MainnetEthSpec>::test_random());
+        let body = Bytes::from(electra.as_ssz_bytes());
+
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static(APPLICATION_OCTET_STREAM));
+        headers.insert(
+            HeaderName::try_from(CONSENSUS_VERSION_HEADER).unwrap(),
+            HeaderValue::from_static("gloas"),
+        );
+
+        let err = decode_signed_beacon_block(&headers, &body).unwrap_err();
+        assert!(matches!(err, BodyDeserializeError::SszDecodeError(_)), "got {err:?}");
     }
 }

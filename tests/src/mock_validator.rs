@@ -2,7 +2,8 @@ use alloy::{primitives::B256, rpc::types::beacon::relay::ValidatorRegistration};
 use cb_common::{
     pbs::{
         BuilderApiVersion, BuilderPreferencesRequestV1, HEADER_START_TIME_UNIX_MS,
-        HEADER_TIMEOUT_MS, RelayClient, SignedBlindedBeaconBlock, SignedRequestAuthV1,
+        HEADER_TIMEOUT_MS, RelayClient, SignedBeaconBlock, SignedBlindedBeaconBlock,
+        SignedRequestAuthV1,
     },
     types::{BlsPublicKey, KnownChain},
     utils::{bls_pubkey_from_hex, utcnow_ms},
@@ -93,6 +94,31 @@ impl MockValidator {
             .client
             .post(url)
             .header(CONTENT_TYPE, content_type.content_type_header().clone())
+            .body(body)
+            .send()
+            .await?;
+        Ok(res)
+    }
+
+    /// Submits a `SignedBeaconBlock`, encoding the body as `content_type`. The
+    /// spec requires `Eth-Consensus-Version` on every submission, so it is
+    /// always set to Gloas (the only fork this endpoint serves).
+    pub async fn do_submit_signed_beacon_block(
+        &self,
+        block: &SignedBeaconBlock,
+        content_type: EncodingType,
+    ) -> eyre::Result<Response> {
+        let url = self.comm_boost.submit_signed_beacon_block_url()?;
+        let body = match content_type {
+            EncodingType::Json => serde_json::to_vec(block)?,
+            EncodingType::Ssz => block.as_ssz_bytes(),
+        };
+        let res = self
+            .comm_boost
+            .client
+            .post(url)
+            .header(CONTENT_TYPE, content_type.content_type_header().clone())
+            .header(CONSENSUS_VERSION_HEADER, ForkName::Gloas.to_string())
             .body(body)
             .send()
             .await?;

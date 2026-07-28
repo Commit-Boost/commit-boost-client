@@ -1,19 +1,86 @@
+use std::time::{Duration, Instant};
+
 use cb_common::{
-    pbs::{RelayClient, SignedRequestAuthV1},
+    pbs::{RelayClient, SignedRequestAuthV1, error::PbsError},
     signature::verify_request_auth_signature,
     types::{BlsPublicKey, Chain},
+    wire::get_user_agent_with_version,
+};
+use reqwest::{
+    StatusCode,
+    header::{HeaderMap, USER_AGENT},
 };
 use tracing::warn;
 use url::Url;
 
-use crate::error::PbsClientError;
+use crate::{
+    constants::TIMEOUT_ERROR_CODE_STR,
+    error::PbsClientError,
+    metrics::{RELAY_LATENCY, RELAY_STATUS_CODE},
+};
+
+/// Sends one already-built relay request and records the per-relay metrics
+/// shared by all three ePBS endpoints: a send failure bumps `RELAY_STATUS_CODE`
+/// at `TIMEOUT_ERROR_CODE_STR` and returns the error; otherwise the latency is
+/// observed and the response status recorded. Returns the response and its
+/// latency so the caller can read/decode the body itself. `tag` is the
+/// per-endpoint metric label. Callers build their own `RequestBuilder` because
+/// the requests legitimately differ (bid sets a per-call timeout and timing
+/// headers).
+pub(crate) async fn send_to_relay(
+    req: reqwest::RequestBuilder,
+    relay: &RelayClient,
+    tag: &str,
+) -> Result<(reqwest::Response, Duration), PbsError> {
+    let start_request = Instant::now();
+    let res = match req.send().await {
+        Ok(res) => res,
+        Err(err) => {
+            RELAY_STATUS_CODE.with_label_values(&[TIMEOUT_ERROR_CODE_STR, tag, &relay.id]).inc();
+            return Err(err.into());
+        }
+    };
+
+    let request_latency = start_request.elapsed();
+    RELAY_LATENCY.with_label_values(&[tag, &relay.id]).observe(request_latency.as_secs_f64());
+
+    let code = res.status();
+    RELAY_STATUS_CODE.with_label_values(&[code.as_str(), tag, &relay.id]).inc();
+
+    Ok((res, request_latency))
+}
+
+/// The ePBS write endpoints (`submitBuilderPreferences`,
+/// `submitSignedBeaconBlock`) make 202 Accepted the only success: any other
+/// status means the builder did not commit. One home for that rule.
+pub(crate) fn expect_status(code: StatusCode, expected: StatusCode) -> Result<(), PbsError> {
+    if code != expected {
+        return Err(PbsError::RelayResponse {
+            error_msg: format!("expected {}", expected.as_u16()),
+            code: code.as_u16(),
+        });
+    }
+    Ok(())
+}
+
+/// Base outbound headers shared by the ePBS endpoints: the versioned
+/// `User-Agent`. Callers add their endpoint-specific headers (bid adds
+/// `Accept`; submit adds `Eth-Consensus-Version`).
+pub(crate) fn epbs_base_send_headers(req_headers: &HeaderMap) -> Result<HeaderMap, PbsClientError> {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        USER_AGENT,
+        get_user_agent_with_version(req_headers).map_err(|_| PbsClientError::Internal)?,
+    );
+    Ok(headers)
+}
 
 const GAS_LIMIT_ADJUSTMENT_FACTOR: u64 = 1024;
 const GAS_LIMIT_MINIMUM: u64 = 5_000;
 
 /// Validates the gas limit against the parent gas limit, according to the
 /// execution spec https://github.com/ethereum/execution-specs/blob/98d6ddaaa709a2b7d0cd642f4cfcdadc8c0808e1/src/ethereum/cancun/fork.py#L1118-L1154
-pub fn check_gas_limit(gas_limit: u64, parent_gas_limit: u64) -> bool {
+pub(crate) fn check_gas_limit(gas_limit: u64, parent_gas_limit: u64) -> bool {
     let max_adjustment_delta = parent_gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR;
     if gas_limit >= parent_gas_limit + max_adjustment_delta {
         return false;
@@ -34,7 +101,7 @@ pub fn check_gas_limit(gas_limit: u64, parent_gas_limit: u64) -> bool {
 /// downstream builder verifies it regardless, which is why the crypto is
 /// opt-in. Shared by the request-auth validators of both ePBS endpoints; the
 /// slot rule differs between them and stays with each caller.
-pub fn verify_auth_signature(
+pub(crate) fn verify_auth_signature(
     pubkey: &BlsPublicKey,
     auth: &SignedRequestAuthV1,
     chain: Chain,

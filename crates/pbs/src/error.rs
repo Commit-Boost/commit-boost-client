@@ -32,6 +32,8 @@ pub enum PbsClientError {
     BuilderRejected { code: u16 },
     #[error("auth signature verification failed")]
     AuthSigVerify,
+    #[error("submitted block is not a Gloas block")]
+    NotGloasBlock,
     #[error("no payload from relays")]
     NoPayload,
     #[error("internal server error")]
@@ -50,12 +52,14 @@ impl PbsClientError {
             PbsClientError::MissingTimingHeader => StatusCode::BAD_REQUEST,
             PbsClientError::AuthSlotMismatch => StatusCode::BAD_REQUEST,
             PbsClientError::AuthSlotPassed => StatusCode::BAD_REQUEST,
-            // Only a lone addressed builder's 400/401 is propagated, so anything
-            // else here means the mapping was built wrong
+            // A lone addressed builder's own status is propagated: 400/401 from
+            // the preferences endpoint, or any non-202 the winning builder
+            // returned on submit. An out-of-range code falls back to 502.
             PbsClientError::BuilderRejected { code } => {
                 StatusCode::from_u16(*code).unwrap_or(StatusCode::BAD_GATEWAY)
             }
             PbsClientError::AuthSigVerify => StatusCode::UNAUTHORIZED,
+            PbsClientError::NotGloasBlock => StatusCode::BAD_REQUEST,
             PbsClientError::NoPayload => StatusCode::BAD_GATEWAY,
             PbsClientError::Internal => StatusCode::INTERNAL_SERVER_ERROR,
             PbsClientError::DecodeError(BodyDeserializeError::UnsupportedMediaType) => {
@@ -91,6 +95,9 @@ impl IntoResponse for PbsClientError {
             }
             PbsClientError::AuthSigVerify => {
                 "Invalid SignedRequestAuthV1: signature verification failed".to_string()
+            }
+            PbsClientError::NotGloasBlock => {
+                "Invalid signed beacon block: only Gloas blocks are supported".to_string()
             }
             PbsClientError::NoPayload => "no payload from relays".to_string(),
             PbsClientError::Internal => "internal server error".to_string(),

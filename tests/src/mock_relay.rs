@@ -25,10 +25,11 @@ use cb_common::{
     pbs::{
         BUILDER_V1_API_PATH, BUILDER_V2_API_PATH, BlobsBundle, BuilderBid, BuilderBidFulu,
         BuilderPreferencesRequestV1, ExecutionPayloadBid, ExecutionPayloadElectra,
-        ExecutionPayloadHeaderFulu, ExecutionRequests, ForkName, GET_EXECUTION_PAYLOAD_BID_PATH,
-        GET_HEADER_PATH, GET_STATUS_PATH, GetExecutionPayloadBidResponse, GetHeaderParams,
-        GetHeaderResponse, GetPayloadInfo, HEADER_TIMEOUT_MS, PayloadAndBlobs,
-        REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH, SUBMIT_BUILDER_PREFERENCES_PATH,
+        ExecutionPayloadHeaderFulu, ExecutionRequests, ForkName, ForkVersionDecode,
+        GET_EXECUTION_PAYLOAD_BID_PATH, GET_HEADER_PATH, GET_STATUS_PATH,
+        GetExecutionPayloadBidResponse, GetHeaderParams, GetHeaderResponse, GetPayloadInfo,
+        HEADER_TIMEOUT_MS, PayloadAndBlobs, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
+        SUBMIT_BUILDER_PREFERENCES_PATH, SUBMIT_SIGNED_BEACON_BLOCK_PATH, SignedBeaconBlock,
         SignedBuilderBid, SignedExecutionPayloadBid, SignedRequestAuthV1,
         SubmitBlindedBlockResponse,
     },
@@ -104,6 +105,12 @@ pub struct MockRelayState {
     received_submit_block: Arc<AtomicU64>,
     received_execution_payload_bid: Arc<AtomicU64>,
     received_builder_preferences: Arc<AtomicU64>,
+    received_signed_beacon_block: Arc<AtomicU64>,
+    /// `slot` of the last signed beacon block forwarded, decoded from the SSZ
+    /// body PBS sent, so a test can assert the block survived the hop
+    received_block_slot: RwLock<Option<u64>>,
+    /// `block_hash` the last forwarded block committed to in its bid
+    received_block_committed_hash: RwLock<Option<B256>>,
     /// The last `BuilderPreferencesRequestV1` submitted, so a test can assert
     /// both the preferences and the auth were forwarded unchanged
     received_preferences: RwLock<Option<BuilderPreferencesRequestV1>>,
@@ -167,6 +174,17 @@ impl MockRelayState {
     }
     pub fn received_builder_preferences(&self) -> u64 {
         self.received_builder_preferences.load(Ordering::Relaxed)
+    }
+    pub fn received_signed_beacon_block(&self) -> u64 {
+        self.received_signed_beacon_block.load(Ordering::Relaxed)
+    }
+    /// `slot` of the last signed beacon block PBS forwarded
+    pub fn received_block_slot(&self) -> Option<u64> {
+        *self.received_block_slot.read().unwrap()
+    }
+    /// `block_hash` the last forwarded block committed to
+    pub fn received_block_committed_hash(&self) -> Option<B256> {
+        *self.received_block_committed_hash.read().unwrap()
     }
 
     /// `max_execution_payment` of the last submitted preferences
@@ -248,6 +266,9 @@ impl MockRelayState {
             received_submit_block: Default::default(),
             received_execution_payload_bid: Default::default(),
             received_builder_preferences: Default::default(),
+            received_signed_beacon_block: Default::default(),
+            received_block_slot: RwLock::new(None),
+            received_block_committed_hash: RwLock::new(None),
             received_preferences: RwLock::new(None),
             received_preferences_pubkey: RwLock::new(None),
             served_execution_payload_bid: Default::default(),
@@ -385,7 +406,8 @@ pub fn mock_relay_app_router(state: Arc<MockRelayState>) -> Router {
         .route(SUBMIT_BLOCK_PATH, post(handle_submit_block_v1))
         // ePBS endpoints are v1 of new resources per builder-specs
         .route(GET_EXECUTION_PAYLOAD_BID_PATH, post(handle_get_execution_payload_bid))
-        .route(SUBMIT_BUILDER_PREFERENCES_PATH, post(handle_submit_builder_preferences));
+        .route(SUBMIT_BUILDER_PREFERENCES_PATH, post(handle_submit_builder_preferences))
+        .route(SUBMIT_SIGNED_BEACON_BLOCK_PATH, post(handle_submit_signed_beacon_block));
 
     let v2_builder_routes = if state.supports_submit_block_v2 {
         Router::new().route(SUBMIT_BLOCK_PATH, post(handle_submit_block_v2))
@@ -424,6 +446,13 @@ async fn handle_get_execution_payload_bid(
         if let Some(auth) = auth {
             *state.received_auth.write().unwrap() = Some(auth);
         }
+    }
+
+    // Honor a forced status like the other handlers, so a test can make a relay
+    // fail on the bid endpoint (its bid is then dropped by PBS). The request was
+    // already counted above.
+    if let Some(status) = *state.response_override.read().unwrap() {
+        return status.into_response();
     }
 
     // Sleep, never block: concurrent polls must overlap, not serialize
@@ -648,6 +677,35 @@ async fn handle_submit_builder_preferences(
         return StatusCode::BAD_REQUEST.into_response();
     };
     *state.received_preferences.write().unwrap() = Some(request);
+
+    if let Some(status) = state.response_override.read().unwrap().as_ref() {
+        return (*status).into_response();
+    }
+
+    StatusCode::ACCEPTED.into_response()
+}
+
+/// Decodes the forwarded block (PBS always sends SSZ with
+/// `Eth-Consensus-Version`), records its slot and committed bid hash, and 202s
+/// unless the test overrode the response.
+async fn handle_submit_signed_beacon_block(
+    headers: HeaderMap,
+    State(state): State<Arc<MockRelayState>>,
+    body: axum::body::Bytes,
+) -> Response {
+    state.received_signed_beacon_block.fetch_add(1, Ordering::Relaxed);
+
+    if let Some(fork) = get_consensus_version_header(&headers) &&
+        let Ok(block) = SignedBeaconBlock::from_ssz_bytes_by_fork(&body, fork)
+    {
+        *state.received_block_slot.write().unwrap() = Some(block.slot().as_u64());
+        *state.received_block_committed_hash.write().unwrap() = match &block {
+            lh_types::SignedBeaconBlock::Gloas(b) => {
+                Some(b.message.body.signed_execution_payload_bid.message.block_hash.0)
+            }
+            _ => None,
+        };
+    }
 
     if let Some(status) = state.response_override.read().unwrap().as_ref() {
         return (*status).into_response();

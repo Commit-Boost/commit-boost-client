@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use axum::{
     body::Bytes,
@@ -13,28 +13,23 @@ use cb_common::{
     },
     types::Chain,
     utils::ms_into_slot,
-    wire::{
-        EncodingType, decode_request_body, get_user_agent, get_user_agent_with_version,
-        safe_read_http_response,
-    },
+    wire::{EncodingType, decode_request_body, get_user_agent, safe_read_http_response},
 };
 use futures::future::join_all;
-use reqwest::{
-    StatusCode,
-    header::{CONTENT_TYPE, USER_AGENT},
-};
+use reqwest::{StatusCode, header::CONTENT_TYPE};
 use ssz::Encode;
 use tracing::{Instrument, debug, error, info, warn};
 
 use crate::{
     PbsStateGuard,
-    constants::{
-        MAX_SIZE_DEFAULT, SUBMIT_BUILDER_PREFERENCES_ENDPOINT_TAG, TIMEOUT_ERROR_CODE_STR,
-    },
+    constants::{MAX_SIZE_DEFAULT, SUBMIT_BUILDER_PREFERENCES_ENDPOINT_TAG},
     error::PbsClientError,
-    metrics::{BEACON_NODE_STATUS, RELAY_LATENCY, RELAY_STATUS_CODE},
+    metrics::BEACON_NODE_STATUS,
     state::{BuilderApiState, PbsState},
-    utils::{match_relays_by_auth_data, verify_auth_signature},
+    utils::{
+        epbs_base_send_headers, expect_status, match_relays_by_auth_data, send_to_relay,
+        verify_auth_signature,
+    },
 };
 
 /// The body is the required `BuilderPreferencesRequestV1`
@@ -113,11 +108,7 @@ pub async fn submit_builder_preferences<S: BuilderApiState>(
         return Err(PbsClientError::AuthDataMismatch);
     }
 
-    let mut send_headers = HeaderMap::new();
-    send_headers.insert(
-        USER_AGENT,
-        get_user_agent_with_version(&req_headers).map_err(|_| PbsClientError::Internal)?,
-    );
+    let send_headers = epbs_base_send_headers(&req_headers)?;
 
     // Preferences are submitted an epoch ahead, so they share the registration
     // timeout rather than the block-production one
@@ -140,8 +131,8 @@ pub async fn submit_builder_preferences<S: BuilderApiState>(
     let results = join_all(handles).await;
     let mut accepted = 0;
     let mut lone_rejection = None;
-    for (i, res) in results.into_iter().enumerate() {
-        let relay_id = relays[i].id.as_str();
+    for (res, relay) in results.into_iter().zip(relays.iter()) {
+        let relay_id = relay.id.as_str();
         match res {
             Ok(()) => accepted += 1,
             Err(err) if err.is_timeout() => error!(err = "Timed Out", relay_id),
@@ -205,42 +196,19 @@ async fn send_one_submit_builder_preferences(
     timeout_ms: u64,
 ) -> Result<(), PbsError> {
     let url = relay.submit_builder_preferences_url(&proposer_pubkey)?;
-    let start_request = Instant::now();
 
     // The builder decodes what the proposer signed either way, and SSZ is the
     // faster wire format on the relay hop
-    let res = match relay
+    let req = relay
         .client
         .post(url)
         .timeout(Duration::from_millis(timeout_ms))
         .headers(headers)
         .header(CONTENT_TYPE, EncodingType::Ssz.content_type_header().clone())
-        .body(request.as_ssz_bytes())
-        .send()
-        .await
-    {
-        Ok(res) => res,
-        Err(err) => {
-            RELAY_STATUS_CODE
-                .with_label_values(&[
-                    TIMEOUT_ERROR_CODE_STR,
-                    SUBMIT_BUILDER_PREFERENCES_ENDPOINT_TAG,
-                    &relay.id,
-                ])
-                .inc();
-            return Err(err.into());
-        }
-    };
-
-    let request_latency = start_request.elapsed();
-    RELAY_LATENCY
-        .with_label_values(&[SUBMIT_BUILDER_PREFERENCES_ENDPOINT_TAG, &relay.id])
-        .observe(request_latency.as_secs_f64());
-
+        .body(request.as_ssz_bytes());
+    let (res, request_latency) =
+        send_to_relay(req, &relay, SUBMIT_BUILDER_PREFERENCES_ENDPOINT_TAG).await?;
     let code = res.status();
-    RELAY_STATUS_CODE
-        .with_label_values(&[code.as_str(), SUBMIT_BUILDER_PREFERENCES_ENDPOINT_TAG, &relay.id])
-        .inc();
 
     // Cap the read like every other relay call: a builder is untrusted and must
     // not be able to stream an unbounded error body into memory and the logs
@@ -248,12 +216,7 @@ async fn send_one_submit_builder_preferences(
 
     // The spec makes 202 the only success: another 2xx means the builder did not
     // commit to storing these preferences
-    if code != StatusCode::ACCEPTED {
-        return Err(PbsError::RelayResponse {
-            error_msg: "expected 202".to_string(),
-            code: code.as_u16(),
-        });
-    }
+    expect_status(code, StatusCode::ACCEPTED)?;
 
     debug!(relay_id = relay.id.as_ref(), latency = ?request_latency, "preferences accepted");
     Ok(())

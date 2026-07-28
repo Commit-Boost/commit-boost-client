@@ -1,7 +1,4 @@
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{sync::Arc, time::Duration};
 
 use alloy::{
     consensus::BlockHeader,
@@ -29,14 +26,14 @@ use cb_common::{
     wire::{
         AcceptedEncodings, AcceptedEncodingsError, CONSENSUS_VERSION_HEADER, EncodingType,
         build_outbound_accept, decode_request_body, get_accept_types_with_default, get_user_agent,
-        get_user_agent_with_version, parse_response_encoding_and_fork, safe_read_http_response,
+        parse_response_encoding_and_fork, safe_read_http_response,
     },
 };
 use futures::future::join_all;
 use parking_lot::RwLock;
 use reqwest::{
     StatusCode,
-    header::{ACCEPT, CONTENT_TYPE, USER_AGENT},
+    header::{ACCEPT, CONTENT_TYPE},
 };
 use ssz::{Decode, Encode};
 use tokio::time::sleep;
@@ -48,14 +45,14 @@ use crate::{
     PbsStateGuard,
     constants::{
         GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG, MAX_SIZE_GET_HEADER_RESPONSE, TIMEOUT_ERROR_CODE,
-        TIMEOUT_ERROR_CODE_STR,
     },
     error::PbsClientError,
-    metrics::{
-        BEACON_NODE_STATUS, RELAY_HEADER_VALUE, RELAY_LAST_SLOT, RELAY_LATENCY, RELAY_STATUS_CODE,
-    },
+    metrics::{BEACON_NODE_STATUS, RELAY_HEADER_VALUE, RELAY_LAST_SLOT},
     state::{BuilderApiState, PbsState},
-    utils::{check_gas_limit, match_relays_by_auth_data, verify_auth_signature},
+    utils::{
+        check_gas_limit, epbs_base_send_headers, match_relays_by_auth_data, send_to_relay,
+        verify_auth_signature,
+    },
 };
 
 /// The body is the required `SignedRequestAuthV1` (`decode_request_body`).
@@ -100,6 +97,12 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
                 let consensus_version_header = HeaderValue::from_str(&max_bid.version.to_string())
                     .expect("fork name is always a valid header value");
 
+                // Both served encodings are a 200; the None arm is unreachable
+                // (get_accept_types already 406'd above) and emits its own label.
+                BEACON_NODE_STATUS
+                    .with_label_values(&["200", GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG])
+                    .inc();
+
                 match response_encoding {
                     // Unreachable in practice: get_accept_types errors (-> 406
                     // above) when the caller offers nothing we support.
@@ -112,9 +115,6 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
                         ))
                     }
                     Some(EncodingType::Ssz) => {
-                        BEACON_NODE_STATUS
-                            .with_label_values(&["200", GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG])
-                            .inc();
                         let mut res = max_bid.data.as_ssz_bytes().into_response();
                         res.headers_mut()
                             .insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
@@ -123,9 +123,6 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
                         Ok(res)
                     }
                     Some(EncodingType::Json) => {
-                        BEACON_NODE_STATUS
-                            .with_label_values(&["200", GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG])
-                            .inc();
                         let mut res = axum::Json(max_bid).into_response();
                         res.headers_mut()
                             .insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
@@ -216,11 +213,7 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
     let max_timeout_ms = max_timeout_ms.min(budget_ms);
 
     // prepare headers, except for start time which is set in `send_one_get_header`
-    let mut send_headers = HeaderMap::new();
-    send_headers.insert(
-        USER_AGENT,
-        get_user_agent_with_version(&req_headers).map_err(|_| PbsClientError::Internal)?,
-    );
+    let mut send_headers = epbs_base_send_headers(&req_headers)?;
 
     // Forward the caller's Accept preference to the relay so it returns the
     // format the BN wants, avoiding a decode->re-encode. No-preference defaults
@@ -268,8 +261,8 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
 
     let results = join_all(handles).await;
     let mut relay_bids = Vec::with_capacity(relays.len());
-    for (i, res) in results.into_iter().enumerate() {
-        let relay_id = relays[i].id.as_str();
+    for (res, relay) in results.into_iter().zip(relays.iter()) {
+        let relay_id = relay.id.as_str();
 
         match res {
             Ok(Some(res)) => {
@@ -558,7 +551,6 @@ async fn send_one_get_execution_payload_bid(
     // minimize timing games without losing the bid
     req_config.headers.insert(HEADER_TIMEOUT_MS, HeaderValue::from(req_config.timeout_ms));
 
-    let start_request = Instant::now();
     // This is a new endpoint, so every builder is expected to implement SSZ; we
     // therefore send the request body in SSZ (the most performant encoding)
     // unconditionally rather than negotiating it. The auth is forwarded
@@ -572,29 +564,9 @@ async fn send_one_get_execution_payload_bid(
         .headers(req_config.headers)
         .header(CONTENT_TYPE, EncodingType::Ssz.content_type_header().clone())
         .body(body.as_ssz_bytes());
-    let res = match request.send().await {
-        Ok(res) => res,
-        Err(err) => {
-            RELAY_STATUS_CODE
-                .with_label_values(&[
-                    TIMEOUT_ERROR_CODE_STR,
-                    GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG,
-                    &relay.id,
-                ])
-                .inc();
-            return Err(err.into());
-        }
-    };
-
-    let request_latency = start_request.elapsed();
-    RELAY_LATENCY
-        .with_label_values(&[GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG, &relay.id])
-        .observe(request_latency.as_secs_f64());
-
+    let (res, request_latency) =
+        send_to_relay(request, &relay, GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG).await?;
     let code = res.status();
-    RELAY_STATUS_CODE
-        .with_label_values(&[code.as_str(), GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG, &relay.id])
-        .inc();
 
     // Parse the negotiated Content-Type (and optional fork) before the body is
     // consumed. Only successful responses carry a meaningful encoding; on
