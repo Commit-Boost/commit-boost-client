@@ -9,7 +9,8 @@ use std::{
 };
 
 use alloy::{
-    eips::eip7594::CELLS_PER_EXT_BLOB, primitives::U256,
+    eips::eip7594::CELLS_PER_EXT_BLOB,
+    primitives::{B256, U256},
     rpc::types::beacon::relay::ValidatorRegistration,
 };
 use axum::{
@@ -219,6 +220,33 @@ pub fn mock_relay_app_router(state: Arc<MockRelayState>) -> Router {
     Router::new().merge(builder_router_v1).merge(builder_router_v2).with_state(state)
 }
 
+pub fn mock_signed_builder_bid(
+    chain: Chain,
+    signer: &BlsSecretKey,
+    slot: u64,
+    parent_hash: B256,
+    value: U256,
+) -> SignedBuilderBid {
+    let mut header = ExecutionPayloadHeaderFulu {
+        parent_hash: parent_hash.into(),
+        block_hash: Default::default(),
+        timestamp: timestamp_of_slot_start_sec(slot, chain),
+        ..ExecutionPayloadHeaderFulu::test_random()
+    };
+    header.block_hash.0[0] = 1;
+
+    let message = BuilderBid::Fulu(BuilderBidFulu {
+        header,
+        blob_kzg_commitments: Default::default(),
+        execution_requests: ExecutionRequests::default(),
+        value,
+        pubkey: signer.public_key().into(),
+    });
+    let signature = sign_builder_root(chain, signer, &message.tree_hash_root());
+
+    SignedBuilderBid { message, signature }
+}
+
 async fn handle_get_header(
     State(state): State<Arc<MockRelayState>>,
     Path(GetHeaderParams { parent_hash, slot, .. }): Path<GetHeaderParams>,
@@ -252,24 +280,8 @@ async fn handle_get_header(
 
     let data = match consensus_version_header {
         ForkName::Fulu => {
-            let mut header = ExecutionPayloadHeaderFulu {
-                parent_hash: parent_hash.into(),
-                block_hash: Default::default(),
-                timestamp: timestamp_of_slot_start_sec(slot, state.chain),
-                ..ExecutionPayloadHeaderFulu::test_random()
-            };
-            header.block_hash.0[0] = 1;
-
-            let message = BuilderBid::Fulu(BuilderBidFulu {
-                header,
-                blob_kzg_commitments: Default::default(),
-                execution_requests: ExecutionRequests::default(),
-                value: bid_value,
-                pubkey: state.signer.public_key().into(),
-            });
-            let object_root = message.tree_hash_root();
-            let signature = sign_builder_root(state.chain, &state.signer, &object_root);
-            let response = SignedBuilderBid { message, signature };
+            let response =
+                mock_signed_builder_bid(state.chain, &state.signer, slot, parent_hash, bid_value);
             if content_type == EncodingType::Ssz {
                 response.as_ssz_bytes()
             } else {

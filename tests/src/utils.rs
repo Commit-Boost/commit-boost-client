@@ -39,11 +39,13 @@ pub fn setup_test_env() {
     });
 }
 
-pub fn generate_mock_relay(port: u16, pubkey: BlsPublicKey) -> Result<RelayClient> {
-    let entry =
-        RelayEntry { id: format!("mock_{port}"), pubkey, url: get_local_address(port).parse()? };
-    let config = RelayConfig {
-        entry,
+fn mock_relay_config(port: u16, pubkey: BlsPublicKey) -> Result<RelayConfig> {
+    Ok(RelayConfig {
+        entry: RelayEntry {
+            id: format!("mock_{port}"),
+            pubkey,
+            url: get_local_address(port).parse()?,
+        },
         id: None,
         headers: None,
         get_params: None,
@@ -52,8 +54,11 @@ pub fn generate_mock_relay(port: u16, pubkey: BlsPublicKey) -> Result<RelayClien
         target_first_request_ms: None,
         frequency_get_header_ms: None,
         validator_registration_batch_size: None,
-    };
-    RelayClient::new(config)
+    })
+}
+
+pub fn generate_mock_relay(port: u16, pubkey: BlsPublicKey) -> Result<RelayClient> {
+    RelayClient::new(mock_relay_config(port, pubkey)?)
 }
 
 pub fn generate_mock_relay_with_batch_size(
@@ -61,19 +66,18 @@ pub fn generate_mock_relay_with_batch_size(
     pubkey: BlsPublicKey,
     batch_size: usize,
 ) -> Result<RelayClient> {
-    let entry =
-        RelayEntry { id: format!("mock_{port}"), pubkey, url: get_local_address(port).parse()? };
-    let config = RelayConfig {
-        entry,
-        id: None,
-        headers: None,
-        get_params: None,
-        get_header: GetHeaderTransport::Http,
-        enable_timing_games: false,
-        target_first_request_ms: None,
-        frequency_get_header_ms: None,
-        validator_registration_batch_size: Some(batch_size),
-    };
+    let mut config = mock_relay_config(port, pubkey)?;
+    config.validator_registration_batch_size = Some(batch_size);
+    RelayClient::new(config)
+}
+
+pub fn generate_mock_stream_relay(
+    port: u16,
+    stream_url: Url,
+    pubkey: BlsPublicKey,
+) -> Result<RelayClient> {
+    let mut config = mock_relay_config(port, pubkey)?;
+    config.get_header = GetHeaderTransport::Stream(stream_url);
     RelayClient::new(config)
 }
 
