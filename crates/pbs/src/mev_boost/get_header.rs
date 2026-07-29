@@ -598,7 +598,7 @@ fn decode_json_payload(response_bytes: &[u8]) -> Result<GetHeaderResponse, PbsEr
 }
 
 /// Decode an SSZ-encoded get_header response
-fn decode_ssz_payload(
+pub fn decode_ssz_payload(
     response_bytes: &[u8],
     fork: ForkName,
 ) -> Result<GetHeaderResponse, PbsError> {

@@ -9,7 +9,10 @@ use std::{
 
 use alloy::primitives::{B256, U256};
 use cb_common::{
-    pbs::{HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS, HEADER_VERSION_KEY},
+    pbs::{
+        BuilderApiVersion, GET_HEADER_STREAM_PATH, HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS,
+        HEADER_VERSION_KEY,
+    },
     types::{BlsSecretKey, Chain},
 };
 use futures::SinkExt;
@@ -162,10 +165,11 @@ async fn serve_stream(state: Arc<MockWsRelayState>, stream: TcpStream) -> eyre::
     Ok(())
 }
 
-/// The request is the handshake: `/{slot}/{parent_hash}/{pubkey}` plus the
-/// same headers the HTTP path sends.
+/// The request is the handshake: the fixed stream path followed by
+/// `/{slot}/{parent_hash}/{pubkey}`, plus the same headers the HTTP path sends.
 fn parse_request(req: &Request) -> Option<StreamRequest> {
-    let mut segments = req.uri().path().trim_start_matches('/').split('/');
+    let prefix = format!("{}{GET_HEADER_STREAM_PATH}/", BuilderApiVersion::V1.path());
+    let mut segments = req.uri().path().strip_prefix(&prefix)?.split('/');
     let slot = segments.next()?.parse().ok()?;
     let parent_hash = B256::from_str(segments.next()?).ok()?;
     let validator_pubkey = segments.next()?.to_string();

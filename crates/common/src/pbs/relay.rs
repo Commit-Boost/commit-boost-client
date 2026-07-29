@@ -8,7 +8,9 @@ use url::Url;
 
 use super::{
     HEADER_VERSION_KEY, HEADER_VERSION_VALUE,
-    constants::{GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH},
+    constants::{
+        GET_HEADER_STREAM_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
+    },
     error::PbsError,
 };
 use crate::{
@@ -58,6 +60,22 @@ pub enum GetHeaderRequest {
     Stream(Url),
 }
 
+fn stream_url(entry: &Url) -> eyre::Result<Url> {
+    let scheme = match entry.scheme() {
+        "http" | "ws" => "ws",
+        "https" | "wss" => "wss",
+        other => eyre::bail!("get_header stream needs an http(s) relay url, got {other}"),
+    };
+
+    let mut url = entry.clone();
+    url.set_scheme(scheme).map_err(|_| eyre::eyre!("cannot use {scheme} for {entry}"))?;
+    url.set_username("").map_err(|_| eyre::eyre!("cannot strip credentials from {entry}"))?;
+    url.set_password(None).map_err(|_| eyre::eyre!("cannot strip credentials from {entry}"))?;
+    url.set_path(&format!("{}{GET_HEADER_STREAM_PATH}", BuilderApiVersion::V1.path()));
+
+    Ok(url)
+}
+
 /// A client to interact with a relay, safe to share across threads and cheaply
 /// cloneable
 #[derive(Debug, Clone)]
@@ -66,6 +84,8 @@ pub struct RelayClient {
     pub id: Arc<String>,
     /// HTTP client to send requests
     pub client: reqwest::Client,
+    /// Base url of the get_header stream, `Some` only when the relay streams.
+    stream_url: Option<Url>,
     /// Baseline headers for the get_header stream handshake.
     stream_headers: Arc<HeaderMap>,
     /// Configuration of the relay
@@ -74,13 +94,10 @@ pub struct RelayClient {
 
 impl RelayClient {
     pub fn new(config: RelayConfig) -> eyre::Result<Self> {
-        if let GetHeaderTransport::Stream(url) = &config.get_header {
-            eyre::ensure!(
-                matches!(url.scheme(), "ws" | "wss"),
-                "get_header stream url must be ws:// or wss://, got {}",
-                url.scheme()
-            );
-        }
+        let stream_url = match config.get_header {
+            GetHeaderTransport::Http => None,
+            GetHeaderTransport::Stream => Some(stream_url(&config.entry.url)?),
+        };
 
         let mut headers = HeaderMap::new();
         headers.insert(HEADER_VERSION_KEY, HeaderValue::from_static(HEADER_VERSION_VALUE));
@@ -96,7 +113,7 @@ impl RelayClient {
 
         let stream_headers = match config.get_header {
             GetHeaderTransport::Http => HeaderMap::new(),
-            GetHeaderTransport::Stream(_) => headers.clone(),
+            GetHeaderTransport::Stream => headers.clone(),
         };
 
         let client = reqwest::Client::builder()
@@ -107,6 +124,7 @@ impl RelayClient {
         Ok(Self {
             id: Arc::new(config.id().to_owned()),
             client,
+            stream_url,
             stream_headers: Arc::new(stream_headers),
             config: Arc::new(config),
         })
@@ -162,22 +180,13 @@ impl RelayClient {
         parent_hash: &B256,
         validator_pubkey: &BlsPublicKey,
     ) -> Result<GetHeaderRequest, PbsError> {
-        Ok(match &self.config.get_header {
-            GetHeaderTransport::Http => {
+        Ok(match &self.stream_url {
+            None => {
                 GetHeaderRequest::Http(self.get_header_url(slot, parent_hash, validator_pubkey)?)
             }
-            GetHeaderTransport::Stream(base) => {
+            Some(base) => {
                 let mut url = base.clone();
-                // Push segments rather than Url::join: join drops both the last
-                // segment of a base without a trailing slash and its query
-                url.path_segments_mut()
-                    .map_err(|_| PbsError::WebSocket("stream url cannot be a base".to_string()))?
-                    .pop_if_empty()
-                    .extend([
-                        slot.to_string(),
-                        parent_hash.to_string(),
-                        validator_pubkey.to_string(),
-                    ]);
+                url.set_path(&format!("{}/{slot}/{parent_hash}/{validator_pubkey}", base.path()));
 
                 self.append_get_params(&mut url);
                 GetHeaderRequest::Stream(url)
@@ -308,7 +317,7 @@ mod tests {
         }"#;
         let base_config = serde_json::from_str::<RelayConfig>(relay_config).unwrap();
 
-        // No ws url configured: plain HTTP endpoint
+        // Default transport: plain HTTP endpoint
         let relay = RelayClient::new(base_config.clone()).unwrap();
         let GetHeaderRequest::Http(url) =
             relay.get_header_request(slot, &parent_hash, &validator_pubkey).unwrap()
@@ -321,28 +330,10 @@ mod tests {
             "http dispatch must match the plain url builder"
         );
 
-        // A stream url takes over, and a missing trailing slash doesn't drop the
-        // configured path
-        for base in ["wss://abc.xyz/stream", "wss://abc.xyz/stream/"] {
-            let mut config = base_config.clone();
-            config.get_header = GetHeaderTransport::Stream(base.parse().unwrap());
-            let relay = RelayClient::new(config).unwrap();
-
-            let GetHeaderRequest::Stream(url) =
-                relay.get_header_request(slot, &parent_hash, &validator_pubkey).unwrap()
-            else {
-                panic!("expected stream request");
-            };
-            assert_eq!(
-                url.to_string(),
-                format!("wss://abc.xyz/stream/{slot}/{parent_hash}/{validator_pubkey}")
-            );
-        }
-
-        // An auth token on the stream url survives the path append
+        // Streaming: the relay url over ws, at the fixed stream path, with the
+        // pubkey credentials dropped
         let mut config = base_config.clone();
-        config.get_header =
-            GetHeaderTransport::Stream("wss://abc.xyz/stream?token=abc".parse().unwrap());
+        config.get_header = GetHeaderTransport::Stream;
         let relay = RelayClient::new(config).unwrap();
         let GetHeaderRequest::Stream(url) =
             relay.get_header_request(slot, &parent_hash, &validator_pubkey).unwrap()
@@ -351,12 +342,34 @@ mod tests {
         };
         assert_eq!(
             url.to_string(),
-            format!("wss://abc.xyz/stream/{slot}/{parent_hash}/{validator_pubkey}?token=abc")
+            format!(
+                "ws://abc.xyz/eth/v1/builder/header_stream/{slot}/{parent_hash}/{validator_pubkey}"
+            )
         );
 
-        // Non-ws schemes are rejected at construction
+        // https relays stream over wss, and a port and get_params carry over
+        let mut config = base_config.clone();
+        config.entry.url =
+            format!("https://{}@abc.xyz:4444/relay-api", config.entry.pubkey).parse().unwrap();
+        config.get_header = GetHeaderTransport::Stream;
+        config.get_params = Some(HashMap::from([("token".to_string(), "abc".to_string())]));
+        let relay = RelayClient::new(config).unwrap();
+        let GetHeaderRequest::Stream(url) =
+            relay.get_header_request(slot, &parent_hash, &validator_pubkey).unwrap()
+        else {
+            panic!("expected stream request");
+        };
+        assert_eq!(
+            url.to_string(),
+            format!(
+                "wss://abc.xyz:4444/eth/v1/builder/header_stream/{slot}/{parent_hash}/{validator_pubkey}?token=abc"
+            )
+        );
+
+        // A relay url we can't stream over is rejected at construction
         let mut config = base_config;
-        config.get_header = GetHeaderTransport::Stream("https://abc.xyz/stream/".parse().unwrap());
+        config.entry.url = "unix:/tmp/relay.sock".parse().unwrap();
+        config.get_header = GetHeaderTransport::Stream;
         assert!(RelayClient::new(config).is_err());
     }
 
@@ -374,22 +387,16 @@ mod tests {
         };
 
         assert_eq!(with_transport(r#""http""#).unwrap(), GetHeaderTransport::Http);
-        assert_eq!(
-            with_transport(r#"{ "stream": "wss://abc.xyz/stream" }"#).unwrap(),
-            GetHeaderTransport::Stream("wss://abc.xyz/stream".parse().unwrap())
-        );
+        assert_eq!(with_transport(r#""stream""#).unwrap(), GetHeaderTransport::Stream);
         assert!(with_transport(r#""grpc""#).is_err());
 
         // Same shapes in the toml the operator actually writes
         let toml_config = r#"
             url = "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz"
-            get_header = { stream = "wss://abc.xyz/stream" }
+            get_header = "stream"
         "#;
         let config = toml::from_str::<RelayConfig>(toml_config).unwrap();
-        assert_eq!(
-            config.get_header,
-            GetHeaderTransport::Stream("wss://abc.xyz/stream".parse().unwrap())
-        );
+        assert_eq!(config.get_header, GetHeaderTransport::Stream);
 
         // Defaults to http when omitted
         let relay_config = r#"

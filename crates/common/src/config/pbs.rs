@@ -38,12 +38,12 @@ use crate::{
     },
 };
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GetHeaderTransport {
     #[default]
     Http,
-    Stream(Url),
+    Stream,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

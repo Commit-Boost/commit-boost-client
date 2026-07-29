@@ -21,8 +21,8 @@ use alloy::primitives::utils::format_ether;
 use axum::http::{HeaderValue, Request, header::USER_AGENT};
 use cb_common::{
     pbs::{
-        ForkName, ForkVersionDecode, GetHeaderInfo, GetHeaderResponse, HEADER_START_TIME_UNIX_MS,
-        HEADER_TIMEOUT_MS, RelayClient, SignedBuilderBid, error::PbsError,
+        ForkName, GetHeaderInfo, GetHeaderResponse, HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS,
+        RelayClient, error::PbsError,
     },
     utils::utcnow_ms,
 };
@@ -31,15 +31,21 @@ use rustls::{ClientConfig, RootCertStore, crypto::aws_lc_rs};
 use tokio::time::{Instant, sleep_until, timeout_at};
 use tokio_tungstenite::{
     Connector, connect_async_tls_with_config,
-    tungstenite::{Bytes, Message, client::IntoClientRequest, protocol::WebSocketConfig},
+    tungstenite::{
+        Bytes, Error as WsError, Message, client::IntoClientRequest, protocol::WebSocketConfig,
+    },
 };
 use tracing::{debug, info, warn};
 use url::Url;
 
 use super::get_header::{RequestInfo, validate_get_header_response};
 use crate::{
-    constants::{GET_HEADER_ENDPOINT_TAG, MAX_SIZE_GET_HEADER_RESPONSE, TIMEOUT_ERROR_CODE_STR},
+    constants::{
+        GET_HEADER_ENDPOINT_TAG, MAX_SIZE_GET_HEADER_RESPONSE, TIMEOUT_ERROR_CODE_STR,
+        TRANSPORT_ERROR_CODE_STR,
+    },
     metrics::{RELAY_LATENCY, RELAY_STATUS_CODE},
+    mev_boost::get_header::decode_ssz_payload,
 };
 
 /// Frame prefix: message type + fork.
@@ -88,7 +94,13 @@ pub(super) async fn get_header_ws(
     let (mut stream, _) = match timeout_at(deadline, connect).await {
         Ok(Ok(connected)) => connected,
         Ok(Err(err)) => {
-            record_status(TIMEOUT_ERROR_CODE_STR, relay);
+            let rejected = match &err {
+                WsError::Http(res) => Some(res.status()),
+                _ => None,
+            };
+            let status = rejected.as_ref().map_or(TRANSPORT_ERROR_CODE_STR, |code| code.as_str());
+
+            record_status(status, relay);
             return Err(PbsError::WebSocket(format!("connect failed: {err}")));
         }
         Err(_) => {
@@ -152,7 +164,7 @@ pub(super) async fn get_header_ws(
 
     let Some((fork, bid_bytes)) = latest else {
         if let Some(err) = stream_error {
-            record_status(TIMEOUT_ERROR_CODE_STR, relay);
+            record_status(TRANSPORT_ERROR_CODE_STR, relay);
             return Err(err);
         }
 
@@ -166,15 +178,8 @@ pub(super) async fn get_header_ws(
             .with_label_values(&[GET_HEADER_ENDPOINT_TAG, &relay.id])
             .observe(first_bid_latency.as_secs_f64());
     }
-    record_status("200", relay);
 
-    let data = SignedBuilderBid::from_ssz_bytes_by_fork(&bid_bytes, fork).map_err(|err| {
-        PbsError::SSZDecode {
-            err: format!("error decoding relay payload from ws stream: {err:?}"),
-            fork,
-        }
-    })?;
-    let response = GetHeaderResponse { version: fork, data, metadata: Default::default() };
+    let response = decode_ssz_payload(&bid_bytes, fork)?;
 
     let start_validate = Instant::now();
     let validated = validate_get_header_response(request_info, relay, &response);
@@ -195,6 +200,8 @@ pub(super) async fn get_header_ws(
     );
 
     validated?;
+
+    record_status("200", relay);
 
     Ok(Some(response))
 }
@@ -313,8 +320,8 @@ mod tests {
         let frame = bid_frame(6, &expected.data.as_ssz_bytes());
         let (fork, bid_bytes) = parse_frame(frame).unwrap();
 
-        let data = SignedBuilderBid::from_ssz_bytes_by_fork(&bid_bytes, fork).unwrap();
+        let decoded = decode_ssz_payload(&bid_bytes, fork).unwrap();
         assert_eq!(fork, ForkName::Fulu);
-        assert_eq!(data, expected.data);
+        assert_eq!(decoded.data, expected.data);
     }
 }

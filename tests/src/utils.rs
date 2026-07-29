@@ -71,13 +71,9 @@ pub fn generate_mock_relay_with_batch_size(
     RelayClient::new(config)
 }
 
-pub fn generate_mock_stream_relay(
-    port: u16,
-    stream_url: Url,
-    pubkey: BlsPublicKey,
-) -> Result<RelayClient> {
+pub fn generate_mock_stream_relay(port: u16, pubkey: BlsPublicKey) -> Result<RelayClient> {
     let mut config = mock_relay_config(port, pubkey)?;
-    config.get_header = GetHeaderTransport::Stream(stream_url);
+    config.get_header = GetHeaderTransport::Stream;
     RelayClient::new(config)
 }
 

@@ -27,7 +27,6 @@ use eyre::Result;
 use lh_types::ForkName;
 use reqwest::StatusCode;
 use tree_hash::TreeHash;
-use url::Url;
 
 fn request_slot() -> u64 {
     KnownChain::Hoodi.fulu_fork_slot() + 1
@@ -44,10 +43,7 @@ async fn start_stream_relay(
     let state = Arc::new(state);
     tokio::spawn(start_mock_ws_relay_service(state.clone(), listener));
 
-    let stream_url: Url = format!("ws://127.0.0.1:{port}/").parse()?;
-    let relay = generate_mock_stream_relay(port, stream_url, pubkey)?;
-
-    Ok((state, relay))
+    Ok((state, generate_mock_stream_relay(port, pubkey)?))
 }
 
 /// Boot PBS on a free port with the given relays and header timeout.
@@ -262,8 +258,7 @@ async fn test_get_header_ws_unreachable_relay_returns_204() -> Result<()> {
     let port = listener.local_addr()?.port();
     drop(listener);
 
-    let stream_url: Url = format!("ws://127.0.0.1:{port}/").parse()?;
-    let relay = generate_mock_stream_relay(port, stream_url, pubkey)?;
+    let relay = generate_mock_stream_relay(port, pubkey)?;
     let validator = start_pbs(chain, vec![relay], 300).await?;
 
     let (code, _) = get_header_json(&validator).await?;
