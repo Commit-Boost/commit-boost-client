@@ -10,8 +10,8 @@ use std::{
 use alloy::primitives::{B256, U256};
 use cb_common::{
     pbs::{
-        BuilderApiVersion, GET_HEADER_STREAM_PATH, HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS,
-        HEADER_VERSION_KEY,
+        BuilderApiVersion, GET_HEADER_STREAM_PATH, HEADER_API_KEY, HEADER_START_TIME_UNIX_MS,
+        HEADER_TIMEOUT_MS, HEADER_VERSION_KEY,
     },
     types::{BlsSecretKey, Chain},
 };
@@ -42,6 +42,7 @@ pub struct StreamRequest {
     pub start_time_ms: Option<u64>,
     pub user_agent: Option<String>,
     pub cb_version: Option<String>,
+    pub api_key: Option<String>,
 }
 
 pub struct MockWsRelayState {
@@ -182,6 +183,7 @@ fn parse_request(req: &Request) -> Option<StreamRequest> {
         start_time_ms: header(req, HEADER_START_TIME_UNIX_MS).and_then(|v| v.parse().ok()),
         user_agent: header(req, "user-agent"),
         cb_version: header(req, HEADER_VERSION_KEY),
+        api_key: header(req, HEADER_API_KEY),
     })
 }
 

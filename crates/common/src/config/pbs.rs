@@ -61,6 +61,9 @@ pub struct RelayConfig {
     /// How to fetch headers from this relay
     #[serde(default)]
     pub get_header: GetHeaderTransport,
+    /// Name of the env var holding this relay's API key, sent as
+    /// `HEADER_API_KEY` when opening a get_header stream.
+    pub api_key_env: Option<String>,
     /// Whether to enable timing games
     #[serde(default = "default_bool::<false>")]
     pub enable_timing_games: bool,
