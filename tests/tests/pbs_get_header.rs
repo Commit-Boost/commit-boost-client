@@ -25,6 +25,49 @@ use tracing::info;
 use tree_hash::TreeHash;
 use url::Url;
 
+/// PBS must always request SSZ from the relay (JSON fallback) regardless of the
+/// beacon node's own Accept: it decodes and re-validates every bid and the
+/// route re-encodes the winner to the BN's Accept anyway, so SSZ is the
+/// cheapest wire format on the relay hop. Here the BN asks for JSON, and the
+/// relay must still see SSZ as the preferred encoding.
+#[tokio::test]
+async fn test_get_header_always_requests_ssz_from_relay() -> Result<()> {
+    setup_test_env();
+    let signer = random_secret();
+    let pubkey = signer.public_key();
+    let chain = Chain::Hoodi;
+    let pbs_listener = get_free_listener().await;
+    let relay_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr().unwrap().port();
+    let relay_port = relay_listener.local_addr().unwrap().port();
+
+    let mut mock_state = MockRelayState::new(chain, signer);
+    mock_state.supported_content_types =
+        Arc::new(HashSet::from([EncodingType::Ssz, EncodingType::Json]));
+    let mock_state = Arc::new(mock_state);
+    let mock_relay = generate_mock_relay(relay_port, pubkey)?;
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
+
+    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay]);
+    let state = PbsState::new(config, PathBuf::new());
+    drop(pbs_listener);
+    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let mock_validator = MockValidator::new(pbs_port)?;
+    let res = mock_validator.do_get_header(None, vec![EncodingType::Json], ForkName::Fulu).await?;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let relay_accept = mock_state
+        .received_get_header_accept()
+        .expect("relay should have received an Accept header");
+    assert!(
+        relay_accept.starts_with(EncodingType::Ssz.content_type()),
+        "relay Accept must prefer SSZ regardless of the BN's JSON request, got: {relay_accept}"
+    );
+    Ok(())
+}
+
 /// Test requesting JSON when the relay supports JSON
 #[tokio::test]
 async fn test_get_header() -> Result<()> {

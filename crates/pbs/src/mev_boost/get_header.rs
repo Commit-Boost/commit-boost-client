@@ -21,8 +21,8 @@ use cb_common::{
     types::{BlsPublicKey, BlsPublicKeyBytes, BlsSignature, Chain},
     utils::{ms_into_slot, timestamp_of_slot_start_sec, utcnow_ms},
     wire::{
-        AcceptedEncodings, EncodingType, build_outbound_accept, get_accept_types,
-        get_user_agent_with_version, parse_response_encoding_and_fork, safe_read_http_response,
+        EncodingType, OUTBOUND_ACCEPT_SSZ_FIRST, get_user_agent_with_version,
+        parse_response_encoding_and_fork, safe_read_http_response,
     },
 };
 use futures::future::join_all;
@@ -147,21 +147,12 @@ pub async fn get_header<S: BuilderApiState>(
     let mut send_headers = HeaderMap::new();
     send_headers.insert(USER_AGENT, get_user_agent_with_version(&req_headers)?);
 
-    // Forward the caller's Accept preference to the relay so the relay
-    // returns data in the format the BN expects, avoiding decode→re-encode.
-    // Always offer both encodings as fallback so a format-limited relay
-    // still returns a bid (PBS converts if needed).
-    let caller_accept = get_accept_types(&req_headers).inspect_err(|err| {
-        error!(%err, "error parsing accept header");
-    })?;
-    let relay_accept = AcceptedEncodings {
-        primary: caller_accept.primary,
-        fallback: Some(match caller_accept.primary {
-            EncodingType::Ssz => EncodingType::Json,
-            EncodingType::Json => EncodingType::Ssz,
-        }),
-    };
-    send_headers.insert(ACCEPT, build_outbound_accept(relay_accept));
+    // PBS always decodes and re-validates every relay bid, then the route
+    // re-encodes the winning bid to the BN's Accept. So always request SSZ from
+    // the relay (smaller on the wire, faster to decode than JSON); JSON is the
+    // fallback for a relay that can't do SSZ. The BN's own format preference is
+    // applied later by the route, not here.
+    send_headers.insert(ACCEPT, OUTBOUND_ACCEPT_SSZ_FIRST.clone());
 
     // Send requests to all relays concurrently
     let slot = params.slot as i64;

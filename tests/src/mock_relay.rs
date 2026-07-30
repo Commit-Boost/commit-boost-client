@@ -37,7 +37,7 @@ use cb_common::{
 };
 use cb_pbs::MAX_SIZE_SUBMIT_BLOCK_RESPONSE;
 use lh_types::KzgProof;
-use reqwest::header::CONTENT_TYPE;
+use reqwest::header::{ACCEPT, CONTENT_TYPE};
 use ssz::Encode;
 use tokio::net::TcpListener;
 use tracing::{debug, error};
@@ -89,11 +89,17 @@ pub struct MockRelayState {
     received_submit_block: Arc<AtomicU64>,
     response_override: RwLock<Option<StatusCode>>,
     bid_value: RwLock<U256>,
+    /// The raw `Accept` header PBS sent on the most recent get_header request,
+    /// so a test can assert what encoding PBS asked the relay for.
+    received_get_header_accept: RwLock<Option<String>>,
 }
 
 impl MockRelayState {
     pub fn received_get_header(&self) -> u64 {
         self.received_get_header.load(Ordering::Relaxed)
+    }
+    pub fn received_get_header_accept(&self) -> Option<String> {
+        self.received_get_header_accept.read().unwrap().clone()
     }
     pub fn received_get_status(&self) -> u64 {
         self.received_get_status.load(Ordering::Relaxed)
@@ -144,6 +150,7 @@ impl MockRelayState {
             received_submit_block: Default::default(),
             response_override: RwLock::new(None),
             bid_value: RwLock::new(U256::from(10)),
+            received_get_header_accept: RwLock::new(None),
             supported_content_types: Arc::new(
                 [EncodingType::Json, EncodingType::Ssz].iter().cloned().collect(),
             ),
@@ -218,6 +225,8 @@ async fn handle_get_header(
     headers: HeaderMap,
 ) -> Response {
     state.received_get_header.fetch_add(1, Ordering::Relaxed);
+    *state.received_get_header_accept.write().unwrap() =
+        headers.get(ACCEPT).and_then(|v| v.to_str().ok()).map(String::from);
     let accept_types = get_accept_types(&headers)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("error parsing accept header: {e}")));
     if let Err(e) = accept_types {

@@ -14,7 +14,7 @@ use cb_common::{
     },
     utils::utcnow_ms,
     wire::{
-        AcceptedEncodings, CONSENSUS_VERSION_HEADER, EncodingType, build_outbound_accept,
+        CONSENSUS_VERSION_HEADER, EncodingType, OUTBOUND_ACCEPT_SSZ_FIRST,
         get_user_agent_with_version, parse_response_encoding_and_fork, read_chunked_body_with_max,
     },
 };
@@ -88,13 +88,7 @@ pub async fn submit_block<S: BuilderApiState>(
     // by the route, not here. Skip for v2, whose success is an empty 202 with no
     // body to negotiate.
     if api_version == BuilderApiVersion::V1 {
-        send_headers.insert(
-            ACCEPT,
-            build_outbound_accept(AcceptedEncodings {
-                primary: EncodingType::Ssz,
-                fallback: Some(EncodingType::Json),
-            }),
-        );
+        send_headers.insert(ACCEPT, OUTBOUND_ACCEPT_SSZ_FIRST.clone());
     }
 
     // Send requests to all relays concurrently
