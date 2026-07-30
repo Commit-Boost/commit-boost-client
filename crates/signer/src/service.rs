@@ -97,6 +97,10 @@ impl SigningService {
         let module_ids: Vec<String> =
             config.mod_signing_configs.keys().cloned().map(Into::into).collect();
 
+        if config.tls_certificates.is_some() || config.dirk.is_some() {
+            install_crypto_provider().await?;
+        }
+
         let state = SigningState {
             manager: Arc::new(RwLock::new(start_manager(config.clone()).await?)),
             jwts: Arc::new(ParkingRwLock::new(config.mod_signing_configs)),
@@ -166,31 +170,6 @@ impl SigningService {
         });
 
         let server_result = if let Some(tls_config) = config.tls_certificates {
-            if CryptoProvider::get_default().is_none() {
-                // Install the AWS-LC provider if no default is set, usually for CI
-                debug!("Installing AWS-LC as default TLS provider");
-                let mut attempts = 0;
-                loop {
-                    match aws_lc_rs::default_provider().install_default() {
-                        Ok(_) => {
-                            debug!("Successfully installed AWS-LC as default TLS provider");
-                            break;
-                        }
-                        Err(e) => {
-                            if attempts >= 3 {
-                                return Err(eyre::eyre!(
-                                    "Exceeded maximum attempts to install AWS-LC as default TLS provider: {e:?}"
-                                ));
-                            }
-                            error!(
-                                "Failed to install AWS-LC as default TLS provider: {e:?}. Retrying..."
-                            );
-                            attempts += 1;
-                        }
-                    }
-                }
-            }
-
             let tls_config = RustlsConfig::from_pem(tls_config.0, tls_config.1).await?;
             axum_server::bind_rustls(config.endpoint, tls_config)
                 .serve(
@@ -738,6 +717,32 @@ async fn start_manager(config: StartSignerConfig) -> eyre::Result<SigningManager
             Ok(SigningManager::Local(manager))
         }
     }
+}
+
+async fn install_crypto_provider() -> eyre::Result<()> {
+    if CryptoProvider::get_default().is_none() {
+        // Install the AWS-LC provider if no default is set, usually for CI
+        debug!("Installing AWS-LC as default TLS provider");
+        let mut attempts = 0;
+        loop {
+            match aws_lc_rs::default_provider().install_default() {
+                Ok(_) => {
+                    debug!("Successfully installed AWS-LC as default TLS provider");
+                    break;
+                }
+                Err(e) => {
+                    if attempts >= 3 {
+                        return Err(eyre::eyre!(
+                            "Exceeded maximum attempts to install AWS-LC as default TLS provider: {e:?}"
+                        ));
+                    }
+                    error!("Failed to install AWS-LC as default TLS provider: {e:?}. Retrying...");
+                    attempts += 1;
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

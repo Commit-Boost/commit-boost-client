@@ -1,6 +1,19 @@
-use axum::{http::StatusCode, response::IntoResponse};
-use cb_common::wire::BodyDeserializeError;
+use axum::{
+    Json,
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
+use cb_common::wire::{AcceptedEncodingsError, BodyDeserializeError};
+use serde::Serialize;
 use thiserror::Error;
+
+/// The Builder API `ErrorMessage` error body: JSON `{code, message}`, where
+/// `code` is the HTTP status.
+#[derive(Debug, Serialize)]
+struct ErrorResponse {
+    code: u16,
+    message: String,
+}
 
 #[derive(Debug, Error)]
 /// Errors that the PbsService returns to client
@@ -13,6 +26,8 @@ pub enum PbsClientError {
     Internal,
     #[error("failed to deserialize body: {0}")]
     DecodeError(#[from] BodyDeserializeError),
+    #[error("invalid accept types: {0}")]
+    HeaderError(#[from] AcceptedEncodingsError),
 }
 
 impl PbsClientError {
@@ -21,20 +36,72 @@ impl PbsClientError {
             PbsClientError::NoResponse => StatusCode::BAD_GATEWAY,
             PbsClientError::NoPayload => StatusCode::BAD_GATEWAY,
             PbsClientError::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+            PbsClientError::DecodeError(BodyDeserializeError::UnsupportedMediaType) => {
+                StatusCode::UNSUPPORTED_MEDIA_TYPE
+            }
             PbsClientError::DecodeError(_) => StatusCode::BAD_REQUEST,
+            PbsClientError::HeaderError(_) => StatusCode::NOT_ACCEPTABLE,
         }
     }
 }
 
 impl IntoResponse for PbsClientError {
-    fn into_response(self) -> axum::response::Response {
-        let msg = match &self {
+    fn into_response(self) -> Response {
+        let status = self.status_code();
+        let message = match &self {
             PbsClientError::NoResponse => "no response from relays".to_string(),
             PbsClientError::NoPayload => "no payload from relays".to_string(),
             PbsClientError::Internal => "internal server error".to_string(),
             PbsClientError::DecodeError(e) => format!("error decoding request: {e}"),
+            PbsClientError::HeaderError(e) => format!("header error: {e}"),
         };
 
-        (self.status_code(), msg).into_response()
+        // Return the spec's JSON `ErrorMessage` rather than plain text so clients
+        // can parse the error per the Builder API.
+        (status, Json(ErrorResponse { code: status.as_u16(), message })).into_response()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn unsupported_media_type_maps_to_415() {
+        assert_eq!(
+            PbsClientError::DecodeError(BodyDeserializeError::UnsupportedMediaType).status_code(),
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        );
+    }
+
+    #[test]
+    fn other_decode_errors_map_to_400() {
+        assert_eq!(
+            PbsClientError::DecodeError(BodyDeserializeError::MissingVersionHeader).status_code(),
+            StatusCode::BAD_REQUEST,
+        );
+    }
+
+    #[tokio::test]
+    async fn error_response_is_json_with_code_and_message() {
+        let err = PbsClientError::NoPayload;
+        let status = err.status_code();
+        let resp = err.into_response();
+
+        assert_eq!(resp.status(), status);
+        let content_type = resp
+            .headers()
+            .get(axum::http::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default();
+        assert!(
+            content_type.starts_with("application/json"),
+            "error content-type must be JSON, got: {content_type}"
+        );
+
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["code"], status.as_u16());
+        assert_eq!(json["message"], "no payload from relays");
     }
 }

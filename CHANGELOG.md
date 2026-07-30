@@ -32,3 +32,13 @@
 
 **Infrastructure**
 - New release process based on `.releases/` YAML model (#462 and #464)
+
+
+### v0.10.0-rc2
+- Fix string marshaling bug when fetching keys from local SSV nodes
+
+### v0.10.0-rc3
+- Fix Crypto TLS import ordering issue that caused Dirk signer path to panic.
+
+### v0.10.0-rc4
+- Minimal changes to support Stader validator registry following the pattern of Lido and SSV registries.

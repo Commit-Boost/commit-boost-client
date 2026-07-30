@@ -15,6 +15,12 @@ pub enum PbsError {
     #[error("json decode error: {err:?}, raw: {raw}")]
     JsonDecode { err: serde_json::Error, raw: String },
 
+    #[error("json encode error: {0:?}")]
+    JsonEncode(serde_json::Error),
+
+    #[error("ssz decode error: {err:?}, fork: {fork}")]
+    SSZDecode { err: String, fork: ForkName },
+
     #[error("{0}")]
     ReadResponse(#[from] ResponseReadError),
 
@@ -113,6 +119,9 @@ pub enum ValidationError {
 
     #[error("unsupported fork")]
     UnsupportedFork,
+
+    #[error("fork mismatch: request is {expected} but relay response is {got}")]
+    ForkMismatch { expected: ForkName, got: ForkName },
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
