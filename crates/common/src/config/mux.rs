@@ -20,7 +20,7 @@ use url::Url;
 
 use super::{MUX_PATH_ENV, MUXER_HTTP_MAX_LENGTH, PbsConfig, RelayConfig, load_optional_env_var};
 use crate::{
-    config::{remove_duplicate_keys, safe_read_http_response},
+    config::remove_duplicate_keys,
     interop::{lido::utils::*, ssv::utils::*, stader::utils::*},
     pbs::RelayClient,
     types::{BlsPublicKey, Chain, StaderPool},
