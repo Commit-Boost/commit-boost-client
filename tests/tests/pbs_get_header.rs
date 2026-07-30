@@ -6,8 +6,8 @@ use cb_common::{
     signature::sign_builder_root,
     signer::random_secret,
     types::{BlsPublicKeyBytes, Chain, KnownChain},
-    utils::timestamp_of_slot_start_sec,
-    wire::{EncodingType, get_consensus_version_header},
+    utils::{bls_pubkey_from_hex, timestamp_of_slot_start_sec},
+    wire::{CONSENSUS_VERSION_HEADER, EncodingType, get_consensus_version_header},
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
@@ -20,7 +20,10 @@ use cb_tests::{
 use eyre::Result;
 use lh_eth2::EmptyMetadata;
 use lh_types::{ForkName, ForkVersionDecode};
-use reqwest::StatusCode;
+use reqwest::{
+    StatusCode,
+    header::{ACCEPT, CONTENT_TYPE},
+};
 use tracing::info;
 use tree_hash::TreeHash;
 use url::Url;
@@ -65,6 +68,68 @@ async fn test_get_header_always_requests_ssz_from_relay() -> Result<()> {
         relay_accept.starts_with(EncodingType::Ssz.content_type()),
         "relay Accept must prefer SSZ regardless of the BN's JSON request, got: {relay_accept}"
     );
+    Ok(())
+}
+
+/// Error responses on get_header follow the Builder API `ErrorMessage` schema:
+/// JSON `{code, message}` with `application/json`, not plain text.
+#[tokio::test]
+async fn test_get_header_error_response_is_json() -> Result<()> {
+    setup_test_env();
+    let signer = random_secret();
+    let pubkey = signer.public_key();
+    let chain = Chain::Hoodi;
+    let pbs_listener = get_free_listener().await;
+    let relay_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr().unwrap().port();
+    let relay_port = relay_listener.local_addr().unwrap().port();
+
+    let mut mock_state = MockRelayState::new(chain, signer);
+    mock_state.supported_content_types =
+        Arc::new(HashSet::from([EncodingType::Ssz, EncodingType::Json]));
+    let mock_state = Arc::new(mock_state);
+    let mock_relay = generate_mock_relay(relay_port, pubkey)?;
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
+
+    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay]);
+    let state = PbsState::new(config, PathBuf::new());
+    drop(pbs_listener);
+    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let mock_validator = MockValidator::new(pbs_port)?;
+
+    // Happy path: a normal request succeeds and returns a bid (parses as a bid,
+    // which an error envelope would not).
+    let ok = mock_validator.do_get_header(None, vec![EncodingType::Json], ForkName::Fulu).await?;
+    assert_eq!(ok.status(), StatusCode::OK);
+    serde_json::from_slice::<GetHeaderResponse>(&ok.bytes().await?)
+        .expect("happy response is a bid, not an error object");
+
+    // Unhappy path: an unsupported Accept must yield a spec JSON error (406).
+    let bn_pubkey = bls_pubkey_from_hex(
+        "0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae",
+    )?;
+    let slot = KnownChain::Hoodi.fulu_fork_slot() + 1;
+    let url = mock_validator.comm_boost.get_header_url(slot, &B256::ZERO, &bn_pubkey)?;
+    let err = mock_validator
+        .comm_boost
+        .client
+        .get(url)
+        .header(CONSENSUS_VERSION_HEADER, ForkName::Fulu.to_string())
+        .header(ACCEPT, "application/garbage")
+        .send()
+        .await?;
+
+    assert_eq!(err.status(), StatusCode::NOT_ACCEPTABLE);
+    assert_eq!(
+        err.headers().get(CONTENT_TYPE).and_then(|v| v.to_str().ok()),
+        Some("application/json"),
+        "error body must be JSON per the Builder API",
+    );
+    let body: serde_json::Value = err.json().await?;
+    assert_eq!(body["code"], 406);
+    assert!(body["message"].is_string(), "error must carry a message string");
     Ok(())
 }
 
