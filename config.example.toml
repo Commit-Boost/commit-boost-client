@@ -96,6 +96,9 @@ get_params = { param1 = "value1", param2 = "value2" }
 #   "http"     -> one request per get_header, at the relay url above
 #   "stream"   -> websocket stream of bid updates, only for relays that support it. Connects to
 #                 ws(s)://<relay url>/eth/v1/builder/header_stream/{slot}/{parent_hash}/{pubkey}.
+#                 Requires a UUID api key, set it in `headers` field above under the `X-Api-Key`
+#                 name; it is sent on the websocket handshake. Can use 
+#                 https://www.uuidgenerator.net/version4 to generate one.
 # OPTIONAL, DEFAULT: "http"
 get_header = "http"
 # Whether to enable timing games, as tuned by `target_first_request_ms` and `frequency_get_header_ms`.
