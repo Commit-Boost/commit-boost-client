@@ -1,17 +1,9 @@
 use std::time::Duration;
 
-use axum::{
-    body::Bytes,
-    extract::State,
-    http::{HeaderMap, HeaderValue},
-    response::IntoResponse,
-};
+use axum::{body::Bytes, extract::State, http::HeaderMap, response::IntoResponse};
 use cb_common::{
-    pbs::{ForkName, RelayClient, SignedBeaconBlock, error::PbsError, is_gloas},
-    wire::{
-        CONSENSUS_VERSION_HEADER, EncodingType, decode_signed_beacon_block, get_user_agent,
-        safe_read_http_response,
-    },
+    pbs::{RelayClient, SignedBeaconBlock, error::PbsError, is_gloas},
+    wire::{EncodingType, decode_signed_beacon_block, get_user_agent, safe_read_http_response},
 };
 use futures::future::join_all;
 use reqwest::{StatusCode, header::CONTENT_TYPE};
@@ -79,13 +71,9 @@ pub async fn submit_signed_beacon_block<S: BuilderApiState>(
         return Err(PbsClientError::NotGloasBlock);
     }
 
-    let mut send_headers = epbs_base_send_headers(&req_headers)?;
-    // The builder needs the fork to decode the SSZ block
-    send_headers.insert(
-        CONSENSUS_VERSION_HEADER,
-        HeaderValue::from_str(&ForkName::Gloas.to_string())
-            .expect("fork name is always a valid header value"),
-    );
+    // Base headers carry Eth-Consensus-Version: gloas, which the builder needs
+    // to decode the SSZ block
+    let send_headers = epbs_base_send_headers(&req_headers)?;
 
     let timeout_ms = state.pbs_config().timeout_get_payload_ms;
 

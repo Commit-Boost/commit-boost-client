@@ -502,6 +502,36 @@ where
     }
 }
 
+/// Like [`decode_request_body`], but for the fork-versioned request wire types
+/// (builder-specs fork-versions `SignedRequestAuth` and
+/// `BuilderPreferencesRequest`): the SSZ form requires `Eth-Consensus-Version`
+/// (missing -> `MissingVersionHeader` -> 400), while JSON is self-describing so
+/// CB does best effort and ignores the header, mirroring
+/// [`decode_signed_beacon_block`]. The decoded shape is still the single
+/// (Gloas) type; the header requirement is wire discipline, not multiplexing.
+pub fn decode_versioned_request_body<T>(
+    headers: &HeaderMap,
+    body: &Bytes,
+) -> Result<T, BodyDeserializeError>
+where
+    T: serde::de::DeserializeOwned + Decode,
+{
+    if body.is_empty() {
+        return Err(BodyDeserializeError::MissingBody);
+    }
+    match content_type_encoding_with_default(headers, EncodingType::Ssz)? {
+        EncodingType::Json => {
+            serde_json::from_slice(body.as_ref()).map_err(BodyDeserializeError::SerdeJsonError)
+        }
+        EncodingType::Ssz => match get_consensus_version_header(headers) {
+            Some(_) => {
+                T::from_ssz_bytes(body.as_ref()).map_err(BodyDeserializeError::SszDecodeError)
+            }
+            None => Err(BodyDeserializeError::MissingVersionHeader),
+        },
+    }
+}
+
 /// Decode a `submitSignedBeaconBlock` request body. Like the other ePBS
 /// endpoints it defaults to SSZ when no `Content-Type` is set. Unlike the
 /// fork-agnostic `decode_request_body`, `SignedBeaconBlock` is fork-versioned:

@@ -644,7 +644,13 @@ async fn test_get_execution_payload_bid_missing_timing_headers_400() -> Result<(
         ],
     ];
     for headers in cases {
-        let mut req = mock_validator.comm_boost.client.post(url.clone()).body(body.clone());
+        // Version header present throughout: only the timing headers vary
+        let mut req = mock_validator
+            .comm_boost
+            .client
+            .post(url.clone())
+            .header("Eth-Consensus-Version", "gloas")
+            .body(body.clone());
         for (name, value) in &headers {
             req = req.header(*name, value);
         }
@@ -679,6 +685,7 @@ async fn test_get_execution_payload_bid_expired_deadline_204() -> Result<()> {
         .post(url)
         .header(HEADER_START_TIME_UNIX_MS, utcnow_ms() - 5_000)
         .header(HEADER_TIMEOUT_MS, 1_000u64)
+        .header("Eth-Consensus-Version", "gloas")
         .body(opaque_auth(&[0xde, 0xad], TEST_SLOT).as_ssz_bytes())
         .send()
         .await?;
@@ -748,14 +755,15 @@ async fn test_get_execution_payload_bid_spec_url() -> Result<()> {
         B256::ZERO,
         pubkey,
     );
-    // The auth body and timing headers are required, so even the bare-URL shape
-    // test must carry them
+    // The auth body, timing headers and version header are required, so even
+    // the bare-URL shape test must carry them
     let res = mock_validator
         .comm_boost
         .client
         .post(url)
         .header(HEADER_START_TIME_UNIX_MS, utcnow_ms())
         .header(HEADER_TIMEOUT_MS, 60_000u64)
+        .header("Eth-Consensus-Version", "gloas")
         .body(opaque_auth(&[0xde, 0xad], TEST_SLOT).as_ssz_bytes())
         .send()
         .await?;
@@ -1022,6 +1030,7 @@ async fn test_get_execution_payload_bid_unsupported_accept_406() -> Result<()> {
         .client
         .post(url)
         .header("accept", "application/xml")
+        .header("Eth-Consensus-Version", "gloas")
         .body(opaque_auth(&[0xde, 0xad], TEST_SLOT).as_ssz_bytes())
         .send()
         .await?;
@@ -1067,6 +1076,7 @@ async fn test_get_execution_payload_bid_ssz_auth_forwarded() -> Result<()> {
         .client
         .post(url)
         .header(CONTENT_TYPE, "application/octet-stream")
+        .header("Eth-Consensus-Version", "gloas")
         .header(HEADER_START_TIME_UNIX_MS, utcnow_ms())
         .header(HEADER_TIMEOUT_MS, 60_000u64)
         .body(ssz_body)
@@ -1564,6 +1574,88 @@ async fn test_get_execution_payload_bid_unsupported_content_type_415() -> Result
         0,
         "415 short-circuits before any relay call"
     );
+    Ok(())
+}
+
+/// An SSZ auth body missing `Eth-Consensus-Version` is a 400: builder-specs
+/// fork-versions the request wire type, so the header is required to accept the
+/// SSZ form (and the same request with the header is served).
+#[tokio::test]
+async fn test_get_execution_payload_bid_ssz_missing_version_400() -> Result<()> {
+    let (mock_validator, mock_state) =
+        setup_relay(Chain::Hoodi, |_| {}, generate_mock_relay).await?;
+
+    let url = mock_validator.comm_boost.get_execution_payload_bid_url(
+        TEST_SLOT,
+        &B256::ZERO,
+        &B256::ZERO,
+        &random_secret().public_key(),
+    )?;
+    // Note: SSZ Content-Type but no Eth-Consensus-Version
+    let res = mock_validator
+        .comm_boost
+        .client
+        .post(url.clone())
+        .header(CONTENT_TYPE, "application/octet-stream")
+        .header(HEADER_START_TIME_UNIX_MS, utcnow_ms())
+        .header(HEADER_TIMEOUT_MS, 60_000u64)
+        .body(opaque_auth(&[0xde, 0xad], TEST_SLOT).as_ssz_bytes())
+        .send()
+        .await?;
+
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        mock_state.received_execution_payload_bid(),
+        0,
+        "an undecodable request must not forward"
+    );
+    let body: serde_json::Value = serde_json::from_slice(&res.bytes().await?)?;
+    assert_eq!(body["code"], 400);
+
+    // The identical request carrying the literal spec header is served
+    let res = mock_validator
+        .comm_boost
+        .client
+        .post(url)
+        .header(CONTENT_TYPE, "application/octet-stream")
+        .header("Eth-Consensus-Version", "gloas")
+        .header(HEADER_START_TIME_UNIX_MS, utcnow_ms())
+        .header(HEADER_TIMEOUT_MS, 60_000u64)
+        .body(opaque_auth(&[0xde, 0xad], TEST_SLOT).as_ssz_bytes())
+        .send()
+        .await?;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(mock_state.received_execution_payload_bid(), 1);
+    Ok(())
+}
+
+/// JSON is self-describing, so per CB policy a JSON auth body with no version
+/// header is best-effort accepted rather than rejected over a missing header.
+#[tokio::test]
+async fn test_get_execution_payload_bid_json_no_version_200() -> Result<()> {
+    let (mock_validator, mock_state) =
+        setup_relay(Chain::Hoodi, |_| {}, generate_mock_relay).await?;
+
+    let url = mock_validator.comm_boost.get_execution_payload_bid_url(
+        TEST_SLOT,
+        &B256::ZERO,
+        &B256::ZERO,
+        &random_secret().public_key(),
+    )?;
+    // No Eth-Consensus-Version: best effort recovers the self-describing JSON
+    let res = mock_validator
+        .comm_boost
+        .client
+        .post(url)
+        .header(CONTENT_TYPE, "application/json")
+        .header(HEADER_START_TIME_UNIX_MS, utcnow_ms())
+        .header(HEADER_TIMEOUT_MS, 60_000u64)
+        .body(serde_json::to_vec(&opaque_auth(&[0xde, 0xad], TEST_SLOT))?)
+        .send()
+        .await?;
+
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(mock_state.received_execution_payload_bid(), 1);
     Ok(())
 }
 

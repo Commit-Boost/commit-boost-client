@@ -436,11 +436,21 @@ async fn handle_get_execution_payload_bid(
         arrival_ms: utcnow_ms(),
     });
     // Decode the optional request auth the way a real builder does: Content-Type
-    // selects JSON vs SSZ. RequestAuthV1 is not fork-versioned, so no
-    // Eth-Consensus-Version header is needed to decode the SSZ form.
+    // selects JSON vs SSZ. The wire type is fork-versioned per builder-specs,
+    // so the SSZ form additionally requires Eth-Consensus-Version — PBS always
+    // forwards SSZ, making this the assertion that the header arrives.
     if !body.is_empty() {
         let auth = match get_content_type(&headers) {
-            EncodingType::Ssz => SignedRequestAuthV1::from_ssz_bytes(&body).ok(),
+            EncodingType::Ssz => {
+                if get_consensus_version_header(&headers).is_none() {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        "missing Eth-Consensus-Version header".to_string(),
+                    )
+                        .into_response();
+                }
+                SignedRequestAuthV1::from_ssz_bytes(&body).ok()
+            }
             EncodingType::Json => serde_json::from_slice::<SignedRequestAuthV1>(&body).ok(),
         };
         if let Some(auth) = auth {
@@ -671,7 +681,11 @@ async fn handle_submit_builder_preferences(
 
     let decoded = match get_content_type(&headers) {
         EncodingType::Json => serde_json::from_slice::<BuilderPreferencesRequestV1>(&body).ok(),
-        EncodingType::Ssz => BuilderPreferencesRequestV1::from_ssz_bytes(&body).ok(),
+        // The wire type is fork-versioned per builder-specs, so a real builder
+        // requires Eth-Consensus-Version on the SSZ form — PBS always forwards
+        // SSZ, making this the assertion that the header arrives.
+        EncodingType::Ssz => get_consensus_version_header(&headers)
+            .and_then(|_| BuilderPreferencesRequestV1::from_ssz_bytes(&body).ok()),
     };
     let Some(request) = decoded else {
         return StatusCode::BAD_REQUEST.into_response();

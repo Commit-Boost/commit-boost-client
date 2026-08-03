@@ -187,7 +187,8 @@ async fn test_submit_builder_preferences_signature_bound_to_path_pubkey() -> Res
 }
 
 /// With no `Content-Type` the body is SSZ, which is this endpoint's documented
-/// no-preference default and differs from the shared JSON default.
+/// no-preference default and differs from the shared JSON default. The version
+/// header still travels: an SSZ-default body requires it like explicit SSZ.
 #[tokio::test]
 async fn test_submit_builder_preferences_no_content_type_is_ssz() -> Result<()> {
     let chain = Chain::Hoodi;
@@ -198,8 +199,14 @@ async fn test_submit_builder_preferences_no_content_type_is_ssz() -> Result<()> 
     let url = mock_validator
         .comm_boost
         .submit_builder_preferences_url(&mock_validator.comm_boost.pubkey().clone())?;
-    let res =
-        mock_validator.comm_boost.client.post(url).body(request.as_ssz_bytes()).send().await?;
+    let res = mock_validator
+        .comm_boost
+        .client
+        .post(url)
+        .header("Eth-Consensus-Version", "gloas")
+        .body(request.as_ssz_bytes())
+        .send()
+        .await?;
 
     assert_eq!(res.status(), StatusCode::ACCEPTED);
     assert_eq!(mock_state.received_max_execution_payment(), Some(TEST_MAX_EXECUTION_PAYMENT));
@@ -244,6 +251,80 @@ async fn test_submit_builder_preferences_json() -> Result<()> {
 
     assert_eq!(res.status(), StatusCode::ACCEPTED);
     assert_eq!(mock_state.received_max_execution_payment(), Some(TEST_MAX_EXECUTION_PAYMENT));
+    Ok(())
+}
+
+/// An SSZ submission missing `Eth-Consensus-Version` is a 400: builder-specs
+/// fork-versions the request wire type, so the header is required to accept the
+/// SSZ form (and the same submission with the header is a 202).
+#[tokio::test]
+async fn test_submit_builder_preferences_ssz_missing_version_400() -> Result<()> {
+    let chain = Chain::Hoodi;
+    let (mock_validator, mock_state) = setup_relay(chain, |_| {}, generate_mock_relay).await?;
+
+    let request =
+        preferences(opaque_auth(TEST_AUTH_DATA, future_slot(chain)), TEST_MAX_EXECUTION_PAYMENT);
+    let url = mock_validator
+        .comm_boost
+        .submit_builder_preferences_url(&mock_validator.comm_boost.pubkey().clone())?;
+    // Note: SSZ Content-Type but no Eth-Consensus-Version
+    let res = mock_validator
+        .comm_boost
+        .client
+        .post(url.clone())
+        .header(CONTENT_TYPE, EncodingType::Ssz.content_type_header().clone())
+        .body(request.as_ssz_bytes())
+        .send()
+        .await?;
+
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        mock_state.received_builder_preferences(),
+        0,
+        "an undecodable request must not forward"
+    );
+    let body: serde_json::Value = serde_json::from_slice(&res.bytes().await?)?;
+    assert_eq!(body["code"], 400);
+
+    // The identical submission carrying the literal spec header is accepted
+    let res = mock_validator
+        .comm_boost
+        .client
+        .post(url)
+        .header(CONTENT_TYPE, EncodingType::Ssz.content_type_header().clone())
+        .header("Eth-Consensus-Version", "gloas")
+        .body(request.as_ssz_bytes())
+        .send()
+        .await?;
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
+    assert_eq!(mock_state.received_builder_preferences(), 1);
+    Ok(())
+}
+
+/// JSON is self-describing, so per CB policy a JSON submission with no version
+/// header is best-effort accepted rather than rejected over a missing header.
+#[tokio::test]
+async fn test_submit_builder_preferences_json_no_version_202() -> Result<()> {
+    let chain = Chain::Hoodi;
+    let (mock_validator, mock_state) = setup_relay(chain, |_| {}, generate_mock_relay).await?;
+
+    let request =
+        preferences(opaque_auth(TEST_AUTH_DATA, future_slot(chain)), TEST_MAX_EXECUTION_PAYMENT);
+    let url = mock_validator
+        .comm_boost
+        .submit_builder_preferences_url(&mock_validator.comm_boost.pubkey().clone())?;
+    // No Eth-Consensus-Version: best effort recovers the self-describing JSON
+    let res = mock_validator
+        .comm_boost
+        .client
+        .post(url)
+        .header(CONTENT_TYPE, EncodingType::Json.content_type_header().clone())
+        .body(serde_json::to_vec(&request)?)
+        .send()
+        .await?;
+
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
+    assert_eq!(mock_state.received_builder_preferences(), 1, "the submission is forwarded");
     Ok(())
 }
 

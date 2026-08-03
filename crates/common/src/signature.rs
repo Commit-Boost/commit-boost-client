@@ -79,8 +79,8 @@ pub fn execution_payload_bid_domain(fork_version: [u8; 4], genesis_validators_ro
     )
 }
 
-/// Builder API request-auth signing domain. `RequestAuthV1` is an
-/// out-of-protocol Builder API message and is NOT fork-versioned, so the spec's
+/// Builder API request-auth signing domain. The request WIRE type is
+/// fork-versioned per builder-specs, but the signing domain is not: the spec's
 /// `compute_domain(DOMAIN_REQUEST_AUTH)` takes the genesis fork version and a
 /// zero root, exactly like the validator registrations it replaces.
 pub fn request_auth_domain(chain: Chain) -> B256 {

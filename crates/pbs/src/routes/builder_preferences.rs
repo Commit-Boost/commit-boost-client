@@ -13,7 +13,7 @@ use cb_common::{
     },
     types::Chain,
     utils::ms_into_slot,
-    wire::{EncodingType, decode_request_body, get_user_agent, safe_read_http_response},
+    wire::{EncodingType, decode_versioned_request_body, get_user_agent, safe_read_http_response},
 };
 use futures::future::join_all;
 use reqwest::{StatusCode, header::CONTENT_TYPE};
@@ -32,16 +32,17 @@ use crate::{
     },
 };
 
-/// The body is the required `BuilderPreferencesRequestV1`
-/// (`decode_request_body`); like the bid endpoint it is not fork-versioned, so
-/// the SSZ form needs no `Eth-Consensus-Version`.
+/// The body is the required `BuilderPreferencesRequestV1`; like the bid
+/// endpoint it is fork-versioned per builder-specs, so the SSZ form requires
+/// `Eth-Consensus-Version` (JSON is best effort per CB policy).
 pub async fn handle_submit_builder_preferences<S: BuilderApiState>(
     State(state): State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
     Path(params): Path<SubmitBuilderPreferencesParams>,
     body: Bytes,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    let request = decode_request_body::<BuilderPreferencesRequestV1>(&req_headers, &body)?;
+    let request =
+        decode_versioned_request_body::<BuilderPreferencesRequestV1>(&req_headers, &body)?;
     tracing::Span::current().record("validator", tracing::field::debug(&params.proposer_pubkey));
     tracing::Span::current().record("slot", request.auth.message.slot.as_u64());
 
@@ -228,7 +229,7 @@ mod tests {
         pbs::{BuilderPreferencesV1, RequestAuthV1},
         types::BlsSignature,
         utils::{timestamp_of_slot_start_sec, utcnow_ms, utcnow_sec},
-        wire::BodyDeserializeError,
+        wire::{BodyDeserializeError, CONSENSUS_VERSION_HEADER},
     };
 
     use super::*;
@@ -268,13 +269,16 @@ mod tests {
 
     #[test]
     fn decode_rejects_an_empty_body() {
-        let err =
-            decode_request_body::<BuilderPreferencesRequestV1>(&HeaderMap::new(), &Bytes::new())
-                .expect_err("an empty body is not a request");
+        let err = decode_versioned_request_body::<BuilderPreferencesRequestV1>(
+            &HeaderMap::new(),
+            &Bytes::new(),
+        )
+        .expect_err("an empty body is not a request");
         assert!(matches!(err, BodyDeserializeError::MissingBody));
     }
 
-    /// This endpoint's no-preference default is SSZ, not the shared JSON one.
+    /// This endpoint's no-preference default is SSZ, not the shared JSON one,
+    /// and the SSZ form requires `Eth-Consensus-Version` (fork-versioned type).
     #[test]
     fn decode_defaults_to_ssz_without_a_content_type() {
         let request = BuilderPreferencesRequestV1 {
@@ -284,12 +288,18 @@ mod tests {
             },
             preferences: BuilderPreferencesV1 { max_execution_payment: 7 },
         };
+        let body = Bytes::from(request.as_ssz_bytes());
 
-        let decoded = decode_request_body::<BuilderPreferencesRequestV1>(
-            &HeaderMap::new(),
-            &Bytes::from(request.as_ssz_bytes()),
-        )
-        .expect("ssz body decodes without a content type");
+        // Missing the header, the SSZ-default body is rejected, not misparsed
+        let err =
+            decode_versioned_request_body::<BuilderPreferencesRequestV1>(&HeaderMap::new(), &body)
+                .expect_err("ssz without the version header must be rejected");
+        assert!(matches!(err, BodyDeserializeError::MissingVersionHeader));
+
+        let mut headers = HeaderMap::new();
+        headers.insert(CONSENSUS_VERSION_HEADER, axum::http::HeaderValue::from_static("gloas"));
+        let decoded = decode_versioned_request_body::<BuilderPreferencesRequestV1>(&headers, &body)
+            .expect("ssz body decodes without a content type");
         assert_eq!(decoded.preferences.max_execution_payment, 7);
         assert_eq!(decoded.auth.message.slot.as_u64(), 3);
     }

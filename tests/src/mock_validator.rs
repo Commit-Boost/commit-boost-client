@@ -72,7 +72,9 @@ impl MockValidator {
     }
 
     /// Submits builder preferences for `pubkey`, encoding the body as
-    /// `content_type` so a test can exercise both wire formats.
+    /// `content_type` so a test can exercise both wire formats. The spec makes
+    /// `Eth-Consensus-Version` required, so a compliant BN always sets it to
+    /// Gloas; header-less negative tests build their request by hand.
     pub async fn do_submit_builder_preferences(
         &self,
         pubkey: Option<BlsPublicKey>,
@@ -94,6 +96,7 @@ impl MockValidator {
             .client
             .post(url)
             .header(CONTENT_TYPE, content_type.content_type_header().clone())
+            .header(CONSENSUS_VERSION_HEADER, ForkName::Gloas.to_string())
             .body(body)
             .send()
             .await?;
@@ -169,13 +172,15 @@ impl MockValidator {
             &parent_root,
             &pubkey.unwrap_or(default_pubkey),
         )?;
-        // The spec requires both timing headers on every bid request
+        // The spec requires both timing headers and `Eth-Consensus-Version` on
+        // every bid request; header-less negative tests build theirs by hand
         let mut req = self
             .comm_boost
             .client
             .post(url)
             .header(HEADER_START_TIME_UNIX_MS, utcnow_ms())
-            .header(HEADER_TIMEOUT_MS, timeout_ms);
+            .header(HEADER_TIMEOUT_MS, timeout_ms)
+            .header(CONSENSUS_VERSION_HEADER, ForkName::Gloas.to_string());
         if !accept.is_empty() {
             let accept_header = accept.iter().map(|e| e.to_string()).collect::<Vec<_>>().join(", ");
             req = req.header(ACCEPT, accept_header);

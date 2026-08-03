@@ -1,14 +1,14 @@
 use std::time::{Duration, Instant};
 
 use cb_common::{
-    pbs::{RelayClient, SignedRequestAuthV1, error::PbsError},
+    pbs::{ForkName, RelayClient, SignedRequestAuthV1, error::PbsError},
     signature::verify_request_auth_signature,
     types::{BlsPublicKey, Chain},
-    wire::get_user_agent_with_version,
+    wire::{CONSENSUS_VERSION_HEADER, get_user_agent_with_version},
 };
 use reqwest::{
     StatusCode,
-    header::{HeaderMap, USER_AGENT},
+    header::{HeaderMap, HeaderValue, USER_AGENT},
 };
 use tracing::warn;
 use url::Url;
@@ -64,13 +64,21 @@ pub(crate) fn expect_status(code: StatusCode, expected: StatusCode) -> Result<()
 }
 
 /// Base outbound headers shared by the ePBS endpoints: the versioned
-/// `User-Agent`. Callers add their endpoint-specific headers (bid adds
-/// `Accept`; submit adds `Eth-Consensus-Version`).
+/// `User-Agent` and `Eth-Consensus-Version`. All three relay hops send SSZ
+/// bodies of fork-versioned wire types, so the builder needs the fork header;
+/// it is re-derived as Gloas (these are Gloas-only endpoints), never echoed
+/// from the inbound request. Callers add their endpoint-specific headers (bid
+/// adds `Accept` and the timing headers).
 pub(crate) fn epbs_base_send_headers(req_headers: &HeaderMap) -> Result<HeaderMap, PbsClientError> {
     let mut headers = HeaderMap::new();
     headers.insert(
         USER_AGENT,
         get_user_agent_with_version(req_headers).map_err(|_| PbsClientError::Internal)?,
+    );
+    headers.insert(
+        CONSENSUS_VERSION_HEADER,
+        HeaderValue::from_str(&ForkName::Gloas.to_string())
+            .expect("fork name is always a valid header value"),
     );
     Ok(headers)
 }

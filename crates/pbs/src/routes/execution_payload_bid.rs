@@ -25,8 +25,8 @@ use cb_common::{
     utils::{ms_into_slot, utcnow_ms},
     wire::{
         AcceptedEncodings, AcceptedEncodingsError, CONSENSUS_VERSION_HEADER, EncodingType,
-        build_outbound_accept, decode_request_body, get_accept_types_with_default, get_user_agent,
-        parse_response_encoding_and_fork, safe_read_http_response,
+        build_outbound_accept, decode_versioned_request_body, get_accept_types_with_default,
+        get_user_agent, parse_response_encoding_and_fork, safe_read_http_response,
     },
 };
 use futures::future::join_all;
@@ -55,17 +55,16 @@ use crate::{
     },
 };
 
-/// The body is the required `SignedRequestAuthV1` (`decode_request_body`).
-/// `RequestAuthV1` is not fork-versioned, so unlike submit_block the SSZ form
-/// needs no `Eth-Consensus-Version`; if it ever gains fork variants, require
-/// it.
+/// The body is the required `SignedRequestAuthV1`; builder-specs fork-versions
+/// the request wire type, so the SSZ form requires `Eth-Consensus-Version`
+/// (JSON is best effort per CB policy, like submit_block).
 pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
     State(state): State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
     Path(params): Path<GetExecutionPayloadBidParams>,
     body: Bytes,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    let body = Arc::new(decode_request_body::<SignedRequestAuthV1>(&req_headers, &body)?);
+    let body = Arc::new(decode_versioned_request_body::<SignedRequestAuthV1>(&req_headers, &body)?);
     tracing::Span::current().record("slot", params.slot);
     tracing::Span::current().record("parent_hash", tracing::field::debug(params.parent_hash));
     tracing::Span::current().record("parent_root", tracing::field::debug(params.parent_root));
@@ -999,7 +998,7 @@ mod tests {
     #[test]
     fn test_decode_request_auth_rejects_empty_body() {
         assert!(matches!(
-            decode_request_body::<SignedRequestAuthV1>(&HeaderMap::new(), &Bytes::new()),
+            decode_versioned_request_body::<SignedRequestAuthV1>(&HeaderMap::new(), &Bytes::new()),
             Err(BodyDeserializeError::MissingBody)
         ));
     }
