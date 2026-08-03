@@ -295,6 +295,37 @@ fn essence_encoding(mt: &MediaType, default: EncodingType) -> Option<EncodingTyp
 pub static OUTBOUND_ACCEPT_SSZ_FIRST: HeaderValue =
     HeaderValue::from_static("application/octet-stream;q=1.0,application/json;q=0.9");
 
+/// outbound `Accept` header. The first entry gets q=1.0, each subsequent entry
+/// decreases by 0.1, and the value is clamped to a minimum of 0.1 so we never
+/// emit q=0 (which per RFC 7231 §5.3.1 means "not acceptable").
+fn accept_q_value_for_index(index: usize) -> f32 {
+    // `as i32` would silently wrap for large indices (e.g. usize::MAX → -1),
+    // which would invert the clamp. Saturate the cast explicitly.
+    let idx = i32::try_from(index).unwrap_or(i32::MAX);
+    let step = 10_i32.saturating_sub(idx).max(1);
+    step as f32 / 10.0
+}
+
+/// Format a single `Accept` header entry as `"<media-type>;q=<x.x>"`.
+#[inline]
+fn format_accept_entry(enc: EncodingType, q: f32) -> String {
+    format!("{};q={:.1}", enc.content_type(), q)
+}
+
+/// Build an `Accept` header listing the given encodings in preference order:
+/// the first entry gets q=1.0 and each subsequent one a q-value 0.1 lower.
+/// Returns a ready-to-use `HeaderValue` — the output is always valid ASCII, so
+/// infallible.
+pub fn build_outbound_accept(preferred: AcceptedEncodings) -> HeaderValue {
+    let s = preferred
+        .iter()
+        .enumerate()
+        .map(|(i, enc)| format_accept_entry(enc, accept_q_value_for_index(i)))
+        .collect::<Vec<_>>()
+        .join(",");
+    HeaderValue::from_str(&s).expect("build_outbound_accept produces valid header value")
+}
+
 pub fn get_content_type(req_headers: &HeaderMap) -> EncodingType {
     EncodingType::from_str(
         req_headers
@@ -512,10 +543,9 @@ mod test {
     use super::{
         APPLICATION_JSON, APPLICATION_OCTET_STREAM, AcceptedEncodings, BodyDeserializeError,
         CONSENSUS_VERSION_HEADER, EncodingType, NO_PREFERENCE_DEFAULT, OUTBOUND_ACCEPT_SSZ_FIRST,
-        WILDCARD, accept_q_value_for_index, build_outbound_accept,
-        content_type_encoding_with_default, decode_signed_beacon_block, deserialize_body,
-        format_accept_entry, get_accept_types, get_consensus_version_header,
-        get_content_type, parse_response_encoding_and_fork,
+        WILDCARD, content_type_encoding_with_default, decode_signed_beacon_block, deserialize_body,
+        get_accept_types, get_consensus_version_header, get_content_type,
+        parse_response_encoding_and_fork,
     };
     use crate::{pbs::SignedBeaconBlock, utils::TestRandomSeed};
 
