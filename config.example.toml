@@ -96,8 +96,6 @@ get_params = { param1 = "value1", param2 = "value2" }
 #   "http"     -> one request per get_header, at the relay url above
 #   "stream"   -> websocket stream of bid updates, only for relays that support it. Connects to
 #                 ws(s)://<relay url>/eth/v1/builder/header_stream/{slot}/{parent_hash}/{pubkey}.
-#                 The stream stays open for the whole request window and the last bid pushed is the
-#                 one used.
 # OPTIONAL, DEFAULT: "http"
 get_header = "http"
 # Name of the environment variable holding this relay's API key. It is sent as `X-Api-Key` when opening a get_header stream, for relays that require one.
