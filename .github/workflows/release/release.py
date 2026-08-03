@@ -207,8 +207,10 @@ def cmd_check_commit_exists(args: argparse.Namespace) -> None:
 
 
 def cmd_check_tag_free(args: argparse.Namespace) -> None:
+    # /git/ref/ (singular) is an EXACT-match lookup that 404s when the tag is
+    # free.
     try:
-        gh_api("GET", f"/git/refs/tags/{args.tag}")
+        gh_api("GET", f"/git/ref/tags/{args.tag}")
         print(f"❌ Tag {args.tag} already exists. Pick a different version.")
         sys.exit(1)
     except GhApiError:
