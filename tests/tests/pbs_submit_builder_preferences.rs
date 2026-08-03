@@ -39,8 +39,8 @@ fn preferences(
     max_execution_payment: u64,
 ) -> BuilderPreferencesRequestV1 {
     BuilderPreferencesRequestV1 {
-        preferences: BuilderPreferencesV1 { max_execution_payment },
         auth,
+        preferences: BuilderPreferencesV1 { max_execution_payment },
     }
 }
 

@@ -278,11 +278,11 @@ mod tests {
     #[test]
     fn decode_defaults_to_ssz_without_a_content_type() {
         let request = BuilderPreferencesRequestV1 {
-            preferences: BuilderPreferencesV1 { max_execution_payment: 7 },
             auth: SignedRequestAuthV1 {
                 message: RequestAuthV1 { data: Default::default(), slot: lh_types::Slot::new(3) },
                 signature: BlsSignature::empty(),
             },
+            preferences: BuilderPreferencesV1 { max_execution_payment: 7 },
         };
 
         let decoded = decode_request_body::<BuilderPreferencesRequestV1>(

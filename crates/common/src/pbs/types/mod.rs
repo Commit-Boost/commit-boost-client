@@ -223,10 +223,11 @@ pub struct BuilderPreferencesV1 {
 }
 
 /// The `submitBuilderPreferences` request body.
+/// SSZ field order per builder-specs `gloas/validator.md`
 #[derive(Debug, Serialize, Deserialize, Encode, Decode, Clone)]
 pub struct BuilderPreferencesRequestV1 {
-    pub preferences: BuilderPreferencesV1,
     pub auth: SignedRequestAuthV1,
+    pub preferences: BuilderPreferencesV1,
 }
 
 /// Path params for `POST /eth/v1/builder/builder_preferences/{proposer_pubkey}`
@@ -271,5 +272,48 @@ mod tests {
             0x12, 0x34, 0x56, 0x78, 0x90, 0xab, 0xcd, 0xef
         ]);
         assert_eq!(auth.message.slot, Slot::new(100));
+    }
+
+    /// Spec vector for the SSZ layout of `BuilderPreferencesRequest`:
+    /// `(auth, preferences)` per specs/gloas/validator.md
+    #[test]
+    fn test_builder_preferences_request_ssz_spec_vector() {
+        use ssz::{Decode, Encode};
+
+        // The infinity signature: 0xc0 followed by 95 zero bytes
+        let mut infinity_sig = vec![0u8; 96];
+        infinity_sig[0] = 0xc0;
+
+        let auth = SignedRequestAuthV1 {
+            message: RequestAuthV1 {
+                data: VariableList::new(vec![0x12, 0x34, 0x56, 0x78, 0x90, 0xab, 0xcd, 0xef])
+                    .unwrap(),
+                slot: Slot::new(1234),
+            },
+            signature: BlsSignature::deserialize(&infinity_sig).unwrap(),
+        };
+        let request = BuilderPreferencesRequestV1 {
+            auth: auth.clone(),
+            preferences: BuilderPreferencesV1 { max_execution_payment: 1_000_000_000 },
+        };
+
+        // Hand-assembled outer container: 4-byte offset to the variable-size
+        // `auth` (12 = 4-byte offset + 8-byte fixed `preferences`), the 8-byte
+        // `max_execution_payment` LE, then the `auth` bytes
+        let auth_bytes = auth.as_ssz_bytes();
+        let mut expected = Vec::new();
+        expected.extend_from_slice(&12u32.to_le_bytes());
+        expected.extend_from_slice(&1_000_000_000u64.to_le_bytes());
+        expected.extend_from_slice(&auth_bytes);
+
+        assert_eq!(request.as_ssz_bytes(), expected);
+
+        let decoded = BuilderPreferencesRequestV1::from_ssz_bytes(&expected).unwrap();
+        assert_eq!(decoded.preferences.max_execution_payment, 1_000_000_000);
+        assert_eq!(decoded.auth.message.slot, Slot::new(1234));
+        assert_eq!(decoded.auth.message.data.to_vec(), vec![
+            0x12, 0x34, 0x56, 0x78, 0x90, 0xab, 0xcd, 0xef
+        ]);
+        assert_eq!(decoded.auth.signature.serialize().to_vec(), infinity_sig);
     }
 }
