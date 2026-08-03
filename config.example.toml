@@ -98,10 +98,6 @@ get_params = { param1 = "value1", param2 = "value2" }
 #                 ws(s)://<relay url>/eth/v1/builder/header_stream/{slot}/{parent_hash}/{pubkey}.
 # OPTIONAL, DEFAULT: "http"
 get_header = "http"
-# Name of the environment variable holding this relay's API key. It is sent as `X-Api-Key` when opening a get_header stream, for relays that require one.
-# Only used when `get_header = "stream"`.
-# OPTIONAL
-# api_key_env = "EXAMPLE_RELAY_API_KEY"
 # Whether to enable timing games, as tuned by `target_first_request_ms` and `frequency_get_header_ms`.
 # NOTE: if neither `target_first_request_ms` nor `frequency_get_header_ms` is set, this flag has no effect.
 #

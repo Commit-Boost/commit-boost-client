@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use url::Url;
 
 use super::{
-    HEADER_API_KEY, HEADER_VERSION_KEY, HEADER_VERSION_VALUE,
+    HEADER_VERSION_KEY, HEADER_VERSION_VALUE,
     constants::{
         GET_HEADER_STREAM_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
     },
@@ -15,7 +15,7 @@ use super::{
 };
 use crate::{
     DEFAULT_REQUEST_TIMEOUT,
-    config::{GetHeaderTransport, RelayConfig, load_env_var},
+    config::{GetHeaderTransport, RelayConfig},
     pbs::BuilderApiVersion,
     types::BlsPublicKey,
 };
@@ -111,28 +111,8 @@ impl RelayClient {
             }
         }
 
-        let mut stream_headers = match config.get_header {
-            GetHeaderTransport::Http => HeaderMap::new(),
-            GetHeaderTransport::Stream => headers.clone(),
-        };
-
-        if let Some(env) = &config.api_key_env {
-            match config.get_header {
-                GetHeaderTransport::Stream => {
-                    let key = load_env_var(env)?;
-                    eyre::ensure!(!key.is_empty(), "{env} is empty");
-
-                    let mut value = HeaderValue::from_str(&key)
-                        .map_err(|_| eyre::eyre!("{env} is not a valid header value"))?;
-                    value.set_sensitive(true);
-                    stream_headers.insert(HEADER_API_KEY, value);
-                }
-                GetHeaderTransport::Http => {}
-            }
-        }
-
         let client = reqwest::Client::builder()
-            .default_headers(headers)
+            .default_headers(headers.clone())
             .timeout(DEFAULT_REQUEST_TIMEOUT)
             .build()?;
 
@@ -140,7 +120,7 @@ impl RelayClient {
             id: Arc::new(config.id().to_owned()),
             client,
             stream_url,
-            stream_headers: Arc::new(stream_headers),
+            stream_headers: Arc::new(headers),
             config: Arc::new(config),
         })
     }

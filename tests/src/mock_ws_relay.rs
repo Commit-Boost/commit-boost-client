@@ -10,8 +10,8 @@ use std::{
 use alloy::primitives::{B256, U256};
 use cb_common::{
     pbs::{
-        BuilderApiVersion, GET_HEADER_STREAM_PATH, HEADER_API_KEY, HEADER_START_TIME_UNIX_MS,
-        HEADER_TIMEOUT_MS, HEADER_VERSION_KEY,
+        BuilderApiVersion, GET_HEADER_STREAM_PATH, HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS,
+        HEADER_VERSION_KEY,
     },
     types::{BlsSecretKey, Chain},
 };
@@ -27,7 +27,7 @@ use tokio_tungstenite::{
 };
 use tracing::debug;
 
-use crate::mock_relay::mock_signed_builder_bid;
+use crate::{mock_relay::mock_signed_builder_bid, utils::HEADER_API_KEY};
 
 const MSG_BID: u8 = 0x01;
 const FORK_FULU: u8 = 6;

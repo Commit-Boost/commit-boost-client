@@ -23,6 +23,9 @@ use eyre::Result;
 use rcgen::generate_simple_self_signed;
 use url::Url;
 
+pub const HEADER_API_KEY: &str = "x-api-key";
+pub const API_KEY: &str = "123e4567-e89b-12d3-a456-426614174000";
+
 pub fn get_local_address(port: u16) -> String {
     format!("http://0.0.0.0:{port}")
 }
@@ -47,10 +50,9 @@ fn mock_relay_config(port: u16, pubkey: BlsPublicKey) -> Result<RelayConfig> {
             url: get_local_address(port).parse()?,
         },
         id: None,
-        headers: None,
+        headers: Some(HashMap::from([(HEADER_API_KEY.into(), API_KEY.into())])),
         get_params: None,
         get_header: GetHeaderTransport::Http,
-        api_key_env: None,
         enable_timing_games: false,
         target_first_request_ms: None,
         frequency_get_header_ms: None,
@@ -75,17 +77,6 @@ pub fn generate_mock_relay_with_batch_size(
 pub fn generate_mock_stream_relay(port: u16, pubkey: BlsPublicKey) -> Result<RelayClient> {
     let mut config = mock_relay_config(port, pubkey)?;
     config.get_header = GetHeaderTransport::Stream;
-    RelayClient::new(config)
-}
-
-pub fn generate_mock_stream_relay_with_api_key(
-    port: u16,
-    pubkey: BlsPublicKey,
-    api_key_env: &str,
-) -> Result<RelayClient> {
-    let mut config = mock_relay_config(port, pubkey)?;
-    config.get_header = GetHeaderTransport::Stream;
-    config.api_key_env = Some(api_key_env.to_string());
     RelayClient::new(config)
 }
 

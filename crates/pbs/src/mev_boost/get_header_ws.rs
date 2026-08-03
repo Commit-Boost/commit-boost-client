@@ -55,7 +55,7 @@ const MSG_BID: u8 = 0x01;
 
 fn fork_from_wire(byte: u8) -> Option<ForkName> {
     // TODO @nina: I don't see a point of extending a u8 for supporting older forks
-    // we could rotate these instead, i.e. 0 becomes Hegota, etc
+    // we could rotate these instead, i.e. 0 becomes Heze, etc
     Some(match byte {
         0 => ForkName::Base,
         1 => ForkName::Altair,
@@ -285,6 +285,20 @@ mod tests {
         let mut frame = vec![MSG_BID, fork_byte];
         frame.extend_from_slice(bid);
         Bytes::from(frame)
+    }
+
+    #[test]
+    fn test_fork_from_wire_covers_all_forks() {
+        let forks = ForkName::list_all();
+
+        for (byte, fork) in forks.iter().enumerate() {
+            if *fork <= ForkName::Base {
+                continue;
+            }
+            assert_eq!(fork_from_wire(byte as u8), Some(*fork), "fork {fork} unmapped");
+        }
+
+        assert_eq!(fork_from_wire(forks.len() as u8), None);
     }
 
     #[test]

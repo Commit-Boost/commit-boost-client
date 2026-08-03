@@ -19,8 +19,8 @@ use cb_tests::{
     mock_validator::MockValidator,
     mock_ws_relay::{MockWsRelayState, start_mock_ws_relay_service},
     utils::{
-        generate_mock_relay, generate_mock_stream_relay, generate_mock_stream_relay_with_api_key,
-        get_free_listener, get_pbs_config, setup_test_env, to_pbs_config,
+        API_KEY, generate_mock_relay, generate_mock_stream_relay, get_free_listener,
+        get_pbs_config, setup_test_env, to_pbs_config,
     },
 };
 use eyre::Result;
@@ -168,9 +168,7 @@ async fn test_get_header_ws_sends_api_key() -> Result<()> {
     let relay_state = Arc::new(MockWsRelayState::new(chain, signer));
     tokio::spawn(start_mock_ws_relay_service(relay_state.clone(), listener));
 
-    // SAFETY: single-threaded setup, before PBS reads it
-    unsafe { std::env::set_var("TEST_RELAY_API_KEY", "secret-key") };
-    let relay = generate_mock_stream_relay_with_api_key(port, pubkey, "TEST_RELAY_API_KEY")?;
+    let relay = generate_mock_stream_relay(port, pubkey)?;
 
     let validator = start_pbs(chain, vec![relay], 1_000).await?;
 
@@ -178,18 +176,7 @@ async fn test_get_header_ws_sends_api_key() -> Result<()> {
     assert_eq!(code, StatusCode::OK);
 
     let request = relay_state.last_request().expect("relay saw no request");
-    assert_eq!(request.api_key.as_deref(), Some("secret-key"));
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_stream_relay_requires_api_key_env() -> Result<()> {
-    setup_test_env();
-    let pubkey = random_secret().public_key();
-
-    assert!(
-        generate_mock_stream_relay_with_api_key(1234, pubkey, "TEST_RELAY_API_KEY_UNSET").is_err()
-    );
+    assert_eq!(request.api_key.as_deref(), Some(API_KEY));
     Ok(())
 }
 
