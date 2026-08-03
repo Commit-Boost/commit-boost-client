@@ -1921,6 +1921,7 @@ dependencies = [
  "types",
  "unicode-normalization",
  "url",
+ "uuid 1.23.1",
 ]
 
 [[package]]

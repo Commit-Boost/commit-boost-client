@@ -44,6 +44,8 @@ use tokio::net::TcpListener;
 use tracing::{debug, error};
 use tree_hash::TreeHash;
 
+use crate::utils::HEADER_API_KEY;
+
 pub async fn start_mock_relay_service(state: Arc<MockRelayState>, port: u16) -> eyre::Result<()> {
     let socket = SocketAddr::new("0.0.0.0".parse()?, port);
     let listener = TcpListener::bind(socket).await?;
@@ -93,6 +95,7 @@ pub struct MockRelayState {
     /// The raw `Accept` header PBS sent on the most recent get_header request,
     /// so a test can assert what encoding PBS asked the relay for.
     received_get_header_accept: RwLock<Option<String>>,
+    last_register_api_key: RwLock<Option<String>>,
 }
 
 impl MockRelayState {
@@ -132,6 +135,9 @@ impl MockRelayState {
     pub fn set_response_override(&self, status: StatusCode) {
         *self.response_override.write().unwrap() = Some(status);
     }
+    pub fn last_register_api_key(&self) -> Option<String> {
+        self.last_register_api_key.read().unwrap().clone()
+    }
 }
 
 impl MockRelayState {
@@ -152,6 +158,7 @@ impl MockRelayState {
             response_override: RwLock::new(None),
             bid_value: RwLock::new(U256::from(10)),
             received_get_header_accept: RwLock::new(None),
+            last_register_api_key: RwLock::new(None),
             supported_content_types: Arc::new(
                 [EncodingType::Json, EncodingType::Ssz].iter().cloned().collect(),
             ),
@@ -330,9 +337,14 @@ async fn handle_get_status(State(state): State<Arc<MockRelayState>>) -> impl Int
 
 async fn handle_register_validator(
     State(state): State<Arc<MockRelayState>>,
+    headers: HeaderMap,
     Json(validators): Json<Vec<ValidatorRegistration>>,
 ) -> impl IntoResponse {
     state.received_register_validator.fetch_add(1, Ordering::Relaxed);
+    *state.last_register_api_key.write().unwrap() = headers
+        .get(HEADER_API_KEY)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.to_string());
     debug!("Received {} registrations", validators.len());
 
     if let Some(status) = state.response_override.read().unwrap().as_ref() {
