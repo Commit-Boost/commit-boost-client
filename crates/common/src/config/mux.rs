@@ -21,9 +21,9 @@ use url::Url;
 use super::{MUX_PATH_ENV, MUXER_HTTP_MAX_LENGTH, PbsConfig, RelayConfig, load_optional_env_var};
 use crate::{
     config::remove_duplicate_keys,
-    interop::{lido::utils::*, ssv::utils::*},
+    interop::{lido::utils::*, ssv::utils::*, stader::utils::*},
     pbs::RelayClient,
-    types::{BlsPublicKey, Chain},
+    types::{BlsPublicKey, Chain, StaderPool},
     utils::default_bool,
     wire::safe_read_http_response,
 };
@@ -196,6 +196,8 @@ pub enum MuxKeysLoader {
         node_operator_id: u64,
         #[serde(default)]
         lido_module_id: Option<u8>,
+        #[serde(default)]
+        stader_pool: Option<StaderPool>,
         #[serde(default = "default_bool::<false>")]
         enable_refreshing: bool,
     },
@@ -207,6 +209,8 @@ pub enum NORegistry {
     Lido,
     #[serde(alias = "ssv")]
     SSV,
+    #[serde(alias = "stader")]
+    Stader,
 }
 
 impl MuxKeysLoader {
@@ -243,34 +247,57 @@ impl MuxKeysLoader {
                     .wrap_err("failed to fetch mux keys from HTTP endpoint")
             }
 
-            Self::Registry { registry, node_operator_id, lido_module_id, enable_refreshing: _ } => {
-                match registry {
-                    NORegistry::Lido => {
-                        let Some(rpc_url) = rpc_url else {
-                            bail!("Lido registry requires RPC URL to be set in the PBS config");
-                        };
+            Self::Registry {
+                registry,
+                node_operator_id,
+                lido_module_id,
+                stader_pool,
+                enable_refreshing: _,
+                ..
+            } => match registry {
+                NORegistry::Lido => {
+                    let Some(rpc_url) = rpc_url else {
+                        bail!("Lido registry requires RPC URL to be set in the PBS config");
+                    };
 
-                        fetch_lido_registry_keys(
-                            rpc_url,
-                            chain,
-                            U256::from(*node_operator_id),
-                            lido_module_id.unwrap_or(1),
-                            http_timeout,
-                        )
-                        .await
-                    }
-                    NORegistry::SSV => {
-                        fetch_ssv_pubkeys(
-                            ssv_node_api_url,
-                            ssv_public_api_url,
-                            chain,
-                            U256::from(*node_operator_id),
-                            http_timeout,
-                        )
-                        .await
-                    }
+                    fetch_lido_registry_keys(
+                        rpc_url,
+                        chain,
+                        U256::from(*node_operator_id),
+                        lido_module_id.unwrap_or(1),
+                        http_timeout,
+                    )
+                    .await
                 }
-            }
+                NORegistry::SSV => {
+                    fetch_ssv_pubkeys(
+                        ssv_node_api_url,
+                        ssv_public_api_url,
+                        chain,
+                        U256::from(*node_operator_id),
+                        http_timeout,
+                    )
+                    .await
+                }
+                NORegistry::Stader => {
+                    let Some(rpc_url) = rpc_url else {
+                        bail!("Stader registry requires RPC URL to be set in the PBS config");
+                    };
+
+                    let Some(stader_pool) = stader_pool else {
+                        bail!("Stader registry requires `stader_pool` to be set in the mux config");
+                    };
+
+                    fetch_stader_registry_keys(
+                        rpc_url,
+                        chain,
+                        stader_pool.clone(),
+                        U256::from(*node_operator_id),
+                        http_timeout,
+                    )
+                    .await
+                }
+            },
         }?;
 
         // Remove duplicates
@@ -392,6 +419,35 @@ async fn fetch_lido_registry_keys(
     } else {
         fetch_lido_module_registry_keys(registry_address, rpc_client, node_operator_id).await
     }
+}
+
+async fn fetch_stader_registry_keys(
+    rpc_url: Url,
+    chain: Chain,
+    stader_pool: StaderPool,
+    node_operator_id: U256,
+    http_timeout: Duration,
+) -> eyre::Result<Vec<BlsPublicKey>> {
+    debug!(?chain, %node_operator_id, ?stader_pool, "loading operator keys from Stader registry");
+
+    let client = Client::builder().timeout(http_timeout).build()?;
+    let http = Http::with_client(client, rpc_url);
+    let is_local = http.guess_local();
+    let rpc_client = RpcClient::new(http, is_local);
+
+    let registry_address = stader_registry_address(chain, stader_pool)?;
+
+    let provider = ProviderBuilder::new().connect_client(rpc_client);
+    let registry = get_stader_registry(registry_address, provider);
+
+    let operator_address = fetch_stader_operator_address(&registry, node_operator_id).await?;
+
+    let total_keys = fetch_stader_keys_total(&registry, node_operator_id).await?;
+
+    collect_registry_keys(total_keys, |offset, limit| {
+        fetch_stader_keys_batch(&registry, operator_address, offset, limit)
+    })
+    .await
 }
 
 async fn fetch_ssv_pubkeys(

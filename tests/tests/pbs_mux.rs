@@ -376,6 +376,7 @@ async fn test_ssv_multi_with_node() -> Result<()> {
         node_operator_id: 1,
         lido_module_id: None,
         registry: cb_common::config::NORegistry::SSV,
+        stader_pool: None,
     };
     let muxes = PbsMuxes {
         muxes: vec![MuxConfig {
@@ -483,6 +484,7 @@ async fn test_ssv_multi_with_public() -> Result<()> {
         node_operator_id: 1,
         lido_module_id: None,
         registry: cb_common::config::NORegistry::SSV,
+        stader_pool: None,
     };
     let muxes = PbsMuxes {
         muxes: vec![MuxConfig {

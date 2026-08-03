@@ -142,10 +142,13 @@ validator_pubkeys = [
 #   - Registry: details of a registry to load keys from. Supported registries:
 #       - Lido: NodeOperatorsRegistry
 #       - SSV: SSV API
-#       You can toggle the 'enable_refreshing' flag to let this registry periodically query Lido or SSV and refresh the list of validator pubkeys belonging to the corresponding operator.
+#       - Stader: Stader Permissioned/Permissionless NodePool (mainnet only). Requires the PBS `rpc_url` to be set (like Lido),
+#         and a `stader_pool` ("permissioned" or "permissionless") in the mux loader.
+#       You can toggle the 'enable_refreshing' flag to let this registry periodically query Lido, SSV, or Stader and refresh the list of validator pubkeys belonging to the corresponding operator.
 #       Each of these registry entries must be unique:
 #       - There can only be one Lido entry with a given Lido node operator ID.
 #       - There can only be one SSV entry with a given SSV node operator ID.
+#       - There can only be one Stader entry with a given pool and node operator ID.
 #       - A Lido entry can have the same node operator ID as an SSV entry if they happen to coincide; they're treated as separate entities.
 #
 # Example JSON list:
@@ -158,6 +161,7 @@ loader = "./tests/data/mux_keys.example.json"
 # loader = { url = "http://localhost:8000/keys" }
 # loader = { registry = "lido", node_operator_id = 8, lido_module_id = 1, enable_refreshing = false }
 # loader = { registry = "ssv", node_operator_id = 8, enable_refreshing = false }
+# loader = { registry = "stader", node_operator_id = 8, stader_pool = "permissionless", enable_refreshing = false }
 late_in_slot_time_ms = 1500
 timeout_get_header_ms = 900
 # For each mux, one or more [[mux.relays]] can be defined, which will be used for the matching validator pubkeys
