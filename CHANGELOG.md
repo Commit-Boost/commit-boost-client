@@ -42,3 +42,6 @@
 
 ### v0.10.0-rc4
 - Minimal changes to support Stader validator registry following the pattern of Lido and SSV registries.
+
+### v0.10.0
+- Accumulation of rc1-rc4
