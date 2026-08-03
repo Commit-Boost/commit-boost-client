@@ -301,5 +301,13 @@ mod tests {
             .expect("ssz body decodes without a content type");
         assert_eq!(decoded.preferences.max_execution_payment, 7);
         assert_eq!(decoded.auth.message.slot.as_u64(), 3);
+
+        // Intentional leniency: the body shape is fork-invariant, so only the
+        // header's presence is checked, not its value (the outbound hop
+        // re-derives gloas regardless). Pinned so a change here is deliberate.
+        let mut headers = HeaderMap::new();
+        headers.insert(CONSENSUS_VERSION_HEADER, axum::http::HeaderValue::from_static("electra"));
+        decode_versioned_request_body::<BuilderPreferencesRequest>(&headers, &body)
+            .expect("a parseable non-gloas fork is accepted, value ignored");
     }
 }

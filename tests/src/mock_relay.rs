@@ -437,11 +437,11 @@ async fn handle_get_execution_payload_bid(
     // Decode the optional request auth the way a real builder does: Content-Type
     // selects JSON vs SSZ. The wire type is fork-versioned per builder-specs,
     // so the SSZ form additionally requires Eth-Consensus-Version — PBS always
-    // forwards SSZ, making this the assertion that the header arrives.
+    // forwards SSZ, making this the assertion that the header arrives as gloas.
     if !body.is_empty() {
         let auth = match get_content_type(&headers) {
             EncodingType::Ssz => {
-                if get_consensus_version_header(&headers).is_none() {
+                if get_consensus_version_header(&headers) != Some(ForkName::Gloas) {
                     return (
                         StatusCode::BAD_REQUEST,
                         "missing Eth-Consensus-Version header".to_string(),
@@ -682,8 +682,9 @@ async fn handle_submit_builder_preferences(
         EncodingType::Json => serde_json::from_slice::<BuilderPreferencesRequest>(&body).ok(),
         // The wire type is fork-versioned per builder-specs, so a real builder
         // requires Eth-Consensus-Version on the SSZ form — PBS always forwards
-        // SSZ, making this the assertion that the header arrives.
+        // SSZ, making this the assertion that the header arrives as gloas.
         EncodingType::Ssz => get_consensus_version_header(&headers)
+            .filter(|fork| *fork == ForkName::Gloas)
             .and_then(|_| BuilderPreferencesRequest::from_ssz_bytes(&body).ok()),
     };
     let Some(request) = decoded else {

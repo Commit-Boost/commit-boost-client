@@ -295,9 +295,10 @@ fn essence_encoding(mt: &MediaType, default: EncodingType) -> Option<EncodingTyp
 pub static OUTBOUND_ACCEPT_SSZ_FIRST: HeaderValue =
     HeaderValue::from_static("application/octet-stream;q=1.0,application/json;q=0.9");
 
-/// outbound `Accept` header. The first entry gets q=1.0, each subsequent entry
-/// decreases by 0.1, and the value is clamped to a minimum of 0.1 so we never
-/// emit q=0 (which per RFC 7231 §5.3.1 means "not acceptable").
+/// Return the q-value for the index-th entry of an outbound `Accept` header.
+/// The first entry gets q=1.0, each subsequent entry decreases by 0.1, and the
+/// value is clamped to a minimum of 0.1 so we never emit q=0 (which per
+/// RFC 7231 §5.3.1 means "not acceptable").
 fn accept_q_value_for_index(index: usize) -> f32 {
     // `as i32` would silently wrap for large indices (e.g. usize::MAX → -1),
     // which would invert the clamp. Saturate the cast explicitly.
@@ -480,35 +481,15 @@ pub fn deserialize_body(
     }
 }
 
-/// Decode an ePBS request body as JSON or SSZ. These endpoints default to SSZ
-/// when no `Content-Type` is set; an explicit one still wins. An empty body is
-/// rejected before decoding so a missing body reads as `MissingBody`, not a
-/// deserialization error.
-pub fn decode_request_body<T>(headers: &HeaderMap, body: &Bytes) -> Result<T, BodyDeserializeError>
-where
-    T: serde::de::DeserializeOwned + Decode,
-{
-    if body.is_empty() {
-        return Err(BodyDeserializeError::MissingBody);
-    }
-    let encoding = content_type_encoding_with_default(headers, EncodingType::Ssz)?;
-    match encoding {
-        EncodingType::Json => {
-            serde_json::from_slice(body.as_ref()).map_err(BodyDeserializeError::SerdeJsonError)
-        }
-        EncodingType::Ssz => {
-            T::from_ssz_bytes(body.as_ref()).map_err(BodyDeserializeError::SszDecodeError)
-        }
-    }
-}
-
-/// Like [`decode_request_body`], but for the fork-versioned request wire types
-/// (builder-specs fork-versions `SignedRequestAuth` and
-/// `BuilderPreferencesRequest`): the SSZ form requires `Eth-Consensus-Version`
-/// (missing -> `MissingVersionHeader` -> 400), while JSON is self-describing so
-/// CB does best effort and ignores the header, mirroring
-/// [`decode_signed_beacon_block`]. The decoded shape is still the single
-/// (Gloas) type; the header requirement is wire discipline, not multiplexing.
+/// Decode a fork-versioned ePBS request body (builder-specs fork-versions
+/// `SignedRequestAuth` and `BuilderPreferencesRequest`) as JSON or SSZ,
+/// defaulting to SSZ when no `Content-Type` is set. An empty body is rejected
+/// first so a missing body reads as `MissingBody`. The SSZ form requires
+/// `Eth-Consensus-Version` (missing -> `MissingVersionHeader` -> 400), while
+/// JSON is self-describing so CB does best effort and ignores the header,
+/// mirroring [`decode_signed_beacon_block`]. The decoded shape is still the
+/// single (Gloas) type; the header requirement is wire discipline, not
+/// multiplexing.
 pub fn decode_versioned_request_body<T>(
     headers: &HeaderMap,
     body: &Bytes,
@@ -534,8 +515,8 @@ where
 
 /// Decode a `submitSignedBeaconBlock` request body. Like the other ePBS
 /// endpoints it defaults to SSZ when no `Content-Type` is set. Unlike the
-/// fork-agnostic `decode_request_body`, `SignedBeaconBlock` is fork-versioned:
-/// its enum has no plain `ssz::Decode`, so the SSZ form needs the fork from
+/// request-auth bodies, `SignedBeaconBlock` is fork-versioned as an enum with
+/// no plain `ssz::Decode`, so the SSZ form needs the fork from
 /// `Eth-Consensus-Version` to select the variant. The JSON form is `untagged`
 /// with `deny_unknown_fields`, so it selects the variant on its own.
 pub fn decode_signed_beacon_block(
@@ -573,8 +554,9 @@ mod test {
     use super::{
         APPLICATION_JSON, APPLICATION_OCTET_STREAM, AcceptedEncodings, BodyDeserializeError,
         CONSENSUS_VERSION_HEADER, EncodingType, NO_PREFERENCE_DEFAULT, OUTBOUND_ACCEPT_SSZ_FIRST,
-        WILDCARD, content_type_encoding_with_default, decode_signed_beacon_block, deserialize_body,
-        get_accept_types, get_consensus_version_header, get_content_type,
+        WILDCARD, accept_q_value_for_index, build_outbound_accept,
+        content_type_encoding_with_default, decode_signed_beacon_block, deserialize_body,
+        format_accept_entry, get_accept_types, get_consensus_version_header, get_content_type,
         parse_response_encoding_and_fork,
     };
     use crate::{pbs::SignedBeaconBlock, utils::TestRandomSeed};
@@ -1045,12 +1027,6 @@ mod test {
         );
     }
 
-    /// Format a single `Accept` header entry as `"<media-type>;q=<x.x>"`.
-    #[inline]
-    fn format_accept_entry(enc: EncodingType, q: f32) -> String {
-        format!("{};q={:.1}", enc.content_type(), q)
-    }
-
     // Pins the wire format PBS sends to relays: SSZ preferred (q=1.0), JSON as
     // fallback (q=0.9).
     #[test]
@@ -1059,6 +1035,23 @@ mod test {
             OUTBOUND_ACCEPT_SSZ_FIRST,
             "application/octet-stream;q=1.0,application/json;q=0.9"
         );
+    }
+
+    /// `build_outbound_accept` mirrors the static SSZ-first header for the
+    /// same preference order, and the q-value clamp never emits q=0.
+    #[test]
+    fn test_build_outbound_accept() {
+        let both =
+            AcceptedEncodings { primary: EncodingType::Ssz, fallback: Some(EncodingType::Json) };
+        assert_eq!(build_outbound_accept(both), OUTBOUND_ACCEPT_SSZ_FIRST);
+        assert_eq!(
+            build_outbound_accept(AcceptedEncodings::single(EncodingType::Json)),
+            "application/json;q=1.0"
+        );
+        assert_eq!(accept_q_value_for_index(0), 1.0);
+        assert_eq!(accept_q_value_for_index(9), 0.1);
+        assert_eq!(accept_q_value_for_index(10), 0.1);
+        assert_eq!(accept_q_value_for_index(usize::MAX), 0.1);
     }
 
     /// Present-but-unrecognized Content-Type still bails as
