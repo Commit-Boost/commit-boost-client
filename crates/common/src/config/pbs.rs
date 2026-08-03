@@ -135,7 +135,7 @@ pub struct PbsConfig {
     #[serde(default = "default_bool::<false>")]
     pub strict_auth_data: bool,
     /// When enabled, the BLS signature of an ePBS request's
-    /// `SignedRequestAuthV1` is verified against the proposer pubkey; false by
+    /// `SignedRequestAuth` is verified against the proposer pubkey; false by
     /// default since the downstream builder verifies it too
     #[serde(default = "default_bool::<false>")]
     pub verify_request_auth: bool,

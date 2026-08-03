@@ -24,14 +24,13 @@ use cb_common::{
     constants::{GENESIS_VALIDATORS_ROOT, GLOAS_FORK_VERSION},
     pbs::{
         BUILDER_V1_API_PATH, BUILDER_V2_API_PATH, BlobsBundle, BuilderBid, BuilderBidFulu,
-        BuilderPreferencesRequestV1, ExecutionPayloadBid, ExecutionPayloadElectra,
+        BuilderPreferencesRequest, ExecutionPayloadBid, ExecutionPayloadElectra,
         ExecutionPayloadHeaderFulu, ExecutionRequests, ForkName, ForkVersionDecode,
         GET_EXECUTION_PAYLOAD_BID_PATH, GET_HEADER_PATH, GET_STATUS_PATH,
         GetExecutionPayloadBidResponse, GetHeaderParams, GetHeaderResponse, GetPayloadInfo,
         HEADER_TIMEOUT_MS, PayloadAndBlobs, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
         SUBMIT_BUILDER_PREFERENCES_PATH, SUBMIT_SIGNED_BEACON_BLOCK_PATH, SignedBeaconBlock,
-        SignedBuilderBid, SignedExecutionPayloadBid, SignedRequestAuthV1,
-        SubmitBlindedBlockResponse,
+        SignedBuilderBid, SignedExecutionPayloadBid, SignedRequestAuth, SubmitBlindedBlockResponse,
     },
     signature::{sign_builder_root, sign_execution_payload_bid_root},
     signer::random_secret,
@@ -111,9 +110,9 @@ pub struct MockRelayState {
     received_block_slot: RwLock<Option<u64>>,
     /// `block_hash` the last forwarded block committed to in its bid
     received_block_committed_hash: RwLock<Option<B256>>,
-    /// The last `BuilderPreferencesRequestV1` submitted, so a test can assert
+    /// The last `BuilderPreferencesRequest` submitted, so a test can assert
     /// both the preferences and the auth were forwarded unchanged
-    received_preferences: RwLock<Option<BuilderPreferencesRequestV1>>,
+    received_preferences: RwLock<Option<BuilderPreferencesRequest>>,
     /// The `{proposer_pubkey}` path segment of the last preferences submission
     received_preferences_pubkey: RwLock<Option<BlsPublicKey>>,
     /// Bid requests answered after `bid_delay_ms` elapsed. A poll the caller
@@ -128,9 +127,9 @@ pub struct MockRelayState {
     /// Hold every bid request this long before answering, simulating a builder
     /// that sits on a request instead of answering promptly
     bid_delay_ms: Option<u64>,
-    /// `data` bytes of the last `SignedRequestAuthV1` forwarded on a bid
+    /// `data` bytes of the last `SignedRequestAuth` forwarded on a bid
     /// request
-    received_auth: RwLock<Option<SignedRequestAuthV1>>,
+    received_auth: RwLock<Option<SignedRequestAuth>>,
     response_override: RwLock<Option<StatusCode>>,
     bid_value: RwLock<U256>,
     /// The raw `Accept` header PBS sent on the most recent get_header request,
@@ -196,8 +195,8 @@ impl MockRelayState {
             .map(|r| r.preferences.max_execution_payment)
     }
 
-    /// The `SignedRequestAuthV1` carried by the last submitted preferences
-    pub fn received_preferences_auth(&self) -> Option<SignedRequestAuthV1> {
+    /// The `SignedRequestAuth` carried by the last submitted preferences
+    pub fn received_preferences_auth(&self) -> Option<SignedRequestAuth> {
         self.received_preferences.read().unwrap().as_ref().map(|r| r.auth.clone())
     }
 
@@ -221,9 +220,9 @@ impl MockRelayState {
         self.received_auth.read().unwrap().as_ref().map(|a| a.message.data.to_vec())
     }
 
-    /// The full `SignedRequestAuthV1` the relay saw, so a test can assert the
+    /// The full `SignedRequestAuth` the relay saw, so a test can assert the
     /// signature was forwarded byte-for-byte.
-    pub fn received_auth(&self) -> Option<SignedRequestAuthV1> {
+    pub fn received_auth(&self) -> Option<SignedRequestAuth> {
         self.received_auth.read().unwrap().clone()
     }
     pub fn large_body(&self) -> bool {
@@ -449,9 +448,9 @@ async fn handle_get_execution_payload_bid(
                     )
                         .into_response();
                 }
-                SignedRequestAuthV1::from_ssz_bytes(&body).ok()
+                SignedRequestAuth::from_ssz_bytes(&body).ok()
             }
-            EncodingType::Json => serde_json::from_slice::<SignedRequestAuthV1>(&body).ok(),
+            EncodingType::Json => serde_json::from_slice::<SignedRequestAuth>(&body).ok(),
         };
         if let Some(auth) = auth {
             *state.received_auth.write().unwrap() = Some(auth);
@@ -680,12 +679,12 @@ async fn handle_submit_builder_preferences(
     *state.received_preferences_pubkey.write().unwrap() = Some(proposer_pubkey);
 
     let decoded = match get_content_type(&headers) {
-        EncodingType::Json => serde_json::from_slice::<BuilderPreferencesRequestV1>(&body).ok(),
+        EncodingType::Json => serde_json::from_slice::<BuilderPreferencesRequest>(&body).ok(),
         // The wire type is fork-versioned per builder-specs, so a real builder
         // requires Eth-Consensus-Version on the SSZ form — PBS always forwards
         // SSZ, making this the assertion that the header arrives.
         EncodingType::Ssz => get_consensus_version_header(&headers)
-            .and_then(|_| BuilderPreferencesRequestV1::from_ssz_bytes(&body).ok()),
+            .and_then(|_| BuilderPreferencesRequest::from_ssz_bytes(&body).ok()),
     };
     let Some(request) = decoded else {
         return StatusCode::BAD_REQUEST.into_response();

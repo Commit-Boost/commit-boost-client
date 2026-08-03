@@ -439,7 +439,7 @@ async fn test_get_execution_payload_bid_demux_no_match_400() -> Result<()> {
     assert_eq!(body["code"], 400);
     assert_eq!(
         body["message"],
-        "Invalid SignedRequestAuthV1: auth.message.data does not match the value agreed with this builder"
+        "Invalid SignedRequestAuth: auth.message.data does not match the value agreed with this builder"
     );
     Ok(())
 }
@@ -569,7 +569,7 @@ async fn test_get_execution_payload_bid_auth_slot_mismatch_400() -> Result<()> {
     assert_eq!(body["code"], 400);
     assert_eq!(
         body["message"],
-        "Invalid SignedRequestAuthV1: auth.message.slot does not match the proposal slot in the request path"
+        "Invalid SignedRequestAuth: auth.message.slot does not match the proposal slot in the request path"
     );
     Ok(())
 }
@@ -600,7 +600,7 @@ async fn test_get_execution_payload_bid_verify_request_auth_enabled() -> Result<
     assert_eq!(mock_state.received_execution_payload_bid(), 0, "bad auth precedes relay calls");
     let body: serde_json::Value = serde_json::from_slice(&res.bytes().await?)?;
     assert_eq!(body["code"], 401);
-    assert_eq!(body["message"], "Invalid SignedRequestAuthV1: signature verification failed");
+    assert_eq!(body["message"], "Invalid SignedRequestAuth: signature verification failed");
 
     let auth = signed_auth(&secret_key, &[0xde, 0xad], TEST_SLOT, Chain::Hoodi);
     let res = mock_validator

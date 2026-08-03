@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use cb_common::{
-    pbs::{ForkName, RelayClient, SignedRequestAuthV1, error::PbsError},
+    pbs::{ForkName, RelayClient, SignedRequestAuth, error::PbsError},
     signature::verify_request_auth_signature,
     types::{BlsPublicKey, Chain},
     wire::{CONSENSUS_VERSION_HEADER, get_user_agent_with_version},
@@ -111,7 +111,7 @@ pub(crate) fn check_gas_limit(gas_limit: u64, parent_gas_limit: u64) -> bool {
 /// slot rule differs between them and stays with each caller.
 pub(crate) fn verify_auth_signature(
     pubkey: &BlsPublicKey,
-    auth: &SignedRequestAuthV1,
+    auth: &SignedRequestAuth,
     chain: Chain,
     verify_signature: bool,
 ) -> Result<(), PbsClientError> {

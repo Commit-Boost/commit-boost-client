@@ -15,7 +15,7 @@ use cb_common::{
         SIGNER_PORT_DEFAULT, SignerConfig, SignerType, StartSignerConfig, StaticModuleConfig,
         StaticPbsConfig, TlsMode,
     },
-    pbs::{RelayClient, RelayEntry, RequestAuthV1, SignedRequestAuthV1},
+    pbs::{RelayClient, RelayEntry, RequestAuth, SignedRequestAuth},
     signature::sign_request_auth_root,
     signer::{SignerLoader, random_secret},
     types::{BlsPublicKey, BlsSecretKey, BlsSignature, Chain, ModuleId},
@@ -264,12 +264,12 @@ pub fn bls_pubkey_from_hex_unchecked(hex: &str) -> BlsPublicKey {
     bls_pubkey_from_hex(hex).unwrap()
 }
 
-/// Build a `SignedRequestAuthV1` carrying opaque `data`. CB forwards it
+/// Build a `SignedRequestAuth` carrying opaque `data`. CB forwards it
 /// unmodified; the signature is only verified when `verify_request_auth` is on,
 /// so an empty one suffices elsewhere.
-pub fn opaque_auth(data: &[u8], slot: u64) -> SignedRequestAuthV1 {
-    SignedRequestAuthV1 {
-        message: RequestAuthV1 {
+pub fn opaque_auth(data: &[u8], slot: u64) -> SignedRequestAuth {
+    SignedRequestAuth {
+        message: RequestAuth {
             data: ssz_types::VariableList::new(data.to_vec()).expect("data fits in MAX_DATA_SIZE"),
             slot: Slot::new(slot),
         },
@@ -283,7 +283,7 @@ pub fn signed_auth(
     data: &[u8],
     slot: u64,
     chain: Chain,
-) -> SignedRequestAuthV1 {
+) -> SignedRequestAuth {
     let mut auth = opaque_auth(data, slot);
     auth.signature = sign_request_auth_root(secret_key, &auth.message.tree_hash_root(), chain);
     auth

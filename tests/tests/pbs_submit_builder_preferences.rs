@@ -1,5 +1,5 @@
 use cb_common::{
-    pbs::{BuilderPreferencesRequestV1, BuilderPreferencesV1, SignedRequestAuthV1},
+    pbs::{BuilderPreferences, BuilderPreferencesRequest, SignedRequestAuth},
     signer::random_secret,
     types::Chain,
     utils::utcnow_ms,
@@ -34,14 +34,8 @@ fn past_slot(chain: Chain) -> u64 {
     ((now_sec.saturating_sub(chain.genesis_time_sec())) / chain.slot_time_sec()).saturating_sub(10)
 }
 
-fn preferences(
-    auth: SignedRequestAuthV1,
-    max_execution_payment: u64,
-) -> BuilderPreferencesRequestV1 {
-    BuilderPreferencesRequestV1 {
-        auth,
-        preferences: BuilderPreferencesV1 { max_execution_payment },
-    }
+fn preferences(auth: SignedRequestAuth, max_execution_payment: u64) -> BuilderPreferencesRequest {
+    BuilderPreferencesRequest { auth, preferences: BuilderPreferences { max_execution_payment } }
 }
 
 /// The happy path: an SSZ submission reaches the builder as a 202, with the
@@ -344,10 +338,7 @@ async fn test_submit_builder_preferences_slot_passed_400() -> Result<()> {
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     let body: serde_json::Value = serde_json::from_slice(&res.bytes().await?)?;
     assert_eq!(body["code"], 400);
-    assert_eq!(
-        body["message"],
-        "Invalid SignedRequestAuthV1: auth.message.slot has already passed"
-    );
+    assert_eq!(body["message"], "Invalid SignedRequestAuth: auth.message.slot has already passed");
     assert_eq!(mock_state.received_builder_preferences(), 0, "no builder should be contacted");
     Ok(())
 }
@@ -435,7 +426,7 @@ async fn test_submit_builder_preferences_bad_signature_401() -> Result<()> {
 
     assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
     let body: serde_json::Value = serde_json::from_slice(&res.bytes().await?)?;
-    assert_eq!(body["message"], "Invalid SignedRequestAuthV1: signature verification failed");
+    assert_eq!(body["message"], "Invalid SignedRequestAuth: signature verification failed");
     assert_eq!(mock_state.received_builder_preferences(), 0);
     Ok(())
 }

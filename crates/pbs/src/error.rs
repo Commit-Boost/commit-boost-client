@@ -77,16 +77,16 @@ impl IntoResponse for PbsClientError {
         let message = match &self {
             PbsClientError::NoResponse => "no response from relays".to_string(),
             PbsClientError::AuthDataMismatch => {
-                "Invalid SignedRequestAuthV1: auth.message.data does not match the value agreed with this builder".to_string()
+                "Invalid SignedRequestAuth: auth.message.data does not match the value agreed with this builder".to_string()
             }
             PbsClientError::MissingTimingHeader => {
                 "Invalid request: Date-Milliseconds and X-Timeout-Ms headers are required".to_string()
             }
             PbsClientError::AuthSlotMismatch => {
-                "Invalid SignedRequestAuthV1: auth.message.slot does not match the proposal slot in the request path".to_string()
+                "Invalid SignedRequestAuth: auth.message.slot does not match the proposal slot in the request path".to_string()
             }
             PbsClientError::AuthSlotPassed => {
-                "Invalid SignedRequestAuthV1: auth.message.slot has already passed".to_string()
+                "Invalid SignedRequestAuth: auth.message.slot has already passed".to_string()
             }
             // The builder's own body is never forwarded: it is untrusted and may be
             // arbitrarily large
@@ -94,7 +94,7 @@ impl IntoResponse for PbsClientError {
                 format!("The addressed builder rejected the submission with status {code}")
             }
             PbsClientError::AuthSigVerify => {
-                "Invalid SignedRequestAuthV1: signature verification failed".to_string()
+                "Invalid SignedRequestAuth: signature verification failed".to_string()
             }
             PbsClientError::NotGloasBlock => {
                 "Invalid signed beacon block: only Gloas blocks are supported".to_string()

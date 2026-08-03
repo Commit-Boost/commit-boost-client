@@ -195,10 +195,10 @@ impl GetPayloadInfo for SignedBlindedBeaconBlock {
 #[allow(non_camel_case_types)]
 pub type MAX_DATA_SIZE = typenum::U4096;
 
-// `RequestAuthV1` is used to authenticate requests to a builder. This is useful
+// `RequestAuth` is used to authenticate requests to a builder. This is useful
 // so that other builders do not DDOS or run replay attacks on the builder.
 #[derive(Debug, Serialize, Deserialize, Encode, Decode, Clone, TreeHash)]
-pub struct RequestAuthV1 {
+pub struct RequestAuth {
     /// Opaque authentication data agreed with the builder out of band; hex
     /// string on the JSON wire
     #[serde(with = "ssz_types::serde_utils::hex_var_list")]
@@ -206,16 +206,16 @@ pub struct RequestAuthV1 {
     pub slot: Slot,
 }
 
-// `SignedRequestAuthV1`
+// `SignedRequestAuth`
 #[derive(Debug, Serialize, Deserialize, Encode, Decode, Clone)]
-pub struct SignedRequestAuthV1 {
-    pub message: RequestAuthV1,
+pub struct SignedRequestAuth {
+    pub message: RequestAuth,
     pub signature: BlsSignature,
 }
 
 /// Per-builder preferences a proposer submits ahead of the bid request.
 #[derive(Debug, Serialize, Deserialize, Encode, Decode, Clone)]
-pub struct BuilderPreferencesV1 {
+pub struct BuilderPreferences {
     /// Maximum execution-layer payment, in Gwei, this proposer will accept from
     /// this builder; quoted string on the JSON wire
     #[serde(with = "serde_utils::quoted_u64")]
@@ -225,9 +225,9 @@ pub struct BuilderPreferencesV1 {
 /// The `submitBuilderPreferences` request body.
 /// SSZ field order per builder-specs `gloas/validator.md`
 #[derive(Debug, Serialize, Deserialize, Encode, Decode, Clone)]
-pub struct BuilderPreferencesRequestV1 {
-    pub auth: SignedRequestAuthV1,
-    pub preferences: BuilderPreferencesV1,
+pub struct BuilderPreferencesRequest {
+    pub auth: SignedRequestAuth,
+    pub preferences: BuilderPreferences,
 }
 
 /// Path params for `POST /eth/v1/builder/builder_preferences/{proposer_pubkey}`
@@ -244,8 +244,8 @@ mod tests {
     /// `data` is an opaque hex STRING on the wire
     #[test]
     fn test_request_auth_data_serializes_as_hex() {
-        let auth = SignedRequestAuthV1 {
-            message: RequestAuthV1 {
+        let auth = SignedRequestAuth {
+            message: RequestAuth {
                 data: VariableList::new(vec![0x12, 0x34, 0x56, 0x78, 0x90, 0xab, 0xcd, 0xef])
                     .unwrap(),
                 slot: Slot::new(100),
@@ -267,7 +267,7 @@ mod tests {
             },
             "signature": "0xc00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
         }"#;
-        let auth: SignedRequestAuthV1 = serde_json::from_str(json).unwrap();
+        let auth: SignedRequestAuth = serde_json::from_str(json).unwrap();
         assert_eq!(auth.message.data.to_vec(), vec![
             0x12, 0x34, 0x56, 0x78, 0x90, 0xab, 0xcd, 0xef
         ]);
@@ -284,17 +284,17 @@ mod tests {
         let mut infinity_sig = vec![0u8; 96];
         infinity_sig[0] = 0xc0;
 
-        let auth = SignedRequestAuthV1 {
-            message: RequestAuthV1 {
+        let auth = SignedRequestAuth {
+            message: RequestAuth {
                 data: VariableList::new(vec![0x12, 0x34, 0x56, 0x78, 0x90, 0xab, 0xcd, 0xef])
                     .unwrap(),
                 slot: Slot::new(1234),
             },
             signature: BlsSignature::deserialize(&infinity_sig).unwrap(),
         };
-        let request = BuilderPreferencesRequestV1 {
+        let request = BuilderPreferencesRequest {
             auth: auth.clone(),
-            preferences: BuilderPreferencesV1 { max_execution_payment: 1_000_000_000 },
+            preferences: BuilderPreferences { max_execution_payment: 1_000_000_000 },
         };
 
         // Hand-assembled outer container: 4-byte offset to the variable-size
@@ -308,7 +308,7 @@ mod tests {
 
         assert_eq!(request.as_ssz_bytes(), expected);
 
-        let decoded = BuilderPreferencesRequestV1::from_ssz_bytes(&expected).unwrap();
+        let decoded = BuilderPreferencesRequest::from_ssz_bytes(&expected).unwrap();
         assert_eq!(decoded.preferences.max_execution_payment, 1_000_000_000);
         assert_eq!(decoded.auth.message.slot, Slot::new(1234));
         assert_eq!(decoded.auth.message.data.to_vec(), vec![

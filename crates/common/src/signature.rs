@@ -87,7 +87,7 @@ pub fn request_auth_domain(chain: Chain) -> B256 {
     compute_domain(chain, &B32::from(DOMAIN_REQUEST_AUTH))
 }
 
-/// Signs a `RequestAuthV1` message root under the request-auth domain.
+/// Signs a `RequestAuth` message root under the request-auth domain.
 pub fn sign_request_auth_root(
     secret_key: &BlsSecretKey,
     object_root: &B256,
@@ -100,7 +100,7 @@ pub fn sign_request_auth_root(
     sign_message(secret_key, signing_data.tree_hash_root())
 }
 
-/// Verifies a `SignedRequestAuthV1` signature under the request-auth domain.
+/// Verifies a `SignedRequestAuth` signature under the request-auth domain.
 pub fn verify_request_auth_signature<T: TreeHash>(
     pubkey: &BlsPublicKey,
     msg: &T,

@@ -17,7 +17,7 @@ use cb_common::{
     pbs::{
         DEFAULT_BID_POLL_TIMEOUT_MS, GetExecutionPayloadBidInfo, GetExecutionPayloadBidParams,
         GetExecutionPayloadBidResponse, HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS, RelayClient,
-        SignedExecutionPayloadBid, SignedRequestAuthV1,
+        SignedExecutionPayloadBid, SignedRequestAuth,
         error::{PbsError, ValidationError},
     },
     signature::verify_execution_payload_bid_signature,
@@ -55,7 +55,7 @@ use crate::{
     },
 };
 
-/// The body is the required `SignedRequestAuthV1`; builder-specs fork-versions
+/// The body is the required `SignedRequestAuth`; builder-specs fork-versions
 /// the request wire type, so the SSZ form requires `Eth-Consensus-Version`
 /// (JSON is best effort per CB policy, like submit_block).
 pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
@@ -64,7 +64,7 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
     Path(params): Path<GetExecutionPayloadBidParams>,
     body: Bytes,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    let body = Arc::new(decode_versioned_request_body::<SignedRequestAuthV1>(&req_headers, &body)?);
+    let body = Arc::new(decode_versioned_request_body::<SignedRequestAuth>(&req_headers, &body)?);
     tracing::Span::current().record("slot", params.slot);
     tracing::Span::current().record("parent_hash", tracing::field::debug(params.parent_hash));
     tracing::Span::current().record("parent_root", tracing::field::debug(params.parent_root));
@@ -157,7 +157,7 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
 /// with Internal (-> 500).
 pub async fn get_execution_payload_bid<S: BuilderApiState>(
     params: GetExecutionPayloadBidParams,
-    body: Arc<SignedRequestAuthV1>,
+    body: Arc<SignedRequestAuth>,
     req_headers: HeaderMap,
     state: PbsState<S>,
 ) -> Result<Option<GetExecutionPayloadBidResponse>, PbsClientError> {
@@ -326,13 +326,13 @@ fn request_budget_ms(req_headers: &HeaderMap, now_ms: u64) -> Result<u64, PbsCli
     Ok(until_deadline.min(timeout_ms))
 }
 
-/// Validates the caller's `SignedRequestAuthV1` against the request path. The
+/// Validates the caller's `SignedRequestAuth` against the request path. The
 /// `auth.message.data` check is the demux's job (`match_relays_by_auth_data`),
 /// so only the slot is checked here, plus the signature when
 /// `verify_request_auth` is on. The downstream builder verifies the signature
 /// regardless, which is why the crypto is opt-in.
 fn validate_request_auth(
-    auth: &SignedRequestAuthV1,
+    auth: &SignedRequestAuth,
     params: &GetExecutionPayloadBidParams,
     chain: Chain,
     verify_signature: bool,
@@ -382,7 +382,7 @@ async fn fetch_parent_block(
 
 async fn send_timed_get_execution_payload_bid(
     params: GetExecutionPayloadBidParams,
-    body: Arc<SignedRequestAuthV1>,
+    body: Arc<SignedRequestAuth>,
     relay: RelayClient,
     headers: HeaderMap,
     ms_into_slot: u64,
@@ -536,7 +536,7 @@ struct ValidationContext {
 
 async fn send_one_get_execution_payload_bid(
     params: GetExecutionPayloadBidParams,
-    body: Arc<SignedRequestAuthV1>,
+    body: Arc<SignedRequestAuth>,
     relay: RelayClient,
     mut req_config: RequestContext,
     validation: ValidationContext,
@@ -798,7 +798,7 @@ mod tests {
     use alloy::primitives::{B256, aliases::B32};
     use cb_common::{
         constants::{DOMAIN_REQUEST_AUTH, GENESIS_VALIDATORS_ROOT, GLOAS_FORK_VERSION},
-        pbs::{RequestAuthV1, error::ValidationError},
+        pbs::{RequestAuth, error::ValidationError},
         signature::{
             compute_domain, compute_domain_with_fork_version, request_auth_domain,
             sign_builder_message, sign_execution_payload_bid_root, sign_request_auth_root,
@@ -986,10 +986,10 @@ mod tests {
         assert!(validate_signature(&pubkey, &message, &bid_domain_sig).is_ok());
     }
 
-    fn test_auth(slot: u64, signature: BlsSignature) -> SignedRequestAuthV1 {
-        SignedRequestAuthV1 {
+    fn test_auth(slot: u64, signature: BlsSignature) -> SignedRequestAuth {
+        SignedRequestAuth {
             // `data` is the demux's input, not this validator's: it is unused here
-            message: RequestAuthV1 { data: Default::default(), slot: Slot::new(slot) },
+            message: RequestAuth { data: Default::default(), slot: Slot::new(slot) },
             signature,
         }
     }
@@ -998,7 +998,7 @@ mod tests {
     #[test]
     fn test_decode_request_auth_rejects_empty_body() {
         assert!(matches!(
-            decode_versioned_request_body::<SignedRequestAuthV1>(&HeaderMap::new(), &Bytes::new()),
+            decode_versioned_request_body::<SignedRequestAuth>(&HeaderMap::new(), &Bytes::new()),
             Err(BodyDeserializeError::MissingBody)
         ));
     }

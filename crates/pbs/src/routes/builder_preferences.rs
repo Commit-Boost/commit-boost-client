@@ -8,8 +8,8 @@ use axum::{
 };
 use cb_common::{
     pbs::{
-        BuilderPreferencesRequestV1, RelayClient, SignedRequestAuthV1,
-        SubmitBuilderPreferencesParams, error::PbsError,
+        BuilderPreferencesRequest, RelayClient, SignedRequestAuth, SubmitBuilderPreferencesParams,
+        error::PbsError,
     },
     types::Chain,
     utils::ms_into_slot,
@@ -32,7 +32,7 @@ use crate::{
     },
 };
 
-/// The body is the required `BuilderPreferencesRequestV1`; like the bid
+/// The body is the required `BuilderPreferencesRequest`; like the bid
 /// endpoint it is fork-versioned per builder-specs, so the SSZ form requires
 /// `Eth-Consensus-Version` (JSON is best effort per CB policy).
 pub async fn handle_submit_builder_preferences<S: BuilderApiState>(
@@ -41,8 +41,7 @@ pub async fn handle_submit_builder_preferences<S: BuilderApiState>(
     Path(params): Path<SubmitBuilderPreferencesParams>,
     body: Bytes,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    let request =
-        decode_versioned_request_body::<BuilderPreferencesRequestV1>(&req_headers, &body)?;
+    let request = decode_versioned_request_body::<BuilderPreferencesRequest>(&req_headers, &body)?;
     tracing::Span::current().record("validator", tracing::field::debug(&params.proposer_pubkey));
     tracing::Span::current().record("slot", request.auth.message.slot.as_u64());
 
@@ -80,7 +79,7 @@ pub async fn handle_submit_builder_preferences<S: BuilderApiState>(
 /// Ok(()) if at least one addressed builder accepted (-> 202).
 pub async fn submit_builder_preferences<S: BuilderApiState>(
     params: SubmitBuilderPreferencesParams,
-    request: BuilderPreferencesRequestV1,
+    request: BuilderPreferencesRequest,
     req_headers: HeaderMap,
     state: PbsState<S>,
 ) -> Result<(), PbsClientError> {
@@ -163,14 +162,14 @@ pub async fn submit_builder_preferences<S: BuilderApiState>(
     Ok(())
 }
 
-/// Validates the caller's `SignedRequestAuthV1`. There is no slot in the
+/// Validates the caller's `SignedRequestAuth`. There is no slot in the
 /// request path here, so instead of matching one we reject a slot that has
 /// already ended: preferences are submitted an epoch ahead, and a replayed
 /// submission must not be able to roll a proposer's preferences back to a stale
 /// value. The `auth.message.data` check is the demux's job
 /// (`match_relays_by_auth_data`).
 fn validate_preferences_auth(
-    auth: &SignedRequestAuthV1,
+    auth: &SignedRequestAuth,
     params: &SubmitBuilderPreferencesParams,
     chain: Chain,
     verify_signature: bool,
@@ -191,7 +190,7 @@ fn slot_has_passed(slot: u64, chain: Chain) -> bool {
 
 async fn send_one_submit_builder_preferences(
     proposer_pubkey: cb_common::types::BlsPublicKey,
-    request: BuilderPreferencesRequestV1,
+    request: BuilderPreferencesRequest,
     relay: RelayClient,
     headers: HeaderMap,
     timeout_ms: u64,
@@ -226,7 +225,7 @@ async fn send_one_submit_builder_preferences(
 #[cfg(test)]
 mod tests {
     use cb_common::{
-        pbs::{BuilderPreferencesV1, RequestAuthV1},
+        pbs::{BuilderPreferences, RequestAuth},
         types::BlsSignature,
         utils::{timestamp_of_slot_start_sec, utcnow_ms, utcnow_sec},
         wire::{BodyDeserializeError, CONSENSUS_VERSION_HEADER},
@@ -269,7 +268,7 @@ mod tests {
 
     #[test]
     fn decode_rejects_an_empty_body() {
-        let err = decode_versioned_request_body::<BuilderPreferencesRequestV1>(
+        let err = decode_versioned_request_body::<BuilderPreferencesRequest>(
             &HeaderMap::new(),
             &Bytes::new(),
         )
@@ -281,24 +280,24 @@ mod tests {
     /// and the SSZ form requires `Eth-Consensus-Version` (fork-versioned type).
     #[test]
     fn decode_defaults_to_ssz_without_a_content_type() {
-        let request = BuilderPreferencesRequestV1 {
-            auth: SignedRequestAuthV1 {
-                message: RequestAuthV1 { data: Default::default(), slot: lh_types::Slot::new(3) },
+        let request = BuilderPreferencesRequest {
+            auth: SignedRequestAuth {
+                message: RequestAuth { data: Default::default(), slot: lh_types::Slot::new(3) },
                 signature: BlsSignature::empty(),
             },
-            preferences: BuilderPreferencesV1 { max_execution_payment: 7 },
+            preferences: BuilderPreferences { max_execution_payment: 7 },
         };
         let body = Bytes::from(request.as_ssz_bytes());
 
         // Missing the header, the SSZ-default body is rejected, not misparsed
         let err =
-            decode_versioned_request_body::<BuilderPreferencesRequestV1>(&HeaderMap::new(), &body)
+            decode_versioned_request_body::<BuilderPreferencesRequest>(&HeaderMap::new(), &body)
                 .expect_err("ssz without the version header must be rejected");
         assert!(matches!(err, BodyDeserializeError::MissingVersionHeader));
 
         let mut headers = HeaderMap::new();
         headers.insert(CONSENSUS_VERSION_HEADER, axum::http::HeaderValue::from_static("gloas"));
-        let decoded = decode_versioned_request_body::<BuilderPreferencesRequestV1>(&headers, &body)
+        let decoded = decode_versioned_request_body::<BuilderPreferencesRequest>(&headers, &body)
             .expect("ssz body decodes without a content type");
         assert_eq!(decoded.preferences.max_execution_payment, 7);
         assert_eq!(decoded.auth.message.slot.as_u64(), 3);
