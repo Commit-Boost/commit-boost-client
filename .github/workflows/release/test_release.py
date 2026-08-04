@@ -408,6 +408,23 @@ class TestCheckTagFree:
                 cmd_check_tag_free(_ns(tag="v1.2.3"))
             assert exc.value.code == 1
 
+    def test_uses_exact_match_endpoint(self):
+        # Regression: the check MUST use /git/ref/ (singular, exact match).
+        # The plural /git/refs/ endpoint does PREFIX matching on GitHub's
+        # side, so existing v1.2.3-rc* tags made v1.2.3 read as taken and
+        # the rc -> final release flow always failed validation. The mock
+        # can't reproduce GitHub's prefix semantics, so the load-bearing
+        # assertion is the endpoint path itself.
+        with patch("release.gh_api") as mock_gh:
+            mock_gh.side_effect = GhApiError("not found")
+            with pytest.raises(SystemExit):
+                cmd_check_tag_free(_ns(tag="v1.2.3"))
+            path = mock_gh.call_args.args[1]
+            assert path == "/git/ref/tags/v1.2.3", (
+                f"tag-free check must use the exact-match singular /git/ref/ "
+                f"endpoint, got: {path}"
+            )
+
 
 # ── create-tag ───────────────────────────────────────────────────────────────
 
@@ -504,5 +521,3 @@ def _git_rev(path: Path, ref: str) -> str:
         cwd=str(path), capture_output=True, text=True,
     )
     return r.stdout.strip()
-
-
