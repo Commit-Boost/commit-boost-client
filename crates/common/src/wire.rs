@@ -6,7 +6,7 @@ use axum::http::HeaderValue;
 use bytes::Bytes;
 use futures::StreamExt;
 use headers_accept::Accept;
-use lh_types::{BeaconBlock, ForkName};
+use lh_types::{BeaconBlock, ForkName, SignedBeaconBlock, map_fork_name};
 use mediatype::{MediaType, ReadParams, names};
 use reqwest::{
     Response,
@@ -403,8 +403,22 @@ pub fn deserialize_body(
     };
 
     match encoding {
-        EncodingType::Json => serde_json::from_slice::<SignedBlindedBeaconBlock>(&body)
-            .map_err(BodyDeserializeError::SerdeJsonError),
+        EncodingType::Json => match get_consensus_version_header(headers) {
+            // `SignedBlindedBeaconBlock` is untagged and Electra and Fulu are
+            // field-identical, so a plain `from_slice` stops at Electra and
+            // reports the wrong fork for every Fulu block.
+            Some(version) => Ok(map_fork_name!(
+                version,
+                SignedBeaconBlock,
+                serde_json::from_slice(&body).map_err(BodyDeserializeError::SerdeJsonError)?
+            )),
+            // builder-specs doesn't require the header for JSON bodies.
+            // A request without it still has to decode and an untagged decode would silently pick
+            // Electra. Assume Fulu to be conservative until ePBS warrants the refactor
+            None => Ok(SignedBeaconBlock::Fulu(
+                serde_json::from_slice(&body).map_err(BodyDeserializeError::SerdeJsonError)?,
+            )),
+        },
         EncodingType::Ssz => match get_consensus_version_header(headers) {
             Some(version) => SignedBlindedBeaconBlock::from_ssz_bytes_with(&body, |bytes| {
                 BeaconBlock::from_ssz_bytes_for_fork(bytes, version)
@@ -929,5 +943,63 @@ mod test {
         let body = Bytes::from_static(b"\x00\x01\x02\x03");
         let err = deserialize_body(&headers, body).unwrap_err();
         assert!(matches!(err, BodyDeserializeError::MissingVersionHeader));
+    }
+
+    /// A blinded block body, encoded as JSON, with the given consensus version.
+    ///
+    /// The Electra fixture is deliberately reused for the Fulu case: Electra
+    /// and Fulu have *identical* `BeaconBlockBody` fields, and their
+    /// `ExecutionPayloadHeader`s are identical too, so one byte string is a
+    /// valid encoding of BOTH forks. That ambiguity is the whole point - the
+    /// header is the only thing that can tell them apart.
+    fn blinded_block_json(version: Option<&'static str>) -> (HeaderMap, Bytes) {
+        let body = Bytes::from_static(include_bytes!(
+            "pbs/types/testdata/signed-blinded-beacon-block-electra.json"
+        ));
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static(APPLICATION_JSON));
+        if let Some(version) = version {
+            headers.insert(
+                HeaderName::try_from(CONSENSUS_VERSION_HEADER).unwrap(),
+                HeaderValue::from_static(version),
+            );
+        }
+        (headers, body)
+    }
+
+    /// A JSON body labelled `fulu` must decode AS Fulu.
+    #[test]
+    fn test_deserialize_body_json_decodes_fulu_as_fulu() {
+        let (headers, body) = blinded_block_json(Some("fulu"));
+        let block = deserialize_body(&headers, body).expect("fulu body decodes");
+        assert_eq!(
+            block.fork_name_unchecked(),
+            ForkName::Fulu,
+            "decoded fork must follow Eth-Consensus-Version, not the untagged variant scan"
+        );
+    }
+
+    /// The same bytes labelled `electra` must still decode as Electra
+    /// The header is honoured in both directions
+    #[test]
+    fn test_deserialize_body_json_decodes_electra_as_electra() {
+        let (headers, body) = blinded_block_json(Some("electra"));
+        let block = deserialize_body(&headers, body).expect("electra body decodes");
+        assert_eq!(block.fork_name_unchecked(), ForkName::Electra);
+    }
+
+    /// The header is `required: false` for JSON requests in builder-specs
+    /// ("Required if request is SSZ encoded"), so a body without it must still
+    /// decode. It is assumed to be Fulu rather than left to the untagged scan,
+    /// which would silently pick Electra.
+    #[test]
+    fn test_deserialize_body_json_without_version_header_assumes_fulu() {
+        let (headers, body) = blinded_block_json(None);
+        let block = deserialize_body(&headers, body).expect("decodes without the header");
+        assert_eq!(
+            block.fork_name_unchecked(),
+            ForkName::Fulu,
+            "a headerless JSON body must not fall back to the untagged Electra match"
+        );
     }
 }
