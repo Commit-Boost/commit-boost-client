@@ -44,6 +44,17 @@ struct ProposalInfo {
 
     /// The version of the submit_block route being used
     api_version: BuilderApiVersion,
+
+    /// Fork of this proposal, derived from its SLOT via the chain's fork
+    /// schedule.
+    ///
+    /// Deliberately not `signed_blinded_block.fork_name_unchecked()`:
+    /// `SignedBlindedBeaconBlock` is an untagged enum, so a JSON body decodes
+    /// into the first variant that parses, and field-identical forks (Electra
+    /// and Fulu) cannot be told apart by shape. The slot can tell them apart,
+    /// and unlike `Eth-Consensus-Version` it does not depend on the proposer
+    /// sending a header that builder-specs makes optional for JSON.
+    fork: ForkName,
 }
 
 struct SubmitBlockResponseInfo {
@@ -92,8 +103,9 @@ pub async fn submit_block<S: BuilderApiState>(
     }
 
     // Send requests to all relays concurrently
+    let fork = state.config.chain.fork_by_slot(signed_blinded_block.slot().as_u64());
     let proposal_info =
-        Arc::new(ProposalInfo { signed_blinded_block, headers: send_headers, api_version });
+        Arc::new(ProposalInfo { signed_blinded_block, headers: send_headers, api_version, fork });
     let mut handles = Vec::with_capacity(state.all_relays().len());
     for relay in state.all_relays().iter() {
         handles.push(
@@ -201,12 +213,9 @@ async fn send_submit_block(
     // Extract the info needed for validation
     let got_block_hash = response.data.execution_payload.block_hash().0;
 
-    // Reject if response's fork mismatches BlindedBeaconBlock's fork
-    let expected_fork = match &proposal_info.signed_blinded_block.message() {
-        BlindedBeaconBlock::Electra(_) => ForkName::Electra,
-        BlindedBeaconBlock::Fulu(_) => ForkName::Fulu,
-        _ => return Err(PbsError::Validation(ValidationError::UnsupportedFork)),
-    };
+    // Reject if the response's fork mismatches the proposal's. Unsupported
+    // forks are rejected by the variant match below.
+    let expected_fork = proposal_info.fork;
     if response.version != expected_fork {
         return Err(PbsError::Validation(ValidationError::ForkMismatch {
             expected: expected_fork,
@@ -265,6 +274,7 @@ async fn send_submit_block_full(
         timeout_ms,
         &proposal_info.headers,
         &proposal_info.signed_blinded_block,
+        proposal_info.fork,
         retry,
         api_version,
     )
@@ -320,12 +330,14 @@ fn decode_by_encoding<T>(
 /// Sends the actual HTTP request to the relay's submit_block endpoint,
 /// returning the response (if applicable), the round-trip time, and the
 /// encoding type used for the body (if any). Used by send_submit_block.
+#[allow(clippy::too_many_arguments)]
 async fn send_submit_block_impl(
     relay: &RelayClient,
     url: Arc<Url>,
     timeout_ms: u64,
     headers: &HeaderMap,
     signed_blinded_block: &SignedBlindedBeaconBlock,
+    fork: ForkName,
     retry: u32,
     api_version: BuilderApiVersion,
 ) -> Result<SubmitBlockResponseInfo, PbsError> {
@@ -339,7 +351,7 @@ async fn send_submit_block_impl(
         .headers(headers.clone())
         .body(signed_blinded_block.as_ssz_bytes())
         .header(CONTENT_TYPE, EncodingType::Ssz.content_type_header())
-        .header(CONSENSUS_VERSION_HEADER, signed_blinded_block.fork_name_unchecked().to_string())
+        .header(CONSENSUS_VERSION_HEADER, fork.to_string())
         .send()
         .await
     {
@@ -380,6 +392,9 @@ async fn send_submit_block_impl(
             .headers(headers.clone())
             .body(json_body)
             .header(CONTENT_TYPE, EncodingType::Json.content_type_header())
+            // The SSZ attempt labels the fork; without it here the retry is the
+            // ambiguous one, since Electra and Fulu are identical in JSON.
+            .header(CONSENSUS_VERSION_HEADER, fork.to_string())
             .send()
             .await
         {

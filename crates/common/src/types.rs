@@ -181,10 +181,11 @@ impl Chain {
             Chain::Holesky => KnownChain::Holesky.fulu_fork_slot(),
             Chain::Sepolia => KnownChain::Sepolia.fulu_fork_slot(),
             Chain::Hoodi => KnownChain::Hoodi.fulu_fork_slot(),
-            Chain::Custom { slot_time_secs, .. } => *slot_time_secs,
+            Chain::Custom { fulu_fork_slot, .. } => *fulu_fork_slot,
         }
     }
 
+    /// TODO(gloas): this resolves to Electra or Fulu only
     pub fn fork_by_slot(&self, slot: u64) -> ForkName {
         if slot >= self.fulu_fork_slot() { ForkName::Fulu } else { ForkName::Electra }
     }
@@ -488,6 +489,49 @@ mod tests {
             fulu_fork_slot: 1,
             chain_id: U256::from(123),
         })
+    }
+
+    /// A custom chain must report its CONFIGURED fulu fork slot.
+    #[test]
+    fn custom_chain_reports_its_configured_fulu_fork_slot() {
+        let chain = Chain::Custom {
+            genesis_time_secs: 1,
+            slot_time_secs: 12,
+            genesis_fork_version: [1, 0, 0, 0],
+            fulu_fork_slot: 8192,
+            chain_id: U256::from(123),
+        };
+        assert_eq!(chain.fulu_fork_slot(), 8192, "must not return slot_time_secs");
+    }
+
+    /// `fork_by_slot` is the authoritative fork source for a proposal, so pin
+    /// its boundary exactly: the fork slot itself is already Fulu.
+    #[test]
+    fn fork_by_slot_switches_at_the_fork_boundary() {
+        let chain = Chain::Custom {
+            genesis_time_secs: 1,
+            slot_time_secs: 12,
+            genesis_fork_version: [1, 0, 0, 0],
+            fulu_fork_slot: 100,
+            chain_id: U256::from(123),
+        };
+        assert_eq!(chain.fork_by_slot(99), ForkName::Electra);
+        assert_eq!(chain.fork_by_slot(100), ForkName::Fulu);
+        assert_eq!(chain.fork_by_slot(101), ForkName::Fulu);
+    }
+
+    /// A chain that is Fulu from genesis (the devnet shape) reports Fulu at
+    /// every slot, including slot 0.
+    #[test]
+    fn fork_by_slot_handles_fulu_from_genesis() {
+        let chain = Chain::Custom {
+            genesis_time_secs: 1,
+            slot_time_secs: 12,
+            genesis_fork_version: [1, 0, 0, 0],
+            fulu_fork_slot: 0,
+            chain_id: U256::from(123),
+        };
+        assert_eq!(chain.fork_by_slot(0), ForkName::Fulu);
     }
 
     #[test]
