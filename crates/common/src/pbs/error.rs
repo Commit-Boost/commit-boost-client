@@ -38,11 +38,21 @@ pub enum PbsError {
 
     #[error("SSZ error: {0}")]
     SszError(#[from] SszValueError),
+
+    #[error("websocket error: {0}")]
+    WebSocket(String),
+
+    #[error("websocket timed out")]
+    WebSocketTimeout,
 }
 
 impl PbsError {
     pub fn is_timeout(&self) -> bool {
-        matches!(self, PbsError::Reqwest(err) if err.is_timeout())
+        match self {
+            PbsError::Reqwest(err) => err.is_timeout(),
+            PbsError::WebSocketTimeout => true,
+            _ => false,
+        }
     }
 
     /// Extract the HTTP status code from relay-originated errors.

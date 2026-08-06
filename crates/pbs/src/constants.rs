@@ -8,6 +8,10 @@ pub const RELOAD_ENDPOINT_TAG: &str = "reload";
 pub const TIMEOUT_ERROR_CODE: u16 = 555;
 pub const TIMEOUT_ERROR_CODE_STR: &str = "555";
 
+/// For metrics recorded when the relay connection itself failed rather than the
+/// deadline expiring: refused, dns, tls, or a stream that broke mid-window
+pub const TRANSPORT_ERROR_CODE_STR: &str = "556";
+
 /// 20 MiB to cover edge cases for heavy blocks and also add a bit of slack for
 /// any Ethereum upgrades in the near future
 pub const MAX_SIZE_SUBMIT_BLOCK_RESPONSE: usize = 20 * 1024 * 1024;

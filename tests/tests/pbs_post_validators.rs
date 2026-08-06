@@ -7,9 +7,14 @@ use cb_common::{
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
-    mock_relay::{MockRelayState, start_mock_relay_service},
+    mock_relay::{
+        MockRelayState, start_mock_relay_service, start_mock_relay_service_with_listener,
+    },
     mock_validator::MockValidator,
-    utils::{generate_mock_relay, get_pbs_config, setup_test_env, to_pbs_config},
+    utils::{
+        API_KEY, generate_mock_relay, get_free_listener, get_pbs_config, setup_test_env,
+        to_pbs_config,
+    },
 };
 use eyre::Result;
 use reqwest::StatusCode;
@@ -57,6 +62,38 @@ async fn test_register_validators() -> Result<()> {
 
     assert_eq!(mock_state.received_register_validator(), 1);
     assert_eq!(res.status(), StatusCode::OK);
+
+    Ok(())
+}
+
+/// The api key from `relay.config.headers` is forwarded on registrations.
+#[tokio::test]
+async fn test_register_validators_sends_api_key() -> Result<()> {
+    setup_test_env();
+    let signer = random_secret();
+    let pubkey: BlsPublicKey = signer.public_key();
+    let chain = Chain::Holesky;
+
+    let relay_listener = get_free_listener().await;
+    let relay_port = relay_listener.local_addr()?.port();
+    let mock_state = Arc::new(MockRelayState::new(chain, signer));
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
+
+    let pbs_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr()?.port();
+    drop(pbs_listener);
+
+    let relays = vec![generate_mock_relay(relay_port, pubkey)?];
+    let config = to_pbs_config(chain, get_pbs_config(pbs_port), relays);
+    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(PbsState::new(config, PathBuf::new())));
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let mock_validator = MockValidator::new(pbs_port)?;
+    let res = mock_validator.do_register_validator().await?;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    assert_eq!(mock_state.received_register_validator(), 1);
+    assert_eq!(mock_state.last_register_api_key().as_deref(), Some(API_KEY));
 
     Ok(())
 }

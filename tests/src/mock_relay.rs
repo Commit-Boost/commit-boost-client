@@ -9,7 +9,8 @@ use std::{
 };
 
 use alloy::{
-    eips::eip7594::CELLS_PER_EXT_BLOB, primitives::U256,
+    eips::eip7594::CELLS_PER_EXT_BLOB,
+    primitives::{B256, U256},
     rpc::types::beacon::relay::ValidatorRegistration,
 };
 use axum::{
@@ -42,6 +43,8 @@ use ssz::Encode;
 use tokio::net::TcpListener;
 use tracing::{debug, error};
 use tree_hash::TreeHash;
+
+use crate::utils::HEADER_API_KEY;
 
 pub async fn start_mock_relay_service(state: Arc<MockRelayState>, port: u16) -> eyre::Result<()> {
     let socket = SocketAddr::new("0.0.0.0".parse()?, port);
@@ -92,6 +95,7 @@ pub struct MockRelayState {
     /// The raw `Accept` header PBS sent on the most recent get_header request,
     /// so a test can assert what encoding PBS asked the relay for.
     received_get_header_accept: RwLock<Option<String>>,
+    last_register_api_key: RwLock<Option<String>>,
 }
 
 impl MockRelayState {
@@ -131,6 +135,9 @@ impl MockRelayState {
     pub fn set_response_override(&self, status: StatusCode) {
         *self.response_override.write().unwrap() = Some(status);
     }
+    pub fn last_register_api_key(&self) -> Option<String> {
+        self.last_register_api_key.read().unwrap().clone()
+    }
 }
 
 impl MockRelayState {
@@ -151,6 +158,7 @@ impl MockRelayState {
             response_override: RwLock::new(None),
             bid_value: RwLock::new(U256::from(10)),
             received_get_header_accept: RwLock::new(None),
+            last_register_api_key: RwLock::new(None),
             supported_content_types: Arc::new(
                 [EncodingType::Json, EncodingType::Ssz].iter().cloned().collect(),
             ),
@@ -219,6 +227,33 @@ pub fn mock_relay_app_router(state: Arc<MockRelayState>) -> Router {
     Router::new().merge(builder_router_v1).merge(builder_router_v2).with_state(state)
 }
 
+pub fn mock_signed_builder_bid(
+    chain: Chain,
+    signer: &BlsSecretKey,
+    slot: u64,
+    parent_hash: B256,
+    value: U256,
+) -> SignedBuilderBid {
+    let mut header = ExecutionPayloadHeaderFulu {
+        parent_hash: parent_hash.into(),
+        block_hash: Default::default(),
+        timestamp: timestamp_of_slot_start_sec(slot, chain),
+        ..ExecutionPayloadHeaderFulu::test_random()
+    };
+    header.block_hash.0[0] = 1;
+
+    let message = BuilderBid::Fulu(BuilderBidFulu {
+        header,
+        blob_kzg_commitments: Default::default(),
+        execution_requests: ExecutionRequests::default(),
+        value,
+        pubkey: signer.public_key().into(),
+    });
+    let signature = sign_builder_root(chain, signer, &message.tree_hash_root());
+
+    SignedBuilderBid { message, signature }
+}
+
 async fn handle_get_header(
     State(state): State<Arc<MockRelayState>>,
     Path(GetHeaderParams { parent_hash, slot, .. }): Path<GetHeaderParams>,
@@ -252,24 +287,8 @@ async fn handle_get_header(
 
     let data = match consensus_version_header {
         ForkName::Fulu => {
-            let mut header = ExecutionPayloadHeaderFulu {
-                parent_hash: parent_hash.into(),
-                block_hash: Default::default(),
-                timestamp: timestamp_of_slot_start_sec(slot, state.chain),
-                ..ExecutionPayloadHeaderFulu::test_random()
-            };
-            header.block_hash.0[0] = 1;
-
-            let message = BuilderBid::Fulu(BuilderBidFulu {
-                header,
-                blob_kzg_commitments: Default::default(),
-                execution_requests: ExecutionRequests::default(),
-                value: bid_value,
-                pubkey: state.signer.public_key().into(),
-            });
-            let object_root = message.tree_hash_root();
-            let signature = sign_builder_root(state.chain, &state.signer, &object_root);
-            let response = SignedBuilderBid { message, signature };
+            let response =
+                mock_signed_builder_bid(state.chain, &state.signer, slot, parent_hash, bid_value);
             if content_type == EncodingType::Ssz {
                 response.as_ssz_bytes()
             } else {
@@ -318,9 +337,14 @@ async fn handle_get_status(State(state): State<Arc<MockRelayState>>) -> impl Int
 
 async fn handle_register_validator(
     State(state): State<Arc<MockRelayState>>,
+    headers: HeaderMap,
     Json(validators): Json<Vec<ValidatorRegistration>>,
 ) -> impl IntoResponse {
     state.received_register_validator.fetch_add(1, Ordering::Relaxed);
+    *state.last_register_api_key.write().unwrap() = headers
+        .get(HEADER_API_KEY)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.to_string());
     debug!("Received {} registrations", validators.len());
 
     if let Some(status) = state.response_override.read().unwrap().as_ref() {
