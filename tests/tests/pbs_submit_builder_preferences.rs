@@ -8,15 +8,14 @@ use cb_common::{
 use cb_tests::{
     mock_relay::MockRelayState,
     utils::{
-        generate_mock_relay, generate_mock_relay_with_auth_data, opaque_auth, setup_relay,
-        setup_relays, signed_auth,
+        TEST_AUTH_DATA, generate_mock_relay, generate_mock_relay_url_only,
+        generate_mock_relay_with_auth_data, opaque_auth, setup_relay, setup_relays,
+        setup_relays_with_auth_data, signed_auth,
     },
 };
 use eyre::Result;
 use reqwest::{StatusCode, header::CONTENT_TYPE};
 use ssz::Encode;
-
-const TEST_AUTH_DATA: &[u8] = &[0xde, 0xad];
 const TEST_MAX_EXECUTION_PAYMENT: u64 = 1_000_000_000;
 
 /// A slot comfortably ahead of now. Preferences name the proposal slot they
@@ -375,7 +374,7 @@ async fn test_submit_builder_preferences_auth_data_mismatch_400() -> Result<()> 
     let chain = Chain::Hoodi;
     let (mock_validator, mock_state) = setup_relay(
         chain,
-        |config| config.strict_auth_data = true,
+        |_| {},
         |port, pubkey| generate_mock_relay_with_auth_data(port, pubkey, TEST_AUTH_DATA),
     )
     .await?;
@@ -390,13 +389,39 @@ async fn test_submit_builder_preferences_auth_data_mismatch_400() -> Result<()> 
     Ok(())
 }
 
+/// Opaque data matching no relay is a 400 with the builder's data-mismatch
+/// message even when a relay declares no `expected_auth_data`: unmatched means
+/// CB has no builder to proxy to, and proposer-private preferences must never
+/// broadcast to builders the proposer did not address.
+#[tokio::test]
+async fn test_submit_builder_preferences_unmatched_opaque_auth_400() -> Result<()> {
+    let chain = Chain::Hoodi;
+    let (mock_validator, mock_state) =
+        setup_relay(chain, |_| {}, generate_mock_relay_url_only).await?;
+
+    let request =
+        preferences(opaque_auth(&[0xbe, 0xef], future_slot(chain)), TEST_MAX_EXECUTION_PAYMENT);
+    let res =
+        mock_validator.do_submit_builder_preferences(None, &request, EncodingType::Ssz).await?;
+
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(mock_state.received_builder_preferences(), 0, "no relay receives anything");
+    let body: serde_json::Value = serde_json::from_slice(&res.bytes().await?)?;
+    assert_eq!(body["code"], 400);
+    assert_eq!(
+        body["message"],
+        "Invalid SignedRequestAuth: auth.message.data does not match the value agreed with this builder"
+    );
+    Ok(())
+}
+
 /// Preferences addressed by matching auth data reach that builder.
 #[tokio::test]
 async fn test_submit_builder_preferences_auth_data_match() -> Result<()> {
     let chain = Chain::Hoodi;
     let (mock_validator, mock_state) = setup_relay(
         chain,
-        |config| config.strict_auth_data = true,
+        |_| {},
         |port, pubkey| generate_mock_relay_with_auth_data(port, pubkey, TEST_AUTH_DATA),
     )
     .await?;
@@ -538,6 +563,54 @@ async fn test_submit_builder_preferences_two_relays_all_reject_502() -> Result<(
         StatusCode::BAD_GATEWAY,
         "two rejecting builders collapse to 502, not a 400 passthrough"
     );
+    assert_eq!(states[0].received_builder_preferences(), 1, "each addressed builder is asked");
+    assert_eq!(states[1].received_builder_preferences(), 1, "each addressed builder is asked");
+    Ok(())
+}
+
+/// Two relays with distinct auth data: preferences addressing one must reach
+/// only that builder, the other's received counter stays 0.
+#[tokio::test]
+async fn test_submit_builder_preferences_two_relays_addressed_one_only() -> Result<()> {
+    let chain = Chain::Hoodi;
+    let other_auth_data: &[u8] = &[0xbe, 0xef];
+    let (mock_validator, states) = setup_relays_with_auth_data(chain, vec![
+        (MockRelayState::new(chain, random_secret()), TEST_AUTH_DATA),
+        (MockRelayState::new(chain, random_secret()), other_auth_data),
+    ])
+    .await?;
+
+    let request =
+        preferences(opaque_auth(TEST_AUTH_DATA, future_slot(chain)), TEST_MAX_EXECUTION_PAYMENT);
+    let res =
+        mock_validator.do_submit_builder_preferences(None, &request, EncodingType::Ssz).await?;
+
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
+    assert_eq!(states[0].received_builder_preferences(), 1, "the addressed builder is asked");
+    assert_eq!(states[1].received_builder_preferences(), 0, "the unaddressed builder is not");
+    Ok(())
+}
+
+/// Two builders behind the same auth data, one 202 and one 400: the documented
+/// any-success policy makes the submission a 202.
+#[tokio::test]
+async fn test_submit_builder_preferences_two_relays_one_202_one_400_is_202() -> Result<()> {
+    let chain = Chain::Hoodi;
+    let (mock_validator, states) = setup_relays_with_auth_data(chain, vec![
+        (MockRelayState::new(chain, random_secret()), TEST_AUTH_DATA),
+        (MockRelayState::new(chain, random_secret()), TEST_AUTH_DATA),
+    ])
+    .await?;
+
+    // The first rejects with a 400; the second accepts by default
+    states[0].set_response_override(StatusCode::BAD_REQUEST);
+
+    let request =
+        preferences(opaque_auth(TEST_AUTH_DATA, future_slot(chain)), TEST_MAX_EXECUTION_PAYMENT);
+    let res =
+        mock_validator.do_submit_builder_preferences(None, &request, EncodingType::Ssz).await?;
+
+    assert_eq!(res.status(), StatusCode::ACCEPTED, "any-success: one acceptance is a 202");
     assert_eq!(states[0].received_builder_preferences(), 1, "each addressed builder is asked");
     assert_eq!(states[1].received_builder_preferences(), 1, "each addressed builder is asked");
     Ok(())

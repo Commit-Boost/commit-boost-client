@@ -183,8 +183,7 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
         );
     }
 
-    let relays =
-        match_relays_by_auth_data(relays, body.message.data.as_ref(), pbs_config.strict_auth_data);
+    let relays = match_relays_by_auth_data(relays, body.message.data.as_ref());
     if relays.is_empty() {
         return Err(PbsClientError::AuthDataMismatch);
     }
@@ -302,6 +301,39 @@ fn poll_call_timeout_ms(timeout_left_ms: u64, poll_timeout_ms: u64, is_last: boo
     if is_last { timeout_left_ms } else { poll_timeout_ms.min(timeout_left_ms) }
 }
 
+struct RungBudget {
+    call_timeout_ms: u64,
+    is_last: bool,
+}
+
+/// One rung's slice of the shared budget, derived from the absolute deadline
+/// at the moment the rung fires. Nominal bookkeeping (budget minus one cadence
+/// step per rung) drifts optimistic because a rung costs cadence PLUS
+/// scheduling delay; anchoring on the deadline means a rung, in particular the
+/// last one, is never granted more than truly remains.
+fn rung_budget(
+    deadline_ms: u64,
+    now_ms: u64,
+    send_freq_ms: u64,
+    poll_timeout_ms: u64,
+) -> RungBudget {
+    let remaining_ms = deadline_ms.saturating_sub(now_ms);
+    let is_last = remaining_ms <= send_freq_ms;
+    RungBudget {
+        call_timeout_ms: poll_call_timeout_ms(remaining_ms, poll_timeout_ms, is_last),
+        is_last,
+    }
+}
+
+/// Pre-ladder wait for `target_first_request_ms` (0 when the slot is already
+/// past the target). `None` means the target sits at or beyond the proposer's
+/// deadline, so every poll would go out with a 0ms timeout: the relay must be
+/// skipped instead of being sent requests that cannot succeed.
+fn target_first_request_delay_ms(target_ms: u64, ms_into_slot: u64, budget_ms: u64) -> Option<u64> {
+    let delay = target_ms.saturating_sub(ms_into_slot);
+    if delay >= budget_ms { None } else { Some(delay) }
+}
+
 /// Milliseconds left to serve this request, from the proposer's required timing
 /// headers. `X-Timeout-Ms` is measured from `Date-Milliseconds`, so the
 /// deadline is absolute and survives transit delay. It is also clamped to
@@ -386,7 +418,7 @@ async fn send_timed_get_execution_payload_bid(
     relay: RelayClient,
     headers: HeaderMap,
     ms_into_slot: u64,
-    mut timeout_left_ms: u64,
+    timeout_left_ms: u64,
     validation: ValidationContext,
 ) -> Result<Option<GetExecutionPayloadBidResponse>, PbsError> {
     let url = relay.get_execution_payload_bid_url(
@@ -396,17 +428,32 @@ async fn send_timed_get_execution_payload_bid(
         &params.proposer_pubkey,
     )?;
 
+    // The proposer's deadline is absolute (same clock basis as
+    // `request_budget_ms`); every budget below is derived from it at the moment
+    // it is needed, so sleep and scheduling drift can never over-grant.
+    let deadline_ms = utcnow_ms().saturating_add(timeout_left_ms);
+
     if relay.config.enable_timing_games {
         if let Some(target_ms) = relay.config.target_first_request_ms {
             // sleep until target time in slot
 
-            let delay = target_ms.saturating_sub(ms_into_slot);
+            let Some(delay) =
+                target_first_request_delay_ms(target_ms, ms_into_slot, timeout_left_ms)
+            else {
+                warn!(
+                    relay_id = relay.id.as_ref(),
+                    target_ms,
+                    ms_into_slot,
+                    budget_ms = timeout_left_ms,
+                    "TG: target_first_request_ms exceeds the request budget, skipping relay"
+                );
+                return Ok(None);
+            };
             if delay > 0 {
                 debug!(
                     relay_id = relay.id.as_ref(),
                     target_ms, ms_into_slot, "TG: waiting to send first header request"
                 );
-                timeout_left_ms = timeout_left_ms.saturating_sub(delay);
                 sleep(Duration::from_millis(delay)).await;
             } else {
                 debug!(
@@ -421,7 +468,9 @@ async fn send_timed_get_execution_payload_bid(
 
             debug!(
                 relay_id = relay.id.as_ref(),
-                send_freq_ms, timeout_left_ms, "TG: sending multiple header requests"
+                send_freq_ms,
+                budget_left_ms = deadline_ms.saturating_sub(utcnow_ms()),
+                "TG: sending multiple header requests"
             );
 
             // Every poll shares the proposer's deadline, so granting each one all
@@ -433,9 +482,12 @@ async fn send_timed_get_execution_payload_bid(
                 relay.config.bid_poll_timeout_ms.unwrap_or(DEFAULT_BID_POLL_TIMEOUT_MS);
 
             loop {
-                let is_last = timeout_left_ms <= send_freq_ms;
-                let call_timeout_ms =
-                    poll_call_timeout_ms(timeout_left_ms, poll_timeout_ms, is_last);
+                let rung = rung_budget(deadline_ms, utcnow_ms(), send_freq_ms, poll_timeout_ms);
+                // Drift can consume the remainder before a trailing rung fires;
+                // a 0ms poll cannot succeed, so stop once something is in flight
+                if rung.call_timeout_ms == 0 && !handles.is_empty() {
+                    break;
+                }
                 let params = params.clone();
                 handles.push(tokio::spawn(
                     send_one_get_execution_payload_bid(
@@ -443,7 +495,7 @@ async fn send_timed_get_execution_payload_bid(
                         body.clone(),
                         relay.clone(),
                         RequestContext {
-                            timeout_ms: call_timeout_ms,
+                            timeout_ms: rung.call_timeout_ms,
                             url: url.clone(),
                             headers: headers.clone(),
                         },
@@ -452,10 +504,9 @@ async fn send_timed_get_execution_payload_bid(
                     .in_current_span(),
                 ));
 
-                if is_last {
+                if rung.is_last {
                     break;
                 }
-                timeout_left_ms = timeout_left_ms.saturating_sub(send_freq_ms);
                 sleep(Duration::from_millis(send_freq_ms)).await;
             }
 
@@ -511,7 +562,7 @@ async fn send_timed_get_execution_payload_bid(
         params,
         body,
         relay,
-        RequestContext { timeout_ms: timeout_left_ms, url, headers },
+        RequestContext { timeout_ms: deadline_ms.saturating_sub(utcnow_ms()), url, headers },
         validation,
     )
     .await
@@ -1015,6 +1066,49 @@ mod tests {
         // A budget shorter than the poll timeout degrades to today's behavior:
         // one poll that holds until the deadline
         assert_eq!(poll_call_timeout_ms(800, 1000, true), 800);
+    }
+
+    #[test]
+    fn test_rung_budget_tracks_the_real_clock_not_nominal_cadence() {
+        // Deadline 1000ms from the clock basis, 300ms cadence, 700ms poll bound.
+        // First rung fires on time: bounded early rung, plenty of budget left
+        let rung = rung_budget(1000, 0, 300, 700);
+        assert!(!rung.is_last);
+        assert_eq!(rung.call_timeout_ms, 700);
+
+        // By the second rung, drift has burned 400ms of wall clock while
+        // nominal bookkeeping would claim only one 300ms cadence step: the
+        // budget must reflect the real 600ms remaining, not the nominal 700
+        let rung = rung_budget(1000, 400, 300, 700);
+        assert!(!rung.is_last);
+        assert_eq!(rung.call_timeout_ms, 600);
+
+        // The last rung carries exactly what truly remains, never the nominal
+        // remainder (which would be 1000 - 2 * 300 = 400 here)
+        let rung = rung_budget(1000, 800, 300, 700);
+        assert!(rung.is_last);
+        assert_eq!(rung.call_timeout_ms, 200);
+
+        // Drift past the deadline leaves nothing to grant
+        let rung = rung_budget(1000, 1100, 300, 700);
+        assert!(rung.is_last);
+        assert_eq!(rung.call_timeout_ms, 0);
+    }
+
+    #[test]
+    fn test_target_first_request_delay_ms() {
+        // Already past the target: fire immediately
+        assert_eq!(target_first_request_delay_ms(200, 300, 1000), Some(0));
+        // Normal case: wait out the remainder of the target
+        assert_eq!(target_first_request_delay_ms(500, 100, 1000), Some(400));
+        // Target slightly under the budget: the reduced remainder still buys a
+        // real poll (1ms here, granted by the deadline math after the sleep)
+        assert_eq!(target_first_request_delay_ms(999, 0, 1000), Some(999));
+        assert_eq!(rung_budget(1000, 999, 300, 700).call_timeout_ms, 1);
+        // Target consumes the whole budget: skip the relay, never a 0ms poll
+        assert_eq!(target_first_request_delay_ms(1000, 0, 1000), None);
+        assert_eq!(target_first_request_delay_ms(5000, 0, 1000), None);
+        assert_eq!(target_first_request_delay_ms(600, 100, 400), None);
     }
 
     #[test]

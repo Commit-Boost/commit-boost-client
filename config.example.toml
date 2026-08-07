@@ -53,14 +53,10 @@ max_execution_payment_gwei = 0
 # OPTIONAL, DEFAULT: unset (no check)
 # fee_recipient = "0x1234567890123456789012345678901234567890"
 # Whether to verify the BLS signature of the `SignedRequestAuth` on an ePBS request against the
-# proposer pubkey in the request path, rejecting a bad signature with 401. The downstream builder
-# verifies it too, so this is extra insurance rather than a requirement
+# proposer pubkey in the request path, rejecting a bad signature with 401. CB forwards by default
+# because the downstream builder must re-verify anyway; operators terminating trust at CB set it true
 # OPTIONAL, DEFAULT: false
 verify_request_auth = false
-# Whether every relay must declare the ePBS auth data it serves via `expected_auth_data`. When false,
-# a relay without it accepts any ePBS request whose auth data names no other configured builder
-# OPTIONAL, DEFAULT: false
-strict_auth_data = false
 # How late in milliseconds in the slot is "late". This impacts the `get_header` requests, by shortening timeouts for `get_header` calls to
 # relays and make sure a header is returned within this deadline. If the request from the CL comes later in the slot, then fetching headers is skipped
 # to force local building and miniminzing the risk of missed slots. See also the timing games section below
@@ -148,8 +144,8 @@ frequency_get_header_ms = 300
 # OPTIONAL, DEFAULT: the PBS-level `max_execution_payment_gwei`
 # max_execution_payment_gwei = 0
 # The ePBS auth data this relay serves: a bid request routes here only when its `auth.message.data`
-# equals this value. When unset, the relay accepts any request whose auth data names no other
-# configured builder, unless `strict_auth_data` is enabled
+# equals this value. When unset, the relay is matched only by auth data carrying its URL; auth data
+# matching no configured relay is rejected with 400
 # OPTIONAL, DEFAULT: unset
 # expected_auth_data = "0x68747470733a2f2f6275696c6465722e6578616d706c652e636f6d"
 

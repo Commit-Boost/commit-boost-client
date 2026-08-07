@@ -128,9 +128,8 @@ pub(crate) fn verify_auth_signature(
 /// Selects the relays an ePBS request is addressed to.
 ///
 /// Each `getExecutionPayloadBid` or `submitBuilderPreferences` call is for one
-/// builder: the caller's `auth.message.data` designates which downstream
-/// builder it is for, since the Builder API carries no routing header. Relays
-/// are matched in three layers, most specific first:
+/// builder, designated by the caller's `auth.message.data`. Two layers, most
+/// specific first:
 ///
 /// 1. A relay with `expected_auth_data` configured matches only that exact byte
 ///    string. This is the authoritative form for bilateral agreements where the
@@ -138,23 +137,16 @@ pub(crate) fn verify_auth_signature(
 /// 2. Otherwise, data carrying a builder URL (see [`decode_auth_data_url`])
 ///    matches the relays whose configured URL it names. Comparison ignores
 ///    userinfo, so a bare URL matches a relay entry that embeds its pubkey.
-/// 3. Data carrying no URL matches every relay with no `expected_auth_data`
-///    configured. `strict_auth_data` disables this catch-all, requiring every
-///    relay to declare the data it serves.
 ///
+/// Data matching nothing selects no relay: CB then has no builder to proxy to
+/// and the caller must get the same DataMismatch 400 a builder would return.
 /// The result is usually one relay, several when multiple builders are
-/// configured behind the same agreement, and empty when the data names nothing
-/// this instance serves (a 400 to the caller). Comparing bids across different
+/// configured behind the same agreement. Comparing bids across different
 /// builders is the beacon node's job across its per-entry calls; within the
 /// matched set the winner is the highest total payment.
-///
-/// NOTE for callers that WRITE rather than read: layer 3 sends the request to
-/// every relay, so an endpoint carrying proposer-private data reaches builders
-/// the proposer did not address unless `strict_auth_data` is set.
 pub(crate) fn match_relays_by_auth_data<'a>(
     relays: &'a [RelayClient],
     received_data: &[u8],
-    strict_auth_data: bool,
 ) -> Vec<&'a RelayClient> {
     let data_url = decode_auth_data_url(received_data);
     relays
@@ -163,12 +155,9 @@ pub(crate) fn match_relays_by_auth_data<'a>(
             if let Some(expected) = &relay.config.expected_auth_data {
                 return received_data == expected.as_ref();
             }
-            if strict_auth_data {
-                return false;
-            }
             match &data_url {
                 Some(url) => url_matches(&relay.config.entry.url, url),
-                None => true,
+                None => false,
             }
         })
         .collect()
@@ -230,7 +219,7 @@ mod tests {
     fn match_relays_configured_data_never_matches_empty() {
         let relays = vec![test_relay("http://a.example.com", Some(&[0xaa]))];
         // An empty `data` field must not satisfy a relay that declared its data
-        assert!(match_relays_by_auth_data(&relays, &[], false).is_empty());
+        assert!(match_relays_by_auth_data(&relays, &[]).is_empty());
     }
 
     #[test]
@@ -240,40 +229,35 @@ mod tests {
             test_relay("http://b.example.com", Some(&[0xbb])),
         ];
         // Exact-bytes match selects exactly one relay
-        let matched = match_relays_by_auth_data(&relays, &[0xbb], false);
+        let matched = match_relays_by_auth_data(&relays, &[0xbb]);
         assert_eq!(matched.len(), 1);
         assert_eq!(matched[0].config.entry.url.host_str(), Some("b.example.com"));
         // Data matching no configured value selects none, even though the data
         // is a URL naming a configured relay: configured bytes take precedence
-        assert!(match_relays_by_auth_data(&relays, b"http://a.example.com", false).is_empty());
+        assert!(match_relays_by_auth_data(&relays, b"http://a.example.com").is_empty());
     }
 
     #[test]
-    fn match_relays_falls_back_to_url_then_catch_all() {
+    fn match_relays_url_fallback_and_unmatched_selects_none() {
         let relays = vec![
             test_relay("http://a.example.com", None),
             test_relay("http://b.example.com", None),
         ];
         // URL-carrying data selects the named relay only
-        let matched = match_relays_by_auth_data(&relays, b"http://a.example.com", false);
+        let matched = match_relays_by_auth_data(&relays, b"http://a.example.com");
         assert_eq!(matched.len(), 1);
         assert_eq!(matched[0].config.entry.url.host_str(), Some("a.example.com"));
         // NUL-suffixed extra bytes route identically
         let mut with_extra = b"http://a.example.com".to_vec();
         with_extra.push(0);
         with_extra.extend_from_slice(&[0xde, 0xad]);
-        assert_eq!(match_relays_by_auth_data(&relays, &with_extra, false).len(), 1);
+        assert_eq!(match_relays_by_auth_data(&relays, &with_extra).len(), 1);
         // A URL naming nothing configured selects none
-        assert!(match_relays_by_auth_data(&relays, b"http://z.example.com", false).is_empty());
-        // Opaque non-URL data hits the catch-all
-        assert_eq!(match_relays_by_auth_data(&relays, &[0xde, 0xad], false).len(), 2);
-        // Empty data carries no URL, so it hits the catch-all too
-        assert_eq!(match_relays_by_auth_data(&relays, &[], false).len(), 2);
-        // strict_auth_data disables the catch-all entirely
-        assert!(match_relays_by_auth_data(&relays, &[0xde, 0xad], true).is_empty());
-        // URL matching still works under strict mode? No: strict requires
-        // expected_auth_data on every relay
-        assert!(match_relays_by_auth_data(&relays, b"http://a.example.com", true).is_empty());
+        assert!(match_relays_by_auth_data(&relays, b"http://z.example.com").is_empty());
+        // Opaque non-URL data names nothing: no catch-all, no relay
+        assert!(match_relays_by_auth_data(&relays, &[0xde, 0xad]).is_empty());
+        // Empty data carries no URL either
+        assert!(match_relays_by_auth_data(&relays, &[]).is_empty());
     }
 
     #[test]

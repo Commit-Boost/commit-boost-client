@@ -15,7 +15,7 @@ use cb_common::{
     utils::ms_into_slot,
     wire::{EncodingType, decode_versioned_request_body, get_user_agent, safe_read_http_response},
 };
-use futures::future::join_all;
+use futures::{FutureExt, future::join_all};
 use reqwest::{StatusCode, header::CONTENT_TYPE};
 use ssz::Encode;
 use tracing::{Instrument, debug, error, info, warn};
@@ -99,11 +99,7 @@ pub async fn submit_builder_preferences<S: BuilderApiState>(
         pbs_config.verify_request_auth,
     )?;
 
-    let relays = match_relays_by_auth_data(
-        relays,
-        request.auth.message.data.as_ref(),
-        pbs_config.strict_auth_data,
-    );
+    let relays = match_relays_by_auth_data(relays, request.auth.message.data.as_ref());
     if relays.is_empty() {
         return Err(PbsClientError::AuthDataMismatch);
     }
@@ -114,17 +110,26 @@ pub async fn submit_builder_preferences<S: BuilderApiState>(
     // timeout rather than the block-production one
     let timeout_ms = pbs_config.timeout_register_validator_ms;
 
+    // Spawned like register_validator's sends: a BN disconnect must not cancel
+    // in-flight writes mid-fan-out, leaving some builders with the prefs and
+    // others without
     let mut handles = Vec::with_capacity(relays.len());
     for &relay in relays.iter() {
         handles.push(
-            send_one_submit_builder_preferences(
-                params.proposer_pubkey.clone(),
-                request.clone(),
-                relay.clone(),
-                send_headers.clone(),
-                timeout_ms,
+            tokio::spawn(
+                send_one_submit_builder_preferences(
+                    params.proposer_pubkey.clone(),
+                    request.clone(),
+                    relay.clone(),
+                    send_headers.clone(),
+                    timeout_ms,
+                )
+                .in_current_span(),
             )
-            .in_current_span(),
+            .map(|join_result| match join_result {
+                Ok(res) => res,
+                Err(err) => Err(PbsError::TokioJoinError(err)),
+            }),
         );
     }
 

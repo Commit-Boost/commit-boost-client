@@ -67,8 +67,8 @@ pub struct RelayConfig {
     /// Maximum trusted execution payment in Gwei accepted in an ePBS bid
     pub max_execution_payment_gwei: Option<u64>,
     /// ePBS auth data this relay serves: a bid request routes here only when
-    /// its `auth.message.data` equals this value. When unset, the relay
-    /// accepts any auth data unless `strict_auth_data` is enabled
+    /// its `auth.message.data` equals this value. When unset, the relay is
+    /// matched only by auth data carrying its URL
     pub expected_auth_data: Option<Bytes>,
 }
 
@@ -130,13 +130,10 @@ pub struct PbsConfig {
     /// Maximum trusted execution payment in Gwei accepted in an ePBS bid
     #[serde(default = "default_u64::<0>")]
     pub max_execution_payment_gwei: u64,
-    /// When enabled, a relay without `expected_auth_data` never matches an
-    /// ePBS request: every relay must declare the auth data it serves
-    #[serde(default = "default_bool::<false>")]
-    pub strict_auth_data: bool,
     /// When enabled, the BLS signature of an ePBS request's
-    /// `SignedRequestAuth` is verified against the proposer pubkey; false by
-    /// default since the downstream builder verifies it too
+    /// `SignedRequestAuth` is verified against the proposer pubkey. False by
+    /// default: CB forwards because the downstream builder must re-verify
+    /// anyway; operators terminating trust at CB set it true
     #[serde(default = "default_bool::<false>")]
     pub verify_request_auth: bool,
     /// Expected fee recipient in ePBS bids; when set, bids with a different

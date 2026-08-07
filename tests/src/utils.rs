@@ -50,6 +50,11 @@ pub fn setup_test_env() {
     });
 }
 
+/// The auth data the default mock relay declares and most ePBS tests send.
+/// Unmatched auth data is a 400 (no catch-all), so a relay must declare the
+/// data it serves for opaque-data tests to route.
+pub const TEST_AUTH_DATA: &[u8] = &[0xde, 0xad];
+
 pub fn generate_mock_relay(port: u16, pubkey: BlsPublicKey) -> Result<RelayClient> {
     let entry =
         RelayEntry { id: format!("mock_{port}"), pubkey, url: get_local_address(port).parse()? };
@@ -64,9 +69,20 @@ pub fn generate_mock_relay(port: u16, pubkey: BlsPublicKey) -> Result<RelayClien
         bid_poll_timeout_ms: None,
         validator_registration_batch_size: None,
         max_execution_payment_gwei: None,
-        expected_auth_data: None,
+        expected_auth_data: Some(TEST_AUTH_DATA.to_vec().into()),
     };
     RelayClient::new(config)
+}
+
+/// A relay with no `expected_auth_data`: only reachable by auth data carrying
+/// its URL. Used to pin that opaque data matching nothing is a 400, never a
+/// broadcast.
+pub fn generate_mock_relay_url_only(port: u16, pubkey: BlsPublicKey) -> Result<RelayClient> {
+    let mut relay = generate_mock_relay(port, pubkey)?;
+    let mut config = (*relay.config).clone();
+    config.expected_auth_data = None;
+    relay.config = std::sync::Arc::new(config);
+    Ok(relay)
 }
 
 pub fn generate_mock_relay_with_auth_data(
@@ -151,7 +167,6 @@ pub fn get_pbs_config(port: u16) -> PbsConfig {
         fee_recipient: None,
         late_in_slot_time_ms: u64::MAX,
         extra_validation_enabled: false,
-        strict_auth_data: false,
         verify_request_auth: false,
 
         ssv_node_api_url: Url::parse("http://localhost:0").unwrap(),
@@ -335,6 +350,40 @@ pub async fn setup_relays(
         let relay_port = relay_listener.local_addr()?.port();
         let state = Arc::new(state);
         relays.push(generate_mock_relay(relay_port, state.signer.public_key())?);
+        tokio::spawn(start_mock_relay_service_with_listener(state.clone(), relay_listener));
+        arc_states.push(state);
+    }
+
+    let config = to_pbs_config(chain, get_pbs_config(pbs_port), relays);
+    let state = PbsState::new(config, PathBuf::new());
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
+
+    let mock_validator = MockValidator::new(pbs_port)?;
+    wait_for_ready(&mock_validator).await?;
+    Ok((mock_validator, arc_states))
+}
+
+/// Like [`setup_relays`], but each relay declares the `expected_auth_data` it
+/// serves, so tests can address one builder among several.
+pub async fn setup_relays_with_auth_data(
+    chain: Chain,
+    states: Vec<(MockRelayState, &[u8])>,
+) -> Result<(MockValidator, Vec<Arc<MockRelayState>>)> {
+    setup_test_env();
+    let pbs_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr()?.port();
+
+    let mut relays = Vec::new();
+    let mut arc_states = Vec::new();
+    for (state, auth_data) in states {
+        let relay_listener = get_free_listener().await;
+        let relay_port = relay_listener.local_addr()?.port();
+        let state = Arc::new(state);
+        relays.push(generate_mock_relay_with_auth_data(
+            relay_port,
+            state.signer.public_key(),
+            auth_data,
+        )?);
         tokio::spawn(start_mock_relay_service_with_listener(state.clone(), relay_listener));
         arc_states.push(state);
     }
