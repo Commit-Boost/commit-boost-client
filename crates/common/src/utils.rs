@@ -27,11 +27,13 @@ use crate::{
 
 const MILLIS_PER_SECOND: u64 = 1_000;
 
+// Saturating: an attacker-supplied huge slot must clamp to the far future, not
+// overflow-panic in debug builds and drop the connection with no response
 pub fn timestamp_of_slot_start_sec(slot: u64, chain: Chain) -> u64 {
-    chain.genesis_time_sec() + slot * chain.slot_time_sec()
+    chain.genesis_time_sec().saturating_add(slot.saturating_mul(chain.slot_time_sec()))
 }
 pub fn timestamp_of_slot_start_millis(slot: u64, chain: Chain) -> u64 {
-    timestamp_of_slot_start_sec(slot, chain) * MILLIS_PER_SECOND
+    timestamp_of_slot_start_sec(slot, chain).saturating_mul(MILLIS_PER_SECOND)
 }
 pub fn ms_into_slot(slot: u64, chain: Chain) -> u64 {
     let slot_start_ms = timestamp_of_slot_start_millis(slot, chain);
@@ -461,13 +463,24 @@ mod test {
     use alloy::primitives::keccak256;
 
     use super::{
-        create_admin_jwt, create_jwt, decode_admin_jwt, decode_jwt, random_jwt_secret,
+        create_admin_jwt, create_jwt, decode_admin_jwt, decode_jwt, ms_into_slot,
+        random_jwt_secret, timestamp_of_slot_start_millis, timestamp_of_slot_start_sec,
         validate_admin_jwt, validate_jwt,
     };
     use crate::{
         constants::SIGNER_JWT_EXPIRATION,
-        types::{Jwt, JwtAdminClaims, ModuleId},
+        types::{Chain, Jwt, JwtAdminClaims, ModuleId},
     };
+
+    // An attacker-supplied huge slot must saturate to the far future, not
+    // overflow-panic in debug builds and drop the connection with no response
+    #[test]
+    fn test_slot_timestamp_saturates_on_huge_slot() {
+        assert_eq!(timestamp_of_slot_start_sec(u64::MAX, Chain::Mainnet), u64::MAX);
+        assert_eq!(timestamp_of_slot_start_millis(u64::MAX, Chain::Mainnet), u64::MAX);
+        // The far-future slot has not started, so no time has elapsed into it
+        assert_eq!(ms_into_slot(u64::MAX, Chain::Mainnet), 0);
+    }
 
     #[test]
     fn test_jwt_validation_no_payload_hash() {
