@@ -66,10 +66,11 @@ With the prerequisites set up, pull the repository:
 git clone https://github.com/Commit-Boost/commit-boost-client
 ```
 
-Check out the `stable` branch which houses the latest release:
+Check out the release you want to build. Each release is pinned in `.releases/`
+(e.g. `.releases/v0.10.0.yml` names its `commit:`); check out that commit:
 
 ```bash
-cd commit-boost-client && git checkout stable
+cd commit-boost-client && git checkout <release-commit>
 ```
 
 Finally, update the submodules:

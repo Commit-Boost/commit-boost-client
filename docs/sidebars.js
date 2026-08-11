@@ -29,6 +29,7 @@ const sidebars = {
       collapsed: false,
       items: [
         'get_started/overview',
+        'get_started/building',
         'get_started/configuration',
         'get_started/mux-key-loaders',
         {
