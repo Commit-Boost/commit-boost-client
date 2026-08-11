@@ -79,6 +79,7 @@ subtle = "2.5"
 tempfile = "3.20.0"
 thiserror = "2.0.12"
 tokio = { version = "1.37.0", features = ["full"] }
+tokio-tungstenite = { version = "0.28.0", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 toml = "0.8.13"
 tonic = { version = "0.12.3", features = ["channel", "prost", "tls"] }
 tonic-build = "0.12.3"
@@ -93,6 +94,7 @@ typenum = "1.17.0"
 unicode-normalization = "0.1.24"
 url = { version = "2.5.0", features = ["serde"] }
 uuid = { version = "1.8.0", features = ["fast-rng", "serde", "v4"] }
+webpki-roots = "1.0"
 
 [patch.crates-io]
 blstrs_plus = { git = "https://github.com/Commit-Boost/blstrs" }

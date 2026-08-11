@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     net::SocketAddr,
     sync::{
         Arc, RwLock,
@@ -9,7 +9,8 @@ use std::{
 };
 
 use alloy::{
-    eips::eip7594::CELLS_PER_EXT_BLOB, primitives::U256,
+    eips::eip7594::CELLS_PER_EXT_BLOB,
+    primitives::{B256, U256},
     rpc::types::beacon::relay::ValidatorRegistration,
 };
 use axum::{
@@ -35,13 +36,18 @@ use cb_common::{
         get_consensus_version_header, get_content_type,
     },
 };
-use cb_pbs::MAX_SIZE_SUBMIT_BLOCK_RESPONSE;
+use cb_pbs::{
+    GET_HEADER_ENDPOINT_TAG, MAX_SIZE_SUBMIT_BLOCK_RESPONSE, REGISTER_VALIDATOR_ENDPOINT_TAG,
+    STATUS_ENDPOINT_TAG, SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG,
+};
 use lh_types::KzgProof;
 use reqwest::header::{ACCEPT, CONTENT_TYPE};
 use ssz::Encode;
 use tokio::net::TcpListener;
 use tracing::{debug, error};
 use tree_hash::TreeHash;
+
+use crate::utils::HEADER_API_KEY;
 
 pub async fn start_mock_relay_service(state: Arc<MockRelayState>, port: u16) -> eyre::Result<()> {
     let socket = SocketAddr::new("0.0.0.0".parse()?, port);
@@ -92,6 +98,9 @@ pub struct MockRelayState {
     /// The raw `Accept` header PBS sent on the most recent get_header request,
     /// so a test can assert what encoding PBS asked the relay for.
     received_get_header_accept: RwLock<Option<String>>,
+    /// Api key header seen per endpoint tag, so a test can assert the relay's
+    /// configured key rides on every request PBS sends it.
+    api_keys_seen: RwLock<HashMap<&'static str, String>>,
 }
 
 impl MockRelayState {
@@ -131,6 +140,15 @@ impl MockRelayState {
     pub fn set_response_override(&self, status: StatusCode) {
         *self.response_override.write().unwrap() = Some(status);
     }
+    /// Api key seen on `endpoint`, one of the `*_ENDPOINT_TAG` constants
+    pub fn api_key_seen(&self, endpoint: &str) -> Option<String> {
+        self.api_keys_seen.read().unwrap().get(endpoint).cloned()
+    }
+    fn record_api_key(&self, endpoint: &'static str, headers: &HeaderMap) {
+        if let Some(api_key) = headers.get(HEADER_API_KEY).and_then(|key| key.to_str().ok()) {
+            self.api_keys_seen.write().unwrap().insert(endpoint, api_key.to_string());
+        }
+    }
 }
 
 impl MockRelayState {
@@ -151,6 +169,7 @@ impl MockRelayState {
             response_override: RwLock::new(None),
             bid_value: RwLock::new(U256::from(10)),
             received_get_header_accept: RwLock::new(None),
+            api_keys_seen: RwLock::new(HashMap::new()),
             supported_content_types: Arc::new(
                 [EncodingType::Json, EncodingType::Ssz].iter().cloned().collect(),
             ),
@@ -219,12 +238,40 @@ pub fn mock_relay_app_router(state: Arc<MockRelayState>) -> Router {
     Router::new().merge(builder_router_v1).merge(builder_router_v2).with_state(state)
 }
 
+pub fn mock_signed_builder_bid(
+    chain: Chain,
+    signer: &BlsSecretKey,
+    slot: u64,
+    parent_hash: B256,
+    value: U256,
+) -> SignedBuilderBid {
+    let mut header = ExecutionPayloadHeaderFulu {
+        parent_hash: parent_hash.into(),
+        block_hash: Default::default(),
+        timestamp: timestamp_of_slot_start_sec(slot, chain),
+        ..ExecutionPayloadHeaderFulu::test_random()
+    };
+    header.block_hash.0[0] = 1;
+
+    let message = BuilderBid::Fulu(BuilderBidFulu {
+        header,
+        blob_kzg_commitments: Default::default(),
+        execution_requests: ExecutionRequests::default(),
+        value,
+        pubkey: signer.public_key().into(),
+    });
+    let signature = sign_builder_root(chain, signer, &message.tree_hash_root());
+
+    SignedBuilderBid { message, signature }
+}
+
 async fn handle_get_header(
     State(state): State<Arc<MockRelayState>>,
     Path(GetHeaderParams { parent_hash, slot, .. }): Path<GetHeaderParams>,
     headers: HeaderMap,
 ) -> Response {
     state.received_get_header.fetch_add(1, Ordering::Relaxed);
+    state.record_api_key(GET_HEADER_ENDPOINT_TAG, &headers);
     *state.received_get_header_accept.write().unwrap() =
         headers.get(ACCEPT).and_then(|v| v.to_str().ok()).map(String::from);
     let accept_types = get_accept_types(&headers)
@@ -252,24 +299,8 @@ async fn handle_get_header(
 
     let data = match consensus_version_header {
         ForkName::Fulu => {
-            let mut header = ExecutionPayloadHeaderFulu {
-                parent_hash: parent_hash.into(),
-                block_hash: Default::default(),
-                timestamp: timestamp_of_slot_start_sec(slot, state.chain),
-                ..ExecutionPayloadHeaderFulu::test_random()
-            };
-            header.block_hash.0[0] = 1;
-
-            let message = BuilderBid::Fulu(BuilderBidFulu {
-                header,
-                blob_kzg_commitments: Default::default(),
-                execution_requests: ExecutionRequests::default(),
-                value: bid_value,
-                pubkey: state.signer.public_key().into(),
-            });
-            let object_root = message.tree_hash_root();
-            let signature = sign_builder_root(state.chain, &state.signer, &object_root);
-            let response = SignedBuilderBid { message, signature };
+            let response =
+                mock_signed_builder_bid(state.chain, &state.signer, slot, parent_hash, bid_value);
             if content_type == EncodingType::Ssz {
                 response.as_ssz_bytes()
             } else {
@@ -303,8 +334,12 @@ async fn handle_get_header(
     response
 }
 
-async fn handle_get_status(State(state): State<Arc<MockRelayState>>) -> impl IntoResponse {
+async fn handle_get_status(
+    State(state): State<Arc<MockRelayState>>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
     state.received_get_status.fetch_add(1, Ordering::Relaxed);
+    state.record_api_key(STATUS_ENDPOINT_TAG, &headers);
     // Production `get_status` dispatches relays concurrently via `select_ok`,
     // which cancels losing futures as soon as any relay returns OK. On a
     // loaded runner this can abort a sibling relay's reqwest send before
@@ -318,9 +353,11 @@ async fn handle_get_status(State(state): State<Arc<MockRelayState>>) -> impl Int
 
 async fn handle_register_validator(
     State(state): State<Arc<MockRelayState>>,
+    headers: HeaderMap,
     Json(validators): Json<Vec<ValidatorRegistration>>,
 ) -> impl IntoResponse {
     state.received_register_validator.fetch_add(1, Ordering::Relaxed);
+    state.record_api_key(REGISTER_VALIDATOR_ENDPOINT_TAG, &headers);
     debug!("Received {} registrations", validators.len());
 
     if let Some(status) = state.response_override.read().unwrap().as_ref() {
@@ -339,6 +376,7 @@ async fn handle_submit_block_v1(
         return StatusCode::NOT_FOUND.into_response();
     }
     state.received_submit_block.fetch_add(1, Ordering::Relaxed);
+    state.record_api_key(SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG, &headers);
     // Short-circuit SSZ requests with an overridden status so tests can
     // drive the PBS SSZ→JSON retry logic. JSON requests still take the
     // normal path so a single mock run can exercise both attempts.
@@ -451,6 +489,7 @@ async fn handle_submit_block_v2(
         return StatusCode::NOT_FOUND.into_response();
     }
     state.received_submit_block.fetch_add(1, Ordering::Relaxed);
+    state.record_api_key(SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG, &headers);
     // See comment in `handle_submit_block_v1`. Override SSZ with the
     // injected status so C3 tests can assert retry / no-retry behavior.
     if let Some(status) = state.submit_block_ssz_status_override() &&
