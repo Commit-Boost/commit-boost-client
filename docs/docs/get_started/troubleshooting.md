@@ -206,9 +206,10 @@ If the request itself fails (rather than simply yielding no bids), PBS instead r
 If you started the modules correctly you should see the following logs.
 
 ## PBS
-After the module started correctly you should see:
+
+After the service started correctly you should see:
 ```bash
-2024-09-16T19:27:16.004643Z  INFO Starting PBS service address=0.0.0.0:18550 events_subs=0
+2025-11-04T14:22:03.118512Z  INFO starting PBS service version="0.10.0" commit_hash="f05eefbf652ac5442088bd2b20390d29c23b1c5d" addr=0.0.0.0:18550 chain=Hoodi
 ```
 
 To check that the setup is correct and you are connected to relays, you can trigger manually the `/status` endpoint, by running:
@@ -226,7 +227,7 @@ curl http://0.0.0.0:18550/eth/v1/builder/status -vvv
 * Mark bundle as not supporting multiuse
 < HTTP/1.1 200 OK
 < content-length: 0
-< date: Mon, 16 Sep 2024 19:32:07 GMT
+< date: Tue, 04 Nov 2025 14:32:07 GMT
 <
 * Connection #0 to host 0.0.0.0 left intact
 ```
@@ -234,31 +235,40 @@ curl http://0.0.0.0:18550/eth/v1/builder/status -vvv
 if now you check the logs, you should see:
 
 ```bash
-2024-09-16T19:32:07.634966Z  INFO status{req_id=62f1c0db-f277-49fa-91e7-a9a1c2b2a6d3}: ua="curl/7.81.0" relay_check=true
-2024-09-16T19:32:07.642992Z  INFO status{req_id=62f1c0db-f277-49fa-91e7-a9a1c2b2a6d3}: relay check successful
+2025-11-04T14:32:07.634966Z  INFO : new request ua="curl/7.81.0" relay_check=true method=/eth/v1/builder/status req_id=62f1c0db-f277-49fa-91e7-a9a1c2b2a6d3
+2025-11-04T14:32:07.642992Z  INFO : relay check successful method=/eth/v1/builder/status req_id=62f1c0db-f277-49fa-91e7-a9a1c2b2a6d3
+2025-11-04T14:32:07.643104Z  INFO : Responded with 200 OK in 8 ms method=/eth/v1/builder/status req_id=62f1c0db-f277-49fa-91e7-a9a1c2b2a6d3
 ```
 
+The leading `:` is the (deliberately unnamed) request span; the fields after the message are that
+span's fields, so every line belonging to one request carries the same `req_id`.
+
 If the sidecar is setup correctly, it will receive and process calls from the CL:
+
 #### Register validator
 This should happen periodically, depending on your validator setup.
 
 ```bash
-2024-09-16T19:28:37.976534Z  INFO register_validators{req_id=296f662f-0e7a-4f15-be75-55b8ca19ffc0}: ua="Lighthouse/v5.2.1-9e12c21" num_registrations=500
-2024-09-16T19:28:38.819591Z  INFO register_validators{req_id=296f662f-0e7a-4f15-be75-55b8ca19ffc0}: register validator successful
+2025-11-04T14:28:37.976534Z  INFO : new request ua="Lighthouse/v5.2.1-9e12c21" num_registrations=500 method=/eth/v1/builder/validators req_id=296f662f-0e7a-4f15-be75-55b8ca19ffc0
+2025-11-04T14:28:38.819591Z  INFO : register validator successful method=/eth/v1/builder/validators req_id=296f662f-0e7a-4f15-be75-55b8ca19ffc0
 ```
 
 #### Get header
 This will only happen if some of your validators have a proposal slot coming up.
 
 ```bash
-2024-09-16T19:30:24.135376Z  INFO get_header{req_id=74126c5f-69e6-4961-86a6-6c2597bf15f5 slot=2551052}: ua="Lighthouse/v5.2.1-9e12c21" parent_hash=0x641c99d6e4f14bf6d268eb2a8c0dc51c7030ab24e384c0e679f2a6b438d298ea validator_pubkey=0x84fc20b09496341f24abfcb6f407e916ecc317497c5b1bba4970e50e96cf5e731b88e51753064c30cb221453bd71aebf ms_into_slot=135
-2024-09-16T19:30:25.089477Z  INFO get_header{req_id=74126c5f-69e6-4961-86a6-6c2597bf15f5 slot=2551052}: received header block_hash=0x0139686e8d251f010153875270256fce6f298d7b3f3f9129179fb86297dffad3 value_eth="0.001399518501462470"
+2025-11-04T14:30:24.135376Z  INFO : new request ua="Lighthouse/v5.2.1-9e12c21" ms_into_slot=135 method=/eth/v1/builder/header/{slot}/{parent_hash}/{pubkey} req_id=74126c5f-69e6-4961-86a6-6c2597bf15f5 slot=2551052 parent_hash=0x641c99d6e4f14bf6d268eb2a8c0dc51c7030ab24e384c0e679f2a6b438d298ea validator=0x84fc20b09496341f24abfcb6f407e916ecc317497c5b1bba4970e50e96cf5e731b88e51753064c30cb221453bd71aebf
+2025-11-04T14:30:25.089477Z  INFO : received header value_eth="0.001399518501462470" block_hash=0x0139686e8d251f010153875270256fce6f298d7b3f3f9129179fb86297dffad3 method=/eth/v1/builder/header/{slot}/{parent_hash}/{pubkey} req_id=74126c5f-69e6-4961-86a6-6c2597bf15f5 slot=2551052 parent_hash=0x641c99d6e4f14bf6d268eb2a8c0dc51c7030ab24e384c0e679f2a6b438d298ea validator=0x84fc20b09496341f24abfcb6f407e916ecc317497c5b1bba4970e50e96cf5e731b88e51753064c30cb221453bd71aebf
 ```
+
+If no relay returns a usable bid you will see `no header available for slot` instead, and PBS answers the beacon node with a `204`.
 
 #### Submit block
 This will only happen if you received a header in the previous call, and if the header is higher than the locally built block.
 
 ```bash
-2024-09-16T14:38:01.409075Z  INFO submit_blinded_block{req_id=6eb9a04d-6f79-4295-823f-c054582b3599 slot=2549590}: ua="Lighthouse/v5.2.1-9e12c21" slot_uuid=16186e06-0cd0-47bc-9758-daa1b66eff5c ms_into_slot=1409 block_hash=0xfa135ae6f2bfb32b0a47368f93d69e0a2b3f8b855d917ec61d78e78779edaae6
-2024-09-16T14:38:02.910974Z  INFO submit_blinded_block{req_id=6eb9a04d-6f79-4295-823f-c054582b3599 slot=2549590}: received unblinded block
+2025-11-04T14:38:01.409075Z  INFO : new request ua="Lighthouse/v5.2.1-9e12c21" ms_into_slot=1409 method=/eth/v1/builder/blinded_blocks req_id=6eb9a04d-6f79-4295-823f-c054582b3599 slot=2549590 block_hash=0xfa135ae6f2bfb32b0a47368f93d69e0a2b3f8b855d917ec61d78e78779edaae6 block_number=2549123 parent_hash=0x641c99d6e4f14bf6d268eb2a8c0dc51c7030ab24e384c0e679f2a6b438d298ea
+2025-11-04T14:38:02.910974Z  INFO : received unblinded block (v1) method=/eth/v1/builder/blinded_blocks req_id=6eb9a04d-6f79-4295-823f-c054582b3599 slot=2549590 block_hash=0xfa135ae6f2bfb32b0a47368f93d69e0a2b3f8b855d917ec61d78e78779edaae6 block_number=2549123 parent_hash=0x641c99d6e4f14bf6d268eb2a8c0dc51c7030ab24e384c0e679f2a6b438d298ea
 ```
+
+A beacon node calling the v2 route (`POST /eth/v2/builder/blinded_blocks`) logs `received unblinded block (v2)` instead, and PBS answers with a `202` and an empty body.

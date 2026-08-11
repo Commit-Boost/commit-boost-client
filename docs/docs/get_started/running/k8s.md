@@ -56,6 +56,12 @@ The PBS service is configured through the `values.yaml` file. The chart exposes 
 | `resources` | object | `{}` | Pod resource requests and limits |
 | `autoscaling.enabled` | bool | `false` | Enable horizontal pod autoscaling |
 
+:::warning
+The chart's default `commitBoost.pbs.image.tag` is `v0.4.0`, which is far behind the current release
+and predates the unified `commit-boost pbs` CLI the chart invokes. Always set the tag explicitly to
+the release you want (e.g. `v0.10.0`) before installing.
+:::
+
 For the full list of available values and their descriptions, see the [README.md](https://github.com/Commit-Boost/commit-boost-client/blob/main/provisioning/k8s/commit-boost/README.md) in the chart directory.
 
 ## Upgrading
