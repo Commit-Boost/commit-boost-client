@@ -12,35 +12,38 @@ Running the modules natively means you opt out of the security guarantees made b
 
 Get the binary of the module either by compiling from source or by downloading a [published release](https://github.com/Commit-Boost/commit-boost-client/releases).
 
-Modules need some environment variables to work correctly.
+Services need environment variables to work correctly.
 
 ### Common
 
 - `CB_CONFIG`: required, path to the `.toml` config file.
-- `CHAIN_SPEC_ENV`: optional, path to a chain spec file. This will override the `[chain]` field in the `.toml` config.
+- `CB_CHAIN_SPEC`: optional, path to a chain spec file. This will override the `[chain]` field in the `.toml` config.
 - `CB_METRICS_PORT`: optional, port where to expose the `/metrics` endpoint for Prometheus.
 - `CB_LOGS_DIR`: optional, directory to store logs. This will override the directory in the `.toml` config.
 
-### PBS Module
+### PBS Service
 
-- `CB_PBS_ENDPOINT`: optional, override to specify the `IP:port` endpoint where the PBS module will open the port for the beacon node.
+- `CB_PBS_ENDPOINT`: optional, override to specify the `IP:port` endpoint where the PBS Service will open the port for the beacon node.
 - `CB_MUX_PATH_{ID}`: optional, override where to load mux validator keys for mux with `id=\{ID\}`.
 
-### Signer Module
+### Signer Service
 
-- `CB_SIGNER_ADMIN_JWT`: secret to use for admin JWT.
+- `CB_JWTS`: required (the signer service will not start without it), comma-separated list of `module_id=jwt_secret` pairs for module authentication.
+- `CB_SIGNER_ADMIN_JWT`: required, secret to use for admin JWT.
+- `CB_SIGNER_JWT_AUTH_FAIL_LIMIT`: optional, override the number of failed JWT auth attempts before rate-limiting a client (default: `3`).
+- `CB_SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS`: optional, override the rate-limit timeout window in seconds (default: `300`).
 - `CB_SIGNER_ENDPOINT`: optional, override to specify the `IP:port` endpoint to bind the signer server to.
 - `CB_SIGNER_TLS_CERTIFICATES`: path to the TLS certificates for the server.
 - For loading keys we currently support:
   - `CB_SIGNER_LOADER_FILE`: path to a `.json` with plaintext keys (for testing purposes only).
-  - `CB_SIGNER_LOADER_FORMAT`, `CB_SIGNER_LOADER_KEYS_DIR` and `CB_SIGNER_LOADER_SECRETS_DIR`: paths to the `keys` and `secrets` directories or files (ERC-2335 style keystores, see [Signer config](../configuration/#signer-module) for more info).
+  - `CB_SIGNER_LOADER_KEYS_DIR` and `CB_SIGNER_LOADER_SECRETS_DIR`: paths to the `keys` and `secrets` directories or files (ERC-2335 style keystores, see [Signer config](../configuration/#signer-service) for more info).
 - For storing proxy keys we currently support:
   - `CB_PROXY_STORE_DIR`: directory where proxy keys and delegations will be saved in plaintext (for testing purposes only).
   - `CB_PROXY_KEYS_DIR` and `CB_PROXY_SECRETS_DIR`: paths to the `keys` and `secrets` directories or files (ERC-2335 style keystores, see [Proxy keys store](../configuration/#proxy-keys-store) for more info).
 - For Dirk remote signer the following envs are available (see [Dirk config](../configuration/#dirk) for more info):
-  - `CB_SIGNER_DIRK_CERT_FILE`: required, path to the client certificate file.
-  - `CB_SIGNER_DIRK_KEY_FILE`: required, path to the client key file.
-  - `CB_SIGNER_DIRK_SECRETS_DIR`: required, path to the secrets directory.
+  - `CB_SIGNER_DIRK_CERT_FILE`: optional, override of the `cert_path` in the `[signer.dirk]` config, path to the client certificate file.
+  - `CB_SIGNER_DIRK_KEY_FILE`: optional, override of the `key_path` in the `[signer.dirk]` config, path to the client key file.
+  - `CB_SIGNER_DIRK_SECRETS_DIR`: optional, override of the `secrets_path` in the `[signer.dirk]` config, path to the secrets directory.
   - `CB_SIGNER_DIRK_CA_CERT_FILE`: optional, path to the CA certificate file.
 
 ### Modules
@@ -49,7 +52,7 @@ Modules need some environment variables to work correctly.
 
 #### Commit modules
 
-- `CB_SIGNER_URL`: required, url to the signer module server.
+- `CB_SIGNER_URL`: required, url to the Signer Service server.
 - `CB_SIGNER_JWT`: required, jwt to use for signature requests.
 
 Modules might also have additional envs required, which should be detailed by the maintainers.
