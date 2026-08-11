@@ -2,7 +2,7 @@
 description: Initial setup
 ---
 
-# Overview
+# Getting started
 
 Commit-Boost is primarily based on [Docker](https://www.docker.com/) to enable modularity, sandboxing and cross-platform compatibility. It is also possible to run Commit-Boost [natively](./running/binary.md) without Docker.
 

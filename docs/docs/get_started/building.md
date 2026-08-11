@@ -150,7 +150,7 @@ The exact timestamps, request ids and commit hash will of course differ; what ma
 
 If you see that, then the PBS service works.
 
-### Verifying the Signer Module
+### Verifying the Signer Service
 
 To verify the Signer service works, create [a TOML configuration](./configuration.md) for the Signer module (e.g., `cb-config.toml`). We'll use the example in the PBS section above.
 

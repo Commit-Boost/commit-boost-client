@@ -203,9 +203,11 @@ If the request itself fails (rather than simply yielding no bids), PBS instead r
 
 ---
 
+## Expected healthy logs
+
 If you started the modules correctly you should see the following logs.
 
-## PBS
+### PBS
 
 After the service started correctly you should see:
 ```bash

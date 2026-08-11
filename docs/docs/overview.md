@@ -2,7 +2,7 @@
 sidebar_position: 2
 ---
 
-# Overview
+# Why Commit-Boost
 
 ## Background
 - Proposer commitments have been an important part of Ethereum’s history. Today, we already see the power of commitments where over 90% of validators give up their autonomy and make a wholesale commitment that outsources block building to a sophisticated actor called a block builder.
