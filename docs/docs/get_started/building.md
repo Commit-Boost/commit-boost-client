@@ -138,13 +138,17 @@ CB_CONFIG=cb-config.toml ./build/<version>/<OS and arch>/commit-boost pbs
 If it works, you should see output like this:
 
 ```
-2025-05-07T21:09:17.407245Z  WARN No metrics server configured
-2025-05-07T21:09:17.407257Z  INFO starting PBS service version="0.7.0" commit_hash="58082edb1213596667afe8c3950cd997ab85f4f3" addr=127.0.0.1:18550 events_subs=0 chain=Hoodi
-2025-05-07T21:09:17.746855Z  INFO : new request ua="" relay_check=true method=/eth/v1/builder/status req_id=5c405c33-0496-42ea-a35d-a7a01dbba356
-2025-05-07T21:09:17.896196Z  INFO : relay check successful method=/eth/v1/builder/status req_id=5c405c33-0496-42ea-a35d-a7a01dbba356
+2025-11-04T14:22:03.118427Z  WARN No metrics server configured
+2025-11-04T14:22:03.118512Z  INFO starting PBS service version="0.10.0" commit_hash="f05eefbf652ac5442088bd2b20390d29c23b1c5d" addr=127.0.0.1:18550 chain=Hoodi
+2025-11-04T14:22:03.372184Z  INFO : new request ua="" relay_check=true method=/eth/v1/builder/status req_id=5c405c33-0496-42ea-a35d-a7a01dbba356
+2025-11-04T14:22:03.521903Z  INFO : relay check successful method=/eth/v1/builder/status req_id=5c405c33-0496-42ea-a35d-a7a01dbba356
+2025-11-04T14:22:03.522015Z  INFO : Responded with 200 OK in 149 ms method=/eth/v1/builder/status req_id=5c405c33-0496-42ea-a35d-a7a01dbba356
 ```
 
-If you do, then the PBS service works.
+The exact timestamps, request ids and commit hash will of course differ; what matters is the
+`starting PBS service` line and the successful relay check that follows it.
+
+If you see that, then the PBS service works.
 
 ### Verifying the Signer Module
 
@@ -166,9 +170,13 @@ CB_CONFIG=cb-config.toml CB_JWTS="test=dummy" CB_SIGNER_ADMIN_JWT="dummy_admin" 
 You should see output like this:
 
 ```
-2025-06-03T04:57:19.815702Z  WARN Proxy store not configured. Proxies keys and delegations will not be persisted
-2025-06-03T04:57:19.818193Z  INFO Starting signing service version="0.8.0-rc.1" commit_hash="3eed5268f07803c55cca7d7e2e14a7017098f797" modules=["test"] endpoint=127.0.0.1:20000 loaded_consensus=0 loaded_proxies=0
-2025-06-03T04:57:19.818229Z  WARN No metrics server configured
+2025-11-04T14:31:44.815702Z  WARN Proxy store not configured. Proxies keys and delegations will not be persisted
+2025-11-04T14:31:44.818193Z  INFO Starting signing service version="0.10.0" commit_hash="f05eefbf652ac5442088bd2b20390d29c23b1c5d" modules=["test"] endpoint=127.0.0.1:20000 loaded_consensus=0 loaded_proxies=0 jwt_auth_fail_limit=3 jwt_auth_fail_timeout=300s reverse_proxy=None
+2025-11-04T14:31:44.818229Z  WARN No metrics server configured
+2025-11-04T14:31:44.818305Z  WARN Running in insecure HTTP mode, no TLS certificates provided
 ```
 
-If you do, then the binary works.
+The `insecure HTTP mode` warning is expected here: the default `tls_mode` is `insecure`, and this
+config does not set one. See [TLS](./configuration.md#tls) for how to enable it.
+
+If you see that, then the binary works.

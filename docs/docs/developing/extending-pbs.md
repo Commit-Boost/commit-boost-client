@@ -97,10 +97,27 @@ impl BuilderApi<MyBuilderState> for MyBuilderApi {
 4. Load config and run:
 
 ```rust
+use std::path::PathBuf;
+
 let (pbs_config, extra) = load_pbs_custom_config::<ExtraConfig>().await?;
+
+// The second argument is the path PBS watches for config hot-reloads.
+// An empty path disables the watcher — see the note below.
+let config_path = PathBuf::new();
+
 let state = PbsState::new(pbs_config, config_path).with_data(MyBuilderState::from_config(extra));
 PbsService::run::<MyBuilderState, MyBuilderApi>(state).await
 ```
+
+:::note Config hot-reload is opt-in for custom binaries
+
+`PbsService::run` only spawns the config file watcher when the `config_path` handed to
+`PbsState::new` is a non-empty path. `examples/status_api` passes `PathBuf::new()`, so that example
+does **not** hot-reload: config changes need a restart.
+
+To get the same auto-reload behavior as the stock PBS binary, pass the real path of your config file
+(typically the value of `CB_CONFIG`) instead of an empty `PathBuf`.
+:::
 
 ### Running
 

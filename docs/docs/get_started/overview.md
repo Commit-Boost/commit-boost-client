@@ -49,23 +49,23 @@ git submodule update --init --recursive
 If you get an `openssl` related error try running: `apt-get update && apt-get install -y openssl ca-certificates libssl3 libssl-dev build-essential pkg-config`
 :::
 
-Each Commit-Boost release commit is located as a versioned file in the `./releases` folder. For example `.releases/v0.10.0-rc1.yml` contains:
+Each Commit-Boost release commit is located as a versioned file in the `.releases` folder. For example `.releases/v0.10.0.yml` contains:
 ```yml
-commit: "efda6a67f43b0ddb400c454a65b055d59acc7d6c"
-reason: "Substantial change to harden security in the signer service, improve build and release process, quality of life improvements to logging, and more support for SSV integrations. Contains breaking changes to the signer service and how the CLI is invoked."
+commit: "eeff25750c01f4adfc95fc08d69d541ace8e4087"
+reason: "Final release including rc1-rc4 changes"
 ```
 
 To locally build that release version, checkout the commit:
 
 ```bash
-# Switch the the specific release
-git checkout efda6a67f43b0ddb400c454a65b055d59acc7d6c
- 
-# Build the binary 
+# Switch to the specific release
+git checkout eeff25750c01f4adfc95fc08d69d541ace8e4087
+
+# Build the binary
 just build-bin $(git rev-parse --short HEAD)
 ```
 
-The binary will be stored in `build/<git hash>/<OS and arch>`, for example `build/efda6a6/linux_amd64/`:
+The binary will be stored in `build/<git hash>/<OS and arch>`, for example `build/eeff257/linux_amd64/`:
 
 You can confirm the binary was built successfully by navigating to the build directory and checking its version:
 ```bash
@@ -77,8 +77,8 @@ You can confirm the binary was built successfully by navigating to the build dir
 Building the service images requires the binary to be built using the above instructions first, since it will be copied into those images. The `build-all` command compiles the binary and then creates the image in one step:
 
 ```bash
-# Switch the the specific release
-git checkout efda6a67f43b0ddb400c454a65b055d59acc7d6c
+# Switch to the specific release
+git checkout eeff25750c01f4adfc95fc08d69d541ace8e4087
 
 # Build the binary and create the image
 just build-all $(git rev-parse --short HEAD)

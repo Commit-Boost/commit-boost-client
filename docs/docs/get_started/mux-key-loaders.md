@@ -18,9 +18,11 @@ Mux entries are an optional addition to the `[[relays]]` section. If you don't n
 
 ## Mux entry matching
 
-Each `[[mux]]` entry declares a set of validator pubkeys. The mux system enforces that these sets are **disjoint** — a validator pubkey should appear in at most one mux entry. If a pubkey is duplicated across mux entries, the sidecar will refuse to start.
+Each `[[mux]]` entry declares a set of validator pubkeys. At startup the sidecar resolves every mux (running its loader, if any), then flattens all of them into a **single pubkey -> mux** lookup table. Matching is therefore a direct lookup on the validator pubkey, not an ordered scan: the order in which `[[mux]]` entries appear in the config file does not matter.
 
-Matching uses **first-match semantics**: when the PBS receives a request for a validator, it checks each mux entry in the order they appear in the config file. The first mux whose pubkey set contains the validator's key wins. Validators that don't match any mux entry fall through to the global `[[relays]]` configuration.
+Because there is only one entry per pubkey, the mux sets must be **disjoint**. This is enforced before the lookup table is built: if the same validator pubkey appears in two different mux entries — whether listed inline or pulled in by a loader — startup fails with `duplicate validator pubkey in muxes: 0x...`. There is no "first mux wins" fallback; you must fix the config.
+
+Validators that don't appear in any mux fall through to the global `[[relays]]` configuration.
 
 ```toml
 # Global relays — used for validators not matching any mux
@@ -28,7 +30,7 @@ Matching uses **first-match semantics**: when the PBS receives a request for a v
 id = "global-relay"
 url = "..."
 
-# First mux entry — checked first
+# A mux entry — its pubkeys must not appear in any other mux
 [[mux]]
 id = "timing-sensitive"
 validator_pubkeys = [
@@ -53,14 +55,15 @@ url = "..."
 
 | Condition | Behaviour |
 |---|---|
-| Pubkey matches a mux entry | That mux's relays and timing config are used |
-| Pubkey appears in multiple mux entries | Validation error — sidecar fails to start |
-| Pubkey doesn't match any entry | Falls through to global `[[relays]]` |
-| A mux has no pubkeys (empty set) | Validation error — each mux must have at least one pubkey |
+| Pubkey belongs to exactly one mux | That mux's relays and timing config are used |
+| Pubkey appears in more than one mux | Startup error: `duplicate validator pubkey in muxes` |
+| Pubkey doesn't belong to any mux | Falls through to global `[[relays]]` |
+| A mux has no pubkeys (empty set) | Startup error — each mux must have at least one pubkey |
+| A mux has no relays | Startup error — each mux must have at least one relay |
 
 The pubkey set for a mux can come from two sources combined:
 1. **Inline `validator_pubkeys`** — a list of hex-prefixed BLS pubkeys in the config file itself.
-2. **A loader plugin** — loads additional keys from a file, URL, or on-chain registry. Keys from the loader are merged into the mux's pubkey set.
+2. **A loader plugin** — loads additional keys from a file, URL, or on-chain registry. Keys from the loader are merged into the mux's pubkey set *before* the disjointness check runs, so a key pulled in by a loader can collide with one you listed inline in another mux.
 
 ---
 
@@ -120,7 +123,7 @@ url = "..."
 
 **Request behaviour:**
 - One-shot GET request — no retry logic.
-- Timeout is controlled by `default_pbs.http_timeout_seconds` (default: 10s).
+- Timeout is controlled by `http_timeout_seconds` in the `[pbs]` section (default: 10s).
 - The response body is read in full and parsed as JSON.
 
 ---
