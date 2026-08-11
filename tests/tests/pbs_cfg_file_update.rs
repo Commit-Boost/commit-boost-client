@@ -2,7 +2,10 @@ use std::{net::Ipv4Addr, sync::Arc, time::Duration};
 
 use alloy::primitives::U256;
 use cb_common::{
-    config::{CommitBoostConfig, LogsSettings, PbsConfig, RelayConfig, StaticPbsConfig},
+    config::{
+        CommitBoostConfig, GetHeaderTransport, LogsSettings, PbsConfig, RelayConfig,
+        StaticPbsConfig,
+    },
     pbs::RelayEntry,
     signer::random_secret,
     types::Chain,
@@ -89,6 +92,7 @@ async fn test_cfg_file_update() -> Result<()> {
             enable_timing_games: false,
             frequency_get_header_ms: None,
             get_params: None,
+            get_header: GetHeaderTransport::Http,
             headers: None,
             target_first_request_ms: None,
             validator_registration_batch_size: None,
@@ -142,6 +146,7 @@ async fn test_cfg_file_update() -> Result<()> {
             enable_timing_games: false,
             frequency_get_header_ms: None,
             get_params: None,
+            get_header: GetHeaderTransport::Http,
             headers: None,
             target_first_request_ms: None,
             validator_registration_batch_size: None,

@@ -44,7 +44,7 @@ use cb_common::{pbs::GetHeaderParams, signer::random_secret, types::Chain};
 use cb_pbs::{PbsState, get_header};
 use cb_tests::{
     mock_relay::{MockRelayState, start_mock_relay_service},
-    utils::{generate_mock_relay, get_pbs_static_config, to_pbs_config},
+    utils::{generate_mock_relay, get_pbs_config, to_pbs_config},
 };
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 
@@ -103,8 +103,7 @@ fn bench_get_header(c: &mut Criterion) {
         let states: Vec<PbsState> = RELAY_COUNTS
             .iter()
             .map(|&n| {
-                let config =
-                    to_pbs_config(CHAIN, get_pbs_static_config(0), relay_clients[..n].to_vec());
+                let config = to_pbs_config(CHAIN, get_pbs_config(0), relay_clients[..n].to_vec());
                 PbsState::new(config, PathBuf::new())
             })
             .collect();

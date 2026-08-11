@@ -8,11 +8,11 @@ use std::{
 use alloy::primitives::{B256, U256};
 use cb_common::{
     config::{
-        COMMIT_BOOST_IMAGE_DEFAULT, CommitBoostConfig, LogsSettings, ModuleKind,
-        ModuleSigningConfig, PbsConfig, PbsModuleConfig, RelayConfig, ReverseProxyHeaderSetup,
-        SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT, SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT,
-        SIGNER_PORT_DEFAULT, SignerConfig, SignerType, StartSignerConfig, StaticModuleConfig,
-        StaticPbsConfig, TlsMode,
+        COMMIT_BOOST_IMAGE_DEFAULT, CommitBoostConfig, GetHeaderTransport, LogsSettings,
+        ModuleKind, ModuleSigningConfig, PbsConfig, PbsModuleConfig, RelayConfig,
+        ReverseProxyHeaderSetup, SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT,
+        SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT, SIGNER_PORT_DEFAULT, SignerConfig,
+        SignerType, StartSignerConfig, StaticModuleConfig, StaticPbsConfig, TlsMode,
     },
     pbs::{RelayClient, RelayEntry},
     signer::SignerLoader,
@@ -22,6 +22,12 @@ use cb_common::{
 use eyre::Result;
 use rcgen::generate_simple_self_signed;
 use url::Url;
+
+pub const HEADER_API_KEY: &str = "x-api-key";
+pub const API_KEY: &str = "123e4567-e89b-12d3-a456-426614174000";
+/// Distinct from [`API_KEY`], which `MockValidator` also sends to PBS: a relay
+/// that sees this one can only have got it from its own config.
+pub const RELAY_API_KEY: &str = "f81d4fae-7dec-11d0-a765-00a0c91e6bf6";
 
 pub fn get_local_address(port: u16) -> String {
     format!("http://0.0.0.0:{port}")
@@ -39,20 +45,26 @@ pub fn setup_test_env() {
     });
 }
 
-pub fn generate_mock_relay(port: u16, pubkey: BlsPublicKey) -> Result<RelayClient> {
-    let entry =
-        RelayEntry { id: format!("mock_{port}"), pubkey, url: get_local_address(port).parse()? };
-    let config = RelayConfig {
-        entry,
+fn mock_relay_config(port: u16, pubkey: BlsPublicKey) -> Result<RelayConfig> {
+    Ok(RelayConfig {
+        entry: RelayEntry {
+            id: format!("mock_{port}"),
+            pubkey,
+            url: get_local_address(port).parse()?,
+        },
         id: None,
-        headers: None,
+        headers: Some(HashMap::from([(HEADER_API_KEY.into(), API_KEY.into())])),
         get_params: None,
+        get_header: GetHeaderTransport::Http,
         enable_timing_games: false,
         target_first_request_ms: None,
         frequency_get_header_ms: None,
         validator_registration_batch_size: None,
-    };
-    RelayClient::new(config)
+    })
+}
+
+pub fn generate_mock_relay(port: u16, pubkey: BlsPublicKey) -> Result<RelayClient> {
+    RelayClient::new(mock_relay_config(port, pubkey)?)
 }
 
 pub fn generate_mock_relay_with_batch_size(
@@ -60,18 +72,38 @@ pub fn generate_mock_relay_with_batch_size(
     pubkey: BlsPublicKey,
     batch_size: usize,
 ) -> Result<RelayClient> {
-    let entry =
-        RelayEntry { id: format!("mock_{port}"), pubkey, url: get_local_address(port).parse()? };
-    let config = RelayConfig {
-        entry,
-        id: None,
-        headers: None,
-        get_params: None,
-        enable_timing_games: false,
-        target_first_request_ms: None,
-        frequency_get_header_ms: None,
-        validator_registration_batch_size: Some(batch_size),
-    };
+    let mut config = mock_relay_config(port, pubkey)?;
+    config.validator_registration_batch_size = Some(batch_size);
+    RelayClient::new(config)
+}
+
+pub fn generate_mock_relay_with_api_key(
+    port: u16,
+    pubkey: BlsPublicKey,
+    api_key: &str,
+) -> Result<RelayClient> {
+    let mut config = mock_relay_config(port, pubkey)?;
+    config.headers = Some(HashMap::from([(HEADER_API_KEY.into(), api_key.into())]));
+    RelayClient::new(config)
+}
+
+pub fn generate_mock_stream_relay(port: u16, pubkey: BlsPublicKey) -> Result<RelayClient> {
+    let mut config = mock_relay_config(port, pubkey)?;
+    config.get_header = GetHeaderTransport::Stream;
+    RelayClient::new(config)
+}
+
+pub fn generate_mock_stream_relay_with_timing_games(
+    port: u16,
+    pubkey: BlsPublicKey,
+    target_first_request_ms: u64,
+    frequency_get_header_ms: u64,
+) -> Result<RelayClient> {
+    let mut config = mock_relay_config(port, pubkey)?;
+    config.get_header = GetHeaderTransport::Stream;
+    config.enable_timing_games = true;
+    config.target_first_request_ms = Some(target_first_request_ms);
+    config.frequency_get_header_ms = Some(frequency_get_header_ms);
     RelayClient::new(config)
 }
 

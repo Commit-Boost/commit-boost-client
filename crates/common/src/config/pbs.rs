@@ -38,6 +38,14 @@ use crate::{
     },
 };
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GetHeaderTransport {
+    #[default]
+    Http,
+    Stream,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RelayConfig {
@@ -50,6 +58,9 @@ pub struct RelayConfig {
     pub headers: Option<HashMap<String, String>>,
     /// Optional GET parameters to add to each request
     pub get_params: Option<HashMap<String, String>>,
+    /// How to fetch headers from this relay
+    #[serde(default)]
+    pub get_header: GetHeaderTransport,
     /// Whether to enable timing games
     #[serde(default = "default_bool::<false>")]
     pub enable_timing_games: bool,

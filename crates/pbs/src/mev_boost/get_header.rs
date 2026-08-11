@@ -13,8 +13,8 @@ use cb_common::{
     constants::APPLICATION_BUILDER_DOMAIN,
     pbs::{
         EMPTY_TX_ROOT_HASH, ExecutionPayloadHeaderRef, ForkName, ForkVersionDecode, GetHeaderInfo,
-        GetHeaderParams, GetHeaderResponse, HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS,
-        RelayClient, SignedBuilderBid,
+        GetHeaderParams, GetHeaderRequest, GetHeaderResponse, HEADER_START_TIME_UNIX_MS,
+        HEADER_TIMEOUT_MS, RelayClient, SignedBuilderBid,
         error::{PbsError, ValidationError},
     },
     signature::verify_signed_message,
@@ -36,6 +36,7 @@ use tracing::{Instrument, debug, error, info, warn};
 use tree_hash::TreeHash;
 use url::Url;
 
+use super::get_header_ws::get_header_ws;
 use crate::{
     constants::{
         GET_HEADER_ENDPOINT_TAG, MAX_SIZE_GET_HEADER_RESPONSE, TIMEOUT_ERROR_CODE,
@@ -49,11 +50,11 @@ use crate::{
 /// Info about an incoming get_header request.
 /// Sent from get_header to each send_timed_get_header call.
 #[derive(Clone)]
-struct RequestInfo {
-    params: GetHeaderParams,
+pub(super) struct RequestInfo {
+    pub(super) params: GetHeaderParams,
 
     /// Common baseline of headers to send with each request
-    headers: HeaderMap,
+    pub(super) headers: HeaderMap,
 
     /// The chain the request is for
     chain: Chain,
@@ -170,7 +171,7 @@ pub async fn get_header<S: BuilderApiState>(
     let mut handles = Vec::with_capacity(relays.len());
     for relay in relays.iter() {
         handles.push(
-            send_timed_get_header(
+            get_header_from_relay(
                 request_info.clone(),
                 relay.clone(),
                 ms_into_slot,
@@ -240,21 +241,59 @@ async fn fetch_parent_block(
     }
 }
 
+async fn get_header_from_relay(
+    request_info: Arc<RequestInfo>,
+    relay: RelayClient,
+    ms_into_slot: u64,
+    timeout_left_ms: u64,
+) -> Result<Option<GetHeaderResponse>, PbsError> {
+    let params = &request_info.params;
+
+    match relay.get_header_request(params.slot, &params.parent_hash, &params.pubkey)? {
+        GetHeaderRequest::Stream(url) => {
+            let started = Instant::now();
+            let err = match get_header_ws(&request_info, &relay, url, timeout_left_ms).await {
+                Err(PbsError::WebSocketConnect(err)) => err,
+                res => return res,
+            };
+
+            let elapsed_ms = started.elapsed().as_millis() as u64;
+            let timeout_left_ms = timeout_left_ms.saturating_sub(elapsed_ms);
+            if timeout_left_ms == 0 {
+                return Err(PbsError::WebSocketConnect(err));
+            }
+
+            warn!(relay_id = relay.id.as_ref(), %err, timeout_left_ms, "stream failed, falling back to http get_header");
+
+            let url = relay.get_header_url(params.slot, &params.parent_hash, &params.pubkey)?;
+            send_timed_get_header(
+                request_info,
+                relay,
+                ms_into_slot + elapsed_ms,
+                url,
+                timeout_left_ms,
+            )
+            .await
+        }
+        GetHeaderRequest::Http(url) => {
+            send_timed_get_header(request_info, relay, ms_into_slot, url, timeout_left_ms).await
+        }
+    }
+}
+
 async fn send_timed_get_header(
     request_info: Arc<RequestInfo>,
     relay: RelayClient,
     ms_into_slot: u64,
+    url: Url,
     mut timeout_left_ms: u64,
 ) -> Result<Option<GetHeaderResponse>, PbsError> {
-    let params = &request_info.params;
-    let url = relay.get_header_url(params.slot, &params.parent_hash, &params.pubkey)?;
-
     if relay.config.enable_timing_games {
         if let Some(target_ms) = relay.config.target_first_request_ms {
             // sleep until target time in slot
 
             let delay = target_ms.saturating_sub(ms_into_slot);
-            if delay > 0 {
+            if delay > 0 && delay < timeout_left_ms {
                 debug!(
                     relay_id = relay.id.as_ref(),
                     target_ms, ms_into_slot, "TG: waiting to send first header request"
@@ -264,7 +303,10 @@ async fn send_timed_get_header(
             } else {
                 debug!(
                     relay_id = relay.id.as_ref(),
-                    target_ms, ms_into_slot, "TG: request already late enough in slot"
+                    target_ms,
+                    ms_into_slot,
+                    timeout_left_ms,
+                    "TG: sending first header request now"
                 );
             }
         }
@@ -371,6 +413,16 @@ async fn send_one_get_header(
         Some(res) => res,
     };
 
+    validate_get_header_response(&request_info, &relay, &get_header_response)?;
+
+    Ok((start_request_time, Some(get_header_response)))
+}
+
+pub(super) fn validate_get_header_response(
+    request_info: &RequestInfo,
+    relay: &RelayClient,
+    get_header_response: &GetHeaderResponse,
+) -> Result<(), PbsError> {
     // Extract the basic header data needed for validation
     let header_data = match &get_header_response.data.message.header() {
         ExecutionPayloadHeaderRef::Bellatrix(_) |
@@ -412,7 +464,7 @@ async fn send_one_get_header(
     if validation.extra_validation_enabled {
         let parent_block = validation.parent_block.read();
         if let Some(parent_block) = parent_block.as_ref() {
-            extra_validation(parent_block, &get_header_response)?;
+            extra_validation(parent_block, get_header_response)?;
         } else {
             warn!(
                 relay_id = relay.id.as_ref(),
@@ -421,7 +473,7 @@ async fn send_one_get_header(
         }
     }
 
-    Ok((start_request_time, Some(get_header_response)))
+    Ok(())
 }
 
 /// Send and decode a full get_header response, with all of the fields.
@@ -571,7 +623,7 @@ fn decode_json_payload(response_bytes: &[u8]) -> Result<GetHeaderResponse, PbsEr
 }
 
 /// Decode an SSZ-encoded get_header response
-fn decode_ssz_payload(
+pub fn decode_ssz_payload(
     response_bytes: &[u8],
     fork: ForkName,
 ) -> Result<GetHeaderResponse, PbsError> {
