@@ -62,8 +62,15 @@ When using the spec-file form, the `CB_CHAIN_SPEC` environment variable can be s
 
 Beyond the basics shown above, the `[pbs]` section supports some additional knobs (see the [annotated config example](https://github.com/Commit-Boost/commit-boost-client/blob/main/config.example.toml) for the full list):
 
+- `relay_check`: whether to forward `get_status` calls to the relays on startup, or skip the check and return `200` immediately. Default: `true`.
+- `wait_all_registrations`: whether to wait for all relays to respond to a validator registration before returning, or return after the first successful registration. Default: `true`.
+- `timeout_get_header_ms`: timeout, in milliseconds, for the `get_header` call to relays. Must be greater than 0, and must be less than `late_in_slot_time_ms`. Note that the CL also has a timeout (e.g. 1 second), so this should be lower than that to leave some margin for overhead. Default: `950`.
+- `timeout_get_payload_ms`: timeout, in milliseconds, for the `submit_blinded_block` (get payload) call to relays. Must be greater than 0. Default: `4000`.
+- `timeout_register_validator_ms`: timeout, in milliseconds, for the `register_validator` call to relays. Must be greater than 0. Default: `3000`.
 - `skip_sigverify`: whether to skip verification of the relay signature and pubkey in `get_header` responses. Default: `false`.
 - `min_bid_eth`: minimum bid in ETH that will be accepted from `get_header`, can be specified as a float or a string for extra precision (e.g. `"0.01"`). Default: `0.0`.
+- `late_in_slot_time_ms`: how late, in milliseconds into the slot, is considered "late". This shortens `get_header` timeouts to make sure a header is returned within this deadline; if the CL request arrives later in the slot, fetching headers is skipped to force local building and minimize the risk of a missed slot (see also the timing games notes). Must be greater than 0. Default: `2000`.
+- `http_timeout_seconds`: timeout, in seconds, for any HTTP request sent from the PBS module to other services. Default: `10`.
 - `extra_validation_enabled`: whether to enable extra validation of `get_header` responses. If enabled, `rpc_url` must also be set to an Execution Layer RPC on the same chain as the sidecar (this is checked at startup). Default: `false`.
 - `register_validator_retry_limit`: maximum number of retries for validator registration requests per relay, must be greater than 0. Default: `3`.
 - `validator_registration_batch_size`: maximum number of validators to send to relays in a single registration request. Default: unlimited.
@@ -105,6 +112,23 @@ max_files = 30    # Maximum number of log files to keep. Default: unlimited
 ```
 
 The `CB_LOGS_DIR` environment variable overrides `dir_path` (see [Binary](./running/binary.md#common)).
+
+## Metrics
+
+Prometheus metrics are configured via the optional `[metrics]` section:
+
+```toml
+[metrics]
+enabled = true        # Whether to collect metrics. Default: true
+host = "127.0.0.1"    # Host to expose the metrics servers on. Default: 127.0.0.1
+start_port = 10000    # First port to expose metrics on. Default: 10000
+```
+
+- `enabled`: whether to collect metrics. Default: `true`.
+- `host`: host to expose the metrics servers on. Default: `127.0.0.1`.
+- `start_port`: the first port that services listen on for Prometheus scrapes. Each service uses this port, then `start_port + 1`, `start_port + 2`, and so on. Default: `10000`.
+
+The `CB_METRICS_PORT` environment variable overrides the port used by a module at runtime.
 
 ## Signer Service
 
