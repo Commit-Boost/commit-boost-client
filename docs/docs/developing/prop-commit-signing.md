@@ -159,7 +159,7 @@ For a complete working example, see [`examples/da_commit/`](https://github.com/C
 ## Common workflows
 
 ### Requesting a BLS consensus signature
-![Generating and using a proxy key](../res/img/consensus-key-sign.png)
+![Requesting a BLS consensus signature](../res/img/consensus-key-sign.png)
 
 ### Generating and using a proxy key
 ![Generating and using a proxy key](../res/img/proxy-key-sign.png)

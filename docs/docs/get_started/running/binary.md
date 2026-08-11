@@ -36,11 +36,11 @@ Services need environment variables to work correctly.
 - `CB_SIGNER_TLS_CERTIFICATES`: path to the TLS certificates for the server.
 - For loading keys we currently support:
   - `CB_SIGNER_LOADER_FILE`: path to a `.json` with plaintext keys (for testing purposes only).
-  - `CB_SIGNER_LOADER_KEYS_DIR` and `CB_SIGNER_LOADER_SECRETS_DIR`: paths to the `keys` and `secrets` directories or files (ERC-2335 style keystores, see [Signer config](../configuration/#signer-service) for more info).
+  - `CB_SIGNER_LOADER_KEYS_DIR` and `CB_SIGNER_LOADER_SECRETS_DIR`: paths to the `keys` and `secrets` directories or files (ERC-2335 style keystores, see [Signer config](../configuration.md#signer-service) for more info).
 - For storing proxy keys we currently support:
   - `CB_PROXY_STORE_DIR`: directory where proxy keys and delegations will be saved in plaintext (for testing purposes only).
-  - `CB_PROXY_KEYS_DIR` and `CB_PROXY_SECRETS_DIR`: paths to the `keys` and `secrets` directories or files (ERC-2335 style keystores, see [Proxy keys store](../configuration/#proxy-keys-store) for more info).
-- For Dirk remote signer the following envs are available (see [Dirk config](../configuration/#dirk) for more info):
+  - `CB_PROXY_KEYS_DIR` and `CB_PROXY_SECRETS_DIR`: paths to the `keys` and `secrets` directories or files (ERC-2335 style keystores, see [Proxy keys store](../configuration.md#proxy-keys-store) for more info).
+- For Dirk remote signer the following envs are available (see [Dirk config](../configuration.md#dirk) for more info):
   - `CB_SIGNER_DIRK_CERT_FILE`: optional, override of the `cert_path` in the `[signer.dirk]` config, path to the client certificate file.
   - `CB_SIGNER_DIRK_KEY_FILE`: optional, override of the `key_path` in the `[signer.dirk]` config, path to the client key file.
   - `CB_SIGNER_DIRK_SECRETS_DIR`: optional, override of the `secrets_path` in the `[signer.dirk]` config, path to the secrets directory.
