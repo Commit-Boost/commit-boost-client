@@ -18,11 +18,18 @@ chain = "Hoodi"
 port = 18550
 
 [[relays]]
-url = ""
+# Replace this with your relay's own URL, in the form scheme://<relay-pubkey>@<host>
+url = "https://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@relay.example.com"
 
 [metrics]
 enabled = true
 ```
+
+:::warning
+The relay `url` is not a placeholder you can leave blank. It must be a full absolute URL whose
+userinfo part is the relay's BLS public key: an empty string fails to parse, and a URL without a
+pubkey is rejected with `invalid BLS pubkey`. Either way the sidecar refuses to start.
+:::
 
 You can find a list of MEV-Boost Hoodi relays [here](https://github.com/ethstaker/ethstaker-guides/blob/main/MEV-relay-list.md#mev-relay-list-for-hoodi-testnet).
 After the sidecar is started, it will expose a port (`18550` in this example), that you need to point your CL to. This may be different depending on which CL you're running, check out [here](https://docs.flashbots.net/flashbots-mev-boost/getting-started/system-requirements#consensus-client-configuration-guides) for a list of configuration guides.
@@ -47,7 +54,9 @@ chain = { genesis_time_secs = 1695902400, path = "/path/to/spec.json" }
 chain = { genesis_time_secs = 1695902400, slot_time_secs = 12, genesis_fork_version = "0x01017000", fulu_fork_slot = 5283840, chain_id = 17000 }
 ```
 
-When using the spec-file form, the `CB_CHAIN_SPEC` environment variable can be set to override the spec file path at runtime (see [Binary](./running/binary.md#common)).
+All fields of the inline form are required; there are no defaults, and omitting one makes the whole `chain` value fail to parse.
+
+When using the spec-file form, the `CB_CHAIN_SPEC` environment variable can be set to override the spec file path at runtime (see [Binary](./running/binary.md#common)). It has no effect on the other two forms.
 
 ## PBS safety and tuning options
 
@@ -498,7 +507,8 @@ The `cb-config.toml` file needs to be updated as follows:
 port = 18550
 
 [[relays]]
-url = ""
+# Replace this with your relay's own URL, in the form scheme://<relay-pubkey>@<host>
+url = "https://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@relay.example.com"
 
 [signer]
 port = 20000
@@ -577,6 +587,15 @@ docker compose -f cb.docker-compose.yml exec cb_signer curl -X POST -H "Authoriz
 
 In addition to the manual `/reload` endpoint, the PBS Service watches the config file for changes and automatically reloads the configuration whenever the file is modified — no restart or API call needed. If the reload fails (e.g. because of a misconfigured option), it logs a warning and keeps the previous configuration.
 
+:::caution Custom PBS binaries
+
+The file watcher is only started when the PBS service is given a non-empty config path. The stock
+PBS binary always passes one, so automatic reload works out of the box. A **custom PBS binary** only
+gets it if it passes the real config path to `PbsState::new` — `examples/status_api` passes an empty
+`PathBuf`, which disables the watcher. See [Extending PBS](../developing/extending-pbs.md#entry-point).
+Note that the manual `POST /reload` endpoint works either way.
+:::
+
 ### Signer Service reload
 
 When the signer receives a reload request it re-reads the configuration file and environment variables, rebuilding its internal state to match:
@@ -615,7 +634,7 @@ Send `POST /revoke_jwt` with the module ID. This removes the module from the sig
 
 ### Notes
 
-- The hot reload feature is available for PBS Service (both default and custom) and Signer Service.
+- The hot reload feature is available for PBS Service (both default and custom) and Signer Service. Note that the *automatic* file-watching reload additionally requires a non-empty config path (see the caution above); the `/reload` endpoint itself is always available.
 - Changes related to listening hosts and ports will not been applied, as it requires the server to be restarted.
 - If running in Docker containers, changes in `volumes` will not be applied, as it requires the container to be recreated. Be careful if changing a path to a local file as it may not be accessible from the container.
 - Custom PBS Service may override the default behaviour of the hot reload feature to parse extra configuration fields. Check the [examples](https://github.com/Commit-Boost/commit-boost-client/blob/main/examples/status_api/src/main.rs) for more details.

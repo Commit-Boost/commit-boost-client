@@ -19,7 +19,7 @@ This will create two files:
 
 To start Commit-Boost run:
 ```bash
-docker compose --env-file ".cb.env" -f ".cb.docker-compose.yml" up -d
+docker compose --env-file ".cb.env" -f "cb.docker-compose.yml" up -d
 ```
 
 :::note
@@ -33,7 +33,7 @@ The MEV-Boost server will be exposed at `pbs.port` from the config, `18550` in o
 ## Logs
 To check the logs, run:
 ```bash
-docker compose --env-file ".cb.env" -f ".cb.docker-compose.yml" logs -f
+docker compose --env-file ".cb.env" -f "cb.docker-compose.yml" logs -f
 ```
 This will currently show all logs from the different services via the Docker logs interface. Logs are also optionally saved to file, depending on your [`[logs]` configuration](../configuration.md#logs).
 
@@ -41,7 +41,7 @@ This will currently show all logs from the different services via the Docker log
 
 To stop all the services and cleanup, simply run:
 ```bash
-docker compose --env-file ".cb.env" -f ".cb.docker-compose.yml" down
+docker compose --env-file ".cb.env" -f "cb.docker-compose.yml" down
 ```
 This will wind down all services and clear internal networks and file mounts.
 
@@ -58,7 +58,7 @@ Below is a simple configuration for running only the PBS service on the Hoodi ne
 chain = "Hoodi"
 
 [pbs]
-docker_image = "ghcr.io/commit-boost/commit-boost:v0.9.6"
+docker_image = "ghcr.io/commit-boost/commit-boost:v0.10.0"
 relay_check = true
 wait_all_registrations = true
 
@@ -89,7 +89,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
-    image: ghcr.io/commit-boost/commit-boost:v0.9.6
+    image: ghcr.io/commit-boost/commit-boost:v0.10.0
     container_name: cb_pbs
     ports:
     - 127.0.0.1:18550:18550
@@ -109,7 +109,9 @@ This will run the PBS service in a container named `cb_pbs`.
 
 The program creates a read-only volume binding for the config file, which the PBS service needs to run. The Docker compose file that it creates with the `init` command, `cb.docker-compose.yml`, will be placed into your current working directory when you run the program. The volume source will be specified as a *relative path* to that working directory, so it's ideal if the config file is directly within your working directory (or a subdirectory). If you need to specify an absolute path for the config file, you can adjust the `volumes` entry within the Docker compose file manually after its creation.
 
-Since this is a volume, the PBS service sees changes to the file: it watches the config file and [automatically reloads the configuration](../configuration.md#automatic-reload-pbs-only) whenever the file is modified, without needing a restart. That means you can change the file any time after the Docker compose file is created to tweak PBS's parameters, but it also means the config file must stay in the same location; if you move it, the PBS container won't be able to mount it anymore and fail to start unless you manually adjust the volume's source location.
+Since this is a volume, the PBS service sees changes to the file: the stock PBS image watches the config file and [automatically reloads the configuration](../configuration.md#automatic-reload-pbs-only) whenever the file is modified, without needing a restart. That means you can change the file any time after the Docker compose file is created to tweak PBS's parameters, but it also means the config file must stay in the same location; if you move it, the PBS container won't be able to mount it anymore and fail to start unless you manually adjust the volume's source location.
+
+If you replaced `pbs.docker_image` with a **custom PBS image**, the automatic watcher is only active if that binary passes a non-empty config path to `PbsState::new` — see [Extending PBS](../../developing/extending-pbs.md#entry-point). The manual `POST /reload` endpoint works regardless.
 
 
 ### Networking
@@ -148,7 +150,7 @@ Below is a simple configuration for running only the three modules on the Hoodi 
 chain = "Hoodi"
 
 [pbs]
-docker_image = "ghcr.io/commit-boost/commit-boost:v0.9.6"
+docker_image = "ghcr.io/commit-boost/commit-boost:v0.10.0"
 relay_check = true
 wait_all_registrations = true
 
@@ -161,7 +163,7 @@ id = "def"
 url = "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@def.xyz"
 
 [signer]
-docker_image = "ghcr.io/commit-boost/commit-boost:v0.9.6"
+docker_image = "ghcr.io/commit-boost/commit-boost:v0.10.0"
 port = 20000
 
 [signer.local.loader]
@@ -219,7 +221,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
-    image: ghcr.io/commit-boost/commit-boost:v0.9.6
+    image: ghcr.io/commit-boost/commit-boost:v0.10.0
     container_name: cb_pbs
     ports:
     - 127.0.0.1:18550:18550
@@ -237,7 +239,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
-    image: ghcr.io/commit-boost/commit-boost:v0.9.6
+    image: ghcr.io/commit-boost/commit-boost:v0.10.0
     container_name: cb_signer
     ports:
     - 127.0.0.1:20000:20000
