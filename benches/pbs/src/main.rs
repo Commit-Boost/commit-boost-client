@@ -161,7 +161,10 @@ fn get_mock_validator(bench: BenchConfig) -> RelayClient {
         enable_timing_games: false,
         target_first_request_ms: None,
         frequency_get_header_ms: None,
+        bid_poll_timeout_ms: None,
         validator_registration_batch_size: None,
+        max_execution_payment_gwei: None,
+        expected_auth_data: None,
     };
 
     RelayClient::new(config).unwrap()

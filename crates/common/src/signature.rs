@@ -3,7 +3,9 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    constants::{COMMIT_BOOST_DOMAIN, GENESIS_VALIDATORS_ROOT},
+    constants::{
+        COMMIT_BOOST_DOMAIN, DOMAIN_BEACON_BUILDER, DOMAIN_REQUEST_AUTH, GENESIS_VALIDATORS_ROOT,
+    },
     signer::{EcdsaSignature, verify_bls_signature, verify_ecdsa_signature},
     types::{self, BlsPublicKey, BlsSecretKey, BlsSignature, Chain, SignatureRequestInfo},
 };
@@ -35,10 +37,21 @@ pub fn compute_prop_commit_signing_root(
     }
 }
 
-// NOTE: this currently works only for builder domain signatures and
-// verifications
-// ref: https://github.com/ralexstokes/ethereum-consensus/blob/cf3c404043230559660810bc0c9d6d5a8498d819/ethereum-consensus/src/builder/mod.rs#L26-L29
+// Signing domain from a chain + 4-byte domain mask (genesis fork version, zero
+// root). ref: https://github.com/ralexstokes/ethereum-consensus/blob/cf3c404043230559660810bc0c9d6d5a8498d819/ethereum-consensus/src/builder/mod.rs#L26-L29
 pub fn compute_domain(chain: Chain, domain_mask: &B32) -> B256 {
+    compute_domain_with_fork_version(
+        chain.genesis_fork_version(),
+        GENESIS_VALIDATORS_ROOT.into(),
+        domain_mask,
+    )
+}
+
+pub fn compute_domain_with_fork_version(
+    fork_version: [u8; 4],
+    genesis_validators_root: B256,
+    domain_mask: &B32,
+) -> B256 {
     #[derive(Debug, TreeHash)]
     struct ForkData {
         fork_version: [u8; 4],
@@ -48,13 +61,57 @@ pub fn compute_domain(chain: Chain, domain_mask: &B32) -> B256 {
     let mut domain = [0u8; 32];
     domain[..4].copy_from_slice(&domain_mask.0);
 
-    let fork_version = chain.genesis_fork_version();
-    let fd = ForkData { fork_version, genesis_validators_root: GENESIS_VALIDATORS_ROOT.into() };
+    let fd = ForkData { fork_version, genesis_validators_root };
     let fork_data_root = fd.tree_hash_root();
 
     domain[4..].copy_from_slice(&fork_data_root[..28]);
 
     B256::from(domain)
+}
+
+/// ePBS bid signing domain, mirroring consensus-specs
+/// `get_domain(state, DOMAIN_BEACON_BUILDER)`.
+pub fn execution_payload_bid_domain(fork_version: [u8; 4], genesis_validators_root: B256) -> B256 {
+    compute_domain_with_fork_version(
+        fork_version,
+        genesis_validators_root,
+        &B32::from(DOMAIN_BEACON_BUILDER),
+    )
+}
+
+/// Builder API request-auth signing domain. The request WIRE type is
+/// fork-versioned per builder-specs, but the signing domain is not: the spec's
+/// `compute_domain(DOMAIN_REQUEST_AUTH)` takes the genesis fork version and a
+/// zero root, exactly like the validator registrations it replaces.
+pub fn request_auth_domain(chain: Chain) -> B256 {
+    compute_domain(chain, &B32::from(DOMAIN_REQUEST_AUTH))
+}
+
+/// Signs a `RequestAuth` message root under the request-auth domain.
+pub fn sign_request_auth_root(
+    secret_key: &BlsSecretKey,
+    object_root: &B256,
+    chain: Chain,
+) -> BlsSignature {
+    let signing_data = types::SigningData {
+        object_root: *object_root,
+        signing_domain: request_auth_domain(chain),
+    };
+    sign_message(secret_key, signing_data.tree_hash_root())
+}
+
+/// Verifies a `SignedRequestAuth` signature under the request-auth domain.
+pub fn verify_request_auth_signature<T: TreeHash>(
+    pubkey: &BlsPublicKey,
+    msg: &T,
+    signature: &BlsSignature,
+    chain: Chain,
+) -> bool {
+    let signing_data = types::SigningData {
+        object_root: msg.tree_hash_root(),
+        signing_domain: request_auth_domain(chain),
+    };
+    verify_bls_signature(pubkey, signing_data.tree_hash_root(), signature)
 }
 
 pub fn verify_signed_message<T: TreeHash>(
@@ -93,6 +150,35 @@ pub fn sign_builder_root(
         types::SigningData { object_root: object_root.tree_hash_root(), signing_domain };
     let signing_root = signing_data.tree_hash_root();
     sign_message(secret_key, signing_root)
+}
+
+/// Signs a message root under the ePBS execution payload bid domain.
+pub fn sign_execution_payload_bid_root(
+    secret_key: &BlsSecretKey,
+    object_root: &B256,
+    fork_version: [u8; 4],
+    genesis_validators_root: B256,
+) -> BlsSignature {
+    let signing_data = types::SigningData {
+        object_root: *object_root,
+        signing_domain: execution_payload_bid_domain(fork_version, genesis_validators_root),
+    };
+    sign_message(secret_key, signing_data.tree_hash_root())
+}
+
+/// Verifies an ePBS execution payload bid signature under the bid domain.
+pub fn verify_execution_payload_bid_signature<T: TreeHash>(
+    pubkey: &BlsPublicKey,
+    msg: &T,
+    signature: &BlsSignature,
+    fork_version: [u8; 4],
+    genesis_validators_root: B256,
+) -> bool {
+    let signing_data = types::SigningData {
+        object_root: msg.tree_hash_root(),
+        signing_domain: execution_payload_bid_domain(fork_version, genesis_validators_root),
+    };
+    verify_bls_signature(pubkey, signing_data.tree_hash_root(), signature)
 }
 
 pub fn sign_commit_boost_root(

@@ -8,7 +8,7 @@ use std::{
 };
 
 use alloy::{
-    primitives::{U256, utils::format_ether},
+    primitives::{Address, Bytes, U256, utils::format_ether},
     providers::{Provider, ProviderBuilder},
 };
 use docker_image::DockerImage;
@@ -68,10 +68,19 @@ pub struct RelayConfig {
     pub target_first_request_ms: Option<u64>,
     /// Frequency in ms to send get_header requests
     pub frequency_get_header_ms: Option<u64>,
+    /// How long each ePBS bid poll may take, except the last which holds until
+    /// the proposer's deadline
+    pub bid_poll_timeout_ms: Option<u64>,
     /// Maximum number of validators to send to relays in one registration
     /// request
     #[serde(deserialize_with = "empty_string_as_none", default)]
     pub validator_registration_batch_size: Option<usize>,
+    /// Maximum trusted execution payment in Gwei accepted in an ePBS bid
+    pub max_execution_payment_gwei: Option<u64>,
+    /// ePBS auth data this relay serves: a bid request routes here only when
+    /// its `auth.message.data` equals this value. When unset, the relay is
+    /// matched only by auth data carrying its URL
+    pub expected_auth_data: Option<Bytes>,
 }
 
 fn empty_string_as_none<'de, D>(deserializer: D) -> Result<Option<usize>, D::Error>
@@ -129,6 +138,18 @@ pub struct PbsConfig {
     /// Minimum bid that will be accepted from get_header
     #[serde(rename = "min_bid_eth", with = "as_eth_str", default = "default_u256")]
     pub min_bid_wei: U256,
+    /// Maximum trusted execution payment in Gwei accepted in an ePBS bid
+    #[serde(default = "default_u64::<0>")]
+    pub max_execution_payment_gwei: u64,
+    /// When enabled, the BLS signature of an ePBS request's
+    /// `SignedRequestAuth` is verified against the proposer pubkey. False by
+    /// default: CB forwards because the downstream builder must re-verify
+    /// anyway; operators terminating trust at CB set it true
+    #[serde(default = "default_bool::<false>")]
+    pub verify_request_auth: bool,
+    /// Expected fee recipient in ePBS bids; when set, bids with a different
+    /// fee_recipient are rejected
+    pub fee_recipient: Option<Address>,
     /// How late in the slot we consider to be "late"
     #[serde(default = "default_u64::<LATE_IN_SLOT_TIME_MS>")]
     pub late_in_slot_time_ms: u64,

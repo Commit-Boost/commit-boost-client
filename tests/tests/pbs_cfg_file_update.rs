@@ -64,6 +64,9 @@ async fn test_cfg_file_update() -> Result<()> {
         timeout_register_validator_ms: 3000,
         skip_sigverify: true,
         min_bid_wei: U256::ZERO,
+        max_execution_payment_gwei: 0,
+        verify_request_auth: false,
+        fee_recipient: None,
         late_in_slot_time_ms: u64::MAX / 2, /* serde gets very upset about serializing u64::MAX
                                              * or anything close to it */
         extra_validation_enabled: false,
@@ -91,11 +94,14 @@ async fn test_cfg_file_update() -> Result<()> {
             id: Some(relay1.id.to_string()),
             enable_timing_games: false,
             frequency_get_header_ms: None,
+            bid_poll_timeout_ms: None,
             get_params: None,
             get_header: GetHeaderTransport::Http,
             headers: None,
             target_first_request_ms: None,
             validator_registration_batch_size: None,
+            max_execution_payment_gwei: None,
+            expected_auth_data: None,
             entry: RelayEntry {
                 id: relay1.id.to_string(),
                 url: Url::parse(&format!("http://localhost:{relay1_port}"))?,
@@ -114,8 +120,7 @@ async fn test_cfg_file_update() -> Result<()> {
     // Run the PBS service
     let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![relay1.clone()]);
     let state = PbsState::new(config, config_path.clone());
-    drop(pbs_listener);
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
 
     // leave some time to start servers - extra time for the file watcher
     tokio::time::sleep(Duration::from_millis(1000)).await;
@@ -145,11 +150,14 @@ async fn test_cfg_file_update() -> Result<()> {
             id: Some(relay2_id.clone()),
             enable_timing_games: false,
             frequency_get_header_ms: None,
+            bid_poll_timeout_ms: None,
             get_params: None,
             get_header: GetHeaderTransport::Http,
             headers: None,
             target_first_request_ms: None,
             validator_registration_batch_size: None,
+            max_execution_payment_gwei: None,
+            expected_auth_data: None,
             entry: RelayEntry {
                 id: relay2_id,
                 url: Url::parse(&format!("http://{pubkey}@localhost:{relay2_port}"))?,

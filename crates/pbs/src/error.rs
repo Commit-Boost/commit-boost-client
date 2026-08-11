@@ -20,6 +20,27 @@ struct ErrorResponse {
 pub enum PbsClientError {
     #[error("no response from relays")]
     NoResponse,
+    /// ePBS submission fan-out where zero addressed builders accepted. 500,
+    /// not 502: neither endpoint's builder-specs response set contains 502
+    /// (submitBuilderPreferences declares {202, 400, 401, 415, 500} - 415 added
+    /// in spec PR #165; submitSignedBeaconBlock declares {202, 400, 415,
+    /// 500}); 502 is not in either set. Legacy routes keep `NoResponse` -> 502.
+    #[error("no builder accepted the submission")]
+    NoBuilderResponse,
+    #[error("auth data does not match a configured builder")]
+    AuthDataMismatch,
+    #[error("missing or invalid timing headers")]
+    MissingTimingHeader,
+    #[error("auth slot does not match the request path")]
+    AuthSlotMismatch,
+    #[error("auth slot has already passed")]
+    AuthSlotPassed,
+    #[error("the addressed builder rejected the request with {code}")]
+    BuilderRejected { code: u16 },
+    #[error("auth signature verification failed")]
+    AuthSigVerify,
+    #[error("submitted block is not a Gloas block")]
+    NotGloasBlock,
     #[error("no payload from relays")]
     NoPayload,
     #[error("internal server error")]
@@ -34,6 +55,19 @@ impl PbsClientError {
     pub fn status_code(&self) -> StatusCode {
         match self {
             PbsClientError::NoResponse => StatusCode::BAD_GATEWAY,
+            PbsClientError::NoBuilderResponse => StatusCode::INTERNAL_SERVER_ERROR,
+            PbsClientError::AuthDataMismatch => StatusCode::BAD_REQUEST,
+            PbsClientError::MissingTimingHeader => StatusCode::BAD_REQUEST,
+            PbsClientError::AuthSlotMismatch => StatusCode::BAD_REQUEST,
+            PbsClientError::AuthSlotPassed => StatusCode::BAD_REQUEST,
+            // A lone addressed builder's own 400/401 from the preferences
+            // endpoint is propagated (the sole constructor guards to those two
+            // codes, so the 502 fallback below is currently dead).
+            PbsClientError::BuilderRejected { code } => {
+                StatusCode::from_u16(*code).unwrap_or(StatusCode::BAD_GATEWAY)
+            }
+            PbsClientError::AuthSigVerify => StatusCode::UNAUTHORIZED,
+            PbsClientError::NotGloasBlock => StatusCode::BAD_REQUEST,
             PbsClientError::NoPayload => StatusCode::BAD_GATEWAY,
             PbsClientError::Internal => StatusCode::INTERNAL_SERVER_ERROR,
             PbsClientError::DecodeError(BodyDeserializeError::UnsupportedMediaType) => {
@@ -50,6 +84,30 @@ impl IntoResponse for PbsClientError {
         let status = self.status_code();
         let message = match &self {
             PbsClientError::NoResponse => "no response from relays".to_string(),
+            PbsClientError::NoBuilderResponse => "no builder accepted the submission".to_string(),
+            PbsClientError::AuthDataMismatch => {
+                "Invalid SignedRequestAuth: auth.message.data does not match the value agreed with this builder".to_string()
+            }
+            PbsClientError::MissingTimingHeader => {
+                "Invalid request: Date-Milliseconds and X-Timeout-Ms headers are required".to_string()
+            }
+            PbsClientError::AuthSlotMismatch => {
+                "Invalid SignedRequestAuth: auth.message.slot does not match the proposal slot in the request path".to_string()
+            }
+            PbsClientError::AuthSlotPassed => {
+                "Invalid SignedRequestAuth: auth.message.slot has already passed".to_string()
+            }
+            // The builder's own body is never forwarded: it is untrusted and may be
+            // arbitrarily large
+            PbsClientError::BuilderRejected { code } => {
+                format!("The addressed builder rejected the submission with status {code}")
+            }
+            PbsClientError::AuthSigVerify => {
+                "Invalid SignedRequestAuth: signature verification failed".to_string()
+            }
+            PbsClientError::NotGloasBlock => {
+                "Invalid signed beacon block: only Gloas blocks are supported".to_string()
+            }
             PbsClientError::NoPayload => "no payload from relays".to_string(),
             PbsClientError::Internal => "internal server error".to_string(),
             PbsClientError::DecodeError(e) => format!("error decoding request: {e}"),
@@ -78,6 +136,26 @@ mod test {
     fn other_decode_errors_map_to_400() {
         assert_eq!(
             PbsClientError::DecodeError(BodyDeserializeError::MissingVersionHeader).status_code(),
+            StatusCode::BAD_REQUEST,
+        );
+        // The unrecognized-fork variant must stay 400: it sits under the
+        // variant-specific 415 arm, and only the DecodeError(_) catch-all
+        // routes it today
+        assert_eq!(
+            PbsClientError::DecodeError(BodyDeserializeError::InvalidVersionHeader(
+                "futurefork".to_string()
+            ))
+            .status_code(),
+            StatusCode::BAD_REQUEST,
+        );
+    }
+
+    #[test]
+    fn auth_errors_map_to_spec_status_codes() {
+        assert_eq!(PbsClientError::AuthSlotMismatch.status_code(), StatusCode::BAD_REQUEST);
+        assert_eq!(PbsClientError::AuthSigVerify.status_code(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            PbsClientError::DecodeError(BodyDeserializeError::MissingBody).status_code(),
             StatusCode::BAD_REQUEST,
         );
     }

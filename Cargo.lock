@@ -245,8 +245,6 @@ dependencies = [
  "c-kzg",
  "derive_more",
  "either",
- "ethereum_ssz 0.9.1",
- "ethereum_ssz_derive 0.9.1",
  "serde",
  "serde_with",
  "sha2",
@@ -557,14 +555,10 @@ dependencies = [
  "alloy-primitives 1.6.1",
  "alloy-rpc-types-engine",
  "derive_more",
- "ethereum_ssz 0.9.1",
- "ethereum_ssz_derive 0.9.1",
  "serde",
  "serde_json",
  "serde_with",
  "thiserror 2.0.19",
- "tree_hash 0.10.0",
- "tree_hash_derive 0.10.0",
 ]
 
 [[package]]
@@ -591,8 +585,6 @@ dependencies = [
  "alloy-rlp",
  "alloy-serde",
  "derive_more",
- "ethereum_ssz 0.9.1",
- "ethereum_ssz_derive 0.9.1",
  "rand 0.8.7",
  "serde",
  "strum",
@@ -1649,15 +1641,15 @@ dependencies = [
  "alloy-primitives 1.6.1",
  "arbitrary",
  "blst",
- "ethereum_hashing 0.8.0",
+ "ethereum_hashing",
  "ethereum_serde_utils 0.8.1",
- "ethereum_ssz 0.10.4",
+ "ethereum_ssz",
  "fixed_bytes",
  "hex",
  "rand 0.9.5",
  "safe_arith",
  "serde",
- "tree_hash 0.12.1",
+ "tree_hash",
  "zeroize",
 ]
 
@@ -1889,8 +1881,8 @@ dependencies = [
  "eth2",
  "eth2_keystore",
  "ethereum_serde_utils 0.7.0",
- "ethereum_ssz 0.10.4",
- "ethereum_ssz_derive 0.10.4",
+ "ethereum_ssz",
+ "ethereum_ssz_derive",
  "eyre",
  "futures",
  "headers-accept",
@@ -1907,7 +1899,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sha2",
- "ssz_types 0.11.0",
+ "ssz_types",
  "tempfile",
  "thiserror 2.0.19",
  "tokio",
@@ -1916,8 +1908,9 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
- "tree_hash 0.12.1",
- "tree_hash_derive 0.12.1",
+ "tree_hash",
+ "tree_hash_derive",
+ "typenum",
  "types",
  "unicode-normalization",
  "url",
@@ -1948,7 +1941,7 @@ dependencies = [
  "cb-common",
  "cb-metrics",
  "ethereum_serde_utils 0.7.0",
- "ethereum_ssz 0.10.4",
+ "ethereum_ssz",
  "eyre",
  "futures",
  "headers",
@@ -1965,7 +1958,7 @@ dependencies = [
  "tokio-tungstenite",
  "tower-http",
  "tracing",
- "tree_hash 0.12.1",
+ "tree_hash",
  "types",
  "url",
  "uuid 1.24.0",
@@ -1999,7 +1992,7 @@ dependencies = [
  "tonic",
  "tonic-build",
  "tracing",
- "tree_hash 0.12.1",
+ "tree_hash",
  "uuid 1.24.0",
 ]
 
@@ -2013,7 +2006,7 @@ dependencies = [
  "cb-pbs",
  "cb-signer",
  "eth2",
- "ethereum_ssz 0.10.4",
+ "ethereum_ssz",
  "eyre",
  "futures",
  "jsonwebtoken",
@@ -2021,6 +2014,7 @@ dependencies = [
  "reqwest 0.13.4",
  "serde",
  "serde_json",
+ "ssz_types",
  "tempfile",
  "tokio",
  "tokio-tungstenite",
@@ -2028,7 +2022,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tracing-test",
- "tree_hash 0.12.1",
+ "tree_hash",
  "types",
  "url",
 ]
@@ -2238,8 +2232,8 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
- "tree_hash 0.12.1",
- "tree_hash_derive 0.12.1",
+ "tree_hash",
+ "tree_hash_derive",
 ]
 
 [[package]]
@@ -3042,8 +3036,8 @@ dependencies = [
  "context_deserialize",
  "educe",
  "ethereum_serde_utils 0.8.1",
- "ethereum_ssz 0.10.4",
- "ethereum_ssz_derive 0.10.4",
+ "ethereum_ssz",
+ "ethereum_ssz_derive",
  "futures",
  "futures-util",
  "mediatype 0.19.20",
@@ -3053,7 +3047,7 @@ dependencies = [
  "sensitive_url",
  "serde",
  "serde_json",
- "ssz_types 0.14.1",
+ "ssz_types",
  "superstruct",
  "types",
 ]
@@ -3064,7 +3058,7 @@ version = "0.2.0"
 source = "git+https://github.com/sigp/lighthouse?tag=v8.1.3#176cce585c1ba979a6210ed79b6b6528596cdb8c"
 dependencies = [
  "bls",
- "ethereum_hashing 0.8.0",
+ "ethereum_hashing",
  "hex",
  "num-bigint",
  "serde",
@@ -3109,17 +3103,6 @@ dependencies = [
 
 [[package]]
 name = "ethereum_hashing"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c853bd72c9e5787f8aafc3df2907c2ed03cff3150c3acd94e2e53a98ab70a8ab"
-dependencies = [
- "cpufeatures 0.2.17",
- "ring",
- "sha2",
-]
-
-[[package]]
-name = "ethereum_hashing"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5aa93f58bb1eb3d1e556e4f408ef1dac130bad01ac37db4e7ade45de40d1c86a"
@@ -3157,21 +3140,6 @@ dependencies = [
 
 [[package]]
 name = "ethereum_ssz"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0dcddb2554d19cde19b099fadddde576929d7a4d0c1cd3512d1fd95cf174375c"
-dependencies = [
- "alloy-primitives 1.6.1",
- "ethereum_serde_utils 0.8.1",
- "itertools 0.13.0",
- "serde",
- "serde_derive",
- "smallvec",
- "typenum",
-]
-
-[[package]]
-name = "ethereum_ssz"
 version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e462875ad8693755ea8913d6e905715c76ea4836e2254e18c9cf0f7a8f8c2a13"
@@ -3184,18 +3152,6 @@ dependencies = [
  "serde_derive",
  "smallvec",
  "typenum",
-]
-
-[[package]]
-name = "ethereum_ssz_derive"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a657b6b3b7e153637dc6bdc6566ad9279d9ee11a15b12cfb24a2e04360637e9f"
-dependencies = [
- "darling 0.20.11",
- "proc-macro2",
- "quote",
- "syn 2.0.119",
 ]
 
 [[package]]
@@ -4422,17 +4378,17 @@ dependencies = [
  "arbitrary",
  "c-kzg",
  "educe",
- "ethereum_hashing 0.8.0",
+ "ethereum_hashing",
  "ethereum_serde_utils 0.8.1",
- "ethereum_ssz 0.10.4",
- "ethereum_ssz_derive 0.10.4",
+ "ethereum_ssz",
+ "ethereum_ssz_derive",
  "hex",
  "rayon",
  "rust_eth_kzg",
  "serde",
  "serde_json",
  "tracing",
- "tree_hash 0.12.1",
+ "tree_hash",
 ]
 
 [[package]]
@@ -4566,7 +4522,7 @@ version = "0.2.0"
 source = "git+https://github.com/sigp/lighthouse?tag=v8.1.3#176cce585c1ba979a6210ed79b6b6528596cdb8c"
 dependencies = [
  "alloy-primitives 1.6.1",
- "ethereum_hashing 0.8.0",
+ "ethereum_hashing",
  "fixed_bytes",
  "safe_arith",
 ]
@@ -4615,15 +4571,15 @@ dependencies = [
  "alloy-primitives 1.6.1",
  "context_deserialize",
  "educe",
- "ethereum_hashing 0.8.0",
- "ethereum_ssz 0.10.4",
- "ethereum_ssz_derive 0.10.4",
+ "ethereum_hashing",
+ "ethereum_ssz",
+ "ethereum_ssz_derive",
  "itertools 0.13.0",
  "parking_lot",
  "rayon",
  "serde",
  "smallvec",
- "tree_hash 0.12.1",
+ "tree_hash",
  "triomphe",
  "typenum",
  "vec_map",
@@ -6596,22 +6552,6 @@ dependencies = [
 
 [[package]]
 name = "ssz_types"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75b55bedc9a18ed2860a46d6beb4f4082416ee1d60be0cc364cebdcdddc7afd4"
-dependencies = [
- "ethereum_serde_utils 0.8.1",
- "ethereum_ssz 0.9.1",
- "itertools 0.13.0",
- "serde",
- "serde_derive",
- "smallvec",
- "tree_hash 0.10.0",
- "typenum",
-]
-
-[[package]]
-name = "ssz_types"
 version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d625e4de8e0057eefe7e0b1510ba1dd7adf10cd375fad6cc7fcceac7c39623c9"
@@ -6619,12 +6559,12 @@ dependencies = [
  "context_deserialize",
  "educe",
  "ethereum_serde_utils 0.8.1",
- "ethereum_ssz 0.10.4",
+ "ethereum_ssz",
  "itertools 0.14.0",
  "serde",
  "serde_derive",
  "smallvec",
- "tree_hash 0.12.1",
+ "tree_hash",
  "typenum",
 ]
 
@@ -6710,7 +6650,7 @@ version = "0.2.0"
 source = "git+https://github.com/sigp/lighthouse?tag=v8.1.3#176cce585c1ba979a6210ed79b6b6528596cdb8c"
 dependencies = [
  "alloy-primitives 1.6.1",
- "ethereum_hashing 0.8.0",
+ "ethereum_hashing",
  "fixed_bytes",
 ]
 
@@ -7414,40 +7354,15 @@ dependencies = [
 
 [[package]]
 name = "tree_hash"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee44f4cef85f88b4dea21c0b1f58320bdf35715cf56d840969487cff00613321"
-dependencies = [
- "alloy-primitives 1.6.1",
- "ethereum_hashing 0.7.0",
- "ethereum_ssz 0.9.1",
- "smallvec",
- "typenum",
-]
-
-[[package]]
-name = "tree_hash"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f7fd51aa83d2eb83b04570808430808b5d24fdbf479a4d5ac5dee4a2e2dd2be4"
 dependencies = [
  "alloy-primitives 1.6.1",
- "ethereum_hashing 0.8.0",
- "ethereum_ssz 0.10.4",
+ "ethereum_hashing",
+ "ethereum_ssz",
  "smallvec",
  "typenum",
-]
-
-[[package]]
-name = "tree_hash_derive"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0bee2ea1551f90040ab0e34b6fb7f2fa3bad8acc925837ac654f2c78a13e3089"
-dependencies = [
- "darling 0.20.11",
- "proc-macro2",
- "quote",
- "syn 2.0.119",
 ]
 
 [[package]]
@@ -7515,10 +7430,10 @@ dependencies = [
  "context_deserialize",
  "educe",
  "eth2_interop_keypairs",
- "ethereum_hashing 0.8.0",
+ "ethereum_hashing",
  "ethereum_serde_utils 0.8.1",
- "ethereum_ssz 0.10.4",
- "ethereum_ssz_derive 0.10.4",
+ "ethereum_ssz",
+ "ethereum_ssz_derive",
  "fixed_bytes",
  "hex",
  "int_to_bytes",
@@ -7539,14 +7454,14 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "smallvec",
- "ssz_types 0.14.1",
+ "ssz_types",
  "superstruct",
  "swap_or_not_shuffle",
  "tempfile",
  "test_random_derive",
  "tracing",
- "tree_hash 0.12.1",
- "tree_hash_derive 0.12.1",
+ "tree_hash",
+ "tree_hash_derive",
  "typenum",
 ]
 

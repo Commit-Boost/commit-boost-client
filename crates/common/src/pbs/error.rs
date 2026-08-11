@@ -1,4 +1,4 @@
-use alloy::primitives::{B256, U256};
+use alloy::primitives::{Address, B256, U256};
 use lh_types::ForkName;
 use thiserror::Error;
 
@@ -59,7 +59,7 @@ impl PbsError {
     }
 
     /// Extract the HTTP status code from relay-originated errors.
-    fn relay_status_code(&self) -> Option<u16> {
+    pub fn relay_status_code(&self) -> Option<u16> {
         match self {
             PbsError::RelayResponse { code, .. } => Some(*code),
             PbsError::ReadResponse(ResponseReadError::NonSuccess { status_code, .. }) => {
@@ -93,6 +93,9 @@ pub enum ValidationError {
     #[error("parent hash mismatch: expected {expected} got {got}")]
     ParentHashMismatch { expected: B256, got: B256 },
 
+    #[error("parent root mismatch: expected {expected} got {got}")]
+    ParentRootMismatch { expected: B256, got: B256 },
+
     #[error("block hash mismatch: expected {expected} got {got}")]
     BlockHashMismatch { expected: B256, got: B256 },
 
@@ -112,6 +115,18 @@ pub enum ValidationError {
     #[error("bid below minimum: min: {min} got {got}")]
     BidTooLow { min: U256, got: U256 },
 
+    #[error("total payment below minimum bid (gwei): min: {min} got {got}")]
+    TotalPaymentTooLow { min: u64, got: u64 },
+
+    #[error("fee recipient mismatch: expected {expected} got {got}")]
+    FeeRecipientMismatch { expected: Address, got: Address },
+
+    #[error("trusted bid above maximum (gwei): max: {max} got {got}")]
+    TrustedBidTooHigh { max: u64, got: u64 },
+
+    #[error("empty parent root")]
+    EmptyParentRoot,
+
     #[error("empty tx root")]
     EmptyTxRoot,
 
@@ -123,6 +138,9 @@ pub enum ValidationError {
 
     #[error("wrong block number: parent: {parent} header: {header}")]
     BlockNumberMismatch { parent: u64, header: u64 },
+
+    #[error("wrong slot number: expected: {expected} got: {got}")]
+    SlotNumberMismatch { expected: u64, got: u64 },
 
     #[error("invalid gas limit: parent: {parent} header: {header}")]
     GasLimit { parent: u64, header: u64 },
