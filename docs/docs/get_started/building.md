@@ -14,7 +14,7 @@ The build system assumes that you've added your user account to the `docker` gro
 
 The Docker builder is built into the project's `justfile` which is used to invoke many facets of Commit Boost development. To use it, you'll need to install [Just](https://github.com/casey/just) on your system.
 
-Use `just --list` to show all of the actions - there are many. The `justfile` provides granular actions, called "recipes", for building just the binaries of a specific crate (such as the CLI, `pbs`, or `signer`), as well as actions to build the Docker images for the PBS and Signer services.
+Use `just --list` to show all of the actions - there are many. The `justfile` provides actions, called "recipes", for building the unified `commit-boost` binary, as well as actions to build the unified Docker image that is used to run the PBS and Signer services and the CLI.
 
 Below is a brief summary of the relevant ones for building the Commit-Boost artifacts:
 
@@ -107,7 +107,6 @@ chain = "Hoodi"
 
 [pbs]
 port = 18550
-with_signer = true
 
 [[relays]]
 url = "https://0xafa4c6985aa049fb79dd37010438cfebeb0f2bd42b115b89dd678dab0670c1de38da0c4e9138c9290a398ecd9a0b3110@boost-relay-hoodi.flashbots.net"
@@ -122,6 +121,12 @@ port = 20000
 format = "lighthouse"
 keys_path = "/tmp/keys"
 secrets_path = "/tmp/secrets"
+
+[[modules]]
+id = "test"
+type = "commit"
+docker_image = "test_module"
+signing_id = "0x6a33a23ef26a4836979edff86c493a69b26ccf0b4a16491a815a13787657431b"
 ```
 
 Set the path to it in the `CB_CONFIG` environment variable and run the binary:
@@ -148,13 +153,14 @@ To verify the Signer service works, create [a TOML configuration](./configuratio
 The signer needs the following environment variables set:
 
 - `CB_CONFIG` = path of your config file.
-- `CB_JWTS` = a dummy key-value pair of [JWT](https://en.wikipedia.org/wiki/JSON_Web_Token) values for various services. Since we don't need them for the sake of just testing the binary, we can use something like `"test_jwts=dummy"`.
+- `CB_JWTS` = key-value pairs of [JWT](https://en.wikipedia.org/wiki/JSON_Web_Token) secrets for each module defined in the config file. The keys must match the module IDs, so for the `test` module above we can use something like `"test=dummy"`.
+- `CB_SIGNER_ADMIN_JWT` = the JWT secret for the signer's admin endpoints. Since we don't need it for the sake of just testing the binary, we can use a dummy value.
 
 Set these values, create the `keys` and `secrets` directories listed in the configuration file, and run the binary:
 
 ```
 mkdir -p /tmp/keys && mkdir -p /tmp/secrets
-CB_CONFIG=cb-config.toml CB_JWTS="test_jwts=dummy" ./build/<version>/<OS and arch>/commit-boost signer
+CB_CONFIG=cb-config.toml CB_JWTS="test=dummy" CB_SIGNER_ADMIN_JWT="dummy_admin" ./build/<version>/<OS and arch>/commit-boost signer
 ```
 
 You should see output like this:
