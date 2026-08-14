@@ -6,15 +6,15 @@ description: Setup metrics collection
 
 Commit-Boost can be configured to collect metrics from the different services and expose them to be scraped from Prometheus.
 
-Make sure to add the `[metrics]` section to your config file:
+For a full reference of every metric the PBS and Signer services expose, see the [Metrics catalog](./metrics-catalog.md).
+
+Make sure to add the `[metrics]` section to your config file (fields and the `start_port` port ladder: [Configuration > Metrics](../configuration.md#metrics)):
 
 ```toml
 [metrics]
 enabled = true
-host = "127.0.0.1" # Host for metrics servers. Default: 127.0.0.1
-start_port = 10000 # Port the first service listens on for Prometheus scrapes; following services use port+1, port+2, etc. Default: 10000
 ```
-If the section is missing, metrics collection will be disabled. If you generated the `docker-compose.yml` file with `commit-boost init`, metrics ports will be automatically configured. If you're running the binaries directly, you will need to set the correct environment variables, as described in the [previous section](./binary.md#common).
+If you generated the `cb.docker-compose.yml` file with `commit-boost init`, metrics ports will be automatically configured. If you're running the binaries directly, you will need to set the correct environment variables, as described in the [previous section](./binary.md#common).
 
 ## Example setup
 
@@ -40,7 +40,7 @@ cb_cadvisor:
 
 ### Prometheus
 
-For more information on how to setup Prometheus, see the [Prometheus documentation](https://prometheus.io/docs/prometheus/latest/getting_started/).
+For more information on how to set up Prometheus, see the [Prometheus documentation](https://prometheus.io/docs/prometheus/latest/getting_started/).
 
 ```yml title="cb.docker-compose.yml"
 cb_prometheus:
@@ -51,7 +51,12 @@ cb_prometheus:
     volumes:
     - ./prometheus.yml:/etc/prometheus/prometheus.yml
     - prometheus-data:/prometheus
+    networks:
+    - default
+    - signer_network
 ```
+
+The generated compose file attaches the signer and commit module containers only to `signer_network`, so Prometheus must join that network too or the `cb_signer` and `cb_da_commit` scrape targets below will be unreachable.
 
 ```yml title="prometheus.yml"
 global:
@@ -64,7 +69,7 @@ scrape_configs:
 ```
 
 ### Grafana
-For more information on how to setup Grafana, see the [Grafana documentation](https://grafana.com/docs/grafana/latest/getting-started/).
+For more information on how to set up Grafana, see the [Grafana documentation](https://grafana.com/docs/grafana/latest/fundamentals/getting-started/).
 
 ```yml title="cb.docker-compose.yml"
 cb_grafana:
@@ -76,6 +81,8 @@ cb_grafana:
     - ./grafana/datasources:/etc/grafana/provisioning/datasources
     - grafana-data:/var/lib/grafana
 ```
+
+The mounted datasource provisioning file points Grafana at the Prometheus service:
 
 ```yml title="datasources.yml"
 apiVersion: 1
@@ -91,4 +98,14 @@ datasources:
     editable: true
 ```
 
-Once Grafana is running, you can [import](https://grafana.com/docs/grafana/latest/dashboards/build-dashboards/import-dashboards/) the Commit-Boost dashboards from [here](https://github.com/Commit-Boost/commit-boost-client/tree/main/provisioning/grafana), making sure to select the correct `Prometheus` datasource.
+### Named volumes
+
+The Prometheus and Grafana services above use the named volumes `prometheus-data` and `grafana-data`. The generated compose file has no top-level `volumes:` block, and Docker Compose refuses to start the whole project if a service references an undeclared volume, so declare both when merging the snippets:
+
+```yml title="cb.docker-compose.yml"
+volumes:
+  prometheus-data:
+  grafana-data:
+```
+
+Once Grafana is running, you can [import](https://grafana.com/docs/grafana/latest/visualizations/dashboards/build-dashboards/import-dashboards/) the Commit-Boost dashboards from [here](https://github.com/Commit-Boost/commit-boost-client/tree/main/provisioning/grafana), making sure to select the correct `Prometheus` datasource.
