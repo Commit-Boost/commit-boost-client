@@ -5,7 +5,7 @@ description: Run Commit-Boost modules natively
 # Binary
 
 :::warning
-Running the modules natively means you opt out of the security guarantees made by Docker and it's up to you how to setup and ensure the modules run safely.
+Running the modules natively means you opt out of the security guarantees made by Docker, and it is up to you to set up the modules and ensure they run safely.
 :::
 
 ## Setup
@@ -23,17 +23,17 @@ Services need environment variables to work correctly.
 
 ### PBS Service
 
-- `CB_PBS_ENDPOINT`: optional, override to specify the `IP:port` endpoint where the PBS Service will open the port for the beacon node.
-- `CB_MUX_PATH_{ID}`: optional, override where to load mux validator keys for mux with `id=\{ID\}`.
+- `CB_PBS_ENDPOINT`: optional, override to specify the `IP:port` endpoint where the PBS service will open the port for the beacon node.
+- `CB_MUX_PATH_{ID}`: optional, override where to load mux validator keys for mux with `id={ID}`.
 
 ### Signer Service
 
-- `CB_JWTS`: required (the signer service will not start without it), comma-separated list of `module_id=jwt_secret` pairs for module authentication.
+- `CB_JWTS`: required (the Signer service will not start without it), comma-separated list of `module_id=jwt_secret` pairs for module authentication.
 - `CB_SIGNER_ADMIN_JWT`: required, secret to use for admin JWT.
 - `CB_SIGNER_JWT_AUTH_FAIL_LIMIT`: optional, override the number of failed JWT auth attempts before rate-limiting a client (default: `3`).
 - `CB_SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS`: optional, override the rate-limit timeout window in seconds (default: `300`).
 - `CB_SIGNER_ENDPOINT`: optional, override to specify the `IP:port` endpoint to bind the signer server to.
-- `CB_SIGNER_TLS_CERTIFICATES`: path to the TLS certificates for the server.
+- `CB_SIGNER_TLS_CERTIFICATES`: optional, override of the TLS certificates directory (must contain `cert.pem` and `key.pem`). Only used when the signer's `tls_mode` is set to a certificate path.
 - For loading keys we currently support:
   - `CB_SIGNER_LOADER_FILE`: path to a `.json` with plaintext keys (for testing purposes only).
   - `CB_SIGNER_LOADER_KEYS_DIR` and `CB_SIGNER_LOADER_SECRETS_DIR`: paths to the `keys` and `secrets` directories or files (ERC-2335 style keystores, see [Signer config](../configuration.md#signer-service) for more info).
@@ -52,19 +52,23 @@ Services need environment variables to work correctly.
 
 #### Commit modules
 
-- `CB_SIGNER_URL`: required, url to the Signer Service server.
-- `CB_SIGNER_JWT`: required, jwt to use for signature requests.
+- `CB_SIGNER_URL`: required, url to the Signer service server.
+- `CB_SIGNER_JWT`: required, the module's pre-shared JWT secret, from which the module mints per-request tokens. Must be identical to this module's entry in the signer's `CB_JWTS`; generate one per module (e.g. `openssl rand -hex 32`). See [Module JWT](../../developing/prop-commit-signing.md#module-jwt).
 
 Modules might also have additional envs required, which should be detailed by the maintainers.
 
 ## Start
 
-After creating the `cb-config.toml` file, setup the required envs and run the binary. For example:
+After creating the `cb-config.toml` file, set up the required envs and run the binary. For example:
 
 ```bash
 CB_CONFIG=./cb-config.toml commit-boost pbs
 ```
 
-## Security
+Or for the Signer service:
 
-Running the modules natively means you opt out of the security guarantees made by Docker and it's up to you how to setup and ensure the modules run safely.
+```bash
+CB_CONFIG=./cb-config.toml CB_JWTS="MY_MODULE=<secret>" CB_SIGNER_ADMIN_JWT="<secret>" commit-boost signer
+```
+
+For a worked signer startup, see [Verifying the Signer Service](../building.md#verifying-the-signer-service).
