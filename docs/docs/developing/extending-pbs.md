@@ -4,18 +4,16 @@ sidebar_position: 2
 
 # Extending PBS
 
-The PBS binary that ships with Commit-Boost can be extended with custom logic. This is **not** a config-level module declaration like commit modules — instead you replace the PBS binary entirely by implementing the `BuilderApi<S>` trait (the default implementation is the `DefaultBuilderApi` struct).
+The PBS binary that ships with Commit-Boost can be extended with custom logic. This is **not** a config-level module declaration like commit modules: you replace the PBS binary entirely by implementing the `BuilderApi<S>` trait (the default implementation is the `DefaultBuilderApi` struct). For system context on how the PBS service fits into the Commit-Boost architecture, see the [Architecture Overview](../architecture/overview.md).
 
 ## Before you extend PBS
 
 | You want to... | Use... |
 |---|---|
-| Request signatures from the proposer's validator keys (BLS/ECDSA) | [Commit Module](./commit-modules.md) — runs as a sidecar alongside PBS |
-| Add custom constraints to `get_header`, `submit_block`, or other BuilderAPI methods | Extend PBS — implement `BuilderApi<S>` on your own struct |
-| Run custom logic that triggers on each slot but does not modify relay interaction | Commit Module — cheaper to maintain and deploy independently |
-| Add new HTTP routes alongside the standard BuilderAPI | Extend PBS — implement `extra_routes()` on your custom `BuilderApi` |
-
-**Rule of thumb:** if you need to change how relay responses are filtered, validated, or transformed, extend PBS. If you want to request signatures or run slot-triggered logic independently, write a Commit Module.
+| Request signatures from the proposer's validator keys (BLS) or proxy keys (BLS/ECDSA) | [Commit module](./commit-modules.md): runs as a sidecar alongside PBS |
+| Add custom constraints to `get_header`, `submit_block`, or other BuilderAPI methods | Extend PBS: implement `BuilderApi<S>` on your own struct |
+| Run custom logic that triggers on each slot but does not modify relay interaction | Commit module: cheaper to maintain and deploy independently |
+| Add new HTTP routes alongside the standard BuilderAPI | Extend PBS: implement `extra_routes()` on your custom `BuilderApi` |
 
 ## How it works
 
@@ -23,12 +21,12 @@ The PBS binary ships with the [`DefaultBuilderApi`](https://github.com/Commit-Bo
 
 The trait covers:
 
-- `get_header` — fetch the best header from relays
-- `get_status` — check relay health
-- `submit_block` — publish blinded blocks
-- `register_validator` — register validators with relays
-- `reload` — hot-reload configuration
-- `extra_routes` — add custom HTTP endpoints
+- `get_header`: fetch the best header from relays
+- `get_status`: check relay health
+- `submit_block`: publish blinded blocks
+- `register_validator`: register validators with relays
+- `reload`: hot-reload configuration
+- `extra_routes`: add custom HTTP endpoints
 
 PBS serves the submit-block route on both `POST /eth/v1/builder/blinded_blocks` and `POST /eth/v2/builder/blinded_blocks`; both are handled by the same `submit_block` method, which receives an `api_version: BuilderApiVersion` parameter (`V1` or `V2`) telling it which route was called.
 
@@ -41,7 +39,7 @@ use commit_boost::prelude::*;
 get_status(req_headers, state).await
 ```
 
-Note that the default `reload` handler is not re-exported in the prelude, so a `reload` override must rebuild its state itself.
+The default `reload` handler is not re-exported in the prelude, so a `reload` override must rebuild its state itself.
 
 ### Reference example
 
@@ -50,7 +48,7 @@ See [`examples/status_api/`](https://github.com/Commit-Boost/commit-boost-client
 1. Defines a custom `ExtraConfig` struct with additional TOML fields (`inc_amount`).
 2. Creates a custom `BuilderApiState` (`MyBuilderState`) to hold runtime state.
 3. Implements `BuilderApi<MyBuilderState>` that overrides `get_status` with custom logging and a counter, and adds a `/check` route via `extra_routes()`.
-4. Loads config with `load_pbs_custom_config::<ExtraConfig>()` and starts the service with `PbsService::run::<_, MyBuilderApi>(state)`.
+4. Loads config with `load_pbs_custom_config::<ExtraConfig>()` and starts the service with `PbsService::run::<MyBuilderState, MyBuilderApi>(state)`.
 
 ## Building and running a custom PBS binary
 
@@ -61,6 +59,8 @@ Add the `commit-boost` crate to your `Cargo.toml`:
 ```toml
 commit-boost = { git = "https://github.com/Commit-Boost/commit-boost-client", version = "..." }
 ```
+
+The snippets below also need `serde` (with the `derive` feature) and `async-trait` in `Cargo.toml`, since the prelude does not re-export them; import them with `use serde::Deserialize;` and `use async_trait::async_trait;`.
 
 ### Entry point
 
@@ -102,7 +102,7 @@ use std::path::PathBuf;
 let (pbs_config, extra) = load_pbs_custom_config::<ExtraConfig>().await?;
 
 // The second argument is the path PBS watches for config hot-reloads.
-// An empty path disables the watcher — see the note below.
+// An empty path disables the watcher; see the note below.
 let config_path = PathBuf::new();
 
 let state = PbsState::new(pbs_config, config_path).with_data(MyBuilderState::from_config(extra));
@@ -122,7 +122,3 @@ To get the same auto-reload behavior as the stock PBS binary, pass the real path
 ### Running
 
 Compile and run your binary. Set the same environment variables as the default PBS (see [Running with binary](../get_started/running/binary.md)). Your custom PBS handles the same BuilderAPI endpoints plus any extra routes you added.
-
-## Cross-reference
-
-For system context on how PBS fits into the Commit-Boost architecture, see [Architecture Overview](../architecture/overview.md).
