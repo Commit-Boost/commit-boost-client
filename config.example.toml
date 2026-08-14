@@ -149,7 +149,11 @@ validator_pubkeys = [
 #   - File: path to a file containing a list of validator pubkeys in JSON format
 #   - URL: URL to an HTTP endpoint returning a list of validator pubkeys in JSON format
 #   - Registry: details of a registry to load keys from. Supported registries:
-#       - Lido: NodeOperatorsRegistry
+#       - Lido: staking module registries. Requires the PBS `rpc_url` to be set, and accepts a `lido_module_id` in the mux loader
+#         (defaults to 1). Supported module IDs:
+#           - mainnet: 1 = Curated, 2 = SimpleDVT, 3 = Community Staking (CSM), 4 = Curated Module v2 (CMv2)
+#           - hoodi:   1 = Curated, 2 = SimpleDVT, 3 = Sandbox, 4 = Community Staking (CSM), 5 = Curated Module v2 (CMv2)
+#           - holesky: 1 = Curated, 2 = SimpleDVT, 3 = Sandbox, 4 = Community Staking (CSM)
 #       - SSV: SSV API
 #       - Stader: Stader Permissioned/Permissionless NodePool (mainnet only). Requires the PBS `rpc_url` to be set (like Lido),
 #         and a `stader_pool` ("permissioned" or "permissionless") in the mux loader.
@@ -169,6 +173,8 @@ validator_pubkeys = [
 loader = "./tests/data/mux_keys.example.json"
 # loader = { url = "http://localhost:8000/keys" }
 # loader = { registry = "lido", node_operator_id = 8, lido_module_id = 1, enable_refreshing = false }
+# Curated Module v2 (CMv2): lido_module_id = 4 on mainnet, 5 on hoodi
+# loader = { registry = "lido", node_operator_id = 8, lido_module_id = 4, enable_refreshing = false }
 # loader = { registry = "ssv", node_operator_id = 8, enable_refreshing = false }
 # loader = { registry = "stader", node_operator_id = 8, stader_pool = "permissionless", enable_refreshing = false }
 late_in_slot_time_ms = 1500
