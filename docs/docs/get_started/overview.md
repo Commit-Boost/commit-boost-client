@@ -10,7 +10,7 @@ Each component roughly maps to a container: from a single `.toml` config file, t
 Commit-Boost ships with two core services:
 
 - A PBS service which implements the [BuilderAPI](https://ethereum.github.io/builder-specs/) for [MEV Boost](https://docs.flashbots.net/flashbots-mev-boost/architecture-overview/specifications).
-- A Signer Service, which implements the [Signer API](/api) and provides the interface for modules to request proposer commitments.
+- A Signer service, which implements the [Signer API](/api) and provides the interface for modules to request proposer commitments.
 
 ## Setup
 
