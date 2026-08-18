@@ -414,7 +414,7 @@ async fn fetch_lido_registry_keys(
     let rpc_client = RpcClient::new(http, is_local);
     let registry_address = lido_registry_address(chain, lido_module_id)?;
 
-    if is_csm_module(chain, lido_module_id) {
+    if uses_csm_registry_interface(chain, lido_module_id) {
         fetch_lido_csm_registry_keys(registry_address, rpc_client, node_operator_id).await
     } else {
         fetch_lido_module_registry_keys(registry_address, rpc_client, node_operator_id).await
