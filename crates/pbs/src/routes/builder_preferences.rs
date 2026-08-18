@@ -28,7 +28,7 @@ use crate::{
     state::{BuilderApiState, PbsState},
     utils::{
         epbs_base_send_headers, expect_status, match_relays_by_auth_data, record_client_error,
-        send_to_relay, verify_auth_signature,
+        send_to_relay, validate_auth_data, verify_auth_signature,
     },
 };
 
@@ -173,14 +173,16 @@ pub async fn submit_builder_preferences<S: BuilderApiState>(
 /// request path here, so instead of matching one we reject a slot that has
 /// already ended: preferences are submitted an epoch ahead, and a replayed
 /// submission must not be able to roll a proposer's preferences back to a stale
-/// value. The `auth.message.data` check is the demux's job
-/// (`match_relays_by_auth_data`).
+/// value. `auth.message.data` must be non-empty; which builder it addresses is
+/// the demux's job (`match_relays_by_auth_data`).
 fn validate_preferences_auth(
     auth: &SignedRequestAuth,
     params: &SubmitBuilderPreferencesParams,
     chain: Chain,
     verify_signature: bool,
 ) -> Result<(), PbsClientError> {
+    validate_auth_data(auth)?;
+
     if slot_has_passed(auth.message.slot.as_u64(), chain) {
         warn!(auth_slot = %auth.message.slot, "auth slot already passed");
         return Err(PbsClientError::AuthSlotPassed);
@@ -271,6 +273,32 @@ mod tests {
         assert!(elapsed_ms < chain.slot_time_sec() * 1_000);
         assert!(!slot_has_passed(now, chain));
         assert!(slot_has_passed(now - 1, chain));
+    }
+
+    // Empty `auth.message.data` is rejected before slot_has_passed / sigverify,
+    // so it cannot slip through a catch-all relay match. Guards the wiring of
+    // the shared `validate_auth_data` into this endpoint.
+    #[test]
+    fn validate_preferences_auth_rejects_empty_data() {
+        use cb_common::types::BlsSecretKey;
+
+        let chain = Chain::Hoodi;
+        let params = SubmitBuilderPreferencesParams {
+            proposer_pubkey: BlsSecretKey::random().public_key(),
+        };
+        let empty = SignedRequestAuth {
+            message: RequestAuth {
+                data: Default::default(),
+                slot: lh_types::Slot::new(current_slot(chain)),
+            },
+            signature: BlsSignature::empty(),
+        };
+        for verify in [false, true] {
+            assert!(matches!(
+                validate_preferences_auth(&empty, &params, chain, verify),
+                Err(PbsClientError::EmptyAuthData)
+            ));
+        }
     }
 
     #[test]

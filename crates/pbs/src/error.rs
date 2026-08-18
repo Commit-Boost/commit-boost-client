@@ -29,6 +29,8 @@ pub enum PbsClientError {
     NoBuilderResponse,
     #[error("auth data does not match a configured builder")]
     AuthDataMismatch,
+    #[error("auth data is empty")]
+    EmptyAuthData,
     #[error("missing or invalid timing headers")]
     MissingTimingHeader,
     #[error("auth slot does not match the request path")]
@@ -57,6 +59,7 @@ impl PbsClientError {
             PbsClientError::NoResponse => StatusCode::BAD_GATEWAY,
             PbsClientError::NoBuilderResponse => StatusCode::INTERNAL_SERVER_ERROR,
             PbsClientError::AuthDataMismatch => StatusCode::BAD_REQUEST,
+            PbsClientError::EmptyAuthData => StatusCode::BAD_REQUEST,
             PbsClientError::MissingTimingHeader => StatusCode::BAD_REQUEST,
             PbsClientError::AuthSlotMismatch => StatusCode::BAD_REQUEST,
             PbsClientError::AuthSlotPassed => StatusCode::BAD_REQUEST,
@@ -87,6 +90,9 @@ impl IntoResponse for PbsClientError {
             PbsClientError::NoBuilderResponse => "no builder accepted the submission".to_string(),
             PbsClientError::AuthDataMismatch => {
                 "Invalid SignedRequestAuth: auth.message.data does not match the value agreed with this builder".to_string()
+            }
+            PbsClientError::EmptyAuthData => {
+                "Invalid SignedRequestAuth: auth.message.data must not be empty".to_string()
             }
             PbsClientError::MissingTimingHeader => {
                 "Invalid request: Date-Milliseconds and X-Timeout-Ms headers are required".to_string()

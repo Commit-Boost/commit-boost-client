@@ -51,7 +51,7 @@ use crate::{
     state::{BuilderApiState, PbsState},
     utils::{
         check_gas_limit, epbs_base_send_headers, match_relays_by_auth_data, record_client_error,
-        send_to_relay, verify_auth_signature,
+        send_to_relay, validate_auth_data, verify_auth_signature,
     },
 };
 
@@ -366,16 +366,18 @@ fn request_budget_ms(req_headers: &HeaderMap, now_ms: u64) -> Result<u64, PbsCli
 }
 
 /// Validates the caller's `SignedRequestAuth` against the request path. The
-/// `auth.message.data` check is the demux's job (`match_relays_by_auth_data`),
-/// so only the slot is checked here, plus the signature when
-/// `verify_request_auth` is on. The downstream builder verifies the signature
-/// regardless, which is why the crypto is opt-in.
+/// `auth.message.data` must be non-empty; which builder it addresses is the
+/// demux's job (`match_relays_by_auth_data`). The slot must match the request
+/// path, plus the signature when `verify_request_auth` is on. The downstream
+/// builder verifies the signature regardless, which is why the crypto is opt-in.
 fn validate_request_auth(
     auth: &SignedRequestAuth,
     params: &GetExecutionPayloadBidParams,
     chain: Chain,
     verify_signature: bool,
 ) -> Result<(), PbsClientError> {
+    validate_auth_data(auth)?;
+
     if auth.message.slot.as_u64() != params.slot {
         warn!(auth_slot = %auth.message.slot, path_slot = params.slot, "auth slot mismatch");
         return Err(PbsClientError::AuthSlotMismatch);
@@ -1064,9 +1066,35 @@ mod tests {
 
     fn test_auth(slot: u64, signature: BlsSignature) -> SignedRequestAuth {
         SignedRequestAuth {
-            // `data` is the demux's input, not this validator's: it is unused here
-            message: RequestAuth { data: Default::default(), slot: Slot::new(slot) },
+            // Non-empty so it clears the empty-data guard; the value itself is the
+            // demux's input, exercised elsewhere, not this validator's slot/sig path
+            message: RequestAuth { data: vec![0x01].try_into().unwrap(), slot: Slot::new(slot) },
             signature,
+        }
+    }
+
+    // Empty `auth.message.data` is rejected before the slot/sig checks, so it
+    // cannot slip through a catch-all relay match. Guards the wiring of the
+    // shared `validate_auth_data` into this endpoint.
+    #[test]
+    fn validate_request_auth_rejects_empty_data() {
+        let chain = Chain::Hoodi;
+        let slot = 5;
+        let params = GetExecutionPayloadBidParams {
+            slot,
+            parent_hash: B256::ZERO,
+            parent_root: B256::ZERO,
+            proposer_pubkey: BlsSecretKey::test_random().public_key(),
+        };
+        let empty = SignedRequestAuth {
+            message: RequestAuth { data: Default::default(), slot: Slot::new(slot) },
+            signature: BlsSignature::empty(),
+        };
+        for verify in [false, true] {
+            assert!(matches!(
+                validate_request_auth(&empty, &params, chain, verify),
+                Err(PbsClientError::EmptyAuthData)
+            ));
         }
     }
 

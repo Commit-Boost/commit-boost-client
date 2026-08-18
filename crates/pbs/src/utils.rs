@@ -129,6 +129,20 @@ pub(crate) fn check_gas_limit(gas_limit: u64, parent_gas_limit: u64) -> bool {
     true
 }
 
+/// A zero-length `auth.message.data` is invalid per builder-specs
+/// `types/gloas/request_auth.yaml` (pattern `{1,4096}`, "A zero-length `data`
+/// is invalid"). It addresses no builder, so it must be rejected up front
+/// rather than slip through a catch-all relay match in
+/// [`match_relays_by_auth_data`]. Shared by both ePBS request-auth validators.
+pub(crate) fn validate_auth_data(auth: &SignedRequestAuth) -> Result<(), PbsClientError> {
+    if auth.message.data.is_empty() {
+        warn!("auth data is empty");
+        return Err(PbsClientError::EmptyAuthData);
+    }
+
+    Ok(())
+}
+
 /// Verifies the request auth signature when `verify_signature` is on. The
 /// downstream builder verifies it regardless, which is why the crypto is
 /// opt-in. Shared by the request-auth validators of both ePBS endpoints; the
@@ -249,6 +263,25 @@ mod tests {
         let relays = vec![test_relay("http://a.example.com", Some(&[0xaa]))];
         // An empty `data` field must not satisfy a relay that declared its data
         assert!(match_relays_by_auth_data(&relays, &[]).is_empty());
+    }
+
+    #[test]
+    fn validate_auth_data_requires_nonempty_data() {
+        use cb_common::{pbs::RequestAuth, types::BlsSignature};
+        use lh_types::Slot;
+
+        let with_data = |data: Vec<u8>| SignedRequestAuth {
+            message: RequestAuth { data: data.try_into().unwrap(), slot: Slot::new(1) },
+            signature: BlsSignature::empty(),
+        };
+
+        // Zero-length data is invalid per builder-specs request_auth.yaml ({1,4096})
+        assert!(matches!(
+            validate_auth_data(&with_data(vec![])),
+            Err(PbsClientError::EmptyAuthData)
+        ));
+        // A single byte clears the guard
+        assert!(validate_auth_data(&with_data(vec![0xaa])).is_ok());
     }
 
     #[test]
