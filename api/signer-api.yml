@@ -2,7 +2,37 @@ openapi: "3.1.1"
 info:
   title: Signer API
   version: "0.2.0"
-  description: API that allows commit modules to request generic signatures from validators
+  description: |
+    API that allows commit modules to request generic signatures from validators.
+
+    ## Authentication
+
+    All endpoints (except `/status`) require a Bearer JWT in the `Authorization` header.
+    A missing or malformed `Authorization` header returns `400`, not `401`.
+
+    ### Module JWT claims
+
+    HS256-signed token with the module's pre-shared secret (`CB_SIGNER_JWT` env var):
+
+    - **module** (string, required): Module `id` from `[[modules]]` in `cb-config.toml`.
+    - **route** (string, required): Exact request path, e.g. `/signer/v1/get_pubkeys`.
+    - **exp** (integer, required): UNIX expiry timestamp. The SDK issues tokens with a 5-minute expiry; the server only validates that the token is unexpired.
+    - **payload_hash** (string, POST only): Keccak-256 hash of the JSON request body, `0x`-prefixed. Prevents JWT replay attacks.
+
+    Refresh is client-side: the module generates a new JWT locally. No refresh endpoint.
+
+    ### Admin JWT
+
+    Admin endpoints (`/reload`, `/revoke_jwt`) use a separate HS256 secret (`CB_SIGNER_ADMIN_JWT` env var) with the following claims:
+
+    - **admin** (boolean, required): Must be `true`.
+    - **route** (string, required): Exact request path, `/reload` or `/revoke_jwt`.
+    - **exp** (integer, required): UNIX expiry timestamp.
+    - **payload_hash** (string, required): Keccak-256 hash of the JSON request body, `0x`-prefixed. Both admin endpoints require a JSON body, so this claim is required in practice.
+
+    ### Rate limiting
+
+    Per-IP rate limit on JWT auth failures. Default: 3 failures within 5 minutes. Configurable via `[signer].jwt_auth_fail_limit` and `jwt_auth_fail_timeout_seconds` in `cb-config.toml`.
 tags:
   - name: Signer
   - name: Management
@@ -10,13 +40,8 @@ paths:
   /signer/v1/get_pubkeys:
     get:
       summary: Get a list of public keys for which signatures may be requested
-      description: >
-        This endpoint requires a valid JWT Bearer token.
-        
-        The token **must include** the following claims:
-        - `exp` (integer): Expiration timestamp
-        - `route` (string): The route being requested (must be `/signer/v1/get_pubkeys` for this endpoint).
-        - `module` (string): The ID of the module making the request, which must match a module ID in the Commit-Boost configuration file.
+      description: |
+        Requires a module JWT (see Authentication above); the `route` claim must be `/signer/v1/get_pubkeys`.
       tags:
         - Signer
       security:
@@ -48,34 +73,25 @@ paths:
                           type: array
                           items:
                             $ref: "#/components/schemas/EcdsaAddress"
-        "500":
-          description: Internal error
+        "400":
+          description: The request did not include a valid `Authorization` header with a Bearer token, or the client IP could not be determined.
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 500
-                  message:
-                    type: string
-                    example: "Internal error"
+                type: string
+                example: "Header of type `authorization` was missing"
+        "401":
+          $ref: "#/components/responses/UnauthorizedJwt"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
   /signer/v1/request_signature/bls:
     post:
       summary: Request a signature for a 32-byte blob of data (typically a hash), signed by the BLS private key for the requested public key.
-      description: >
-        This endpoint requires a valid JWT Bearer token.
-        
-        The token **must include** the following claims:
-        - `exp` (integer): Expiration timestamp
-        - `module` (string): The ID of the module making the request, which must match a module ID in the Commit-Boost configuration file.
-        - `route` (string): The route being requested (must be `/signer/v1/request_signature/bls` for this endpoint).
-        - `payload_hash` (string): The Keccak-256 hash of the JSON-encoded request body, with optional `0x` prefix. This is required to prevent JWT replay attacks.
+      description: |
+        Requires a module JWT (see Authentication above); the `route` claim must be `/signer/v1/request_signature/bls`.
       tags:
         - Signer
       security:
@@ -89,16 +105,17 @@ paths:
               required: [pubkey, object_root, nonce]
               properties:
                 pubkey:
-                  description: The 48-byte BLS public key, with optional `0x` prefix, of the proposer key that you want to request a signature from.
+                  description: The consensus (proposer) pubkey to sign with.
                   $ref: "#/components/schemas/BlsPubkey"
                 object_root:
-                  description: The 32-byte data you want to sign, with optional `0x` prefix.
+                  description: The 32-byte digest to sign.
                   $ref: "#/components/schemas/B256"
                 nonce:
                   $ref: "#/components/schemas/Nonce"
             example:
               pubkey: "0xa3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989"
               object_root: "0x3e9f4a78b5c21d64f0b8e3d9a7f5c02b4d1e67a3c8f29b5d6e4a3b1c8f72e6d9"
+              nonce: 1
       responses:
         "200":
           description: A successful signature response.
@@ -110,120 +127,44 @@ paths:
                 pubkey: "0x883827193f7627cd04e621e1e8d56498362a52b2a30c9a1c72036eb935c4278dee23d38a24d2f7dda62689886f0c39f4"
                 object_root: "0x0123456789012345678901234567890123456789012345678901234567890123"
                 module_signing_id: "0x6a33a23ef26a4836979edff86c493a69b26ccf0b4a16491a815a13787657431b"
+                nonce: 1
+                chain_id: "0x1"
                 signature: "0xa43e623f009e615faa3987368f64d6286a4103de70e9a81d82562c50c91eae2d5d6fb9db9fe943aa8ee42fd92d8210c1149f25ed6aa72a557d74a0ed5646fdd0e8255ec58e3e2931695fe913863ba0cdf90d29f651bce0a34169a6f6ce5b3115"
         "400":
           description: |
             This can occur in several scenarios:
+            - The request did not include a valid `Authorization` header with a Bearer token.
             - The Commit-Boost configuration file does not contain a signing ID for the module that made the request.
-            - You requested an operation while using the Dirk signer mode instead of locally-managed signer mode, but Dirk doesn't support that operation.
             - Something went wrong while preparing your request; the error text will provide more information.
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 400
-                  message:
-                    type: string
-                    example: "Bad request: Invalid pubkey format"
+                type: string
+                example: "bad request: Module signing ID not found"
         "401":
-          description: The requesting module did not provide a JWT string in the request's authorization header, or the JWT string was not configured in the signer service's configuration file as belonging to the module.
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 401
-                  message:
-                    type: string
-                    example: "Unauthorized"
-        
+          $ref: "#/components/responses/UnauthorizedJwt"
+
         "404":
           description: You either requested a route that doesn't exist, or you requested a signature from a key that does not exist.
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 404
-                  message:
-                    type: string
-                    example: "Unknown pubkey"
+                type: string
+                example: "unknown consensus signer: 0xa9e9cff900de07e295a044789fd4bdb6785eb0651ad282f9e76d12afd87e75180bdd64caf2e315b815d7322bd31ab48a"
+        "422":
+          $ref: "#/components/responses/DeserializationFailed"
         "429":
-          description: Your module attempted and failed JWT authentication too many times recently, and is currently timed out. It cannot make any more requests until the timeout ends.
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 429
-                  message:
-                    type: string
-                    example: "Too many requests"
+          $ref: "#/components/responses/RateLimited"
         "500":
-          description: Your request was valid, but something went wrong internally that prevented it from being fulfilled.
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 500
-                  message:
-                    type: string
-                    example: "Internal error"
+          $ref: "#/components/responses/InternalError"
         "502":
-          description: The signer service is running in Dirk signer mode, but Dirk could not be reached.
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 502
-                  message:
-                    type: string
-                    example: "Bad gateway: Dirk signer service is unreachable"
+          $ref: "#/components/responses/DirkUnreachable"
 
   /signer/v1/request_signature/proxy-bls:
     post:
       summary: Request a signature for a 32-byte blob of data (typically a hash), signed by the BLS private key for the requested proxy public key.
-      description: >
-        This endpoint requires a valid JWT Bearer token.
-        
-        The token **must include** the following claims:
-        - `exp` (integer): Expiration timestamp
-        - `module` (string): The ID of the module making the request, which must match a module ID in the Commit-Boost configuration file.
-        - `route` (string): The route being requested (must be `/signer/v1/request_signature/proxy-bls` for this endpoint).
-        - `payload_hash` (string): The Keccak-256 hash of the JSON-encoded request body, with optional `0x` prefix. This is required to prevent JWT replay attacks.
+      description: |
+        Requires a module JWT (see Authentication above); the `route` claim must be `/signer/v1/request_signature/proxy-bls`.
       tags:
         - Signer
       security:
@@ -237,16 +178,17 @@ paths:
               required: [proxy, object_root, nonce]
               properties:
                 proxy:
-                  description: The 48-byte BLS public key (for `proxy_bls` mode) or the 20-byte Ethereum address (for `proxy_ecdsa` mode), with optional `0x` prefix, of the proxy key that you want to request a signature from.
+                  description: The proxy pubkey to sign with.
                   $ref: "#/components/schemas/BlsPubkey"
                 object_root:
-                  description: The 32-byte data you want to sign, with optional `0x` prefix.
+                  description: The 32-byte digest to sign.
                   $ref: "#/components/schemas/B256"
                 nonce:
                   $ref: "#/components/schemas/Nonce"
             example:
-              pubkey: "0xa3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989"
+              proxy: "0xa3ffa9241f78279f1af04644cb8c79c2d8f02bcf0e28e2f186f6dcccac0a869c2be441fda50f0dea895cfce2e53f0989"
               object_root: "0x3e9f4a78b5c21d64f0b8e3d9a7f5c02b4d1e67a3c8f29b5d6e4a3b1c8f72e6d9"
+              nonce: 1
       responses:
         "200":
           description: A successful signature response.
@@ -258,120 +200,44 @@ paths:
                 pubkey: "0x883827193f7627cd04e621e1e8d56498362a52b2a30c9a1c72036eb935c4278dee23d38a24d2f7dda62689886f0c39f4"
                 object_root: "0x0123456789012345678901234567890123456789012345678901234567890123"
                 module_signing_id: "0x6a33a23ef26a4836979edff86c493a69b26ccf0b4a16491a815a13787657431b"
+                nonce: 1
+                chain_id: "0x1"
                 signature: "0xa43e623f009e615faa3987368f64d6286a4103de70e9a81d82562c50c91eae2d5d6fb9db9fe943aa8ee42fd92d8210c1149f25ed6aa72a557d74a0ed5646fdd0e8255ec58e3e2931695fe913863ba0cdf90d29f651bce0a34169a6f6ce5b3115"
         "400":
           description: |
             This can occur in several scenarios:
+            - The request did not include a valid `Authorization` header with a Bearer token.
             - The Commit-Boost configuration file does not contain a signing ID for the module that made the request.
-            - You requested an operation while using the Dirk signer mode instead of locally-managed signer mode, but Dirk doesn't support that operation.
             - Something went wrong while preparing your request; the error text will provide more information.
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 400
-                  message:
-                    type: string
-                    example: "Bad request: Invalid pubkey format"
+                type: string
+                example: "bad request: Module signing ID not found"
         "401":
-          description: The requesting module did not provide a JWT string in the request's authorization header, or the JWT string was not configured in the signer service's configuration file as belonging to the module.
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 401
-                  message:
-                    type: string
-                    example: "Unauthorized"
-        
+          $ref: "#/components/responses/UnauthorizedJwt"
+
         "404":
           description: You either requested a route that doesn't exist, or you requested a signature from a key that does not exist.
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 404
-                  message:
-                    type: string
-                    example: "Unknown pubkey"
+                type: string
+                example: "unknown proxy signer: 0xa9e9cff900de07e295a044789fd4bdb6785eb0651ad282f9e76d12afd87e75180bdd64caf2e315b815d7322bd31ab48a"
+        "422":
+          $ref: "#/components/responses/DeserializationFailed"
         "429":
-          description: Your module attempted and failed JWT authentication too many times recently, and is currently timed out. It cannot make any more requests until the timeout ends.
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 429
-                  message:
-                    type: string
-                    example: "Too many requests"
+          $ref: "#/components/responses/RateLimited"
         "500":
-          description: Your request was valid, but something went wrong internally that prevented it from being fulfilled.
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 500
-                  message:
-                    type: string
-                    example: "Internal error"
+          $ref: "#/components/responses/InternalError"
         "502":
-          description: The signer service is running in Dirk signer mode, but Dirk could not be reached.
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 502
-                  message:
-                    type: string
-                    example: "Bad gateway: Dirk signer service is unreachable"
+          $ref: "#/components/responses/DirkUnreachable"
 
   /signer/v1/request_signature/proxy-ecdsa:
     post:
       summary: Request a signature for a 32-byte blob of data (typically a hash), signed by the ECDSA private key for the requested proxy Ethereum address.
-      description: >
-        This endpoint requires a valid JWT Bearer token.
-        
-        The token **must include** the following claims:
-        - `exp` (integer): Expiration timestamp
-        - `module` (string): The ID of the module making the request, which must match a module ID in the Commit-Boost configuration file.
-        - `route` (string): The route being requested (must be `/signer/v1/request_signature/proxy-ecdsa` for this endpoint).
-        - `payload_hash` (string): The Keccak-256 hash of the JSON-encoded request body, with optional `0x` prefix. This is required to prevent JWT replay attacks.
+      description: |
+        Requires a module JWT (see Authentication above); the `route` claim must be `/signer/v1/request_signature/proxy-ecdsa`.
       tags:
         - Signer
       security:
@@ -385,16 +251,17 @@ paths:
               required: [proxy, object_root, nonce]
               properties:
                 proxy:
-                  description: The 20-byte Ethereum address, with optional `0x` prefix, of the proxy key that you want to request a signature from.
+                  description: The proxy address to sign with.
                   $ref: "#/components/schemas/EcdsaAddress"
                 object_root:
-                  description: The 32-byte data you want to sign, with optional `0x` prefix.
+                  description: The 32-byte digest to sign.
                   $ref: "#/components/schemas/B256"
                 nonce:
                   $ref: "#/components/schemas/Nonce"
             example:
               proxy: "0x71f65e9f6336770e22d148bd5e89b391a1c3b0bb"
               object_root: "0x3e9f4a78b5c21d64f0b8e3d9a7f5c02b4d1e67a3c8f29b5d6e4a3b1c8f72e6d9"
+              nonce: 1
       responses:
         "200":
           description: A successful signature response.
@@ -406,120 +273,43 @@ paths:
                 address: "0x71f65e9f6336770e22d148bd5e89b391a1c3b0bb"
                 object_root: "0x3e9f4a78b5c21d64f0b8e3d9a7f5c02b4d1e67a3c8f29b5d6e4a3b1c8f72e6d9"
                 module_signing_id: "0x6a33a23ef26a4836979edff86c493a69b26ccf0b4a16491a815a13787657431b"
+                nonce: 1
+                chain_id: "0x1"
                 signature: "0x985b495f49d1b96db3bba3f6c5dd1810950317c10d4c2042bd316f338cdbe74359072e209b85e56ac492092d7860063dd096ca31b4e164ef27e3f8d508e656801c"
         "400":
           description: |
             This can occur in several scenarios:
+            - The request did not include a valid `Authorization` header with a Bearer token.
             - The Commit-Boost configuration file does not contain a signing ID for the module that made the request.
             - You requested an operation while using the Dirk signer mode instead of locally-managed signer mode, but Dirk doesn't support that operation.
             - Something went wrong while preparing your request; the error text will provide more information.
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 400
-                  message:
-                    type: string
-                    example: "Bad request: Invalid pubkey format"
+                type: string
+                example: "Dirk signer does not support this operation"
         "401":
-          description: The requesting module did not provide a JWT string in the request's authorization header, or the JWT string was not configured in the signer service's configuration file as belonging to the module.
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 401
-                  message:
-                    type: string
-                    example: "Unauthorized"
-        
+          $ref: "#/components/responses/UnauthorizedJwt"
+
         "404":
           description: You either requested a route that doesn't exist, or you requested a signature from a key that does not exist.
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 404
-                  message:
-                    type: string
-                    example: "Unknown pubkey"
+                type: string
+                example: "unknown proxy signer: 0x71f65e9f6336770e22d148bd5e89b391a1c3b0bb"
+        "422":
+          $ref: "#/components/responses/DeserializationFailed"
         "429":
-          description: Your module attempted and failed JWT authentication too many times recently, and is currently timed out. It cannot make any more requests until the timeout ends.
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 429
-                  message:
-                    type: string
-                    example: "Too many requests"
+          $ref: "#/components/responses/RateLimited"
         "500":
-          description: Your request was valid, but something went wrong internally that prevented it from being fulfilled.
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 500
-                  message:
-                    type: string
-                    example: "Internal error"
-        "502":
-          description: The signer service is running in Dirk signer mode, but Dirk could not be reached.
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 502
-                  message:
-                    type: string
-                    example: "Bad gateway: Dirk signer service is unreachable"
+          $ref: "#/components/responses/InternalError"
 
   /signer/v1/generate_proxy_key:
     post:
       summary: Request a proxy key be generated for a specific consensus pubkey
-      description: >
-        This endpoint requires a valid JWT Bearer token.
-        
-        The token **must include** the following claims:
-        - `exp` (integer): Expiration timestamp
-        - `module` (string): The ID of the module making the request, which must match a module ID in the Commit-Boost configuration file.
-        - `route` (string): The route being requested (must be `/signer/v1/generate_proxy_key` for this endpoint).
-        - `payload_hash` (string): The Keccak-256 hash of the JSON-encoded request body, with optional `0x` prefix. This is required to prevent JWT replay attacks.
+      description: |
+        Requires a module JWT (see Authentication above); the `route` claim must be `/signer/v1/generate_proxy_key`.
       tags:
         - Signer
       security:
@@ -586,38 +376,164 @@ paths:
                       delegator: "0xa9e9cff900de07e295a044789fd4bdb6785eb0651ad282f9e76d12afd87e75180bdd64caf2e315b815d7322bd31ab48a"
                       proxy: "0x71f65e9f6336770e22d148bd5e89b391a1c3b0bb"
                     signature: "0xb5b5b71d1701cc45086af3d3d86bf9d3c509442835e5b9f7734923edc9a6c538e743d70613cdef90b7e5b171fbbe6a29075b3f155e4bd66d81ff9dbc3b6d7fa677d169b2ceab727ffa079a31fe1fc0e478752e9da9566a9408e4db24ac6104db"
+        "400":
+          description: |
+            This can occur in several scenarios:
+            - The request did not include a valid `Authorization` header with a Bearer token.
+            - You requested an ECDSA proxy key while using the Dirk signer mode, but Dirk only supports BLS operations.
+            - Something went wrong while preparing your request; the error text will provide more information.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "Dirk signer does not support this operation"
+        "401":
+          $ref: "#/components/responses/UnauthorizedJwt"
         "404":
           description: Unknown value (pubkey, etc.)
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 404
-                  message:
-                    type: string
-                    example: "Unknown pubkey"
+                type: string
+                example: "unknown consensus signer: 0xa9e9cff900de07e295a044789fd4bdb6785eb0651ad282f9e76d12afd87e75180bdd64caf2e315b815d7322bd31ab48a"
+        "422":
+          $ref: "#/components/responses/DeserializationFailed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "500":
-          description: Internal error
+          $ref: "#/components/responses/InternalError"
+        "502":
+          $ref: "#/components/responses/DirkUnreachable"
+
+  /reload:
+    post:
+      summary: Hot-reload signer configuration
+      description: |
+        Re-reads cb-config.toml and environment variables, rebuilding the signer's
+        internal state. Accepts optional body overrides for JWT secrets and the
+        admin secret.
+
+        **Behavior:**
+        - New modules in config are registered.
+        - Removed modules are dropped from the access list.
+        - JWT secrets and admin secret are reset to env var values.
+        - Previous runtime changes (from /revoke_jwt or body overrides) are reverted.
+
+        **Body overrides** (applied on top of the config baseline):
+        - `jwt_secrets`: comma-separated `<MODULE_ID>=<SECRET>` pairs.
+        - `admin_secret`: string to override the admin JWT secret.
+
+        Body overrides are **not persisted** across restarts.
+
+        A JSON body with `Content-Type: application/json` is required even when no
+        overrides are sent; send an empty object `{}`.
+      tags:
+        - Management
+      security:
+        - AdminBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                jwt_secrets:
+                  description: Comma-separated list of MODULE_ID=SECRET pairs to override module JWT secrets
+                  type: string
+                  example: "module_a=newsecret,module_b=anothersecret"
+                admin_secret:
+                  description: Override for the admin JWT secret
+                  type: string
+                  example: "my-new-admin-secret"
+      responses:
+        "200":
+          description: Configuration reloaded successfully
+        "400":
+          description: The body references a module ID not present in the config, or the request did not include a valid `Authorization` header with a Bearer token.
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                required:
-                  - code
-                  - message
-                properties:
-                  code:
-                    type: number
-                    example: 500
-                  message:
-                    type: string
-                    example: "Internal error"
+                type: string
+                example: "bad request: Module unknown-module not found in config, cannot override JWT secret"
+        "401":
+          $ref: "#/components/responses/UnauthorizedJwt"
+        "422":
+          $ref: "#/components/responses/DeserializationFailed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          description: Failed to reload config (previous state preserved)
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "internal error"
+
+  /revoke_jwt:
+    post:
+      summary: Immediately revoke a module's access
+      description: |
+        Removes a module from the signer's access list. The module will no longer
+        be able to authenticate with its JWT.
+
+        If the module is still present in cb-config.toml, the next `/reload` will
+        re-add it. Remove the module from the config to make revocation permanent.
+      tags:
+        - Management
+      security:
+        - AdminBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - module_id
+              properties:
+                module_id:
+                  description: The ID of the module to revoke
+                  type: string
+                  example: "MY_MODULE"
+      responses:
+        "200":
+          description: Module access revoked successfully
+        "400":
+          description: The request did not include a valid `Authorization` header with a Bearer token.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "Header of type `authorization` was missing"
+        "401":
+          $ref: "#/components/responses/UnauthorizedJwt"
+        "404":
+          description: Module ID not found
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "module id not found"
+        "422":
+          $ref: "#/components/responses/DeserializationFailed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /status:
+    get:
+      summary: Health check
+      description: Simple health check endpoint. Returns 200 OK with no body. No authentication required.
+      tags:
+        - Management
+      responses:
+        "200":
+          description: Signer service is healthy
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ""
 
 components:
   securitySchemes:
@@ -625,6 +541,46 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    AdminBearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  responses:
+    UnauthorizedJwt:
+      description: The JWT provided in the request's authorization header was invalid. For example, it was expired, signed with the wrong secret, or its claims did not match the request.
+      content:
+        text/plain:
+          schema:
+            type: string
+            example: "unauthorized"
+    RateLimited:
+      description: Your client IP failed JWT authentication too many times recently, and is currently timed out. It cannot make any more requests until the timeout ends.
+      content:
+        text/plain:
+          schema:
+            type: string
+            example: "rate limited for 12.3"
+    DeserializationFailed:
+      description: The request body could not be deserialized. For example, a field was not valid hex of the expected length.
+      content:
+        text/plain:
+          schema:
+            type: string
+            example: "Failed to deserialize the JSON body into the target type"
+    InternalError:
+      description: Internal server error. The request was valid but could not be fulfilled.
+      content:
+        text/plain:
+          schema:
+            type: string
+            example: "internal error"
+    DirkUnreachable:
+      description: The signer service is running in Dirk signer mode, but Dirk could not be reached.
+      content:
+        text/plain:
+          schema:
+            type: string
+            example: "Dirk communication error"
   schemas:
     B256:
       type: string
@@ -666,11 +622,12 @@ components:
         nonce:
           $ref: "#/components/schemas/Nonce"
         chain_id:
-          description: The chain ID that the signature is valid for, as specified in the Commit-Boost configuration
-          type: integer
-          example: 1
+          description: The chain ID that the signature is valid for, as specified in the Commit-Boost configuration. Serialized as a `0x`-prefixed hex quantity string.
+          type: string
+          format: hex
+          example: "0x1"
         signature:
-          description: The BLS signature of the Merkle root hash of the provided `object_root` field and the requesting module's Signing ID. For details on this signature, see the [signature structure documentation](https://commit-boost.github.io/commit-boost-client/developing/prop-commit-signing.md#structure-of-a-signature).
+          description: The BLS signature of the SSZ root over the provided `object_root`, the module's signing ID, the nonce, and the chain ID (`PropCommitSigningInfo`), domain-separated per the [signature structure documentation](https://commit-boost.github.io/commit-boost-client/developing/prop-commit-signing#structure-of-a-signature).
           $ref: "#/components/schemas/BlsSignature"
     EcdsaSignatureResponse:
       type: object
@@ -687,20 +644,23 @@ components:
         nonce:
           $ref: "#/components/schemas/Nonce"
         chain_id:
-          description: The chain ID that the signature is valid for, as specified in the Commit-Boost configuration
-          type: integer
-          example: 1
+          description: The chain ID that the signature is valid for, as specified in the Commit-Boost configuration. Serialized as a `0x`-prefixed hex quantity string.
+          type: string
+          format: hex
+          example: "0x1"
         signature:
-          description: The ECDSA signature (in Ethereum RSV format) of the Merkle root hash of the provided `object_root` field and the requesting module's Signing ID. For details on this signature, see the [signature structure documentation](https://commit-boost.github.io/commit-boost-client/developing/prop-commit-signing.md#structure-of-a-signature).
+          description: The ECDSA signature (in Ethereum RSV format) of the SSZ root over the provided `object_root`, the module's signing ID, the nonce, and the chain ID (`PropCommitSigningInfo`), domain-separated per the [signature structure documentation](https://commit-boost.github.io/commit-boost-client/developing/prop-commit-signing#structure-of-a-signature).
           $ref: "#/components/schemas/EcdsaSignature"
     Nonce:
       type: integer
       description: |
         Replay-protection nonce, always mixed into the signing root via `PropCommitSigningInfo`. It
-        must be an unsigned 64-bit integer between 0 and 2^64-2 (18446744073709551614), inclusive.
+        is an unsigned 64-bit integer. Per the [EIP-2681](https://eips.ethereum.org/EIPS/eip-2681)
+        convention the maximum is 2^64-2 (18446744073709551614), but the service does not enforce
+        this cap.
 
         Modules that track nonces for replay protection should use a monotonically increasing value
         per key. Modules that do not use replay protection should always send `0`.
       minimum: 0
-      maximum: 18446744073709551614
+      maximum: 18446744073709551615
       example: 1
