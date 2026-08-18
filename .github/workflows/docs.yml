@@ -1,27 +1,46 @@
 name: Docs
 
+# Manual only: click "Run workflow" to publish the docs currently on the
+# selected branch (defaults to the repo default branch). Publishing is a
+# deliberate act, not a side effect of a merge, and a failed run can simply be
+# re-run without pushing a new commit.
 on:
-  push:
-    branches:
-      - stable
-    # Review gh actions docs if you want to further define triggers, paths, etc
-    # https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#on
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
   build:
     name: Build Docusaurus
     runs-on: ubuntu-latest
     steps:
+      # Publishing is main-only. The github-pages environment enforces this at
+      # deploy time, but fail loud here too so a mistaken dispatch from another
+      # branch stops before building instead of silently producing no deploy.
+      - name: Refuse to publish from a non-main branch
+        if: github.ref != 'refs/heads/main'
+        env:
+          DISPATCHED_REF: ${{ github.ref }}
+        run: |
+          echo "::error::Docs publish only from main (dispatched ref: $DISPATCHED_REF)."
+          exit 1
       - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
 
       - name: Install dependencies
-        run: npm install
+        # npm ci = reproducible install from package-lock.json (npm install
+        # re-resolves ranges at run time and can drift between runs)
+        run: npm ci
         working-directory: ./docs
 
       - name: Build website
