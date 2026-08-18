@@ -223,11 +223,12 @@ pub struct BuilderPreferences {
 }
 
 /// The `submitBuilderPreferences` request body.
-/// SSZ field order per builder-specs `gloas/validator.md`
+/// SSZ field order `(preferences, auth)` per builder-specs
+/// `types/gloas/builder_preferences.yaml`.
 #[derive(Debug, Serialize, Deserialize, Encode, Decode, Clone)]
 pub struct BuilderPreferencesRequest {
-    pub auth: SignedRequestAuth,
     pub preferences: BuilderPreferences,
+    pub auth: SignedRequestAuth,
 }
 
 /// Path params for `POST /eth/v1/builder/builder_preferences/{proposer_pubkey}`
@@ -275,7 +276,9 @@ mod tests {
     }
 
     /// Spec vector for the SSZ layout of `BuilderPreferencesRequest`:
-    /// `(auth, preferences)` per specs/gloas/validator.md
+    /// `(preferences, auth)` per builder-specs `types/gloas/builder_preferences.yaml`.
+    /// The order-determining fixed part is cross-checked byte-for-byte against
+    /// the canonical example `examples/gloas/builder_preferences_request.ssz`.
     #[test]
     fn test_builder_preferences_request_ssz_spec_vector() {
         use ssz::{Decode, Encode};
@@ -293,20 +296,27 @@ mod tests {
             signature: BlsSignature::deserialize(&infinity_sig).unwrap(),
         };
         let request = BuilderPreferencesRequest {
-            auth: auth.clone(),
             preferences: BuilderPreferences { max_execution_payment: 1_000_000_000 },
+            auth: auth.clone(),
         };
 
-        // Hand-assembled outer container: 4-byte offset to the variable-size
-        // `auth` (12 = 4-byte offset + 8-byte fixed `preferences`), the 8-byte
-        // `max_execution_payment` LE, then the `auth` bytes
+        // Outer container is `(preferences, auth)`: the 8-byte fixed
+        // `max_execution_payment` LE, then a 4-byte offset to the variable-size
+        // `auth` (12 = 8-byte fixed `preferences` + 4-byte offset), then `auth`.
         let auth_bytes = auth.as_ssz_bytes();
         let mut expected = Vec::new();
-        expected.extend_from_slice(&12u32.to_le_bytes());
         expected.extend_from_slice(&1_000_000_000u64.to_le_bytes());
+        expected.extend_from_slice(&12u32.to_le_bytes());
         expected.extend_from_slice(&auth_bytes);
 
         assert_eq!(request.as_ssz_bytes(), expected);
+
+        // The fixed part matches the canonical spec example byte-for-byte:
+        // `max_execution_payment` (1_000_000_000 Gwei LE) precedes the `auth`
+        // offset (12). A `(auth, preferences)` layout would put the offset first.
+        assert_eq!(&request.as_ssz_bytes()[..12], &[
+            0x00, 0xca, 0x9a, 0x3b, 0x00, 0x00, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x00,
+        ]);
 
         let decoded = BuilderPreferencesRequest::from_ssz_bytes(&expected).unwrap();
         assert_eq!(decoded.preferences.max_execution_payment, 1_000_000_000);
