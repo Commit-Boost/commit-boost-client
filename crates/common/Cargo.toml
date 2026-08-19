@@ -58,7 +58,6 @@ typenum.workspace = true
 unicode-normalization.workspace = true
 url.workspace = true
 uuid.workspace = true
-reqwest-eventsource.workspace = true
 
 [dev-dependencies]
   tempfile.workspace = true
