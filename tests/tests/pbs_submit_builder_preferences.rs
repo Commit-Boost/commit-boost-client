@@ -165,7 +165,7 @@ async fn test_submit_builder_preferences_non_202_success_is_failure() -> Result<
 async fn test_submit_builder_preferences_signature_bound_to_path_pubkey() -> Result<()> {
     let chain = Chain::Hoodi;
     let signer = random_secret();
-    let other_pubkey = random_secret().public_key().into();
+    let other_pubkey = random_secret().public_key();
     let (mock_validator, mock_state) =
         setup_relay(chain, |config| config.verify_request_auth = true, generate_mock_relay).await?;
 
@@ -468,7 +468,7 @@ async fn test_submit_builder_preferences_bad_signature_401() -> Result<()> {
 async fn test_submit_builder_preferences_valid_signature() -> Result<()> {
     let chain = Chain::Hoodi;
     let secret = random_secret();
-    let pubkey = secret.public_key().into();
+    let pubkey = secret.public_key();
     let (mock_validator, mock_state) =
         setup_relay(chain, |config| config.verify_request_auth = true, generate_mock_relay).await?;
 

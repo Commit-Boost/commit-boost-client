@@ -275,7 +275,7 @@ mod tests {
 
     #[test]
     fn test_builder_bid_sign_and_verify() {
-        let secret_key = BlsSecretKey::test_random();
+        let secret_key = BlsSecretKey::random();
         let pubkey = secret_key.public_key();
 
         let message = BuilderBid::Electra(BuilderBidElectra {
@@ -300,7 +300,7 @@ mod tests {
 
     #[test]
     fn test_blinded_block_sign_and_verify() {
-        let secret_key = BlsSecretKey::test_random();
+        let secret_key = BlsSecretKey::random();
         let pubkey = secret_key.public_key();
 
         let block = BlindedBeaconBlockElectra::test_random();

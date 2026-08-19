@@ -283,9 +283,8 @@ mod tests {
         use cb_common::types::BlsSecretKey;
 
         let chain = Chain::Hoodi;
-        let params = SubmitBuilderPreferencesParams {
-            proposer_pubkey: BlsSecretKey::random().public_key(),
-        };
+        let params =
+            SubmitBuilderPreferencesParams { proposer_pubkey: BlsSecretKey::random().public_key() };
         let empty = SignedRequestAuth {
             message: RequestAuth {
                 data: Default::default(),

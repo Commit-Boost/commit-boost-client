@@ -67,8 +67,8 @@ pub struct GetHeaderParams {
     pub pubkey: BlsPublicKey,
 }
 
-pub type ExecutionPayloadBid = lh_types::ExecutionPayloadBid;
-pub type SignedExecutionPayloadBid = lh_types::SignedExecutionPayloadBid;
+pub type ExecutionPayloadBid = lh_types::ExecutionPayloadBid<MainnetEthSpec>;
+pub type SignedExecutionPayloadBid = lh_types::SignedExecutionPayloadBid<MainnetEthSpec>;
 
 /// Whether `block` is a Gloas block. The submit endpoint is Gloas-only per
 /// spec.
@@ -276,9 +276,10 @@ mod tests {
     }
 
     /// Spec vector for the SSZ layout of `BuilderPreferencesRequest`:
-    /// `(preferences, auth)` per builder-specs `types/gloas/builder_preferences.yaml`.
-    /// The order-determining fixed part is cross-checked byte-for-byte against
-    /// the canonical example `examples/gloas/builder_preferences_request.ssz`.
+    /// `(preferences, auth)` per builder-specs
+    /// `types/gloas/builder_preferences.yaml`. The order-determining fixed
+    /// part is cross-checked byte-for-byte against the canonical example
+    /// `examples/gloas/builder_preferences_request.ssz`.
     #[test]
     fn test_builder_preferences_request_ssz_spec_vector() {
         use ssz::{Decode, Encode};

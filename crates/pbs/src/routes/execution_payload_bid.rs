@@ -369,7 +369,8 @@ fn request_budget_ms(req_headers: &HeaderMap, now_ms: u64) -> Result<u64, PbsCli
 /// `auth.message.data` must be non-empty; which builder it addresses is the
 /// demux's job (`match_relays_by_auth_data`). The slot must match the request
 /// path, plus the signature when `verify_request_auth` is on. The downstream
-/// builder verifies the signature regardless, which is why the crypto is opt-in.
+/// builder verifies the signature regardless, which is why the crypto is
+/// opt-in.
 fn validate_request_auth(
     auth: &SignedRequestAuth,
     params: &GetExecutionPayloadBidParams,
@@ -896,7 +897,7 @@ mod tests {
         let parent_root = B256::from_slice(&[2; 32]);
         let min_bid = 500;
         let max_trusted_payment = 1000;
-        let secret_key = BlsSecretKey::test_random();
+        let secret_key = BlsSecretKey::random();
         let pubkey = secret_key.public_key();
 
         let mock_params = GetExecutionPayloadBidParams {
@@ -1037,7 +1038,7 @@ mod tests {
 
     #[test]
     fn test_validate_signature() {
-        let secret_key = BlsSecretKey::test_random();
+        let secret_key = BlsSecretKey::random();
         let pubkey = secret_key.public_key();
         let wrong_signature = BlsSignature::test_random();
 
@@ -1084,7 +1085,7 @@ mod tests {
             slot,
             parent_hash: B256::ZERO,
             parent_root: B256::ZERO,
-            proposer_pubkey: BlsSecretKey::test_random().public_key(),
+            proposer_pubkey: BlsSecretKey::random().public_key(),
         };
         let empty = SignedRequestAuth {
             message: RequestAuth { data: Default::default(), slot: Slot::new(slot) },
@@ -1236,7 +1237,7 @@ mod tests {
     #[test]
     fn test_validate_request_auth() {
         let chain = Chain::Hoodi;
-        let secret_key = BlsSecretKey::test_random();
+        let secret_key = BlsSecretKey::random();
         let pubkey = secret_key.public_key();
         let slot = 5;
         let params = GetExecutionPayloadBidParams {

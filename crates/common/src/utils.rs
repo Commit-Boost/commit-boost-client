@@ -7,8 +7,7 @@ use alloy::{
     hex,
     primitives::{U256, keccak256},
 };
-use lh_types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-use rand::{Rng, distr::Alphanumeric};
+use rand::{Rng, RngCore, distr::Alphanumeric};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use tracing::Level;
@@ -430,17 +429,21 @@ pub async fn wait_for_signal() -> eyre::Result<()> {
     Ok(())
 }
 
-pub trait TestRandomSeed: TestRandom {
+// lighthouse v8.2.x replaced the `TestRandom` trait with an `arbitrary`-based
+// generator; build test instances from OS entropy so each call differs.
+pub trait TestRandomSeed: for<'a> arbitrary::Arbitrary<'a> {
     fn test_random() -> Self
     where
         Self: Sized,
     {
-        let mut rng = XorShiftRng::from_os_rng();
-        Self::random_for_test(&mut rng)
+        let mut bytes = vec![0u8; 256 * 1024];
+        rand::rng().fill_bytes(&mut bytes);
+        let mut u = arbitrary::Unstructured::new(&bytes);
+        Self::arbitrary(&mut u).expect("enough entropy for an arbitrary test instance")
     }
 }
 
-impl<T: TestRandom> TestRandomSeed for T {}
+impl<T: for<'a> arbitrary::Arbitrary<'a>> TestRandomSeed for T {}
 
 pub fn bls_pubkey_from_hex(hex: &str) -> eyre::Result<BlsPublicKey> {
     let Ok(bytes) = hex::decode(hex) else {
