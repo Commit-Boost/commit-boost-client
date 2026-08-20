@@ -23,3 +23,20 @@ jobs:
         with:
           tool: cargo-audit
       - run: cargo audit
+      # Stable cargo ignores the publish-age policy, so the lockfile can pin
+      # too-young crates (or deliberately via `just update-allow`); surface them.
+      - name: Check lockfile against the publish-age cooldown
+        continue-on-error: true
+        run: |
+          rustup toolchain install nightly-2026-06-21 --profile minimal
+          if ! cargo +nightly-2026-06-21 update --dry-run -Z min-publish-age > cooldown.txt 2>&1; then
+            msg=$(head -20 cooldown.txt | sed ':a;N;$!ba;s/\n/%0A/g')  # %0A = newline in annotations
+            echo "::warning title=Publish-age cooldown probe failed::$msg"
+            exit 0
+          fi
+          hits=$(grep -E "Downgrading|is too new" cooldown.txt || true)
+          if [ -n "$hits" ]; then
+            count=$(echo "$hits" | wc -l)
+            msg=$(echo "$hits" | head -20 | sed ':a;N;$!ba;s/\n/%0A/g')
+            echo "::warning title=Lockfile pins $count crate(s) younger than the publish-age cooldown::$msg"
+          fi

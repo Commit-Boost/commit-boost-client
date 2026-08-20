@@ -24,10 +24,10 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
         with:
           toolchain: nightly-2026-01-01
-          components: clippy, rustfmt
+          components: rustfmt
 
       - name: Install protoc
         run: sudo provisioning/protoc.sh
@@ -41,7 +41,7 @@ jobs:
         run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
       - name: Check compilation
-        run: cargo check
+        run: cargo check --locked
 
       - name: Check formatting
         run: just fmt-check
