@@ -12,16 +12,22 @@ use crate::doc::BuilderConfigDoc;
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Whether a token file mode leaks reads beyond the owner.
+#[cfg(unix)]
+fn token_mode_overexposed(mode: u32) -> bool {
+    mode & 0o044 != 0
+}
+
 /// Reads a bearer token file, trimming surrounding whitespace. Warns when the
-/// file is world-readable.
+/// file is group- or world-readable.
 pub fn read_token(path: &Path) -> Result<String> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         if let Ok(meta) = std::fs::metadata(path)
-            && meta.permissions().mode() & 0o004 != 0
+            && token_mode_overexposed(meta.permissions().mode())
         {
-            warn!("token file {path:?} is world-readable");
+            warn!("token file {path:?} is group- or world-readable");
         }
     }
     let token = std::fs::read_to_string(path)
@@ -153,5 +159,15 @@ mod tests {
     fn endpoint_without_prefix_unchanged() {
         let url = client("http://127.0.0.1:5062").endpoint("/eth/v1/keystores").unwrap();
         assert_eq!(url.as_str(), "http://127.0.0.1:5062/eth/v1/keystores");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn token_mode_overexposure() {
+        assert!(token_mode_overexposed(0o644));
+        assert!(token_mode_overexposed(0o640));
+        assert!(token_mode_overexposed(0o604));
+        assert!(!token_mode_overexposed(0o600));
+        assert!(!token_mode_overexposed(0o620));
     }
 }
