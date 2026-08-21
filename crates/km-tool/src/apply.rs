@@ -55,23 +55,24 @@ impl ApplyReport {
     }
 }
 
-/// Whether a VC preflight proved #88 builder_config support.
-async fn preflight_supports_builder_config(
-    client: &KmClient,
-    enumerated: &[String],
-    fallback_probe_key: Option<&str>,
-) -> Result<bool> {
-    // Probe a key the VC itself enumerated: a 404 then means the ROUTE is
-    // missing (no #88 support), never "key elsewhere". Without any enumerated
-    // key fall back to a projected key, where 404 stays ambiguous and is
-    // treated as unsupported to fail loud.
-    let probe_key = enumerated.first().map(String::as_str).or(fallback_probe_key);
-    let Some(probe_key) = probe_key else {
-        return Ok(false);
+enum Preflight {
+    Supported,
+    Unsupported,
+    /// No enumerated key to probe: proceed and let the POST responses tell
+    Unknown,
+}
+
+/// Probes #88 builder_config support with a key the VC itself enumerated: a
+/// 404 then means the ROUTE is missing, never "key elsewhere". Transport
+/// errors and non-404 failures propagate; they are not evidence about
+/// support.
+async fn preflight_builder_config(client: &KmClient, enumerated: &[String]) -> Result<Preflight> {
+    let Some(probe_key) = enumerated.first() else {
+        return Ok(Preflight::Unknown);
     };
     match client.get_builder_config(probe_key).await? {
-        GetConfigOutcome::Ok(_) => Ok(true),
-        GetConfigOutcome::NotFound => Ok(false),
+        GetConfigOutcome::Ok(_) => Ok(Preflight::Supported),
+        GetConfigOutcome::NotFound => Ok(Preflight::Unsupported),
     }
 }
 
@@ -119,18 +120,23 @@ pub async fn run_apply(
         };
         all_enumerated.extend(enumerated.iter().cloned());
 
-        let supports = preflight_supports_builder_config(
-            &client,
-            &enumerated,
-            projected_keys.iter().next().map(String::as_str),
-        )
-        .await
-        .unwrap_or(false);
-        if !supports {
-            report.error(format!(
-                "{vc_name}: no builder_config support (keymanager-APIs #88); skipping"
-            ));
-            continue;
+        match preflight_builder_config(&client, &enumerated).await {
+            Ok(Preflight::Supported) => {}
+            Ok(Preflight::Unsupported) => {
+                report.error(format!(
+                    "{vc_name}: no builder_config support (keymanager-APIs #88); skipping"
+                ));
+                continue;
+            }
+            Ok(Preflight::Unknown) => {
+                report.warn(format!(
+                    "{vc_name}: no keys to probe for builder_config support; POSTing anyway"
+                ));
+            }
+            Err(err) => {
+                report.error(format!("{vc_name}: builder_config probe failed: {err}"));
+                continue;
+            }
         }
 
         let vc_projection = project_with_url(input, overlay, overlay.advertised_url_for(vc))?;

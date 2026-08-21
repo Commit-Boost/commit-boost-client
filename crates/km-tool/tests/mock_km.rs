@@ -36,6 +36,8 @@ struct MockVc {
     stored: HashMap<String, serde_json::Value>,
     /// POST status override per key (default: 202 when held, else 404)
     post_status: HashMap<String, u16>,
+    /// blanket GET builder_config status override (e.g. 500)
+    get_status: Option<u16>,
     /// recorded (pubkey, raw body) of every builder_config POST
     posts: Arc<Mutex<Vec<(String, String)>>>,
 }
@@ -73,6 +75,9 @@ async fn get_config(
 ) -> impl IntoResponse {
     if !authed(&headers) {
         return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+    }
+    if let Some(status) = vc.get_status {
+        return (StatusCode::from_u16(status).unwrap(), "overridden").into_response();
     }
     if !vc.supports_builder_config || !vc.keystores.contains(&pubkey) {
         return (StatusCode::NOT_FOUND, "not found").into_response();
@@ -227,6 +232,42 @@ async fn apply_detects_missing_88_support() {
         "{:?}",
         report.errors
     );
+}
+
+#[tokio::test]
+async fn apply_probe_transport_failure_is_its_own_error() {
+    let key = random_key();
+    let mut vc = MockVc::holding(std::slice::from_ref(&key));
+    vc.get_status = Some(500);
+    let url = serve(vc.clone()).await;
+
+    let env = env_for(std::slice::from_ref(&key), &[url]);
+    let report = run_apply(&env.input, &env.overlay, &ApplyOptions::default()).await.unwrap();
+    assert!(!report.ok());
+    assert!(
+        report.errors.iter().any(|e| e.contains("builder_config probe failed")),
+        "{:?}",
+        report.errors
+    );
+    assert!(!report.errors.iter().any(|e| e.contains("no builder_config support")));
+    // a failed probe skips the VC: nothing POSTed
+    assert!(vc.posts().is_empty());
+}
+
+#[tokio::test]
+async fn apply_empty_keystore_vc_warns_and_still_posts() {
+    let key = random_key();
+    let empty_vc = MockVc::holding(&[]);
+    let holder_vc = MockVc::holding(std::slice::from_ref(&key));
+    let (empty_url, holder_url) = (serve(empty_vc.clone()).await, serve(holder_vc).await);
+
+    let env = env_for(std::slice::from_ref(&key), &[empty_url, holder_url]);
+    let report = run_apply(&env.input, &env.overlay, &ApplyOptions::default()).await.unwrap();
+    assert!(report.ok(), "{:?}", report.errors);
+    assert!(report.warnings.iter().any(|w| w.contains("no keys to probe")), "{:?}", report.warnings);
+    // supported-unknown: the empty VC still gets the POST; its 404 answers
+    assert_eq!(empty_vc.posts().len(), 1);
+    assert_eq!(report.accepted.get(&key).map(Vec::len), Some(1));
 }
 
 #[tokio::test]
