@@ -532,11 +532,6 @@ mod tests {
         assert!(decode_auth_data_url(b"not a url").is_none());
     }
 
-    /// Pins that the helper lands in `BEACON_NODE_STATUS` with the declared
-    /// label ORDER (status, endpoint). Both labels are &str, so a swapped
-    /// order compiles and silently writes a different series - this read-back
-    /// with the correct order is the only thing that catches it. The endpoint
-    /// tag is unique to this test, so parallel tests cannot race it.
     /// Same label-order pin as the beacon-node counter: all three labels are
     /// &str, so a permuted order compiles and silently writes another series.
     #[test]
