@@ -3,6 +3,9 @@
 //! config + operational overlay into per-key KM docs; `apply` POSTs them to
 //! validator clients; `check` compares stored docs canonically.
 
+pub mod apply;
+pub mod check;
+pub mod client;
 pub mod doc;
 pub mod mux_ext;
 pub mod overlay;
