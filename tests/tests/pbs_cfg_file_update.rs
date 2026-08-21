@@ -78,6 +78,8 @@ async fn test_cfg_file_update() -> Result<()> {
         validator_registration_batch_size: None,
         mux_registry_refresh_interval_seconds: 384,
         advertised_urls: vec![],
+        gloas_fork_version: None,
+        genesis_validators_root: None,
     };
     let cb_config = CommitBoostConfig {
         chain,

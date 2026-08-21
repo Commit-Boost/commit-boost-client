@@ -35,3 +35,6 @@ url.workspace = true
 uuid.workspace = true
 webpki-roots.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+toml.workspace = true

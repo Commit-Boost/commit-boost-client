@@ -14,7 +14,6 @@ use axum::{
 };
 use cb_common::{
     config::PbsConfig,
-    constants::{GENESIS_VALIDATORS_ROOT, GLOAS_FORK_VERSION},
     pbs::{
         DEFAULT_BID_POLL_TIMEOUT_MS, ForkName, GetExecutionPayloadBidInfo,
         GetExecutionPayloadBidParams, GetExecutionPayloadBidResponse, HEADER_START_TIME_UNIX_MS,
@@ -260,6 +259,8 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
                     expected_fee_recipient: pbs_config.fee_recipient,
                     extra_validation_enabled: state.extra_validation_enabled(),
                     parent_block: parent_block.clone(),
+                    fork_version: pbs_config.bid_fork_version(),
+                    genesis_validators_root: pbs_config.bid_genesis_validators_root(),
                 },
             )
             .in_current_span(),
@@ -613,6 +614,10 @@ struct ValidationContext {
     expected_fee_recipient: Option<Address>,
     extra_validation_enabled: bool,
     parent_block: Arc<RwLock<Option<Block>>>,
+    /// Bid signing-domain parameters: config overrides when set (devnets whose
+    /// gloas fork version / genesis root differ), else the built-in constants
+    fork_version: [u8; 4],
+    genesis_validators_root: B256,
 }
 
 async fn send_one_get_execution_payload_bid(
@@ -744,6 +749,8 @@ async fn send_one_get_execution_payload_bid(
             relay.pubkey(),
             &get_header_response.data.message,
             &get_header_response.data.signature,
+            validation.fork_version,
+            validation.genesis_validators_root,
         )?;
     }
 
@@ -822,13 +829,15 @@ fn validate_signature<T: TreeHash>(
     expected_pubkey: &BlsPublicKey,
     message: &T,
     signature: &BlsSignature,
+    fork_version: [u8; 4],
+    genesis_validators_root: B256,
 ) -> Result<(), ValidationError> {
     if !verify_execution_payload_bid_signature(
         expected_pubkey,
         &message,
         signature,
-        GLOAS_FORK_VERSION,
-        GENESIS_VALIDATORS_ROOT.into(),
+        fork_version,
+        genesis_validators_root,
     ) {
         return Err(ValidationError::Sigverify);
     }
@@ -965,7 +974,6 @@ mod tests {
             .unwrap();
     }
 
-
     #[test]
     fn test_validate_signature() {
         let secret_key = BlsSecretKey::random();
@@ -985,14 +993,95 @@ mod tests {
         );
 
         assert!(matches!(
-            validate_signature(&pubkey, &message, &wrong_signature),
+            validate_signature(
+                &pubkey,
+                &message,
+                &wrong_signature,
+                GLOAS_FORK_VERSION,
+                GENESIS_VALIDATORS_ROOT.into()
+            ),
             Err(ValidationError::Sigverify)
         ));
         assert!(matches!(
-            validate_signature(&pubkey, &message, &builder_domain_sig),
+            validate_signature(
+                &pubkey,
+                &message,
+                &builder_domain_sig,
+                GLOAS_FORK_VERSION,
+                GENESIS_VALIDATORS_ROOT.into()
+            ),
             Err(ValidationError::Sigverify)
         ));
-        assert!(validate_signature(&pubkey, &message, &bid_domain_sig).is_ok());
+        assert!(
+            validate_signature(
+                &pubkey,
+                &message,
+                &bid_domain_sig,
+                GLOAS_FORK_VERSION,
+                GENESIS_VALIDATORS_ROOT.into()
+            )
+            .is_ok()
+        );
+    }
+
+    // A devnet whose fork version / genesis root differ from the built-in
+    // constants must verify bids under ITS domain (config override), and a
+    // signature made under the built-in domain must then be rejected.
+    #[test]
+    fn test_validate_signature_uses_configured_domain_params() {
+        let secret_key = BlsSecretKey::random();
+        let pubkey = secret_key.public_key();
+        let message = B256::random();
+
+        let devnet_fork: [u8; 4] = [0x80, 0x00, 0x00, 0x38];
+        let devnet_root = B256::from([0x6c; 32]);
+        assert_ne!(devnet_fork, GLOAS_FORK_VERSION);
+
+        let devnet_sig = sign_execution_payload_bid_root(
+            &secret_key,
+            &message.tree_hash_root(),
+            devnet_fork,
+            devnet_root,
+        );
+
+        // Verifies under the devnet domain
+        assert!(
+            validate_signature(&pubkey, &message, &devnet_sig, devnet_fork, devnet_root).is_ok()
+        );
+        // The built-in domain must reject the devnet signature (and vice versa)
+        assert!(matches!(
+            validate_signature(
+                &pubkey,
+                &message,
+                &devnet_sig,
+                GLOAS_FORK_VERSION,
+                GENESIS_VALIDATORS_ROOT.into()
+            ),
+            Err(ValidationError::Sigverify)
+        ));
+
+        // The config helpers are what the route threads through: default =
+        // constants, override = the devnet values
+        let default_cfg: PbsConfig = toml::from_str("").unwrap();
+        assert_eq!(default_cfg.bid_fork_version(), GLOAS_FORK_VERSION);
+        assert_eq!(default_cfg.bid_genesis_validators_root(), B256::from(GENESIS_VALIDATORS_ROOT));
+        let override_cfg: PbsConfig = toml::from_str(
+            r#"
+            gloas_fork_version = "0x80000038"
+            genesis_validators_root = "0x6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c"
+            "#,
+        )
+        .unwrap();
+        assert!(
+            validate_signature(
+                &pubkey,
+                &message,
+                &devnet_sig,
+                override_cfg.bid_fork_version(),
+                override_cfg.bid_genesis_validators_root()
+            )
+            .is_ok()
+        );
     }
 
     fn test_auth(slot: u64, signature: BlsSignature) -> SignedRequestAuth {
