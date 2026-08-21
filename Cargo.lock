@@ -1917,6 +1917,8 @@ dependencies = [
 name = "cb-km-tool"
 version = "0.11.0"
 dependencies = [
+ "alloy-primitives 1.6.1",
+ "cb-common",
  "eyre",
  "serde",
  "serde_json",

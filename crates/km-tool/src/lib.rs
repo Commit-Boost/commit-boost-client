@@ -4,7 +4,10 @@
 //! validator clients; `check` compares stored docs canonically.
 
 pub mod doc;
+pub mod mux_ext;
 pub mod overlay;
+pub mod project;
 
 pub use doc::{BuilderConfigDoc, BuilderEntryDoc, CanonicalDoc};
 pub use overlay::Overlay;
+pub use project::{Projection, ProjectionInput, project, project_with_url};
