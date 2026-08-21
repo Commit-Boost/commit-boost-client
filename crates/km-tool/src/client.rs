@@ -83,7 +83,10 @@ impl KmClient {
     }
 
     fn endpoint(&self, path: &str) -> Result<Url> {
-        self.base.join(path).wrap_err_with(|| format!("invalid endpoint {path}"))
+        // string concat, not Url::join: an absolute path would drop a base
+        // path prefix (https://vc.example/prefix)
+        let base = self.base.as_str().trim_end_matches('/');
+        Url::parse(&format!("{base}{path}")).wrap_err_with(|| format!("invalid endpoint {path}"))
     }
 
     /// GET /eth/v1/keystores; returns lowercased validating pubkeys. Doubles
@@ -126,5 +129,29 @@ impl KmClient {
             403 => Ok(PostOutcome::ConfigFileManaged),
             status => bail!("builder_config POST for {pubkey} on {} failed: {status}", self.base),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn client(base: &str) -> KmClient {
+        KmClient::new(Url::parse(base).unwrap(), "t".into()).unwrap()
+    }
+
+    #[test]
+    fn endpoint_preserves_base_path_prefix() {
+        let url = client("https://vc.example/prefix").endpoint("/eth/v1/keystores").unwrap();
+        assert_eq!(url.as_str(), "https://vc.example/prefix/eth/v1/keystores");
+        // trailing slash on the base collapses, no double slash
+        let url = client("https://vc.example/prefix/").endpoint("/eth/v1/keystores").unwrap();
+        assert_eq!(url.as_str(), "https://vc.example/prefix/eth/v1/keystores");
+    }
+
+    #[test]
+    fn endpoint_without_prefix_unchanged() {
+        let url = client("http://127.0.0.1:5062").endpoint("/eth/v1/keystores").unwrap();
+        assert_eq!(url.as_str(), "http://127.0.0.1:5062/eth/v1/keystores");
     }
 }
