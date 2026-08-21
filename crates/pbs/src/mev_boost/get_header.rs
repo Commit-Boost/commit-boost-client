@@ -858,7 +858,7 @@ mod tests {
                 ForkName::Fulu => {}
 
                 // Skip future forks
-                ForkName::Gloas => continue,
+                ForkName::Gloas | ForkName::Heze => continue,
             }
 
             // Load get_header JSON from test data

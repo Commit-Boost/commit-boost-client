@@ -4,8 +4,7 @@ use lh_types::ForkName;
 use ssz::BYTES_PER_LENGTH_OFFSET;
 
 use crate::pbs::{
-    BuilderBidFulu, ExecutionPayloadHeaderFulu, ExecutionRequests, KzgCommitments,
-    error::SszValueError,
+    BuilderBidFulu, ExecutionPayloadHeaderFulu, KzgCommitments, error::SszValueError,
 };
 
 // Get the offset of the message in a SignedBuilderBid SSZ structure
@@ -14,10 +13,16 @@ fn get_ssz_value_offset_for_fork(fork: ForkName) -> Result<usize, SszValueError>
         ForkName::Fulu => {
             // Message goes header -> blob_kzg_commitments -> execution_requests -> value ->
             // pubkey
+            // `execution_requests` (ExecutionRequestsElectra) is variable-length,
+            // so in the container's fixed section it is a 4-byte offset pointer,
+            // not its serialized body. Since lighthouse-unstable turned
+            // ExecutionRequests into a superstruct enum that no longer implements
+            // `ssz::Decode`, spell the offset width out as the SSZ constant rather
+            // than `<_ as Decode>::ssz_fixed_len()`.
             Ok(get_message_offset::<BuilderBidFulu>() +
                 <ExecutionPayloadHeaderFulu as ssz::Decode>::ssz_fixed_len() +
                 <KzgCommitments as ssz::Decode>::ssz_fixed_len() +
-                <ExecutionRequests as ssz::Decode>::ssz_fixed_len())
+                BYTES_PER_LENGTH_OFFSET)
         }
 
         _ => Err(SszValueError::UnsupportedFork { name: fork }),
@@ -76,8 +81,8 @@ mod test {
     use super::get_bid_value_from_signed_builder_bid_ssz;
     use crate::{
         pbs::{
-            BuilderBid, BuilderBidFulu, ExecutionPayloadHeaderFulu, ExecutionRequests,
-            SignedBuilderBid, error::SszValueError,
+            BuilderBid, BuilderBidFulu, ExecutionPayloadHeaderFulu, SignedBuilderBid,
+            error::SszValueError,
         },
         types::{BlsPublicKeyBytes, BlsSignature},
         utils::TestRandomSeed,
@@ -116,7 +121,7 @@ mod test {
             let message = BuilderBid::Fulu(BuilderBidFulu {
                 header: ExecutionPayloadHeaderFulu::test_random(),
                 blob_kzg_commitments: Default::default(),
-                execution_requests: ExecutionRequests::default(),
+                execution_requests: Default::default(),
                 value: known_value,
                 pubkey,
             });

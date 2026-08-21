@@ -258,7 +258,7 @@ mod tests {
         constants::APPLICATION_BUILDER_DOMAIN,
         pbs::{
             BlindedBeaconBlockElectra, BuilderBid, BuilderBidElectra,
-            ExecutionPayloadHeaderElectra, ExecutionRequests,
+            ExecutionPayloadHeaderElectra,
         },
         types::{BlsSecretKey, Chain},
         utils::TestRandomSeed,
@@ -281,7 +281,7 @@ mod tests {
         let message = BuilderBid::Electra(BuilderBidElectra {
             header: ExecutionPayloadHeaderElectra::test_random(),
             blob_kzg_commitments: Default::default(),
-            execution_requests: ExecutionRequests::default(),
+            execution_requests: Default::default(),
             value: U256::from(10),
             pubkey: pubkey.clone().into(),
         });

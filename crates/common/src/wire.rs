@@ -370,7 +370,8 @@ pub fn require_consensus_version_header(
         ForkName::Capella |
         ForkName::Deneb |
         ForkName::Electra |
-        ForkName::Fulu => Err(unsupported()),
+        ForkName::Fulu |
+        ForkName::Heze => Err(unsupported()),
     }
 }
 

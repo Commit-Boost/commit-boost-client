@@ -66,6 +66,7 @@ fn fork_from_wire(byte: u8) -> Option<ForkName> {
         5 => ForkName::Electra,
         6 => ForkName::Fulu,
         7 => ForkName::Gloas,
+        8 => ForkName::Heze,
         _ => return None,
     })
 }
