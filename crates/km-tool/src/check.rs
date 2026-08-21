@@ -125,11 +125,14 @@ pub async fn run_check(input: &ProjectionInput, overlay: &Overlay) -> Result<Che
                 if let Some(bytes) = &entry.auth_data
                     && !global.relay_candidates.iter().any(|c| &c.bytes == bytes)
                 {
+                    // WARN, not ERROR: v1 CB is a pure pipe, an out-of-band
+                    // builder URL routes fine
                     report.push(
-                        Tier::Error,
+                        Tier::Warn,
                         "unroutable-auth-data",
                         format!(
-                            "{vc_name}: {key} stores auth_data {} matching no configured relay",
+                            "{vc_name}: {key} stores auth_data {} not matched by any configured \
+                             relay; will be served via the pipe",
                             crate::doc::encode_auth_data(bytes)
                         ),
                     );

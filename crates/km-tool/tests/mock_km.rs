@@ -375,10 +375,15 @@ async fn check_flags_drift_and_unroutable_auth_data() {
     let env = env_for(std::slice::from_ref(&key), &[url]);
     let report = run_check(&env.input, &env.overlay).await.unwrap();
     assert!(
-        report.findings.iter().any(|f| f.code == "unroutable-auth-data" && f.tier == Tier::Error)
+        report.findings.iter().any(|f| f.code == "unroutable-auth-data" &&
+            f.tier == Tier::Warn &&
+            f.msg.contains("served via the pipe")),
+        "{:?}",
+        report.findings
     );
     assert!(report.findings.iter().any(|f| f.code == "drift" && f.tier == Tier::Warn));
-    assert!(report.fails(Tier::Error));
+    assert!(report.fails(Tier::Warn));
+    assert!(!report.fails(Tier::Error));
 }
 
 #[tokio::test]
