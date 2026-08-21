@@ -382,12 +382,16 @@ fn project_mux(
     ensure_no_lax_ambiguity(&mux.id, &classes)?;
 
     // Entry values are mux/global-sourced; the KEY-LEVEL values come from the
-    // global projection-only p2p fields when set. Rationale: projected entries
-    // always carry explicit per-entry values, so the key level only governs
-    // p2p bids and entries that omit their own. Unset p2p fields fall back to
-    // the entry values (uniform doc, today's behavior).
+    // projection-only p2p fields when set, resolving MUX p2p > global [pbs]
+    // p2p. Rationale: projected entries always carry explicit per-entry
+    // values, so the key level only governs p2p bids and entries that omit
+    // their own. Unset p2p fields fall back to the entry values (uniform doc,
+    // today's behavior).
     let min_bid = resolve_min_bid(input, overlay, mux, warnings)?;
-    let key_min_bid = match input.cfg.pbs.pbs_config.min_bid_p2p_wei {
+    let key_min_bid = match mux
+        .projected_min_bid_p2p_wei()
+        .or(input.cfg.pbs.pbs_config.min_bid_p2p_wei)
+    {
         Some(wei) => wei_to_gwei_floor(&mux.id, wei, warnings)?.to_string(),
         None => min_bid.clone(),
     };
@@ -395,11 +399,9 @@ fn project_mux(
         .projected_boost_factor()
         .or_else(|| overlay.per_mux.get(&mux.id).and_then(|m| m.builder_boost_factor))
         .map(|b| b.to_string());
-    let key_boost = input
-        .cfg
-        .pbs
-        .pbs_config
-        .builder_boost_factor_p2p
+    let key_boost = mux
+        .projected_boost_factor_p2p()
+        .or(input.cfg.pbs.pbs_config.builder_boost_factor_p2p)
         .map(|b| b.to_string())
         .or_else(|| boost.clone());
 
@@ -737,6 +739,110 @@ url = "https://{RELAY_PK_A}@relay-a.example.com"
         let entry = &doc.builders.as_ref().unwrap()[0];
         assert_eq!(entry.min_bid, Some("1000".to_string()));
         assert_eq!(entry.builder_boost_factor, Some("100".to_string()));
+    }
+
+    // (a) A mux p2p field wins over a different global p2p field at the key level.
+    #[test]
+    fn mux_p2p_override_wins_over_global() {
+        let key = random_key_hex();
+        let toml_text = format!(
+            r#"
+chain = "Holesky"
+[pbs]
+min_bid_p2p_eth = "0.2"
+builder_boost_factor_p2p = 50
+[[mux]]
+id = "m"
+validator_pubkeys = ["{key}"]
+min_bid_p2p_eth = "0.7"
+builder_boost_factor_p2p = 130
+[[mux.relays]]
+url = "https://{RELAY_PK_A}@relay-a.example.com"
+"#
+        );
+        let input = ProjectionInput::parse_str(&toml_text).unwrap();
+        let projection = project(&input, &overlay()).unwrap();
+        let doc = projection.docs.values().next().unwrap();
+        // key level uses the MUX p2p values, not the global ones
+        assert_eq!(doc.min_bid, Some("700000000".to_string()));
+        assert_eq!(doc.builder_boost_factor, Some("130".to_string()));
+    }
+
+    // (b) Only the global p2p fields are set: every mux uses them at the key level.
+    #[test]
+    fn global_p2p_applies_to_all_muxes() {
+        let key_a = random_key_hex();
+        let key_b = random_key_hex();
+        let toml_text = format!(
+            r#"
+chain = "Holesky"
+[pbs]
+min_bid_p2p_eth = "0.2"
+builder_boost_factor_p2p = 50
+[[mux]]
+id = "ma"
+validator_pubkeys = ["{key_a}"]
+[[mux.relays]]
+url = "https://{RELAY_PK_A}@relay-a.example.com"
+[[mux]]
+id = "mb"
+validator_pubkeys = ["{key_b}"]
+[[mux.relays]]
+url = "https://{RELAY_PK_B}@relay-b.example.com"
+"#
+        );
+        let input = ProjectionInput::parse_str(&toml_text).unwrap();
+        let projection = project(&input, &overlay()).unwrap();
+        assert_eq!(projection.docs.len(), 2);
+        for doc in projection.docs.values() {
+            assert_eq!(doc.min_bid, Some("200000000".to_string()));
+            assert_eq!(doc.builder_boost_factor, Some("50".to_string()));
+        }
+    }
+
+    // (d) Mix: mux A overrides the global p2p, mux B inherits it.
+    #[test]
+    fn mux_p2p_override_and_inherit_mix() {
+        let key_a = random_key_hex();
+        let key_b = random_key_hex();
+        let toml_text = format!(
+            r#"
+chain = "Holesky"
+[pbs]
+min_bid_p2p_eth = "0.2"
+builder_boost_factor_p2p = 50
+[[mux]]
+id = "ma"
+validator_pubkeys = ["{key_a}"]
+min_bid_p2p_eth = "0.7"
+builder_boost_factor_p2p = 130
+[[mux.relays]]
+url = "https://{RELAY_PK_A}@relay-a.example.com"
+[[mux]]
+id = "mb"
+validator_pubkeys = ["{key_b}"]
+[[mux.relays]]
+url = "https://{RELAY_PK_B}@relay-b.example.com"
+"#
+        );
+        let input = ProjectionInput::parse_str(&toml_text).unwrap();
+        let projection = project(&input, &overlay()).unwrap();
+        let by_key = |k: &str| {
+            projection
+                .docs
+                .iter()
+                .find(|(pk, _)| pk.to_string() == k)
+                .map(|(_, doc)| doc)
+                .unwrap()
+        };
+        // mux A: its own p2p values
+        let doc_a = by_key(&key_a);
+        assert_eq!(doc_a.min_bid, Some("700000000".to_string()));
+        assert_eq!(doc_a.builder_boost_factor, Some("130".to_string()));
+        // mux B: the global p2p values
+        let doc_b = by_key(&key_b);
+        assert_eq!(doc_b.min_bid, Some("200000000".to_string()));
+        assert_eq!(doc_b.builder_boost_factor, Some("50".to_string()));
     }
 
     // Unset p2p fields keep today's uniform projection (key = entry values).
