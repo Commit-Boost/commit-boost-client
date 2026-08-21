@@ -845,6 +845,42 @@ url = "https://{RELAY_PK_B}@relay-b.example.com"
         assert_eq!(doc_b.builder_boost_factor, Some("50".to_string()));
     }
 
+    // Asymmetric: a mux sets ONLY min_bid_p2p (not builder_boost_factor_p2p).
+    // The key-level min_bid must take the mux p2p value, while the key-level
+    // boost must NOT be dragged along with it: boost independently follows the
+    // global/uniform p2p fallback, never the mux. Guards the two p2p fields
+    // against a coupling regression.
+    #[test]
+    fn mux_min_bid_p2p_does_not_drag_boost_p2p() {
+        let key = random_key_hex();
+        let toml_text = format!(
+            r#"
+chain = "Holesky"
+[pbs]
+builder_boost_factor_p2p = 50
+[[mux]]
+id = "m"
+validator_pubkeys = ["{key}"]
+min_bid_p2p_eth = "0.7"
+builder_boost_factor = 100
+[[mux.relays]]
+url = "https://{RELAY_PK_A}@relay-a.example.com"
+"#
+        );
+        let input = ProjectionInput::parse_str(&toml_text).unwrap();
+        let projection = project(&input, &overlay()).unwrap();
+        let doc = projection.docs.values().next().unwrap();
+
+        // key-level min_bid: the MUX p2p value (0.7 ETH = 700000000 Gwei floor)
+        assert_eq!(doc.min_bid, Some("700000000".to_string()));
+        // key-level boost: the GLOBAL p2p value, NOT the mux's own boost (100)
+        assert_eq!(doc.builder_boost_factor, Some("50".to_string()));
+
+        // entry-level boost is still the mux's own value, confirming the split
+        let entry = &doc.builders.as_ref().unwrap()[0];
+        assert_eq!(entry.builder_boost_factor, Some("100".to_string()));
+    }
+
     // Unset p2p fields keep today's uniform projection (key = entry values).
     #[test]
     fn p2p_fields_unset_keep_uniform_projection() {
