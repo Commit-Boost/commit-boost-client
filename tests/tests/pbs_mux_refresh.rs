@@ -94,6 +94,8 @@ async fn test_auto_refresh() -> Result<()> {
             timeout_get_header_ms: Some(u64::MAX - 1),
             validator_pubkeys: vec![],
             fee_recipient: None,
+            builder_boost_factor: None,
+            min_bid_wei: None,
         }],
     };
 

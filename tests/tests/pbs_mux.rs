@@ -378,6 +378,8 @@ async fn test_ssv_multi_with_node() -> Result<()> {
             timeout_get_header_ms: Some(u64::MAX - 1),
             validator_pubkeys: vec![],
             fee_recipient: None,
+            builder_boost_factor: None,
+            min_bid_wei: None,
         }],
     };
 
@@ -486,6 +488,8 @@ async fn test_ssv_multi_with_public() -> Result<()> {
             timeout_get_header_ms: Some(u64::MAX - 1),
             validator_pubkeys: vec![],
             fee_recipient: None,
+            builder_boost_factor: None,
+            min_bid_wei: None,
         }],
     };
 
@@ -544,6 +548,8 @@ async fn test_mux_fee_recipient_resolution() -> Result<()> {
             timeout_get_header_ms: Some(u64::MAX - 1),
             validator_pubkeys: vec![validator_pubkey.clone()],
             fee_recipient: Some(expected),
+            builder_boost_factor: None,
+            min_bid_wei: None,
         }],
     };
 
