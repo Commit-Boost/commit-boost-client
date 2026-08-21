@@ -219,6 +219,15 @@ pub(crate) fn decode_auth_data_url(data: &[u8]) -> Option<Url> {
     std::str::from_utf8(url_bytes).ok().and_then(|s| Url::parse(s).ok())
 }
 
+/// A process-lifetime placeholder pubkey for pipe relays. This value is never
+/// read: bid sigverify is skipped for the pipe (see the rationale at the call
+/// site in `execution_payload_bid.rs`). A single lazily-built valid BLS point
+/// avoids a keygen on every unmatched pipe request.
+fn pipe_relay_placeholder_pubkey() -> BlsPublicKey {
+    static PLACEHOLDER: OnceLock<BlsPublicKey> = OnceLock::new();
+    PLACEHOLDER.get_or_init(|| BlsSecretKey::random().public_key()).clone()
+}
+
 /// Builds the transient client the ePBS pipe dials when `auth.message.data`
 /// names a builder URL no configured relay serves: CB is a pure pipe and
 /// routes the request to the builder the proposer's signed auth data names
@@ -229,16 +238,6 @@ pub(crate) fn decode_auth_data_url(data: &[u8]) -> Option<Url> {
 /// empty `advertised_urls`, which cannot rule that out - is an
 /// `AuthDataMismatch`, never a self-dial. Data carrying no URL at all names
 /// no builder and mismatches as before.
-/// A process-lifetime placeholder pubkey for pipe relays. Bid sigverify is
-/// skipped for the pipe (bid trust is the VC's job via KM builder_pubkeys, and
-/// CB cannot know a pipe builder's key: bids carry builder_index, not a
-/// pubkey), so this value is never read. A single lazily-built valid BLS point
-/// avoids a keygen on every unmatched pipe request.
-fn pipe_relay_placeholder_pubkey() -> BlsPublicKey {
-    static PLACEHOLDER: OnceLock<BlsPublicKey> = OnceLock::new();
-    PLACEHOLDER.get_or_init(|| BlsSecretKey::random().public_key()).clone()
-}
-
 pub(crate) fn transient_pipe_relay(
     received_data: &[u8],
     advertised_urls: &[Url],
