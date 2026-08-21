@@ -24,11 +24,7 @@ pub struct ApplyOptions {
     pub dry_run: bool,
     pub emit_dir: Option<PathBuf>,
     pub prune: bool,
-    /// When true, GET each key's stored doc and keep builder entries whose
-    /// identity (url, decoded auth_data) our projection does NOT produce -- i.e.
-    /// entries pinned by another writer -- appending them after ours. Client-side
-    /// read-modify-write: NOT atomic against a concurrent third-party write
-    /// between the GET and POST.
+    /// Preserve third-party builder entries a VC already stores (see --help).
     pub preserve_entries: bool,
 }
 
