@@ -295,6 +295,43 @@ struct AuthClass {
     max_execution_payment_gwei: Option<u64>,
 }
 
+/// The key cb-pbs's `url_matches` compares by: scheme, host (lowercased for
+/// good measure; `Url` already lowercases domains) and effective port.
+/// Userinfo never enters the key. `None` for bytes that are not a URL with a
+/// host (e.g. an opaque `expected_auth_data`).
+fn lax_url_key(bytes: &[u8]) -> Option<(String, String, Option<u16>)> {
+    let text = std::str::from_utf8(bytes).ok()?;
+    let url = url::Url::parse(text).ok()?;
+    let host = url.host_str()?.to_lowercase();
+    Some((url.scheme().to_string(), host, url.port_or_known_default()))
+}
+
+/// Two byte-distinct auth_data classes whose bytes parse to lax-equivalent
+/// URLs would be matched as ONE relay by CB (`url_matches` ignores userinfo,
+/// host case and the default port), so the matched set could include a relay
+/// whose pubkey is missing from the entry's builder_pubkeys and the VC would
+/// silently reject its winning bids. This mirrors cb-pbs `url_matches`
+/// semantics conservatively; the CB-side contract tests pin the real matcher.
+fn ensure_no_lax_ambiguity(mux_id: &str, classes: &BTreeMap<Vec<u8>, AuthClass>) -> Result<()> {
+    let mut by_lax: BTreeMap<(String, String, Option<u16>), &[u8]> = BTreeMap::new();
+    for bytes in classes.keys() {
+        let Some(lax) = lax_url_key(bytes) else {
+            continue;
+        };
+        if let Some(first) = by_lax.get(&lax) {
+            bail!(
+                "mux {mux_id}: auth_data {:?} and {:?} differ in bytes but CB's lax URL matching \
+                 would treat them as the same relay, splitting builder_pubkeys across KM entries; \
+                 make the relay URLs byte-identical or set explicit expected_auth_data",
+                String::from_utf8_lossy(first),
+                String::from_utf8_lossy(bytes)
+            );
+        }
+        by_lax.insert(lax, bytes);
+    }
+    Ok(())
+}
+
 fn project_mux(
     input: &ProjectionInput,
     overlay: &Overlay,
@@ -341,6 +378,8 @@ fn project_mux(
         mux.id,
         classes.len()
     );
+
+    ensure_no_lax_ambiguity(&mux.id, &classes)?;
 
     let min_bid = resolve_min_bid(input, overlay, mux, warnings)?;
     let boost = mux
@@ -809,6 +848,90 @@ url = "https://{RELAY_PK_A}@relay-a.example.com"
         // the projected doc references only the mux relay
         let doc = projection.docs.values().next().unwrap();
         assert_eq!(doc.builders.as_ref().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn lax_equivalent_urls_across_classes_error() {
+        let key = random_key_hex();
+        // byte-distinct candidates, but CB's url_matches sees one relay:
+        // https://h vs https://h:443 (default port)
+        let toml_text = format!(
+            r#"
+chain = "Holesky"
+[pbs]
+[[mux]]
+id = "m"
+validator_pubkeys = ["{key}"]
+[[mux.relays]]
+url = "https://{RELAY_PK_A}@relay.example.com"
+[[mux.relays]]
+url = "https://{RELAY_PK_B}@relay.example.com:443"
+"#
+        );
+        let input = ProjectionInput::parse_str(&toml_text).unwrap();
+        let err = project(&input, &overlay()).unwrap_err();
+        assert!(err.to_string().contains("byte-identical"), "{err}");
+    }
+
+    #[test]
+    fn lax_collision_via_expected_auth_data_url_errors() {
+        let key = random_key_hex();
+        // expected_auth_data holds URL bytes lax-equivalent to the other
+        // relay's URL-derived candidate: hex of "HTTPS://RELAY.EXAMPLE.COM"
+        // is byte-distinct but host-case-insensitively the same relay
+        let upper_hex = crate::doc::encode_auth_data(b"https://RELAY.EXAMPLE.COM");
+        let toml_text = format!(
+            r#"
+chain = "Holesky"
+[pbs]
+[[mux]]
+id = "m"
+validator_pubkeys = ["{key}"]
+[[mux.relays]]
+url = "https://{RELAY_PK_A}@relay.example.com"
+[[mux.relays]]
+url = "https://{RELAY_PK_B}@relay-b.example.com"
+expected_auth_data = "{upper_hex}"
+"#
+        );
+        let input = ProjectionInput::parse_str(&toml_text).unwrap();
+        let err = project(&input, &overlay()).unwrap_err();
+        assert!(err.to_string().contains("byte-identical"), "{err}");
+    }
+
+    #[test]
+    fn distinct_hosts_do_not_lax_collide() {
+        let key = random_key_hex();
+        let input = ProjectionInput::parse_str(&config_toml(&[key])).unwrap();
+        // relay-a and relay-b: different hosts, projection succeeds
+        assert_eq!(project(&input, &overlay()).unwrap().docs.len(), 1);
+    }
+
+    #[test]
+    fn same_byte_urls_still_group_into_one_class() {
+        let key = random_key_hex();
+        // identical URL bytes after userinfo strip: one class, no ambiguity
+        let toml_text = format!(
+            r#"
+chain = "Holesky"
+[pbs]
+[[mux]]
+id = "m"
+validator_pubkeys = ["{key}"]
+[[mux.relays]]
+id = "r1"
+url = "https://{RELAY_PK_A}@relay.example.com"
+[[mux.relays]]
+id = "r2"
+url = "https://{RELAY_PK_B}@relay.example.com"
+"#
+        );
+        let input = ProjectionInput::parse_str(&toml_text).unwrap();
+        let projection = project(&input, &overlay()).unwrap();
+        let doc = projection.docs.values().next().unwrap();
+        let entries = doc.builders.as_ref().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].builder_pubkeys.as_ref().unwrap().len(), 2);
     }
 
     #[test]
