@@ -80,7 +80,10 @@ pub struct KmClient {
 
 impl KmClient {
     pub fn new(base: Url, token: String) -> Result<Self> {
-        let http = reqwest::Client::builder().timeout(HTTP_TIMEOUT).build()?;
+        let http = reqwest::Client::builder()
+            .timeout(HTTP_TIMEOUT)
+            .redirect(reqwest::redirect::Policy::none())
+            .build()?;
         Ok(Self { http, base, token })
     }
 
