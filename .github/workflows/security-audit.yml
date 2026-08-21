@@ -26,9 +26,11 @@ jobs:
       # Stable cargo ignores the publish-age policy, so the lockfile can pin
       # too-young crates (or deliberately via `just update-allow`); surface them.
       - name: Check lockfile against the publish-age cooldown
-        continue-on-error: true
         run: |
-          rustup toolchain install nightly-2026-06-21 --profile minimal
+          if ! rustup toolchain install nightly-2026-06-21 --profile minimal; then
+            echo "::warning title=Publish-age cooldown check skipped::toolchain install failed"
+            exit 0
+          fi
           if ! cargo +nightly-2026-06-21 update --dry-run -Z min-publish-age > cooldown.txt 2>&1; then
             msg=$(head -20 cooldown.txt | sed ':a;N;$!ba;s/\n/%0A/g')  # %0A = newline in annotations
             echo "::warning title=Publish-age cooldown probe failed::$msg"
