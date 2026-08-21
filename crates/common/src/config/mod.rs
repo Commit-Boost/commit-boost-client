@@ -64,8 +64,16 @@ impl CommitBoostConfig {
     // When loading the config from the environment, it's important that every path
     // is replaced with the correct value if the config is loaded inside a container
     pub fn from_env_path() -> Result<(Self, PathBuf)> {
-        let (helper_config, config_path): (HelperConfig, PathBuf) = load_file_from_env(CONFIG_ENV)?;
+        let (config, config_path) = Self::from_env_path_silent()?;
         warn_unknown_mux_fields(&config_path);
+        Ok((config, config_path))
+    }
+
+    /// [`Self::from_env_path`] without the unknown-mux-field warnings. For
+    /// secondary loads (e.g. log settings) in processes whose primary config
+    /// load already warns, so each unknown key is logged once per process.
+    pub(crate) fn from_env_path_silent() -> Result<(Self, PathBuf)> {
+        let (helper_config, config_path): (HelperConfig, PathBuf) = load_file_from_env(CONFIG_ENV)?;
 
         let chain = match helper_config.chain {
             ChainLoader::Path { path, genesis_time_secs } => {

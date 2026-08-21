@@ -171,10 +171,16 @@ pub struct MuxConfig {
     pub fee_recipient: Option<Address>,
     /// Projection-only: consumed by KM tooling, not read by the PBS runtime.
     /// The ePBS builder_boost_factor for this mux's keys
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub builder_boost_factor: Option<u64>,
     /// Projection-only: consumed by KM tooling, not read by the PBS runtime.
     /// The ePBS per-key-group minimum total payment for this mux's keys
-    #[serde(rename = "min_bid_eth", with = "as_opt_eth_str", default)]
+    #[serde(
+        rename = "min_bid_eth",
+        with = "as_opt_eth_str",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub min_bid_wei: Option<U256>,
 }
 
@@ -660,6 +666,29 @@ mod tests {
         .unwrap();
         assert_eq!(mux.builder_boost_factor, None);
         assert_eq!(mux.min_bid_wei, None);
+    }
+
+    #[test]
+    fn mux_config_none_fields_roundtrip() {
+        // None-valued KM projection fields must be skipped on serialization so
+        // a config re-serialized to TOML stays loadable
+        let mux: MuxConfig = toml::from_str(
+            r#"
+            id = "test"
+            relays = []
+            "#,
+        )
+        .unwrap();
+        assert_eq!(mux.builder_boost_factor, None);
+        assert_eq!(mux.min_bid_wei, None);
+
+        let serialized = toml::to_string(&mux).unwrap();
+        assert!(!serialized.contains("builder_boost_factor"));
+        assert!(!serialized.contains("min_bid_eth"));
+
+        let roundtripped: MuxConfig = toml::from_str(&serialized).unwrap();
+        assert_eq!(roundtripped.builder_boost_factor, None);
+        assert_eq!(roundtripped.min_bid_wei, None);
     }
 
     #[test]
