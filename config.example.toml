@@ -93,8 +93,12 @@ validator_registration_batch_size = ""
 # OPTIONAL, DEFAULT: 384
 mux_registry_refresh_interval_seconds = 384
 # Commit-Boost's externally-reachable URLs, i.e. the ones a validator client's builder config points
-# at. Used by the ePBS pipe self-URL guard: auth data routing back to one of these URLs is rejected
-# instead of dialed, preventing a self-dial loop
+# at. Gates the ePBS pipe: when a request's auth data names a builder URL no configured relay serves,
+# CB dials that URL directly through a transient client (trust is the validator client's job via its
+# keymanager builder_pubkeys). Since an unconfigured key's auth data defaults to CB's own URL, the
+# pipe first checks the decoded URL against this list and rejects a match instead of dialing itself.
+# The guard fails closed: while this list is empty, unmatched auth data is always rejected and the
+# pipe never dials, so set it to enable piping to builders outside the [[relays]] below.
 # OPTIONAL, DEFAULT: []
 # advertised_urls = ["http://cb.example.com:18550"]
 
