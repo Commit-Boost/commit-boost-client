@@ -382,6 +382,28 @@ async fn check_flags_drift_and_unroutable_auth_data() {
 }
 
 #[tokio::test]
+async fn check_errors_when_no_builder_config_route() {
+    let key = random_key();
+    let mut vc = MockVc::holding(std::slice::from_ref(&key));
+    vc.supports_builder_config = false;
+    let url = serve(vc).await;
+
+    let env = env_for(std::slice::from_ref(&key), &[url]);
+    let report = run_check(&env.input, &env.overlay).await.unwrap();
+    assert!(
+        report
+            .findings
+            .iter()
+            .any(|f| f.code == "no-builder-config-route" &&
+                f.tier == Tier::Error &&
+                f.msg.contains("#88")),
+        "{:?}",
+        report.findings
+    );
+    assert!(report.fails(Tier::Error));
+}
+
+#[tokio::test]
 async fn check_flags_duplicate_key_across_vcs() {
     let key = random_key();
     let vc1 = MockVc::holding(std::slice::from_ref(&key));

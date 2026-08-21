@@ -103,7 +103,19 @@ pub async fn run_check(input: &ProjectionInput, overlay: &Overlay) -> Result<Che
         for key in &enumerated {
             let stored = match client.get_builder_config(key).await? {
                 GetConfigOutcome::Ok(doc) => doc,
-                GetConfigOutcome::NotFound => continue,
+                GetConfigOutcome::NotFound => {
+                    // 404 on a key the VC itself enumerated: the ROUTE is
+                    // missing, not the key
+                    report.push(
+                        Tier::Error,
+                        "no-builder-config-route",
+                        format!(
+                            "{vc_name}: {key} enumerated but has no builder_config route \
+                             (keymanager-APIs #88 unsupported?)"
+                        ),
+                    );
+                    continue;
+                }
             };
             let stored = CanonicalDoc::from_doc(&stored)?;
 
