@@ -24,7 +24,7 @@ use crate::{
     interop::{lido::utils::*, ssv::utils::*, stader::utils::*},
     pbs::RelayClient,
     types::{BlsPublicKey, Chain, StaderPool},
-    utils::default_bool,
+    utils::{as_opt_eth_str, default_bool},
     wire::safe_read_http_response,
 };
 
@@ -100,6 +100,19 @@ impl PbsMuxes {
                 "using mux"
             );
 
+            if mux.builder_boost_factor.is_some() {
+                info!(
+                    "field builder_boost_factor on mux {} is applied via KM tooling, not by the PBS runtime",
+                    mux.id
+                );
+            }
+            if mux.min_bid_wei.is_some() {
+                info!(
+                    "field min_bid_eth on mux {} is applied via KM tooling, not by the PBS runtime",
+                    mux.id
+                );
+            }
+
             let mut relay_clients = Vec::with_capacity(mux.relays.len());
             for config in mux.relays.into_iter() {
                 relay_clients.push(RelayClient::new(config)?);
@@ -156,6 +169,13 @@ pub struct MuxConfig {
     pub late_in_slot_time_ms: Option<u64>,
     /// Expected fee recipient in ePBS bids for this mux's validators
     pub fee_recipient: Option<Address>,
+    /// Projection-only: consumed by KM tooling, not read by the PBS runtime.
+    /// The ePBS builder_boost_factor for this mux's keys
+    pub builder_boost_factor: Option<u64>,
+    /// Projection-only: consumed by KM tooling, not read by the PBS runtime.
+    /// The ePBS per-key-group minimum total payment for this mux's keys
+    #[serde(rename = "min_bid_eth", with = "as_opt_eth_str", default)]
+    pub min_bid_wei: Option<U256>,
 }
 
 impl MuxConfig {
@@ -306,6 +326,56 @@ impl MuxKeysLoader {
         // Remove duplicates
         let deduped_keys = remove_duplicate_keys(keys);
         Ok(deduped_keys)
+    }
+}
+
+/// The keys serde recognizes on a `[[mux]]` table. Kept in lockstep with
+/// [`MuxConfig`] (use the serde-renamed form).
+const KNOWN_MUX_FIELDS: &[&str] = &[
+    "id",
+    "relays",
+    "validator_pubkeys",
+    "loader",
+    "timeout_get_header_ms",
+    "late_in_slot_time_ms",
+    "fee_recipient",
+    "builder_boost_factor",
+    "min_bid_eth",
+];
+
+/// Unknown keys on the `[[mux]]` tables of a raw config document, as
+/// (mux id, key) pairs. `MuxConfig` cannot take `serde(deny_unknown_fields)`
+/// (it would reject previously-valid configs carrying stray fields), so typo
+/// visibility comes from this extra pass over the raw TOML instead.
+pub fn unknown_mux_fields(raw: &toml::Value) -> Vec<(String, String)> {
+    let Some(muxes) = raw.get("mux").and_then(|value| value.as_array()) else {
+        return Vec::new();
+    };
+
+    let mut unknown = Vec::new();
+    for (i, mux) in muxes.iter().enumerate() {
+        let Some(table) = mux.as_table() else { continue };
+        let id = table
+            .get("id")
+            .and_then(|value| value.as_str())
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("#{i}"));
+        for key in table.keys() {
+            if !KNOWN_MUX_FIELDS.contains(&key.as_str()) {
+                unknown.push((id.clone(), key.clone()));
+            }
+        }
+    }
+    unknown
+}
+
+/// WARN-logs every unknown `[[mux]]` key in the config file at `path`.
+/// Best-effort: unreadable/unparseable input is serde's problem to report.
+pub fn warn_unknown_mux_fields(path: &Path) {
+    let Ok(raw) = std::fs::read_to_string(path) else { return };
+    let Ok(value) = raw.parse::<toml::Value>() else { return };
+    for (mux_id, key) in unknown_mux_fields(&value) {
+        warn!("unknown field `{key}` on mux `{mux_id}` is ignored by the PBS runtime");
     }
 }
 
@@ -549,4 +619,77 @@ async fn fetch_ssv_pubkeys_from_public_api(
     }
 
     Ok(pubkeys)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_projection_only_mux_fields() {
+        let mux: MuxConfig = toml::from_str(
+            r#"
+            id = "test"
+            relays = []
+            builder_boost_factor = 120
+            min_bid_eth = "0.5"
+            "#,
+        )
+        .unwrap();
+        assert_eq!(mux.builder_boost_factor, Some(120));
+        assert_eq!(mux.min_bid_wei, Some(U256::from(500_000_000_000_000_000u64)));
+
+        // Float form, matching the global min_bid_eth
+        let mux: MuxConfig = toml::from_str(
+            r#"
+            id = "test"
+            relays = []
+            min_bid_eth = 0.5
+            "#,
+        )
+        .unwrap();
+        assert_eq!(mux.min_bid_wei, Some(U256::from(500_000_000_000_000_000u64)));
+
+        // Absent fields stay None (legacy configs parse unchanged)
+        let mux: MuxConfig = toml::from_str(
+            r#"
+            id = "test"
+            relays = []
+            "#,
+        )
+        .unwrap();
+        assert_eq!(mux.builder_boost_factor, None);
+        assert_eq!(mux.min_bid_wei, None);
+    }
+
+    #[test]
+    fn unknown_mux_fields_flags_typos_only() {
+        let raw: toml::Value = r#"
+            [[mux]]
+            id = "a"
+            relays = []
+            builder_boost_factor = 100
+            min_bid_eth = "0.1"
+            bulder_boost_factor = 100
+
+            [[mux]]
+            id = "b"
+            relays = []
+            timeout_get_header_ms = 900
+
+            [[mux]]
+            relays = []
+            stray = 1
+        "#
+        .parse()
+        .unwrap();
+        assert_eq!(unknown_mux_fields(&raw), vec![
+            ("a".to_string(), "bulder_boost_factor".to_string()),
+            ("#2".to_string(), "stray".to_string()),
+        ]);
+
+        // No [[mux]] tables at all
+        let raw: toml::Value = "[pbs]\nport = 1".parse().unwrap();
+        assert!(unknown_mux_fields(&raw).is_empty());
+    }
 }

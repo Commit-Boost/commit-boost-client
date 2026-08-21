@@ -184,6 +184,9 @@ pub struct PbsConfig {
     /// from the registry, in seconds
     #[serde(default = "default_u64::<{ DEFAULT_REGISTRY_REFRESH_SECONDS }>")]
     pub mux_registry_refresh_interval_seconds: u64,
+    /// CB's externally-reachable URLs; used by the ePBS pipe self-URL guard
+    #[serde(default)]
+    pub advertised_urls: Vec<Url>,
 }
 
 impl PbsConfig {
@@ -389,7 +392,8 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
     }
 
     // load module config including the extra data (if any)
-    let (cb_config, _): (StubConfig<T>, _) = load_file_from_env(CONFIG_ENV)?;
+    let (cb_config, config_path): (StubConfig<T>, _) = load_file_from_env(CONFIG_ENV)?;
+    super::warn_unknown_mux_fields(&config_path);
     cb_config.pbs.static_config.validate(cb_config.chain).await?;
 
     // use endpoint from env if set, otherwise use default host and port

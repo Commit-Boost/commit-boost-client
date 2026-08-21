@@ -121,6 +121,49 @@ pub mod as_eth_str {
     }
 }
 
+/// `as_eth_str` for an optional field: absent stays `None` instead of being
+/// forced through the ETH-string codec.
+pub mod as_opt_eth_str {
+    use alloy::primitives::{
+        U256,
+        utils::{format_ether, parse_ether},
+    };
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    use super::eth_to_wei;
+
+    pub fn serialize<S>(data: &Option<U256>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match data {
+            Some(wei) => serializer.serialize_str(&format_ether(*wei)),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<U256>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum StringOrF64 {
+            Str(String),
+            F64(f64),
+        }
+
+        let value = Option::<StringOrF64>::deserialize(deserializer)?;
+        Ok(match value {
+            Some(StringOrF64::Str(s)) => Some(
+                parse_ether(&s).map_err(|_| serde::de::Error::custom("invalid eth amount"))?,
+            ),
+            Some(StringOrF64::F64(f)) => Some(eth_to_wei(f)),
+            None => None,
+        })
+    }
+}
+
 pub const fn default_u64<const U: u64>() -> u64 {
     U
 }

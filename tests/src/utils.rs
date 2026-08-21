@@ -196,6 +196,7 @@ pub fn get_pbs_config(port: u16) -> PbsConfig {
         register_validator_retry_limit: u32::MAX,
         validator_registration_batch_size: None,
         mux_registry_refresh_interval_seconds: 5,
+        advertised_urls: vec![],
     }
 }
 

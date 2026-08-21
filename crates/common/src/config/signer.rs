@@ -487,6 +487,7 @@ mod tests {
                     mux_registry_refresh_interval_seconds: 5,
                     ssv_node_api_url: Url::parse("https://example.net").unwrap(),
                     ssv_public_api_url: Url::parse("https://example.net").unwrap(),
+                    advertised_urls: vec![],
                 },
                 with_signer: true,
             },

@@ -92,6 +92,11 @@ validator_registration_batch_size = ""
 # enabled, this value will not be used.
 # OPTIONAL, DEFAULT: 384
 mux_registry_refresh_interval_seconds = 384
+# Commit-Boost's externally-reachable URLs, i.e. the ones a validator client's builder config points
+# at. Used by the ePBS pipe self-URL guard: auth data routing back to one of these URLs is rejected
+# instead of dialed, preventing a self-dial loop
+# OPTIONAL, DEFAULT: []
+# advertised_urls = ["http://cb.example.com:18550"]
 
 # The PBS module needs one or more [[relays]] as defined below.
 [[relays]]
@@ -177,6 +182,14 @@ validator_pubkeys = [
 # Expected fee recipient in ePBS bids for this mux's validators
 # OPTIONAL, DEFAULT: the PBS-level `fee_recipient`
 # fee_recipient = "0x1234567890123456789012345678901234567890"
+# Projection-only: consumed by KM tooling (builder_config projection for this mux's keys), not read
+# by the PBS runtime
+# OPTIONAL, DEFAULT: unset
+# builder_boost_factor = 100
+# Projection-only: the per-key-group minimum total payment for this mux's keys, in ETH (same format
+# as the PBS-level `min_bid_eth`). Consumed by KM tooling, not read by the PBS runtime
+# OPTIONAL, DEFAULT: unset
+# min_bid_eth = 0.0
 # Loader for validator pubkeys. Three types of loaders are supported:
 #   - File: path to a file containing a list of validator pubkeys in JSON format
 #   - URL: URL to an HTTP endpoint returning a list of validator pubkeys in JSON format

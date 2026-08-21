@@ -57,6 +57,7 @@ impl CommitBoostConfig {
 
     pub fn from_file(path: &PathBuf) -> Result<Self> {
         let (config, _): (Self, _) = load_from_file(path)?;
+        warn_unknown_mux_fields(path);
         Ok(config)
     }
 
@@ -64,6 +65,7 @@ impl CommitBoostConfig {
     // is replaced with the correct value if the config is loaded inside a container
     pub fn from_env_path() -> Result<(Self, PathBuf)> {
         let (helper_config, config_path): (HelperConfig, PathBuf) = load_file_from_env(CONFIG_ENV)?;
+        warn_unknown_mux_fields(&config_path);
 
         let chain = match helper_config.chain {
             ChainLoader::Path { path, genesis_time_secs } => {
