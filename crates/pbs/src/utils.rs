@@ -1,4 +1,7 @@
-use std::time::{Duration, Instant};
+use std::{
+    sync::OnceLock,
+    time::{Duration, Instant},
+};
 
 use cb_common::{
     config::{GetHeaderTransport, RelayConfig},
@@ -226,6 +229,16 @@ pub(crate) fn decode_auth_data_url(data: &[u8]) -> Option<Url> {
 /// empty `advertised_urls`, which cannot rule that out - is an
 /// `AuthDataMismatch`, never a self-dial. Data carrying no URL at all names
 /// no builder and mismatches as before.
+/// A process-lifetime placeholder pubkey for pipe relays. Bid sigverify is
+/// skipped for the pipe (bid trust is the VC's job via KM builder_pubkeys, and
+/// CB cannot know a pipe builder's key: bids carry builder_index, not a
+/// pubkey), so this value is never read. A single lazily-built valid BLS point
+/// avoids a keygen on every unmatched pipe request.
+fn pipe_relay_placeholder_pubkey() -> BlsPublicKey {
+    static PLACEHOLDER: OnceLock<BlsPublicKey> = OnceLock::new();
+    PLACEHOLDER.get_or_init(|| BlsSecretKey::random().public_key()).clone()
+}
+
 pub(crate) fn transient_pipe_relay(
     received_data: &[u8],
     advertised_urls: &[Url],
@@ -240,11 +253,7 @@ pub(crate) fn transient_pipe_relay(
 
     let id = url.host_str().map(str::to_owned).unwrap_or_else(|| url.to_string());
     let config = RelayConfig {
-        // The placeholder pubkey is never used: bid sigverify is skipped for
-        // the pipe relay because bid trust is the VC's job via KM
-        // builder_pubkeys and CB cannot know a pipe builder's key (bids carry
-        // builder_index, not a pubkey)
-        entry: RelayEntry { id, pubkey: BlsSecretKey::random().public_key(), url },
+        entry: RelayEntry { id, pubkey: pipe_relay_placeholder_pubkey(), url },
         id: None,
         headers: None,
         get_params: None,
@@ -477,6 +486,13 @@ mod tests {
         assert!(relay.config.max_execution_payment_gwei.is_none());
         assert!(relay.config.expected_auth_data.is_none());
         assert!(!relay.config.enable_timing_games);
+    }
+
+    // The placeholder pubkey is stable across pipe requests: one process-wide
+    // point rather than a fresh keygen per unmatched request.
+    #[test]
+    fn pipe_relay_placeholder_pubkey_is_stable() {
+        assert_eq!(pipe_relay_placeholder_pubkey(), pipe_relay_placeholder_pubkey());
     }
 
     #[test]
