@@ -1707,7 +1707,7 @@ dependencies = [
 [[package]]
 name = "blstrs_plus"
 version = "0.8.18"
-source = "git+https://github.com/Commit-Boost/blstrs#c4ea6b21193886ee9849867397a62e9c243c1fbb"
+source = "git+https://github.com/Commit-Boost/blstrs?rev=c4ea6b21193886ee9849867397a62e9c243c1fbb#c4ea6b21193886ee9849867397a62e9c243c1fbb"
 dependencies = [
  "arrayref",
  "blst",

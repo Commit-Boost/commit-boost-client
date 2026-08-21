@@ -96,7 +96,7 @@ uuid = { version = "1.8.0", features = ["fast-rng", "serde", "v4"] }
 webpki-roots = "1.0"
 
 [patch.crates-io]
-blstrs_plus = { git = "https://github.com/Commit-Boost/blstrs" }
+blstrs_plus = { git = "https://github.com/Commit-Boost/blstrs", rev = "c4ea6b21193886ee9849867397a62e9c243c1fbb" }
 # Progressive-container ssz stack required by lighthouse-unstable (EIP-7495/7916).
 # A consumer does NOT inherit a dependency's [patch]; mirror lighthouse's here.
 ssz_types = { git = "https://github.com/sigp/ssz_types", rev = "9203d56ad2d7bc5f12133d043e085843f81edcd6" }
