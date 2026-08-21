@@ -299,6 +299,53 @@ mod tests {
         assert!(match_relays_by_auth_data(&relays, b"http://a.example.com").is_empty());
     }
 
+    // Contract vectors: external KM projection tooling round-trips auth_data
+    // through this demux, so the behaviors below are a compatibility contract,
+    // not incidental implementation detail.
+
+    // A relay entry URL embeds its pubkey as userinfo and may omit the default
+    // port; a bare builder URL in auth_data must still match it.
+    #[test]
+    fn match_relays_contract_userinfo_and_default_port_ignored() {
+        let relays = vec![test_relay("https://0xdeadbeef@builder.example.com", None)];
+        assert_eq!(match_relays_by_auth_data(&relays, b"https://builder.example.com").len(), 1);
+        assert_eq!(match_relays_by_auth_data(&relays, b"https://builder.example.com:443").len(), 1);
+        // A non-default port must not match
+        assert!(match_relays_by_auth_data(&relays, b"https://builder.example.com:8443").is_empty());
+    }
+
+    // Cross-form collision: relay A's `expected_auth_data` equals relay B's URL
+    // bytes. For A the exact-byte layer decides (its own URL never enters into
+    // it); B, with no configured bytes, still matches by URL. The matched SET
+    // is {A, B}: configured bytes take precedence per relay, they do not
+    // subtract other relays' URL matches.
+    #[test]
+    fn match_relays_contract_cross_form_collision() {
+        let relays = vec![
+            test_relay("http://a.example.com", Some(b"http://b.example.com")),
+            test_relay("http://b.example.com", None),
+        ];
+        let matched = match_relays_by_auth_data(&relays, b"http://b.example.com");
+        let hosts: Vec<_> =
+            matched.iter().map(|r| r.config.entry.url.host_str().unwrap()).collect();
+        assert_eq!(hosts, vec!["a.example.com", "b.example.com"]);
+        // A's own URL no longer matches anything: configured bytes replace
+        // URL-derived matching for that relay (layer-1 precedence)
+        assert!(match_relays_by_auth_data(&relays, b"http://a.example.com").is_empty());
+    }
+
+    // Matched-SET semantics: one auth_data may select several relays (multiple
+    // builders behind one agreement); the winner is picked later by payment.
+    #[test]
+    fn match_relays_contract_shared_auth_data_matches_all() {
+        let relays = vec![
+            test_relay("http://a.example.com", Some(&[0xcc])),
+            test_relay("http://b.example.com", Some(&[0xcc])),
+        ];
+        let matched = match_relays_by_auth_data(&relays, &[0xcc]);
+        assert_eq!(matched.len(), 2);
+    }
+
     #[test]
     fn match_relays_url_fallback_and_unmatched_selects_none() {
         let relays = vec![
