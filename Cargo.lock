@@ -1914,6 +1914,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cb-km-tool"
+version = "0.11.0"
+dependencies = [
+ "eyre",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "cb-metrics"
 version = "0.11.0"
 dependencies = [
