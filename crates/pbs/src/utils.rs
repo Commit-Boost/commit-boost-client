@@ -1,9 +1,10 @@
 use std::time::{Duration, Instant};
 
 use cb_common::{
-    pbs::{ForkName, RelayClient, SignedRequestAuth, error::PbsError},
+    config::{GetHeaderTransport, RelayConfig},
+    pbs::{ForkName, RelayClient, RelayEntry, SignedRequestAuth, error::PbsError},
     signature::verify_request_auth_signature,
-    types::{BlsPublicKey, Chain},
+    types::{BlsPublicKey, BlsSecretKey, Chain},
     wire::{CONSENSUS_VERSION_HEADER, get_user_agent_with_version},
 };
 use reqwest::{
@@ -215,6 +216,53 @@ pub(crate) fn decode_auth_data_url(data: &[u8]) -> Option<Url> {
     std::str::from_utf8(url_bytes).ok().and_then(|s| Url::parse(s).ok())
 }
 
+/// Builds the transient client the ePBS pipe dials when `auth.message.data`
+/// names a builder URL no configured relay serves: CB is a pure pipe and
+/// routes the request to the builder the proposer's signed auth data names
+/// (trust is the VC's job via its KM `builder_pubkeys`).
+///
+/// Fail-closed self-URL guard: an unconfigured key's auth data defaults to
+/// CB's own URL, so a decoded URL matching an `advertised_urls` entry - or an
+/// empty `advertised_urls`, which cannot rule that out - is an
+/// `AuthDataMismatch`, never a self-dial. Data carrying no URL at all names
+/// no builder and mismatches as before.
+pub(crate) fn transient_pipe_relay(
+    received_data: &[u8],
+    advertised_urls: &[Url],
+) -> Result<RelayClient, PbsClientError> {
+    let Some(url) = decode_auth_data_url(received_data) else {
+        return Err(PbsClientError::AuthDataMismatch);
+    };
+    if advertised_urls.is_empty() || advertised_urls.iter().any(|own| url_matches(own, &url)) {
+        warn!(%url, "auth data URL is CB's own or advertised_urls is unset, not dialing");
+        return Err(PbsClientError::AuthDataMismatch);
+    }
+
+    let id = url.host_str().map(str::to_owned).unwrap_or_else(|| url.to_string());
+    let config = RelayConfig {
+        // The placeholder pubkey is never used: bid sigverify is skipped for
+        // the pipe relay because bid trust is the VC's job via KM
+        // builder_pubkeys and CB cannot know a pipe builder's key (bids carry
+        // builder_index, not a pubkey)
+        entry: RelayEntry { id, pubkey: BlsSecretKey::random().public_key(), url },
+        id: None,
+        headers: None,
+        get_params: None,
+        get_header: GetHeaderTransport::Http,
+        enable_timing_games: false,
+        target_first_request_ms: None,
+        frequency_get_header_ms: None,
+        bid_poll_timeout_ms: None,
+        validator_registration_batch_size: None,
+        max_execution_payment_gwei: None,
+        expected_auth_data: None,
+    };
+    RelayClient::new(config).map_err(|err| {
+        warn!(%err, "failed to build the pipe relay client");
+        PbsClientError::Internal
+    })
+}
+
 /// Compares two URLs without checking userinfo/path/queries/frags. A relay
 /// entry URL embeds the relay pubkey as userinfo, so full equality would never
 /// match a bare builder URL.
@@ -367,6 +415,68 @@ mod tests {
         assert!(match_relays_by_auth_data(&relays, &[0xde, 0xad]).is_empty());
         // Empty data carries no URL either
         assert!(match_relays_by_auth_data(&relays, &[]).is_empty());
+    }
+
+    // The pipe never dials blind: with no advertised_urls the self-URL guard
+    // cannot rule out CB's own URL (an unconfigured key's auth data defaults
+    // to it), so it fails closed with the same mismatch a builder would return.
+    #[test]
+    fn transient_pipe_relay_fails_closed_without_advertised_urls() {
+        assert!(matches!(
+            transient_pipe_relay(b"http://builder.example.com", &[]),
+            Err(PbsClientError::AuthDataMismatch)
+        ));
+    }
+
+    // A decoded URL naming CB itself is never dialed: matching follows
+    // `url_matches`, so userinfo/path/default-port variants still guard.
+    #[test]
+    fn transient_pipe_relay_guards_own_advertised_urls() {
+        let advertised = vec![Url::parse("http://cb.example.com:18550").unwrap()];
+        for own in [
+            "http://cb.example.com:18550",
+            "http://cb.example.com:18550/eth/v1/builder",
+            "http://0xdeadbeef@cb.example.com:18550",
+        ] {
+            assert!(
+                matches!(
+                    transient_pipe_relay(own.as_bytes(), &advertised),
+                    Err(PbsClientError::AuthDataMismatch)
+                ),
+                "{own} must not be dialed"
+            );
+        }
+    }
+
+    // Data carrying no URL names no builder: mismatch, no dial.
+    #[test]
+    fn transient_pipe_relay_rejects_non_url_data() {
+        let advertised = vec![Url::parse("http://cb.example.com:18550").unwrap()];
+        for data in [&[0xde, 0xad][..], b"not a url", &[]] {
+            assert!(matches!(
+                transient_pipe_relay(data, &advertised),
+                Err(PbsClientError::AuthDataMismatch)
+            ));
+        }
+    }
+
+    // A decodable, non-self URL gets a transient client carrying no configured
+    // relay's headers and no per-relay cap (the global default applies), so
+    // pipe bids rank unclamped and leak no credentials.
+    #[test]
+    fn transient_pipe_relay_builds_a_bare_client() {
+        let advertised = vec![Url::parse("http://cb.example.com:18550").unwrap()];
+        let mut data = b"http://builder.example.com:8551".to_vec();
+        data.push(0);
+        data.extend_from_slice(&[0xde, 0xad]);
+
+        let relay = transient_pipe_relay(&data, &advertised).unwrap();
+        assert_eq!(relay.config.entry.url.as_str(), "http://builder.example.com:8551/");
+        assert_eq!(relay.id.as_str(), "builder.example.com");
+        assert!(relay.config.headers.is_none());
+        assert!(relay.config.max_execution_payment_gwei.is_none());
+        assert!(relay.config.expected_auth_data.is_none());
+        assert!(!relay.config.enable_timing_games);
     }
 
     #[test]
