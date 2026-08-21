@@ -475,7 +475,7 @@ expected_auth_data = "0x736563726574"
     #[test]
     fn projects_literal_json_doc() {
         let key = random_key_hex();
-        let input = ProjectionInput::parse_str(&config_toml(&[key.clone()])).unwrap();
+        let input = ProjectionInput::parse_str(&config_toml(std::slice::from_ref(&key))).unwrap();
         let projection = project(&input, &overlay()).unwrap();
 
         assert_eq!(projection.docs.len(), 1);
