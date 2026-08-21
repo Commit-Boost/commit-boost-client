@@ -7,7 +7,6 @@ pub mod apply;
 pub mod check;
 pub mod client;
 pub mod doc;
-pub mod mux_ext;
 pub mod overlay;
 pub mod project;
 

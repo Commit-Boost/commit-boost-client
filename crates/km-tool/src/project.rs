@@ -28,7 +28,6 @@ use tracing::warn;
 
 use crate::{
     doc::{BuilderConfigDoc, BuilderEntryDoc, encode_auth_data},
-    mux_ext::MuxProjectionFields,
     overlay::Overlay,
 };
 
@@ -183,35 +182,20 @@ pub struct Projection {
 
 /// Projects per-key KM docs with the overlay's global advertised URL.
 pub fn project(input: &ProjectionInput, overlay: &Overlay) -> Result<Projection> {
-    project_with_url(input, overlay, &overlay.advertised_url)
+    project_with_url(input, &overlay.advertised_url)
 }
 
 /// Projects with an explicit advertised URL (per-VC overrides).
-pub fn project_with_url(
-    input: &ProjectionInput,
-    overlay: &Overlay,
-    advertised_url: &str,
-) -> Result<Projection> {
+pub fn project_with_url(input: &ProjectionInput, advertised_url: &str) -> Result<Projection> {
     let mut warnings = Vec::new();
     let mut docs = BTreeMap::new();
     let mut relay_candidates = Vec::new();
     let mut seen_keys: HashSet<Vec<u8>> = HashSet::new();
 
-    for id in overlay.per_mux.keys() {
-        let known = input
-            .cfg
-            .muxes
-            .as_ref()
-            .is_some_and(|muxes| muxes.muxes.iter().any(|mux| &mux.id == id));
-        if !known {
-            push_warn(&mut warnings, format!("overlay per_mux entry {id:?} matches no mux"));
-        }
-    }
-
     if let Some(muxes) = &input.cfg.muxes {
         for (mux, raw_urls) in muxes.muxes.iter().zip(&input.mux_relay_urls) {
             let keys = resolve_mux_keys(mux, &mut warnings)?;
-            let doc = project_mux(input, overlay, mux, raw_urls, advertised_url, &mut warnings)?;
+            let doc = project_mux(input, mux, raw_urls, advertised_url, &mut warnings)?;
 
             for relay in mux.relays.iter().zip(raw_urls) {
                 relay_candidates.push(RelayAuthCandidate {
@@ -334,7 +318,6 @@ fn ensure_no_lax_ambiguity(mux_id: &str, classes: &BTreeMap<Vec<u8>, AuthClass>)
 
 fn project_mux(
     input: &ProjectionInput,
-    overlay: &Overlay,
     mux: &MuxConfig,
     raw_urls: &[String],
     advertised_url: &str,
@@ -387,20 +370,17 @@ fn project_mux(
     // values, so the key level only governs p2p bids and entries that omit
     // their own. Unset p2p fields fall back to the entry values (uniform doc,
     // today's behavior).
-    let min_bid = resolve_min_bid(input, overlay, mux, warnings)?;
+    let min_bid = resolve_min_bid(input, mux, warnings)?;
     let key_min_bid = match mux
-        .projected_min_bid_p2p_wei()
+        .min_bid_p2p_wei
         .or(input.cfg.pbs.pbs_config.min_bid_p2p_wei)
     {
         Some(wei) => wei_to_gwei_floor(&mux.id, wei, warnings)?.to_string(),
         None => min_bid.clone(),
     };
-    let boost = mux
-        .projected_boost_factor()
-        .or_else(|| overlay.per_mux.get(&mux.id).and_then(|m| m.builder_boost_factor))
-        .map(|b| b.to_string());
+    let boost = mux.builder_boost_factor.map(|b| b.to_string());
     let key_boost = mux
-        .projected_boost_factor_p2p()
+        .builder_boost_factor_p2p
         .or(input.cfg.pbs.pbs_config.builder_boost_factor_p2p)
         .map(|b| b.to_string())
         .or_else(|| boost.clone());
@@ -440,20 +420,16 @@ fn project_mux(
     })
 }
 
-/// Per-mux min_bid in Gwei: the MuxConfig field when the schema has it (wei),
-/// else the overlay per-mux value (already Gwei), else the global
-/// `min_bid_wei`. Wei sources floor-divide with a warning on a sub-Gwei
+/// Per-mux min_bid in Gwei: the MuxConfig `min_bid_wei` when set, else the
+/// global `min_bid_wei`. Wei sources floor-divide with a warning on a sub-Gwei
 /// remainder.
 fn resolve_min_bid(
     input: &ProjectionInput,
-    overlay: &Overlay,
     mux: &MuxConfig,
     warnings: &mut Vec<String>,
 ) -> Result<String> {
-    let gwei = if let Some(wei) = mux.projected_min_bid_wei() {
+    let gwei = if let Some(wei) = mux.min_bid_wei {
         wei_to_gwei_floor(&mux.id, wei, warnings)?
-    } else if let Some(gwei) = overlay.per_mux.get(&mux.id).and_then(|m| m.min_bid_gwei) {
-        gwei
     } else {
         wei_to_gwei_floor(&mux.id, input.cfg.pbs.pbs_config.min_bid_wei, warnings)?
     };
@@ -684,28 +660,6 @@ url = "https://{RELAY_PK_A}@relay-a.example.com"
         );
     }
 
-    #[test]
-    fn overlay_per_mux_supplies_min_bid_and_boost() {
-        let key = random_key_hex();
-        let input = ProjectionInput::parse_str(&config_toml(&[key])).unwrap();
-        let overlay = Overlay::parse_str(
-            r#"
-advertised_url = "https://cb.example.com"
-[per_mux.mux1]
-builder_boost_factor = 90
-min_bid_gwei = 12345
-"#,
-        )
-        .unwrap();
-        let projection = project(&input, &overlay).unwrap();
-        let doc = projection.docs.values().next().unwrap();
-        assert_eq!(doc.min_bid, Some("12345".to_string()));
-        assert_eq!(doc.builder_boost_factor, Some("90".to_string()));
-        let entry = &doc.builders.as_ref().unwrap()[0];
-        assert_eq!(entry.min_bid, Some("12345".to_string()));
-        assert_eq!(entry.builder_boost_factor, Some("90".to_string()));
-    }
-
     // The p2p fields split the doc: KEY-LEVEL min_bid/boost come from the
     // global projection-only p2p fields (they govern p2p bids and entries
     // omitting their own), while ENTRIES keep the mux/global-sourced values.
@@ -902,22 +856,6 @@ url = "https://{RELAY_PK_A}@relay-a.example.com"
         let doc = projection.docs.values().next().unwrap();
         assert_eq!(doc.builder_boost_factor, None);
         assert_eq!(doc.builders.as_ref().unwrap()[0].builder_boost_factor, None);
-    }
-
-    #[test]
-    fn unknown_per_mux_overlay_warns() {
-        let key = random_key_hex();
-        let input = ProjectionInput::parse_str(&config_toml(&[key])).unwrap();
-        let overlay = Overlay::parse_str(
-            r#"
-advertised_url = "https://cb.example.com"
-[per_mux.no_such_mux]
-builder_boost_factor = 90
-"#,
-        )
-        .unwrap();
-        let projection = project(&input, &overlay).unwrap();
-        assert!(projection.warnings.iter().any(|w| w.contains("no_such_mux")));
     }
 
     #[test]

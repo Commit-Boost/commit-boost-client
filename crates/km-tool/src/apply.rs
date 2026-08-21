@@ -149,7 +149,7 @@ pub async fn run_apply(
             }
         }
 
-        let vc_projection = project_with_url(input, overlay, overlay.advertised_url_for(vc))?;
+        let vc_projection = project_with_url(input, overlay.advertised_url_for(vc))?;
         for (key, doc) in &vc_projection.docs {
             let key = key.to_string();
 

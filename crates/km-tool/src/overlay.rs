@@ -1,9 +1,8 @@
 //! The operational overlay: where/how to apply, kept out of the CB config.
-//! Fleet-describing fields stay in the CB mux config; this file carries only
-//! the advertised sidecar URL, the VC endpoints, and the per-mux fallbacks for
-//! MuxConfig fields this cb-common revision does not carry yet (see mux_ext).
+//! Fleet-describing fields (boost, min_bid) live in the CB mux config; this
+//! file carries only the advertised sidecar URL and the VC endpoints.
 
-use std::{collections::BTreeMap, path::Path};
+use std::path::Path;
 
 use eyre::{Context, Result, ensure};
 use serde::Deserialize;
@@ -19,8 +18,6 @@ pub struct Overlay {
     pub advertised_url: String,
     #[serde(default)]
     pub vcs: Vec<VcConfig>,
-    #[serde(default)]
-    pub per_mux: BTreeMap<String, PerMuxOverlay>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -30,13 +27,6 @@ pub struct VcConfig {
     pub token_path: String,
     /// Per-VC override of the advertised URL
     pub advertised_url: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PerMuxOverlay {
-    pub builder_boost_factor: Option<u64>,
-    pub min_bid_gwei: Option<u64>,
 }
 
 impl Overlay {
@@ -76,7 +66,6 @@ mod tests {
         let overlay = Overlay::parse_str(r#"advertised_url = "https://cb.example.com""#).unwrap();
         assert_eq!(overlay.advertised_url, "https://cb.example.com");
         assert!(overlay.vcs.is_empty());
-        assert!(overlay.per_mux.is_empty());
     }
 
     #[test]
@@ -93,19 +82,12 @@ mod tests {
             url = "http://vc2:7500"
             token_path = "/tmp/token2"
             advertised_url = "https://cb2.example.com"
-
-            [per_mux.mux1]
-            builder_boost_factor = 90
-            min_bid_gwei = 10000000
             "#,
         )
         .unwrap();
         assert_eq!(overlay.vcs.len(), 2);
         assert_eq!(overlay.advertised_url_for(&overlay.vcs[0]), "https://cb.example.com");
         assert_eq!(overlay.advertised_url_for(&overlay.vcs[1]), "https://cb2.example.com");
-        let per_mux = overlay.per_mux.get("mux1").unwrap();
-        assert_eq!(per_mux.builder_boost_factor, Some(90));
-        assert_eq!(per_mux.min_bid_gwei, Some(10_000_000));
     }
 
     #[test]

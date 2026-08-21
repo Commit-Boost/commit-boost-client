@@ -96,7 +96,7 @@ pub async fn run_check(input: &ProjectionInput, overlay: &Overlay) -> Result<Che
             key_holders.entry(key.clone()).or_default().push(vc_name.clone());
         }
 
-        let vc_projection = project_with_url(input, overlay, overlay.advertised_url_for(vc))?;
+        let vc_projection = project_with_url(input, overlay.advertised_url_for(vc))?;
         let vc_docs: BTreeMap<String, _> =
             vc_projection.docs.iter().map(|(k, d)| (k.to_string(), d)).collect();
 

@@ -28,7 +28,7 @@ struct CommonArgs {
     /// Commit-Boost config TOML
     #[arg(long, default_value = "config.toml")]
     config: PathBuf,
-    /// Operational overlay TOML (advertised_url, vcs, per_mux)
+    /// Operational overlay TOML (advertised_url, vcs)
     #[arg(long, default_value = "km-overlay.toml")]
     overlay: PathBuf,
 }
