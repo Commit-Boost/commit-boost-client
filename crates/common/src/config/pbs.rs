@@ -191,14 +191,14 @@ pub struct PbsConfig {
     pub advertised_urls: Vec<Url>,
     /// Gloas fork version (0x-hex, 4 bytes) used in the ePBS bid signing
     /// domain. Override for devnets/networks whose gloas fork version differs
-    /// from the built-in constant — see the ticket on deriving these from the
-    /// fork schedule. Unset = the built-in constant (behavior unchanged)
+    /// from the built-in constant -- see ticket e14e42d5 on deriving these from
+    /// the fork schedule. Unset = the built-in constant (behavior unchanged)
     #[serde(default)]
     pub gloas_fork_version: Option<B32>,
     /// Genesis validators root (0x-hex, 32 bytes) used in the ePBS bid signing
     /// domain. Override for devnets/networks whose genesis root differs from
-    /// the built-in constant — see the ticket on deriving these from the fork
-    /// schedule. Unset = the built-in constant (behavior unchanged)
+    /// the built-in constant -- see ticket e14e42d5 on deriving these from the
+    /// fork schedule. Unset = the built-in constant (behavior unchanged)
     #[serde(default)]
     pub genesis_validators_root: Option<B256>,
     /// Projection-only: consumed by KM tooling, not read by the PBS runtime.
