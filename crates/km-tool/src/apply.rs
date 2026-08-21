@@ -24,9 +24,11 @@ pub struct ApplyOptions {
     pub dry_run: bool,
     pub emit_dir: Option<PathBuf>,
     pub prune: bool,
-    /// GET each key's stored doc before POST and preserve builder entries no
-    /// other writer's identity our projection produces (POST replaces in full,
-    /// so a plain apply erases third-party-pinned entries).
+    /// When true, GET each key's stored doc and keep builder entries whose
+    /// identity (url, decoded auth_data) our projection does NOT produce -- i.e.
+    /// entries pinned by another writer -- appending them after ours. Client-side
+    /// read-modify-write: NOT atomic against a concurrent third-party write
+    /// between the GET and POST.
     pub preserve_entries: bool,
 }
 
@@ -242,6 +244,8 @@ pub async fn run_apply(
 fn entry_identity(entry: &BuilderEntryDoc) -> Result<(String, Option<Vec<u8>>)> {
     let auth = match &entry.auth_data {
         Some(hex) => Some(crate::doc::decode_auth_data(hex)?),
+        // Dead in practice: a resolved KM GET always populates auth_data and our
+        // projection always sets Some, so identities collide correctly.
         None => None,
     };
     Ok((entry.url.clone(), auth))

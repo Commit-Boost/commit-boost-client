@@ -54,6 +54,8 @@ enum Command {
         /// produce, so the full-replace POST does not erase it. Off by default
         /// (today's exact-projection replace). Fails loudly if the merge would
         /// break a KM cap (e.g. >64 entries) rather than dropping an entry.
+        /// (read-modify-write; not atomic vs a concurrent writer -- the
+        /// entry-level PATCH endpoint is the real fix).
         #[arg(long)]
         preserve_entries: bool,
     },
