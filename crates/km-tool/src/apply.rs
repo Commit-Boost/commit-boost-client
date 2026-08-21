@@ -99,7 +99,8 @@ pub async fn run_apply(
 
     if opts.dry_run {
         for (key, doc) in &global.docs {
-            report.note(format!("would apply {key}: {}", serde_json::to_string(doc)?));
+            let doc = redact_secrets_for_display(doc);
+            report.note(format!("would apply {key}: {}", serde_json::to_string(&doc)?));
         }
         report.note(format!("dry-run: {} keys projected, nothing sent", global.docs.len()));
         return Ok(report);
@@ -308,20 +309,67 @@ fn merge_preserved_entries(
 }
 
 /// Writes per-key JSON docs plus a manifest instead of POSTing (GitOps /
-/// orchestrator-consumable).
+/// orchestrator-consumable). Emitted files can carry bilateral-secret
+/// auth_data, so the dir and every file are restricted to the owner.
 fn emit(dir: &Path, projection: &Projection) -> Result<()> {
     std::fs::create_dir_all(dir).wrap_err_with(|| format!("cannot create emit dir {dir:?}"))?;
+    restrict_to_owner(dir, 0o700)?;
     let mut manifest = Vec::new();
     for (key, doc) in &projection.docs {
         let file = format!("{key}.json");
-        std::fs::write(dir.join(&file), serde_json::to_string_pretty(doc)?)?;
+        let path = dir.join(&file);
+        std::fs::write(&path, serde_json::to_string_pretty(doc)?)?;
+        restrict_to_owner(&path, 0o600)?;
         manifest.push(serde_json::json!({ "pubkey": key.to_string(), "file": file }));
     }
+    let manifest_path = dir.join("manifest.json");
     std::fs::write(
-        dir.join("manifest.json"),
+        &manifest_path,
         serde_json::to_string_pretty(&serde_json::json!({ "keys": manifest }))?,
     )?;
+    restrict_to_owner(&manifest_path, 0o600)?;
     Ok(())
+}
+
+/// Restricts a path to the owner. `mode` is 0o600 for files, 0o700 for the dir
+/// (a directory needs its execute bit to stay traversable). No-op off Unix.
+#[cfg(unix)]
+fn restrict_to_owner(path: &Path, mode: u32) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+        .wrap_err_with(|| format!("cannot restrict permissions on {path:?}"))
+}
+
+#[cfg(not(unix))]
+fn restrict_to_owner(_path: &Path, _mode: u32) -> Result<()> {
+    Ok(())
+}
+
+/// For dry-run display: replace any bilateral-secret auth_data (bytes that are
+/// not a valid UTF-8 URL) with a length-only placeholder. URL-form auth_data is
+/// public and printed as-is.
+fn redact_secrets_for_display(doc: &BuilderConfigDoc) -> BuilderConfigDoc {
+    let mut doc = doc.clone();
+    if let Some(builders) = &mut doc.builders {
+        for entry in builders {
+            let Some(hex) = &entry.auth_data else { continue };
+            if auth_data_is_url(hex) {
+                continue;
+            }
+            let len = crate::doc::decode_auth_data(hex).map(|b| b.len()).unwrap_or(0);
+            entry.auth_data = Some(format!("{len} bytes (secret)"));
+        }
+    }
+    doc
+}
+
+/// Whether hex-encoded auth_data decodes to a valid UTF-8 URL (the public form).
+fn auth_data_is_url(hex: &str) -> bool {
+    crate::doc::decode_auth_data(hex)
+        .ok()
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .and_then(|s| url::Url::parse(&s).ok())
+        .is_some()
 }
 
 #[cfg(test)]
