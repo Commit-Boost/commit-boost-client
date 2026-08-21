@@ -15,10 +15,10 @@ pub trait MuxProjectionFields {
 
 impl MuxProjectionFields for MuxConfig {
     fn projected_boost_factor(&self) -> Option<u64> {
-        None
+        self.builder_boost_factor
     }
 
     fn projected_min_bid_wei(&self) -> Option<U256> {
-        None
+        self.min_bid_wei
     }
 }
