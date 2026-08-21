@@ -8,12 +8,12 @@ RUN cargo chef prepare --recipe-path recipe.json
 FROM chef AS builder 
 COPY --from=planner /app/recipe.json recipe.json
 
-RUN cargo chef cook --release --recipe-path recipe.json
+RUN cargo chef cook --locked --release --recipe-path recipe.json
 
 RUN apt-get update && apt-get install -y protobuf-compiler
 
 COPY . .
-RUN cargo build --release --bin da_commit
+RUN cargo build --locked --release --bin da_commit
 
 
 FROM ubuntu AS runtime
