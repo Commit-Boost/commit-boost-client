@@ -24,8 +24,8 @@ pub fn read_token(path: &Path) -> Result<String> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        if let Ok(meta) = std::fs::metadata(path)
-            && token_mode_overexposed(meta.permissions().mode())
+        if let Ok(meta) = std::fs::metadata(path) &&
+            token_mode_overexposed(meta.permissions().mode())
         {
             warn!("token file {path:?} is group- or world-readable");
         }

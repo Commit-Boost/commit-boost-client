@@ -122,8 +122,8 @@ pub async fn run_check(input: &ProjectionInput, overlay: &Overlay) -> Result<Che
             // unroutable stored auth_data: no configured relay's candidate
             // bytes equal it
             for entry in stored.builders.iter().flatten() {
-                if let Some(bytes) = &entry.auth_data
-                    && !global.relay_candidates.iter().any(|c| &c.bytes == bytes)
+                if let Some(bytes) = &entry.auth_data &&
+                    !global.relay_candidates.iter().any(|c| &c.bytes == bytes)
                 {
                     // WARN, not ERROR: v1 CB is a pure pipe, an out-of-band
                     // builder URL routes fine
@@ -249,8 +249,8 @@ fn compare_field(
     projected: &Option<u64>,
     stored: &Option<u64>,
 ) {
-    if let Some(expected) = projected
-        && stored != &Some(*expected)
+    if let Some(expected) = projected &&
+        stored != &Some(*expected)
     {
         lines.push(format!("{name}: projected {expected}, stored {stored:?}"));
     }

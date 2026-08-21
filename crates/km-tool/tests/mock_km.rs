@@ -264,7 +264,11 @@ async fn apply_empty_keystore_vc_warns_and_still_posts() {
     let env = env_for(std::slice::from_ref(&key), &[empty_url, holder_url]);
     let report = run_apply(&env.input, &env.overlay, &ApplyOptions::default()).await.unwrap();
     assert!(report.ok(), "{:?}", report.errors);
-    assert!(report.warnings.iter().any(|w| w.contains("no keys to probe")), "{:?}", report.warnings);
+    assert!(
+        report.warnings.iter().any(|w| w.contains("no keys to probe")),
+        "{:?}",
+        report.warnings
+    );
     // supported-unknown: the empty VC still gets the POST; its 404 answers
     assert_eq!(empty_vc.posts().len(), 1);
     assert_eq!(report.accepted.get(&key).map(Vec::len), Some(1));
@@ -352,11 +356,10 @@ async fn dry_run_and_emit_post_nothing() {
     assert!(vc.posts().is_empty());
 
     let emit_dir = tempfile::tempdir().unwrap();
-    let report = run_apply(
-        &env.input,
-        &env.overlay,
-        &ApplyOptions { emit_dir: Some(emit_dir.path().to_path_buf()), ..Default::default() },
-    )
+    let report = run_apply(&env.input, &env.overlay, &ApplyOptions {
+        emit_dir: Some(emit_dir.path().to_path_buf()),
+        ..Default::default()
+    })
     .await
     .unwrap();
     assert!(report.ok());
@@ -437,12 +440,9 @@ async fn check_errors_when_no_builder_config_route() {
     let env = env_for(std::slice::from_ref(&key), &[url]);
     let report = run_check(&env.input, &env.overlay).await.unwrap();
     assert!(
-        report
-            .findings
-            .iter()
-            .any(|f| f.code == "no-builder-config-route" &&
-                f.tier == Tier::Error &&
-                f.msg.contains("#88")),
+        report.findings.iter().any(|f| f.code == "no-builder-config-route" &&
+            f.tier == Tier::Error &&
+            f.msg.contains("#88")),
         "{:?}",
         report.findings
     );
