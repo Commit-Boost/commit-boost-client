@@ -25,7 +25,7 @@ update *args:
   full Cargo.lock diff, not just the target package.
 """)]
 update-allow package version:
-  @echo "NOTE: the cooldown bypass is invocation-global; review the full Cargo.lock diff.
+  @echo "NOTE: the cooldown bypass is invocation-global; review the full Cargo.lock diff."
   rustup toolchain install {{resolver_toolchain}} > /dev/null 2>&1 &&   CARGO_RESOLVER_INCOMPATIBLE_PUBLISH_AGE=allow   cargo +{{resolver_toolchain}} update -Z min-publish-age -p {{package}} --precise {{version}}
 
 fmt:
