@@ -14,6 +14,7 @@ use alloy::{
 use docker_image::DockerImage;
 use eyre::{Result, ensure};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use tracing::info;
 use url::Url;
 
 use super::{
@@ -34,8 +35,8 @@ use crate::{
     },
     types::{BlsPublicKey, Chain, Jwt, ModuleId},
     utils::{
-        WEI_PER_ETH, as_eth_str, default_bool, default_host, default_u16, default_u32, default_u64,
-        default_u256,
+        WEI_PER_ETH, as_eth_str, as_opt_eth_str, default_bool, default_host, default_u16,
+        default_u32, default_u64, default_u256,
     },
 };
 
@@ -200,6 +201,22 @@ pub struct PbsConfig {
     /// schedule. Unset = the built-in constant (behavior unchanged)
     #[serde(default)]
     pub genesis_validators_root: Option<B256>,
+    /// Projection-only: consumed by KM tooling, not read by the PBS runtime.
+    /// The ePBS KEY-LEVEL minimum total payment: it governs p2p bids and
+    /// builder entries that omit their own min_bid (projected entries always
+    /// carry explicit per-entry values sourced from the mux/global min_bid)
+    #[serde(
+        rename = "min_bid_p2p_eth",
+        with = "as_opt_eth_str",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub min_bid_p2p_wei: Option<U256>,
+    /// Projection-only: consumed by KM tooling, not read by the PBS runtime.
+    /// The ePBS KEY-LEVEL builder_boost_factor: it governs p2p bids and
+    /// builder entries that omit their own (entry values stay mux-sourced)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub builder_boost_factor_p2p: Option<u64>,
 }
 
 impl PbsConfig {
@@ -225,6 +242,15 @@ impl PbsConfig {
             "timeout_register_validator_ms must be greater than 0"
         );
         ensure!(self.late_in_slot_time_ms > 0, "late_in_slot_time_ms must be greater than 0");
+
+        if self.min_bid_p2p_wei.is_some() {
+            info!("field min_bid_p2p_eth is applied via KM tooling, not by the PBS runtime");
+        }
+        if self.builder_boost_factor_p2p.is_some() {
+            info!(
+                "field builder_boost_factor_p2p is applied via KM tooling, not by the PBS runtime"
+            );
+        }
 
         ensure!(
             self.timeout_get_header_ms < self.late_in_slot_time_ms,
@@ -534,6 +560,25 @@ mod tests {
         assert_eq!(cfg.genesis_validators_root, None);
         assert_eq!(cfg.bid_fork_version(), GLOAS_FORK_VERSION);
         assert_eq!(cfg.bid_genesis_validators_root(), B256::from(GENESIS_VALIDATORS_ROOT));
+    }
+
+    // Projection-only p2p fields: parsed for KM tooling, absent = None so
+    // existing configs project exactly as before.
+    #[test]
+    fn p2p_projection_fields_parse_and_default() {
+        let cfg: PbsConfig = toml::from_str("").unwrap();
+        assert_eq!(cfg.min_bid_p2p_wei, None);
+        assert_eq!(cfg.builder_boost_factor_p2p, None);
+
+        let cfg: PbsConfig = toml::from_str(
+            r#"
+            min_bid_p2p_eth = "0.2"
+            builder_boost_factor_p2p = 0
+            "#,
+        )
+        .unwrap();
+        assert_eq!(cfg.min_bid_p2p_wei, Some(U256::from(200_000_000_000_000_000u64)));
+        assert_eq!(cfg.builder_boost_factor_p2p, Some(0));
     }
 
     // Configured overrides are what the bid domain sees, parsed from 0x-hex.

@@ -52,6 +52,17 @@ skip_sigverify = false
 # Can be specified as a float or a string for extra precision (e.g. "0.01")
 # OPTIONAL, DEFAULT: 0.0
 min_bid_eth = 0.0
+# Projection-only: consumed by KM tooling, not read by the PBS runtime.
+# The ePBS KEY-LEVEL minimum total payment in ETH: it governs p2p bids and builder entries that
+# omit their own min_bid (projected entries always carry explicit per-entry values sourced from
+# the mux/global min_bid). Float or string
+# OPTIONAL, DEFAULT: unset (key level = mux/global min_bid)
+# min_bid_p2p_eth = "0.2"
+# Projection-only: consumed by KM tooling, not read by the PBS runtime.
+# The ePBS KEY-LEVEL builder_boost_factor: it governs p2p bids and builder entries that omit
+# their own (entry values stay mux-sourced)
+# OPTIONAL, DEFAULT: unset
+# builder_boost_factor_p2p = 100
 # Execution-payment cap in Gwei used when ranking ePBS bids: a bid ranks at
 # `value + min(execution_payment, cap)`, matching how the beacon node values it (the BN clamps the
 # trusted payment at the cap instead of rejecting the bid). This does not accept or reject bids.

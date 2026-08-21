@@ -381,11 +381,27 @@ fn project_mux(
 
     ensure_no_lax_ambiguity(&mux.id, &classes)?;
 
+    // Entry values are mux/global-sourced; the KEY-LEVEL values come from the
+    // global projection-only p2p fields when set. Rationale: projected entries
+    // always carry explicit per-entry values, so the key level only governs
+    // p2p bids and entries that omit their own. Unset p2p fields fall back to
+    // the entry values (uniform doc, today's behavior).
     let min_bid = resolve_min_bid(input, overlay, mux, warnings)?;
+    let key_min_bid = match input.cfg.pbs.pbs_config.min_bid_p2p_wei {
+        Some(wei) => wei_to_gwei_floor(&mux.id, wei, warnings)?.to_string(),
+        None => min_bid.clone(),
+    };
     let boost = mux
         .projected_boost_factor()
         .or_else(|| overlay.per_mux.get(&mux.id).and_then(|m| m.builder_boost_factor))
         .map(|b| b.to_string());
+    let key_boost = input
+        .cfg
+        .pbs
+        .pbs_config
+        .builder_boost_factor_p2p
+        .map(|b| b.to_string())
+        .or_else(|| boost.clone());
 
     // `(url, auth_data-bytes)` uniqueness: classes are keyed by bytes and all
     // entries share the advertised URL, so uniqueness holds by construction;
@@ -416,8 +432,8 @@ fn project_mux(
     }
 
     Ok(BuilderConfigDoc {
-        min_bid: Some(min_bid),
-        builder_boost_factor: boost,
+        min_bid: Some(key_min_bid),
+        builder_boost_factor: key_boost,
         builders: Some(entries),
     })
 }
@@ -686,6 +702,54 @@ min_bid_gwei = 12345
         let entry = &doc.builders.as_ref().unwrap()[0];
         assert_eq!(entry.min_bid, Some("12345".to_string()));
         assert_eq!(entry.builder_boost_factor, Some("90".to_string()));
+    }
+
+    // The p2p fields split the doc: KEY-LEVEL min_bid/boost come from the
+    // global projection-only p2p fields (they govern p2p bids and entries
+    // omitting their own), while ENTRIES keep the mux/global-sourced values.
+    #[test]
+    fn p2p_fields_differentiate_key_level_from_entries() {
+        let key = random_key_hex();
+        let toml_text = format!(
+            r#"
+chain = "Holesky"
+[pbs]
+min_bid_p2p_eth = "0.2"
+builder_boost_factor_p2p = 0
+[[mux]]
+id = "m"
+validator_pubkeys = ["{key}"]
+min_bid_eth = "0.000001"
+builder_boost_factor = 100
+[[mux.relays]]
+url = "https://{RELAY_PK_A}@relay-a.example.com"
+"#
+        );
+        let input = ProjectionInput::parse_str(&toml_text).unwrap();
+        let projection = project(&input, &overlay()).unwrap();
+        let doc = projection.docs.values().next().unwrap();
+
+        // key level: 0.2 ETH = 200000000 Gwei floor, boost 0
+        assert_eq!(doc.min_bid, Some("200000000".to_string()));
+        assert_eq!(doc.builder_boost_factor, Some("0".to_string()));
+
+        // entry level: mux min_bid 0.000001 ETH = 1000 Gwei, mux boost 100
+        let entry = &doc.builders.as_ref().unwrap()[0];
+        assert_eq!(entry.min_bid, Some("1000".to_string()));
+        assert_eq!(entry.builder_boost_factor, Some("100".to_string()));
+    }
+
+    // Unset p2p fields keep today's uniform projection (key = entry values).
+    #[test]
+    fn p2p_fields_unset_keep_uniform_projection() {
+        let key = random_key_hex();
+        let input = ProjectionInput::parse_str(&config_toml(&[key])).unwrap();
+        let projection = project(&input, &overlay()).unwrap();
+        let doc = projection.docs.values().next().unwrap();
+        let entry = &doc.builders.as_ref().unwrap()[0];
+        assert_eq!(doc.min_bid, entry.min_bid);
+        assert_eq!(doc.builder_boost_factor, None);
+        assert_eq!(entry.builder_boost_factor, None);
     }
 
     #[test]

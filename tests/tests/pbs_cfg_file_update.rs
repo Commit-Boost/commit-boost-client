@@ -80,6 +80,8 @@ async fn test_cfg_file_update() -> Result<()> {
         advertised_urls: vec![],
         gloas_fork_version: None,
         genesis_validators_root: None,
+        min_bid_p2p_wei: None,
+        builder_boost_factor_p2p: None,
     };
     let cb_config = CommitBoostConfig {
         chain,
