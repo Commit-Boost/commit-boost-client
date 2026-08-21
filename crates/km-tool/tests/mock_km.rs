@@ -372,6 +372,155 @@ async fn dry_run_and_emit_post_nothing() {
     assert_eq!(manifest["keys"][0]["pubkey"], serde_json::json!(key));
 }
 
+/// Our projected doc for `key`, as the JSON value a VC would store.
+fn projected_value(env: &TestEnv, key: &str) -> serde_json::Value {
+    serde_json::from_str(&projected_string(env, key)).unwrap()
+}
+
+/// Our projected doc for `key`, serialized exactly as the tool POSTs it.
+fn projected_string(env: &TestEnv, key: &str) -> String {
+    let projection = project(&env.input, &env.overlay).unwrap();
+    let doc = projection.docs.iter().find(|(pk, _)| pk.to_string() == key).map(|(_, d)| d).unwrap();
+    serde_json::to_string(doc).unwrap()
+}
+
+fn third_party_entry(url: &str, auth_hex: &str) -> serde_json::Value {
+    serde_json::json!({ "url": url, "auth_data": auth_hex, "builder_pubkeys": [RELAY_PK_B] })
+}
+
+/// Collects the (url, auth_data) pairs in a POSTed builder_config body.
+fn posted_entries(body: &str) -> Vec<(String, String)> {
+    let doc: serde_json::Value = serde_json::from_str(body).unwrap();
+    doc["builders"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| {
+            (e["url"].as_str().unwrap().to_string(), e["auth_data"].as_str().unwrap().to_string())
+        })
+        .collect()
+}
+
+// (a) Without the flag, a stored third-party entry is IGNORED: the POST body is
+// our projection exactly, unchanged from today's full-replace behavior.
+#[tokio::test]
+async fn without_flag_post_body_is_projection_and_ignores_stored() {
+    let key = random_key();
+    let mut vc = MockVc::holding(std::slice::from_ref(&key));
+    let env = env_for(std::slice::from_ref(&key), &[]);
+    let mut stored = projected_value(&env, &key);
+    stored["builders"].as_array_mut().unwrap().push(third_party_entry(
+        "https://third-party.example.com",
+        "0xc0ffee",
+    ));
+    vc.stored.insert(key.clone(), stored);
+    let url = serve(vc.clone()).await;
+
+    let env = env_for(std::slice::from_ref(&key), &[url]);
+    let report = run_apply(&env.input, &env.overlay, &ApplyOptions::default()).await.unwrap();
+    assert!(report.ok(), "{:?}", report.errors);
+
+    let posts = vc.posts();
+    let posted = posts.iter().find(|(pk, _)| pk == &key).unwrap();
+    assert_eq!(posted.1, projected_string(&env, &key));
+}
+
+// (b) With the flag, a pre-existing third-party entry survives the apply: the
+// POSTed body contains BOTH our projected entries and theirs.
+#[tokio::test]
+async fn preserve_entries_keeps_third_party_entry() {
+    let key = random_key();
+    let mut vc = MockVc::holding(std::slice::from_ref(&key));
+    let env = env_for(std::slice::from_ref(&key), &[]);
+    let mut stored = projected_value(&env, &key);
+    stored["builders"].as_array_mut().unwrap().push(third_party_entry(
+        "https://third-party.example.com",
+        "0xc0ffee",
+    ));
+    vc.stored.insert(key.clone(), stored);
+    let url = serve(vc.clone()).await;
+
+    let env = env_for(std::slice::from_ref(&key), &[url]);
+    let opts = ApplyOptions { preserve_entries: true, ..Default::default() };
+    let report = run_apply(&env.input, &env.overlay, &opts).await.unwrap();
+    assert!(report.ok(), "{:?}", report.errors);
+
+    let posts = vc.posts();
+    let posted = posts.iter().find(|(pk, _)| pk == &key).unwrap();
+    let entries = posted_entries(&posted.1);
+    // our two projected entries plus the third party's, no more
+    assert_eq!(entries.len(), 3, "{entries:?}");
+    assert!(
+        entries.iter().any(|(u, a)| u == "https://third-party.example.com" && a == "0xc0ffee"),
+        "{entries:?}"
+    );
+    // both of ours (advertised URL) still present
+    assert_eq!(entries.iter().filter(|(u, _)| u == "https://cb.example.com").count(), 2);
+}
+
+// (c) A stored third-party entry sharing OUR identity (url + auth_data) is
+// REPLACED by ours, not duplicated -> no (url, auth_data) collision (no 400).
+#[tokio::test]
+async fn preserve_entries_collision_is_replaced_not_duplicated() {
+    let key = random_key();
+    let mut vc = MockVc::holding(std::slice::from_ref(&key));
+    let env = env_for(std::slice::from_ref(&key), &[]);
+    // stored = a doc whose entries share our identity but carry a foreign
+    // pubkey and a VC-resolved boost (simulating a resolved GET of our doc)
+    let mut stored = projected_value(&env, &key);
+    for entry in stored["builders"].as_array_mut().unwrap() {
+        entry["builder_pubkeys"] = serde_json::json!([RELAY_PK_A]);
+        entry["builder_boost_factor"] = serde_json::json!("100");
+    }
+    vc.stored.insert(key.clone(), stored);
+    let url = serve(vc.clone()).await;
+
+    let env = env_for(std::slice::from_ref(&key), &[url]);
+    let opts = ApplyOptions { preserve_entries: true, ..Default::default() };
+    let report = run_apply(&env.input, &env.overlay, &opts).await.unwrap();
+    assert!(report.ok(), "{:?}", report.errors);
+
+    let posts = vc.posts();
+    let posted = posts.iter().find(|(pk, _)| pk == &key).unwrap();
+    let entries = posted_entries(&posted.1);
+    // no identity duplicated: exactly our two projected entries
+    assert_eq!(entries.len(), 2, "{entries:?}");
+    // ours win: the POST body equals our pure projection (resolved defaults dropped)
+    assert_eq!(posted.1, projected_string(&env, &key));
+}
+
+// (d) A merge that would exceed the KM 64-entry cap fails loudly with no POST.
+#[tokio::test]
+async fn preserve_entries_over_cap_fails_without_posting() {
+    let key = random_key();
+    let mut vc = MockVc::holding(std::slice::from_ref(&key));
+    let env = env_for(std::slice::from_ref(&key), &[]);
+    let mut stored = projected_value(&env, &key);
+    let builders = stored["builders"].as_array_mut().unwrap();
+    // our 2 entries + 63 distinct third-party entries = 65 > 64
+    for i in 0..63 {
+        builders.push(third_party_entry(
+            &format!("https://third-{i}.example.com"),
+            "0xabcdef",
+        ));
+    }
+    vc.stored.insert(key.clone(), stored);
+    let url = serve(vc.clone()).await;
+
+    let env = env_for(std::slice::from_ref(&key), &[url]);
+    let opts = ApplyOptions { preserve_entries: true, ..Default::default() };
+    let report = run_apply(&env.input, &env.overlay, &opts).await.unwrap();
+
+    assert!(!report.ok());
+    assert!(
+        report.errors.iter().any(|e| e.contains("exceeding the KM maximum")),
+        "{:?}",
+        report.errors
+    );
+    // the merge aborts BEFORE any POST for this key
+    assert!(!vc.posts().iter().any(|(pk, _)| pk == &key), "{:?}", vc.posts());
+}
+
 #[tokio::test]
 async fn check_reordered_uppercase_stored_doc_is_not_drift() {
     let key = random_key();

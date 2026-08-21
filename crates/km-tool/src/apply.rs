@@ -2,7 +2,7 @@
 //! key was accepted by exactly one of them.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     path::{Path, PathBuf},
 };
 
@@ -11,9 +11,12 @@ use tracing::{info, warn};
 
 use crate::{
     client::{GetConfigOutcome, KmClient, PostOutcome, read_token},
-    doc::BuilderConfigDoc,
+    doc::{BuilderConfigDoc, BuilderEntryDoc},
     overlay::Overlay,
-    project::{Projection, ProjectionInput, project, project_with_url},
+    project::{
+        MAX_BUILDER_ENTRIES, MAX_BUILDER_PUBKEYS, Projection, ProjectionInput, project,
+        project_with_url,
+    },
 };
 
 #[derive(Debug, Default, Clone)]
@@ -21,6 +24,12 @@ pub struct ApplyOptions {
     pub dry_run: bool,
     pub emit_dir: Option<PathBuf>,
     pub prune: bool,
+    /// When true, GET each key's stored doc and keep builder entries whose
+    /// identity (url, decoded auth_data) our projection does NOT produce -- i.e.
+    /// entries pinned by another writer -- appending them after ours. Client-side
+    /// read-modify-write: NOT atomic against a concurrent third-party write
+    /// between the GET and POST.
+    pub preserve_entries: bool,
 }
 
 #[derive(Debug, Default)]
@@ -142,6 +151,40 @@ pub async fn run_apply(
         let vc_projection = project_with_url(input, overlay, overlay.advertised_url_for(vc))?;
         for (key, doc) in &vc_projection.docs {
             let key = key.to_string();
+
+            // --preserve-entries: fold any third-party builder entries the VC
+            // already stores back into our doc so the full-replace POST does
+            // not erase them.
+            let merged;
+            let doc = if opts.preserve_entries {
+                match client.get_builder_config(&key).await {
+                    Ok(GetConfigOutcome::Ok(stored)) => {
+                        match merge_preserved_entries(&key, doc, &stored) {
+                            Ok(m) => {
+                                merged = m;
+                                &merged
+                            }
+                            Err(err) => {
+                                report.error(format!(
+                                    "{vc_name}: preserve-entries merge for {key} failed: {err}"
+                                ));
+                                continue;
+                            }
+                        }
+                    }
+                    // nothing stored (or route absent for this key): POST ours
+                    Ok(GetConfigOutcome::NotFound) => doc,
+                    Err(err) => {
+                        report.error(format!(
+                            "{vc_name}: preserve-entries GET for {key} failed: {err}"
+                        ));
+                        continue;
+                    }
+                }
+            } else {
+                doc
+            };
+
             match client.post_builder_config(&key, doc).await {
                 Ok(PostOutcome::Accepted) => {
                     report.accepted.entry(key).or_default().push(vc_name.clone());
@@ -196,6 +239,74 @@ pub async fn run_apply(
     Ok(report)
 }
 
+/// An entry's identity for the preserve merge: its URL and DECODED auth_data
+/// bytes (hex case is not identity). Two entries collide iff both agree.
+fn entry_identity(entry: &BuilderEntryDoc) -> Result<(String, Option<Vec<u8>>)> {
+    let auth = match &entry.auth_data {
+        Some(hex) => Some(crate::doc::decode_auth_data(hex)?),
+        // Dead in practice: a resolved KM GET always populates auth_data and our
+        // projection always sets Some, so identities collide correctly.
+        None => None,
+    };
+    Ok((entry.url.clone(), auth))
+}
+
+/// Folds third-party builder entries from a VC's stored (resolved) doc into our
+/// projected doc. Identity is `(url, decoded auth_data)`. Every stored entry
+/// whose identity our projection ALSO produces is OURS: a GET returns the doc
+/// fully resolved, so field values on our own entries are VC defaults, not
+/// third-party data, and ours win on collision. Every other stored entry was
+/// pinned by someone else and is preserved, appended after ours. Key-level
+/// fields (min_bid / boost) are p2p policy we own and stay ours. The KM entry
+/// caps are re-checked on the MERGED set: a merge that would break the spec
+/// (e.g. >64 combined entries) fails loudly rather than silently dropping.
+fn merge_preserved_entries(
+    key: &str,
+    projected: &BuilderConfigDoc,
+    stored: &BuilderConfigDoc,
+) -> Result<BuilderConfigDoc> {
+    let our_entries = projected.builders.clone().unwrap_or_default();
+    let stored_entries = stored.builders.as_deref().unwrap_or_default();
+
+    let mut seen: HashSet<(String, Option<Vec<u8>>)> = HashSet::new();
+    for entry in &our_entries {
+        seen.insert(entry_identity(entry)?);
+    }
+
+    let mut merged = our_entries.clone();
+    for entry in stored_entries {
+        let id = entry_identity(entry)?;
+        // ours win on identity collision; dedup a stored doc's own repeats
+        if seen.insert(id) {
+            merged.push(entry.clone());
+        }
+    }
+
+    ensure!(
+        merged.len() <= MAX_BUILDER_ENTRIES,
+        "{key}: --preserve-entries would keep {} builder entries, exceeding the KM maximum of \
+         {MAX_BUILDER_ENTRIES}; refusing to POST rather than silently drop a pinned entry",
+        merged.len()
+    );
+    for entry in &merged {
+        if let Some(pubkeys) = &entry.builder_pubkeys {
+            ensure!(
+                pubkeys.len() <= MAX_BUILDER_PUBKEYS,
+                "{key}: --preserve-entries merged entry {} has {} builder_pubkeys, exceeding the \
+                 KM maximum of {MAX_BUILDER_PUBKEYS}",
+                entry.url,
+                pubkeys.len()
+            );
+        }
+    }
+
+    Ok(BuilderConfigDoc {
+        min_bid: projected.min_bid.clone(),
+        builder_boost_factor: projected.builder_boost_factor.clone(),
+        builders: Some(merged),
+    })
+}
+
 /// Writes per-key JSON docs plus a manifest instead of POSTing (GitOps /
 /// orchestrator-consumable).
 fn emit(dir: &Path, projection: &Projection) -> Result<()> {
@@ -211,4 +322,82 @@ fn emit(dir: &Path, projection: &Projection) -> Result<()> {
         serde_json::to_string_pretty(&serde_json::json!({ "keys": manifest }))?,
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::doc::encode_auth_data;
+
+    fn entry(url: &str, auth: &[u8], pubkeys: &[&str]) -> BuilderEntryDoc {
+        BuilderEntryDoc {
+            url: url.to_string(),
+            auth_data: Some(encode_auth_data(auth)),
+            builder_pubkeys: Some(pubkeys.iter().map(|s| s.to_string()).collect()),
+            max_execution_payment: None,
+            min_bid: None,
+            builder_boost_factor: None,
+        }
+    }
+
+    fn ours() -> BuilderConfigDoc {
+        BuilderConfigDoc {
+            min_bid: Some("500000000".into()),
+            builder_boost_factor: None,
+            builders: Some(vec![entry("https://cb.example.com", b"https://relay-a", &["0xaa"])]),
+        }
+    }
+
+    #[test]
+    fn third_party_entry_is_preserved_after_ours() {
+        let stored = BuilderConfigDoc {
+            builders: Some(vec![entry("https://other.example.com", b"https://relay-x", &["0xff"])]),
+            ..Default::default()
+        };
+        let merged = merge_preserved_entries("k", &ours(), &stored).unwrap();
+        let entries = merged.builders.unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].url, "https://cb.example.com");
+        assert_eq!(entries[1].url, "https://other.example.com");
+        // key-level fields stay ours
+        assert_eq!(merged.min_bid, Some("500000000".into()));
+    }
+
+    #[test]
+    fn our_identity_wins_over_stored_resolved_version() {
+        // stored holds OUR identity (same url + auth_data) but with VC-resolved
+        // fields and a different pubkey set: ours must win, no duplicate
+        let stored = BuilderConfigDoc {
+            builders: Some(vec![BuilderEntryDoc {
+                min_bid: Some("999".into()),
+                ..entry("https://cb.example.com", b"https://relay-a", &["0xbb"])
+            }]),
+            ..Default::default()
+        };
+        let merged = merge_preserved_entries("k", &ours(), &stored).unwrap();
+        let entries = merged.builders.unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].builder_pubkeys, Some(vec!["0xaa".to_string()]));
+        assert_eq!(entries[0].min_bid, None);
+    }
+
+    #[test]
+    fn identity_ignores_hex_case() {
+        let mut theirs = entry("https://cb.example.com", b"https://relay-a", &["0xcc"]);
+        theirs.auth_data = Some(theirs.auth_data.unwrap().to_uppercase().replacen("0X", "0x", 1));
+        let stored = BuilderConfigDoc { builders: Some(vec![theirs]), ..Default::default() };
+        // same identity as ours despite uppercase hex -> collapses to ours
+        let merged = merge_preserved_entries("k", &ours(), &stored).unwrap();
+        assert_eq!(merged.builders.unwrap().len(), 1);
+    }
+
+    #[test]
+    fn merge_exceeding_max_entries_fails() {
+        let extras: Vec<_> = (0..MAX_BUILDER_ENTRIES)
+            .map(|i| entry("https://other.example.com", format!("relay-{i}").as_bytes(), &["0xff"]))
+            .collect();
+        let stored = BuilderConfigDoc { builders: Some(extras), ..Default::default() };
+        let err = merge_preserved_entries("k", &ours(), &stored).unwrap_err();
+        assert!(err.to_string().contains("exceeding the KM maximum"), "{err}");
+    }
 }

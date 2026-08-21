@@ -14,7 +14,9 @@ use eyre::Result;
     about = "Project a Commit-Boost mux config into keymanager builder_config docs",
     after_help = "WARNING: check-green does not mean apply-is-a-no-op: GET returns resolved docs, \
                   so third-party-pinned values for fields the projection omits (boost, cap) are \
-                  invisible to check and will be ERASED by apply (POST replaces in full)."
+                  invisible to check and will be ERASED by apply (POST replaces in full). Pass \
+                  `apply --preserve-entries` to fold any builder entry another writer pinned back \
+                  into the POST instead of erasing it."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -47,6 +49,15 @@ enum Command {
         /// POST {} for stored-but-unprojected enumerated keys
         #[arg(long)]
         prune: bool,
+        /// GET each key first and keep any builder entry pinned by another
+        /// writer (identity = url + auth_data) that our projection does not
+        /// produce, so the full-replace POST does not erase it. Off by default
+        /// (today's exact-projection replace). Fails loudly if the merge would
+        /// break a KM cap (e.g. >64 entries) rather than dropping an entry.
+        /// (read-modify-write; not atomic vs a concurrent writer -- the
+        /// entry-level PATCH endpoint is the real fix).
+        #[arg(long)]
+        preserve_entries: bool,
     },
     /// Compare the stored VC docs against the projection (read-only)
     Check {
@@ -85,9 +96,9 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Command::Apply { common, dry_run, emit, prune } => {
+        Command::Apply { common, dry_run, emit, prune, preserve_entries } => {
             let (input, overlay) = load(&common)?;
-            let opts = ApplyOptions { dry_run, emit_dir: emit, prune };
+            let opts = ApplyOptions { dry_run, emit_dir: emit, prune, preserve_entries };
             let report = run_apply(&input, &overlay, &opts).await?;
             for msg in &report.info {
                 println!("{msg}");
