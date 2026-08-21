@@ -112,6 +112,18 @@ impl PbsMuxes {
                     mux.id
                 );
             }
+            if mux.builder_boost_factor_p2p.is_some() {
+                info!(
+                    "field builder_boost_factor_p2p on mux {} is applied via KM tooling, not by the PBS runtime",
+                    mux.id
+                );
+            }
+            if mux.min_bid_p2p_wei.is_some() {
+                info!(
+                    "field min_bid_p2p_eth on mux {} is applied via KM tooling, not by the PBS runtime",
+                    mux.id
+                );
+            }
 
             let mut relay_clients = Vec::with_capacity(mux.relays.len());
             for config in mux.relays.into_iter() {
@@ -182,6 +194,21 @@ pub struct MuxConfig {
         skip_serializing_if = "Option::is_none"
     )]
     pub min_bid_wei: Option<U256>,
+    /// Projection-only: consumed by KM tooling, not read by the PBS runtime.
+    /// The ePBS KEY-LEVEL builder_boost_factor governing p2p bids for this
+    /// mux's keys. Overrides the global `[pbs] builder_boost_factor_p2p`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub builder_boost_factor_p2p: Option<u64>,
+    /// Projection-only: consumed by KM tooling, not read by the PBS runtime.
+    /// The ePBS KEY-LEVEL minimum total payment governing p2p bids for this
+    /// mux's keys. Overrides the global `[pbs] min_bid_p2p_eth`.
+    #[serde(
+        rename = "min_bid_p2p_eth",
+        with = "as_opt_eth_str",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub min_bid_p2p_wei: Option<U256>,
 }
 
 impl MuxConfig {
@@ -347,6 +374,8 @@ const KNOWN_MUX_FIELDS: &[&str] = &[
     "fee_recipient",
     "builder_boost_factor",
     "min_bid_eth",
+    "builder_boost_factor_p2p",
+    "min_bid_p2p_eth",
 ];
 
 /// Unknown keys on the `[[mux]]` tables of a raw config document, as
@@ -645,6 +674,19 @@ mod tests {
         assert_eq!(mux.builder_boost_factor, Some(120));
         assert_eq!(mux.min_bid_wei, Some(U256::from(500_000_000_000_000_000u64)));
 
+        // p2p projection fields parse the same way as their non-p2p siblings
+        let mux: MuxConfig = toml::from_str(
+            r#"
+            id = "test"
+            relays = []
+            builder_boost_factor_p2p = 90
+            min_bid_p2p_eth = "0.2"
+            "#,
+        )
+        .unwrap();
+        assert_eq!(mux.builder_boost_factor_p2p, Some(90));
+        assert_eq!(mux.min_bid_p2p_wei, Some(U256::from(200_000_000_000_000_000u64)));
+
         // Float form, matching the global min_bid_eth
         let mux: MuxConfig = toml::from_str(
             r#"
@@ -666,6 +708,8 @@ mod tests {
         .unwrap();
         assert_eq!(mux.builder_boost_factor, None);
         assert_eq!(mux.min_bid_wei, None);
+        assert_eq!(mux.builder_boost_factor_p2p, None);
+        assert_eq!(mux.min_bid_p2p_wei, None);
     }
 
     #[test]
@@ -685,10 +729,13 @@ mod tests {
         let serialized = toml::to_string(&mux).unwrap();
         assert!(!serialized.contains("builder_boost_factor"));
         assert!(!serialized.contains("min_bid_eth"));
+        assert!(!serialized.contains("min_bid_p2p_eth"));
 
         let roundtripped: MuxConfig = toml::from_str(&serialized).unwrap();
         assert_eq!(roundtripped.builder_boost_factor, None);
         assert_eq!(roundtripped.min_bid_wei, None);
+        assert_eq!(roundtripped.builder_boost_factor_p2p, None);
+        assert_eq!(roundtripped.min_bid_p2p_wei, None);
     }
 
     #[test]
@@ -699,6 +746,8 @@ mod tests {
             relays = []
             builder_boost_factor = 100
             min_bid_eth = "0.1"
+            builder_boost_factor_p2p = 100
+            min_bid_p2p_eth = "0.1"
             bulder_boost_factor = 100
 
             [[mux]]
