@@ -118,6 +118,9 @@ mux_registry_refresh_interval_seconds = 384
 # pipe first checks the decoded URL against this list and rejects a match instead of dialing itself.
 # The guard fails closed: while this list is empty, unmatched auth data is always rejected and the
 # pipe never dials, so set it to enable piping to builders outside the [[relays]] below.
+# List EVERY scheme/host/IP form CB is reachable by: the self-URL guard matches on scheme+host+port
+# exactly, so an equivalent form you omit (e.g. an IP instead of a hostname, or http vs https) is not
+# recognized as CB's own and the pipe could self-dial.
 # OPTIONAL, DEFAULT: []
 # advertised_urls = ["http://cb.example.com:18550"]
 
@@ -213,6 +216,12 @@ validator_pubkeys = [
 # as the PBS-level `min_bid_eth`). Consumed by KM tooling, not read by the PBS runtime
 # OPTIONAL, DEFAULT: unset
 # min_bid_eth = 0.0
+# Projection-only: the KEY-LEVEL p2p overrides for this mux's keys. Consumed by KM tooling, not read
+# by the PBS runtime. When set they take precedence over the PBS-level `builder_boost_factor_p2p` /
+# `min_bid_p2p_eth`; unset inherits the PBS-level value
+# OPTIONAL, DEFAULT: unset (inherit the PBS-level p2p value)
+# builder_boost_factor_p2p = 100
+# min_bid_p2p_eth = "0.2"
 # Loader for validator pubkeys. Three types of loaders are supported:
 #   - File: path to a file containing a list of validator pubkeys in JSON format
 #   - URL: URL to an HTTP endpoint returning a list of validator pubkeys in JSON format
