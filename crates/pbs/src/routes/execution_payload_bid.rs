@@ -13,6 +13,7 @@ use axum::{
     response::IntoResponse,
 };
 use cb_common::{
+    config::PbsConfig,
     constants::{GENESIS_VALIDATORS_ROOT, GLOAS_FORK_VERSION},
     pbs::{
         DEFAULT_BID_POLL_TIMEOUT_MS, ForkName, GetExecutionPayloadBidInfo,
@@ -245,16 +246,9 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
                 send_headers.clone(),
                 ms_into_slot,
                 max_timeout_ms,
+                ranking_cap_gwei(relay, pbs_config),
                 ValidationContext {
                     skip_sigverify: pbs_config.skip_sigverify,
-                    // the ePBS floor is the same min_bid policy knob, in gwei
-                    min_bid_gwei: (pbs_config.min_bid_wei / U256::from(1_000_000_000))
-                        .try_into()
-                        .unwrap_or(u64::MAX),
-                    max_trusted_bid_gwei: relay
-                        .config
-                        .max_execution_payment_gwei
-                        .unwrap_or(pbs_config.max_execution_payment_gwei),
                     expected_fee_recipient: pbs_config.fee_recipient,
                     extra_validation_enabled: state.extra_validation_enabled(),
                     parent_block: parent_block.clone(),
@@ -277,7 +271,7 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
                     .unwrap_or_default();
                 RELAY_HEADER_VALUE.with_label_values(&[relay_id]).set(value_gwei);
 
-                relay_bids.push((relay_id, res))
+                relay_bids.push((relay_id, res, ranking_cap_gwei(relay, pbs_config)))
             }
             Ok(_) => {}
             Err(err) if err.is_timeout() => error!(err = "Timed Out", relay_id),
@@ -391,10 +385,28 @@ fn total_payment(bid: &impl GetExecutionPayloadBidInfo) -> u64 {
     bid.value().saturating_add(bid.execution_payment())
 }
 
+/// The execution-payment cap used when ranking a relay's bids: the per-relay
+/// override, else the global config value (default u64::MAX = unclamped).
+fn ranking_cap_gwei(relay: &RelayClient, pbs_config: &PbsConfig) -> u64 {
+    relay.config.max_execution_payment_gwei.unwrap_or(pbs_config.max_execution_payment_gwei)
+}
+
+/// A bid's ranking value per beacon-APIs #630: the BN values a bid at
+/// `value + min(execution_payment, max_execution_payment)` (the cap CLAMPS the
+/// trusted payment, it does not reject the bid). CB returns a single winner,
+/// so it must rank with the same clamp or its winner can disagree with the
+/// BN's valuation.
+fn ranking_payment(bid: &impl GetExecutionPayloadBidInfo, cap_gwei: u64) -> u64 {
+    bid.value().saturating_add(bid.execution_payment().min(cap_gwei))
+}
+
 // `L` is an opaque label (relay id for the cross-relay layer, request start
-// time for the per-relay in-flight layer) carried through to the winner.
-fn select_max_bid<L, I: GetExecutionPayloadBidInfo>(bids: Vec<(L, I)>) -> Option<(L, I)> {
-    bids.into_iter().max_by_key(|(_, bid)| total_payment(bid))
+// time for the per-relay in-flight layer) carried through to the winner; the
+// u64 is that bid's relay execution-payment cap in gwei.
+fn select_max_bid<L, I: GetExecutionPayloadBidInfo>(bids: Vec<(L, I, u64)>) -> Option<(L, I)> {
+    bids.into_iter()
+        .max_by_key(|(_, bid, cap_gwei)| ranking_payment(bid, *cap_gwei))
+        .map(|(label, bid, _)| (label, bid))
 }
 
 /// Fetch the parent block from the RPC URL for extra validation of the header.
@@ -422,6 +434,7 @@ async fn fetch_parent_block(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn send_timed_get_execution_payload_bid(
     params: GetExecutionPayloadBidParams,
     body: Arc<SignedRequestAuth>,
@@ -429,6 +442,7 @@ async fn send_timed_get_execution_payload_bid(
     headers: HeaderMap,
     ms_into_slot: u64,
     timeout_left_ms: u64,
+    ranking_cap_gwei: u64,
     validation: ValidationContext,
 ) -> Result<Option<GetExecutionPayloadBidResponse>, PbsError> {
     let url = relay.get_execution_payload_bid_url(
@@ -531,7 +545,7 @@ async fn send_timed_get_execution_payload_bid(
                     res.ok().and_then(|inner_res| match inner_res {
                         Ok((start_time, Some(header))) => {
                             n_headers += 1;
-                            Some((start_time, header))
+                            Some((start_time, header, ranking_cap_gwei))
                         }
                         // a 204 is the relay answering "no bid", not failing
                         Ok((_, None)) => {
@@ -588,8 +602,6 @@ struct RequestContext {
 #[derive(Clone)]
 struct ValidationContext {
     skip_sigverify: bool,
-    min_bid_gwei: u64,
-    max_trusted_bid_gwei: u64,
     expected_fee_recipient: Option<Address>,
     extra_validation_enabled: bool,
     parent_block: Arc<RwLock<Option<Block>>>,
@@ -713,19 +725,11 @@ async fn send_one_get_execution_payload_bid(
         parent_hash: get_header_response.parent_hash(),
         parent_root: get_header_response.parent_root(),
         slot: get_header_response.slot(),
-        trustless_payment: get_header_response.value(),
-        trusted_payment: get_header_response.execution_payment(),
         fee_recipient: get_header_response.fee_recipient(),
         gas_limit: get_header_response.gas_limit(),
     };
 
-    validate_header_data(
-        &header_info,
-        &params,
-        validation.min_bid_gwei,
-        validation.max_trusted_bid_gwei,
-        validation.expected_fee_recipient,
-    )?;
+    validate_header_data(&header_info, &params, validation.expected_fee_recipient)?;
 
     if !validation.skip_sigverify {
         validate_signature(
@@ -755,17 +759,18 @@ struct HeaderInfo {
     parent_hash: B256,
     parent_root: B256,
     slot: u64,
-    trustless_payment: u64,
-    trusted_payment: u64,
     fee_recipient: Address,
     gas_limit: u64,
 }
 
+// No min_bid or execution-payment-cap check here: on the ePBS path the BN is
+// the enforcer (beacon-APIs #630 MUST-rejects below the per-key min_bid and
+// CLAMPS the payment at max_execution_payment); a CB-side copy would over-
+// reject bids the BN would still consider. The cap survives only as a ranking
+// clamp (see `ranking_payment`).
 fn validate_header_data(
     header_info: &HeaderInfo,
     params: &GetExecutionPayloadBidParams,
-    min_bid_gwei: u64,
-    max_trusted_bid_gwei: u64,
     expected_fee_recipient: Option<Address>,
 ) -> Result<(), ValidationError> {
     if header_info.block_hash == B256::ZERO {
@@ -790,18 +795,6 @@ fn validate_header_data(
         return Err(ValidationError::SlotNumberMismatch {
             expected: params.slot,
             got: header_info.slot,
-        });
-    }
-
-    let total_payment = header_info.trustless_payment.saturating_add(header_info.trusted_payment);
-    if total_payment < min_bid_gwei {
-        return Err(ValidationError::TotalPaymentTooLow { min: min_bid_gwei, got: total_payment });
-    }
-
-    if header_info.trusted_payment > max_trusted_bid_gwei {
-        return Err(ValidationError::TrustedBidTooHigh {
-            max: max_trusted_bid_gwei,
-            got: header_info.trusted_payment,
         });
     }
 
@@ -895,8 +888,6 @@ mod tests {
         let slot = 5;
         let parent_hash = B256::from_slice(&[1; 32]);
         let parent_root = B256::from_slice(&[2; 32]);
-        let min_bid = 500;
-        let max_trusted_payment = 1000;
         let secret_key = BlsSecretKey::random();
         let pubkey = secret_key.public_key();
 
@@ -912,33 +903,19 @@ mod tests {
             parent_hash: B256::default(),
             parent_root: B256::default(),
             slot: 0,
-            trustless_payment: min_bid - 1,
-            trusted_payment: 0,
             fee_recipient: Address::ZERO,
             gas_limit: 0,
         };
 
         assert_eq!(
-            validate_header_data(
-                &mock_header_data,
-                &mock_params,
-                min_bid,
-                max_trusted_payment,
-                None
-            ),
+            validate_header_data(&mock_header_data, &mock_params, None),
             Err(ValidationError::EmptyBlockhash)
         );
 
         mock_header_data.block_hash.0[1] = 1;
 
         assert_eq!(
-            validate_header_data(
-                &mock_header_data,
-                &mock_params,
-                min_bid,
-                max_trusted_payment,
-                None
-            ),
+            validate_header_data(&mock_header_data, &mock_params, None),
             Err(ValidationError::ParentHashMismatch {
                 expected: mock_params.parent_hash,
                 got: B256::default()
@@ -948,13 +925,7 @@ mod tests {
         mock_header_data.parent_hash = parent_hash;
 
         assert_eq!(
-            validate_header_data(
-                &mock_header_data,
-                &mock_params,
-                min_bid,
-                max_trusted_payment,
-                None
-            ),
+            validate_header_data(&mock_header_data, &mock_params, None),
             Err(ValidationError::ParentRootMismatch {
                 expected: mock_params.parent_root,
                 got: B256::default()
@@ -964,60 +935,16 @@ mod tests {
         mock_header_data.parent_root = parent_root;
 
         assert_eq!(
-            validate_header_data(
-                &mock_header_data,
-                &mock_params,
-                min_bid,
-                max_trusted_payment,
-                None
-            ),
+            validate_header_data(&mock_header_data, &mock_params, None),
             Err(ValidationError::SlotNumberMismatch { expected: slot, got: 0 })
         );
 
         mock_header_data.slot = slot;
 
-        assert_eq!(
-            validate_header_data(
-                &mock_header_data,
-                &mock_params,
-                min_bid,
-                max_trusted_payment,
-                None
-            ),
-            Err(ValidationError::TotalPaymentTooLow {
-                min: min_bid,
-                got: mock_header_data.trustless_payment,
-            })
-        );
-
-        mock_header_data.trusted_payment = max_trusted_payment + 1;
-
-        assert_eq!(
-            validate_header_data(
-                &mock_header_data,
-                &mock_params,
-                min_bid,
-                max_trusted_payment,
-                None
-            ),
-            Err(ValidationError::TrustedBidTooHigh {
-                max: max_trusted_payment,
-                got: mock_header_data.trusted_payment,
-            })
-        );
-
-        mock_header_data.trusted_payment = max_trusted_payment;
-
         let expected_fee_recipient = Address::from([1; 20]);
 
         assert_eq!(
-            validate_header_data(
-                &mock_header_data,
-                &mock_params,
-                min_bid,
-                max_trusted_payment,
-                Some(expected_fee_recipient),
-            ),
+            validate_header_data(&mock_header_data, &mock_params, Some(expected_fee_recipient)),
             Err(ValidationError::FeeRecipientMismatch {
                 expected: expected_fee_recipient,
                 got: Address::ZERO,
@@ -1026,15 +953,10 @@ mod tests {
 
         mock_header_data.fee_recipient = expected_fee_recipient;
 
-        validate_header_data(
-            &mock_header_data,
-            &mock_params,
-            min_bid,
-            max_trusted_payment,
-            Some(expected_fee_recipient),
-        )
-        .unwrap();
+        validate_header_data(&mock_header_data, &mock_params, Some(expected_fee_recipient))
+            .unwrap();
     }
+
 
     #[test]
     fn test_validate_signature() {
@@ -1334,19 +1256,43 @@ mod tests {
     #[test]
     fn test_select_max_bid_by_total_payment() {
         let bids = vec![
-            ("value_winner", MockBid { value: 6, execution_payment: 0 }),
-            ("total_winner", MockBid { value: 5, execution_payment: 10 }),
+            ("value_winner", MockBid { value: 6, execution_payment: 0 }, u64::MAX),
+            ("total_winner", MockBid { value: 5, execution_payment: 10 }, u64::MAX),
         ];
         let (winner, _) = select_max_bid(bids).unwrap();
         assert_eq!(winner, "total_winner");
 
         // A saturating sum must not misrank a near-overflow bid
         let bids = vec![
-            ("honest", MockBid { value: 7, execution_payment: 0 }),
-            ("overflow", MockBid { value: u64::MAX, execution_payment: u64::MAX }),
+            ("honest", MockBid { value: 7, execution_payment: 0 }, u64::MAX),
+            ("overflow", MockBid { value: u64::MAX, execution_payment: u64::MAX }, u64::MAX),
         ];
         let (winner, _) = select_max_bid(bids).unwrap();
         assert_eq!(winner, "overflow");
+    }
+
+    // Ranking clamps the execution payment at the relay's cap (beacon-APIs
+    // #630): a bid over-claiming a huge trusted payment behind a low cap must
+    // lose to a moderate honest bid the BN would value higher.
+    #[test]
+    fn test_select_max_bid_clamps_execution_payment_at_relay_cap() {
+        let bids = vec![
+            // ranks at 5 + min(1_000_000, 10) = 15
+            ("overclaimer", MockBid { value: 5, execution_payment: 1_000_000 }, 10),
+            // ranks at 20 + 0 = 20
+            ("honest", MockBid { value: 20, execution_payment: 0 }, u64::MAX),
+        ];
+        let (winner, _) = select_max_bid(bids).unwrap();
+        assert_eq!(winner, "honest");
+
+        // The default cap (u64::MAX) leaves ranking unclamped: the same
+        // over-claimed payment wins on its full total
+        let bids = vec![
+            ("overclaimer", MockBid { value: 5, execution_payment: 1_000_000 }, u64::MAX),
+            ("honest", MockBid { value: 20, execution_payment: 0 }, u64::MAX),
+        ];
+        let (winner, _) = select_max_bid(bids).unwrap();
+        assert_eq!(winner, "overclaimer");
     }
 
     // Per-relay in-flight aggregation (timing games) must pick the highest
@@ -1360,9 +1306,9 @@ mod tests {
         // Max total is neither first nor last, and the later-started response
         // pays LESS: this fails both latest-wins and first-wins.
         let bids = vec![
-            (late, MockBid { value: 3, execution_payment: 1 }), // total 4
-            (early, MockBid { value: 10, execution_payment: 5 }), // total 15 (winner)
-            (mid, MockBid { value: 6, execution_payment: 2 }),  // total 8
+            (late, MockBid { value: 3, execution_payment: 1 }, u64::MAX), // total 4
+            (early, MockBid { value: 10, execution_payment: 5 }, u64::MAX), // total 15 (winner)
+            (mid, MockBid { value: 6, execution_payment: 2 }, u64::MAX),  // total 8
         ];
         let (winner_start, _) = select_max_bid(bids).unwrap();
         assert_eq!(winner_start, early, "must pick highest total, not latest- or first-started");

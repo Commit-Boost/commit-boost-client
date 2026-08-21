@@ -75,7 +75,8 @@ pub struct RelayConfig {
     /// request
     #[serde(deserialize_with = "empty_string_as_none", default)]
     pub validator_registration_batch_size: Option<usize>,
-    /// Maximum trusted execution payment in Gwei accepted in an ePBS bid
+    /// Per-relay override of the ePBS bid-ranking execution-payment cap in
+    /// Gwei (see `PbsConfig::max_execution_payment_gwei`)
     pub max_execution_payment_gwei: Option<u64>,
     /// ePBS auth data this relay serves: a bid request routes here only when
     /// its `auth.message.data` equals this value. When unset, the relay is
@@ -138,8 +139,12 @@ pub struct PbsConfig {
     /// Minimum bid that will be accepted from get_header
     #[serde(rename = "min_bid_eth", with = "as_eth_str", default = "default_u256")]
     pub min_bid_wei: U256,
-    /// Maximum trusted execution payment in Gwei accepted in an ePBS bid
-    #[serde(default = "default_u64::<0>")]
+    /// Execution-payment cap in Gwei used when RANKING ePBS bids: a bid ranks
+    /// at `value + min(execution_payment, cap)`, mirroring the BN's valuation
+    /// (beacon-APIs #630 clamps at `max_execution_payment` instead of
+    /// rejecting). Not an accept/reject check; the BN enforces the cap.
+    /// Default u64::MAX = unclamped
+    #[serde(default = "default_u64::<{ u64::MAX }>")]
     pub max_execution_payment_gwei: u64,
     /// When enabled, the BLS signature of an ePBS request's
     /// `SignedRequestAuth` is verified against the proposer pubkey. False by

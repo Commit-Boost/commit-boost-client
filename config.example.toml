@@ -44,11 +44,12 @@ skip_sigverify = false
 # Can be specified as a float or a string for extra precision (e.g. "0.01")
 # OPTIONAL, DEFAULT: 0.0
 min_bid_eth = 0.0
-# Maximum trusted execution payment in Gwei accepted in an ePBS bid. With the default of 0 any bid
-# carrying an execution payment is rejected, so payments only flow through the on-chain trustless
-# mechanism. Can be overridden per relay with `max_execution_payment_gwei` on the relay entry
-# OPTIONAL, DEFAULT: 0
-max_execution_payment_gwei = 0
+# Execution-payment cap in Gwei used when ranking ePBS bids: a bid ranks at
+# `value + min(execution_payment, cap)`, matching how the beacon node values it (the BN clamps the
+# trusted payment at the cap instead of rejecting the bid). This does not accept or reject bids.
+# Can be overridden per relay with `max_execution_payment_gwei` on the relay entry
+# OPTIONAL, DEFAULT: 18446744073709551615 (u64::MAX, unclamped)
+# max_execution_payment_gwei = 18446744073709551615
 # Expected fee recipient in ePBS bids. When set, bids whose fee_recipient differs are rejected
 # OPTIONAL, DEFAULT: unset (no check)
 # fee_recipient = "0x1234567890123456789012345678901234567890"
@@ -149,9 +150,10 @@ frequency_get_header_ms = 300
 # the builder, or every early poll times out
 # OPTIONAL, DEFAULT: 500
 # bid_poll_timeout_ms = 500
-# Maximum trusted execution payment in Gwei accepted in an ePBS bid from this relay
+# Per-relay override of the ePBS bid-ranking execution-payment cap in Gwei (see the PBS-level
+# `max_execution_payment_gwei`)
 # OPTIONAL, DEFAULT: the PBS-level `max_execution_payment_gwei`
-# max_execution_payment_gwei = 0
+# max_execution_payment_gwei = 18446744073709551615
 # The ePBS auth data this relay serves: a bid request routes here only when its `auth.message.data`
 # equals this value. When unset, the relay is matched only by auth data carrying its URL; auth data
 # matching no configured relay is rejected with 400

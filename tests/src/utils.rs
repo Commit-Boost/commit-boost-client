@@ -182,7 +182,8 @@ pub fn get_pbs_config(port: u16) -> PbsConfig {
         timeout_register_validator_ms: u64::MAX,
         skip_sigverify: false,
         min_bid_wei: U256::ZERO,
-        max_execution_payment_gwei: 0,
+        // matches the config default: the cap is a ranking clamp, MAX = unclamped
+        max_execution_payment_gwei: u64::MAX,
         fee_recipient: None,
         late_in_slot_time_ms: u64::MAX,
         extra_validation_enabled: false,

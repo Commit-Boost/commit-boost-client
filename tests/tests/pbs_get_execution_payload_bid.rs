@@ -98,15 +98,16 @@ async fn test_get_execution_payload_bid_wrong_parent_root() -> Result<()> {
     .await
 }
 
-/// With the default `max_execution_payment_gwei` of 0, any bid with a nonzero
-/// execution_payment is rejected as TrustedBidTooHigh
+/// `max_execution_payment_gwei` is a ranking clamp, not a reject: even the
+/// strictest cap (0) passes a bid carrying an execution payment through
+/// validation. The BN enforces the cap by clamping (beacon-APIs #630)
 #[tokio::test]
-async fn test_get_execution_payload_bid_nonzero_execution_payment_rejected() -> Result<()> {
+async fn test_get_execution_payload_bid_execution_payment_over_cap_accepted() -> Result<()> {
     test_get_execution_payload_bid_impl(
         vec![MockRelayState::new(Chain::Hoodi, random_secret()).with_trusted_bid_gwei(1)],
-        StatusCode::NO_CONTENT,
+        StatusCode::OK,
         &[1],
-        None,
+        Some(10),
         0,
     )
     .await
@@ -160,11 +161,11 @@ async fn test_get_execution_payload_bid_highest_total_payment_wins() -> Result<(
     .await
 }
 
-/// Test that min_bid_eth also floors ePBS bids: a bid whose total payment (in
-/// gwei) is below the configured minimum returns 204. Covers the wei -> gwei
-/// conversion, which the unit tests don't.
+/// `min_bid_eth` does NOT floor ePBS bids: the BN enforces the per-key
+/// min_bid on this path (beacon-APIs #630), so a bid below the global CB
+/// minimum still passes through
 #[tokio::test]
-async fn test_get_execution_payload_bid_below_min_bid_rejected() -> Result<()> {
+async fn test_get_execution_payload_bid_below_min_bid_passes() -> Result<()> {
     setup_test_env();
     let chain = Chain::Hoodi;
     let pbs_listener = get_free_listener().await;
@@ -192,7 +193,7 @@ async fn test_get_execution_payload_bid_below_min_bid_rejected() -> Result<()> {
             EncodingType::Json,
         ])
         .await?;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(mock_state.received_execution_payload_bid(), 1);
     Ok(())
 }
@@ -1803,44 +1804,61 @@ async fn test_get_execution_payload_bid_slow_relay_times_out_204() -> Result<()>
     Ok(())
 }
 
-/// A per-relay `max_execution_payment_gwei` cap stricter than the global one
-/// rejects a bid whose execution payment exceeds it. Same served bid, same high
-/// global cap: only the per-relay override flips accept (200) to reject (204),
-/// isolating it as the cause.
+/// A per-relay `max_execution_payment_gwei` cap clamps that relay's bids in
+/// RANKING: a bid with a huge execution payment behind a low cap ranks at
+/// `value + cap` and loses to a moderate honest bid, matching the BN's
+/// clamped valuation (beacon-APIs #630). Without the per-relay cap the same
+/// over-claimed bid wins on its full total, isolating the clamp as the cause.
 #[tokio::test]
-async fn test_get_execution_payload_bid_per_relay_max_payment_override() -> Result<()> {
-    const GLOBAL_CAP_GWEI: u64 = 100;
+async fn test_get_execution_payload_bid_per_relay_cap_clamps_ranking() -> Result<()> {
     const RELAY_CAP_GWEI: u64 = 5;
-    const SERVED_TRUSTED_GWEI: u64 = 10;
+    const OVERCLAIMED_TRUSTED_GWEI: u64 = 1_000;
+    const OVERCLAIMER_TRUSTLESS_GWEI: u64 = 5;
+    const HONEST_TRUSTLESS_GWEI: u64 = 20;
 
-    for (relay_cap, expected) in
-        [(None, StatusCode::OK), (Some(RELAY_CAP_GWEI), StatusCode::NO_CONTENT)]
-    {
+    // (overclaimer's per-relay cap, expected winning trustless value)
+    for (relay_cap, expected_value) in [
+        // unclamped: 5 + 1000 beats 20
+        (None, OVERCLAIMER_TRUSTLESS_GWEI),
+        // clamped: 5 + min(1000, 5) = 10 loses to 20
+        (Some(RELAY_CAP_GWEI), HONEST_TRUSTLESS_GWEI),
+    ] {
         setup_test_env();
         let chain = Chain::Hoodi;
         let pbs_listener = get_free_listener().await;
         let pbs_port = pbs_listener.local_addr()?.port();
-        let relay_listener = get_free_listener().await;
-        let relay_port = relay_listener.local_addr()?.port();
 
-        let mock_state = Arc::new(
-            MockRelayState::new(chain, random_secret()).with_trusted_bid_gwei(SERVED_TRUSTED_GWEI),
+        let overclaimer_listener = get_free_listener().await;
+        let overclaimer_port = overclaimer_listener.local_addr()?.port();
+        let overclaimer_state = Arc::new(
+            MockRelayState::new(chain, random_secret())
+                .with_trustless_bid_gwei(OVERCLAIMER_TRUSTLESS_GWEI)
+                .with_trusted_bid_gwei(OVERCLAIMED_TRUSTED_GWEI),
         );
-        let mock_relay = match relay_cap {
+        let overclaimer_relay = match relay_cap {
             Some(cap) => generate_mock_relay_with_max_payment(
-                relay_port,
-                mock_state.signer.public_key(),
+                overclaimer_port,
+                overclaimer_state.signer.public_key(),
                 cap,
             )?,
-            None => generate_mock_relay(relay_port, mock_state.signer.public_key())?,
+            None => generate_mock_relay(overclaimer_port, overclaimer_state.signer.public_key())?,
         };
-        tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
+        tokio::spawn(start_mock_relay_service_with_listener(
+            overclaimer_state.clone(),
+            overclaimer_listener,
+        ));
 
-        // Global cap comfortably above the served payment, so only a stricter
-        // per-relay cap can reject the bid
-        let mut pbs_config = get_pbs_config(pbs_port);
-        pbs_config.max_execution_payment_gwei = GLOBAL_CAP_GWEI;
-        let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
+        let honest_listener = get_free_listener().await;
+        let honest_port = honest_listener.local_addr()?.port();
+        let honest_state = Arc::new(
+            MockRelayState::new(chain, random_secret())
+                .with_trustless_bid_gwei(HONEST_TRUSTLESS_GWEI),
+        );
+        let honest_relay = generate_mock_relay(honest_port, honest_state.signer.public_key())?;
+        tokio::spawn(start_mock_relay_service_with_listener(honest_state.clone(), honest_listener));
+
+        let pbs_config = get_pbs_config(pbs_port);
+        let config = to_pbs_config(chain, pbs_config, vec![overclaimer_relay, honest_relay]);
         let state = PbsState::new(config, PathBuf::new());
         tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
 
@@ -1858,8 +1876,12 @@ async fn test_get_execution_payload_bid_per_relay_max_payment_override() -> Resu
                 vec![EncodingType::Json],
             )
             .await?;
-        assert_eq!(res.status(), expected, "relay_cap={relay_cap:?}");
-        assert_eq!(mock_state.received_execution_payload_bid(), 1, "relay_cap={relay_cap:?}");
+        assert_eq!(res.status(), StatusCode::OK, "relay_cap={relay_cap:?}");
+        assert_eq!(overclaimer_state.received_execution_payload_bid(), 1);
+        assert_eq!(honest_state.received_execution_payload_bid(), 1);
+
+        let res = serde_json::from_slice::<GetExecutionPayloadBidResponse>(&res.bytes().await?)?;
+        assert_eq!(res.value(), expected_value, "relay_cap={relay_cap:?}");
     }
     Ok(())
 }
@@ -1931,7 +1953,6 @@ async fn test_get_execution_payload_bid_impl(
     assert_eq!(res.parent_hash(), B256::ZERO);
     assert_eq!(res.parent_root(), B256::ZERO);
     assert_ne!(res.block_hash(), B256::ZERO);
-    assert!(res.execution_payment() <= max_execution_payment_gwei);
     if let Some(expected_value) = expected_value {
         assert_eq!(res.value(), expected_value);
     }
