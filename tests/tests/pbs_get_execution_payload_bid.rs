@@ -406,6 +406,148 @@ async fn test_get_execution_payload_bid_demux_by_url_bytes() -> Result<()> {
     Ok(())
 }
 
+/// PIPE: auth data naming a builder URL outside CB's config dials it via a
+/// transient client and returns its bid. The bid is signed by the builder's
+/// own key, which no configured relay entry carries, so the 200 also proves
+/// bid sigverify is skipped for the pipe relay (per-context, not globally:
+/// `skip_sigverify` stays false here).
+#[tokio::test]
+async fn test_get_execution_payload_bid_pipe_dials_unconfigured_builder() -> Result<()> {
+    setup_test_env();
+    let chain = Chain::Hoodi;
+    let pbs_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr()?.port();
+
+    // A configured relay, addressed by opaque bytes only
+    let cfg_listener = get_free_listener().await;
+    let cfg_port = cfg_listener.local_addr()?.port();
+    let cfg_state = Arc::new(MockRelayState::new(chain, random_secret()));
+    let cfg_relay =
+        generate_mock_relay_with_auth_data(cfg_port, cfg_state.signer.public_key(), &[0xaa])?;
+    tokio::spawn(start_mock_relay_service_with_listener(cfg_state.clone(), cfg_listener));
+
+    // The pipe builder runs but is NOT in CB's config
+    let pipe_listener = get_free_listener().await;
+    let pipe_port = pipe_listener.local_addr()?.port();
+    let pipe_state = Arc::new(MockRelayState::new(chain, random_secret()));
+    tokio::spawn(start_mock_relay_service_with_listener(pipe_state.clone(), pipe_listener));
+
+    let mut pbs_config = get_pbs_config(pbs_port);
+    pbs_config.advertised_urls = vec!["http://cb.self.example:18550".parse()?];
+    let config = to_pbs_config(chain, pbs_config, vec![cfg_relay]);
+    let state = PbsState::new(config, PathBuf::new());
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
+
+    let mock_validator = MockValidator::new(pbs_port)?;
+    wait_for_ready(&mock_validator).await?;
+
+    let pipe_url = format!("http://0.0.0.0:{pipe_port}/");
+    let auth = opaque_auth(pipe_url.as_bytes(), TEST_SLOT);
+    let res = mock_validator
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
+            EncodingType::Json,
+        ])
+        .await?;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(pipe_state.received_execution_payload_bid(), 1);
+    assert_eq!(cfg_state.received_execution_payload_bid(), 0, "only the piped builder is dialed");
+
+    // The pipe builder receives the auth verbatim and its bid comes back
+    // unchanged, still carrying its own signature
+    assert_eq!(pipe_state.received_auth_data(), Some(pipe_url.as_bytes().to_vec()));
+    let bid = serde_json::from_slice::<GetExecutionPayloadBidResponse>(&res.bytes().await?)?;
+    let expected_sig = sign_execution_payload_bid_root(
+        &pipe_state.signer,
+        &bid.data.message.tree_hash_root(),
+        GLOAS_FORK_VERSION,
+        GENESIS_VALIDATORS_ROOT.into(),
+    );
+    assert_eq!(bid.data.signature, expected_sig, "the piped bid must flow through unmodified");
+    Ok(())
+}
+
+/// PIPE self-URL guard: auth data decoding to one of CB's `advertised_urls`
+/// is a clean 400 and nothing is dialed - an unconfigured key's auth data
+/// defaults to CB's own URL, which must not become a self-dial loop.
+#[tokio::test]
+async fn test_get_execution_payload_bid_pipe_self_url_not_dialed() -> Result<()> {
+    setup_test_env();
+    let chain = Chain::Hoodi;
+    let pbs_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr()?.port();
+    let relay_listener = get_free_listener().await;
+    let relay_port = relay_listener.local_addr()?.port();
+
+    // The mock stands in for whatever answers at CB's advertised URL: anything
+    // it receives means the guard failed and a dial went out
+    let mock_state = Arc::new(MockRelayState::new(chain, random_secret()));
+    let mock_relay =
+        generate_mock_relay_with_auth_data(relay_port, mock_state.signer.public_key(), &[0xaa])?;
+    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
+
+    let self_url = format!("http://0.0.0.0:{relay_port}/");
+    let mut pbs_config = get_pbs_config(pbs_port);
+    pbs_config.advertised_urls = vec![self_url.parse()?];
+    let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
+    let state = PbsState::new(config, PathBuf::new());
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
+
+    let mock_validator = MockValidator::new(pbs_port)?;
+    wait_for_ready(&mock_validator).await?;
+
+    let auth = opaque_auth(self_url.as_bytes(), TEST_SLOT);
+    let res = mock_validator
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
+            EncodingType::Json,
+        ])
+        .await?;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(mock_state.received_execution_payload_bid(), 0, "a self URL is never dialed");
+    Ok(())
+}
+
+/// PIPE fail-closed: with `advertised_urls` unset the guard cannot verify the
+/// URL is not CB's own, so an unmatched builder URL stays a 400 and nothing
+/// is dialed - even though the named builder is alive.
+#[tokio::test]
+async fn test_get_execution_payload_bid_pipe_requires_advertised_urls() -> Result<()> {
+    setup_test_env();
+    let chain = Chain::Hoodi;
+    let pbs_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr()?.port();
+    let relay_listener = get_free_listener().await;
+    let relay_port = relay_listener.local_addr()?.port();
+
+    let cfg_state = Arc::new(MockRelayState::new(chain, random_secret()));
+    let cfg_relay =
+        generate_mock_relay_with_auth_data(relay_port, cfg_state.signer.public_key(), &[0xaa])?;
+    tokio::spawn(start_mock_relay_service_with_listener(cfg_state.clone(), relay_listener));
+
+    let pipe_listener = get_free_listener().await;
+    let pipe_port = pipe_listener.local_addr()?.port();
+    let pipe_state = Arc::new(MockRelayState::new(chain, random_secret()));
+    tokio::spawn(start_mock_relay_service_with_listener(pipe_state.clone(), pipe_listener));
+
+    // get_pbs_config leaves advertised_urls empty
+    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![cfg_relay]);
+    let state = PbsState::new(config, PathBuf::new());
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
+
+    let mock_validator = MockValidator::new(pbs_port)?;
+    wait_for_ready(&mock_validator).await?;
+
+    let auth = opaque_auth(format!("http://0.0.0.0:{pipe_port}/").as_bytes(), TEST_SLOT);
+    let res = mock_validator
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
+            EncodingType::Json,
+        ])
+        .await?;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(pipe_state.received_execution_payload_bid(), 0, "fail closed: no blind dial");
+    assert_eq!(cfg_state.received_execution_payload_bid(), 0);
+    Ok(())
+}
+
 /// Auth data matching no configured relay is rejected with 400 and the spec
 /// data-mismatch message; no relay is contacted.
 #[tokio::test]

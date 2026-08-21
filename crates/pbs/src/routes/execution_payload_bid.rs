@@ -52,7 +52,7 @@ use crate::{
     state::{BuilderApiState, PbsState},
     utils::{
         check_gas_limit, epbs_base_send_headers, match_relays_by_auth_data, record_client_error,
-        send_to_relay, validate_auth_data, verify_auth_signature,
+        send_to_relay, transient_pipe_relay, validate_auth_data, verify_auth_signature,
     },
 };
 
@@ -191,10 +191,15 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
         );
     }
 
-    let relays = match_relays_by_auth_data(relays, body.message.data.as_ref());
-    if relays.is_empty() {
-        return Err(PbsClientError::AuthDataMismatch);
-    }
+    let matched = match_relays_by_auth_data(relays, body.message.data.as_ref());
+    let is_pipe = matched.is_empty();
+    let relays: Vec<RelayClient> = if is_pipe {
+        // No configured relay serves this auth data: pipe the request to the
+        // builder URL the proposer's signed auth data names (self-URL guarded)
+        vec![transient_pipe_relay(body.message.data.as_ref(), &pbs_config.advertised_urls)?]
+    } else {
+        matched.into_iter().cloned().collect()
+    };
 
     let max_timeout_ms = pbs_config
         .timeout_get_header_ms
@@ -237,7 +242,7 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
     send_headers.insert(ACCEPT, build_outbound_accept(relay_accept));
 
     let mut handles = Vec::with_capacity(relays.len());
-    for &relay in relays.iter() {
+    for relay in relays.iter() {
         handles.push(
             send_timed_get_execution_payload_bid(
                 params.clone(),
@@ -248,7 +253,10 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
                 max_timeout_ms,
                 ranking_cap_gwei(relay, pbs_config),
                 ValidationContext {
-                    skip_sigverify: pbs_config.skip_sigverify,
+                    // Pipe bids skip sigverify: bid trust is the VC's job via
+                    // KM builder_pubkeys, and CB cannot know a pipe builder's
+                    // key (bids carry builder_index, not a pubkey)
+                    skip_sigverify: pbs_config.skip_sigverify || is_pipe,
                     expected_fee_recipient: pbs_config.fee_recipient,
                     extra_validation_enabled: state.extra_validation_enabled(),
                     parent_block: parent_block.clone(),
