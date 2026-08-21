@@ -380,6 +380,8 @@ async fn test_ssv_multi_with_node() -> Result<()> {
             fee_recipient: None,
             builder_boost_factor: None,
             min_bid_wei: None,
+            builder_boost_factor_p2p: None,
+            min_bid_p2p_wei: None,
         }],
     };
 
@@ -490,6 +492,8 @@ async fn test_ssv_multi_with_public() -> Result<()> {
             fee_recipient: None,
             builder_boost_factor: None,
             min_bid_wei: None,
+            builder_boost_factor_p2p: None,
+            min_bid_p2p_wei: None,
         }],
     };
 
@@ -550,6 +554,8 @@ async fn test_mux_fee_recipient_resolution() -> Result<()> {
             fee_recipient: Some(expected),
             builder_boost_factor: None,
             min_bid_wei: None,
+            builder_boost_factor_p2p: None,
+            min_bid_p2p_wei: None,
         }],
     };
 

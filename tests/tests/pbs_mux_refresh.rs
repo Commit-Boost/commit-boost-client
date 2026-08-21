@@ -96,6 +96,8 @@ async fn test_auto_refresh() -> Result<()> {
             fee_recipient: None,
             builder_boost_factor: None,
             min_bid_wei: None,
+            builder_boost_factor_p2p: None,
+            min_bid_p2p_wei: None,
         }],
     };
 
