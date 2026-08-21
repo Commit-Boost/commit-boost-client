@@ -28,7 +28,7 @@ use crate::{
     state::{BuilderApiState, PbsState},
     utils::{
         epbs_base_send_headers, expect_status, match_relays_by_auth_data, record_client_error,
-        send_to_relay, validate_auth_data, verify_auth_signature,
+        send_to_relay, transient_pipe_relay, validate_auth_data, verify_auth_signature,
     },
 };
 
@@ -101,10 +101,15 @@ pub async fn submit_builder_preferences<S: BuilderApiState>(
         pbs_config.verify_request_auth,
     )?;
 
-    let relays = match_relays_by_auth_data(relays, request.auth.message.data.as_ref());
-    if relays.is_empty() {
-        return Err(PbsClientError::AuthDataMismatch);
-    }
+    let matched = match_relays_by_auth_data(relays, request.auth.message.data.as_ref());
+    let relays: Vec<RelayClient> = if matched.is_empty() {
+        // No configured relay serves this auth data: pipe the preferences to
+        // the builder URL the proposer's signed auth data names (self-URL
+        // guarded), mirroring the bid endpoint's demux semantics
+        vec![transient_pipe_relay(request.auth.message.data.as_ref(), &pbs_config.advertised_urls)?]
+    } else {
+        matched.into_iter().cloned().collect()
+    };
 
     let send_headers = epbs_base_send_headers(&req_headers)?;
 
@@ -116,7 +121,7 @@ pub async fn submit_builder_preferences<S: BuilderApiState>(
     // in-flight writes mid-fan-out, leaving some builders with the prefs and
     // others without
     let mut handles = Vec::with_capacity(relays.len());
-    for &relay in relays.iter() {
+    for relay in relays.iter() {
         handles.push(
             tokio::spawn(
                 send_one_submit_builder_preferences(
