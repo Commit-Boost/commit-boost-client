@@ -327,4 +327,41 @@ mod tests {
         ]);
         assert_eq!(decoded.auth.signature.serialize().to_vec(), infinity_sig);
     }
+
+    /// Regression guard for the lighthouse-unstable bump that unlocks real ePBS
+    /// bid signature verification. Under EIP-7495 progressive containers the
+    /// gloas `ExecutionPayloadBid` must tree-hash to the go-eth2-client ground
+    /// truth root `0x04f8e548…d268` (fixture captured from a devnet builder bid,
+    /// slot 297). This root is the object the builder signs; a silent
+    /// progressive-hashing regression here would forge a different signing root
+    /// and break every bid signature check, so pin it byte-for-byte.
+    #[test]
+    fn test_gloas_execution_payload_bid_progressive_tree_hash_root() {
+        use tree_hash::TreeHash;
+
+        let bid_json = r#"{
+            "parent_block_hash": "0x8f44cac724ae314ba6e846c745d7c2749985e5ef5ca5ce64c3edeaa05eab022a",
+            "parent_block_root": "0xfa8193d2de4cdf9fa3a038ab6fe5e451fe50efa8c143d957aee7a778a32e948a",
+            "block_hash": "0xc2687f3daaaa8e1db9335a33659cb79cc693c8b4f98ba2ad44b3c5deeedcff9c",
+            "prev_randao": "0x4af131519d8829635bba95750c1b6276d602c9370785091eaeb2906dd6e86258",
+            "fee_recipient": "0x8943545177806ED17B9F23F0a21ee5948eCaa776",
+            "gas_limit": "200000000",
+            "builder_index": "0",
+            "slot": "297",
+            "value": "101000000",
+            "execution_payment": "0",
+            "blob_kzg_commitments": [],
+            "execution_requests_root": "0x87b69a306c8e430d0857f7c4ac5e27cecffa1108d43c2e5df7388056fea7a423"
+        }"#;
+
+        let bid: ExecutionPayloadBid =
+            serde_json::from_str(bid_json).expect("deserialize gloas ExecutionPayloadBid");
+        let root = bid.tree_hash_root();
+
+        assert_eq!(
+            root.to_string(),
+            "0x04f8e548db621e7908410cde0fe878d29e3d9778c63cd3c71eaca336d8f7d268",
+            "progressive-container tree-hash root regressed"
+        );
+    }
 }
