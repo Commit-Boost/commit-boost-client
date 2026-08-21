@@ -11,7 +11,10 @@ use eyre::Result;
 #[derive(Parser)]
 #[command(
     name = "cb-km",
-    about = "Project a Commit-Boost mux config into keymanager builder_config docs"
+    about = "Project a Commit-Boost mux config into keymanager builder_config docs",
+    after_help = "WARNING: check-green does not mean apply-is-a-no-op: GET returns resolved docs, \
+                  so third-party-pinned values for fields the projection omits (boost, cap) are \
+                  invisible to check and will be ERASED by apply (POST replaces in full)."
 )]
 struct Cli {
     #[command(subcommand)]
