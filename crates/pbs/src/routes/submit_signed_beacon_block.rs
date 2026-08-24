@@ -6,7 +6,7 @@ use cb_common::{
 use futures::future::join_all;
 use reqwest::StatusCode;
 use ssz::Encode;
-use tracing::{Instrument, error, info};
+use tracing::{Instrument, error, info, warn};
 
 use crate::{
     PbsStateGuard,
@@ -39,7 +39,12 @@ pub async fn handle_submit_signed_beacon_block<S: BuilderApiState>(
             Ok(StatusCode::ACCEPTED.into_response())
         }
         Err(err) => {
-            error!(%err, "submit_signed_beacon_block failed");
+            // A 4xx is the caller's fault, not CB's: only a 5xx is an error!
+            if err.status_code().is_server_error() {
+                error!(%err, "submit_signed_beacon_block failed");
+            } else {
+                warn!(%err, "submit_signed_beacon_block failed");
+            }
             record_beacon_status(err.status_code().as_str(), SUBMIT_SIGNED_BEACON_BLOCK_ENDPOINT_TAG);
             Err(err)
         }
@@ -89,7 +94,9 @@ pub async fn submit_signed_beacon_block<S: BuilderApiState>(
         .filter(|(res, relay)| match res {
             Ok(()) => true,
             Err(err) => {
-                error!(relay_id = relay.id.as_ref(), %err, "builder did not accept the block");
+                // Non-winning builders reject by design; only the auction winner
+                // accepts, so a rejection here may be expected
+                warn!(relay_id = relay.id.as_ref(), %err, "builder did not accept the block; may be expected, only the winner accepts");
                 false
             }
         })

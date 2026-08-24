@@ -103,7 +103,12 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
             Ok(StatusCode::NO_CONTENT.into_response())
         }
         Err(err) => {
-            error!(%err, "get_execution_payload_bid failed");
+            // A 4xx is the caller's fault, not CB's: only a 5xx is an error!
+            if err.status_code().is_server_error() {
+                error!(%err, "get_execution_payload_bid failed");
+            } else {
+                warn!(%err, "get_execution_payload_bid failed");
+            }
             record_beacon_status(err.status_code().as_str(), GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG);
             Err(err)
         }
@@ -417,7 +422,7 @@ async fn fetch_parent_block(
             *guard = maybe_block;
         }
         Err(err) => {
-            error!(%err, "fetch failed");
+            warn!(%err, %parent_hash, "failed to fetch parent block, skipping extra validation");
         }
     }
 }
@@ -686,7 +691,7 @@ async fn send_one_get_execution_payload_bid(
         });
     }
 
-    info!(
+    debug!(
         relay_id = relay.id.as_ref(),
         header_size_bytes,
         latency = ?request_latency,
@@ -707,12 +712,26 @@ async fn send_one_get_execution_payload_bid(
         gas_limit: get_header_response.gas_limit(),
     };
 
-    validate_header_data(&header_info, &params, validation.expected_fee_recipient)?;
+    validate_header_data(&header_info, &params, validation.expected_fee_recipient).inspect_err(
+        |_| {
+            crate::utils::record_invalid_relay_response(
+                "header_validation",
+                GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG,
+                &relay.id,
+            );
+        },
+    )?;
 
     if validation.extra_validation_enabled {
         let parent_block = validation.parent_block.read();
         if let Some(parent_block) = parent_block.as_ref() {
-            extra_validation(parent_block, &header_info, &params)?;
+            extra_validation(parent_block, &header_info, &params).inspect_err(|_| {
+                crate::utils::record_invalid_relay_response(
+                    "extra_validation",
+                    GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG,
+                    &relay.id,
+                );
+            })?;
         } else {
             warn!(
                 relay_id = relay.id.as_ref(),

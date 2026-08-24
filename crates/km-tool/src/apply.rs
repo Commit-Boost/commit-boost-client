@@ -7,7 +7,7 @@ use std::{
 };
 
 use eyre::{Context, Result, ensure};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use crate::{
     client::{GetConfigOutcome, KmClient, PostOutcome, read_token},
@@ -45,7 +45,7 @@ impl ApplyReport {
     }
 
     fn error(&mut self, msg: String) {
-        warn!("{msg}");
+        error!("{msg}");
         self.errors.push(msg);
     }
 

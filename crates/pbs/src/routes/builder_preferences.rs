@@ -59,7 +59,12 @@ pub async fn handle_submit_builder_preferences<S: BuilderApiState>(
             Ok(StatusCode::ACCEPTED.into_response())
         }
         Err(err) => {
-            error!(%err, "submit_builder_preferences failed");
+            // A 4xx is the caller's fault, not CB's: only a 5xx is an error!
+            if err.status_code().is_server_error() {
+                error!(%err, "submit_builder_preferences failed");
+            } else {
+                warn!(%err, "submit_builder_preferences failed");
+            }
             record_beacon_status(err.status_code().as_str(), SUBMIT_BUILDER_PREFERENCES_ENDPOINT_TAG);
             Err(err)
         }
