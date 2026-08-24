@@ -1,10 +1,14 @@
 //! Pure projection: CB mux config + overlay -> per-key KM builder_config docs.
 //!
 //! One KM entry per auth_data EQUIVALENCE CLASS: relays whose candidate
-//! auth_data byte-strings are identical share one entry whose
-//! `builder_pubkeys` is the union of the class's relay pubkeys. The candidate
-//! is `expected_auth_data` when set, else the UTF-8 bytes of the relay URL as
-//! configured with the userinfo stripped. Grouping-by-identical-bytes is a
+//! auth_data byte-strings are identical share one entry. Its `builder_pubkeys`
+//! is emitted EMPTY (accept any builder for the key): the only pubkey cb-km can
+//! see is the relay URL's userinfo pubkey, which is the relay's identity, not
+//! the builder's bid-signing key, and binding the wrong key rejects every bid
+//! (see `project_mux`). The candidate is `expected_auth_data` when set, else the
+//! UTF-8 bytes of the relay URL as configured with the userinfo stripped
+//! (userinfo, and thus any pubkey credential, is intentionally NOT part of the
+//! emitted url or auth_data). Grouping-by-identical-bytes is a
 //! reimplementation of the demux contract of cb-pbs's
 //! `match_relays_by_auth_data` (pub(crate) there); the CB-side contract tests
 //! pin those semantics. CAVEAT (also in the plan): CB's own matching is LAXER
@@ -14,7 +18,7 @@
 //! the builder's advertised URL.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
+    collections::{BTreeMap, HashSet},
     path::Path,
 };
 
@@ -274,7 +278,6 @@ fn resolve_mux_keys(mux: &MuxConfig, warnings: &mut Vec<String>) -> Result<Vec<B
 
 struct AuthClass {
     relay_ids: Vec<String>,
-    builder_pubkeys: BTreeSet<String>,
     max_execution_payment_gwei: Option<u64>,
 }
 
@@ -331,7 +334,6 @@ fn build_auth_classes(mux: &MuxConfig, raw_urls: &[String]) -> Result<BTreeMap<V
         );
         let class = classes.entry(bytes).or_insert_with(|| AuthClass {
             relay_ids: vec![],
-            builder_pubkeys: BTreeSet::new(),
             max_execution_payment_gwei: relay.max_execution_payment_gwei,
         });
         ensure!(
@@ -345,7 +347,6 @@ fn build_auth_classes(mux: &MuxConfig, raw_urls: &[String]) -> Result<BTreeMap<V
             relay.max_execution_payment_gwei
         );
         class.relay_ids.push(relay.id().to_string());
-        class.builder_pubkeys.insert(relay.entry.pubkey.as_hex_string());
     }
 
     ensure!(
@@ -403,16 +404,18 @@ fn project_mux(
             "mux {}: duplicate (url, auth_data) pair",
             mux.id
         );
-        ensure!(
-            class.builder_pubkeys.len() <= MAX_BUILDER_PUBKEYS,
-            "mux {}: entry has {} builder_pubkeys, KM maximum is {MAX_BUILDER_PUBKEYS}",
-            mux.id,
-            class.builder_pubkeys.len()
-        );
+        // Emit an EMPTY builder_pubkeys. The only builder pubkey cb-km can see
+        // is the relay URL's userinfo pubkey, which is the relay's IDENTITY, not
+        // the builder's bid-SIGNING key. Lodestar rejects any builder-API bid
+        // whose signing pubkey is not in builder_pubkeys (the check is skipped
+        // when the array is empty), so populating it with the relay identity
+        // would silently bind the VC to the wrong key and reject every bid. An
+        // empty array = accept any builder for this key. Populate this in future
+        // once cb-km can supply the builder's actual bid-signing pubkey.
         entries.push(BuilderEntryDoc {
             url: advertised_url.to_string(),
             auth_data: Some(encode_auth_data(bytes)),
-            builder_pubkeys: Some(class.builder_pubkeys.iter().cloned().collect()),
+            builder_pubkeys: Some(Vec::new()),
             max_execution_payment: class.max_execution_payment_gwei.map(|g| g.to_string()),
             min_bid: Some(min_bid.clone()),
             builder_boost_factor: boost.clone(),
@@ -522,22 +525,19 @@ expected_auth_data = "0x736563726574"
         assert_eq!(pk.to_string(), key);
 
         // entries sorted by auth_data bytes: 0x736563726574 ("secret") sorts
-        // after the https URL bytes (0x68...)
+        // after the https URL bytes (0x68...). builder_pubkeys is emitted EMPTY
+        // for every entry (relay identity is not the builder's bid-signing key).
         let json = serde_json::to_string(doc).unwrap();
         assert_eq!(
             json,
-            format!(
-                concat!(
-                    r#"{{"min_bid":"500000000","builders":["#,
-                    r#"{{"url":"https://cb.example.com","#,
-                    r#""auth_data":"0x68747470733a2f2f72656c61792d612e6578616d706c652e636f6d","#,
-                    r#""builder_pubkeys":["{pk_a}"],"min_bid":"500000000"}},"#,
-                    r#"{{"url":"https://cb.example.com","#,
-                    r#""auth_data":"0x736563726574","#,
-                    r#""builder_pubkeys":["{pk_b}"],"min_bid":"500000000"}}]}}"#
-                ),
-                pk_a = RELAY_PK_A,
-                pk_b = RELAY_PK_B,
+            concat!(
+                r#"{"min_bid":"500000000","builders":["#,
+                r#"{"url":"https://cb.example.com","#,
+                r#""auth_data":"0x68747470733a2f2f72656c61792d612e6578616d706c652e636f6d","#,
+                r#""builder_pubkeys":[],"min_bid":"500000000"},"#,
+                r#"{"url":"https://cb.example.com","#,
+                r#""auth_data":"0x736563726574","#,
+                r#""builder_pubkeys":[],"min_bid":"500000000"}]}"#
             )
         );
     }
@@ -556,10 +556,12 @@ expected_auth_data = "0x736563726574"
         );
     }
 
+    // Two relays sharing an auth_data class collapse to ONE entry. The entry's
+    // builder_pubkeys is emitted empty (no relay-identity pubkeys unioned in).
     #[test]
-    fn equivalence_class_unions_builder_pubkeys() {
+    fn equivalence_class_groups_into_one_entry_with_empty_pubkeys() {
         let key = random_key_hex();
-        // both relays carry the same expected_auth_data -> one entry, two pubkeys
+        // both relays carry the same expected_auth_data -> one entry
         let toml_text = format!(
             r#"
 chain = "Holesky"
@@ -580,9 +582,7 @@ expected_auth_data = "0xaabb"
         let doc = projection.docs.values().next().unwrap();
         let entries = doc.builders.as_ref().unwrap();
         assert_eq!(entries.len(), 1);
-        let mut expected = vec![RELAY_PK_A.to_string(), RELAY_PK_B.to_string()];
-        expected.sort();
-        assert_eq!(entries[0].builder_pubkeys.as_ref().unwrap(), &expected);
+        assert_eq!(entries[0].builder_pubkeys.as_ref().unwrap(), &Vec::<String>::new());
     }
 
     #[test]
@@ -1081,7 +1081,8 @@ url = "https://{RELAY_PK_B}@relay.example.com"
         let doc = projection.docs.values().next().unwrap();
         let entries = doc.builders.as_ref().unwrap();
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].builder_pubkeys.as_ref().unwrap().len(), 2);
+        // grouped into one class; builder_pubkeys is emitted empty
+        assert_eq!(entries[0].builder_pubkeys.as_ref().unwrap().len(), 0);
     }
 
     #[test]

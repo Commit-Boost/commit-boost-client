@@ -400,11 +400,14 @@ mod tests {
         }
     }
 
+    // Our projected doc: builder_pubkeys is emitted empty (the projection no
+    // longer unions in relay-identity pubkeys). Preserved third-party entries
+    // may still carry their own pubkeys, so `entry()` keeps the parameter.
     fn ours() -> BuilderConfigDoc {
         BuilderConfigDoc {
             min_bid: Some("500000000".into()),
             builder_boost_factor: None,
-            builders: Some(vec![entry("https://cb.example.com", b"https://relay-a", &["0xaa"])]),
+            builders: Some(vec![entry("https://cb.example.com", b"https://relay-a", &[])]),
         }
     }
 
@@ -437,7 +440,9 @@ mod tests {
         let merged = merge_preserved_entries("k", &ours(), &stored).unwrap();
         let entries = merged.builders.unwrap();
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].builder_pubkeys, Some(vec!["0xaa".to_string()]));
+        // ours won on identity: empty builder_pubkeys and ours' (None) min_bid,
+        // not the stored 0xbb / 999
+        assert_eq!(entries[0].builder_pubkeys, Some(vec![]));
         assert_eq!(entries[0].min_bid, None);
     }
 
