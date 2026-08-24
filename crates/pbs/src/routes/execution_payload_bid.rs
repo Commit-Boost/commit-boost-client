@@ -121,7 +121,7 @@ fn encode_bid_response(
     response_encoding: Option<EncodingType>,
     endpoint: &str,
 ) -> Result<Response, PbsClientError> {
-    info!(trustless_bid_eth = format_ether(max_bid.value()), execution_payment_eth = format_ether(max_bid.execution_payment()), block_hash =% max_bid.block_hash(), builder_index = max_bid.builder_index(), "received header");
+    info!(trustless_bid_eth = format_gwei_as_eth(max_bid.value()), execution_payment_eth = format_gwei_as_eth(max_bid.execution_payment()), block_hash =% max_bid.block_hash(), builder_index = max_bid.builder_index(), "received header");
 
     // Eth-Consensus-Version is required on the 200 for both encodings
     let consensus_version_header = HeaderValue::from_str(&max_bid.version.to_string())
@@ -250,10 +250,8 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
         match res {
             Ok(Some(res)) => {
                 RELAY_LAST_SLOT.with_label_values(&[relay_id]).set(params.slot as i64);
-                let value_gwei = (U256::from(res.value()) / U256::from(1_000_000_000))
-                    .try_into()
-                    .unwrap_or_default();
-                RELAY_HEADER_VALUE.with_label_values(&[relay_id]).set(value_gwei);
+                // value() is already gwei (the gauge is labelled gwei), so it is set unscaled
+                RELAY_HEADER_VALUE.with_label_values(&[relay_id]).set(res.value() as i64);
 
                 relay_bids.push((relay_id, res, ranking_cap_gwei(relay, pbs_config)))
             }
@@ -268,9 +266,9 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
     if let Some((winning_relay_id, ref bid)) = max_bid {
         info!(
             relay_id = winning_relay_id,
-            bid_eth = format_ether(total_payment(bid)),
-            trustless_bid_eth = format_ether(bid.value()),
-            execution_payment_eth = format_ether(bid.execution_payment()),
+            bid_eth = format_gwei_as_eth(total_payment(bid)),
+            trustless_bid_eth = format_gwei_as_eth(bid.value()),
+            execution_payment_eth = format_gwei_as_eth(bid.execution_payment()),
             block_hash = %bid.block_hash(),
             "auction winner"
         );
@@ -367,6 +365,12 @@ fn validate_builder_request_auth(
 
 fn total_payment(bid: &impl GetExecutionPayloadBidInfo) -> u64 {
     bid.value().saturating_add(bid.execution_payment())
+}
+
+/// Bid amounts are denominated in gwei, but `format_ether` expects wei; scale up
+/// before formatting so the human-readable `_eth` log fields are correct.
+fn format_gwei_as_eth(gwei: u64) -> String {
+    format_ether(U256::from(gwei) * U256::from(1_000_000_000u64))
 }
 
 /// The execution-payment cap used when ranking a relay's bids: the per-relay
@@ -687,9 +691,9 @@ async fn send_one_get_execution_payload_bid(
         header_size_bytes,
         latency = ?request_latency,
         version =? get_header_response.version,
-        bid_eth = format_ether(get_header_response.data.message.value + get_header_response.data.message.execution_payment),
-        trustless_bid_eth = format_ether(get_header_response.data.message.value),
-        execution_payment_eth = format_ether(get_header_response.data.message.execution_payment),
+        bid_eth = format_gwei_as_eth(get_header_response.data.message.value + get_header_response.data.message.execution_payment),
+        trustless_bid_eth = format_gwei_as_eth(get_header_response.data.message.value),
+        execution_payment_eth = format_gwei_as_eth(get_header_response.data.message.execution_payment),
         block_hash = %get_header_response.data.message.block_hash,
         "received new header"
     );
