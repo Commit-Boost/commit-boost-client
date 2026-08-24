@@ -1,22 +1,19 @@
-use std::time::Duration;
-
 use axum::{body::Bytes, extract::State, http::HeaderMap, response::IntoResponse};
 use cb_common::{
     pbs::{RelayClient, SignedBeaconBlock, error::PbsError, is_gloas},
-    wire::{EncodingType, decode_signed_beacon_block, get_user_agent, safe_read_http_response},
+    wire::{decode_signed_beacon_block, get_user_agent},
 };
 use futures::future::join_all;
-use reqwest::{StatusCode, header::CONTENT_TYPE};
+use reqwest::StatusCode;
 use ssz::Encode;
 use tracing::{Instrument, error, info};
 
 use crate::{
     PbsStateGuard,
-    constants::{MAX_SIZE_DEFAULT, SUBMIT_SIGNED_BEACON_BLOCK_ENDPOINT_TAG},
+    constants::SUBMIT_SIGNED_BEACON_BLOCK_ENDPOINT_TAG,
     error::PbsClientError,
-    metrics::BEACON_NODE_STATUS,
     state::{BuilderApiState, PbsState},
-    utils::{epbs_base_send_headers, expect_status, record_client_error, send_to_relay},
+    utils::{epbs_base_send_headers, post_ssz_expect_accepted, record_beacon_status, record_client_error},
 };
 
 /// The body is the required `SignedBeaconBlock`. `Eth-Consensus-Version` is
@@ -38,20 +35,12 @@ pub async fn handle_submit_signed_beacon_block<S: BuilderApiState>(
 
     match submit_signed_beacon_block(block, req_headers, state).await {
         Ok(()) => {
-            BEACON_NODE_STATUS
-                .with_label_values(&["202", SUBMIT_SIGNED_BEACON_BLOCK_ENDPOINT_TAG])
-                .inc();
+            record_beacon_status("202", SUBMIT_SIGNED_BEACON_BLOCK_ENDPOINT_TAG);
             Ok(StatusCode::ACCEPTED.into_response())
         }
         Err(err) => {
             error!(%err, "submit_signed_beacon_block failed");
-
-            BEACON_NODE_STATUS
-                .with_label_values(&[
-                    err.status_code().as_str(),
-                    SUBMIT_SIGNED_BEACON_BLOCK_ENDPOINT_TAG,
-                ])
-                .inc();
+            record_beacon_status(err.status_code().as_str(), SUBMIT_SIGNED_BEACON_BLOCK_ENDPOINT_TAG);
             Err(err)
         }
     }
@@ -124,23 +113,14 @@ async fn send_one_submit_signed_beacon_block(
 
     // Every builder implements SSZ for this new endpoint, so the block is
     // forwarded in SSZ (the fork travels in Eth-Consensus-Version).
-    let req = relay
-        .client
-        .post(url)
-        .timeout(Duration::from_millis(timeout_ms))
-        .headers(headers)
-        .header(CONTENT_TYPE, EncodingType::Ssz.content_type_header().clone())
-        .body(body);
-    let (res, _latency) =
-        send_to_relay(req, &relay, SUBMIT_SIGNED_BEACON_BLOCK_ENDPOINT_TAG).await?;
-    let code = res.status();
-
-    // Cap the read: a builder is untrusted and must not stream an unbounded
-    // error body into memory and the logs
-    safe_read_http_response(res, MAX_SIZE_DEFAULT).await?;
-
-    // 202 is the spec's only success; the builder publishes the payload envelope
-    expect_status(code, StatusCode::ACCEPTED)?;
-
+    post_ssz_expect_accepted(
+        &relay,
+        url,
+        body,
+        headers,
+        timeout_ms,
+        SUBMIT_SIGNED_BEACON_BLOCK_ENDPOINT_TAG,
+    )
+    .await?;
     Ok(())
 }

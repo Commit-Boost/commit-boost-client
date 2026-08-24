@@ -10,7 +10,7 @@ use axum::{
     body::Bytes,
     extract::{Path, State},
     http::{HeaderMap, HeaderValue},
-    response::IntoResponse,
+    response::{IntoResponse, Response},
 };
 use cb_common::{
     config::PbsConfig,
@@ -45,11 +45,12 @@ use crate::{
         GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG, MAX_SIZE_GET_HEADER_RESPONSE, TIMEOUT_ERROR_CODE,
     },
     error::PbsClientError,
-    metrics::{BEACON_NODE_STATUS, RELAY_HEADER_VALUE, RELAY_LAST_SLOT},
+    metrics::{RELAY_HEADER_VALUE, RELAY_LAST_SLOT},
     state::{BuilderApiState, PbsState},
     utils::{
-        check_gas_limit, epbs_base_send_headers, match_relays_by_auth_data, record_client_error,
-        send_to_relay, transient_pipe_relay, validate_auth_data, verify_auth_signature,
+        check_gas_limit, epbs_base_send_headers, log_mux_selection, record_beacon_status,
+        record_client_error, resolve_addressed_relays, send_to_relay, validate_auth_data,
+        verify_auth_signature,
     },
 };
 
@@ -92,67 +93,58 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
     info!(ua, ms_into_slot, "new request");
 
     match get_execution_payload_bid(params, body, req_headers, state).await {
-        Ok(res) => {
-            if let Some(max_bid) = res {
-                info!(trustless_bid_eth = format_ether(max_bid.value()), execution_payment_eth = format_ether(max_bid.execution_payment()), block_hash =% max_bid.block_hash(), builder_index = max_bid.builder_index(), "received header");
-
-                // Eth-Consensus-Version is required on the 200 for both encodings
-                let consensus_version_header = HeaderValue::from_str(&max_bid.version.to_string())
-                    .expect("fork name is always a valid header value");
-
-                match response_encoding {
-                    // Unreachable in practice: get_accept_types errors (-> 406
-                    // above) when the caller offers nothing we support. Counted
-                    // here, NOT above, so a request emits exactly one label.
-                    None => {
-                        BEACON_NODE_STATUS
-                            .with_label_values(&["406", GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG])
-                            .inc();
-                        Err(PbsClientError::HeaderError(
-                            AcceptedEncodingsError::UnsupportedAcceptType,
-                        ))
-                    }
-                    Some(EncodingType::Ssz) => {
-                        BEACON_NODE_STATUS
-                            .with_label_values(&["200", GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG])
-                            .inc();
-                        let mut res = max_bid.data.as_ssz_bytes().into_response();
-                        res.headers_mut()
-                            .insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
-                        res.headers_mut()
-                            .insert(CONTENT_TYPE, EncodingType::Ssz.content_type_header().clone());
-                        Ok(res)
-                    }
-                    Some(EncodingType::Json) => {
-                        BEACON_NODE_STATUS
-                            .with_label_values(&["200", GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG])
-                            .inc();
-                        let mut res = axum::Json(max_bid).into_response();
-                        res.headers_mut()
-                            .insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
-                        Ok(res)
-                    }
-                }
-            } else {
-                // spec: return 204 if request is valid but no bid available
-                info!("no header available for slot");
-
-                BEACON_NODE_STATUS
-                    .with_label_values(&["204", GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG])
-                    .inc();
-                Ok(StatusCode::NO_CONTENT.into_response())
-            }
+        Ok(Some(max_bid)) => {
+            encode_bid_response(max_bid, response_encoding, GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG)
+        }
+        Ok(None) => {
+            // spec: return 204 if request is valid but no bid available
+            info!("no header available for slot");
+            record_beacon_status("204", GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG);
+            Ok(StatusCode::NO_CONTENT.into_response())
         }
         Err(err) => {
             error!(%err, "get_execution_payload_bid failed");
-
-            BEACON_NODE_STATUS
-                .with_label_values(&[
-                    err.status_code().as_str(),
-                    GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG,
-                ])
-                .inc();
+            record_beacon_status(err.status_code().as_str(), GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG);
             Err(err)
+        }
+    }
+}
+
+/// Encodes a winning bid into the 200 response for the caller's negotiated
+/// encoding, stamping the required `Eth-Consensus-Version` header and counting
+/// the returned status. The `None` (no supported encoding) arm is unreachable
+/// in practice - `get_accept_types` already 406s an unsupported Accept, and it
+/// is counted here so a request emits exactly one label - but is kept as a
+/// defensive 406.
+fn encode_bid_response(
+    max_bid: GetExecutionPayloadBidResponse,
+    response_encoding: Option<EncodingType>,
+    endpoint: &str,
+) -> Result<Response, PbsClientError> {
+    info!(trustless_bid_eth = format_ether(max_bid.value()), execution_payment_eth = format_ether(max_bid.execution_payment()), block_hash =% max_bid.block_hash(), builder_index = max_bid.builder_index(), "received header");
+
+    // Eth-Consensus-Version is required on the 200 for both encodings
+    let consensus_version_header = HeaderValue::from_str(&max_bid.version.to_string())
+        .expect("fork name is always a valid header value");
+
+    match response_encoding {
+        None => {
+            record_beacon_status("406", endpoint);
+            Err(PbsClientError::HeaderError(AcceptedEncodingsError::UnsupportedAcceptType))
+        }
+        Some(EncodingType::Ssz) => {
+            record_beacon_status("200", endpoint);
+            let mut res = max_bid.data.as_ssz_bytes().into_response();
+            res.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
+            res.headers_mut()
+                .insert(CONTENT_TYPE, EncodingType::Ssz.content_type_header().clone());
+            Ok(res)
+        }
+        Some(EncodingType::Json) => {
+            record_beacon_status("200", endpoint);
+            let mut res = axum::Json(max_bid).into_response();
+            res.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
+            Ok(res)
         }
     }
 }
@@ -169,11 +161,7 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
     let (pbs_config, relays, maybe_mux_id) = state.mux_config_and_relays(&params.proposer_pubkey);
 
-    if let Some(mux_id) = maybe_mux_id {
-        debug!(mux_id, relays = relays.len(), pubkey = %params.proposer_pubkey, "using mux config");
-    } else {
-        debug!(relays = relays.len(), pubkey = %params.proposer_pubkey, "using default config");
-    }
+    log_mux_selection(maybe_mux_id, relays.len(), &params.proposer_pubkey);
 
     // Validate before any outbound work so a rejected request costs nothing
     validate_builder_request_auth(&body, &params, state.config.chain, pbs_config.verify_builder_request_auth)?;
@@ -187,15 +175,11 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
         );
     }
 
-    let matched = match_relays_by_auth_data(relays, body.message.data.as_ref());
-    let is_pipe = matched.is_empty();
-    let relays: Vec<RelayClient> = if is_pipe {
-        // No configured relay serves this auth data: pipe the request to the
-        // builder URL the proposer's signed auth data names (self-URL guarded)
-        vec![transient_pipe_relay(body.message.data.as_ref(), &pbs_config.advertised_urls)?]
-    } else {
-        matched.into_iter().cloned().collect()
-    };
+    let relays = resolve_addressed_relays(
+        relays,
+        body.message.data.as_ref(),
+        &pbs_config.advertised_urls,
+    )?;
 
     let max_timeout_ms = pbs_config
         .timeout_get_header_ms

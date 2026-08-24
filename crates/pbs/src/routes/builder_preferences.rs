@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use axum::{
     body::Bytes,
     extract::{Path, State},
@@ -13,22 +11,21 @@ use cb_common::{
     },
     types::Chain,
     utils::ms_into_slot,
-    wire::{EncodingType, decode_versioned_request_body, get_user_agent, safe_read_http_response},
+    wire::{decode_versioned_request_body, get_user_agent},
 };
 use futures::{FutureExt, future::join_all};
-use reqwest::{StatusCode, header::CONTENT_TYPE};
+use reqwest::StatusCode;
 use ssz::Encode;
 use tracing::{Instrument, debug, error, info, warn};
 
 use crate::{
     PbsStateGuard,
-    constants::{MAX_SIZE_DEFAULT, SUBMIT_BUILDER_PREFERENCES_ENDPOINT_TAG},
+    constants::SUBMIT_BUILDER_PREFERENCES_ENDPOINT_TAG,
     error::PbsClientError,
-    metrics::BEACON_NODE_STATUS,
     state::{BuilderApiState, PbsState},
     utils::{
-        epbs_base_send_headers, expect_status, match_relays_by_auth_data, record_client_error,
-        send_to_relay, transient_pipe_relay, validate_auth_data, verify_auth_signature,
+        epbs_base_send_headers, log_mux_selection, post_ssz_expect_accepted, record_beacon_status,
+        record_client_error, resolve_addressed_relays, validate_auth_data, verify_auth_signature,
     },
 };
 
@@ -58,20 +55,12 @@ pub async fn handle_submit_builder_preferences<S: BuilderApiState>(
 
     match submit_builder_preferences(params, request, req_headers, state).await {
         Ok(()) => {
-            BEACON_NODE_STATUS
-                .with_label_values(&["202", SUBMIT_BUILDER_PREFERENCES_ENDPOINT_TAG])
-                .inc();
+            record_beacon_status("202", SUBMIT_BUILDER_PREFERENCES_ENDPOINT_TAG);
             Ok(StatusCode::ACCEPTED.into_response())
         }
         Err(err) => {
             error!(%err, "submit_builder_preferences failed");
-
-            BEACON_NODE_STATUS
-                .with_label_values(&[
-                    err.status_code().as_str(),
-                    SUBMIT_BUILDER_PREFERENCES_ENDPOINT_TAG,
-                ])
-                .inc();
+            record_beacon_status(err.status_code().as_str(), SUBMIT_BUILDER_PREFERENCES_ENDPOINT_TAG);
             Err(err)
         }
     }
@@ -87,11 +76,7 @@ pub async fn submit_builder_preferences<S: BuilderApiState>(
 ) -> Result<(), PbsClientError> {
     let (pbs_config, relays, maybe_mux_id) = state.mux_config_and_relays(&params.proposer_pubkey);
 
-    if let Some(mux_id) = maybe_mux_id {
-        debug!(mux_id, relays = relays.len(), pubkey = %params.proposer_pubkey, "using mux config");
-    } else {
-        debug!(relays = relays.len(), pubkey = %params.proposer_pubkey, "using default config");
-    }
+    log_mux_selection(maybe_mux_id, relays.len(), &params.proposer_pubkey);
 
     // Validate before any outbound work so a rejected request costs nothing
     validate_preferences_auth(
@@ -101,15 +86,11 @@ pub async fn submit_builder_preferences<S: BuilderApiState>(
         pbs_config.verify_builder_request_auth,
     )?;
 
-    let matched = match_relays_by_auth_data(relays, request.auth.message.data.as_ref());
-    let relays: Vec<RelayClient> = if matched.is_empty() {
-        // No configured relay serves this auth data: pipe the preferences to
-        // the builder URL the proposer's signed auth data names (self-URL
-        // guarded), mirroring the bid endpoint's demux semantics
-        vec![transient_pipe_relay(request.auth.message.data.as_ref(), &pbs_config.advertised_urls)?]
-    } else {
-        matched.into_iter().cloned().collect()
-    };
+    let relays = resolve_addressed_relays(
+        relays,
+        request.auth.message.data.as_ref(),
+        &pbs_config.advertised_urls,
+    )?;
 
     let send_headers = epbs_base_send_headers(&req_headers)?;
 
@@ -212,24 +193,15 @@ async fn send_one_submit_builder_preferences(
 
     // The builder decodes what the proposer signed either way, and SSZ is the
     // faster wire format on the relay hop
-    let req = relay
-        .client
-        .post(url)
-        .timeout(Duration::from_millis(timeout_ms))
-        .headers(headers)
-        .header(CONTENT_TYPE, EncodingType::Ssz.content_type_header().clone())
-        .body(request.as_ssz_bytes());
-    let (res, request_latency) =
-        send_to_relay(req, &relay, SUBMIT_BUILDER_PREFERENCES_ENDPOINT_TAG).await?;
-    let code = res.status();
-
-    // Cap the read like every other relay call: a builder is untrusted and must
-    // not be able to stream an unbounded error body into memory and the logs
-    safe_read_http_response(res, MAX_SIZE_DEFAULT).await?;
-
-    // The spec makes 202 the only success: another 2xx means the builder did not
-    // commit to storing these preferences
-    expect_status(code, StatusCode::ACCEPTED)?;
+    let request_latency = post_ssz_expect_accepted(
+        &relay,
+        url,
+        request.as_ssz_bytes(),
+        headers,
+        timeout_ms,
+        SUBMIT_BUILDER_PREFERENCES_ENDPOINT_TAG,
+    )
+    .await?;
 
     debug!(relay_id = relay.id.as_ref(), latency = ?request_latency, "preferences accepted");
     Ok(())

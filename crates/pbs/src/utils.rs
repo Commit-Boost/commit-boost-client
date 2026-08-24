@@ -8,17 +8,17 @@ use cb_common::{
     pbs::{ForkName, RelayClient, RelayEntry, SignedBuilderRequestAuth, error::PbsError},
     signature::verify_builder_request_auth_signature,
     types::{BlsPublicKey, BlsSecretKey, Chain},
-    wire::{CONSENSUS_VERSION_HEADER, get_user_agent_with_version},
+    wire::{CONSENSUS_VERSION_HEADER, EncodingType, get_user_agent_with_version, safe_read_http_response},
 };
 use reqwest::{
     StatusCode,
-    header::{HeaderMap, HeaderValue, USER_AGENT},
+    header::{CONTENT_TYPE, HeaderMap, HeaderValue, USER_AGENT},
 };
-use tracing::warn;
+use tracing::{debug, warn};
 use url::Url;
 
 use crate::{
-    constants::TIMEOUT_ERROR_CODE_STR,
+    constants::{MAX_SIZE_DEFAULT, TIMEOUT_ERROR_CODE_STR},
     error::PbsClientError,
     metrics::{RELAY_LATENCY, RELAY_STATUS_CODE},
 };
@@ -67,6 +67,24 @@ pub(crate) fn record_client_error(
     err
 }
 
+/// Records the HTTP status CB returned to the beacon node for one request on an
+/// ePBS endpoint. One home for the `(status, endpoint)` label pair the three
+/// handlers all bump.
+pub(crate) fn record_beacon_status(code: &str, endpoint: &str) {
+    crate::metrics::BEACON_NODE_STATUS.with_label_values(&[code, endpoint]).inc();
+}
+
+/// Logs which relay set an ePBS demux request resolved to (a mux's relays or
+/// the default set), shared by the bid and preferences endpoints.
+pub(crate) fn log_mux_selection(maybe_mux_id: Option<&str>, relay_count: usize, pubkey: &BlsPublicKey) {
+    match maybe_mux_id {
+        Some(mux_id) => {
+            debug!(mux_id, relays = relay_count, pubkey = %pubkey, "using mux config")
+        }
+        None => debug!(relays = relay_count, pubkey = %pubkey, "using default config"),
+    }
+}
+
 /// Count a relay response that CB rejected during validation, by reason (see
 /// `RELAY_INVALID_RESPONSE` for why this is a separate signal from the relay's
 /// HTTP status).
@@ -85,6 +103,33 @@ pub(crate) fn expect_status(code: StatusCode, expected: StatusCode) -> Result<()
         });
     }
     Ok(())
+}
+
+/// POSTs an SSZ body to a builder and enforces the ePBS write-endpoint
+/// contract: 202 Accepted is the only success. The response body is read (and
+/// capped) then discarded - a builder is untrusted and must not stream an
+/// unbounded error body into memory or the logs. Returns the request latency.
+/// Shared by `submitBuilderPreferences` and `submitSignedBeaconBlock`.
+pub(crate) async fn post_ssz_expect_accepted(
+    relay: &RelayClient,
+    url: Url,
+    body: impl Into<reqwest::Body>,
+    headers: HeaderMap,
+    timeout_ms: u64,
+    tag: &str,
+) -> Result<Duration, PbsError> {
+    let req = relay
+        .client
+        .post(url)
+        .timeout(Duration::from_millis(timeout_ms))
+        .headers(headers)
+        .header(CONTENT_TYPE, EncodingType::Ssz.content_type_header().clone())
+        .body(body);
+    let (res, latency) = send_to_relay(req, relay, tag).await?;
+    let code = res.status();
+    safe_read_http_response(res, MAX_SIZE_DEFAULT).await?;
+    expect_status(code, StatusCode::ACCEPTED)?;
+    Ok(latency)
 }
 
 /// Base outbound headers shared by the ePBS endpoints: the versioned
@@ -199,6 +244,24 @@ pub(crate) fn match_relays_by_auth_data<'a>(
             }
         })
         .collect()
+}
+
+/// Resolves the relays an ePBS demux request is sent to: the configured relays
+/// whose auth data matches (see [`match_relays_by_auth_data`]), or, when none
+/// match, a single transient pipe relay dialing the builder URL the auth data
+/// names (self-URL guarded, see [`transient_pipe_relay`]). Shared by the bid
+/// and preferences endpoints so their demux cannot diverge.
+pub(crate) fn resolve_addressed_relays(
+    relays: &[RelayClient],
+    auth_data: &[u8],
+    advertised_urls: &[Url],
+) -> Result<Vec<RelayClient>, PbsClientError> {
+    let matched = match_relays_by_auth_data(relays, auth_data);
+    if matched.is_empty() {
+        Ok(vec![transient_pipe_relay(auth_data, advertised_urls)?])
+    } else {
+        Ok(matched.into_iter().cloned().collect())
+    }
 }
 
 /// Extracts a builder URL from `auth.message.data` using Commit-Boost's

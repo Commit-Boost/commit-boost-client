@@ -315,15 +315,10 @@ fn ensure_no_lax_ambiguity(mux_id: &str, classes: &BTreeMap<Vec<u8>, AuthClass>)
     Ok(())
 }
 
-fn project_mux(
-    input: &ProjectionInput,
-    mux: &MuxConfig,
-    raw_urls: &[String],
-    advertised_url: &str,
-    warnings: &mut Vec<String>,
-) -> Result<BuilderConfigDoc> {
-    ensure!(!mux.relays.is_empty(), "mux {} has no relays", mux.id);
-
+/// Groups a mux's relays into auth_data equivalence classes keyed by identical
+/// candidate bytes, unioning each class's builder pubkeys, requiring one shared
+/// execution-payment cap per class, and enforcing the KM entry-count limit.
+fn build_auth_classes(mux: &MuxConfig, raw_urls: &[String]) -> Result<BTreeMap<Vec<u8>, AuthClass>> {
     let mut classes: BTreeMap<Vec<u8>, AuthClass> = BTreeMap::new();
     for (relay, raw_url) in mux.relays.iter().zip(raw_urls) {
         let bytes = candidate_auth_data(relay, raw_url);
@@ -360,6 +355,19 @@ fn project_mux(
         classes.len()
     );
 
+    Ok(classes)
+}
+
+fn project_mux(
+    input: &ProjectionInput,
+    mux: &MuxConfig,
+    raw_urls: &[String],
+    advertised_url: &str,
+    warnings: &mut Vec<String>,
+) -> Result<BuilderConfigDoc> {
+    ensure!(!mux.relays.is_empty(), "mux {} has no relays", mux.id);
+
+    let classes = build_auth_classes(mux, raw_urls)?;
     ensure_no_lax_ambiguity(&mux.id, &classes)?;
 
     // Entry values are mux/global-sourced; the KEY-LEVEL values come from the

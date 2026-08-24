@@ -12,7 +12,7 @@ use tracing::{info, warn};
 use crate::{
     client::{GetConfigOutcome, KmClient, PostOutcome, read_token},
     doc::{BuilderConfigDoc, BuilderEntryDoc},
-    overlay::Overlay,
+    overlay::{Overlay, VcConfig},
     project::{
         MAX_BUILDER_ENTRIES, MAX_BUILDER_PUBKEYS, Projection, ProjectionInput, project,
         project_with_url,
@@ -111,106 +111,8 @@ pub async fn run_apply(
     let mut all_enumerated: BTreeSet<String> = BTreeSet::new();
 
     for vc in &overlay.vcs {
-        let vc_name = vc.url.to_string();
-        let token = read_token(Path::new(&vc.token_path))?;
-        let client = KmClient::new(vc.url.clone(), token)?;
-
-        let enumerated = match client.list_keystores().await {
-            Ok(keys) => keys,
-            Err(err) => {
-                report.error(format!("{vc_name}: keystores preflight failed: {err}"));
-                continue;
-            }
-        };
-        all_enumerated.extend(enumerated.iter().cloned());
-
-        match preflight_builder_config(&client, &enumerated).await {
-            Ok(Preflight::Supported) => {}
-            Ok(Preflight::Unsupported) => {
-                report.error(format!(
-                    "{vc_name}: no builder_config support (keymanager-APIs #88); skipping"
-                ));
-                continue;
-            }
-            Ok(Preflight::Unknown) => {
-                report.warn(format!(
-                    "{vc_name}: no keys to probe for builder_config support; POSTing anyway"
-                ));
-            }
-            Err(err) => {
-                report.error(format!("{vc_name}: builder_config probe failed: {err}"));
-                continue;
-            }
-        }
-
-        let vc_projection = project_with_url(input, overlay.advertised_url_for(vc))?;
-        for (key, doc) in &vc_projection.docs {
-            let key = key.to_string();
-
-            // --preserve-entries: fold any third-party builder entries the VC
-            // already stores back into our doc so the full-replace POST does
-            // not erase them.
-            let merged;
-            let doc = if opts.preserve_entries {
-                match client.get_builder_config(&key).await {
-                    Ok(GetConfigOutcome::Ok(stored)) => {
-                        match merge_preserved_entries(&key, doc, &stored) {
-                            Ok(m) => {
-                                merged = m;
-                                &merged
-                            }
-                            Err(err) => {
-                                report.error(format!(
-                                    "{vc_name}: preserve-entries merge for {key} failed: {err}"
-                                ));
-                                continue;
-                            }
-                        }
-                    }
-                    // nothing stored (or route absent for this key): POST ours
-                    Ok(GetConfigOutcome::NotFound) => doc,
-                    Err(err) => {
-                        report.error(format!(
-                            "{vc_name}: preserve-entries GET for {key} failed: {err}"
-                        ));
-                        continue;
-                    }
-                }
-            } else {
-                doc
-            };
-
-            match client.post_builder_config(&key, doc).await {
-                Ok(PostOutcome::Accepted) => {
-                    report.accepted.entry(key).or_default().push(vc_name.clone());
-                }
-                Ok(PostOutcome::KeyNotFound) => {}
-                Ok(PostOutcome::ConfigFileManaged) => {
-                    report
-                        .warn(format!("{vc_name}: {key} is config-file-managed, cannot override"));
-                }
-                Err(err) => report.error(format!("{vc_name}: POST {key} failed: {err}")),
-            }
-        }
-
-        if opts.prune {
-            for key in &enumerated {
-                if !projected_keys.contains(key) {
-                    // POST {} is spec-equal to DELETE and a no-op when nothing
-                    // is stored
-                    match client.post_builder_config(key, &BuilderConfigDoc::default()).await {
-                        Ok(PostOutcome::Accepted) => {
-                            report.pruned.push((vc_name.clone(), key.clone()));
-                        }
-                        Ok(other) => report
-                            .warn(format!("{vc_name}: prune of {key} not accepted: {other:?}")),
-                        Err(err) => {
-                            report.error(format!("{vc_name}: prune of {key} failed: {err}"))
-                        }
-                    }
-                }
-            }
-        }
+        apply_to_vc(vc, input, overlay, opts, &projected_keys, &mut all_enumerated, &mut report)
+            .await?;
     }
 
     // coverage warning (default on): enumerated keys outside the projection
@@ -232,6 +134,122 @@ pub async fn run_apply(
     }
 
     Ok(report)
+}
+
+/// Applies the projection to one VC: enumerate its keys, confirm #88 support,
+/// POST each projected doc (folding in preserved entries when asked), and prune
+/// unprojected keys. A per-VC failure is recorded on the report and returns
+/// early rather than aborting the whole run; only a transport/setup error
+/// propagates.
+async fn apply_to_vc(
+    vc: &VcConfig,
+    input: &ProjectionInput,
+    overlay: &Overlay,
+    opts: &ApplyOptions,
+    projected_keys: &BTreeSet<String>,
+    all_enumerated: &mut BTreeSet<String>,
+    report: &mut ApplyReport,
+) -> Result<()> {
+    let vc_name = vc.url.to_string();
+    let token = read_token(Path::new(&vc.token_path))?;
+    let client = KmClient::new(vc.url.clone(), token)?;
+
+    let enumerated = match client.list_keystores().await {
+        Ok(keys) => keys,
+        Err(err) => {
+            report.error(format!("{vc_name}: keystores preflight failed: {err}"));
+            return Ok(());
+        }
+    };
+    all_enumerated.extend(enumerated.iter().cloned());
+
+    match preflight_builder_config(&client, &enumerated).await {
+        Ok(Preflight::Supported) => {}
+        Ok(Preflight::Unsupported) => {
+            report.error(format!(
+                "{vc_name}: no builder_config support (keymanager-APIs #88); skipping"
+            ));
+            return Ok(());
+        }
+        Ok(Preflight::Unknown) => {
+            report.warn(format!(
+                "{vc_name}: no keys to probe for builder_config support; POSTing anyway"
+            ));
+        }
+        Err(err) => {
+            report.error(format!("{vc_name}: builder_config probe failed: {err}"));
+            return Ok(());
+        }
+    }
+
+    let vc_projection = project_with_url(input, overlay.advertised_url_for(vc))?;
+    for (key, doc) in &vc_projection.docs {
+        let key = key.to_string();
+
+        // --preserve-entries: fold any third-party builder entries the VC
+        // already stores back into our doc so the full-replace POST does
+        // not erase them.
+        let merged;
+        let doc = if opts.preserve_entries {
+            match client.get_builder_config(&key).await {
+                Ok(GetConfigOutcome::Ok(stored)) => {
+                    match merge_preserved_entries(&key, doc, &stored) {
+                        Ok(m) => {
+                            merged = m;
+                            &merged
+                        }
+                        Err(err) => {
+                            report.error(format!(
+                                "{vc_name}: preserve-entries merge for {key} failed: {err}"
+                            ));
+                            continue;
+                        }
+                    }
+                }
+                // nothing stored (or route absent for this key): POST ours
+                Ok(GetConfigOutcome::NotFound) => doc,
+                Err(err) => {
+                    report.error(format!(
+                        "{vc_name}: preserve-entries GET for {key} failed: {err}"
+                    ));
+                    continue;
+                }
+            }
+        } else {
+            doc
+        };
+
+        match client.post_builder_config(&key, doc).await {
+            Ok(PostOutcome::Accepted) => {
+                report.accepted.entry(key).or_default().push(vc_name.clone());
+            }
+            Ok(PostOutcome::KeyNotFound) => {}
+            Ok(PostOutcome::ConfigFileManaged) => {
+                report.warn(format!("{vc_name}: {key} is config-file-managed, cannot override"));
+            }
+            Err(err) => report.error(format!("{vc_name}: POST {key} failed: {err}")),
+        }
+    }
+
+    if opts.prune {
+        for key in &enumerated {
+            if !projected_keys.contains(key) {
+                // POST {} is spec-equal to DELETE and a no-op when nothing
+                // is stored
+                match client.post_builder_config(key, &BuilderConfigDoc::default()).await {
+                    Ok(PostOutcome::Accepted) => {
+                        report.pruned.push((vc_name.clone(), key.clone()));
+                    }
+                    Ok(other) => {
+                        report.warn(format!("{vc_name}: prune of {key} not accepted: {other:?}"))
+                    }
+                    Err(err) => report.error(format!("{vc_name}: prune of {key} failed: {err}")),
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// An entry's identity for the preserve merge: its URL and DECODED auth_data

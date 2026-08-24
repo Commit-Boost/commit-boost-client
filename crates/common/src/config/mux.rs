@@ -100,29 +100,19 @@ impl PbsMuxes {
                 "using mux"
             );
 
-            if mux.builder_boost_factor.is_some() {
-                info!(
-                    "field builder_boost_factor on mux {} is applied via KM tooling, not by the PBS runtime",
-                    mux.id
-                );
-            }
-            if mux.min_bid_wei.is_some() {
-                info!(
-                    "field min_bid_eth on mux {} is applied via KM tooling, not by the PBS runtime",
-                    mux.id
-                );
-            }
-            if mux.builder_boost_factor_p2p.is_some() {
-                info!(
-                    "field builder_boost_factor_p2p on mux {} is applied via KM tooling, not by the PBS runtime",
-                    mux.id
-                );
-            }
-            if mux.min_bid_p2p_wei.is_some() {
-                info!(
-                    "field min_bid_p2p_eth on mux {} is applied via KM tooling, not by the PBS runtime",
-                    mux.id
-                );
+            // Serde-renamed names, so the message column is explicit
+            for (present, name) in [
+                (mux.builder_boost_factor.is_some(), "builder_boost_factor"),
+                (mux.min_bid_wei.is_some(), "min_bid_eth"),
+                (mux.builder_boost_factor_p2p.is_some(), "builder_boost_factor_p2p"),
+                (mux.min_bid_p2p_wei.is_some(), "min_bid_p2p_eth"),
+            ] {
+                if present {
+                    info!(
+                        "field {name} on mux {} is applied via KM tooling, not by the PBS runtime",
+                        mux.id
+                    );
+                }
             }
 
             let mut relay_clients = Vec::with_capacity(mux.relays.len());
