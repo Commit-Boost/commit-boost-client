@@ -488,8 +488,6 @@ mod tests {
                     ssv_node_api_url: Url::parse("https://example.net").unwrap(),
                     ssv_public_api_url: Url::parse("https://example.net").unwrap(),
                     advertised_urls: vec![],
-                    gloas_fork_version: None,
-                    genesis_validators_root: None,
                     min_bid_p2p_wei: None,
                     builder_boost_factor_p2p: None,
                 },

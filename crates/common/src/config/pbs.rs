@@ -8,7 +8,7 @@ use std::{
 };
 
 use alloy::{
-    primitives::{Address, B256, Bytes, U256, aliases::B32, utils::format_ether},
+    primitives::{Address, Bytes, U256, utils::format_ether},
     providers::{Provider, ProviderBuilder},
 };
 use docker_image::DockerImage;
@@ -28,7 +28,6 @@ use crate::{
         PbsMuxes, SIGNER_TLS_CERTIFICATE_NAME, SIGNER_TLS_CERTIFICATES_PATH_ENV, SIGNER_URL_ENV,
         SignerConfig, TlsMode, load_env_var, load_file_from_env,
     },
-    constants::{GENESIS_VALIDATORS_ROOT, GLOAS_FORK_VERSION},
     pbs::{
         DEFAULT_PBS_PORT, DEFAULT_REGISTRY_REFRESH_SECONDS, DefaultTimeout, LATE_IN_SLOT_TIME_MS,
         REGISTER_VALIDATOR_RETRY_LIMIT, RelayClient, RelayEntry,
@@ -189,18 +188,6 @@ pub struct PbsConfig {
     /// CB's externally-reachable URLs; used by the ePBS pipe self-URL guard
     #[serde(default)]
     pub advertised_urls: Vec<Url>,
-    /// Gloas fork version (0x-hex, 4 bytes) used in the ePBS bid signing
-    /// domain. Override for devnets/networks whose gloas fork version differs
-    /// from the built-in constant -- see ticket e14e42d5 on deriving these from
-    /// the fork schedule. Unset = the built-in constant (behavior unchanged)
-    #[serde(default)]
-    pub gloas_fork_version: Option<B32>,
-    /// Genesis validators root (0x-hex, 32 bytes) used in the ePBS bid signing
-    /// domain. Override for devnets/networks whose genesis root differs from
-    /// the built-in constant -- see ticket e14e42d5 on deriving these from the
-    /// fork schedule. Unset = the built-in constant (behavior unchanged)
-    #[serde(default)]
-    pub genesis_validators_root: Option<B256>,
     /// Projection-only: consumed by KM tooling, not read by the PBS runtime.
     /// The ePBS KEY-LEVEL minimum total payment: it governs p2p bids and
     /// builder entries that omit their own min_bid (projected entries always
@@ -220,18 +207,6 @@ pub struct PbsConfig {
 }
 
 impl PbsConfig {
-    /// Gloas fork version for the ePBS bid signing domain: the configured
-    /// override, else the built-in constant.
-    pub fn bid_fork_version(&self) -> [u8; 4] {
-        self.gloas_fork_version.map(|v| v.0).unwrap_or(GLOAS_FORK_VERSION)
-    }
-
-    /// Genesis validators root for the ePBS bid signing domain: the configured
-    /// override, else the built-in constant.
-    pub fn bid_genesis_validators_root(&self) -> B256 {
-        self.genesis_validators_root.unwrap_or_else(|| B256::from(GENESIS_VALIDATORS_ROOT))
-    }
-
     /// Validate PBS config parameters
     pub async fn validate(&self, chain: Chain) -> Result<()> {
         // timeouts must be positive
@@ -546,21 +521,7 @@ fn default_public_ssv_api_url() -> Url {
 
 #[cfg(test)]
 mod tests {
-    use alloy::primitives::{B256, aliases::B32, b256};
-
     use super::*;
-    use crate::constants::{GENESIS_VALIDATORS_ROOT, GLOAS_FORK_VERSION};
-
-    // Absent overrides fall back to the built-in constants: existing configs
-    // keep verifying bids exactly as before.
-    #[test]
-    fn bid_domain_params_default_to_constants() {
-        let cfg: PbsConfig = toml::from_str("").unwrap();
-        assert_eq!(cfg.gloas_fork_version, None);
-        assert_eq!(cfg.genesis_validators_root, None);
-        assert_eq!(cfg.bid_fork_version(), GLOAS_FORK_VERSION);
-        assert_eq!(cfg.bid_genesis_validators_root(), B256::from(GENESIS_VALIDATORS_ROOT));
-    }
 
     // Projection-only p2p fields: parsed for KM tooling, absent = None so
     // existing configs project exactly as before.
@@ -579,23 +540,5 @@ mod tests {
         .unwrap();
         assert_eq!(cfg.min_bid_p2p_wei, Some(U256::from(200_000_000_000_000_000u64)));
         assert_eq!(cfg.builder_boost_factor_p2p, Some(0));
-    }
-
-    // Configured overrides are what the bid domain sees, parsed from 0x-hex.
-    #[test]
-    fn bid_domain_params_use_configured_overrides() {
-        let cfg: PbsConfig = toml::from_str(
-            r#"
-            gloas_fork_version = "0x80000038"
-            genesis_validators_root = "0x6c74d2e46eee2b5ec9b3512975fda3e1e97cee8cf2be0f2f6bcbf36002d17f3c"
-            "#,
-        )
-        .unwrap();
-        assert_eq!(cfg.gloas_fork_version, Some(B32::new([0x80, 0x00, 0x00, 0x38])));
-        assert_eq!(cfg.bid_fork_version(), [0x80, 0x00, 0x00, 0x38]);
-        assert_eq!(
-            cfg.bid_genesis_validators_root(),
-            b256!("6c74d2e46eee2b5ec9b3512975fda3e1e97cee8cf2be0f2f6bcbf36002d17f3c")
-        );
     }
 }

@@ -40,14 +40,6 @@ timeout_register_validator_ms = 3000
 # Whether to skip signature verification of headers and pubkey matching against the relay pubkey
 # OPTIONAL, DEFAULT: false
 skip_sigverify = false
-# Gloas fork version (0x-hex, 4 bytes) used in the ePBS bid signing domain. Override for
-# devnets/networks whose gloas fork version differs from the built-in constant
-# OPTIONAL, DEFAULT: unset (built-in constant)
-# gloas_fork_version = "0x80435048"
-# Genesis validators root (0x-hex, 32 bytes) used in the ePBS bid signing domain. Override for
-# devnets/networks whose genesis root differs from the built-in constant
-# OPTIONAL, DEFAULT: unset (built-in constant)
-# genesis_validators_root = "0x0000000000000000000000000000000000000000000000000000000000000000"
 # Minimum bid in ETH that will be accepted from `get_header`
 # Can be specified as a float or a string for extra precision (e.g. "0.01")
 # OPTIONAL, DEFAULT: 0.0

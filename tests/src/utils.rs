@@ -197,8 +197,6 @@ pub fn get_pbs_config(port: u16) -> PbsConfig {
         validator_registration_batch_size: None,
         mux_registry_refresh_interval_seconds: 5,
         advertised_urls: vec![],
-        gloas_fork_version: None,
-        genesis_validators_root: None,
         min_bid_p2p_wei: None,
         builder_boost_factor_p2p: None,
     }

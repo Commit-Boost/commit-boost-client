@@ -166,21 +166,6 @@ pub fn sign_execution_payload_bid_root(
     sign_message(secret_key, signing_data.tree_hash_root())
 }
 
-/// Verifies an ePBS execution payload bid signature under the bid domain.
-pub fn verify_execution_payload_bid_signature<T: TreeHash>(
-    pubkey: &BlsPublicKey,
-    msg: &T,
-    signature: &BlsSignature,
-    fork_version: [u8; 4],
-    genesis_validators_root: B256,
-) -> bool {
-    let signing_data = types::SigningData {
-        object_root: msg.tree_hash_root(),
-        signing_domain: execution_payload_bid_domain(fork_version, genesis_validators_root),
-    };
-    verify_bls_signature(pubkey, signing_data.tree_hash_root(), signature)
-}
-
 pub fn sign_commit_boost_root(
     chain: Chain,
     secret_key: &BlsSecretKey,

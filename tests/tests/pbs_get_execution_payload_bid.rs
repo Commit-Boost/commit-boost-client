@@ -59,15 +59,19 @@ async fn test_get_execution_payload_bid_no_bid() -> Result<()> {
     .await
 }
 
-/// Test that a bid signed with the wrong key is dropped
+/// A bid signed with the wrong key is forwarded unchanged, not dropped: the
+/// ePBS bid path is a blind pipe. The beacon node verifies the bid's
+/// builder_index against the on-chain builder registry and collateral, so CB
+/// does not verify the signature.
 #[tokio::test]
-async fn test_get_execution_payload_bid_invalid_signature() -> Result<()> {
-    test_get_execution_payload_bid_impl(
+async fn test_get_execution_payload_bid_invalid_signature_is_forwarded() -> Result<()> {
+    test_get_execution_payload_bid_impl_opts(
         vec![MockRelayState::new(Chain::Hoodi, random_secret()).with_epbs_invalid_signature()],
-        StatusCode::NO_CONTENT,
+        StatusCode::OK,
         &[1],
-        None,
+        Some(10),
         0,
+        false,
     )
     .await
 }
@@ -408,9 +412,8 @@ async fn test_get_execution_payload_bid_demux_by_url_bytes() -> Result<()> {
 
 /// PIPE: auth data naming a builder URL outside CB's config dials it via a
 /// transient client and returns its bid. The bid is signed by the builder's
-/// own key, which no configured relay entry carries, so the 200 also proves
-/// bid sigverify is skipped for the pipe relay (per-context, not globally:
-/// `skip_sigverify` stays false here).
+/// own key, which no configured relay entry carries, and CB forwards it
+/// unchanged (blind pipe: the ePBS path does not verify the bid signature).
 #[tokio::test]
 async fn test_get_execution_payload_bid_pipe_dials_unconfigured_builder() -> Result<()> {
     setup_test_env();
@@ -2035,6 +2038,25 @@ async fn test_get_execution_payload_bid_impl(
     expected_value: Option<u64>,
     max_execution_payment_gwei: u64,
 ) -> Result<()> {
+    test_get_execution_payload_bid_impl_opts(
+        relay_states,
+        expected_code,
+        expected_relay_counts,
+        expected_value,
+        max_execution_payment_gwei,
+        true,
+    )
+    .await
+}
+
+async fn test_get_execution_payload_bid_impl_opts(
+    relay_states: Vec<MockRelayState>,
+    expected_code: StatusCode,
+    expected_relay_counts: &[u64],
+    expected_value: Option<u64>,
+    max_execution_payment_gwei: u64,
+    require_relay_signature: bool,
+) -> Result<()> {
     // Setup test environment
     setup_test_env();
     let chain = Chain::Hoodi;
@@ -2098,16 +2120,20 @@ async fn test_get_execution_payload_bid_impl(
     if let Some(expected_value) = expected_value {
         assert_eq!(res.value(), expected_value);
     }
-    // The winning bid must be signed by one of the configured relays
-    let object_root = res.data.message.tree_hash_root();
-    assert!(
-        states.iter().any(|s| sign_execution_payload_bid_root(
-            &s.signer,
-            &object_root,
-            GLOAS_FORK_VERSION,
-            GENESIS_VALIDATORS_ROOT.into(),
-        ) == res.data.signature),
-        "bid signature does not match any configured relay"
-    );
+    // The winning bid must be signed by one of the configured relays, unless the
+    // case deliberately forwards a mis-signed bid (blind pipe: CB does not verify
+    // the bid signature; the beacon node does).
+    if require_relay_signature {
+        let object_root = res.data.message.tree_hash_root();
+        assert!(
+            states.iter().any(|s| sign_execution_payload_bid_root(
+                &s.signer,
+                &object_root,
+                GLOAS_FORK_VERSION,
+                GENESIS_VALIDATORS_ROOT.into(),
+            ) == res.data.signature),
+            "bid signature does not match any configured relay"
+        );
+    }
     Ok(())
 }
