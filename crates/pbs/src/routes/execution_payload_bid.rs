@@ -73,9 +73,6 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
     tracing::Span::current().record("parent_hash", tracing::field::debug(params.parent_hash));
     tracing::Span::current().record("parent_root", tracing::field::debug(params.parent_root));
     tracing::Span::current().record("validator", tracing::field::debug(&params.proposer_pubkey));
-    tracing::Span::current()
-        .record("auth data", tracing::field::debug(&body.message.data.to_vec()));
-    tracing::Span::current().record("auth signature", tracing::field::debug(&body.signature));
 
     let state = state.read().clone();
 

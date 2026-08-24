@@ -78,8 +78,24 @@ pub struct KmClient {
     token: String,
 }
 
+/// Whether a URL's host is a loopback address (or `localhost`), where sending
+/// the bearer token over plain HTTP does not expose it on the wire.
+fn host_is_loopback(url: &Url) -> bool {
+    match url.host() {
+        Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+        Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+        Some(url::Host::Domain(host)) => host == "localhost",
+        None => false,
+    }
+}
+
 impl KmClient {
     pub fn new(base: Url, token: String) -> Result<Self> {
+        if base.scheme() != "https" && !host_is_loopback(&base) {
+            warn!(
+                "VC keymanager URL {base} is not HTTPS and not loopback; the bearer token is sent in cleartext"
+            );
+        }
         let http = reqwest::Client::builder()
             .timeout(HTTP_TIMEOUT)
             .redirect(reqwest::redirect::Policy::none())

@@ -159,7 +159,7 @@ const GAS_LIMIT_MINIMUM: u64 = 5_000;
 /// execution spec https://github.com/ethereum/execution-specs/blob/98d6ddaaa709a2b7d0cd642f4cfcdadc8c0808e1/src/ethereum/cancun/fork.py#L1118-L1154
 pub(crate) fn check_gas_limit(gas_limit: u64, parent_gas_limit: u64) -> bool {
     let max_adjustment_delta = parent_gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR;
-    if gas_limit >= parent_gas_limit + max_adjustment_delta {
+    if gas_limit >= parent_gas_limit.saturating_add(max_adjustment_delta) {
         return false;
     }
 
@@ -334,8 +334,14 @@ pub(crate) fn transient_pipe_relay(
 /// entry URL embeds the relay pubkey as userinfo, so full equality would never
 /// match a bare builder URL.
 pub(crate) fn url_matches(a: &Url, b: &Url) -> bool {
+    // A trailing dot marks a fully-qualified host that resolves to the same
+    // host as its dotless form; canonicalize so it cannot slip the self-URL
+    // guard in `transient_pipe_relay`.
+    fn host_canonical(url: &Url) -> Option<&str> {
+        url.host_str().map(|host| host.strip_suffix('.').unwrap_or(host))
+    }
     a.scheme() == b.scheme() &&
-        a.host_str() == b.host_str() &&
+        host_canonical(a) == host_canonical(b) &&
         a.port_or_known_default() == b.port_or_known_default()
 }
 
@@ -566,6 +572,10 @@ mod tests {
         assert!(!url_matches(&u("http://a.com"), &u("https://a.com")));
         assert!(!url_matches(&u("https://a.com"), &u("https://b.com")));
         assert!(!url_matches(&u("http://a.com:8001"), &u("http://a.com:8002")));
+        // A fully-qualified trailing-dot host matches its dotless form, so it
+        // cannot be used to slip the self-URL guard.
+        assert!(url_matches(&u("https://cb.example.com."), &u("https://cb.example.com")));
+        assert!(url_matches(&u("https://cb.example.com"), &u("https://cb.example.com.")));
     }
 
     #[test]

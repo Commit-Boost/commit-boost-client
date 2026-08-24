@@ -3,7 +3,7 @@ use cb_common::{
     pbs::{RelayClient, SignedBeaconBlock, error::PbsError, is_gloas},
     wire::{decode_signed_beacon_block, get_user_agent},
 };
-use futures::future::join_all;
+use futures::{FutureExt, future::join_all};
 use reqwest::StatusCode;
 use ssz::Encode;
 use tracing::{Instrument, error, info, warn};
@@ -74,16 +74,22 @@ pub async fn submit_signed_beacon_block<S: BuilderApiState>(
 
     let body = Bytes::from(block.as_ssz_bytes());
     let relays = state.all_relays();
+    // Spawned like builder_preferences' sends: a BN disconnect must not cancel
+    // in-flight block broadcasts mid-fan-out, leaving some builders with the
+    // block and others without
     let mut handles = Vec::with_capacity(relays.len());
     for relay in relays.iter() {
         handles.push(
-            send_one_submit_signed_beacon_block(
-                relay.clone(),
-                body.clone(),
-                send_headers.clone(),
-                timeout_ms,
+            tokio::spawn(
+                send_one_submit_signed_beacon_block(
+                    relay.clone(),
+                    body.clone(),
+                    send_headers.clone(),
+                    timeout_ms,
+                )
+                .in_current_span(),
             )
-            .in_current_span(),
+            .map(|join_result| join_result.unwrap_or_else(|err| Err(PbsError::TokioJoinError(err)))),
         );
     }
 

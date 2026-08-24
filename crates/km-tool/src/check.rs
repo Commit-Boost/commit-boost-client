@@ -133,7 +133,7 @@ pub async fn run_check(input: &ProjectionInput, overlay: &Overlay) -> Result<Che
                         format!(
                             "{vc_name}: {key} stores auth_data {} not matched by any configured \
                              relay; will be served via the pipe",
-                            crate::doc::encode_auth_data(bytes)
+                            display_auth_data(bytes)
                         ),
                     );
                 }
@@ -185,8 +185,9 @@ pub async fn run_check(input: &ProjectionInput, overlay: &Overlay) -> Result<Che
 
 /// Compares a projected doc against a stored (resolved) one. A field the
 /// projection left unset resolves to the VC's own config on GET, so only
-/// projected values are compared; missing projected entries are drift, and
-/// surplus stored entries are flagged by count.
+/// projected values are compared. The entry sets are diffed both ways: a
+/// projected entry with no stored match is missing, and a stored entry with no
+/// projected match is surplus; each is itemized individually.
 fn drift_lines(projected: &CanonicalDoc, stored: &CanonicalDoc) -> Vec<String> {
     let mut lines = Vec::new();
     compare_field(&mut lines, "min_bid", &projected.min_bid, &stored.min_bid);
@@ -212,7 +213,7 @@ fn drift_lines(projected: &CanonicalDoc, stored: &CanonicalDoc) -> Vec<String> {
             lines.push(format!(
                 "entry ({}, {}) is missing",
                 entry.url,
-                entry.auth_data.as_deref().map(crate::doc::encode_auth_data).unwrap_or_default()
+                entry.auth_data.as_deref().map(display_auth_data).unwrap_or_default()
             ));
             continue;
         };
@@ -234,14 +235,34 @@ fn drift_lines(projected: &CanonicalDoc, stored: &CanonicalDoc) -> Vec<String> {
         );
     }
 
-    if stored_entries.len() > projected_entries.len() {
-        lines.push(format!(
-            "stored doc has {} entries, projection has {}",
-            stored_entries.len(),
-            projected_entries.len()
-        ));
+    let projected_by_key: BTreeSet<(String, Option<Vec<u8>>)> = projected_entries
+        .iter()
+        .map(|entry| (entry.url.clone(), entry.auth_data.clone()))
+        .collect();
+    for entry in stored_entries {
+        let key = (entry.url.clone(), entry.auth_data.clone());
+        if !projected_by_key.contains(&key) {
+            lines.push(format!(
+                "entry ({}, {}) is stored but not projected",
+                entry.url,
+                entry.auth_data.as_deref().map(display_auth_data).unwrap_or_default()
+            ));
+        }
     }
     lines
+}
+
+/// Renders decoded auth_data for a finding: a public builder URL is shown
+/// as-is, but a bilateral secret (non-URL bytes) is reduced to a length-only
+/// placeholder so a check report never prints the secret. Mirrors apply.rs
+/// `redact_secrets_for_display`.
+fn display_auth_data(bytes: &[u8]) -> String {
+    let is_url = std::str::from_utf8(bytes).ok().and_then(|s| url::Url::parse(s).ok()).is_some();
+    if is_url {
+        crate::doc::encode_auth_data(bytes)
+    } else {
+        format!("{} bytes (secret)", bytes.len())
+    }
 }
 
 fn compare_field(
