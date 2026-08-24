@@ -148,11 +148,11 @@ pub struct PbsConfig {
     #[serde(default = "default_u64::<{ u64::MAX }>")]
     pub max_execution_payment_gwei: u64,
     /// When enabled, the BLS signature of an ePBS request's
-    /// `SignedRequestAuth` is verified against the proposer pubkey. False by
+    /// `SignedBuilderRequestAuth` is verified against the proposer pubkey. False by
     /// default: CB forwards because the downstream builder must re-verify
     /// anyway; operators terminating trust at CB set it true
     #[serde(default = "default_bool::<false>")]
-    pub verify_request_auth: bool,
+    pub verify_builder_request_auth: bool,
     /// Expected fee recipient in ePBS bids; when set, bids with a different
     /// fee_recipient are rejected
     pub fee_recipient: Option<Address>,

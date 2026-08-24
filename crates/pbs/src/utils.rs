@@ -5,8 +5,8 @@ use std::{
 
 use cb_common::{
     config::{GetHeaderTransport, RelayConfig},
-    pbs::{ForkName, RelayClient, RelayEntry, SignedRequestAuth, error::PbsError},
-    signature::verify_request_auth_signature,
+    pbs::{ForkName, RelayClient, RelayEntry, SignedBuilderRequestAuth, error::PbsError},
+    signature::verify_builder_request_auth_signature,
     types::{BlsPublicKey, BlsSecretKey, Chain},
     wire::{CONSENSUS_VERSION_HEADER, get_user_agent_with_version},
 };
@@ -138,7 +138,7 @@ pub(crate) fn check_gas_limit(gas_limit: u64, parent_gas_limit: u64) -> bool {
 /// is invalid"). It addresses no builder, so it must be rejected up front
 /// rather than slip through a catch-all relay match in
 /// [`match_relays_by_auth_data`]. Shared by both ePBS request-auth validators.
-pub(crate) fn validate_auth_data(auth: &SignedRequestAuth) -> Result<(), PbsClientError> {
+pub(crate) fn validate_auth_data(auth: &SignedBuilderRequestAuth) -> Result<(), PbsClientError> {
     if auth.message.data.is_empty() {
         warn!("auth data is empty");
         return Err(PbsClientError::EmptyAuthData);
@@ -153,12 +153,12 @@ pub(crate) fn validate_auth_data(auth: &SignedRequestAuth) -> Result<(), PbsClie
 /// slot rule differs between them and stays with each caller.
 pub(crate) fn verify_auth_signature(
     pubkey: &BlsPublicKey,
-    auth: &SignedRequestAuth,
+    auth: &SignedBuilderRequestAuth,
     chain: Chain,
     verify_signature: bool,
 ) -> Result<(), PbsClientError> {
     if verify_signature &&
-        !verify_request_auth_signature(pubkey, &auth.message, &auth.signature, chain)
+        !verify_builder_request_auth_signature(pubkey, &auth.message, &auth.signature, chain)
     {
         warn!(pubkey = %pubkey, "auth signature verification failed");
         return Err(PbsClientError::AuthSigVerify);
@@ -323,11 +323,11 @@ mod tests {
 
     #[test]
     fn validate_auth_data_requires_nonempty_data() {
-        use cb_common::{pbs::RequestAuth, types::BlsSignature};
+        use cb_common::{pbs::BuilderRequestAuth, types::BlsSignature};
         use lh_types::Slot;
 
-        let with_data = |data: Vec<u8>| SignedRequestAuth {
-            message: RequestAuth { data: data.try_into().unwrap(), slot: Slot::new(1) },
+        let with_data = |data: Vec<u8>| SignedBuilderRequestAuth {
+            message: BuilderRequestAuth { data: data.try_into().unwrap(), slot: Slot::new(1) },
             signature: BlsSignature::empty(),
         };
 

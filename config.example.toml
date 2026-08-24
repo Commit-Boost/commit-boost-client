@@ -64,11 +64,11 @@ min_bid_eth = 0.0
 # Expected fee recipient in ePBS bids. When set, bids whose fee_recipient differs are rejected
 # OPTIONAL, DEFAULT: unset (no check)
 # fee_recipient = "0x1234567890123456789012345678901234567890"
-# Whether to verify the BLS signature of the `SignedRequestAuth` on an ePBS request against the
+# Whether to verify the BLS signature of the `SignedBuilderRequestAuth` on an ePBS request against the
 # proposer pubkey in the request path, rejecting a bad signature with 401. CB forwards by default
 # because the downstream builder must re-verify anyway; operators terminating trust at CB set it true
 # OPTIONAL, DEFAULT: false
-verify_request_auth = false
+verify_builder_request_auth = false
 # How late in milliseconds in the slot is "late". This impacts the `get_header` requests, by shortening timeouts for `get_header` calls to
 # relays and make sure a header is returned within this deadline. If the request from the CL comes later in the slot, then fetching headers is skipped
 # to force local building and miniminzing the risk of missed slots. See also the timing games section below

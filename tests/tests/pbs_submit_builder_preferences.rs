@@ -1,5 +1,5 @@
 use cb_common::{
-    pbs::{BuilderPreferences, BuilderPreferencesRequest, SignedRequestAuth},
+    pbs::{BuilderPreferences, BuilderPreferencesRequest, SignedBuilderRequestAuth},
     signer::random_secret,
     types::Chain,
     utils::utcnow_ms,
@@ -38,7 +38,7 @@ fn past_slot(chain: Chain) -> u64 {
     ((now_sec.saturating_sub(chain.genesis_time_sec())) / chain.slot_time_sec()).saturating_sub(10)
 }
 
-fn preferences(auth: SignedRequestAuth, max_execution_payment: u64) -> BuilderPreferencesRequest {
+fn preferences(auth: SignedBuilderRequestAuth, max_execution_payment: u64) -> BuilderPreferencesRequest {
     BuilderPreferencesRequest { auth, preferences: BuilderPreferences { max_execution_payment } }
 }
 
@@ -172,7 +172,7 @@ async fn test_submit_builder_preferences_signature_bound_to_path_pubkey() -> Res
     let signer = random_secret();
     let other_pubkey = random_secret().public_key();
     let (mock_validator, mock_state) =
-        setup_relay(chain, |config| config.verify_request_auth = true, generate_mock_relay).await?;
+        setup_relay(chain, |config| config.verify_builder_request_auth = true, generate_mock_relay).await?;
 
     // Genuinely signed, just not by the proposer named in the path
     let auth = signed_auth(&signer, TEST_AUTH_DATA, future_slot(chain), chain);
@@ -349,7 +349,7 @@ async fn test_submit_builder_preferences_slot_passed_400() -> Result<()> {
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     let body: serde_json::Value = serde_json::from_slice(&res.bytes().await?)?;
     assert_eq!(body["code"], 400);
-    assert_eq!(body["message"], "Invalid SignedRequestAuth: auth.message.slot has already passed");
+    assert_eq!(body["message"], "Invalid SignedBuilderRequestAuth: auth.message.slot has already passed");
     assert_eq!(mock_state.received_builder_preferences(), 0, "no builder should be contacted");
     Ok(())
 }
@@ -521,7 +521,7 @@ async fn test_submit_builder_preferences_unmatched_opaque_auth_400() -> Result<(
     assert_eq!(body["code"], 400);
     assert_eq!(
         body["message"],
-        "Invalid SignedRequestAuth: auth.message.data does not match the value agreed with this builder"
+        "Invalid SignedBuilderRequestAuth: auth.message.data does not match the value agreed with this builder"
     );
     Ok(())
 }
@@ -553,7 +553,7 @@ async fn test_submit_builder_preferences_auth_data_match() -> Result<()> {
 async fn test_submit_builder_preferences_bad_signature_401() -> Result<()> {
     let chain = Chain::Hoodi;
     let (mock_validator, mock_state) =
-        setup_relay(chain, |config| config.verify_request_auth = true, generate_mock_relay).await?;
+        setup_relay(chain, |config| config.verify_builder_request_auth = true, generate_mock_relay).await?;
 
     let request =
         preferences(opaque_auth(TEST_AUTH_DATA, future_slot(chain)), TEST_MAX_EXECUTION_PAYMENT);
@@ -562,7 +562,7 @@ async fn test_submit_builder_preferences_bad_signature_401() -> Result<()> {
 
     assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
     let body: serde_json::Value = serde_json::from_slice(&res.bytes().await?)?;
-    assert_eq!(body["message"], "Invalid SignedRequestAuth: signature verification failed");
+    assert_eq!(body["message"], "Invalid SignedBuilderRequestAuth: signature verification failed");
     assert_eq!(mock_state.received_builder_preferences(), 0);
     Ok(())
 }
@@ -574,7 +574,7 @@ async fn test_submit_builder_preferences_valid_signature() -> Result<()> {
     let secret = random_secret();
     let pubkey = secret.public_key();
     let (mock_validator, mock_state) =
-        setup_relay(chain, |config| config.verify_request_auth = true, generate_mock_relay).await?;
+        setup_relay(chain, |config| config.verify_builder_request_auth = true, generate_mock_relay).await?;
 
     let auth = signed_auth(&secret, TEST_AUTH_DATA, future_slot(chain), chain);
     let request = preferences(auth, TEST_MAX_EXECUTION_PAYMENT);

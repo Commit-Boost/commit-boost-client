@@ -30,7 +30,7 @@ use cb_common::{
         GetExecutionPayloadBidResponse, GetHeaderParams, GetHeaderResponse, GetPayloadInfo,
         HEADER_TIMEOUT_MS, PayloadAndBlobs, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
         SUBMIT_BUILDER_PREFERENCES_PATH, SUBMIT_SIGNED_BEACON_BLOCK_PATH, SignedBeaconBlock,
-        SignedBuilderBid, SignedExecutionPayloadBid, SignedRequestAuth, SubmitBlindedBlockResponse,
+        SignedBuilderBid, SignedExecutionPayloadBid, SignedBuilderRequestAuth, SubmitBlindedBlockResponse,
     },
     signature::{sign_builder_root, sign_execution_payload_bid_root},
     signer::random_secret,
@@ -132,9 +132,9 @@ pub struct MockRelayState {
     /// Hold every bid request this long before answering, simulating a builder
     /// that sits on a request instead of answering promptly
     bid_delay_ms: Option<u64>,
-    /// `data` bytes of the last `SignedRequestAuth` forwarded on a bid
+    /// `data` bytes of the last `SignedBuilderRequestAuth` forwarded on a bid
     /// request
-    received_auth: RwLock<Option<SignedRequestAuth>>,
+    received_auth: RwLock<Option<SignedBuilderRequestAuth>>,
     response_override: RwLock<Option<StatusCode>>,
     bid_value: RwLock<U256>,
     /// The raw `Accept` header PBS sent on the most recent get_header request,
@@ -206,8 +206,8 @@ impl MockRelayState {
             .map(|r| r.preferences.max_execution_payment)
     }
 
-    /// The `SignedRequestAuth` carried by the last submitted preferences
-    pub fn received_preferences_auth(&self) -> Option<SignedRequestAuth> {
+    /// The `SignedBuilderRequestAuth` carried by the last submitted preferences
+    pub fn received_preferences_auth(&self) -> Option<SignedBuilderRequestAuth> {
         self.received_preferences.read().unwrap().as_ref().map(|r| r.auth.clone())
     }
 
@@ -231,9 +231,9 @@ impl MockRelayState {
         self.received_auth.read().unwrap().as_ref().map(|a| a.message.data.to_vec())
     }
 
-    /// The full `SignedRequestAuth` the relay saw, so a test can assert the
+    /// The full `SignedBuilderRequestAuth` the relay saw, so a test can assert the
     /// signature was forwarded byte-for-byte.
-    pub fn received_auth(&self) -> Option<SignedRequestAuth> {
+    pub fn received_auth(&self) -> Option<SignedBuilderRequestAuth> {
         self.received_auth.read().unwrap().clone()
     }
     pub fn large_body(&self) -> bool {
@@ -503,9 +503,9 @@ async fn handle_get_execution_payload_bid(
                     )
                         .into_response();
                 }
-                SignedRequestAuth::from_ssz_bytes(&body).ok()
+                SignedBuilderRequestAuth::from_ssz_bytes(&body).ok()
             }
-            EncodingType::Json => serde_json::from_slice::<SignedRequestAuth>(&body).ok(),
+            EncodingType::Json => serde_json::from_slice::<SignedBuilderRequestAuth>(&body).ok(),
         };
         if let Some(auth) = auth {
             *state.received_auth.write().unwrap() = Some(auth);

@@ -17,7 +17,7 @@ use cb_common::{
     pbs::{
         DEFAULT_BID_POLL_TIMEOUT_MS, ForkName, GetExecutionPayloadBidInfo,
         GetExecutionPayloadBidParams, GetExecutionPayloadBidResponse, HEADER_START_TIME_UNIX_MS,
-        HEADER_TIMEOUT_MS, RelayClient, SignedExecutionPayloadBid, SignedRequestAuth,
+        HEADER_TIMEOUT_MS, RelayClient, SignedExecutionPayloadBid, SignedBuilderRequestAuth,
         error::{PbsError, ValidationError},
     },
     types::Chain,
@@ -53,7 +53,7 @@ use crate::{
     },
 };
 
-/// The body is the required `SignedRequestAuth`; builder-specs fork-versions
+/// The body is the required `SignedBuilderRequestAuth`; builder-specs fork-versions
 /// the request wire type, and `Eth-Consensus-Version` is required for JSON and
 /// SSZ alike (builder-specs #165).
 pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
@@ -65,7 +65,7 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
     // Count decode rejections: a client broken by the strict header rule must
     // show up as a 400 spike on this endpoint, not vanish from the counter
     let body = Arc::new(
-        decode_versioned_request_body::<SignedRequestAuth>(&req_headers, &body)
+        decode_versioned_request_body::<SignedBuilderRequestAuth>(&req_headers, &body)
             .map_err(|err| record_client_error(err, GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG))?,
     );
     tracing::Span::current().record("slot", params.slot);
@@ -162,7 +162,7 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
 /// with Internal (-> 500).
 pub async fn get_execution_payload_bid<S: BuilderApiState>(
     params: GetExecutionPayloadBidParams,
-    body: Arc<SignedRequestAuth>,
+    body: Arc<SignedBuilderRequestAuth>,
     req_headers: HeaderMap,
     state: PbsState<S>,
 ) -> Result<Option<GetExecutionPayloadBidResponse>, PbsClientError> {
@@ -177,7 +177,7 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
     }
 
     // Validate before any outbound work so a rejected request costs nothing
-    validate_request_auth(&body, &params, state.config.chain, pbs_config.verify_request_auth)?;
+    validate_builder_request_auth(&body, &params, state.config.chain, pbs_config.verify_builder_request_auth)?;
 
     let parent_block = Arc::new(RwLock::new(None));
     if state.extra_validation_enabled() &&
@@ -360,14 +360,14 @@ fn request_budget_ms(req_headers: &HeaderMap, now_ms: u64) -> Result<u64, PbsCli
     Ok(until_deadline.min(timeout_ms))
 }
 
-/// Validates the caller's `SignedRequestAuth` against the request path. The
+/// Validates the caller's `SignedBuilderRequestAuth` against the request path. The
 /// `auth.message.data` must be non-empty; which builder it addresses is the
 /// demux's job (`match_relays_by_auth_data`). The slot must match the request
-/// path, plus the signature when `verify_request_auth` is on. The downstream
+/// path, plus the signature when `verify_builder_request_auth` is on. The downstream
 /// builder verifies the signature regardless, which is why the crypto is
 /// opt-in.
-fn validate_request_auth(
-    auth: &SignedRequestAuth,
+fn validate_builder_request_auth(
+    auth: &SignedBuilderRequestAuth,
     params: &GetExecutionPayloadBidParams,
     chain: Chain,
     verify_signature: bool,
@@ -438,7 +438,7 @@ async fn fetch_parent_block(
 #[allow(clippy::too_many_arguments)]
 async fn send_timed_get_execution_payload_bid(
     params: GetExecutionPayloadBidParams,
-    body: Arc<SignedRequestAuth>,
+    body: Arc<SignedBuilderRequestAuth>,
     relay: RelayClient,
     headers: HeaderMap,
     ms_into_slot: u64,
@@ -609,7 +609,7 @@ struct ValidationContext {
 
 async fn send_one_get_execution_payload_bid(
     params: GetExecutionPayloadBidParams,
-    body: Arc<SignedRequestAuth>,
+    body: Arc<SignedBuilderRequestAuth>,
     relay: RelayClient,
     mut req_config: RequestContext,
     validation: ValidationContext,
@@ -843,11 +843,11 @@ mod tests {
 
     use alloy::primitives::{B256, aliases::B32};
     use cb_common::{
-        constants::{DOMAIN_REQUEST_AUTH, GENESIS_VALIDATORS_ROOT, GLOAS_FORK_VERSION},
-        pbs::{RequestAuth, error::ValidationError},
+        constants::{DOMAIN_BUILDER_REQUEST_AUTH, GENESIS_VALIDATORS_ROOT, GLOAS_FORK_VERSION},
+        pbs::{BuilderRequestAuth, error::ValidationError},
         signature::{
-            compute_domain, compute_domain_with_fork_version, request_auth_domain,
-            sign_execution_payload_bid_root, sign_request_auth_root,
+            compute_domain, compute_domain_with_fork_version, builder_request_auth_domain,
+            sign_execution_payload_bid_root, sign_builder_request_auth_root,
         },
         types::{BlsSecretKey, BlsSignature, Chain},
         utils::TestRandomSeed,
@@ -932,11 +932,11 @@ mod tests {
             .unwrap();
     }
 
-    fn test_auth(slot: u64, signature: BlsSignature) -> SignedRequestAuth {
-        SignedRequestAuth {
+    fn test_auth(slot: u64, signature: BlsSignature) -> SignedBuilderRequestAuth {
+        SignedBuilderRequestAuth {
             // Non-empty so it clears the empty-data guard; the value itself is the
             // demux's input, exercised elsewhere, not this validator's slot/sig path
-            message: RequestAuth { data: vec![0x01].try_into().unwrap(), slot: Slot::new(slot) },
+            message: BuilderRequestAuth { data: vec![0x01].try_into().unwrap(), slot: Slot::new(slot) },
             signature,
         }
     }
@@ -945,7 +945,7 @@ mod tests {
     // cannot slip through a catch-all relay match. Guards the wiring of the
     // shared `validate_auth_data` into this endpoint.
     #[test]
-    fn validate_request_auth_rejects_empty_data() {
+    fn validate_builder_request_auth_rejects_empty_data() {
         let chain = Chain::Hoodi;
         let slot = 5;
         let params = GetExecutionPayloadBidParams {
@@ -954,13 +954,13 @@ mod tests {
             parent_root: B256::ZERO,
             proposer_pubkey: BlsSecretKey::random().public_key(),
         };
-        let empty = SignedRequestAuth {
-            message: RequestAuth { data: Default::default(), slot: Slot::new(slot) },
+        let empty = SignedBuilderRequestAuth {
+            message: BuilderRequestAuth { data: Default::default(), slot: Slot::new(slot) },
             signature: BlsSignature::empty(),
         };
         for verify in [false, true] {
             assert!(matches!(
-                validate_request_auth(&empty, &params, chain, verify),
+                validate_builder_request_auth(&empty, &params, chain, verify),
                 Err(PbsClientError::EmptyAuthData)
             ));
         }
@@ -968,9 +968,9 @@ mod tests {
 
     // An empty body is as invalid as a malformed one: the spec requires the auth
     #[test]
-    fn test_decode_request_auth_rejects_empty_body() {
+    fn test_decode_builder_request_auth_rejects_empty_body() {
         assert!(matches!(
-            decode_versioned_request_body::<SignedRequestAuth>(&HeaderMap::new(), &Bytes::new()),
+            decode_versioned_request_body::<SignedBuilderRequestAuth>(&HeaderMap::new(), &Bytes::new()),
             Err(BodyDeserializeError::MissingBody)
         ));
     }
@@ -1078,31 +1078,31 @@ mod tests {
     }
 
     // The auth domain is NOT fork-versioned: it must equal the spec's
-    // compute_domain(DOMAIN_REQUEST_AUTH), i.e. genesis fork version and a zero
+    // compute_domain(DOMAIN_BUILDER_REQUEST_AUTH), i.e. genesis fork version and a zero
     // root. A sign/verify round trip cannot catch a wrong domain, so pin it.
     #[test]
-    fn test_request_auth_domain_is_not_fork_versioned() {
+    fn test_builder_request_auth_domain_is_not_fork_versioned() {
         for chain in [Chain::Mainnet, Chain::Hoodi, Chain::Holesky] {
             assert_eq!(
-                request_auth_domain(chain),
-                compute_domain(chain, &B32::from(DOMAIN_REQUEST_AUTH)),
+                builder_request_auth_domain(chain),
+                compute_domain(chain, &B32::from(DOMAIN_BUILDER_REQUEST_AUTH)),
             );
             // A fork-versioned domain would differ; that is the bug this guards
             assert_ne!(
-                request_auth_domain(chain),
+                builder_request_auth_domain(chain),
                 compute_domain_with_fork_version(
                     GLOAS_FORK_VERSION,
                     GENESIS_VALIDATORS_ROOT.into(),
-                    &B32::from(DOMAIN_REQUEST_AUTH),
+                    &B32::from(DOMAIN_BUILDER_REQUEST_AUTH),
                 ),
             );
         }
         // Chains are separated by their genesis fork version
-        assert_ne!(request_auth_domain(Chain::Mainnet), request_auth_domain(Chain::Hoodi));
+        assert_ne!(builder_request_auth_domain(Chain::Mainnet), builder_request_auth_domain(Chain::Hoodi));
     }
 
     #[test]
-    fn test_validate_request_auth() {
+    fn test_validate_builder_request_auth() {
         let chain = Chain::Hoodi;
         let secret_key = BlsSecretKey::random();
         let pubkey = secret_key.public_key();
@@ -1117,7 +1117,7 @@ mod tests {
         // Slot mismatch is a 400 whether or not sigverify is on
         for verify in [false, true] {
             assert!(matches!(
-                validate_request_auth(
+                validate_builder_request_auth(
                     &test_auth(slot + 1, BlsSignature::empty()),
                     &params,
                     chain,
@@ -1129,9 +1129,9 @@ mod tests {
 
         // With verification off a bad signature passes through to the builder
         let bad = test_auth(slot, BlsSignature::test_random());
-        validate_request_auth(&bad, &params, chain, false).unwrap();
+        validate_builder_request_auth(&bad, &params, chain, false).unwrap();
         assert!(matches!(
-            validate_request_auth(&bad, &params, chain, true),
+            validate_builder_request_auth(&bad, &params, chain, true),
             Err(PbsClientError::AuthSigVerify)
         ));
 
@@ -1144,20 +1144,20 @@ mod tests {
             GENESIS_VALIDATORS_ROOT.into(),
         );
         assert!(matches!(
-            validate_request_auth(&test_auth(slot, bid_domain_sig), &params, chain, true),
+            validate_builder_request_auth(&test_auth(slot, bid_domain_sig), &params, chain, true),
             Err(PbsClientError::AuthSigVerify)
         ));
 
         // A signature made for another chain must not verify here
         let other_chain_sig =
-            sign_request_auth_root(&secret_key, &message.tree_hash_root(), Chain::Mainnet);
+            sign_builder_request_auth_root(&secret_key, &message.tree_hash_root(), Chain::Mainnet);
         assert!(matches!(
-            validate_request_auth(&test_auth(slot, other_chain_sig), &params, chain, true),
+            validate_builder_request_auth(&test_auth(slot, other_chain_sig), &params, chain, true),
             Err(PbsClientError::AuthSigVerify)
         ));
 
-        let good_sig = sign_request_auth_root(&secret_key, &message.tree_hash_root(), chain);
-        validate_request_auth(&test_auth(slot, good_sig), &params, chain, true).unwrap();
+        let good_sig = sign_builder_request_auth_root(&secret_key, &message.tree_hash_root(), chain);
+        validate_builder_request_auth(&test_auth(slot, good_sig), &params, chain, true).unwrap();
     }
 
     struct MockBid {

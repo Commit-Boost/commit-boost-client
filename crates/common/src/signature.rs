@@ -4,7 +4,7 @@ use tree_hash_derive::TreeHash;
 
 use crate::{
     constants::{
-        COMMIT_BOOST_DOMAIN, DOMAIN_BEACON_BUILDER, DOMAIN_REQUEST_AUTH, GENESIS_VALIDATORS_ROOT,
+        COMMIT_BOOST_DOMAIN, DOMAIN_BEACON_BUILDER, DOMAIN_BUILDER_REQUEST_AUTH, GENESIS_VALIDATORS_ROOT,
     },
     signer::{EcdsaSignature, verify_bls_signature, verify_ecdsa_signature},
     types::{self, BlsPublicKey, BlsSecretKey, BlsSignature, Chain, SignatureRequestInfo},
@@ -81,27 +81,27 @@ pub fn execution_payload_bid_domain(fork_version: [u8; 4], genesis_validators_ro
 
 /// Builder API request-auth signing domain. The request WIRE type is
 /// fork-versioned per builder-specs, but the signing domain is not: the spec's
-/// `compute_domain(DOMAIN_REQUEST_AUTH)` takes the genesis fork version and a
+/// `compute_domain(DOMAIN_BUILDER_REQUEST_AUTH)` takes the genesis fork version and a
 /// zero root, exactly like the validator registrations it replaces.
-pub fn request_auth_domain(chain: Chain) -> B256 {
-    compute_domain(chain, &B32::from(DOMAIN_REQUEST_AUTH))
+pub fn builder_request_auth_domain(chain: Chain) -> B256 {
+    compute_domain(chain, &B32::from(DOMAIN_BUILDER_REQUEST_AUTH))
 }
 
-/// Signs a `RequestAuth` message root under the request-auth domain.
-pub fn sign_request_auth_root(
+/// Signs a `BuilderRequestAuth` message root under the request-auth domain.
+pub fn sign_builder_request_auth_root(
     secret_key: &BlsSecretKey,
     object_root: &B256,
     chain: Chain,
 ) -> BlsSignature {
     let signing_data = types::SigningData {
         object_root: *object_root,
-        signing_domain: request_auth_domain(chain),
+        signing_domain: builder_request_auth_domain(chain),
     };
     sign_message(secret_key, signing_data.tree_hash_root())
 }
 
-/// Verifies a `SignedRequestAuth` signature under the request-auth domain.
-pub fn verify_request_auth_signature<T: TreeHash>(
+/// Verifies a `SignedBuilderRequestAuth` signature under the request-auth domain.
+pub fn verify_builder_request_auth_signature<T: TreeHash>(
     pubkey: &BlsPublicKey,
     msg: &T,
     signature: &BlsSignature,
@@ -109,7 +109,7 @@ pub fn verify_request_auth_signature<T: TreeHash>(
 ) -> bool {
     let signing_data = types::SigningData {
         object_root: msg.tree_hash_root(),
-        signing_domain: request_auth_domain(chain),
+        signing_domain: builder_request_auth_domain(chain),
     };
     verify_bls_signature(pubkey, signing_data.tree_hash_root(), signature)
 }

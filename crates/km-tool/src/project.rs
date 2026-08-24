@@ -34,7 +34,7 @@ use crate::{
 /// KM spec limits (builder_entry.yaml)
 pub const MAX_BUILDER_ENTRIES: usize = 64;
 pub const MAX_BUILDER_PUBKEYS: usize = 64;
-pub const MAX_AUTH_DATA_SIZE: usize = 4096;
+pub const MAX_BUILDER_AUTH_DATA_SIZE: usize = 4096;
 
 const WEI_PER_GWEI: u64 = 1_000_000_000;
 
@@ -330,8 +330,8 @@ fn project_mux(
     for (relay, raw_url) in mux.relays.iter().zip(raw_urls) {
         let bytes = candidate_auth_data(relay, raw_url);
         ensure!(
-            !bytes.is_empty() && bytes.len() <= MAX_AUTH_DATA_SIZE,
-            "mux {} relay {}: auth_data must be 1..={MAX_AUTH_DATA_SIZE} bytes, got {}",
+            !bytes.is_empty() && bytes.len() <= MAX_BUILDER_AUTH_DATA_SIZE,
+            "mux {} relay {}: auth_data must be 1..={MAX_BUILDER_AUTH_DATA_SIZE} bytes, got {}",
             mux.id,
             relay.id(),
             bytes.len()

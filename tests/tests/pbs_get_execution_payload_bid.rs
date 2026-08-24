@@ -586,7 +586,7 @@ async fn test_get_execution_payload_bid_demux_no_match_400() -> Result<()> {
     assert_eq!(body["code"], 400);
     assert_eq!(
         body["message"],
-        "Invalid SignedRequestAuth: auth.message.data does not match the value agreed with this builder"
+        "Invalid SignedBuilderRequestAuth: auth.message.data does not match the value agreed with this builder"
     );
     Ok(())
 }
@@ -627,7 +627,7 @@ async fn test_get_execution_payload_bid_unmatched_opaque_auth_400() -> Result<()
     assert_eq!(body["code"], 400);
     assert_eq!(
         body["message"],
-        "Invalid SignedRequestAuth: auth.message.data does not match the value agreed with this builder"
+        "Invalid SignedBuilderRequestAuth: auth.message.data does not match the value agreed with this builder"
     );
     Ok(())
 }
@@ -713,22 +713,22 @@ async fn test_get_execution_payload_bid_auth_slot_mismatch_400() -> Result<()> {
     assert_eq!(body["code"], 400);
     assert_eq!(
         body["message"],
-        "Invalid SignedRequestAuth: auth.message.slot does not match the proposal slot in the request path"
+        "Invalid SignedBuilderRequestAuth: auth.message.slot does not match the proposal slot in the request path"
     );
     Ok(())
 }
 
-/// With `verify_request_auth` on, a bad auth signature is a 401 and a good one
+/// With `verify_builder_request_auth` on, a bad auth signature is a 401 and a good one
 /// passes through to the relay.
 #[tokio::test]
-async fn test_get_execution_payload_bid_verify_request_auth_enabled() -> Result<()> {
+async fn test_get_execution_payload_bid_verify_builder_request_auth_enabled() -> Result<()> {
     let secret_key = random_secret();
     let proposer_pubkey = secret_key.public_key();
     let (mock_validator, mock_state) =
-        setup_relay(Chain::Hoodi, |cfg| cfg.verify_request_auth = true, generate_mock_relay)
+        setup_relay(Chain::Hoodi, |cfg| cfg.verify_builder_request_auth = true, generate_mock_relay)
             .await?;
 
-    // An empty signature never verifies under DOMAIN_REQUEST_AUTH
+    // An empty signature never verifies under DOMAIN_BUILDER_REQUEST_AUTH
     let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);
     let res = mock_validator
         .do_get_execution_payload_bid(
@@ -744,7 +744,7 @@ async fn test_get_execution_payload_bid_verify_request_auth_enabled() -> Result<
     assert_eq!(mock_state.received_execution_payload_bid(), 0, "bad auth precedes relay calls");
     let body: serde_json::Value = serde_json::from_slice(&res.bytes().await?)?;
     assert_eq!(body["code"], 401);
-    assert_eq!(body["message"], "Invalid SignedRequestAuth: signature verification failed");
+    assert_eq!(body["message"], "Invalid SignedBuilderRequestAuth: signature verification failed");
 
     let auth = signed_auth(&secret_key, &[0xde, 0xad], TEST_SLOT, Chain::Hoodi);
     let res = mock_validator

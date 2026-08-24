@@ -193,23 +193,23 @@ impl GetPayloadInfo for SignedBlindedBeaconBlock {
 }
 
 #[allow(non_camel_case_types)]
-pub type MAX_DATA_SIZE = typenum::U4096;
+pub type MAX_BUILDER_AUTH_DATA_SIZE = typenum::U4096;
 
-// `RequestAuth` is used to authenticate requests to a builder. This is useful
+// `BuilderRequestAuth` is used to authenticate requests to a builder. This is useful
 // so that other builders do not DDOS or run replay attacks on the builder.
 #[derive(Debug, Serialize, Deserialize, Encode, Decode, Clone, TreeHash)]
-pub struct RequestAuth {
+pub struct BuilderRequestAuth {
     /// Opaque authentication data agreed with the builder out of band; hex
     /// string on the JSON wire
     #[serde(with = "ssz_types::serde_utils::hex_var_list")]
-    pub data: VariableList<u8, MAX_DATA_SIZE>,
+    pub data: VariableList<u8, MAX_BUILDER_AUTH_DATA_SIZE>,
     pub slot: Slot,
 }
 
-// `SignedRequestAuth`
+// `SignedBuilderRequestAuth`
 #[derive(Debug, Serialize, Deserialize, Encode, Decode, Clone)]
-pub struct SignedRequestAuth {
-    pub message: RequestAuth,
+pub struct SignedBuilderRequestAuth {
+    pub message: BuilderRequestAuth,
     pub signature: BlsSignature,
 }
 
@@ -228,7 +228,7 @@ pub struct BuilderPreferences {
 #[derive(Debug, Serialize, Deserialize, Encode, Decode, Clone)]
 pub struct BuilderPreferencesRequest {
     pub preferences: BuilderPreferences,
-    pub auth: SignedRequestAuth,
+    pub auth: SignedBuilderRequestAuth,
 }
 
 /// Path params for `POST /eth/v1/builder/builder_preferences/{proposer_pubkey}`
@@ -244,9 +244,9 @@ mod tests {
 
     /// `data` is an opaque hex STRING on the wire
     #[test]
-    fn test_request_auth_data_serializes_as_hex() {
-        let auth = SignedRequestAuth {
-            message: RequestAuth {
+    fn test_builder_request_auth_data_serializes_as_hex() {
+        let auth = SignedBuilderRequestAuth {
+            message: BuilderRequestAuth {
                 data: VariableList::new(vec![0x12, 0x34, 0x56, 0x78, 0x90, 0xab, 0xcd, 0xef])
                     .unwrap(),
                 slot: Slot::new(100),
@@ -260,7 +260,7 @@ mod tests {
 
     /// Round-trip the spec's wire shape back into the struct
     #[test]
-    fn test_request_auth_deserializes_spec_json() {
+    fn test_builder_request_auth_deserializes_spec_json() {
         let json = r#"{
             "message": {
                 "data": "0x1234567890abcdef",
@@ -268,7 +268,7 @@ mod tests {
             },
             "signature": "0xc00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
         }"#;
-        let auth: SignedRequestAuth = serde_json::from_str(json).unwrap();
+        let auth: SignedBuilderRequestAuth = serde_json::from_str(json).unwrap();
         assert_eq!(auth.message.data.to_vec(), vec![
             0x12, 0x34, 0x56, 0x78, 0x90, 0xab, 0xcd, 0xef
         ]);
@@ -288,8 +288,8 @@ mod tests {
         let mut infinity_sig = vec![0u8; 96];
         infinity_sig[0] = 0xc0;
 
-        let auth = SignedRequestAuth {
-            message: RequestAuth {
+        let auth = SignedBuilderRequestAuth {
+            message: BuilderRequestAuth {
                 data: VariableList::new(vec![0x12, 0x34, 0x56, 0x78, 0x90, 0xab, 0xcd, 0xef])
                     .unwrap(),
                 slot: Slot::new(1234),

@@ -2,7 +2,7 @@ use alloy::{primitives::B256, rpc::types::beacon::relay::ValidatorRegistration};
 use cb_common::{
     pbs::{
         BuilderApiVersion, BuilderPreferencesRequest, HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS,
-        RelayClient, SignedBeaconBlock, SignedBlindedBeaconBlock, SignedRequestAuth,
+        RelayClient, SignedBeaconBlock, SignedBlindedBeaconBlock, SignedBuilderRequestAuth,
     },
     types::{BlsPublicKey, KnownChain},
     utils::{bls_pubkey_from_hex, utcnow_ms},
@@ -134,7 +134,7 @@ impl MockValidator {
         parent_hash: B256,
         parent_root: B256,
         pubkey: Option<BlsPublicKey>,
-        auth: Option<&SignedRequestAuth>,
+        auth: Option<&SignedBuilderRequestAuth>,
         accept: Vec<EncodingType>,
     ) -> eyre::Result<Response> {
         self.do_get_execution_payload_bid_with_timeout(
@@ -158,7 +158,7 @@ impl MockValidator {
         parent_hash: B256,
         parent_root: B256,
         pubkey: Option<BlsPublicKey>,
-        auth: Option<&SignedRequestAuth>,
+        auth: Option<&SignedBuilderRequestAuth>,
         accept: Vec<EncodingType>,
         timeout_ms: u64,
     ) -> eyre::Result<Response> {

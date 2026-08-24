@@ -548,7 +548,7 @@ pub fn deserialize_body(
 }
 
 /// Decode a fork-versioned ePBS request body (builder-specs fork-versions
-/// `SignedRequestAuth` and `BuilderPreferencesRequest`) as JSON or SSZ,
+/// `SignedBuilderRequestAuth` and `BuilderPreferencesRequest`) as JSON or SSZ,
 /// defaulting to SSZ when no `Content-Type` is set. An empty body is rejected
 /// first so a missing body reads as `MissingBody`. `Eth-Consensus-Version` is
 /// required for BOTH encodings and its value must name a fork this build
