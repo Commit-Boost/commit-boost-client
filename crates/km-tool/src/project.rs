@@ -62,10 +62,9 @@ impl std::fmt::Display for OrderedPubkey {
 }
 
 /// The parsed CB config plus the RAW relay URL strings from the same TOML
-/// text. The raw strings matter: `RelayEntry` holds a parsed `Url`, and `Url`
-/// serialization normalizes (adds the trailing slash to an empty path, drops
-/// default ports), while the auth_data convention wants the URL bytes exactly
-/// as configured.
+/// text. The auth_data convention wants the URL bytes exactly as configured,
+/// but `RelayEntry` holds a parsed `Url` whose serialization normalizes them
+/// (see `Overlay::advertised_url`), so the raw strings are kept alongside.
 pub struct ProjectionInput {
     pub cfg: CommitBoostConfig,
     mux_relay_urls: Vec<Vec<String>>,
@@ -197,11 +196,11 @@ pub fn project_with_url(input: &ProjectionInput, advertised_url: &str) -> Result
             let keys = resolve_mux_keys(mux, &mut warnings)?;
             let doc = project_mux(input, mux, raw_urls, advertised_url, &mut warnings)?;
 
-            for relay in mux.relays.iter().zip(raw_urls) {
+            for (relay, raw_url) in mux.relays.iter().zip(raw_urls) {
                 relay_candidates.push(RelayAuthCandidate {
                     source: mux.id.clone(),
-                    relay_id: relay.0.id().to_string(),
-                    bytes: candidate_auth_data(relay.0, relay.1),
+                    relay_id: relay.id().to_string(),
+                    bytes: candidate_auth_data(relay, raw_url),
                     projected: !keys.is_empty(),
                 });
             }
@@ -325,7 +324,6 @@ fn project_mux(
 ) -> Result<BuilderConfigDoc> {
     ensure!(!mux.relays.is_empty(), "mux {} has no relays", mux.id);
 
-    // group relays into auth_data equivalence classes by identical bytes
     let mut classes: BTreeMap<Vec<u8>, AuthClass> = BTreeMap::new();
     for (relay, raw_url) in mux.relays.iter().zip(raw_urls) {
         let bytes = candidate_auth_data(relay, raw_url);
@@ -695,7 +693,7 @@ url = "https://{RELAY_PK_A}@relay-a.example.com"
         assert_eq!(entry.builder_boost_factor, Some("100".to_string()));
     }
 
-    // (a) A mux p2p field wins over a different global p2p field at the key level.
+    // A mux p2p field wins over a different global p2p field at the key level.
     #[test]
     fn mux_p2p_override_wins_over_global() {
         let key = random_key_hex();
@@ -722,7 +720,7 @@ url = "https://{RELAY_PK_A}@relay-a.example.com"
         assert_eq!(doc.builder_boost_factor, Some("130".to_string()));
     }
 
-    // (b) Only the global p2p fields are set: every mux uses them at the key level.
+    // Only the global p2p fields are set: every mux uses them at the key level.
     #[test]
     fn global_p2p_applies_to_all_muxes() {
         let key_a = random_key_hex();
@@ -754,7 +752,7 @@ url = "https://{RELAY_PK_B}@relay-b.example.com"
         }
     }
 
-    // (d) Mix: mux A overrides the global p2p, mux B inherits it.
+    // Mix: mux A overrides the global p2p, mux B inherits it.
     #[test]
     fn mux_p2p_override_and_inherit_mix() {
         let key_a = random_key_hex();

@@ -23,14 +23,11 @@ use crate::{
     metrics::{RELAY_LATENCY, RELAY_STATUS_CODE},
 };
 
-/// Sends one already-built relay request and records the per-relay metrics
-/// shared by all three ePBS endpoints: a send failure bumps `RELAY_STATUS_CODE`
-/// at `TIMEOUT_ERROR_CODE_STR` and returns the error; otherwise the latency is
-/// observed and the response status recorded. Returns the response and its
-/// latency so the caller can read/decode the body itself. `tag` is the
-/// per-endpoint metric label. Callers build their own `RequestBuilder` because
-/// the requests legitimately differ (bid sets a per-call timeout and timing
-/// headers).
+/// Sends one already-built relay request, recording the per-relay metrics
+/// shared by all three ePBS endpoints, and returns the response and its latency
+/// so the caller can read/decode the body itself. `tag` is the per-endpoint
+/// metric label. Callers build their own `RequestBuilder` because the requests
+/// legitimately differ (bid sets a per-call timeout and timing headers).
 pub(crate) async fn send_to_relay(
     req: reqwest::RequestBuilder,
     relay: &RelayClient,
@@ -70,10 +67,9 @@ pub(crate) fn record_client_error(
     err
 }
 
-/// Count a relay response that CB rejected during validation. The relay's HTTP
-/// status was already recorded when the response arrived, so without this a
-/// relay serving invalid bids every slot is indistinguishable in metrics from
-/// an honest empty auction.
+/// Count a relay response that CB rejected during validation, by reason (see
+/// `RELAY_INVALID_RESPONSE` for why this is a separate signal from the relay's
+/// HTTP status).
 pub(crate) fn record_invalid_relay_response(reason: &str, endpoint: &str, relay_id: &str) {
     crate::metrics::RELAY_INVALID_RESPONSE.with_label_values(&[reason, endpoint, relay_id]).inc();
 }
@@ -336,7 +332,6 @@ mod tests {
             validate_auth_data(&with_data(vec![])),
             Err(PbsClientError::EmptyAuthData)
         ));
-        // A single byte clears the guard
         assert!(validate_auth_data(&with_data(vec![0xaa])).is_ok());
     }
 
@@ -346,7 +341,6 @@ mod tests {
             test_relay("http://a.example.com", Some(&[0xaa])),
             test_relay("http://b.example.com", Some(&[0xbb])),
         ];
-        // Exact-bytes match selects exactly one relay
         let matched = match_relays_by_auth_data(&relays, &[0xbb]);
         assert_eq!(matched.len(), 1);
         assert_eq!(matched[0].config.entry.url.host_str(), Some("b.example.com"));
@@ -366,7 +360,6 @@ mod tests {
         let relays = vec![test_relay("https://0xdeadbeef@builder.example.com", None)];
         assert_eq!(match_relays_by_auth_data(&relays, b"https://builder.example.com").len(), 1);
         assert_eq!(match_relays_by_auth_data(&relays, b"https://builder.example.com:443").len(), 1);
-        // A non-default port must not match
         assert!(match_relays_by_auth_data(&relays, b"https://builder.example.com:8443").is_empty());
     }
 

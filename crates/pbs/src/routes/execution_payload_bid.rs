@@ -169,7 +169,6 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
     let (pbs_config, relays, maybe_mux_id) = state.mux_config_and_relays(&params.proposer_pubkey);
 
-    // All acceptable builders this pubkey can talk to
     if let Some(mux_id) = maybe_mux_id {
         debug!(mux_id, relays = relays.len(), pubkey = %params.proposer_pubkey, "using mux config");
     } else {
@@ -220,7 +219,7 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
     }
     let max_timeout_ms = max_timeout_ms.min(budget_ms);
 
-    // prepare headers, except for start time which is set in `send_one_get_header`
+    // prepare headers, except for start time which is set in `send_one_get_execution_payload_bid`
     let mut send_headers = epbs_base_send_headers(&req_headers)?;
 
     // Forward the caller's Accept preference to the relay so it returns the
@@ -498,11 +497,8 @@ async fn send_timed_get_execution_payload_bid(
                 "TG: sending multiple header requests"
             );
 
-            // Every poll shares the proposer's deadline, so granting each one all
-            // the time left would let a builder hold them all until that instant
-            // and leave nothing in hand if it is missed. Bound the early polls so
-            // they land as a floor of progressively better bids; only the last
-            // poll holds for the full remainder.
+            // Bounded early polls land a floor of progressively better bids (see
+            // poll_call_timeout_ms).
             let poll_timeout_ms =
                 relay.config.bid_poll_timeout_ms.unwrap_or(DEFAULT_BID_POLL_TIMEOUT_MS);
 
@@ -582,7 +578,6 @@ async fn send_timed_get_execution_payload_bid(
         }
     }
 
-    // if no timing games or no repeated send, just send one request
     send_one_get_execution_payload_bid(
         params,
         body,
@@ -614,7 +609,6 @@ async fn send_one_get_execution_payload_bid(
     mut req_config: RequestContext,
     validation: ValidationContext,
 ) -> Result<(u64, Option<GetExecutionPayloadBidResponse>), PbsError> {
-    // the timestamp in the header is the consensus block time which is fixed,
     // request send time, forwarded to the relay in HEADER_START_TIME_UNIX_MS
     let start_request_time = utcnow_ms();
     req_config.headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(start_request_time));
@@ -664,17 +658,13 @@ async fn send_one_get_execution_payload_bid(
     }
 
     let get_header_response = match content_type {
-        EncodingType::Json => {
-            match serde_json::from_slice::<GetExecutionPayloadBidResponse>(&response_bytes) {
-                Ok(parsed) => parsed,
-                Err(err) => {
-                    return Err(PbsError::JsonDecode {
-                        err,
-                        raw: String::from_utf8_lossy(&response_bytes).into_owned(),
-                    });
-                }
-            }
-        }
+        EncodingType::Json => serde_json::from_slice::<GetExecutionPayloadBidResponse>(
+            &response_bytes,
+        )
+        .map_err(|err| PbsError::JsonDecode {
+            err,
+            raw: String::from_utf8_lossy(&response_bytes).into_owned(),
+        })?,
         EncodingType::Ssz => {
             // SSZ requires the fork from Eth-Consensus-Version; its absence is a
             // relay protocol violation.
@@ -683,8 +673,8 @@ async fn send_one_get_execution_payload_bid(
                     .to_string(),
                 code: code.as_u16(),
             })?;
-            let data = SignedExecutionPayloadBid::from_ssz_bytes(&response_bytes).map_err(|e| {
-                PbsError::SSZDecode { err: format!("error decoding relay payload: {e:?}"), fork }
+            let data = SignedExecutionPayloadBid::from_ssz_bytes(&response_bytes).map_err(|err| {
+                PbsError::SSZDecode { err: format!("error decoding relay payload: {err:?}"), fork }
             })?;
             GetExecutionPayloadBidResponse { version: fork, data, metadata: Default::default() }
         }
@@ -868,8 +858,8 @@ mod tests {
 
         let mock_params = GetExecutionPayloadBidParams {
             slot,
-            parent_hash: parent_hash.clone(),
-            parent_root: parent_root.clone(),
+            parent_hash,
+            parent_root,
             proposer_pubkey: pubkey,
         };
 

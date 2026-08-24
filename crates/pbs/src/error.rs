@@ -116,8 +116,8 @@ impl IntoResponse for PbsClientError {
             }
             PbsClientError::NoPayload => "no payload from relays".to_string(),
             PbsClientError::Internal => "internal server error".to_string(),
-            PbsClientError::DecodeError(e) => format!("error decoding request: {e}"),
-            PbsClientError::HeaderError(e) => format!("header error: {e}"),
+            PbsClientError::DecodeError(err) => format!("error decoding request: {err}"),
+            PbsClientError::HeaderError(err) => format!("header error: {err}"),
         };
 
         // Return the spec's JSON `ErrorMessage` rather than plain text so clients

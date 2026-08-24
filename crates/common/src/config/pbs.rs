@@ -39,6 +39,8 @@ use crate::{
     },
 };
 
+/// How CB fetches bids from a relay: `Http` = the classic get_header request,
+/// `Stream` = the ePBS bid stream (polling/SSE).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GetHeaderTransport {
@@ -59,7 +61,6 @@ pub struct RelayConfig {
     pub headers: Option<HashMap<String, String>>,
     /// Optional GET parameters to add to each request
     pub get_params: Option<HashMap<String, String>>,
-    /// How to fetch headers from this relay
     #[serde(default)]
     pub get_header: GetHeaderTransport,
     /// Whether to enable timing games
@@ -188,7 +189,8 @@ pub struct PbsConfig {
     /// CB's externally-reachable URLs; used by the ePBS pipe self-URL guard
     #[serde(default)]
     pub advertised_urls: Vec<Url>,
-    /// Projection-only: consumed by KM tooling, not read by the PBS runtime.
+    // The p2p projection-only fields below are consumed by KM tooling, not read
+    // by the PBS runtime.
     /// The ePBS KEY-LEVEL minimum total payment: it governs p2p bids and
     /// builder entries that omit their own min_bid (projected entries always
     /// carry explicit per-entry values sourced from the mux/global min_bid)
@@ -199,7 +201,6 @@ pub struct PbsConfig {
         skip_serializing_if = "Option::is_none"
     )]
     pub min_bid_p2p_wei: Option<U256>,
-    /// Projection-only: consumed by KM tooling, not read by the PBS runtime.
     /// The ePBS KEY-LEVEL builder_boost_factor: it governs p2p bids and
     /// builder entries that omit their own (entry values stay mux-sourced)
     #[serde(default, skip_serializing_if = "Option::is_none")]

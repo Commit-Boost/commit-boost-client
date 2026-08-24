@@ -1,8 +1,8 @@
 //! `cb-km check`: read-only comparison of stored VC docs against the
-//! projection. Comparison is CANONICAL, never a byte-diff: the spec promises
-//! neither entry order nor hex case, and a GET returns the doc fully
-//! RESOLVED, so fields the projection intentionally omits (they resolve to
-//! the VC's own config) are skipped rather than reported as drift.
+//! projection. Comparison is canonical (see `doc::CanonicalDoc`), never a
+//! byte-diff: a GET returns the doc fully RESOLVED, so fields the projection
+//! intentionally omits (they resolve to the VC's own config) are skipped
+//! rather than reported as drift.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -185,7 +185,8 @@ pub async fn run_check(input: &ProjectionInput, overlay: &Overlay) -> Result<Che
 
 /// Compares a projected doc against a stored (resolved) one. A field the
 /// projection left unset resolves to the VC's own config on GET, so only
-/// projected values are compared; extra or missing entries are always drift.
+/// projected values are compared; missing projected entries are drift, and
+/// surplus stored entries are flagged by count.
 fn drift_lines(projected: &CanonicalDoc, stored: &CanonicalDoc) -> Vec<String> {
     let mut lines = Vec::new();
     compare_field(&mut lines, "min_bid", &projected.min_bid, &stored.min_bid);
@@ -199,7 +200,7 @@ fn drift_lines(projected: &CanonicalDoc, stored: &CanonicalDoc) -> Vec<String> {
     let Some(projected_entries) = &projected.builders else {
         return lines;
     };
-    let stored_entries = stored.builders.clone().unwrap_or_default();
+    let stored_entries = stored.builders.as_deref().unwrap_or_default();
     let stored_by_key: BTreeMap<(String, Option<Vec<u8>>), &CanonicalEntry> = stored_entries
         .iter()
         .map(|entry| ((entry.url.clone(), entry.auth_data.clone()), entry))

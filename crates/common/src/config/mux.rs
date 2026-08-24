@@ -181,11 +181,11 @@ pub struct MuxConfig {
     pub late_in_slot_time_ms: Option<u64>,
     /// Expected fee recipient in ePBS bids for this mux's validators
     pub fee_recipient: Option<Address>,
-    /// Projection-only: consumed by KM tooling, not read by the PBS runtime.
+    // The projection-only fields below are consumed by KM tooling, not read by
+    // the PBS runtime.
     /// The ePBS builder_boost_factor for this mux's keys
     #[serde(skip_serializing_if = "Option::is_none")]
     pub builder_boost_factor: Option<u64>,
-    /// Projection-only: consumed by KM tooling, not read by the PBS runtime.
     /// The ePBS per-key-group minimum total payment for this mux's keys
     #[serde(
         rename = "min_bid_eth",
@@ -194,12 +194,10 @@ pub struct MuxConfig {
         skip_serializing_if = "Option::is_none"
     )]
     pub min_bid_wei: Option<U256>,
-    /// Projection-only: consumed by KM tooling, not read by the PBS runtime.
     /// The ePBS KEY-LEVEL builder_boost_factor governing p2p bids for this
     /// mux's keys. Overrides the global `[pbs] builder_boost_factor_p2p`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub builder_boost_factor_p2p: Option<u64>,
-    /// Projection-only: consumed by KM tooling, not read by the PBS runtime.
     /// The ePBS KEY-LEVEL minimum total payment governing p2p bids for this
     /// mux's keys. Overrides the global `[pbs] min_bid_p2p_eth`.
     #[serde(

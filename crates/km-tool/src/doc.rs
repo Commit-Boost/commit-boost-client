@@ -34,12 +34,7 @@ pub struct BuilderEntryDoc {
 
 /// Encodes bytes as the KM `auth_data` wire form: 0x-prefixed lowercase hex.
 pub fn encode_auth_data(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(2 + bytes.len() * 2);
-    out.push_str("0x");
-    for b in bytes {
-        out.push_str(&format!("{b:02x}"));
-    }
-    out
+    format!("0x{}", alloy_primitives::hex::encode(bytes))
 }
 
 /// Decodes a 0x-prefixed hex `auth_data`, accepting either hex case.

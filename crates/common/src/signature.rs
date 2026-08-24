@@ -87,7 +87,6 @@ pub fn builder_request_auth_domain(chain: Chain) -> B256 {
     compute_domain(chain, &B32::from(DOMAIN_BUILDER_REQUEST_AUTH))
 }
 
-/// Signs a `BuilderRequestAuth` message root under the request-auth domain.
 pub fn sign_builder_request_auth_root(
     secret_key: &BlsSecretKey,
     object_root: &B256,
@@ -100,7 +99,6 @@ pub fn sign_builder_request_auth_root(
     sign_message(secret_key, signing_data.tree_hash_root())
 }
 
-/// Verifies a `SignedBuilderRequestAuth` signature under the request-auth domain.
 pub fn verify_builder_request_auth_signature<T: TreeHash>(
     pubkey: &BlsPublicKey,
     msg: &T,
@@ -152,7 +150,6 @@ pub fn sign_builder_root(
     sign_message(secret_key, signing_root)
 }
 
-/// Signs a message root under the ePBS execution payload bid domain.
 pub fn sign_execution_payload_bid_root(
     secret_key: &BlsSecretKey,
     object_root: &B256,

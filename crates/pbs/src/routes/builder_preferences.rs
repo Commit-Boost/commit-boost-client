@@ -133,9 +133,8 @@ pub async fn submit_builder_preferences<S: BuilderApiState>(
                 )
                 .in_current_span(),
             )
-            .map(|join_result| match join_result {
-                Ok(res) => res,
-                Err(err) => Err(PbsError::TokioJoinError(err)),
+            .map(|join_result| {
+                join_result.unwrap_or_else(|err| Err(PbsError::TokioJoinError(err)))
             }),
         );
     }

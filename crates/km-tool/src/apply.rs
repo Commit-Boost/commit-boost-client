@@ -88,9 +88,7 @@ pub async fn run_apply(
 ) -> Result<ApplyReport> {
     let mut report = ApplyReport::default();
     let global = project(input, overlay)?;
-    for w in &global.warnings {
-        report.warnings.push(w.clone());
-    }
+    report.warnings.extend(global.warnings.iter().cloned());
     let projected_keys: BTreeSet<String> = global.docs.keys().map(|k| k.to_string()).collect();
 
     if opts.dry_run {

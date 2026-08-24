@@ -136,13 +136,11 @@ impl GetExecutionPayloadBidInfo for GetExecutionPayloadBidResponse {
 /// {proposer_pubkey}`
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct GetExecutionPayloadBidParams {
-    /// The slot for which the block should be proposed.
     pub slot: u64,
     /// The hash of the execution layer block the proposer will build on.
     pub parent_hash: B256,
     /// The root of the beacon block the proposer will build on.
     pub parent_root: B256,
-    /// The public key of the proposer
     pub proposer_pubkey: BlsPublicKey,
 }
 
@@ -206,7 +204,6 @@ pub struct BuilderRequestAuth {
     pub slot: Slot,
 }
 
-// `SignedBuilderRequestAuth`
 #[derive(Debug, Serialize, Deserialize, Encode, Decode, Clone)]
 pub struct SignedBuilderRequestAuth {
     pub message: BuilderRequestAuth,
@@ -275,10 +272,9 @@ mod tests {
         assert_eq!(auth.message.slot, Slot::new(100));
     }
 
-    /// Spec vector for the SSZ layout of `BuilderPreferencesRequest`:
-    /// `(preferences, auth)` per builder-specs
-    /// `types/gloas/builder_preferences.yaml`. The order-determining fixed
-    /// part is cross-checked byte-for-byte against the canonical example
+    /// Spec vector for the SSZ layout of `BuilderPreferencesRequest` (field
+    /// order documented on the struct). The order-determining fixed part is
+    /// cross-checked byte-for-byte against the canonical example
     /// `examples/gloas/builder_preferences_request.ssz`.
     #[test]
     fn test_builder_preferences_request_ssz_spec_vector() {
