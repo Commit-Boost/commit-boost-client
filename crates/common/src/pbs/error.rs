@@ -1,4 +1,4 @@
-use alloy::primitives::{Address, B256, U256};
+use alloy::primitives::{B256, U256};
 use lh_types::ForkName;
 use thiserror::Error;
 
@@ -114,9 +114,6 @@ pub enum ValidationError {
 
     #[error("bid below minimum: min: {min} got {got}")]
     BidTooLow { min: U256, got: U256 },
-
-    #[error("fee recipient mismatch: expected {expected} got {got}")]
-    FeeRecipientMismatch { expected: Address, got: Address },
 
     #[error("empty parent root")]
     EmptyParentRoot,
