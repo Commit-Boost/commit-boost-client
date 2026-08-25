@@ -30,6 +30,10 @@ lazy_static! {
             MainnetLidoModule::CommunityStaking as u8,
             address!("dA7dE2ECdDfccC6c3AF10108Db212ACBBf9EA83F"),
         );
+        mainnet.insert(
+            MainnetLidoModule::CuratedV2 as u8,
+            address!("Da5F930cE326EB5205085D66c72A4E79d60cB8C1"),
+        );
         map.insert(Chain::Mainnet, mainnet);
 
         // --- Holesky ---
@@ -70,6 +74,10 @@ lazy_static! {
             HoodiLidoModule::CommunityStaking as u8,
             address!("79CEf36D84743222f37765204Bec41E92a93E59d"),
         );
+        hoodi.insert(
+            HoodiLidoModule::CuratedV2 as u8,
+            address!("87EB69Ae51317405FD285efD2326a4a11f6173b9"),
+        );
         map.insert(Chain::Hoodi, hoodi);
 
         // --- Sepolia --
@@ -93,11 +101,25 @@ pub fn lido_registry_address(chain: Chain, lido_module_id: u8) -> eyre::Result<A
         })
 }
 
-pub fn is_csm_module(chain: Chain, module_id: u8) -> bool {
+/// Lido staking modules expose one of two node operator registry interfaces.
+///
+/// The Community Staking Module and the Curated Module v2
+/// (`curated-onchain-v2`) share the CSM interface: `getSigningKeys` returns a
+/// flat `bytes` blob and the key total is derived from
+/// `getNodeOperatorSummary`. Every other module is a `NodeOperatorsRegistry`
+/// (curated v1, SimpleDVT, Sandbox), which returns a struct from
+/// `getSigningKeys` and exposes `getTotalSigningKeyCount`.
+pub fn uses_csm_registry_interface(chain: Chain, module_id: u8) -> bool {
     match chain {
-        Chain::Mainnet => module_id == MainnetLidoModule::CommunityStaking as u8,
+        Chain::Mainnet => {
+            module_id == MainnetLidoModule::CommunityStaking as u8 ||
+                module_id == MainnetLidoModule::CuratedV2 as u8
+        }
         Chain::Holesky => module_id == HoleskyLidoModule::CommunityStaking as u8,
-        Chain::Hoodi => module_id == HoodiLidoModule::CommunityStaking as u8,
+        Chain::Hoodi => {
+            module_id == HoodiLidoModule::CommunityStaking as u8 ||
+                module_id == HoodiLidoModule::CuratedV2 as u8
+        }
         _ => false,
     }
 }
@@ -267,5 +289,88 @@ mod tests {
         assert_eq!(vec.len(), LIMIT, "expected {LIMIT} keys, got {}", vec.len());
 
         Ok(())
+    }
+
+    #[test]
+    fn test_lido_curated_v2_registry_address() -> eyre::Result<()> {
+        assert_eq!(
+            lido_registry_address(Chain::Mainnet, MainnetLidoModule::CuratedV2 as u8)?,
+            address!("Da5F930cE326EB5205085D66c72A4E79d60cB8C1")
+        );
+
+        assert_eq!(
+            lido_registry_address(Chain::Hoodi, HoodiLidoModule::CuratedV2 as u8)?,
+            address!("87EB69Ae51317405FD285efD2326a4a11f6173b9")
+        );
+
+        // CMv2 shares the CSM read interface, so it must be routed to it
+        assert!(uses_csm_registry_interface(Chain::Mainnet, MainnetLidoModule::CuratedV2 as u8));
+        assert!(uses_csm_registry_interface(Chain::Hoodi, HoodiLidoModule::CuratedV2 as u8));
+
+        // Curated v1 still uses the NodeOperatorsRegistry interface
+        assert!(!uses_csm_registry_interface(Chain::Mainnet, MainnetLidoModule::Curated as u8));
+        assert!(!uses_csm_registry_interface(Chain::Hoodi, HoodiLidoModule::Curated as u8));
+
+        // CMv2 is not deployed on Holesky
+        assert!(lido_registry_address(Chain::Holesky, 5).is_err());
+
+        Ok(())
+    }
+
+    /// Reads the first keys of a CMv2 node operator through the same helpers
+    /// the mux loader uses.
+    async fn assert_curated_v2_keys(
+        rpc_url: &str,
+        chain: Chain,
+        module_id: u8,
+    ) -> eyre::Result<()> {
+        let url = Url::parse(rpc_url)?;
+        let provider = ProviderBuilder::new().connect_http(url);
+
+        let registry_address = lido_registry_address(chain, module_id)?;
+        let registry = get_lido_csm_registry(registry_address, provider);
+
+        const LIMIT: u64 = 3;
+        let node_operator_id = U256::ZERO;
+
+        let total_keys = fetch_lido_csm_keys_total(&registry, node_operator_id).await?;
+
+        assert!(total_keys >= LIMIT, "expected at least {LIMIT} keys, got {total_keys}");
+
+        let pubkeys = fetch_lido_csm_keys_batch(&registry, node_operator_id, 0, LIMIT).await?;
+
+        assert_eq!(pubkeys.len(), LIMIT as usize * BLS_PUBLIC_KEY_BYTES_LEN);
+
+        let mut vec = Vec::new();
+        for chunk in pubkeys.chunks(BLS_PUBLIC_KEY_BYTES_LEN) {
+            vec.push(
+                BlsPublicKey::deserialize(chunk)
+                    .map_err(|_| eyre::eyre!("invalid BLS public key"))?,
+            );
+        }
+
+        assert_eq!(vec.len(), LIMIT as usize);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_lido_curated_v2_mainnet_keys() -> eyre::Result<()> {
+        assert_curated_v2_keys(
+            "https://ethereum-rpc.publicnode.com",
+            Chain::Mainnet,
+            MainnetLidoModule::CuratedV2 as u8,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn test_lido_curated_v2_hoodi_keys() -> eyre::Result<()> {
+        assert_curated_v2_keys(
+            "https://ethereum-hoodi-rpc.publicnode.com",
+            Chain::Hoodi,
+            HoodiLidoModule::CuratedV2 as u8,
+        )
+        .await
     }
 }
