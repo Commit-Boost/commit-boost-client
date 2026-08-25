@@ -10,7 +10,6 @@ use cb_common::{
         error::PbsError,
     },
     types::Chain,
-    utils::ms_into_slot,
     wire::{decode_versioned_request_body, get_user_agent},
 };
 use futures::{FutureExt, future::join_all};
@@ -159,12 +158,13 @@ pub async fn submit_builder_preferences<S: BuilderApiState>(
     Ok(())
 }
 
-/// Validates the caller's `SignedBuilderRequestAuth`. There is no slot in the
-/// request path here, so instead of matching one we reject a slot that has
-/// already ended: preferences are submitted an epoch ahead, and a replayed
-/// submission must not be able to roll a proposer's preferences back to a stale
-/// value. `auth.message.data` must be non-empty; which builder it addresses is
-/// the demux's job (`match_relays_by_auth_data`).
+/// Validates the caller's `SignedBuilderRequestAuth`. CB is a blind pipe for
+/// preferences: it does not gate on the auth slot. Freshness (rejecting a stale
+/// or replayed submission that would roll a proposer's preferences back) is the
+/// builder's call, not the relay's, so CB forwards regardless of slot age. All
+/// that is required here is `auth.message.data` (non-empty; which builder it
+/// addresses is the demux's job, `match_relays_by_auth_data`) and, when enabled,
+/// the request-auth signature.
 fn validate_preferences_auth(
     auth: &SignedBuilderRequestAuth,
     params: &SubmitBuilderPreferencesParams,
@@ -173,18 +173,7 @@ fn validate_preferences_auth(
 ) -> Result<(), PbsClientError> {
     validate_auth_data(auth)?;
 
-    if slot_has_passed(auth.message.slot.as_u64(), chain) {
-        warn!(auth_slot = %auth.message.slot, "auth slot already passed");
-        return Err(PbsClientError::AuthSlotPassed);
-    }
-
     verify_auth_signature(&params.proposer_pubkey, auth, chain, verify_signature)
-}
-
-/// `ms_into_slot` saturates at 0 for a future slot, so a full slot's worth of
-/// elapsed time means the slot is over.
-fn slot_has_passed(slot: u64, chain: Chain) -> bool {
-    ms_into_slot(slot, chain) >= chain.slot_time_sec() * 1000
 }
 
 async fn send_one_submit_builder_preferences(
@@ -217,7 +206,7 @@ mod tests {
     use cb_common::{
         pbs::{BuilderPreferences, BuilderRequestAuth},
         types::BlsSignature,
-        utils::{timestamp_of_slot_start_sec, utcnow_ms, utcnow_sec},
+        utils::utcnow_sec,
         wire::{BodyDeserializeError, CONSENSUS_VERSION_HEADER},
     };
 
@@ -227,38 +216,9 @@ mod tests {
         (utcnow_sec() - chain.genesis_time_sec()) / chain.slot_time_sec()
     }
 
-    /// The boundary is the slot's END, not its start: a proposer legitimately
-    /// submits for a slot that is still in progress.
-    #[test]
-    fn slot_has_passed_is_exclusive_of_the_current_slot() {
-        let chain = Chain::Hoodi;
-        let now = current_slot(chain);
-
-        assert!(!slot_has_passed(now, chain), "the in-progress slot has not passed");
-        assert!(!slot_has_passed(now + 1, chain), "the next slot has not passed");
-        assert!(!slot_has_passed(now + 1_000, chain), "a far future slot has not passed");
-        assert!(slot_has_passed(now - 1, chain), "the previous slot has passed");
-        assert!(slot_has_passed(0, chain), "slot 0 has long passed");
-    }
-
-    /// A slot is over exactly one slot-duration after it began, so the check
-    /// must not fire a millisecond early or a millisecond late.
-    #[test]
-    fn slot_has_passed_flips_one_slot_after_the_start() {
-        let chain = Chain::Hoodi;
-        let now = current_slot(chain);
-        let elapsed_ms = utcnow_ms() - timestamp_of_slot_start_sec(now, chain) * 1_000;
-
-        // Whatever point of the slot the test runs at, exactly one slot's worth
-        // of elapsed time separates "not passed" from "passed"
-        assert!(elapsed_ms < chain.slot_time_sec() * 1_000);
-        assert!(!slot_has_passed(now, chain));
-        assert!(slot_has_passed(now - 1, chain));
-    }
-
-    // Empty `auth.message.data` is rejected before slot_has_passed / sigverify,
-    // so it cannot slip through a catch-all relay match. Guards the wiring of
-    // the shared `validate_auth_data` into this endpoint.
+    // Empty `auth.message.data` is rejected before sigverify, so it cannot slip
+    // through a catch-all relay match. Guards the wiring of the shared
+    // `validate_auth_data` into this endpoint.
     #[test]
     fn validate_preferences_auth_rejects_empty_data() {
         use cb_common::types::BlsSecretKey;

@@ -35,8 +35,6 @@ pub enum PbsClientError {
     MissingTimingHeader,
     #[error("auth slot does not match the request path")]
     AuthSlotMismatch,
-    #[error("auth slot has already passed")]
-    AuthSlotPassed,
     #[error("the addressed builder rejected the request with {code}")]
     BuilderRejected { code: u16 },
     #[error("auth signature verification failed")]
@@ -62,7 +60,6 @@ impl PbsClientError {
             PbsClientError::EmptyAuthData => StatusCode::BAD_REQUEST,
             PbsClientError::MissingTimingHeader => StatusCode::BAD_REQUEST,
             PbsClientError::AuthSlotMismatch => StatusCode::BAD_REQUEST,
-            PbsClientError::AuthSlotPassed => StatusCode::BAD_REQUEST,
             // A lone addressed builder's own 400/401 from the preferences
             // endpoint is propagated (the sole constructor guards to those two
             // codes, so the 502 fallback below is currently dead).
@@ -99,9 +96,6 @@ impl IntoResponse for PbsClientError {
             }
             PbsClientError::AuthSlotMismatch => {
                 "Invalid SignedBuilderRequestAuth: auth.message.slot does not match the proposal slot in the request path".to_string()
-            }
-            PbsClientError::AuthSlotPassed => {
-                "Invalid SignedBuilderRequestAuth: auth.message.slot has already passed".to_string()
             }
             // The builder's own body is never forwarded: it is untrusted and may be
             // arbitrarily large
