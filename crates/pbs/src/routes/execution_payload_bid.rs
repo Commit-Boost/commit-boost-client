@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use alloy::{
     consensus::BlockHeader,
-    primitives::{Address, B256, U256, utils::format_ether},
+    primitives::{B256, U256, utils::format_ether},
     providers::Provider,
     rpc::types::Block,
 };
@@ -235,7 +235,6 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
                 max_timeout_ms,
                 ranking_cap_gwei(relay, pbs_config),
                 ValidationContext {
-                    expected_fee_recipient: pbs_config.fee_recipient,
                     extra_validation_enabled: state.extra_validation_enabled(),
                     parent_block: parent_block.clone(),
                 },
@@ -587,7 +586,6 @@ struct RequestContext {
 
 #[derive(Clone)]
 struct ValidationContext {
-    expected_fee_recipient: Option<Address>,
     extra_validation_enabled: bool,
     parent_block: Arc<RwLock<Option<Block>>>,
 }
@@ -705,11 +703,10 @@ async fn send_one_get_execution_payload_bid(
         parent_hash: get_header_response.parent_hash(),
         parent_root: get_header_response.parent_root(),
         slot: get_header_response.slot(),
-        fee_recipient: get_header_response.fee_recipient(),
         gas_limit: get_header_response.gas_limit(),
     };
 
-    validate_header_data(&header_info, &params, validation.expected_fee_recipient).inspect_err(
+    validate_header_data(&header_info, &params).inspect_err(
         |_| {
             crate::utils::record_invalid_relay_response(
                 "header_validation",
@@ -745,7 +742,6 @@ struct HeaderInfo {
     parent_hash: B256,
     parent_root: B256,
     slot: u64,
-    fee_recipient: Address,
     gas_limit: u64,
 }
 
@@ -757,7 +753,6 @@ struct HeaderInfo {
 fn validate_header_data(
     header_info: &HeaderInfo,
     params: &GetExecutionPayloadBidParams,
-    expected_fee_recipient: Option<Address>,
 ) -> Result<(), ValidationError> {
     if header_info.block_hash == B256::ZERO {
         return Err(ValidationError::EmptyBlockhash);
@@ -781,15 +776,6 @@ fn validate_header_data(
         return Err(ValidationError::SlotNumberMismatch {
             expected: params.slot,
             got: header_info.slot,
-        });
-    }
-
-    if let Some(expected) = expected_fee_recipient &&
-        header_info.fee_recipient != expected
-    {
-        return Err(ValidationError::FeeRecipientMismatch {
-            expected,
-            got: header_info.fee_recipient,
         });
     }
 
@@ -872,19 +858,18 @@ mod tests {
             parent_hash: B256::default(),
             parent_root: B256::default(),
             slot: 0,
-            fee_recipient: Address::ZERO,
             gas_limit: 0,
         };
 
         assert_eq!(
-            validate_header_data(&mock_header_data, &mock_params, None),
+            validate_header_data(&mock_header_data, &mock_params),
             Err(ValidationError::EmptyBlockhash)
         );
 
         mock_header_data.block_hash.0[1] = 1;
 
         assert_eq!(
-            validate_header_data(&mock_header_data, &mock_params, None),
+            validate_header_data(&mock_header_data, &mock_params),
             Err(ValidationError::ParentHashMismatch {
                 expected: mock_params.parent_hash,
                 got: B256::default()
@@ -894,7 +879,7 @@ mod tests {
         mock_header_data.parent_hash = parent_hash;
 
         assert_eq!(
-            validate_header_data(&mock_header_data, &mock_params, None),
+            validate_header_data(&mock_header_data, &mock_params),
             Err(ValidationError::ParentRootMismatch {
                 expected: mock_params.parent_root,
                 got: B256::default()
@@ -904,26 +889,14 @@ mod tests {
         mock_header_data.parent_root = parent_root;
 
         assert_eq!(
-            validate_header_data(&mock_header_data, &mock_params, None),
+            validate_header_data(&mock_header_data, &mock_params),
             Err(ValidationError::SlotNumberMismatch { expected: slot, got: 0 })
         );
 
         mock_header_data.slot = slot;
 
-        let expected_fee_recipient = Address::from([1; 20]);
-
-        assert_eq!(
-            validate_header_data(&mock_header_data, &mock_params, Some(expected_fee_recipient)),
-            Err(ValidationError::FeeRecipientMismatch {
-                expected: expected_fee_recipient,
-                got: Address::ZERO,
-            })
-        );
-
-        mock_header_data.fee_recipient = expected_fee_recipient;
-
-        validate_header_data(&mock_header_data, &mock_params, Some(expected_fee_recipient))
-            .unwrap();
+        // All request-derived fields now agree, so the header validates.
+        validate_header_data(&mock_header_data, &mock_params).unwrap();
     }
 
     fn test_auth(slot: u64, signature: BlsSignature) -> SignedBuilderRequestAuth {
