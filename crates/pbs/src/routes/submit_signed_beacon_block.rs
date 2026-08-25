@@ -1,7 +1,15 @@
-use axum::{body::Bytes, extract::State, http::HeaderMap, response::IntoResponse};
+use axum::{
+    body::Bytes,
+    extract::State,
+    http::{HeaderMap, HeaderValue},
+    response::IntoResponse,
+};
 use cb_common::{
-    pbs::{RelayClient, SignedBeaconBlock, error::PbsError, is_gloas},
-    wire::{decode_signed_beacon_block, get_user_agent},
+    pbs::{RelayClient, error::PbsError, is_gloas},
+    wire::{
+        BodyDeserializeError, CONSENSUS_VERSION_HEADER, decode_signed_beacon_block, get_user_agent,
+        require_consensus_version_header,
+    },
 };
 use futures::{FutureExt, future::join_all};
 use reqwest::StatusCode;
@@ -13,27 +21,24 @@ use crate::{
     constants::SUBMIT_SIGNED_BEACON_BLOCK_ENDPOINT_TAG,
     error::PbsClientError,
     state::{BuilderApiState, PbsState},
-    utils::{epbs_base_send_headers, post_ssz_expect_accepted, record_beacon_status, record_client_error},
+    utils::{epbs_base_send_headers, post_ssz_expect_accepted, record_beacon_status},
 };
 
-/// The body is the required `SignedBeaconBlock`. `Eth-Consensus-Version` is
-/// required for JSON and SSZ alike and must name a known fork (spec PR #165);
-/// the SSZ form additionally uses it to select the variant
+/// POST /eth/v1/builder/beacon_blocks (submitSignedBeaconBlock).
+/// `Eth-Consensus-Version` is required (spec PR #165) and names the block's
+/// fork. By default CB is a blind pipe: it forwards the block bytes to every
+/// builder WITHOUT decoding them, because block validity is the builder's job
+/// (builder-specs: an invalid block MUST be rejected by the builder). Set
+/// `strict_block_decode` to have CB decode the block and 400 a non-gloas or
+/// undecodable reveal itself.
 pub async fn handle_submit_signed_beacon_block<S: BuilderApiState>(
     State(state): State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
     body: Bytes,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    let block = decode_signed_beacon_block(&req_headers, &body)
-        .map_err(|err| record_client_error(err, SUBMIT_SIGNED_BEACON_BLOCK_ENDPOINT_TAG))?;
-    let slot = block.slot().as_u64();
-    tracing::Span::current().record("slot", slot);
-
     let state = state.read().clone();
-    let ua = get_user_agent(&req_headers);
-    info!(ua, slot, "new request");
 
-    match submit_signed_beacon_block(block, req_headers, state).await {
+    match submit_signed_beacon_block(body, req_headers, state).await {
         Ok(()) => {
             record_beacon_status("202", SUBMIT_SIGNED_BEACON_BLOCK_ENDPOINT_TAG);
             Ok(StatusCode::ACCEPTED.into_response())
@@ -51,28 +56,57 @@ pub async fn handle_submit_signed_beacon_block<S: BuilderApiState>(
     }
 }
 
-/// Broadcasts a `SignedBeaconBlock` to every configured builder. CB is
-/// stateless here: it keeps no record of the auction winner, so it forwards the
-/// block to all relays to improve inclusion guarantees,
-/// additive to the beacon node's own p2p gossip.
-/// Ok(()) means at least one builder accepted with a 202.
+/// Decides the SSZ body + fork to forward (blind by default, decoding only
+/// under `strict_block_decode`) and broadcasts to every configured builder. CB
+/// keeps no auction state, so it forwards to all relays to improve inclusion,
+/// additive to the beacon node's own p2p gossip. Ok(()) means at least one
+/// builder accepted with a 202.
 pub async fn submit_signed_beacon_block<S: BuilderApiState>(
-    block: SignedBeaconBlock,
+    body: Bytes,
     req_headers: HeaderMap,
     state: PbsState<S>,
 ) -> Result<(), PbsClientError> {
-    // Gloas-only endpoint per spec; earlier forks carry no execution payload bid
-    if !is_gloas(&block) {
-        return Err(PbsClientError::NotGloasBlock);
-    }
+    let strict = state.pbs_config().strict_block_decode;
+    let ua = get_user_agent(&req_headers);
 
-    // Base headers carry Eth-Consensus-Version: gloas, which the builder needs
-    // to decode the SSZ block
-    let send_headers = epbs_base_send_headers(&req_headers)?;
+    // Eth-Consensus-Version is spec-required here and names the block's fork: it
+    // labels the outbound SSZ and, under strict decode, selects the variant.
+    let fork = require_consensus_version_header(&req_headers)?;
+
+    let (out_body, slot) = if strict {
+        // Strict: CB decodes and rejects a malformed or non-gloas reveal itself.
+        let block = decode_signed_beacon_block(&req_headers, &body)?;
+        if !is_gloas(&block) {
+            return Err(PbsClientError::NotGloasBlock);
+        }
+        let slot = block.slot().as_u64();
+        (Bytes::from(block.as_ssz_bytes()), Some(slot))
+    } else {
+        // Blind pipe: forward the bytes without parsing; block validity is the
+        // builder's job. The outbound is always SSZ, so the reveal is expected
+        // in SSZ (strict mode is for operators who want CB to decode).
+        if body.is_empty() {
+            return Err(BodyDeserializeError::MissingBody.into());
+        }
+        (body, None)
+    };
+
+    if let Some(slot) = slot {
+        tracing::Span::current().record("slot", slot);
+    }
+    info!(ua, ?slot, strict, "new request");
+
+    // Base headers, then stamp the block's ACTUAL fork (gloas or later) as the
+    // outbound Eth-Consensus-Version rather than a hard-coded gloas, so a
+    // post-gloas reveal is labeled correctly.
+    let mut send_headers = epbs_base_send_headers(&req_headers)?;
+    send_headers.insert(
+        CONSENSUS_VERSION_HEADER,
+        HeaderValue::from_str(&fork.to_string())
+            .expect("fork name is always a valid header value"),
+    );
 
     let timeout_ms = state.pbs_config().timeout_get_payload_ms;
-
-    let body = Bytes::from(block.as_ssz_bytes());
     let relays = state.all_relays();
     // Spawned like builder_preferences' sends: a BN disconnect must not cancel
     // in-flight block broadcasts mid-fan-out, leaving some builders with the
@@ -83,7 +117,7 @@ pub async fn submit_signed_beacon_block<S: BuilderApiState>(
             tokio::spawn(
                 send_one_submit_signed_beacon_block(
                     relay.clone(),
-                    body.clone(),
+                    out_body.clone(),
                     send_headers.clone(),
                     timeout_ms,
                 )

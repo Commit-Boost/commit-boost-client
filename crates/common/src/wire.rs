@@ -359,19 +359,20 @@ pub fn require_consensus_version_header(
     // Echoed into the 400 body, so bound attacker-controlled length
     let unsupported =
         || BodyDeserializeError::InvalidVersionHeader(value.chars().take(64).collect());
-    // Exhaustive on purpose, no wildcard: when lighthouse adds a post-Gloas
-    // fork this match stops compiling, forcing an explicit decision about the
-    // window instead of silently 400ing the new fork's clients
+    // The endpoint is defined from the Gloas fork ONWARDS, so a gloas-or-later
+    // version is accepted and returned as-is (the caller uses it to select the
+    // SSZ variant). Still exhaustive, no wildcard: when lighthouse adds a fork
+    // after the current tip this match stops compiling, forcing an explicit
+    // decision to add it to the accepted set rather than silently 400ing it.
     match ForkName::from_str(value).map_err(|_| unsupported())? {
-        ForkName::Gloas => Ok(ForkName::Gloas),
+        fork @ (ForkName::Gloas | ForkName::Heze) => Ok(fork),
         ForkName::Base |
         ForkName::Altair |
         ForkName::Bellatrix |
         ForkName::Capella |
         ForkName::Deneb |
         ForkName::Electra |
-        ForkName::Fulu |
-        ForkName::Heze => Err(unsupported()),
+        ForkName::Fulu => Err(unsupported()),
     }
 }
 
@@ -594,7 +595,10 @@ pub fn decode_signed_beacon_block(
     // request. SSZ uses the fork to select the variant; JSON
     // self-describes via `deny_unknown_fields`, so a recognized-but-mismatched
     // value is ignored rather than second-guessing a decodable body.
-    let encoding = content_type_encoding_with_default(headers, EncodingType::Ssz)?;
+    // Absent Content-Type defaults to JSON, per the builder-specs preamble
+    // ("all requests by default send and receive JSON"); octet-stream is only
+    // for bodies that carry SSZ.
+    let encoding = content_type_encoding_with_default(headers, EncodingType::Json)?;
     let fork = require_consensus_version_header(headers)?;
     match encoding {
         EncodingType::Json => serde_json::from_slice::<SignedBeaconBlock>(body.as_ref())
