@@ -183,27 +183,23 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
         &pbs_config.advertised_urls,
     )?;
 
-    let max_timeout_ms = pbs_config
-        .timeout_get_header_ms
-        .min(pbs_config.late_in_slot_time_ms.saturating_sub(ms_into_slot));
-
-    if max_timeout_ms == 0 {
-        warn!(
-            ms_into_slot,
-            threshold = pbs_config.late_in_slot_time_ms,
-            "late in slot, skipping relay requests"
-        );
-
-        return Ok(None);
-    }
-
-    // The proposer's deadline bounds everything below it
+    // The proposer's own deadline (Date-Milliseconds + X-Timeout-Ms) tells CB
+    // exactly when the beacon node will stop waiting, so CB derives its timeout
+    // from that live value rather than a static, drift-prone config. It reserves
+    // proposer_deadline_buffer_ms for the winning bid's return trip to the BN and
+    // the BN's own selection/assembly, and asks the builder for the rest. Legacy
+    // timeout_get_header_ms and late_in_slot_time_ms are NOT consulted here: they
+    // exist for the get_header path, which carries no X-Timeout-Ms. saturating_sub
+    // yields 0 when the deadline is already inside the buffer (a natural no-bid,
+    // never a preemptive skip of a request the proposer might still accept).
     let budget_ms = request_budget_ms(&req_headers, utcnow_ms())?;
-    if budget_ms == 0 {
-        warn!("proposer deadline already passed, skipping relay requests");
-        return Ok(None);
-    }
-    let max_timeout_ms = max_timeout_ms.min(budget_ms);
+    let max_timeout_ms = budget_ms.saturating_sub(pbs_config.proposer_deadline_buffer_ms);
+    debug!(
+        budget_ms,
+        buffer_ms = pbs_config.proposer_deadline_buffer_ms,
+        max_timeout_ms,
+        "ePBS bid request budget"
+    );
 
     // prepare headers, except for start time which is set in `send_one_get_execution_payload_bid`
     let mut send_headers = epbs_base_send_headers(&req_headers)?;

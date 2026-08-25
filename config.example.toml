@@ -28,9 +28,17 @@ relay_check = true
 # OPTIONAL, DEFAULT: true
 wait_all_registrations = true
 # Timeout in milliseconds for the `get_header` call to relays. Note that the CL has also a timeout (e.g. 1 second) so
-# this should be lower than that, leaving some margin for overhead
+# this should be lower than that, leaving some margin for overhead.
+# LEGACY get_header path only: the ePBS bid path derives its timeout from the beacon node's own
+# X-Timeout-Ms header instead (see proposer_deadline_buffer_ms below).
 # OPTIONAL, DEFAULT: 950
 timeout_get_header_ms = 950
+# ePBS bid path only. The beacon node sends CB its own deadline (X-Timeout-Ms) on every bid request,
+# so CB no longer needs a static timeout: it asks the builder for `deadline - proposer_deadline_buffer_ms`,
+# reserving this many ms for the winning bid's return trip to the beacon node and the node's own
+# bid-selection/assembly. Configure the margin directly instead of a deadline-minus-margin absolute.
+# OPTIONAL, DEFAULT: 50
+proposer_deadline_buffer_ms = 50
 # Timeout in milliseconds for the `submit_blinded_block` call to relays.
 # OPTIONAL, DEFAULT: 4000
 timeout_get_payload_ms = 4000

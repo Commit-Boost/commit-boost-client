@@ -30,7 +30,7 @@ use crate::{
     },
     pbs::{
         DEFAULT_PBS_PORT, DEFAULT_REGISTRY_REFRESH_SECONDS, DefaultTimeout, LATE_IN_SLOT_TIME_MS,
-        REGISTER_VALIDATOR_RETRY_LIMIT, RelayClient, RelayEntry,
+        PROPOSER_DEADLINE_BUFFER_MS, REGISTER_VALIDATOR_RETRY_LIMIT, RelayClient, RelayEntry,
     },
     types::{BlsPublicKey, Chain, Jwt, ModuleId},
     utils::{
@@ -157,9 +157,18 @@ pub struct PbsConfig {
     /// Expected fee recipient in ePBS bids; when set, bids with a different
     /// fee_recipient are rejected
     pub fee_recipient: Option<Address>,
-    /// How late in the slot we consider to be "late"
+    /// How late in the slot we consider to be "late" (legacy get_header path)
     #[serde(default = "default_u64::<LATE_IN_SLOT_TIME_MS>")]
     pub late_in_slot_time_ms: u64,
+    /// ePBS bid path only: ms reserved before the proposer's declared deadline
+    /// (Date-Milliseconds + X-Timeout-Ms) for the winning bid's return trip to
+    /// the beacon node and the beacon node's own selection/assembly. CB asks the
+    /// builder for `deadline - this`, deriving its timeout from the BN's live
+    /// X-Timeout-Ms instead of a static config; timeout_get_header_ms and
+    /// late_in_slot_time_ms (legacy get_header knobs, which carry no X-Timeout-Ms)
+    /// are not consulted on the ePBS bid path.
+    #[serde(default = "default_u64::<PROPOSER_DEADLINE_BUFFER_MS>")]
+    pub proposer_deadline_buffer_ms: u64,
     /// Enable extra validation of get_header responses
     #[serde(default = "default_bool::<false>")]
     pub extra_validation_enabled: bool,
