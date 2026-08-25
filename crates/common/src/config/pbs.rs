@@ -163,6 +163,13 @@ pub struct PbsConfig {
     /// Enable extra validation of get_header responses
     #[serde(default = "default_bool::<false>")]
     pub extra_validation_enabled: bool,
+    /// Opt-in strict decoding of the reveal at POST /eth/v1/builder/beacon_blocks.
+    /// Default (false): CB is a blind pipe, forwarding the block bytes to the
+    /// builder without parsing them (the builder validates and rejects, per
+    /// builder-specs). When true: CB decodes the SignedBeaconBlock, rejects a
+    /// non-gloas or undecodable body with 400, and re-encodes it outbound.
+    #[serde(default = "default_bool::<false>")]
+    pub strict_block_decode: bool,
     /// Execution Layer RPC url to use for extra validation
     pub rpc_url: Option<Url>,
     /// URL for the user's own SSV node API endpoint
