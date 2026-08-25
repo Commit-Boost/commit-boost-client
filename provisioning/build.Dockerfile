@@ -3,7 +3,7 @@ FROM --platform=${BUILDPLATFORM} rust:1.91-slim-bookworm AS chef
 ARG TARGETOS TARGETARCH BUILDPLATFORM TARGET_CRATE
 ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 WORKDIR /app
-RUN cargo install cargo-chef --locked && \
+RUN cargo install cargo-chef --version 0.1.78 --locked && \
     rm -rf $CARGO_HOME/registry/
 
 FROM --platform=${BUILDPLATFORM} chef AS planner
@@ -60,7 +60,7 @@ RUN if [ -f ${BUILD_VAR_SCRIPT} ]; then \
     fi && \
     apt update && \
     apt install -y git make libssl-dev:${TARGETARCH} zlib1g-dev:${TARGETARCH} pkg-config && \
-    cargo chef cook ${TARGET_FLAG} --release --recipe-path recipe.json
+    cargo chef cook --locked ${TARGET_FLAG} --release --recipe-path recipe.json
 
 # Get the latest Protoc since the one in the Debian repo is incredibly old
 COPY provisioning/protoc.sh provisioning/protoc.sh
@@ -79,7 +79,7 @@ RUN if [ -f ${BUILD_VAR_SCRIPT} ]; then \
       echo "No cross-compilation needed"; \
     fi && \
     export GIT_HASH=$(git rev-parse HEAD) && \
-    cargo build ${TARGET_FLAG} --release --bin ${TARGET_CRATE} && \
+    cargo build --locked ${TARGET_FLAG} --release --bin ${TARGET_CRATE} && \
     if [ ! -z "$TARGET" ]; then \
       # If we're cross-compiling, we need to move the binary out of the target dir
       mv target/${TARGET}/release/${TARGET_CRATE} target/release/${TARGET_CRATE}; \
