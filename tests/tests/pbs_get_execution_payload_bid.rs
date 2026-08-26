@@ -1,8 +1,7 @@
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 
 use alloy::primitives::{Address, B256, U256};
 use cb_common::{
-    config::RuntimeMuxConfig,
     constants::{GENESIS_VALIDATORS_ROOT, GLOAS_FORK_VERSION},
     pbs::{
         DEFAULT_BID_POLL_TIMEOUT_MS, GetExecutionPayloadBidInfo, GetExecutionPayloadBidResponse,
@@ -202,10 +201,13 @@ async fn test_get_execution_payload_bid_below_min_bid_passes() -> Result<()> {
     Ok(())
 }
 
-/// Test that a bid whose fee_recipient differs from the configured expected
-/// value is dropped. The mock serves Address::ZERO as fee_recipient.
+/// fee_recipient is NOT enforced on the ePBS bid path: a bid whose fee_recipient
+/// differs from the config value is still served. The execution block's fee
+/// recipient is the builder's and the proposer is paid via value +
+/// execution_payment, so the BN (not CB) verifies it. The mock serves
+/// Address::ZERO while the config sets a different value; the bid is returned.
 #[tokio::test]
-async fn test_get_execution_payload_bid_wrong_fee_recipient_rejected() -> Result<()> {
+async fn test_get_execution_payload_bid_fee_recipient_not_enforced() -> Result<()> {
     setup_test_env();
     let chain = Chain::Hoodi;
     let pbs_listener = get_free_listener().await;
@@ -232,67 +234,8 @@ async fn test_get_execution_payload_bid_wrong_fee_recipient_rejected() -> Result
             EncodingType::Json,
         ])
         .await?;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
-    assert_eq!(mock_state.received_execution_payload_bid(), 1);
-    Ok(())
-}
-
-/// Test that a MUX-level fee_recipient reaches bid validation: the mux's
-/// validator gets its bid (mock serves Address::ZERO) rejected, while the
-/// default config (no expected fee_recipient) still accepts it.
-#[tokio::test]
-async fn test_get_execution_payload_bid_mux_fee_recipient() -> Result<()> {
-    setup_test_env();
-    let chain = Chain::Hoodi;
-    let pbs_listener = get_free_listener().await;
-    let pbs_port = pbs_listener.local_addr()?.port();
-    let relay_listener = get_free_listener().await;
-    let relay_port = relay_listener.local_addr()?.port();
-
-    let mock_state = Arc::new(MockRelayState::new(chain, random_secret()));
-    let mock_relay = generate_mock_relay(relay_port, mock_state.signer.public_key())?;
-    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
-
-    // Default config has no expected fee_recipient; only the mux does
-    let mut config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay.clone()]);
-    let mut mux_pbs_config = get_pbs_config(pbs_port);
-    mux_pbs_config.fee_recipient = Some(Address::from([1; 20]));
-    let mux = RuntimeMuxConfig {
-        id: String::from("fee-mux"),
-        config: Arc::new(mux_pbs_config),
-        relays: vec![mock_relay],
-    };
-    let mux_pubkey = random_secret().public_key();
-    config.mux_lookup = Some(HashMap::from([(mux_pubkey.clone(), mux)]));
-
-    let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
-
-    let mock_validator = MockValidator::new(pbs_port)?;
-    wait_for_ready(&mock_validator).await?;
-
-    // The mux validator's bid fails the fee_recipient check
-    let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);
-    let res = mock_validator
-        .do_get_execution_payload_bid(
-            TEST_SLOT,
-            B256::ZERO,
-            B256::ZERO,
-            Some(mux_pubkey),
-            Some(&auth),
-            vec![EncodingType::Json],
-        )
-        .await?;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
-
-    // A non-mux validator uses the default config and gets the bid
-    let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
-            EncodingType::Json,
-        ])
-        .await?;
     assert_eq!(res.status(), StatusCode::OK);
-    assert_eq!(mock_state.received_execution_payload_bid(), 2);
+    assert_eq!(mock_state.received_execution_payload_bid(), 1);
     Ok(())
 }
 
