@@ -817,7 +817,7 @@ fn extra_validation(
 #[cfg(test)]
 mod tests {
 
-    use alloy::primitives::{B256, aliases::B32};
+    use alloy::primitives::{Address, B256, aliases::B32};
     use cb_common::{
         constants::{DOMAIN_BUILDER_REQUEST_AUTH, GENESIS_VALIDATORS_ROOT, GLOAS_FORK_VERSION},
         pbs::{BuilderRequestAuth, error::ValidationError},
