@@ -186,7 +186,9 @@ pub fn get_pbs_config(port: u16) -> PbsConfig {
         max_execution_payment_gwei: u64::MAX,
         fee_recipient: None,
         late_in_slot_time_ms: u64::MAX,
+        proposer_deadline_buffer_ms: 0,
         extra_validation_enabled: false,
+        strict_block_decode: false,
         verify_builder_request_auth: false,
 
         ssv_node_api_url: Url::parse("http://localhost:0").unwrap(),
