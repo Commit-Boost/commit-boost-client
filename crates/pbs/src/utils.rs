@@ -1,5 +1,8 @@
 use std::{
-    sync::OnceLock,
+    sync::{
+        OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -304,8 +307,20 @@ pub(crate) fn transient_pipe_relay(
     let Some(url) = decode_auth_data_url(received_data) else {
         return Err(PbsClientError::AuthDataMismatch);
     };
-    if advertised_urls.is_empty() || advertised_urls.iter().any(|own| url_matches(own, &url)) {
-        warn!(%url, "auth data URL is CB's own or advertised_urls is unset, not dialing");
+    if advertised_urls.is_empty() {
+        // Fail closed, but tell the operator why (once, to avoid per-request
+        // spam): without advertised_urls CB cannot distinguish an unconfigured
+        // key's self-URL default from an external builder. Setting advertised_urls
+        // to CB's advertised URL(s) enables forwarding to proposer-addressed
+        // builders. The same condition is warned once at startup in load_pbs_config.
+        static WARNED: AtomicBool = AtomicBool::new(false);
+        if !WARNED.swap(true, Ordering::Relaxed) {
+            warn!(%url, "advertised_urls is unset: the ePBS transient pipe is disabled, not forwarding to this proposer-addressed builder; set advertised_urls to CB's advertised URL(s) to enable it");
+        }
+        return Err(PbsClientError::AuthDataMismatch);
+    }
+    if advertised_urls.iter().any(|own| url_matches(own, &url)) {
+        warn!(%url, "auth data URL matches CB's own advertised URL, not self-dialing");
         return Err(PbsClientError::AuthDataMismatch);
     }
 
