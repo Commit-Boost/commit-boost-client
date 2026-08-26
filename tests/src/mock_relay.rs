@@ -25,12 +25,12 @@ use cb_common::{
     pbs::{
         BUILDER_V1_API_PATH, BUILDER_V2_API_PATH, BlobsBundle, BuilderBid, BuilderBidFulu,
         BuilderPreferencesRequest, ExecutionPayloadBid, ExecutionPayloadElectra,
-        ExecutionPayloadHeaderFulu, ForkName, ForkVersionDecode,
-        GET_EXECUTION_PAYLOAD_BID_PATH, GET_HEADER_PATH, GET_STATUS_PATH,
-        GetExecutionPayloadBidResponse, GetHeaderParams, GetHeaderResponse, GetPayloadInfo,
-        HEADER_TIMEOUT_MS, PayloadAndBlobs, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
-        SUBMIT_BUILDER_PREFERENCES_PATH, SUBMIT_SIGNED_BEACON_BLOCK_PATH, SignedBeaconBlock,
-        SignedBuilderBid, SignedExecutionPayloadBid, SignedBuilderRequestAuth, SubmitBlindedBlockResponse,
+        ExecutionPayloadHeaderFulu, ForkName, ForkVersionDecode, GET_EXECUTION_PAYLOAD_BID_PATH,
+        GET_HEADER_PATH, GET_STATUS_PATH, GetExecutionPayloadBidResponse, GetHeaderParams,
+        GetHeaderResponse, GetPayloadInfo, HEADER_TIMEOUT_MS, PayloadAndBlobs,
+        REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH, SUBMIT_BUILDER_PREFERENCES_PATH,
+        SUBMIT_SIGNED_BEACON_BLOCK_PATH, SignedBeaconBlock, SignedBuilderBid,
+        SignedBuilderRequestAuth, SignedExecutionPayloadBid, SubmitBlindedBlockResponse,
     },
     signature::{sign_builder_root, sign_execution_payload_bid_root},
     signer::random_secret,
@@ -231,8 +231,8 @@ impl MockRelayState {
         self.received_auth.read().unwrap().as_ref().map(|a| a.message.data.to_vec())
     }
 
-    /// The full `SignedBuilderRequestAuth` the relay saw, so a test can assert the
-    /// signature was forwarded byte-for-byte.
+    /// The full `SignedBuilderRequestAuth` the relay saw, so a test can assert
+    /// the signature was forwarded byte-for-byte.
     pub fn received_auth(&self) -> Option<SignedBuilderRequestAuth> {
         self.received_auth.read().unwrap().clone()
     }

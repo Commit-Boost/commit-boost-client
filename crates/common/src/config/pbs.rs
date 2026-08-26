@@ -149,9 +149,9 @@ pub struct PbsConfig {
     #[serde(default = "default_u64::<{ u64::MAX }>")]
     pub max_execution_payment_gwei: u64,
     /// When enabled, the BLS signature of an ePBS request's
-    /// `SignedBuilderRequestAuth` is verified against the proposer pubkey. False by
-    /// default: CB forwards because the downstream builder must re-verify
-    /// anyway; operators terminating trust at CB set it true
+    /// `SignedBuilderRequestAuth` is verified against the proposer pubkey.
+    /// False by default: CB forwards because the downstream builder must
+    /// re-verify anyway; operators terminating trust at CB set it true
     #[serde(default = "default_bool::<false>")]
     pub verify_builder_request_auth: bool,
     /// Expected fee recipient in ePBS bids; when set, bids with a different
@@ -162,21 +162,23 @@ pub struct PbsConfig {
     pub late_in_slot_time_ms: u64,
     /// ePBS bid path only: ms reserved before the proposer's declared deadline
     /// (Date-Milliseconds + X-Timeout-Ms) for the winning bid's return trip to
-    /// the beacon node and the beacon node's own selection/assembly. CB asks the
-    /// builder for `deadline - this`, deriving its timeout from the BN's live
-    /// X-Timeout-Ms instead of a static config; timeout_get_header_ms and
-    /// late_in_slot_time_ms (legacy get_header knobs, which carry no X-Timeout-Ms)
-    /// are not consulted on the ePBS bid path.
+    /// the beacon node and the beacon node's own selection/assembly. CB asks
+    /// the builder for `deadline - this`, deriving its timeout from the
+    /// BN's live X-Timeout-Ms instead of a static config;
+    /// timeout_get_header_ms and late_in_slot_time_ms (legacy get_header
+    /// knobs, which carry no X-Timeout-Ms) are not consulted on the ePBS
+    /// bid path.
     #[serde(default = "default_u64::<PROPOSER_DEADLINE_BUFFER_MS>")]
     pub proposer_deadline_buffer_ms: u64,
     /// Enable extra validation of get_header responses
     #[serde(default = "default_bool::<false>")]
     pub extra_validation_enabled: bool,
-    /// Opt-in strict decoding of the reveal at POST /eth/v1/builder/beacon_blocks.
-    /// Default (false): CB is a blind pipe, forwarding the block bytes to the
-    /// builder without parsing them (the builder validates and rejects, per
-    /// builder-specs). When true: CB decodes the SignedBeaconBlock, rejects a
-    /// non-gloas or undecodable body with 400, and re-encodes it outbound.
+    /// Opt-in strict decoding of the reveal at POST
+    /// /eth/v1/builder/beacon_blocks. Default (false): CB is a blind pipe,
+    /// forwarding the block bytes to the builder without parsing them (the
+    /// builder validates and rejects, per builder-specs). When true: CB
+    /// decodes the SignedBeaconBlock, rejects a non-gloas or undecodable
+    /// body with 400, and re-encodes it outbound.
     #[serde(default = "default_bool::<false>")]
     pub strict_block_decode: bool,
     /// Execution Layer RPC url to use for extra validation

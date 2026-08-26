@@ -43,8 +43,9 @@ pub const LATE_IN_SLOT_TIME_MS: u64 = 2000;
 
 /// ePBS bid path: ms reserved before the proposer's own deadline
 /// (Date-Milliseconds + X-Timeout-Ms) for the winning bid's return trip to the
-/// beacon node and the beacon node's own selection/assembly. CB asks the builder
-/// for `proposer_deadline − this`. 50ms covers a same-host CB<->BN comfortably.
+/// beacon node and the beacon node's own selection/assembly. CB asks the
+/// builder for `proposer_deadline − this`. 50ms covers a same-host CB<->BN
+/// comfortably.
 pub const PROPOSER_DEADLINE_BUFFER_MS: u64 = 50;
 
 /// How long each ePBS bid poll may take before the next one supersedes it. Set

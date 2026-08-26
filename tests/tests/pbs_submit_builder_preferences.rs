@@ -1,3 +1,5 @@
+use std::{path::PathBuf, sync::Arc};
+
 use cb_common::{
     pbs::{BuilderPreferences, BuilderPreferencesRequest, SignedBuilderRequestAuth},
     signer::random_secret,
@@ -5,8 +7,6 @@ use cb_common::{
     utils::utcnow_ms,
     wire::{CONSENSUS_VERSION_HEADER, EncodingType},
 };
-use std::{path::PathBuf, sync::Arc};
-
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
     mock_relay::{MockRelayState, start_mock_relay_service_with_listener},
@@ -38,7 +38,10 @@ fn past_slot(chain: Chain) -> u64 {
     ((now_sec.saturating_sub(chain.genesis_time_sec())) / chain.slot_time_sec()).saturating_sub(10)
 }
 
-fn preferences(auth: SignedBuilderRequestAuth, max_execution_payment: u64) -> BuilderPreferencesRequest {
+fn preferences(
+    auth: SignedBuilderRequestAuth,
+    max_execution_payment: u64,
+) -> BuilderPreferencesRequest {
     BuilderPreferencesRequest { auth, preferences: BuilderPreferences { max_execution_payment } }
 }
 
@@ -172,7 +175,8 @@ async fn test_submit_builder_preferences_signature_bound_to_path_pubkey() -> Res
     let signer = random_secret();
     let other_pubkey = random_secret().public_key();
     let (mock_validator, mock_state) =
-        setup_relay(chain, |config| config.verify_builder_request_auth = true, generate_mock_relay).await?;
+        setup_relay(chain, |config| config.verify_builder_request_auth = true, generate_mock_relay)
+            .await?;
 
     // Genuinely signed, just not by the proposer named in the path
     let auth = signed_auth(&signer, TEST_AUTH_DATA, future_slot(chain), chain);
@@ -447,11 +451,10 @@ async fn test_submit_builder_preferences_pipe_self_url_not_dialed() -> Result<()
         // The mock stands in for whatever answers at the named URL: anything
         // it receives means a dial went out
         let mock_state = Arc::new(MockRelayState::new(chain, random_secret()));
-        let mock_relay = generate_mock_relay_with_auth_data(
-            relay_port,
-            mock_state.signer.public_key(),
-            &[0xaa],
-        )?;
+        let mock_relay =
+            generate_mock_relay_with_auth_data(relay_port, mock_state.signer.public_key(), &[
+                0xaa,
+            ])?;
         tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
 
         let self_url = format!("http://0.0.0.0:{relay_port}/");
@@ -556,7 +559,8 @@ async fn test_submit_builder_preferences_auth_data_match() -> Result<()> {
 async fn test_submit_builder_preferences_bad_signature_401() -> Result<()> {
     let chain = Chain::Hoodi;
     let (mock_validator, mock_state) =
-        setup_relay(chain, |config| config.verify_builder_request_auth = true, generate_mock_relay).await?;
+        setup_relay(chain, |config| config.verify_builder_request_auth = true, generate_mock_relay)
+            .await?;
 
     let request =
         preferences(opaque_auth(TEST_AUTH_DATA, future_slot(chain)), TEST_MAX_EXECUTION_PAYMENT);
@@ -577,7 +581,8 @@ async fn test_submit_builder_preferences_valid_signature() -> Result<()> {
     let secret = random_secret();
     let pubkey = secret.public_key();
     let (mock_validator, mock_state) =
-        setup_relay(chain, |config| config.verify_builder_request_auth = true, generate_mock_relay).await?;
+        setup_relay(chain, |config| config.verify_builder_request_auth = true, generate_mock_relay)
+            .await?;
 
     let auth = signed_auth(&secret, TEST_AUTH_DATA, future_slot(chain), chain);
     let request = preferences(auth, TEST_MAX_EXECUTION_PAYMENT);

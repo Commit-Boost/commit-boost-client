@@ -409,10 +409,10 @@ async fn without_flag_post_body_is_projection_and_ignores_stored() {
     let mut vc = MockVc::holding(std::slice::from_ref(&key));
     let env = env_for(std::slice::from_ref(&key), &[]);
     let mut stored = projected_value(&env, &key);
-    stored["builders"].as_array_mut().unwrap().push(third_party_entry(
-        "https://third-party.example.com",
-        "0xc0ffee",
-    ));
+    stored["builders"]
+        .as_array_mut()
+        .unwrap()
+        .push(third_party_entry("https://third-party.example.com", "0xc0ffee"));
     vc.stored.insert(key.clone(), stored);
     let url = serve(vc.clone()).await;
 
@@ -433,10 +433,10 @@ async fn preserve_entries_keeps_third_party_entry() {
     let mut vc = MockVc::holding(std::slice::from_ref(&key));
     let env = env_for(std::slice::from_ref(&key), &[]);
     let mut stored = projected_value(&env, &key);
-    stored["builders"].as_array_mut().unwrap().push(third_party_entry(
-        "https://third-party.example.com",
-        "0xc0ffee",
-    ));
+    stored["builders"]
+        .as_array_mut()
+        .unwrap()
+        .push(third_party_entry("https://third-party.example.com", "0xc0ffee"));
     vc.stored.insert(key.clone(), stored);
     let url = serve(vc.clone()).await;
 
@@ -485,7 +485,8 @@ async fn preserve_entries_collision_is_replaced_not_duplicated() {
     let entries = posted_entries(&posted.1);
     // no identity duplicated: exactly our two projected entries
     assert_eq!(entries.len(), 2, "{entries:?}");
-    // ours win: the POST body equals our pure projection (resolved defaults dropped)
+    // ours win: the POST body equals our pure projection (resolved defaults
+    // dropped)
     assert_eq!(posted.1, projected_string(&env, &key));
 }
 
@@ -499,10 +500,7 @@ async fn preserve_entries_over_cap_fails_without_posting() {
     let builders = stored["builders"].as_array_mut().unwrap();
     // our 2 entries + 63 distinct third-party entries = 65 > 64
     for i in 0..63 {
-        builders.push(third_party_entry(
-            &format!("https://third-{i}.example.com"),
-            "0xabcdef",
-        ));
+        builders.push(third_party_entry(&format!("https://third-{i}.example.com"), "0xabcdef"));
     }
     vc.stored.insert(key.clone(), stored);
     let url = serve(vc.clone()).await;

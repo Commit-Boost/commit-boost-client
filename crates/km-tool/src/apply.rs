@@ -209,9 +209,8 @@ async fn apply_to_vc(
                 // nothing stored (or route absent for this key): POST ours
                 Ok(GetConfigOutcome::NotFound) => doc,
                 Err(err) => {
-                    report.error(format!(
-                        "{vc_name}: preserve-entries GET for {key} failed: {err}"
-                    ));
+                    report
+                        .error(format!("{vc_name}: preserve-entries GET for {key} failed: {err}"));
                     continue;
                 }
             }
@@ -375,7 +374,8 @@ fn redact_secrets_for_display(doc: &BuilderConfigDoc) -> BuilderConfigDoc {
     doc
 }
 
-/// Whether hex-encoded auth_data decodes to a valid UTF-8 URL (the public form).
+/// Whether hex-encoded auth_data decodes to a valid UTF-8 URL (the public
+/// form).
 fn auth_data_is_url(hex: &str) -> bool {
     crate::doc::decode_auth_data(hex)
         .ok()

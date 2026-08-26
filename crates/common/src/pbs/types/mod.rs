@@ -193,8 +193,9 @@ impl GetPayloadInfo for SignedBlindedBeaconBlock {
 #[allow(non_camel_case_types)]
 pub type MAX_BUILDER_AUTH_DATA_SIZE = typenum::U4096;
 
-// `BuilderRequestAuth` is used to authenticate requests to a builder. This is useful
-// so that other builders do not DDOS or run replay attacks on the builder.
+// `BuilderRequestAuth` is used to authenticate requests to a builder. This is
+// useful so that other builders do not DDOS or run replay attacks on the
+// builder.
 #[derive(Debug, Serialize, Deserialize, Encode, Decode, Clone, TreeHash)]
 pub struct BuilderRequestAuth {
     /// Opaque authentication data agreed with the builder out of band; hex
@@ -327,8 +328,8 @@ mod tests {
     /// Regression guard for the lighthouse-unstable bump that unlocks real ePBS
     /// bid signature verification. Under EIP-7495 progressive containers the
     /// gloas `ExecutionPayloadBid` must tree-hash to the go-eth2-client ground
-    /// truth root `0x04f8e548…d268` (fixture captured from a devnet builder bid,
-    /// slot 297). This root is the object the builder signs; a silent
+    /// truth root `0x04f8e548…d268` (fixture captured from a devnet builder
+    /// bid, slot 297). This root is the object the builder signs; a silent
     /// progressive-hashing regression here would forge a different signing root
     /// and break every bid signature check, so pin it byte-for-byte.
     #[test]

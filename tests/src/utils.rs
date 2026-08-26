@@ -15,7 +15,7 @@ use cb_common::{
         SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT, SIGNER_PORT_DEFAULT, SignerConfig,
         SignerType, StartSignerConfig, StaticModuleConfig, StaticPbsConfig, TlsMode,
     },
-    pbs::{RelayClient, RelayEntry, BuilderRequestAuth, SignedBuilderRequestAuth},
+    pbs::{BuilderRequestAuth, RelayClient, RelayEntry, SignedBuilderRequestAuth},
     signature::sign_builder_request_auth_root,
     signer::{SignerLoader, random_secret},
     types::{BlsPublicKey, BlsSecretKey, BlsSignature, Chain, ModuleId},
@@ -305,19 +305,21 @@ pub fn bls_pubkey_from_hex_unchecked(hex: &str) -> BlsPublicKey {
 }
 
 /// Build a `SignedBuilderRequestAuth` carrying opaque `data`. CB forwards it
-/// unmodified; the signature is only verified when `verify_builder_request_auth` is on,
-/// so an empty one suffices elsewhere.
+/// unmodified; the signature is only verified when
+/// `verify_builder_request_auth` is on, so an empty one suffices elsewhere.
 pub fn opaque_auth(data: &[u8], slot: u64) -> SignedBuilderRequestAuth {
     SignedBuilderRequestAuth {
         message: BuilderRequestAuth {
-            data: ssz_types::VariableList::new(data.to_vec()).expect("data fits in MAX_BUILDER_AUTH_DATA_SIZE"),
+            data: ssz_types::VariableList::new(data.to_vec())
+                .expect("data fits in MAX_BUILDER_AUTH_DATA_SIZE"),
             slot: Slot::new(slot),
         },
         signature: BlsSignature::empty(),
     }
 }
 
-/// Same, but signed under the spec's `DOMAIN_BUILDER_REQUEST_AUTH` by `secret_key`.
+/// Same, but signed under the spec's `DOMAIN_BUILDER_REQUEST_AUTH` by
+/// `secret_key`.
 pub fn signed_auth(
     secret_key: &BlsSecretKey,
     data: &[u8],
@@ -325,7 +327,8 @@ pub fn signed_auth(
     chain: Chain,
 ) -> SignedBuilderRequestAuth {
     let mut auth = opaque_auth(data, slot);
-    auth.signature = sign_builder_request_auth_root(secret_key, &auth.message.tree_hash_root(), chain);
+    auth.signature =
+        sign_builder_request_auth_root(secret_key, &auth.message.tree_hash_root(), chain);
     auth
 }
 

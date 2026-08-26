@@ -50,7 +50,10 @@ pub async fn handle_submit_signed_beacon_block<S: BuilderApiState>(
             } else {
                 warn!(%err, "submit_signed_beacon_block failed");
             }
-            record_beacon_status(err.status_code().as_str(), SUBMIT_SIGNED_BEACON_BLOCK_ENDPOINT_TAG);
+            record_beacon_status(
+                err.status_code().as_str(),
+                SUBMIT_SIGNED_BEACON_BLOCK_ENDPOINT_TAG,
+            );
             Err(err)
         }
     }
@@ -102,8 +105,7 @@ pub async fn submit_signed_beacon_block<S: BuilderApiState>(
     let mut send_headers = epbs_base_send_headers(&req_headers)?;
     send_headers.insert(
         CONSENSUS_VERSION_HEADER,
-        HeaderValue::from_str(&fork.to_string())
-            .expect("fork name is always a valid header value"),
+        HeaderValue::from_str(&fork.to_string()).expect("fork name is always a valid header value"),
     );
 
     let timeout_ms = state.pbs_config().timeout_get_payload_ms;
@@ -123,7 +125,9 @@ pub async fn submit_signed_beacon_block<S: BuilderApiState>(
                 )
                 .in_current_span(),
             )
-            .map(|join_result| join_result.unwrap_or_else(|err| Err(PbsError::TokioJoinError(err)))),
+            .map(|join_result| {
+                join_result.unwrap_or_else(|err| Err(PbsError::TokioJoinError(err)))
+            }),
         );
     }
 

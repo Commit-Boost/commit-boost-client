@@ -11,7 +11,10 @@ use cb_common::{
     pbs::{ForkName, RelayClient, RelayEntry, SignedBuilderRequestAuth, error::PbsError},
     signature::verify_builder_request_auth_signature,
     types::{BlsPublicKey, BlsSecretKey, Chain},
-    wire::{CONSENSUS_VERSION_HEADER, EncodingType, get_user_agent_with_version, safe_read_http_response},
+    wire::{
+        CONSENSUS_VERSION_HEADER, EncodingType, get_user_agent_with_version,
+        safe_read_http_response,
+    },
 };
 use reqwest::{
     StatusCode,
@@ -79,7 +82,11 @@ pub(crate) fn record_beacon_status(code: &str, endpoint: &str) {
 
 /// Logs which relay set an ePBS demux request resolved to (a mux's relays or
 /// the default set), shared by the bid and preferences endpoints.
-pub(crate) fn log_mux_selection(maybe_mux_id: Option<&str>, relay_count: usize, pubkey: &BlsPublicKey) {
+pub(crate) fn log_mux_selection(
+    maybe_mux_id: Option<&str>,
+    relay_count: usize,
+    pubkey: &BlsPublicKey,
+) {
     match maybe_mux_id {
         Some(mux_id) => {
             debug!(mux_id, relays = relay_count, pubkey = %pubkey, "using mux config")

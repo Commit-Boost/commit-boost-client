@@ -4,7 +4,8 @@ use tree_hash_derive::TreeHash;
 
 use crate::{
     constants::{
-        COMMIT_BOOST_DOMAIN, DOMAIN_BEACON_BUILDER, DOMAIN_BUILDER_REQUEST_AUTH, GENESIS_VALIDATORS_ROOT,
+        COMMIT_BOOST_DOMAIN, DOMAIN_BEACON_BUILDER, DOMAIN_BUILDER_REQUEST_AUTH,
+        GENESIS_VALIDATORS_ROOT,
     },
     signer::{EcdsaSignature, verify_bls_signature, verify_ecdsa_signature},
     types::{self, BlsPublicKey, BlsSecretKey, BlsSignature, Chain, SignatureRequestInfo},
@@ -81,8 +82,8 @@ pub fn execution_payload_bid_domain(fork_version: [u8; 4], genesis_validators_ro
 
 /// Builder API request-auth signing domain. The request WIRE type is
 /// fork-versioned per builder-specs, but the signing domain is not: the spec's
-/// `compute_domain(DOMAIN_BUILDER_REQUEST_AUTH)` takes the genesis fork version and a
-/// zero root, exactly like the validator registrations it replaces.
+/// `compute_domain(DOMAIN_BUILDER_REQUEST_AUTH)` takes the genesis fork version
+/// and a zero root, exactly like the validator registrations it replaces.
 pub fn builder_request_auth_domain(chain: Chain) -> B256 {
     compute_domain(chain, &B32::from(DOMAIN_BUILDER_REQUEST_AUTH))
 }
@@ -239,8 +240,7 @@ mod tests {
     use crate::{
         constants::APPLICATION_BUILDER_DOMAIN,
         pbs::{
-            BlindedBeaconBlockElectra, BuilderBid, BuilderBidElectra,
-            ExecutionPayloadHeaderElectra,
+            BlindedBeaconBlockElectra, BuilderBid, BuilderBidElectra, ExecutionPayloadHeaderElectra,
         },
         types::{BlsSecretKey, Chain},
         utils::TestRandomSeed,

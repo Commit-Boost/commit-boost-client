@@ -17,7 +17,7 @@ use cb_common::{
     pbs::{
         DEFAULT_BID_POLL_TIMEOUT_MS, ForkName, GetExecutionPayloadBidInfo,
         GetExecutionPayloadBidParams, GetExecutionPayloadBidResponse, HEADER_START_TIME_UNIX_MS,
-        HEADER_TIMEOUT_MS, RelayClient, SignedExecutionPayloadBid, SignedBuilderRequestAuth,
+        HEADER_TIMEOUT_MS, RelayClient, SignedBuilderRequestAuth, SignedExecutionPayloadBid,
         error::{PbsError, ValidationError},
     },
     types::Chain,
@@ -54,9 +54,9 @@ use crate::{
     },
 };
 
-/// The body is the required `SignedBuilderRequestAuth`; builder-specs fork-versions
-/// the request wire type, and `Eth-Consensus-Version` is required for JSON and
-/// SSZ alike (builder-specs #165).
+/// The body is the required `SignedBuilderRequestAuth`; builder-specs
+/// fork-versions the request wire type, and `Eth-Consensus-Version` is required
+/// for JSON and SSZ alike (builder-specs #165).
 pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
     State(state): State<PbsStateGuard<S>>,
     req_headers: HeaderMap,
@@ -106,7 +106,10 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
             } else {
                 warn!(%err, "get_execution_payload_bid failed");
             }
-            record_beacon_status(err.status_code().as_str(), GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG);
+            record_beacon_status(
+                err.status_code().as_str(),
+                GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG,
+            );
             Err(err)
         }
     }
@@ -138,8 +141,7 @@ fn encode_bid_response(
             record_beacon_status("200", endpoint);
             let mut res = max_bid.data.as_ssz_bytes().into_response();
             res.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
-            res.headers_mut()
-                .insert(CONTENT_TYPE, EncodingType::Ssz.content_type_header().clone());
+            res.headers_mut().insert(CONTENT_TYPE, EncodingType::Ssz.content_type_header().clone());
             Ok(res)
         }
         Some(EncodingType::Json) => {
@@ -166,7 +168,12 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
     log_mux_selection(maybe_mux_id, relays.len(), &params.proposer_pubkey);
 
     // Validate before any outbound work so a rejected request costs nothing
-    validate_builder_request_auth(&body, &params, state.config.chain, pbs_config.verify_builder_request_auth)?;
+    validate_builder_request_auth(
+        &body,
+        &params,
+        state.config.chain,
+        pbs_config.verify_builder_request_auth,
+    )?;
 
     let parent_block = Arc::new(RwLock::new(None));
     if state.extra_validation_enabled() &&
@@ -177,11 +184,8 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
         );
     }
 
-    let relays = resolve_addressed_relays(
-        relays,
-        body.message.data.as_ref(),
-        &pbs_config.advertised_urls,
-    )?;
+    let relays =
+        resolve_addressed_relays(relays, body.message.data.as_ref(), &pbs_config.advertised_urls)?;
 
     // The proposer's own deadline (Date-Milliseconds + X-Timeout-Ms) tells CB
     // exactly when the beacon node will stop waiting, so CB derives its timeout
@@ -209,7 +213,8 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
         return Ok(None);
     }
 
-    // prepare headers, except for start time which is set in `send_one_get_execution_payload_bid`
+    // prepare headers, except for start time which is set in
+    // `send_one_get_execution_payload_bid`
     let mut send_headers = epbs_base_send_headers(&req_headers)?;
 
     // Forward the caller's Accept preference to the relay so it returns the
@@ -346,12 +351,12 @@ fn request_budget_ms(req_headers: &HeaderMap, now_ms: u64) -> Result<u64, PbsCli
     Ok(until_deadline.min(timeout_ms))
 }
 
-/// Validates the caller's `SignedBuilderRequestAuth` against the request path. The
-/// `auth.message.data` must be non-empty; which builder it addresses is the
+/// Validates the caller's `SignedBuilderRequestAuth` against the request path.
+/// The `auth.message.data` must be non-empty; which builder it addresses is the
 /// demux's job (`match_relays_by_auth_data`). The slot must match the request
-/// path, plus the signature when `verify_builder_request_auth` is on. The downstream
-/// builder verifies the signature regardless, which is why the crypto is
-/// opt-in.
+/// path, plus the signature when `verify_builder_request_auth` is on. The
+/// downstream builder verifies the signature regardless, which is why the
+/// crypto is opt-in.
 fn validate_builder_request_auth(
     auth: &SignedBuilderRequestAuth,
     params: &GetExecutionPayloadBidParams,
@@ -372,8 +377,8 @@ fn total_payment(bid: &impl GetExecutionPayloadBidInfo) -> u64 {
     bid.value().saturating_add(bid.execution_payment())
 }
 
-/// Bid amounts are denominated in gwei, but `format_ether` expects wei; scale up
-/// before formatting so the human-readable `_eth` log fields are correct.
+/// Bid amounts are denominated in gwei, but `format_ether` expects wei; scale
+/// up before formatting so the human-readable `_eth` log fields are correct.
 fn format_gwei_as_eth(gwei: u64) -> String {
     format_ether(U256::from(gwei) * U256::from(1_000_000_000u64))
 }
@@ -665,9 +670,13 @@ async fn send_one_get_execution_payload_bid(
                     .to_string(),
                 code: code.as_u16(),
             })?;
-            let data = SignedExecutionPayloadBid::from_ssz_bytes(&response_bytes).map_err(|err| {
-                PbsError::SSZDecode { err: format!("error decoding relay payload: {err:?}"), fork }
-            })?;
+            let data =
+                SignedExecutionPayloadBid::from_ssz_bytes(&response_bytes).map_err(|err| {
+                    PbsError::SSZDecode {
+                        err: format!("error decoding relay payload: {err:?}"),
+                        fork,
+                    }
+                })?;
             GetExecutionPayloadBidResponse { version: fork, data, metadata: Default::default() }
         }
     };
@@ -710,15 +719,13 @@ async fn send_one_get_execution_payload_bid(
         gas_limit: get_header_response.gas_limit(),
     };
 
-    validate_header_data(&header_info, &params).inspect_err(
-        |_| {
-            crate::utils::record_invalid_relay_response(
-                "header_validation",
-                GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG,
-                &relay.id,
-            );
-        },
-    )?;
+    validate_header_data(&header_info, &params).inspect_err(|_| {
+        crate::utils::record_invalid_relay_response(
+            "header_validation",
+            GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG,
+            &relay.id,
+        );
+    })?;
 
     if validation.extra_validation_enabled {
         let parent_block = validation.parent_block.read();
@@ -830,8 +837,8 @@ mod tests {
         constants::{DOMAIN_BUILDER_REQUEST_AUTH, GENESIS_VALIDATORS_ROOT, GLOAS_FORK_VERSION},
         pbs::{BuilderRequestAuth, error::ValidationError},
         signature::{
-            compute_domain, compute_domain_with_fork_version, builder_request_auth_domain,
-            sign_execution_payload_bid_root, sign_builder_request_auth_root,
+            builder_request_auth_domain, compute_domain, compute_domain_with_fork_version,
+            sign_builder_request_auth_root, sign_execution_payload_bid_root,
         },
         types::{BlsSecretKey, BlsSignature, Chain},
         utils::TestRandomSeed,
@@ -907,7 +914,10 @@ mod tests {
         SignedBuilderRequestAuth {
             // Non-empty so it clears the empty-data guard; the value itself is the
             // demux's input, exercised elsewhere, not this validator's slot/sig path
-            message: BuilderRequestAuth { data: vec![0x01].try_into().unwrap(), slot: Slot::new(slot) },
+            message: BuilderRequestAuth {
+                data: vec![0x01].try_into().unwrap(),
+                slot: Slot::new(slot),
+            },
             signature,
         }
     }
@@ -941,7 +951,10 @@ mod tests {
     #[test]
     fn test_decode_builder_request_auth_rejects_empty_body() {
         assert!(matches!(
-            decode_versioned_request_body::<SignedBuilderRequestAuth>(&HeaderMap::new(), &Bytes::new()),
+            decode_versioned_request_body::<SignedBuilderRequestAuth>(
+                &HeaderMap::new(),
+                &Bytes::new()
+            ),
             Err(BodyDeserializeError::MissingBody)
         ));
     }
@@ -1049,8 +1062,9 @@ mod tests {
     }
 
     // The auth domain is NOT fork-versioned: it must equal the spec's
-    // compute_domain(DOMAIN_BUILDER_REQUEST_AUTH), i.e. genesis fork version and a zero
-    // root. A sign/verify round trip cannot catch a wrong domain, so pin it.
+    // compute_domain(DOMAIN_BUILDER_REQUEST_AUTH), i.e. genesis fork version and a
+    // zero root. A sign/verify round trip cannot catch a wrong domain, so pin
+    // it.
     #[test]
     fn test_builder_request_auth_domain_is_not_fork_versioned() {
         for chain in [Chain::Mainnet, Chain::Hoodi, Chain::Holesky] {
@@ -1069,7 +1083,10 @@ mod tests {
             );
         }
         // Chains are separated by their genesis fork version
-        assert_ne!(builder_request_auth_domain(Chain::Mainnet), builder_request_auth_domain(Chain::Hoodi));
+        assert_ne!(
+            builder_request_auth_domain(Chain::Mainnet),
+            builder_request_auth_domain(Chain::Hoodi)
+        );
     }
 
     #[test]
@@ -1127,7 +1144,8 @@ mod tests {
             Err(PbsClientError::AuthSigVerify)
         ));
 
-        let good_sig = sign_builder_request_auth_root(&secret_key, &message.tree_hash_root(), chain);
+        let good_sig =
+            sign_builder_request_auth_root(&secret_key, &message.tree_hash_root(), chain);
         validate_builder_request_auth(&test_auth(slot, good_sig), &params, chain, true).unwrap();
     }
 

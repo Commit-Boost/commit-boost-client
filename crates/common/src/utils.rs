@@ -155,9 +155,9 @@ pub mod as_opt_eth_str {
 
         let value = Option::<StringOrF64>::deserialize(deserializer)?;
         Ok(match value {
-            Some(StringOrF64::Str(s)) => Some(
-                parse_ether(&s).map_err(|_| serde::de::Error::custom("invalid eth amount"))?,
-            ),
+            Some(StringOrF64::Str(s)) => {
+                Some(parse_ether(&s).map_err(|_| serde::de::Error::custom("invalid eth amount"))?)
+            }
             Some(StringOrF64::F64(f)) => Some(eth_to_wei(f)),
             None => None,
         })

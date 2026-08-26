@@ -5,8 +5,8 @@
 //! is emitted EMPTY (accept any builder for the key): the only pubkey cb-km can
 //! see is the relay URL's userinfo pubkey, which is the relay's identity, not
 //! the builder's bid-signing key, and binding the wrong key rejects every bid
-//! (see `project_mux`). The candidate is `expected_auth_data` when set, else the
-//! UTF-8 bytes of the relay URL as configured with the userinfo stripped
+//! (see `project_mux`). The candidate is `expected_auth_data` when set, else
+//! the UTF-8 bytes of the relay URL as configured with the userinfo stripped
 //! (userinfo, and thus any pubkey credential, is intentionally NOT part of the
 //! emitted url or auth_data). Grouping-by-identical-bytes is a
 //! reimplementation of the demux contract of cb-pbs's
@@ -284,7 +284,10 @@ struct AuthClass {
 /// Groups a mux's relays into auth_data equivalence classes keyed by identical
 /// candidate bytes, unioning each class's builder pubkeys, requiring one shared
 /// execution-payment cap per class, and enforcing the KM entry-count limit.
-fn build_auth_classes(mux: &MuxConfig, raw_urls: &[String]) -> Result<BTreeMap<Vec<u8>, AuthClass>> {
+fn build_auth_classes(
+    mux: &MuxConfig,
+    raw_urls: &[String],
+) -> Result<BTreeMap<Vec<u8>, AuthClass>> {
     let mut classes: BTreeMap<Vec<u8>, AuthClass> = BTreeMap::new();
     for (relay, raw_url) in mux.relays.iter().zip(raw_urls) {
         let bytes = candidate_auth_data(relay, raw_url);
@@ -340,10 +343,7 @@ fn project_mux(
     // their own. Unset p2p fields fall back to the entry values (uniform doc,
     // today's behavior).
     let min_bid = resolve_min_bid(input, mux, warnings)?;
-    let key_min_bid = match mux
-        .min_bid_p2p_wei
-        .or(input.cfg.pbs.pbs_config.min_bid_p2p_wei)
-    {
+    let key_min_bid = match mux.min_bid_p2p_wei.or(input.cfg.pbs.pbs_config.min_bid_p2p_wei) {
         Some(wei) => wei_to_gwei_floor(&mux.id, wei, warnings)?.to_string(),
         None => min_bid.clone(),
     };
@@ -750,12 +750,7 @@ url = "https://{RELAY_PK_B}@relay-b.example.com"
         let input = ProjectionInput::parse_str(&toml_text).unwrap();
         let projection = project(&input, &overlay()).unwrap();
         let by_key = |k: &str| {
-            projection
-                .docs
-                .iter()
-                .find(|(pk, _)| pk.to_string() == k)
-                .map(|(_, doc)| doc)
-                .unwrap()
+            projection.docs.iter().find(|(pk, _)| pk.to_string() == k).map(|(_, doc)| doc).unwrap()
         };
         // mux A: its own p2p values
         let doc_a = by_key(&key_a);

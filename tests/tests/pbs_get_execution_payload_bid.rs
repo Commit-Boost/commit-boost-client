@@ -201,9 +201,9 @@ async fn test_get_execution_payload_bid_below_min_bid_passes() -> Result<()> {
     Ok(())
 }
 
-/// fee_recipient is NOT enforced on the ePBS bid path: a bid whose fee_recipient
-/// differs from the config value is still served. The execution block's fee
-/// recipient is the builder's and the proposer is paid via value +
+/// fee_recipient is NOT enforced on the ePBS bid path: a bid whose
+/// fee_recipient differs from the config value is still served. The execution
+/// block's fee recipient is the builder's and the proposer is paid via value +
 /// execution_payment, so the BN (not CB) verifies it. The mock serves
 /// Address::ZERO while the config sets a different value; the bid is returned.
 #[tokio::test]
@@ -661,15 +661,18 @@ async fn test_get_execution_payload_bid_auth_slot_mismatch_400() -> Result<()> {
     Ok(())
 }
 
-/// With `verify_builder_request_auth` on, a bad auth signature is a 401 and a good one
-/// passes through to the relay.
+/// With `verify_builder_request_auth` on, a bad auth signature is a 401 and a
+/// good one passes through to the relay.
 #[tokio::test]
 async fn test_get_execution_payload_bid_verify_builder_request_auth_enabled() -> Result<()> {
     let secret_key = random_secret();
     let proposer_pubkey = secret_key.public_key();
-    let (mock_validator, mock_state) =
-        setup_relay(Chain::Hoodi, |cfg| cfg.verify_builder_request_auth = true, generate_mock_relay)
-            .await?;
+    let (mock_validator, mock_state) = setup_relay(
+        Chain::Hoodi,
+        |cfg| cfg.verify_builder_request_auth = true,
+        generate_mock_relay,
+    )
+    .await?;
 
     // An empty signature never verifies under DOMAIN_BUILDER_REQUEST_AUTH
     let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);

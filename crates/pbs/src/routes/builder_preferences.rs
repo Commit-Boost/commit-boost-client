@@ -6,8 +6,8 @@ use axum::{
 };
 use cb_common::{
     pbs::{
-        BuilderPreferencesRequest, RelayClient, SignedBuilderRequestAuth, SubmitBuilderPreferencesParams,
-        error::PbsError,
+        BuilderPreferencesRequest, RelayClient, SignedBuilderRequestAuth,
+        SubmitBuilderPreferencesParams, error::PbsError,
     },
     types::Chain,
     wire::{decode_versioned_request_body, get_user_agent},
@@ -64,7 +64,10 @@ pub async fn handle_submit_builder_preferences<S: BuilderApiState>(
             } else {
                 warn!(%err, "submit_builder_preferences failed");
             }
-            record_beacon_status(err.status_code().as_str(), SUBMIT_BUILDER_PREFERENCES_ENDPOINT_TAG);
+            record_beacon_status(
+                err.status_code().as_str(),
+                SUBMIT_BUILDER_PREFERENCES_ENDPOINT_TAG,
+            );
             Err(err)
         }
     }
@@ -163,8 +166,8 @@ pub async fn submit_builder_preferences<S: BuilderApiState>(
 /// or replayed submission that would roll a proposer's preferences back) is the
 /// builder's call, not the relay's, so CB forwards regardless of slot age. All
 /// that is required here is `auth.message.data` (non-empty; which builder it
-/// addresses is the demux's job, `match_relays_by_auth_data`) and, when enabled,
-/// the request-auth signature.
+/// addresses is the demux's job, `match_relays_by_auth_data`) and, when
+/// enabled, the request-auth signature.
 fn validate_preferences_auth(
     auth: &SignedBuilderRequestAuth,
     params: &SubmitBuilderPreferencesParams,
@@ -257,7 +260,10 @@ mod tests {
     fn decode_defaults_to_ssz_without_a_content_type() {
         let request = BuilderPreferencesRequest {
             auth: SignedBuilderRequestAuth {
-                message: BuilderRequestAuth { data: Default::default(), slot: lh_types::Slot::new(3) },
+                message: BuilderRequestAuth {
+                    data: Default::default(),
+                    slot: lh_types::Slot::new(3),
+                },
                 signature: BlsSignature::empty(),
             },
             preferences: BuilderPreferences { max_execution_payment: 7 },
@@ -311,7 +317,10 @@ mod tests {
     fn decode_rejects_json_without_the_version_header() {
         let request = BuilderPreferencesRequest {
             auth: SignedBuilderRequestAuth {
-                message: BuilderRequestAuth { data: Default::default(), slot: lh_types::Slot::new(3) },
+                message: BuilderRequestAuth {
+                    data: Default::default(),
+                    slot: lh_types::Slot::new(3),
+                },
                 signature: BlsSignature::empty(),
             },
             preferences: BuilderPreferences { max_execution_payment: 7 },
@@ -338,7 +347,10 @@ mod tests {
     fn decode_rejects_an_unrecognized_fork_value() {
         let request = BuilderPreferencesRequest {
             auth: SignedBuilderRequestAuth {
-                message: BuilderRequestAuth { data: Default::default(), slot: lh_types::Slot::new(3) },
+                message: BuilderRequestAuth {
+                    data: Default::default(),
+                    slot: lh_types::Slot::new(3),
+                },
                 signature: BlsSignature::empty(),
             },
             preferences: BuilderPreferences { max_execution_payment: 7 },
