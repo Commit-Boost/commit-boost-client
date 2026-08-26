@@ -333,24 +333,27 @@ async fn test_submit_builder_preferences_json_no_version_400() -> Result<()> {
     Ok(())
 }
 
-/// Preferences naming a slot that has already ended are rejected before any
-/// builder is contacted: a replay must not roll preferences back to a stale
-/// value.
+/// CB does not gate preferences on slot age: freshness (rejecting a stale or
+/// replayed submission) is the builder's call, not the relay's, so CB forwards
+/// regardless. A preference naming a slot that has already ended still reaches
+/// the builder and is accepted.
 #[tokio::test]
-async fn test_submit_builder_preferences_slot_passed_400() -> Result<()> {
+async fn test_submit_builder_preferences_past_slot_forwarded() -> Result<()> {
     let chain = Chain::Hoodi;
-    let (mock_validator, mock_state) = setup_relay(chain, |_| {}, generate_mock_relay).await?;
+    let (mock_validator, mock_state) = setup_relay(
+        chain,
+        |_| {},
+        |port, pubkey| generate_mock_relay_with_auth_data(port, pubkey, TEST_AUTH_DATA),
+    )
+    .await?;
 
     let request =
         preferences(opaque_auth(TEST_AUTH_DATA, past_slot(chain)), TEST_MAX_EXECUTION_PAYMENT);
     let res =
         mock_validator.do_submit_builder_preferences(None, &request, EncodingType::Ssz).await?;
 
-    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-    let body: serde_json::Value = serde_json::from_slice(&res.bytes().await?)?;
-    assert_eq!(body["code"], 400);
-    assert_eq!(body["message"], "Invalid SignedBuilderRequestAuth: auth.message.slot has already passed");
-    assert_eq!(mock_state.received_builder_preferences(), 0, "no builder should be contacted");
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
+    assert_eq!(mock_state.received_builder_preferences(), 1, "past-slot preference is forwarded");
     Ok(())
 }
 

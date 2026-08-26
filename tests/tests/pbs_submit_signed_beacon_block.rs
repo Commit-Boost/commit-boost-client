@@ -83,7 +83,9 @@ async fn test_submit_signed_beacon_block_ssz_202() -> Result<()> {
 #[tokio::test]
 async fn test_submit_signed_beacon_block_json_202() -> Result<()> {
     let chain = Chain::Hoodi;
-    let (mock_validator, state) = setup_relay(chain, |_| {}, generate_mock_relay).await?;
+    // Decoding (JSON->SSZ normalization) is opt-in via strict_block_decode.
+    let (mock_validator, state) =
+        setup_relay(chain, |config| config.strict_block_decode = true, generate_mock_relay).await?;
 
     let committed = B256::repeat_byte(0x5a);
     let block = gloas_block(TEST_SLOT, committed);
@@ -124,7 +126,9 @@ async fn test_submit_signed_beacon_block_spec_url() -> Result<()> {
 #[tokio::test]
 async fn test_submit_signed_beacon_block_non_gloas_400() -> Result<()> {
     let chain = Chain::Hoodi;
-    let (mock_validator, state) = setup_relay(chain, |_| {}, generate_mock_relay).await?;
+    // The gloas-only 400 is part of strict decode; the default pipe forwards.
+    let (mock_validator, state) =
+        setup_relay(chain, |config| config.strict_block_decode = true, generate_mock_relay).await?;
 
     // gloas is the only header the wire layer admits, so a non-Gloas BLOCK can
     // only reach the route's Gloas-only check as JSON. The untagged decode
@@ -296,7 +300,10 @@ async fn test_submit_signed_beacon_block_fulu_label_400() -> Result<()> {
 #[tokio::test]
 async fn test_submit_signed_beacon_block_unsupported_content_type_415() -> Result<()> {
     let chain = Chain::Hoodi;
-    let (mock_validator, state) = setup_relay(chain, |_| {}, generate_mock_relay).await?;
+    // Content-Type validation is part of strict decode; the default pipe
+    // forwards without inspecting it.
+    let (mock_validator, state) =
+        setup_relay(chain, |config| config.strict_block_decode = true, generate_mock_relay).await?;
 
     let url = mock_validator.comm_boost.submit_signed_beacon_block_url()?;
     let res = mock_validator
