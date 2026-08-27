@@ -1,9 +1,6 @@
 name: Docs
 
-# Manual only: click "Run workflow" to publish the docs currently on the
-# selected branch (defaults to the repo default branch). Publishing is a
-# deliberate act, not a side effect of a merge, and a failed run can simply be
-# re-run without pushing a new commit.
+# Manual only: click "Run workflow" to publish the docs on main.
 on:
   workflow_dispatch:
 
