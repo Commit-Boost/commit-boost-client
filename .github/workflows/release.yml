@@ -207,7 +207,7 @@ jobs:
             ${{ runner.os }}-cargo-build-
 
       - name: Build binary (Darwin)
-        run: cargo build --release --target ${{ matrix.target }} --bin ${{ matrix.name }}
+        run: cargo build --locked --release --target ${{ matrix.target }} --bin ${{ matrix.name }}
 
       - name: Package binary (Darwin)
         run: |

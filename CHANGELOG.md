@@ -45,3 +45,8 @@
 
 ### v0.10.0
 - Accumulation of rc1-rc4
+
+### v0.11.0-rc1
+- Introduces SSZ encodings for `get_header` and `submit_block`
+- Introduces optional streaming endpoint to receive bids over WebSocket connection
+- Fix Prysm issue #17136
