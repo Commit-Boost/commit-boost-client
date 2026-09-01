@@ -359,20 +359,19 @@ pub fn require_consensus_version_header(
     // Echoed into the 400 body, so bound attacker-controlled length
     let unsupported =
         || BodyDeserializeError::InvalidVersionHeader(value.chars().take(64).collect());
-    // The endpoint is defined from the Gloas fork ONWARDS, so a gloas-or-later
-    // version is accepted and returned as-is (the caller uses it to select the
-    // SSZ variant). Still exhaustive, no wildcard: when lighthouse adds a fork
-    // after the current tip this match stops compiling, forcing an explicit
-    // decision to add it to the accepted set rather than silently 400ing it.
+    // The endpoint is defined for the Gloas fork, and only Gloas is accepted for
+    // now: a later fork's semantics are not yet validated here, so it is 400'd
+    // rather than silently handled as gloas.
     match ForkName::from_str(value).map_err(|_| unsupported())? {
-        fork @ (ForkName::Gloas | ForkName::Heze) => Ok(fork),
+        ForkName::Gloas => Ok(ForkName::Gloas),
         ForkName::Base |
         ForkName::Altair |
         ForkName::Bellatrix |
         ForkName::Capella |
         ForkName::Deneb |
         ForkName::Electra |
-        ForkName::Fulu => Err(unsupported()),
+        ForkName::Fulu |
+        ForkName::Heze => Err(unsupported()),
     }
 }
 

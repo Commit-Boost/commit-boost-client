@@ -108,9 +108,10 @@ pub async fn submit_signed_beacon_block<S: BuilderApiState>(
     }
     info!(ua, ?slot, strict, "new request");
 
-    // Base headers, then stamp the block's ACTUAL fork (gloas or later) as the
-    // outbound Eth-Consensus-Version rather than a hard-coded gloas, so a
-    // post-gloas reveal is labeled correctly.
+    // Base headers, then stamp the block's fork as the outbound
+    // Eth-Consensus-Version. The header validator accepts Gloas only, so `fork`
+    // is always Gloas today; it is passed through (not hard-coded) so widening
+    // the accepted set later needs no change here.
     let mut send_headers = epbs_base_send_headers(&req_headers)?;
     send_headers.insert(
         CONSENSUS_VERSION_HEADER,
