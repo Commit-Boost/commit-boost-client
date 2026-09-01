@@ -461,8 +461,6 @@ async fn send_timed_get_execution_payload_bid(
 
     if relay.config.enable_timing_games {
         if let Some(target_ms) = relay.config.target_first_request_ms {
-            // sleep until target time in slot
-
             let Some(delay) =
                 target_first_request_delay_ms(target_ms, ms_into_slot, timeout_left_ms)
             else {
@@ -610,7 +608,6 @@ async fn send_one_get_execution_payload_bid(
     mut req_config: RequestContext,
     validation: ValidationContext,
 ) -> Result<(u64, Option<GetExecutionPayloadBidResponse>), PbsError> {
-    // request send time, forwarded to the relay in HEADER_START_TIME_UNIX_MS
     let start_request_time = utcnow_ms();
     req_config.headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(start_request_time));
 

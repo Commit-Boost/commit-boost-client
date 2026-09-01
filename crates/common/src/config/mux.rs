@@ -342,7 +342,6 @@ impl MuxKeysLoader {
             },
         }?;
 
-        // Remove duplicates
         let deduped_keys = remove_duplicate_keys(keys);
         Ok(deduped_keys)
     }

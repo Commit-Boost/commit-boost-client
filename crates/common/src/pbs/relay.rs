@@ -307,9 +307,8 @@ mod tests {
         let validator_pubkey = bls_pubkey_from_hex_unchecked(
             "0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae",
         );
-        // Note: HashMap iteration order is not guaranteed, so we can't predict the
-        // exact order of parameters Instead of hard-coding the order, we'll
-        // check that both parameters are present in the URL
+        // HashMap iteration order is not guaranteed, so assert both parameters are
+        // present rather than hard-coding their order in the URL.
         let url_prefix = format!(
             "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz/eth/v1/builder/header/{slot}/{parent_hash}/{validator_pubkey}?"
         );
@@ -489,9 +488,8 @@ mod tests {
         let validator_pubkey = bls_pubkey_from_hex_unchecked(
             "0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae",
         );
-        // Note: HashMap iteration order is not guaranteed, so we can't predict the
-        // exact order of parameters Instead of hard-coding the order, we'll
-        // check that both parameters are present in the URL
+        // HashMap iteration order is not guaranteed, so assert both parameters are
+        // present rather than hard-coding their order in the URL.
         let url_prefix = format!(
             "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz/eth/v1/builder/execution_payload_bid/{slot}/{parent_hash}/{parent_root}/{validator_pubkey}?"
         );

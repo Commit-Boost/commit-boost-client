@@ -145,9 +145,10 @@ pub(crate) async fn post_ssz_expect_accepted(
 /// Base outbound headers shared by the ePBS endpoints: the versioned
 /// `User-Agent` and `Eth-Consensus-Version`. All three relay hops send SSZ
 /// bodies of fork-versioned wire types, so the builder needs the fork header;
-/// it is re-derived as Gloas (these are Gloas-only endpoints), never echoed
-/// from the inbound request. Callers add their endpoint-specific headers (bid
-/// adds `Accept` and the timing headers).
+/// it defaults to Gloas here and callers may override it
+/// (submit_signed_beacon_block overwrites it with the inbound request's fork).
+/// Callers add their endpoint-specific headers (bid adds `Accept` and the
+/// timing headers).
 pub(crate) fn epbs_base_send_headers(req_headers: &HeaderMap) -> Result<HeaderMap, PbsClientError> {
     let mut headers = HeaderMap::new();
     headers.insert(

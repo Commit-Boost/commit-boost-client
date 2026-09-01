@@ -132,8 +132,7 @@ pub struct MockRelayState {
     /// Hold every bid request this long before answering, simulating a builder
     /// that sits on a request instead of answering promptly
     bid_delay_ms: Option<u64>,
-    /// `data` bytes of the last `SignedBuilderRequestAuth` forwarded on a bid
-    /// request
+    /// The last `SignedBuilderRequestAuth` forwarded on a bid request
     received_auth: RwLock<Option<SignedBuilderRequestAuth>>,
     response_override: RwLock<Option<StatusCode>>,
     bid_value: RwLock<U256>,

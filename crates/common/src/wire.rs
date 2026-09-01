@@ -76,7 +76,6 @@ pub async fn read_chunked_body_with_max(
     max_size: usize,
     request_url: &str,
 ) -> Result<Vec<u8>, ResponseReadError> {
-    // Get the content length from the response headers
     #[cfg(not(feature = "testing-flags"))]
     let content_length = res.content_length();
 
@@ -476,21 +475,13 @@ pub enum BodyDeserializeError {
     MissingBody,
 }
 
-/// The request body encoding to decode with, from the Content-Type, using the
-/// shared `NO_PREFERENCE_DEFAULT` (JSON) when no Content-Type is present.
-pub fn content_type_encoding(headers: &HeaderMap) -> Result<EncodingType, BodyDeserializeError> {
-    content_type_encoding_with_default(headers, NO_PREFERENCE_DEFAULT)
-}
-
-/// Like `content_type_encoding`, but the caller chooses the encoding used when
-/// the request has no Content-Type header. This is the Content-Type analogue of
-/// [`get_accept_types_with_default`]. Precedence:
+/// The request body encoding to decode with, from the Content-Type, letting the
+/// caller choose the encoding used when the request has no Content-Type header.
+/// This is the Content-Type analogue of [`get_accept_types_with_default`].
+/// Precedence:
 ///   - Content-Type absent     → `no_preference_default`
 ///   - Content-Type recognized → use it
 ///   - Content-Type present but unrecognized → UnsupportedMediaType
-///
-/// Legacy callers use [`content_type_encoding`] (default JSON); SSZ-by-default
-/// endpoints pass `EncodingType::Ssz`.
 pub fn content_type_encoding_with_default(
     headers: &HeaderMap,
     no_preference_default: EncodingType,
