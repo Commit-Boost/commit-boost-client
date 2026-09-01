@@ -7,7 +7,8 @@ use axum::{
 use cb_common::{
     pbs::{RelayClient, error::PbsError, is_gloas},
     wire::{
-        BodyDeserializeError, CONSENSUS_VERSION_HEADER, decode_signed_beacon_block, get_user_agent,
+        BodyDeserializeError, CONSENSUS_VERSION_HEADER, EncodingType,
+        content_type_encoding_with_default, decode_signed_beacon_block, get_user_agent,
         require_consensus_version_header,
     },
 };
@@ -85,11 +86,19 @@ pub async fn submit_signed_beacon_block<S: BuilderApiState>(
         let slot = block.slot().as_u64();
         (Bytes::from(block.as_ssz_bytes()), Some(slot))
     } else {
-        // Blind pipe: forward the bytes without parsing; block validity is the
-        // builder's job. The outbound is always SSZ, so the reveal is expected
-        // in SSZ (strict mode is for operators who want CB to decode).
+        // Blind pipe: forward the bytes without parsing (the builder validates).
+        // The outbound is always SSZ, so the reveal must be SSZ; a JSON or
+        // otherwise non-SSZ reveal would be forwarded mislabeled as octet-stream
+        // and fail opaquely downstream, so reject it up front with 415. The
+        // Content-Type defaults to JSON when absent (builder-specs), so an
+        // unlabeled reveal is treated as JSON and rejected, not assumed SSZ.
         if body.is_empty() {
             return Err(BodyDeserializeError::MissingBody.into());
+        }
+        if content_type_encoding_with_default(&req_headers, EncodingType::Json)? !=
+            EncodingType::Ssz
+        {
+            return Err(BodyDeserializeError::UnsupportedMediaType.into());
         }
         (body, None)
     };

@@ -325,6 +325,65 @@ async fn test_submit_signed_beacon_block_unsupported_content_type_415() -> Resul
     Ok(())
 }
 
+/// In the default blind pipe the reveal must be SSZ: a JSON `Content-Type` is
+/// rejected up front with a 415 (and nothing is forwarded) rather than being
+/// relabeled octet-stream and failing opaquely at the builder.
+#[tokio::test]
+async fn test_submit_signed_beacon_block_blind_json_415() -> Result<()> {
+    let chain = Chain::Hoodi;
+    // Default config: blind pipe, no strict decode.
+    let (mock_validator, state) = setup_relay(chain, |_| {}, generate_mock_relay).await?;
+
+    let block = gloas_block(TEST_SLOT, mock_bid_block_hash());
+    let url = mock_validator.comm_boost.submit_signed_beacon_block_url()?;
+    let res = mock_validator
+        .comm_boost
+        .client
+        .post(url)
+        .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
+        .header(CONSENSUS_VERSION_HEADER, "gloas")
+        .body(serde_json::to_vec(&block)?)
+        .send()
+        .await?;
+
+    assert_eq!(res.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert_eq!(
+        state.received_signed_beacon_block(),
+        0,
+        "a JSON reveal must not be forwarded in blind mode"
+    );
+    Ok(())
+}
+
+/// Blind mode requires an explicit SSZ Content-Type. An unlabeled reveal defaults
+/// to JSON per builder-specs, so it is rejected with 415 rather than assumed to be
+/// SSZ and forwarded mislabeled (which would 500 opaquely at the builder).
+#[tokio::test]
+async fn test_submit_signed_beacon_block_blind_absent_content_type_415() -> Result<()> {
+    let chain = Chain::Hoodi;
+    let (mock_validator, state) = setup_relay(chain, |_| {}, generate_mock_relay).await?;
+
+    let block = gloas_block(TEST_SLOT, mock_bid_block_hash());
+    let url = mock_validator.comm_boost.submit_signed_beacon_block_url()?;
+    // SSZ bytes, but no Content-Type header at all
+    let res = mock_validator
+        .comm_boost
+        .client
+        .post(url)
+        .header(CONSENSUS_VERSION_HEADER, "gloas")
+        .body(block.as_ssz_bytes())
+        .send()
+        .await?;
+
+    assert_eq!(res.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert_eq!(
+        state.received_signed_beacon_block(),
+        0,
+        "an unlabeled reveal must not be forwarded in blind mode"
+    );
+    Ok(())
+}
+
 /// An SSZ submission missing `Eth-Consensus-Version` is a 400: the SSZ block is
 /// not self-describing, so the fork header is required to select the variant
 /// (and the spec mandates the header regardless of encoding).
