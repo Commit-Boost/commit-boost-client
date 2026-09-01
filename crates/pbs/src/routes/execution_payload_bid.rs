@@ -386,7 +386,11 @@ fn format_gwei_as_eth(gwei: u64) -> String {
 /// The execution-payment cap used when ranking a relay's bids: the per-relay
 /// override, else the global config value (default u64::MAX = unclamped).
 fn ranking_cap_gwei(relay: &RelayClient, pbs_config: &PbsConfig) -> u64 {
-    relay.config.max_execution_payment_gwei.unwrap_or(pbs_config.max_execution_payment_gwei)
+    relay
+        .config
+        .max_execution_payment_gwei
+        .or(pbs_config.max_execution_payment_gwei)
+        .unwrap_or(u64::MAX)
 }
 
 /// A bid's ranking value per beacon-APIs #630: the BN values a bid at
@@ -832,7 +836,7 @@ fn extra_validation(
 #[cfg(test)]
 mod tests {
 
-    use alloy::primitives::{Address, B256, aliases::B32};
+    use alloy::primitives::{B256, aliases::B32};
     use cb_common::{
         constants::{DOMAIN_BUILDER_REQUEST_AUTH, GENESIS_VALIDATORS_ROOT, GLOAS_FORK_VERSION},
         pbs::{BuilderRequestAuth, error::ValidationError},
@@ -1169,9 +1173,6 @@ mod tests {
         }
         fn execution_payment(&self) -> u64 {
             self.execution_payment
-        }
-        fn fee_recipient(&self) -> Address {
-            Address::ZERO
         }
         fn builder_index(&self) -> u64 {
             0

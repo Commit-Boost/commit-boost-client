@@ -3,12 +3,12 @@
 use std::{
     collections::HashMap,
     net::{Ipv4Addr, SocketAddr},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
 };
 
 use alloy::{
-    primitives::{Address, Bytes, U256, utils::format_ether},
+    primitives::{Bytes, U256, utils::format_ether},
     providers::{Provider, ProviderBuilder},
 };
 use docker_image::DockerImage;
@@ -39,8 +39,8 @@ use crate::{
     },
 };
 
-/// How CB fetches bids from a relay: `Http` = the classic get_header request,
-/// `Stream` = the ePBS bid stream (polling/SSE).
+/// How CB fetches get_header bids from this relay: `Http` = request/response,
+/// `Stream` = the relay's WebSocket bid stream.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GetHeaderTransport {
@@ -110,6 +110,19 @@ impl RelayConfig {
     pub fn id(&self) -> &str {
         self.id.as_deref().unwrap_or(self.entry.id.as_str())
     }
+
+    /// Validate relay-level knobs the PBS runtime reads directly. The timing
+    /// knobs are optional, but a zero would stall the ePBS bid poll / timing
+    /// games rather than mean "unset", so reject it explicitly.
+    pub fn validate(&self) -> Result<()> {
+        if let Some(ms) = self.bid_poll_timeout_ms {
+            ensure!(ms > 0, "bid_poll_timeout_ms must be greater than 0 when set");
+        }
+        if let Some(ms) = self.frequency_get_header_ms {
+            ensure!(ms > 0, "frequency_get_header_ms must be greater than 0 when set");
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -145,18 +158,15 @@ pub struct PbsConfig {
     /// at `value + min(execution_payment, cap)`, mirroring the BN's valuation
     /// (beacon-APIs #630 clamps at `max_execution_payment` instead of
     /// rejecting). Not an accept/reject check; the BN enforces the cap.
-    /// Default u64::MAX = unclamped
-    #[serde(default = "default_u64::<{ u64::MAX }>")]
-    pub max_execution_payment_gwei: u64,
+    /// Default: unset (None) = unclamped
+    #[serde(default)]
+    pub max_execution_payment_gwei: Option<u64>,
     /// When enabled, the BLS signature of an ePBS request's
     /// `SignedBuilderRequestAuth` is verified against the proposer pubkey.
     /// False by default: CB forwards because the downstream builder must
     /// re-verify anyway; operators terminating trust at CB set it true
     #[serde(default = "default_bool::<false>")]
     pub verify_builder_request_auth: bool,
-    /// Expected fee recipient in ePBS bids; when set, bids with a different
-    /// fee_recipient are rejected
-    pub fee_recipient: Option<Address>,
     /// How late in the slot we consider to be "late" (legacy get_header path)
     #[serde(default = "default_u64::<LATE_IN_SLOT_TIME_MS>")]
     pub late_in_slot_time_ms: u64,
@@ -236,6 +246,15 @@ impl PbsConfig {
             "timeout_register_validator_ms must be greater than 0"
         );
         ensure!(self.late_in_slot_time_ms > 0, "late_in_slot_time_ms must be greater than 0");
+
+        // The buffer is subtracted from the proposer's own deadline; a value at
+        // or above one slot would leave no time for the bid poll. 0 is allowed
+        // (no reserve).
+        const MAX_PROPOSER_DEADLINE_BUFFER_MS: u64 = 12_000;
+        ensure!(
+            self.proposer_deadline_buffer_ms < MAX_PROPOSER_DEADLINE_BUFFER_MS,
+            "proposer_deadline_buffer_ms must be less than one slot ({MAX_PROPOSER_DEADLINE_BUFFER_MS} ms)"
+        );
 
         if self.min_bid_p2p_wei.is_some() {
             info!("field min_bid_p2p_eth is applied via KM tooling, not by the PBS runtime");
@@ -368,7 +387,6 @@ pub async fn load_pbs_config(config_path: Option<PathBuf>) -> Result<(PbsModuleC
         SocketAddr::from((config.pbs.pbs_config.host, config.pbs.pbs_config.port))
     };
 
-    // Get the list of relays from the default config
     let relay_clients =
         config.relays.into_iter().map(RelayClient::new).collect::<Result<Vec<_>>>()?;
     let mut all_relays = HashMap::with_capacity(relay_clients.len());
@@ -453,6 +471,7 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
     // load module config including the extra data (if any)
     let (cb_config, config_path): (StubConfig<T>, _) = load_file_from_env(CONFIG_ENV)?;
     super::warn_unknown_mux_fields(&config_path);
+    warn_unknown_pbs_fields(&config_path);
     cb_config.pbs.static_config.validate(cb_config.chain).await?;
 
     // use endpoint from env if set, otherwise use default host and port
@@ -465,7 +484,12 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
         ))
     };
 
-    // Get the list of relays from the default config
+    // Get the list of relays from the default config. Validate each first: the
+    // default binary validates top-level relays via `CommitBoostConfig::validate`,
+    // which this custom-module load path does not call.
+    for relay in cb_config.relays.iter() {
+        relay.validate()?;
+    }
     let relay_clients =
         cb_config.relays.into_iter().map(RelayClient::new).collect::<Result<Vec<_>>>()?;
     let mut all_relays = HashMap::with_capacity(relay_clients.len());
@@ -566,6 +590,64 @@ fn default_public_ssv_api_url() -> Url {
     Url::parse("https://api.ssv.network/api/v4/").expect("default URL is valid")
 }
 
+/// The serde keys recognized on the `[pbs]` table: the `StaticPbsConfig`
+/// wrapper (`docker_image`, `with_signer`) plus the flattened `PbsConfig`
+/// fields in their serde-renamed form (e.g. `min_bid_eth`, not `min_bid_wei`).
+/// Kept in lockstep with those two structs.
+const KNOWN_PBS_FIELDS: &[&str] = &[
+    // StaticPbsConfig wrapper
+    "docker_image",
+    "with_signer",
+    // PbsConfig (flattened)
+    "host",
+    "port",
+    "relay_check",
+    "wait_all_registrations",
+    "timeout_get_header_ms",
+    "timeout_get_payload_ms",
+    "timeout_register_validator_ms",
+    "skip_sigverify",
+    "min_bid_eth",
+    "max_execution_payment_gwei",
+    "verify_builder_request_auth",
+    "late_in_slot_time_ms",
+    "proposer_deadline_buffer_ms",
+    "extra_validation_enabled",
+    "strict_block_decode",
+    "rpc_url",
+    "ssv_node_api_url",
+    "ssv_public_api_url",
+    "http_timeout_seconds",
+    "register_validator_retry_limit",
+    "validator_registration_batch_size",
+    "mux_registry_refresh_interval_seconds",
+    "advertised_urls",
+    "min_bid_p2p_eth",
+    "builder_boost_factor_p2p",
+];
+
+/// Unknown keys on the `[pbs]` table of a raw config document. `PbsConfig` is
+/// `#[serde(flatten)]`ed into `StaticPbsConfig`, and a flattened struct cannot
+/// take `#[serde(deny_unknown_fields)]` (it would reject the outer struct's own
+/// keys), so typo visibility comes from this extra pass over the raw TOML
+/// instead (mirrors [`super::unknown_mux_fields`]).
+pub fn unknown_pbs_fields(raw: &toml::Value) -> Vec<String> {
+    let Some(table) = raw.get("pbs").and_then(|value| value.as_table()) else {
+        return Vec::new();
+    };
+    table.keys().filter(|key| !KNOWN_PBS_FIELDS.contains(&key.as_str())).cloned().collect()
+}
+
+/// WARN-logs every unknown `[pbs]` key in the config file at `path`.
+/// Best-effort: unreadable/unparseable input is serde's problem to report.
+pub fn warn_unknown_pbs_fields(path: &Path) {
+    let Ok(raw) = std::fs::read_to_string(path) else { return };
+    let Ok(value) = raw.parse::<toml::Value>() else { return };
+    for key in unknown_pbs_fields(&value) {
+        warn!("unknown field `{key}` on the [pbs] table is ignored by the PBS runtime");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -587,5 +669,28 @@ mod tests {
         .unwrap();
         assert_eq!(cfg.min_bid_p2p_wei, Some(U256::from(200_000_000_000_000_000u64)));
         assert_eq!(cfg.builder_boost_factor_p2p, Some(0));
+    }
+
+    // The false-positive trap: a renamed field (`min_bid_eth`) or a wrapper key
+    // (`docker_image`) must not be flagged as unknown.
+    #[test]
+    fn unknown_pbs_fields_flags_typos_only() {
+        let raw: toml::Value = r#"
+            [pbs]
+            docker_image = "x"
+            with_signer = false
+            min_bid_eth = 0.0
+            max_execution_payment_gwei = 1000000000
+            strict_block_decode = true
+            proposer_deadline_buffer_ms = 50
+            skip_sigverify = false
+            bid_poll_timeout_ms = 500
+        "#
+        .parse()
+        .unwrap();
+        assert_eq!(unknown_pbs_fields(&raw), vec!["bid_poll_timeout_ms".to_string()]);
+
+        let raw: toml::Value = "chain = \"Holesky\"".parse().unwrap();
+        assert!(unknown_pbs_fields(&raw).is_empty());
     }
 }

@@ -52,12 +52,17 @@ impl CommitBoostConfig {
             )
         }
 
+        for relay in self.relays.iter() {
+            relay.validate()?;
+        }
+
         Ok(())
     }
 
     pub fn from_file(path: &PathBuf) -> Result<Self> {
         let (config, _): (Self, _) = load_from_file(path)?;
         warn_unknown_mux_fields(path);
+        warn_unknown_pbs_fields(path);
         Ok(config)
     }
 
@@ -66,6 +71,7 @@ impl CommitBoostConfig {
     pub fn from_env_path() -> Result<(Self, PathBuf)> {
         let (config, config_path) = Self::from_env_path_silent()?;
         warn_unknown_mux_fields(&config_path);
+        warn_unknown_pbs_fields(&config_path);
         Ok((config, config_path))
     }
 

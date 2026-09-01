@@ -117,6 +117,7 @@ impl PbsMuxes {
 
             let mut relay_clients = Vec::with_capacity(mux.relays.len());
             for config in mux.relays.into_iter() {
+                config.validate()?;
                 relay_clients.push(RelayClient::new(config)?);
             }
 
@@ -127,7 +128,6 @@ impl PbsMuxes {
                 late_in_slot_time_ms: mux
                     .late_in_slot_time_ms
                     .unwrap_or(default_pbs.late_in_slot_time_ms),
-                fee_recipient: mux.fee_recipient.or(default_pbs.fee_recipient),
                 ..default_pbs.clone()
             };
             config.validate(chain).await?;
@@ -169,8 +169,6 @@ pub struct MuxConfig {
     pub loader: Option<MuxKeysLoader>,
     pub timeout_get_header_ms: Option<u64>,
     pub late_in_slot_time_ms: Option<u64>,
-    /// Expected fee recipient in ePBS bids for this mux's validators
-    pub fee_recipient: Option<Address>,
     // The projection-only fields below are consumed by KM tooling, not read by
     // the PBS runtime.
     /// The ePBS builder_boost_factor for this mux's keys
@@ -359,7 +357,6 @@ const KNOWN_MUX_FIELDS: &[&str] = &[
     "loader",
     "timeout_get_header_ms",
     "late_in_slot_time_ms",
-    "fee_recipient",
     "builder_boost_factor",
     "min_bid_eth",
     "builder_boost_factor_p2p",

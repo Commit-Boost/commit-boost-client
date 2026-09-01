@@ -1,6 +1,6 @@
 use std::{path::PathBuf, sync::Arc};
 
-use alloy::primitives::{Address, B256, U256};
+use alloy::primitives::{B256, U256};
 use cb_common::{
     constants::{GENESIS_VALIDATORS_ROOT, GLOAS_FORK_VERSION},
     pbs::{
@@ -183,44 +183,6 @@ async fn test_get_execution_payload_bid_below_min_bid_passes() -> Result<()> {
 
     let mut pbs_config = get_pbs_config(pbs_port);
     pbs_config.min_bid_wei = U256::from(20_000_000_000u64); // 20 gwei
-    let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
-    let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
-
-    let mock_validator = MockValidator::new(pbs_port)?;
-    wait_for_ready(&mock_validator).await?;
-
-    let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);
-    let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
-            EncodingType::Json,
-        ])
-        .await?;
-    assert_eq!(res.status(), StatusCode::OK);
-    assert_eq!(mock_state.received_execution_payload_bid(), 1);
-    Ok(())
-}
-
-/// fee_recipient is NOT enforced on the ePBS bid path: a bid whose
-/// fee_recipient differs from the config value is still served. The execution
-/// block's fee recipient is the builder's and the proposer is paid via value +
-/// execution_payment, so the BN (not CB) verifies it. The mock serves
-/// Address::ZERO while the config sets a different value; the bid is returned.
-#[tokio::test]
-async fn test_get_execution_payload_bid_fee_recipient_not_enforced() -> Result<()> {
-    setup_test_env();
-    let chain = Chain::Hoodi;
-    let pbs_listener = get_free_listener().await;
-    let pbs_port = pbs_listener.local_addr()?.port();
-    let relay_listener = get_free_listener().await;
-    let relay_port = relay_listener.local_addr()?.port();
-
-    let mock_state = Arc::new(MockRelayState::new(chain, random_secret()));
-    let mock_relay = generate_mock_relay(relay_port, mock_state.signer.public_key())?;
-    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
-
-    let mut pbs_config = get_pbs_config(pbs_port);
-    pbs_config.fee_recipient = Some(Address::from([1; 20]));
     let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
     let state = PbsState::new(config, PathBuf::new());
     tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
@@ -2024,7 +1986,7 @@ async fn test_get_execution_payload_bid_impl_opts(
 
     // Run the PBS service
     let mut pbs_config = get_pbs_config(pbs_port);
-    pbs_config.max_execution_payment_gwei = max_execution_payment_gwei;
+    pbs_config.max_execution_payment_gwei = Some(max_execution_payment_gwei);
     let config = to_pbs_config(chain, pbs_config, relays);
     let state = PbsState::new(config, PathBuf::new());
     tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));

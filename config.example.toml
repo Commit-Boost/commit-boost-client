@@ -67,16 +67,19 @@ min_bid_eth = 0.0
 # `value + min(execution_payment, cap)`, matching how the beacon node values it (the BN clamps the
 # trusted payment at the cap instead of rejecting the bid). This does not accept or reject bids.
 # Can be overridden per relay with `max_execution_payment_gwei` on the relay entry
-# OPTIONAL, DEFAULT: 18446744073709551615 (u64::MAX, unclamped)
-# max_execution_payment_gwei = 18446744073709551615
-# Expected fee recipient in ePBS bids. When set, bids whose fee_recipient differs are rejected
-# OPTIONAL, DEFAULT: unset (no check)
-# fee_recipient = "0x1234567890123456789012345678901234567890"
+# OPTIONAL, DEFAULT: unset (unclamped)
+# max_execution_payment_gwei = 1000000000
 # Whether to verify the BLS signature of the `SignedBuilderRequestAuth` on an ePBS request against the
 # proposer pubkey in the request path, rejecting a bad signature with 401. CB forwards by default
 # because the downstream builder must re-verify anyway; operators terminating trust at CB set it true
 # OPTIONAL, DEFAULT: false
 verify_builder_request_auth = false
+# Strict decoding of the reveal at POST /eth/v1/builder/beacon_blocks. Default (false): CB is a blind
+# pipe, forwarding the reveal bytes to the builder without parsing them, so the reveal MUST be SSZ in
+# blind mode (the builder validates and rejects a bad block per builder-specs). When true: CB decodes
+# the gloas SignedBeaconBlock itself and rejects a non-gloas or otherwise undecodable body with a 400
+# OPTIONAL, DEFAULT: false
+# strict_block_decode = false
 # How late in milliseconds in the slot is "late". This impacts the `get_header` requests, by shortening timeouts for `get_header` calls to
 # relays and make sure a header is returned within this deadline. If the request from the CL comes later in the slot, then fetching headers is skipped
 # to force local building and miniminzing the risk of missed slots. See also the timing games section below
@@ -183,8 +186,8 @@ frequency_get_header_ms = 300
 # bid_poll_timeout_ms = 500
 # Per-relay override of the ePBS bid-ranking execution-payment cap in Gwei (see the PBS-level
 # `max_execution_payment_gwei`)
-# OPTIONAL, DEFAULT: the PBS-level `max_execution_payment_gwei`
-# max_execution_payment_gwei = 18446744073709551615
+# OPTIONAL, DEFAULT: the PBS-level `max_execution_payment_gwei` (unset = unclamped)
+# max_execution_payment_gwei = 1000000000
 # The ePBS auth data this relay serves: a bid request routes here only when its `auth.message.data`
 # equals this value. When unset, the relay is matched only by auth data carrying its URL; auth data
 # matching no configured relay is rejected with 400
@@ -205,9 +208,6 @@ validator_pubkeys = [
     "0x80c7f782b2467c5898c5516a8b6595d75623960b4afc4f71ee07d40985d20e117ba35e7cd352a3e75fb85a8668a3b745",
     "0xa119589bb33ef52acbb8116832bec2b58fca590fe5c85eac5d3230b44d5bc09fe73ccd21f88eab31d6de16194d17782e",
 ]
-# Expected fee recipient in ePBS bids for this mux's validators
-# OPTIONAL, DEFAULT: the PBS-level `fee_recipient`
-# fee_recipient = "0x1234567890123456789012345678901234567890"
 # Projection-only: consumed by KM tooling (builder_config projection for this mux's keys), not read
 # by the PBS runtime
 # OPTIONAL, DEFAULT: unset

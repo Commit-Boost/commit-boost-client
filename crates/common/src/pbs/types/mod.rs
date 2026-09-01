@@ -1,4 +1,4 @@
-use alloy::primitives::{Address, B256, U256, b256};
+use alloy::primitives::{B256, U256, b256};
 pub use lh_eth2::ForkVersionedResponse;
 pub use lh_types::ForkName;
 use lh_types::{BlindedPayload, ExecPayload, MainnetEthSpec, Slot};
@@ -87,7 +87,6 @@ pub trait GetExecutionPayloadBidInfo {
     fn parent_root(&self) -> B256;
     fn value(&self) -> u64;
     fn execution_payment(&self) -> u64;
-    fn fee_recipient(&self) -> Address;
     fn builder_index(&self) -> u64;
     fn slot(&self) -> u64;
     fn gas_limit(&self) -> u64;
@@ -112,10 +111,6 @@ impl GetExecutionPayloadBidInfo for GetExecutionPayloadBidResponse {
 
     fn execution_payment(&self) -> u64 {
         self.data.message.execution_payment
-    }
-
-    fn fee_recipient(&self) -> Address {
-        self.data.message.fee_recipient
     }
 
     fn builder_index(&self) -> u64 {
