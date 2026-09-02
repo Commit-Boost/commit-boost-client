@@ -10,6 +10,7 @@ use std::{
 };
 
 use eyre::Result;
+use url::Url;
 
 use crate::{
     client::{GetConfigOutcome, KmClient, read_token},
@@ -17,6 +18,18 @@ use crate::{
     overlay::Overlay,
     project::{ProjectionInput, project, project_with_url},
 };
+
+/// Mirror of cb-pbs `url_matches`: scheme + canonical host (a trailing dot is
+/// stripped) + effective port. Kept local to avoid a cb-pbs dependency from the
+/// projection tool; the unit test pins the same cases so the two cannot drift.
+fn advertised_url_matches(a: &Url, b: &Url) -> bool {
+    fn host_canonical(url: &Url) -> Option<&str> {
+        url.host_str().map(|host| host.strip_suffix('.').unwrap_or(host))
+    }
+    a.scheme() == b.scheme() &&
+        host_canonical(a) == host_canonical(b) &&
+        a.port_or_known_default() == b.port_or_known_default()
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Tier {
@@ -82,6 +95,36 @@ pub async fn run_check(input: &ProjectionInput, overlay: &Overlay) -> Result<Che
                     candidate.relay_id, candidate.source
                 ),
             );
+        }
+    }
+
+    // Self-dial consistency (the transient pipe): every advertised_url km-tool
+    // projects is echoed by a VC in its auth data, decoded by CB, and must be
+    // recognized as CB's own via [pbs] advertised_urls. If advertised_urls is set
+    // but does not cover a projected URL, a bid addressed to that URL decodes to
+    // CB's own URL and self-dials recursively. The operator runs `cb-km check` as
+    // the gate before apply, so this is an error, not a warning.
+    let advertised = &input.cfg.pbs.pbs_config.advertised_urls;
+    if !advertised.is_empty() {
+        let mut projected_urls: BTreeSet<&str> = BTreeSet::new();
+        projected_urls.insert(overlay.advertised_url.as_str());
+        for vc in &overlay.vcs {
+            if let Some(url) = &vc.advertised_url {
+                projected_urls.insert(url.as_str());
+            }
+        }
+        for raw in projected_urls {
+            // overlay.validate() already rejected an unparseable advertised_url
+            let Ok(projected) = Url::parse(raw) else { continue };
+            if !advertised.iter().any(|own| advertised_url_matches(own, &projected)) {
+                report.push(
+                    Tier::Error,
+                    "advertised-url-uncovered",
+                    format!(
+                        "projected advertised_url {raw} is not covered by any [pbs] advertised_urls entry; a bid addressed to it decodes to CB's own URL and self-dials recursively"
+                    ),
+                );
+            }
         }
     }
 
@@ -275,5 +318,29 @@ fn compare_field(
         stored != &Some(*expected)
     {
         lines.push(format!("{name}: projected {expected}, stored {stored:?}"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn advertised_url_matches_mirrors_cb_pbs() {
+        let u = |s: &str| Url::parse(s).unwrap();
+        // userinfo (relay pubkey) and the default port are ignored
+        assert!(advertised_url_matches(
+            &u("https://0xdead@cb.example.com"),
+            &u("https://cb.example.com")
+        ));
+        assert!(advertised_url_matches(
+            &u("https://cb.example.com:443"),
+            &u("https://cb.example.com")
+        ));
+        // a trailing-dot FQDN canonicalizes to its dotless form
+        assert!(advertised_url_matches(&u("http://cb.example.com."), &u("http://cb.example.com")));
+        // scheme and host mismatches do not match
+        assert!(!advertised_url_matches(&u("http://cb.example.com"), &u("https://cb.example.com")));
+        assert!(!advertised_url_matches(&u("https://a.example.com"), &u("https://b.example.com")));
     }
 }
