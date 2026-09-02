@@ -149,7 +149,8 @@ validator_pubkeys = [
 #   - File: path to a file containing a list of validator pubkeys in JSON format
 #   - URL: URL to an HTTP endpoint returning a list of validator pubkeys in JSON format
 #   - Registry: details of a registry to load keys from. Supported registries:
-#       - Lido: NodeOperatorsRegistry
+#       - Lido: staking module registries. Requires the PBS `rpc_url` to be set, and accepts a `lido_module_id`
+#         in the mux loader (defaults to 1); see the mux key loaders docs for the module ids per chain.
 #       - SSV: SSV API
 #       - Stader: Stader Permissioned/Permissionless NodePool (mainnet only). Requires the PBS `rpc_url` to be set (like Lido),
 #         and a `stader_pool` ("permissioned" or "permissionless") in the mux loader.
