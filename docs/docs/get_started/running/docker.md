@@ -3,7 +3,7 @@ description: Run Commit-Boost with Docker
 ---
 
 # Docker
-The Commit-Boost program generates a dynamic `docker-compose.yml` file using the provided `.toml` config file. This is the recommended approach as Docker provides sandboxing of the containers from the rest of your system.
+The Commit-Boost program generates a `cb.docker-compose.yml` file from the provided `.toml` config file. This is the recommended approach as Docker provides sandboxing of the containers from the rest of your system.
 
 ## Init
 
@@ -11,43 +11,48 @@ First run:
 ```bash
 commit-boost init --config cb-config.toml
 ```
-This will create up to three files:
+The optional `-o`/`--output` flag sets where the files are written (default: the current directory).
+
+This will create two files:
 - `cb.docker-compose.yml` which contains the full setup of the Commit-Boost services.
-- `.cb.env` with local env variables, including JWTs for modules, only created if the signer module is enabled.
-- `target.json` which enables dynamic discovery of services for metrics scraping via Prometheus, only created if metrics are enabled.
+- `.cb.env` with local env variables, including JWTs for modules, only created if the Signer service is enabled.
 
 ## Start
 
 To start Commit-Boost run:
 ```bash
-docker compose --env-file ".cb.env" -f ".cb.docker-compose.yml" up -d
+docker compose --env-file ".cb.env" -f "cb.docker-compose.yml" up -d
 ```
 
-This will run all the configured services, including PBS, signer and modules (if any).
+:::note
+If only the PBS service is configured, no `.cb.env` file is generated and the `--env-file ".cb.env"` flag must be omitted (Docker Compose errors if the file doesn't exist). In general, use the exact command that `commit-boost init` prints. The same applies to the `logs` and `down` commands below.
+:::
+
+This will run all the configured services, including PBS, signer and commit modules (if any).
 
 The MEV-Boost server will be exposed at `pbs.port` from the config, `18550` in our example. You'll need to point your CL/Validator client to this port to be able to source blocks from the builder market.
 
 ## Logs
 To check the logs, run:
 ```bash
-docker compose --env-file ".cb.env" -f ".cb.docker-compose.yml" logs -f
+docker compose --env-file ".cb.env" -f "cb.docker-compose.yml" logs -f
 ```
-This will currently show all logs from the different services via the Docker logs interface. Logs are also optionally saved to file, depending on your `[logs]` configuration.
+This will currently show all logs from the different services via the Docker logs interface. Logs are also optionally saved to file, depending on your [`[logs]` configuration](../configuration.md#logs).
 
 ## Stop
 
 To stop all the services and cleanup, simply run:
 ```bash
-docker compose --env-file ".cb.env" -f ".cb.docker-compose.yml" down
+docker compose --env-file ".cb.env" -f "cb.docker-compose.yml" down
 ```
 This will wind down all services and clear internal networks and file mounts.
 
 
 ## Example with PBS Only
 
-This section provides an example of a configuration where only the PBS service is run with its default configuration, and the Docker compose file produced by that configuration.
+A minimal configuration that runs only the PBS service with its defaults, and the Docker compose file `init` produces from it.
 
-All of PBS's parameters are controlled via the [Commit-Boost TOML configuration file](../configuration.md); the service cannot currently be controlled with command-line arguments. Therefore it is crucial to ensure that you have a configuration file present with all of the settings you require *before* starting the service, as this file will be mounted within the Docker container as a volume in read-only mode.
+All of PBS's parameters are controlled via the [Commit-Boost TOML configuration file](../configuration.md); the service cannot currently be controlled with command-line arguments. Make sure the configuration file exists with all of the settings you require *before* starting the service, as it is mounted into the Docker container as a read-only volume.
 
 Below is a simple configuration for running only the PBS service on the Hoodi network with two relays:
 
@@ -55,40 +60,38 @@ Below is a simple configuration for running only the PBS service on the Hoodi ne
 chain = "Hoodi"
 
 [pbs]
-docker_image = "ghcr.io/commit-boost/commit-boost:v0.8.0"
+docker_image = "ghcr.io/commit-boost/commit-boost:v0.10.0"
 relay_check = true
 wait_all_registrations = true
 
 [[relays]]
 id = "abc"
-url = "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz"
+url = "https://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.example.com"
 
 [[relays]]
 id = "def"
-url = "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@def.xyz"
+url = "https://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@def.example.com"
 ```
 
-Note that there are many more parameters that Commit-Boost supports, but they are all omitted and thus will use their default options. For a full description of the default options within the config file, go to the [annotated configuration example](../../../../config.example.toml).
+There are many more parameters that Commit-Boost supports, but they are all omitted here and thus will use their default options. For a full description of the default options within the config file, go to the [annotated configuration example](https://github.com/Commit-Boost/commit-boost-client/blob/main/config.example.toml).
 
-The relays here are placeholder for the sake of the example; for a list of actual relays, visit [the EthStaker relay list](https://github.com/eth-educators/ethstaker-guides/blob/main/MEV-relay-list.md).
+The relays here are placeholders for the sake of the example; for a list of actual relays, visit [the EthStaker relay list](https://github.com/ethstaker/ethstaker-guides/blob/main/MEV-relay-list.md).
 
 
 ### Commit-Boost Init Output
 
-Run `commit-boost init --config cb-config.toml` with the above configuration, the program will produce the following Docker Compose file:
+Run `commit-boost init --config cb-config.toml` with the above configuration. The program will produce the following Docker Compose file:
 
 ```
 services:
   cb_pbs:
-    command:
-    - pbs
     healthcheck:
       test: curl -f http://localhost:18550/eth/v1/builder/status
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 5s
-    image: ghcr.io/commit-boost/commit-boost:v0.8.0
+    image: ghcr.io/commit-boost/commit-boost:v0.10.0
     container_name: cb_pbs
     ports:
     - 127.0.0.1:18550:18550
@@ -97,6 +100,8 @@ services:
       CB_PBS_ENDPOINT: 0.0.0.0:18550
     volumes:
     - ./cb-config.toml:/cb-config.toml:ro
+    command:
+    - pbs
 ```
 
 This will run the PBS service in a container named `cb_pbs`.
@@ -106,7 +111,9 @@ This will run the PBS service in a container named `cb_pbs`.
 
 The program creates a read-only volume binding for the config file, which the PBS service needs to run. The Docker compose file that it creates with the `init` command, `cb.docker-compose.yml`, will be placed into your current working directory when you run the program. The volume source will be specified as a *relative path* to that working directory, so it's ideal if the config file is directly within your working directory (or a subdirectory). If you need to specify an absolute path for the config file, you can adjust the `volumes` entry within the Docker compose file manually after its creation.
 
-Since this is a volume, the PBS service container will reload the file from disk any time it's restarted. That means you can change the file any time after the Docker compose file is created to tweak PBS's parameters, but it also means the config file must stay in the same location; if you move it, the PBS container won't be able to mount it anymore and fail to start unless you manually adjust the volume's source location.
+Since this is a volume, the PBS service sees changes to the file: the stock PBS image watches the config file and [automatically reloads the configuration](../configuration.md#automatic-reload-pbs-only) whenever the file is modified, without needing a restart. That means you can change the file any time after the Docker compose file is created to tweak PBS's parameters, but it also means the config file must stay in the same location; if you move it, the PBS container won't be able to mount it anymore and will fail to start unless you manually adjust the volume's source location.
+
+Custom PBS images may not auto-reload; see [Extending PBS](../../developing/extending-pbs.md#entry-point).
 
 
 ### Networking
@@ -120,8 +127,8 @@ host = "0.0.0.0"
 to the `[pbs]` section in the configuration. This will cause the resulting `ports` entry in the Docker compose file to become:
 
 ```
-    ports:
-    - 0.0.0.0:18550:18550
+ports:
+  - 0.0.0.0:18550:18550
 ```
 
 though you will need to add an entry to your local machine's firewall software (if applicable) for other machines to access it.
@@ -129,15 +136,15 @@ though you will need to add an entry to your local machine's firewall software (
 Currently, the program will always export the PBS service's API port in one of these two ways. If you don't want to expose it at all, so it can only be accessed by other Docker containers running within Docker's internal network, you will need to manually remove the `ports` entry from the Docker compose file after it's been created:
 
 ```
-    ports: []
+ports: []
 ```
 
 
-## Example with PBS, Signer, and a Signer Module
+## Example with PBS, Signer, and a Commit Module
 
-In this scenario we will be running the PBS service, the Signer service, and a module (`DA_COMMIT`) that interacts with the Signer service's API.
+In this scenario we will be running the PBS service, the Signer service, and a commit module (`DA_COMMIT`) that interacts with the Signer service's API.
 
-All of both PBS's and the Signer's parameters are controlled via the [Commit-Boost TOML configuration file](../configuration.md); the services cannot currently be controlled with command-line arguments. Therefore it is crucial to ensure that you have a configuration file present with all of the settings you require *before* starting the services, as this file will be mounted within the Docker containers as a volume in read-only mode.
+The same configuration-file rules as the [PBS-only example](#example-with-pbs-only) apply.
 
 Below is a simple configuration for running only the three modules on the Hoodi network with two relays, extended from the prior scenario above:
 
@@ -145,19 +152,20 @@ Below is a simple configuration for running only the three modules on the Hoodi 
 chain = "Hoodi"
 
 [pbs]
-docker_image = "ghcr.io/commit-boost/commit-boost:v0.8.0"
+docker_image = "ghcr.io/commit-boost/commit-boost:v0.10.0"
 relay_check = true
 wait_all_registrations = true
 
 [[relays]]
 id = "abc"
-url = "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz"
+url = "https://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.example.com"
 
 [[relays]]
 id = "def"
-url = "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@def.xyz"
+url = "https://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@def.example.com"
 
 [signer]
+docker_image = "ghcr.io/commit-boost/commit-boost:v0.10.0"
 port = 20000
 
 [signer.local.loader]
@@ -169,19 +177,18 @@ secrets_path = "./secrets"
 id = "DA_COMMIT"
 type = "commit"
 docker_image = "test_da_commit"
+signing_id = "0x6a33a23ef26a4836979edff86c493a69b26ccf0b4a16491a815a13787657431b"
 sleep_secs = 5
 ```
 
-Note that there are many more parameters that Commit-Boost supports, but they are all omitted and thus will use their default options. For a full description of the default options within the config file, go to the [annotated configuration example](../../../../config.example.toml).
-
-The relays here are placeholder for the sake of the example; for a list of actual relays, visit [the EthStaker relay list](https://github.com/eth-educators/ethstaker-guides/blob/main/MEV-relay-list.md).
-
 In this scenario there are two folders in the same directory as the configuration file (the working directory): `keys` and `secrets`. These correspond to the folders containing the [EIP-2335 keystores](../configuration.md#local-signer) and secrets in Lighthouse format. For your own keys, adjust the `format` parameter within the configuration and directory paths accordingly.
+
+If either the `docker_image` under the `[signer]` or `[pbs]` is left unspecified, it defaults to `ghcr.io/commit-boost/commit-boost:latest`. Make sure to specify both if you intend to use versions other than the latest release.
 
 
 ### Commit-Boost Init Output
 
-Run `commit-boost init --config cb-config.toml` with the above configuration, the program will produce two files:
+Run `commit-boost init --config cb-config.toml` with the above configuration. The program will produce two files:
 
 - `cb.docker-compose.yml`
 - `.cb.env`
@@ -206,15 +213,13 @@ services:
       cb_signer:
         condition: service_healthy
   cb_pbs:
-    command:
-    - pbs
     healthcheck:
       test: curl -f http://localhost:18550/eth/v1/builder/status
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 5s
-    image: ghcr.io/commit-boost/commit-boost:latest
+    image: ghcr.io/commit-boost/commit-boost:v0.10.0
     container_name: cb_pbs
     ports:
     - 127.0.0.1:18550:18550
@@ -223,22 +228,24 @@ services:
       CB_PBS_ENDPOINT: 0.0.0.0:18550
     volumes:
     - ./cb-config.toml:/cb-config.toml:ro
-  cb_signer:
     command:
-    - signer
+    - pbs
+  cb_signer:
     healthcheck:
-      test: curl -f http://localhost:20000/status
+      test: curl -k -f http://cb_signer:20000/status
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 5s
-    image: ghcr.io/commit-boost/commit-boost:latest
+    image: ghcr.io/commit-boost/commit-boost:v0.10.0
     container_name: cb_signer
     ports:
     - 127.0.0.1:20000:20000
     environment:
       CB_CONFIG: /cb-config.toml
       CB_JWTS: ${CB_JWTS}
+      CB_SIGNER_ADMIN_JWT: ${CB_SIGNER_ADMIN_JWT}
+      CB_SIGNER_TLS_CERTIFICATES: /certs
       CB_SIGNER_ENDPOINT: 0.0.0.0:20000
       CB_SIGNER_LOADER_KEYS_DIR: /keys
       CB_SIGNER_LOADER_SECRETS_DIR: /secrets
@@ -248,10 +255,11 @@ services:
     - ./secrets:/secrets:ro
     networks:
     - signer_network
+    command:
+    - signer
 networks:
   signer_network:
     driver: bridge
-
 ```
 
 This will create three Docker containers when executed:
@@ -263,11 +271,14 @@ This will create three Docker containers when executed:
 Finally, the `.cb.env` file produced will look like this:
 
 ```
-CB_JWT_DA_COMMIT=mwDSSr7chwy9eFf7RhedBoyBtrwFUjSQ
-CB_JWTS=DA_COMMIT=mwDSSr7chwy9eFf7RhedBoyBtrwFUjSQ
+CB_JWT_DA_COMMIT=hJ0bV40p...
+CB_JWTS=DA_COMMIT=hJ0bV40p...
+CB_SIGNER_ADMIN_JWT=WbdxlH32...
 ```
 
-The Signer service needs JWT authentication from each of its modules. The program creates these and embeds them into the containers via environment variables automatically for convenience. This is demonstrated for the Signer module within the `environment` compose block: the `CB_JWTS: ${CB_JWTS}` forwards the `CB_JWTS` environment variable that's present when running Docker compose. The program requests that you do so via the command `docker compose --env-file "./.cb.env" -f "./cb.docker-compose.yml" up -d`; the `--env-file "./.cb.env"` handles loading the program's JWT output into this environment variable.
+The values shown are truncated examples; `init` generates fresh random secrets on every run. The file contains live secrets: restrict it with `chmod 600 .cb.env` and keep it out of backups and version control.
+
+The Signer service needs JWT authentication from each of its modules. The program creates these and embeds them into the containers via environment variables automatically for convenience. This is demonstrated for the Signer service within the `environment` compose block: the `CB_JWTS: ${CB_JWTS}` forwards the `CB_JWTS` environment variable that's present when running Docker compose. The program requests that you do so via the command `docker compose --env-file "./.cb.env" -f "./cb.docker-compose.yml" up -d`; the `--env-file "./.cb.env"` handles loading the program's JWT output into this environment variable.
 
 Similarly, for the `cb_da_commit` module, the `CB_SIGNER_JWT: ${CB_JWT_DA_COMMIT}` line within its `environment` block will set the JWT that it should use to authenticate with the Signer service.
 
@@ -279,31 +290,6 @@ As with the PBS-only example, the configuration file is placed into a read-only 
 
 ### Networking
 
-The program will force both the PBS and Signer API endpoints to bind to `0.0.0.0` within Docker's internal network so other Docker containers can access them, but it will only expose the API port (default `18550` for PBS and `20000` for the Signer) to `127.0.0.1` on your host machine. That way any processes running on the same machine can access them on their respective ports. If you want to open the ports for access across your entire network, not just your local machine, you can add the line:
+The same networking rules as the [PBS-only example](#networking) apply to both services; the Signer's API port (default `20000`) is exposed to `127.0.0.1` alongside PBS's `18550`. To open them to your network, add `host = "0.0.0.0"` to both the `[pbs]` and `[signer]` sections, or remove the `ports` entries from the compose file to keep them Docker-internal.
 
-```
-host = "0.0.0.0"
-```
-
-to both the `[pbs]` and `[signer]` sections in the configuration. This will cause the resulting `ports` entries in the Docker compose file to become:
-
-```
-  cb_pbs:
-    ...
-    ports:
-    - 0.0.0.0:18550:18550
-
-
-  cb_signer:
-    ...
-    ports:
-    - 0.0.0.0:20000:20000
-```
-
-though you will need to add entries to your local machine's firewall software (if applicable) for other machines to access them.
-
-Currently, the program will always export the PBS and Signer services' API ports in one of these two ways. If you don't want to expose them at all, so they can only be accessed by other Docker containers running within Docker's internal network, you will need to manually remove the `ports` entries from the Docker compose files after they've been created:
-
-```
-    ports: []
-```
+Unlike the [metrics ports](../configuration.md#metrics), both of these ports carry authenticated APIs, and the signer fronts your validator keys over plain HTTP by default, so open them beyond localhost only behind a firewall and, for the signer, with [TLS enabled](../configuration.md#tls).
