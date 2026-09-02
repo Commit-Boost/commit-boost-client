@@ -133,7 +133,7 @@ Registry entries must be unique within their registry type (one Lido entry per n
 
 #### Lido registry
 
-Reads validator pubkeys from Lido's on-chain `NodeOperatorsRegistry` or `CSModule registry`, depending on the module type. The sidecar connects to the configured RPC endpoint and calls the contract's `getSigningKeys` method with pagination.
+Reads validator pubkeys from Lido's on-chain `NodeOperatorsRegistry` or `CSModule` registry, depending on the module type. Community Staking and Curated Module v2 both use the `CSModule` interface. The sidecar connects to the configured RPC endpoint and calls the contract's `getSigningKeys` method with pagination.
 
 `rpc_url` must be set in the `[pbs]` configuration.
 
@@ -167,6 +167,7 @@ url = "..."
 | Mainnet | 1 | Curated (NodeOperatorsRegistry) | `NodeOperatorsRegistry` |
 | Mainnet | 2 | SimpleDVT | `NodeOperatorsRegistry` |
 | Mainnet | 3 | Community Staking (CSM) | `CSModule` |
+| Mainnet | 4 | Curated Module v2 | `CSModule` |
 | Holesky | 1 | Curated (NodeOperatorsRegistry) | `NodeOperatorsRegistry` |
 | Holesky | 2 | SimpleDVT | `NodeOperatorsRegistry` |
 | Holesky | 3 | Sandbox | `NodeOperatorsRegistry` |
@@ -175,6 +176,7 @@ url = "..."
 | Hoodi | 2 | SimpleDVT | `NodeOperatorsRegistry` |
 | Hoodi | 3 | Sandbox | `NodeOperatorsRegistry` |
 | Hoodi | 4 | Community Staking (CSM) | `CSModule` |
+| Hoodi | 5 | Curated Module v2 | `CSModule` |
 | Sepolia | 1 | | `NodeOperatorsRegistry` |
 
 The sidecar picks the right contract automatically based on chain and module id.
