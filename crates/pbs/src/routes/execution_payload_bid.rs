@@ -200,6 +200,10 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
     // timeout_get_header_ms and late_in_slot_time_ms are NOT consulted here: they
     // exist for the get_header path, which carries no X-Timeout-Ms.
     let budget_ms = request_budget_ms(&req_headers, utcnow_ms())?;
+    // Clamp the proposer-supplied X-Timeout-Ms to one slot: it has no upper
+    // bound on the wire, and a huge value would pin an outbound relay connection
+    // open and grow the timing-games ladder without limit.
+    let budget_ms = budget_ms.min(state.config.chain.slot_time_sec().saturating_mul(1000));
     let max_timeout_ms = budget_ms.saturating_sub(pbs_config.proposer_deadline_buffer_ms);
     debug!(
         budget_ms,
