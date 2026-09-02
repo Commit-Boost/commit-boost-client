@@ -355,9 +355,10 @@ async fn test_submit_signed_beacon_block_blind_json_415() -> Result<()> {
     Ok(())
 }
 
-/// Blind mode requires an explicit SSZ Content-Type. An unlabeled reveal defaults
-/// to JSON per builder-specs, so it is rejected with 415 rather than assumed to be
-/// SSZ and forwarded mislabeled (which would 500 opaquely at the builder).
+/// Blind mode requires an explicit SSZ Content-Type. An unlabeled reveal
+/// defaults to JSON per builder-specs, so it is rejected with 415 rather than
+/// assumed to be SSZ and forwarded mislabeled (which would 500 opaquely at the
+/// builder).
 #[tokio::test]
 async fn test_submit_signed_beacon_block_blind_absent_content_type_415() -> Result<()> {
     let chain = Chain::Hoodi;
