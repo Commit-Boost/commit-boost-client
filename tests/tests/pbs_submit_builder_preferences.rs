@@ -392,6 +392,9 @@ async fn test_submit_builder_preferences_missing_body_400() -> Result<()> {
 #[tokio::test]
 async fn test_submit_builder_preferences_pipe_dials_unconfigured_builder() -> Result<()> {
     setup_test_env();
+    // This test's mock builder binds to a local (unspecified/loopback) address the
+    // pipe's SSRF guard blocks; skip that check so the forward path is exercised.
+    cb_pbs::set_skip_pipe_target_check(true);
     let chain = Chain::Hoodi;
     let pbs_listener = get_free_listener().await;
     let pbs_port = pbs_listener.local_addr()?.port();

@@ -29,6 +29,12 @@ pub enum PbsClientError {
     NoBuilderResponse,
     #[error("auth data does not match a configured builder")]
     AuthDataMismatch,
+    /// The transient pipe was pointed at a builder URL that resolves into
+    /// loopback/private/link-local space (or one that could not be resolved at
+    /// all): an SSRF attempt or a misconfiguration aiming CB at an internal
+    /// host, so it is a bad request, never a target to dial.
+    #[error("pipe target resolves to a disallowed address")]
+    PipeTargetBlocked,
     #[error("auth data is empty")]
     EmptyAuthData,
     #[error("missing or invalid timing headers")]
@@ -57,6 +63,7 @@ impl PbsClientError {
             PbsClientError::NoResponse => StatusCode::BAD_GATEWAY,
             PbsClientError::NoBuilderResponse => StatusCode::INTERNAL_SERVER_ERROR,
             PbsClientError::AuthDataMismatch => StatusCode::BAD_REQUEST,
+            PbsClientError::PipeTargetBlocked => StatusCode::BAD_REQUEST,
             PbsClientError::EmptyAuthData => StatusCode::BAD_REQUEST,
             PbsClientError::MissingTimingHeader => StatusCode::BAD_REQUEST,
             PbsClientError::AuthSlotMismatch => StatusCode::BAD_REQUEST,
@@ -87,6 +94,9 @@ impl IntoResponse for PbsClientError {
             PbsClientError::NoBuilderResponse => "no builder accepted the submission".to_string(),
             PbsClientError::AuthDataMismatch => {
                 "Invalid SignedBuilderRequestAuth: auth.message.data does not match the value agreed with this builder".to_string()
+            }
+            PbsClientError::PipeTargetBlocked => {
+                "Invalid SignedBuilderRequestAuth: the addressed builder URL resolves to a disallowed address".to_string()
             }
             PbsClientError::EmptyAuthData => {
                 "Invalid SignedBuilderRequestAuth: auth.message.data must not be empty".to_string()
@@ -154,6 +164,8 @@ mod test {
     fn auth_errors_map_to_spec_status_codes() {
         assert_eq!(PbsClientError::AuthSlotMismatch.status_code(), StatusCode::BAD_REQUEST);
         assert_eq!(PbsClientError::AuthSigVerify.status_code(), StatusCode::UNAUTHORIZED);
+        // A pipe target pointed at an internal address is a bad request, not a 5xx
+        assert_eq!(PbsClientError::PipeTargetBlocked.status_code(), StatusCode::BAD_REQUEST);
         assert_eq!(
             PbsClientError::DecodeError(BodyDeserializeError::MissingBody).status_code(),
             StatusCode::BAD_REQUEST,

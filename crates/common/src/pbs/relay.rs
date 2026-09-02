@@ -93,35 +93,51 @@ pub struct RelayClient {
     pub config: Arc<RelayConfig>,
 }
 
+/// The baseline outbound headers for a relay: the CommitBoost version header
+/// plus any operator-configured custom headers. Shared by the client's default
+/// headers and the get_header stream handshake so the two cannot diverge.
+fn relay_headers(config: &RelayConfig) -> eyre::Result<HeaderMap> {
+    let mut headers = HeaderMap::new();
+    headers.insert(HEADER_VERSION_KEY, HeaderValue::from_static(HEADER_VERSION_VALUE));
+
+    if let Some(custom_headers) = &config.headers {
+        for (key, value) in custom_headers {
+            headers.insert(
+                HeaderName::from_str(key).wrap_err("{key} is an invalid header name")?,
+                HeaderValue::from_str(value).wrap_err("{key} has an invalid header value")?,
+            );
+        }
+    }
+
+    Ok(headers)
+}
+
 impl RelayClient {
     pub fn new(config: RelayConfig) -> eyre::Result<Self> {
+        let client = reqwest::Client::builder()
+            .default_headers(relay_headers(&config)?)
+            .timeout(DEFAULT_REQUEST_TIMEOUT)
+            .build()?;
+
+        Self::with_client(config, client)
+    }
+
+    /// Builds a relay client that reuses an existing `reqwest::Client` (its
+    /// connection pool and TLS config) instead of constructing a fresh one.
+    /// The ePBS transient pipe dials per request, so it reuses one process-wide
+    /// client rather than paying a cold client build on every dial. Otherwise
+    /// identical to [`RelayClient::new`].
+    pub fn with_client(config: RelayConfig, client: reqwest::Client) -> eyre::Result<Self> {
         let stream_url = match config.get_header {
             GetHeaderTransport::Http => None,
             GetHeaderTransport::Stream => Some(stream_url(&config.entry.url)?),
         };
 
-        let mut headers = HeaderMap::new();
-        headers.insert(HEADER_VERSION_KEY, HeaderValue::from_static(HEADER_VERSION_VALUE));
-
-        if let Some(custom_headers) = &config.headers {
-            for (key, value) in custom_headers {
-                headers.insert(
-                    HeaderName::from_str(key).wrap_err("{key} is an invalid header name")?,
-                    HeaderValue::from_str(value).wrap_err("{key} has an invalid header value")?,
-                );
-            }
-        }
-
-        let client = reqwest::Client::builder()
-            .default_headers(headers.clone())
-            .timeout(DEFAULT_REQUEST_TIMEOUT)
-            .build()?;
-
         Ok(Self {
             id: Arc::new(config.id().to_owned()),
             client,
             stream_url,
-            stream_headers: Arc::new(headers),
+            stream_headers: Arc::new(relay_headers(&config)?),
             config: Arc::new(config),
         })
     }

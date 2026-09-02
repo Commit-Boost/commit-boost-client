@@ -97,7 +97,9 @@ pub async fn submit_builder_preferences<S: BuilderApiState>(
         relays,
         request.auth.message.data.as_ref(),
         &pbs_config.advertised_urls,
-    )?;
+        &state.pipe_client,
+    )
+    .await?;
 
     let send_headers = epbs_base_send_headers(&req_headers)?;
 

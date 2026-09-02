@@ -184,8 +184,13 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
         );
     }
 
-    let relays =
-        resolve_addressed_relays(relays, body.message.data.as_ref(), &pbs_config.advertised_urls)?;
+    let relays = resolve_addressed_relays(
+        relays,
+        body.message.data.as_ref(),
+        &pbs_config.advertised_urls,
+        &state.pipe_client,
+    )
+    .await?;
 
     // The proposer's own deadline (Date-Milliseconds + X-Timeout-Ms) tells CB
     // exactly when the beacon node will stop waiting, so CB derives its timeout

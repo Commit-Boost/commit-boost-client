@@ -262,14 +262,15 @@ pub(crate) fn match_relays_by_auth_data<'a>(
 /// match, a single transient pipe relay dialing the builder URL the auth data
 /// names (self-URL guarded, see [`transient_pipe_relay`]). Shared by the bid
 /// and preferences endpoints so their demux cannot diverge.
-pub(crate) fn resolve_addressed_relays(
+pub(crate) async fn resolve_addressed_relays(
     relays: &[RelayClient],
     auth_data: &[u8],
     advertised_urls: &[Url],
+    pipe_client: &reqwest::Client,
 ) -> Result<Vec<RelayClient>, PbsClientError> {
     let matched = match_relays_by_auth_data(relays, auth_data);
     if matched.is_empty() {
-        Ok(vec![transient_pipe_relay(auth_data, advertised_urls)?])
+        Ok(vec![transient_pipe_relay(auth_data, advertised_urls, pipe_client).await?])
     } else {
         Ok(matched.into_iter().cloned().collect())
     }
@@ -308,9 +309,10 @@ fn pipe_relay_placeholder_pubkey() -> BlsPublicKey {
 /// empty `advertised_urls`, which cannot rule that out - is an
 /// `AuthDataMismatch`, never a self-dial. Data carrying no URL at all names
 /// no builder and mismatches as before.
-pub(crate) fn transient_pipe_relay(
+pub(crate) async fn transient_pipe_relay(
     received_data: &[u8],
     advertised_urls: &[Url],
+    pipe_client: &reqwest::Client,
 ) -> Result<RelayClient, PbsClientError> {
     let Some(url) = decode_auth_data_url(received_data) else {
         return Err(PbsClientError::AuthDataMismatch);
@@ -332,9 +334,49 @@ pub(crate) fn transient_pipe_relay(
         return Err(PbsClientError::AuthDataMismatch);
     }
 
-    let id = url.host_str().map(str::to_owned).unwrap_or_else(|| url.to_string());
+    // SSRF guard: the URL comes straight from untrusted auth data, so refuse a
+    // target that resolves into loopback/private/link-local space before
+    // building the client. We resolve-then-dial and do NOT pin the resolved IP,
+    // so a DNS rebind between this lookup and the dial can still slip through;
+    // that TOCTOU window is an accepted v1 limitation, not a plugged hole. The
+    // check is always compiled and always runs in production; it is skippable
+    // only under the `testing-flags` feature, so an e2e test can dial a local
+    // mock builder on an address this guard would otherwise block.
+    if pipe_target_check_enabled() {
+        let (Some(host), Some(port)) = (url.host_str(), url.port_or_known_default()) else {
+            warn!(%url, "pipe target has no resolvable host/port, refusing to dial");
+            return Err(PbsClientError::PipeTargetBlocked);
+        };
+        let resolved = tokio::net::lookup_host((host, port)).await.map_err(|err| {
+            // Fail closed: a target we cannot resolve is a target we cannot verify.
+            warn!(%url, %err, "pipe target DNS resolution failed, refusing to dial");
+            PbsClientError::PipeTargetBlocked
+        })?;
+        let mut resolved_any = false;
+        for addr in resolved {
+            resolved_any = true;
+            if ip_is_disallowed(addr.ip()) {
+                warn!(%url, "pipe target resolves to a disallowed (loopback/private/link-local) address, refusing to dial");
+                return Err(PbsClientError::PipeTargetBlocked);
+            }
+        }
+        if !resolved_any {
+            // Fail closed: no address to check is no address we verified.
+            warn!(%url, "pipe target resolved to no addresses, refusing to dial");
+            return Err(PbsClientError::PipeTargetBlocked);
+        }
+    }
+
     let config = RelayConfig {
-        entry: RelayEntry { id, pubkey: pipe_relay_placeholder_pubkey(), url },
+        // Fixed sentinel id: this id becomes the `relay_id` metric label, and
+        // the host comes from an untrusted URL, so deriving the label from it
+        // would let an attacker spray unbounded Prometheus series. The real URL
+        // is still dialed via `entry.url`.
+        entry: RelayEntry {
+            id: PIPE_RELAY_ID.to_string(),
+            pubkey: pipe_relay_placeholder_pubkey(),
+            url,
+        },
         id: None,
         headers: None,
         get_params: None,
@@ -347,10 +389,72 @@ pub(crate) fn transient_pipe_relay(
         max_execution_payment_gwei: None,
         expected_auth_data: None,
     };
-    RelayClient::new(config).map_err(|err| {
+    RelayClient::with_client(config, pipe_client.clone()).map_err(|err| {
         warn!(%err, "failed to build the pipe relay client");
         PbsClientError::Internal
     })
+}
+
+/// The fixed `relay_id` metric label for every transient pipe request. The pipe
+/// dials attacker-influenced hosts, so a per-host label would be an unbounded
+/// Prometheus cardinality vector; one constant collapses them into a single
+/// series (the real URL is still dialed, only the label is the sentinel).
+const PIPE_RELAY_ID: &str = "pipe";
+
+/// Whether the pipe SSRF target check runs. Always true in a normal build; only
+/// the `testing-flags` feature can turn it off, and only via a thread-local a
+/// test sets, so an e2e test can dial a local mock builder.
+fn pipe_target_check_enabled() -> bool {
+    #[cfg(feature = "testing-flags")]
+    {
+        !SKIP_PIPE_TARGET_CHECK.with(|f| f.get())
+    }
+    #[cfg(not(feature = "testing-flags"))]
+    {
+        true
+    }
+}
+
+#[cfg(feature = "testing-flags")]
+thread_local! {
+    static SKIP_PIPE_TARGET_CHECK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// TEST-ONLY (`testing-flags`): skip the pipe SSRF target check so an e2e test
+/// can dial a local mock builder on a loopback/unspecified address the guard
+/// would otherwise block. Never compiled into a release binary.
+#[cfg(feature = "testing-flags")]
+pub fn set_skip_pipe_target_check(val: bool) {
+    SKIP_PIPE_TARGET_CHECK.with(|f| f.set(val));
+}
+
+/// True for an address the ePBS pipe must never dial: loopback and unspecified
+/// in both families, plus the IPv4 private/link-local/broadcast ranges and the
+/// IPv6 unique-local (`fc00::/7`) and link-local (`fe80::/10`) ranges. A
+/// v4-mapped IPv6 address (`::ffff:a.b.c.d`) is unwrapped and re-checked as
+/// IPv4 so an internal target cannot hide behind the mapped form.
+fn ip_is_disallowed(ip: std::net::IpAddr) -> bool {
+    use std::net::IpAddr;
+    if ip.is_loopback() || ip.is_unspecified() {
+        return true;
+    }
+    match ip {
+        IpAddr::V4(v4) => {
+            let oct = v4.octets();
+            v4.is_private() || v4.is_link_local() || v4.is_broadcast() ||
+                // RFC 6598 CGNAT 100.64.0.0/10, which is_private() does not cover
+                // but can front ISP / k8s-CNI internal infrastructure.
+                (oct[0] == 100 && oct[1] & 0xc0 == 0x40)
+        }
+        IpAddr::V6(v6) => {
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return ip_is_disallowed(IpAddr::V4(v4));
+            }
+            let seg = v6.octets();
+            // fc00::/7 unique-local, fe80::/10 link-local
+            seg[0] & 0xfe == 0xfc || u16::from_be_bytes([seg[0], seg[1]]) & 0xffc0 == 0xfe80
+        }
+    }
 }
 
 /// Compares two URLs without checking userinfo/path/queries/frags. A relay
@@ -513,18 +617,18 @@ mod tests {
     // The pipe never dials blind: with no advertised_urls the self-URL guard
     // cannot rule out CB's own URL (an unconfigured key's auth data defaults
     // to it), so it fails closed with the same mismatch a builder would return.
-    #[test]
-    fn transient_pipe_relay_fails_closed_without_advertised_urls() {
+    #[tokio::test]
+    async fn transient_pipe_relay_fails_closed_without_advertised_urls() {
         assert!(matches!(
-            transient_pipe_relay(b"http://builder.example.com", &[]),
+            transient_pipe_relay(b"http://builder.example.com", &[], &reqwest::Client::new()).await,
             Err(PbsClientError::AuthDataMismatch)
         ));
     }
 
     // A decoded URL naming CB itself is never dialed: matching follows
     // `url_matches`, so userinfo/path/default-port variants still guard.
-    #[test]
-    fn transient_pipe_relay_guards_own_advertised_urls() {
+    #[tokio::test]
+    async fn transient_pipe_relay_guards_own_advertised_urls() {
         let advertised = vec![Url::parse("http://cb.example.com:18550").unwrap()];
         for own in [
             "http://cb.example.com:18550",
@@ -533,7 +637,8 @@ mod tests {
         ] {
             assert!(
                 matches!(
-                    transient_pipe_relay(own.as_bytes(), &advertised),
+                    transient_pipe_relay(own.as_bytes(), &advertised, &reqwest::Client::new())
+                        .await,
                     Err(PbsClientError::AuthDataMismatch)
                 ),
                 "{own} must not be dialed"
@@ -542,12 +647,12 @@ mod tests {
     }
 
     // Data carrying no URL names no builder: mismatch, no dial.
-    #[test]
-    fn transient_pipe_relay_rejects_non_url_data() {
+    #[tokio::test]
+    async fn transient_pipe_relay_rejects_non_url_data() {
         let advertised = vec![Url::parse("http://cb.example.com:18550").unwrap()];
         for data in [&[0xde, 0xad][..], b"not a url", &[]] {
             assert!(matches!(
-                transient_pipe_relay(data, &advertised),
+                transient_pipe_relay(data, &advertised, &reqwest::Client::new()).await,
                 Err(PbsClientError::AuthDataMismatch)
             ));
         }
@@ -555,21 +660,87 @@ mod tests {
 
     // A decodable, non-self URL gets a transient client carrying no configured
     // relay's headers and no per-relay cap (the global default applies), so
-    // pipe bids rank unclamped and leak no credentials.
-    #[test]
-    fn transient_pipe_relay_builds_a_bare_client() {
+    // pipe bids rank unclamped and leak no credentials. A literal public IP host
+    // is used so the SSRF resolve step needs no network DNS. The metric id is
+    // the fixed `pipe` sentinel, not the untrusted host.
+    #[tokio::test]
+    async fn transient_pipe_relay_builds_a_bare_client() {
         let advertised = vec![Url::parse("http://cb.example.com:18550").unwrap()];
-        let mut data = b"http://builder.example.com:8551".to_vec();
+        let mut data = b"http://1.1.1.1:8551".to_vec();
         data.push(0);
         data.extend_from_slice(&[0xde, 0xad]);
 
-        let relay = transient_pipe_relay(&data, &advertised).unwrap();
-        assert_eq!(relay.config.entry.url.as_str(), "http://builder.example.com:8551/");
-        assert_eq!(relay.id.as_str(), "builder.example.com");
+        let relay =
+            transient_pipe_relay(&data, &advertised, &reqwest::Client::new()).await.unwrap();
+        assert_eq!(relay.config.entry.url.as_str(), "http://1.1.1.1:8551/");
+        assert_eq!(relay.id.as_str(), "pipe");
         assert!(relay.config.headers.is_none());
         assert!(relay.config.max_execution_payment_gwei.is_none());
         assert!(relay.config.expected_auth_data.is_none());
         assert!(!relay.config.enable_timing_games);
+    }
+
+    // The SSRF guard refuses a target that resolves into loopback/private space
+    // even when the URL decodes and is not a self-URL. Literal-IP hosts keep the
+    // resolve step off the network.
+    #[tokio::test]
+    async fn transient_pipe_relay_rejects_disallowed_ip_targets() {
+        let advertised = vec![Url::parse("http://cb.example.com:18550").unwrap()];
+        for host in ["http://127.0.0.1:8551", "http://10.0.0.1:8551"] {
+            assert!(
+                matches!(
+                    transient_pipe_relay(host.as_bytes(), &advertised, &reqwest::Client::new())
+                        .await,
+                    Err(PbsClientError::PipeTargetBlocked)
+                ),
+                "{host} must be refused as an internal target"
+            );
+        }
+        // A public literal IP is not rejected by the IP check (it builds a client)
+        assert!(
+            transient_pipe_relay(b"http://1.1.1.1:8551", &advertised, &reqwest::Client::new())
+                .await
+                .is_ok()
+        );
+    }
+
+    // The disallow predicate covers loopback/unspecified/private/link-local in
+    // both families, and unwraps a v4-mapped v6 so an internal target cannot
+    // hide behind `::ffff:a.b.c.d`.
+    #[test]
+    fn ip_is_disallowed_table() {
+        use std::net::IpAddr;
+        let dis = |s: &str| ip_is_disallowed(s.parse::<IpAddr>().unwrap());
+        // loopback / unspecified, both families
+        assert!(dis("127.0.0.1"));
+        assert!(dis("0.0.0.0"));
+        assert!(dis("::1"));
+        assert!(dis("::"));
+        // private v4
+        assert!(dis("10.0.0.1"));
+        assert!(dis("192.168.1.1"));
+        assert!(dis("172.16.0.1"));
+        // link-local v4 and the v4 broadcast
+        assert!(dis("169.254.1.1"));
+        assert!(dis("255.255.255.255"));
+        // RFC 6598 CGNAT 100.64.0.0/10 (edges), but not 100.x outside the /10
+        assert!(dis("100.64.0.1"));
+        assert!(dis("100.127.255.254"));
+        assert!(!dis("100.63.0.1"));
+        assert!(!dis("100.128.0.1"));
+        // v6 unique-local (fc00::/7) and link-local (fe80::/10)
+        assert!(dis("fc00::1"));
+        assert!(dis("fd12:3456::1"));
+        assert!(dis("fe80::1"));
+        assert!(dis("febf::1"));
+        // v4-mapped internal addresses are unwrapped and caught
+        assert!(dis("::ffff:127.0.0.1"));
+        assert!(dis("::ffff:10.0.0.1"));
+        // public addresses pass, in both families and via the v4-mapped form
+        assert!(!dis("1.1.1.1"));
+        assert!(!dis("8.8.8.8"));
+        assert!(!dis("2606:4700:4700::1111"));
+        assert!(!dis("::ffff:1.1.1.1"));
     }
 
     // The placeholder pubkey is stable across pipe requests: one process-wide

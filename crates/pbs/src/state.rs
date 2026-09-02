@@ -1,11 +1,13 @@
 use std::{path::PathBuf, sync::Arc};
 
 use cb_common::{
+    DEFAULT_REQUEST_TIMEOUT,
     config::{PbsConfig, PbsModuleConfig},
-    pbs::RelayClient,
+    pbs::{HEADER_VERSION_KEY, HEADER_VERSION_VALUE, RelayClient},
     types::BlsPublicKey,
 };
 use parking_lot::RwLock;
+use reqwest::header::{HeaderMap, HeaderValue};
 
 pub trait BuilderApiState: Clone + Sync + Send + 'static {}
 impl BuilderApiState for () {}
@@ -21,17 +23,46 @@ pub struct PbsState<S: BuilderApiState = ()> {
     pub config: Arc<PbsModuleConfig>,
     /// Path of the config file, for watching changes
     pub config_path: Arc<PathBuf>,
+    /// One process-wide HTTP client the ePBS transient pipe reuses across
+    /// dials. Configured relays build their client once at load; the pipe
+    /// would otherwise pay a cold client (pool + TLS) build on every
+    /// request, so it shares this one instead. Cloning a `reqwest::Client`
+    /// is a cheap Arc bump.
+    pub pipe_client: reqwest::Client,
     /// Opaque extra data for library use
     pub data: S,
 }
 
+/// Builds the shared pipe client the same way [`RelayClient::new`] builds its
+/// own: the CommitBoost version header as a default header and the shared
+/// request timeout.
+fn build_pipe_client() -> reqwest::Client {
+    let mut headers = HeaderMap::new();
+    headers.insert(HEADER_VERSION_KEY, HeaderValue::from_static(HEADER_VERSION_VALUE));
+    reqwest::Client::builder()
+        .default_headers(headers)
+        .timeout(DEFAULT_REQUEST_TIMEOUT)
+        .build()
+        .expect("a static default header and timeout always build a valid reqwest client")
+}
+
 impl PbsState<()> {
     pub fn new(config: PbsModuleConfig, config_path: PathBuf) -> Self {
-        Self { config: Arc::new(config), config_path: Arc::new(config_path), data: () }
+        Self {
+            config: Arc::new(config),
+            config_path: Arc::new(config_path),
+            pipe_client: build_pipe_client(),
+            data: (),
+        }
     }
 
     pub fn with_data<S: BuilderApiState>(self, data: S) -> PbsState<S> {
-        PbsState { data, config: self.config, config_path: self.config_path }
+        PbsState {
+            data,
+            config: self.config,
+            config_path: self.config_path,
+            pipe_client: self.pipe_client,
+        }
     }
 }
 

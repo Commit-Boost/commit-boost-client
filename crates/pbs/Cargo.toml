@@ -5,6 +5,11 @@ publish = false
 rust-version.workspace = true
 version.workspace = true
 
+[features]
+# Test-only escape hatches (e.g. skipping the pipe SSRF target check so an e2e
+# test can dial a local mock). Never enabled in a release build.
+testing-flags = []
+
 [dependencies]
 alloy.workspace = true
 async-trait.workspace = true
