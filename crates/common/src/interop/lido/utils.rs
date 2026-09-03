@@ -89,7 +89,7 @@ lazy_static! {
     };
 }
 
-// Fetching appropiate registry address
+// Fetching the appropriate registry address
 pub fn lido_registry_address(chain: Chain, lido_module_id: u8) -> eyre::Result<Address> {
     LIDO_REGISTRY_ADDRESSES_BY_MODULE
         .get(&chain)
