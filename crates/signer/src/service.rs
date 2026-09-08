@@ -94,6 +94,16 @@ impl SigningService {
             return Ok(());
         }
 
+        let listener = tokio::net::TcpListener::bind(config.endpoint).await?;
+        Self::run_with_listener(config, listener).await
+    }
+
+    /// Serve from an already-bound listener. Prefer this in tests to avoid a
+    /// port rebind race (see `PbsService::run_with_listener`).
+    pub async fn run_with_listener(
+        config: StartSignerConfig,
+        listener: tokio::net::TcpListener,
+    ) -> eyre::Result<()> {
         let module_ids: Vec<String> =
             config.mod_signing_configs.keys().cloned().map(Into::into).collect();
 
@@ -169,16 +179,17 @@ impl SigningService {
             }
         });
 
+        let std_listener = listener.into_std()?;
         let server_result = if let Some(tls_config) = config.tls_certificates {
             let tls_config = RustlsConfig::from_pem(tls_config.0, tls_config.1).await?;
-            axum_server::bind_rustls(config.endpoint, tls_config)
+            axum_server::tls_rustls::from_tcp_rustls(std_listener, tls_config)
                 .serve(
                     signer_app.merge(admin_app).into_make_service_with_connect_info::<SocketAddr>(),
                 )
                 .await
         } else {
             warn!("Running in insecure HTTP mode, no TLS certificates provided");
-            axum_server::bind(config.endpoint)
+            axum_server::from_tcp(std_listener)
                 .serve(
                     signer_app.merge(admin_app).into_make_service_with_connect_info::<SocketAddr>(),
                 )

@@ -28,9 +28,17 @@ relay_check = true
 # OPTIONAL, DEFAULT: true
 wait_all_registrations = true
 # Timeout in milliseconds for the `get_header` call to relays. Note that the CL has also a timeout (e.g. 1 second) so
-# this should be lower than that, leaving some margin for overhead
+# this should be lower than that, leaving some margin for overhead.
+# LEGACY get_header path only: the ePBS bid path derives its timeout from the beacon node's own
+# X-Timeout-Ms header instead (see proposer_deadline_buffer_ms below).
 # OPTIONAL, DEFAULT: 950
 timeout_get_header_ms = 950
+# ePBS bid path only. The beacon node sends CB its own deadline (X-Timeout-Ms) on every bid request,
+# so CB no longer needs a static timeout: it asks the builder for `deadline - proposer_deadline_buffer_ms`,
+# reserving this many ms for the winning bid's return trip to the beacon node and the node's own
+# bid-selection/assembly. Configure the margin directly instead of a deadline-minus-margin absolute.
+# OPTIONAL, DEFAULT: 50
+proposer_deadline_buffer_ms = 50
 # Timeout in milliseconds for the `submit_blinded_block` call to relays.
 # OPTIONAL, DEFAULT: 4000
 timeout_get_payload_ms = 4000
@@ -44,6 +52,34 @@ skip_sigverify = false
 # Can be specified as a float or a string for extra precision (e.g. "0.01")
 # OPTIONAL, DEFAULT: 0.0
 min_bid_eth = 0.0
+# Projection-only: consumed by KM tooling, not read by the PBS runtime.
+# The ePBS KEY-LEVEL minimum total payment in ETH: it governs p2p bids and builder entries that
+# omit their own min_bid (projected entries always carry explicit per-entry values sourced from
+# the mux/global min_bid). Float or string
+# OPTIONAL, DEFAULT: unset (key level = mux/global min_bid)
+# min_bid_p2p_eth = "0.2"
+# Projection-only: consumed by KM tooling, not read by the PBS runtime.
+# The ePBS KEY-LEVEL builder_boost_factor: it governs p2p bids and builder entries that omit
+# their own (entry values stay mux-sourced)
+# OPTIONAL, DEFAULT: unset
+# builder_boost_factor_p2p = 100
+# Execution-payment cap in Gwei used when ranking ePBS bids: a bid ranks at
+# `value + min(execution_payment, cap)`, matching how the beacon node values it (the BN clamps the
+# trusted payment at the cap instead of rejecting the bid). This does not accept or reject bids.
+# Can be overridden per relay with `max_execution_payment_gwei` on the relay entry
+# OPTIONAL, DEFAULT: unset (unclamped)
+# max_execution_payment_gwei = 1000000000
+# Whether to verify the BLS signature of the `SignedBuilderRequestAuth` on an ePBS request against the
+# proposer pubkey in the request path, rejecting a bad signature with 401. CB forwards by default
+# because the downstream builder must re-verify anyway; operators terminating trust at CB set it true
+# OPTIONAL, DEFAULT: false
+verify_builder_request_auth = false
+# Strict decoding of the reveal at POST /eth/v1/builder/beacon_blocks. Default (false): CB is a blind
+# pipe, forwarding the reveal bytes to the builder without parsing them, so the reveal MUST be SSZ in
+# blind mode (the builder validates and rejects a bad block per builder-specs). When true: CB decodes
+# the gloas SignedBeaconBlock itself and rejects a non-gloas or otherwise undecodable body with a 400
+# OPTIONAL, DEFAULT: false
+# strict_block_decode = false
 # How late in milliseconds in the slot is "late". This impacts the `get_header` requests, by shortening timeouts for `get_header` calls to
 # relays and make sure a header is returned within this deadline. If the request from the CL comes later in the slot, then fetching headers is skipped
 # to force local building and miniminzing the risk of missed slots. See also the timing games section below
@@ -78,6 +114,18 @@ validator_registration_batch_size = ""
 # enabled, this value will not be used.
 # OPTIONAL, DEFAULT: 384
 mux_registry_refresh_interval_seconds = 384
+# Commit-Boost's externally-reachable URLs, i.e. the ones a validator client's builder config points
+# at. Gates the ePBS pipe: when a request's auth data names a builder URL no configured relay serves,
+# CB dials that URL directly through a transient client (trust is the validator client's job via its
+# keymanager builder_pubkeys). Since an unconfigured key's auth data defaults to CB's own URL, the
+# pipe first checks the decoded URL against this list and rejects a match instead of dialing itself.
+# The guard fails closed: while this list is empty, unmatched auth data is always rejected and the
+# pipe never dials, so set it to enable piping to builders outside the [[relays]] below.
+# List EVERY scheme/host/IP form CB is reachable by: the self-URL guard matches on scheme+host+port
+# exactly, so an equivalent form you omit (e.g. an IP instead of a hostname, or http vs https) is not
+# recognized as CB's own and the pipe could self-dial.
+# OPTIONAL, DEFAULT: []
+# advertised_urls = ["http://cb.example.com:18550"]
 
 # The PBS module needs one or more [[relays]] as defined below.
 [[relays]]
@@ -130,6 +178,21 @@ target_first_request_ms = 200
 # Frequency in ms to send get_header requests
 # OPTIONAL
 frequency_get_header_ms = 300
+# How long each ePBS bid poll may take, in ms. Every poll shares the proposer's deadline, so bounding
+# the early ones lands a floor of progressively better bids instead of leaving everything to the last
+# instant; the final poll always holds for the remaining budget. Set this above your round trip to
+# the builder, or every early poll times out
+# OPTIONAL, DEFAULT: 500
+# bid_poll_timeout_ms = 500
+# Per-relay override of the ePBS bid-ranking execution-payment cap in Gwei (see the PBS-level
+# `max_execution_payment_gwei`)
+# OPTIONAL, DEFAULT: the PBS-level `max_execution_payment_gwei` (unset = unclamped)
+# max_execution_payment_gwei = 1000000000
+# The ePBS auth data this relay serves: a bid request routes here only when its `auth.message.data`
+# equals this value. When unset, the relay is matched only by auth data carrying its URL; auth data
+# matching no configured relay is rejected with 400
+# OPTIONAL, DEFAULT: unset
+# expected_auth_data = "0x68747470733a2f2f6275696c6465722e6578616d706c652e636f6d"
 
 # Configuration for the PBS multiplexers, which enable different configs to be used for get header requests, depending on validator pubkey
 # Note that:
@@ -145,6 +208,20 @@ validator_pubkeys = [
     "0x80c7f782b2467c5898c5516a8b6595d75623960b4afc4f71ee07d40985d20e117ba35e7cd352a3e75fb85a8668a3b745",
     "0xa119589bb33ef52acbb8116832bec2b58fca590fe5c85eac5d3230b44d5bc09fe73ccd21f88eab31d6de16194d17782e",
 ]
+# Projection-only: consumed by KM tooling (builder_config projection for this mux's keys), not read
+# by the PBS runtime
+# OPTIONAL, DEFAULT: unset
+# builder_boost_factor = 100
+# Projection-only: the per-key-group minimum total payment for this mux's keys, in ETH (same format
+# as the PBS-level `min_bid_eth`). Consumed by KM tooling, not read by the PBS runtime
+# OPTIONAL, DEFAULT: unset
+# min_bid_eth = 0.0
+# Projection-only: the KEY-LEVEL p2p overrides for this mux's keys. Consumed by KM tooling, not read
+# by the PBS runtime. When set they take precedence over the PBS-level `builder_boost_factor_p2p` /
+# `min_bid_p2p_eth`; unset inherits the PBS-level value
+# OPTIONAL, DEFAULT: unset (inherit the PBS-level p2p value)
+# builder_boost_factor_p2p = 100
+# min_bid_p2p_eth = "0.2"
 # Loader for validator pubkeys. Three types of loaders are supported:
 #   - File: path to a file containing a list of validator pubkeys in JSON format
 #   - URL: URL to an HTTP endpoint returning a list of validator pubkeys in JSON format

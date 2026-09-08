@@ -9,7 +9,7 @@ use cb_common::{
 };
 use cb_tests::{
     signer_service::start_server,
-    utils::{self},
+    utils::{self, get_free_listener},
 };
 use eyre::Result;
 use reqwest::StatusCode;
@@ -38,7 +38,8 @@ async fn test_signer_jwt_fail_cleanup() -> Result<()> {
     // setup_test_env() isn't used because we want to capture logs with tracing_test
     let module_id = ModuleId(JWT_MODULE.to_string());
     let mod_cfgs = create_mod_signing_configs().await;
-    let start_config = start_server(20102, &mod_cfgs, ADMIN_SECRET.to_string(), false).await?;
+    let start_config =
+        start_server(get_free_listener().await, &mod_cfgs, ADMIN_SECRET.to_string(), false).await?;
     let mod_cfg = mod_cfgs.get(&module_id).expect("JWT config for test module not found");
 
     // Run as many pubkeys requests as the fail limit

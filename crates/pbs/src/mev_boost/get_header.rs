@@ -802,7 +802,7 @@ mod tests {
 
     #[test]
     fn test_validate_signature() {
-        let secret_key = BlsSecretKey::test_random();
+        let secret_key = BlsSecretKey::random();
         let pubkey = secret_key.public_key();
         let wrong_pubkey = BlsPublicKeyBytes::test_random();
         let wrong_signature = BlsSignature::test_random();
@@ -858,7 +858,7 @@ mod tests {
                 ForkName::Fulu => {}
 
                 // Skip future forks
-                ForkName::Gloas => continue,
+                ForkName::Gloas | ForkName::Heze => continue,
             }
 
             // Load get_header JSON from test data

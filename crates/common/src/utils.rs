@@ -7,8 +7,7 @@ use alloy::{
     hex,
     primitives::{U256, keccak256},
 };
-use lh_types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-use rand::{Rng, distr::Alphanumeric};
+use rand::{Rng, RngCore, distr::Alphanumeric};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use tracing::Level;
@@ -27,11 +26,13 @@ use crate::{
 
 const MILLIS_PER_SECOND: u64 = 1_000;
 
+// Saturating: an attacker-supplied huge slot must clamp to the far future, not
+// overflow-panic in debug builds and drop the connection with no response
 pub fn timestamp_of_slot_start_sec(slot: u64, chain: Chain) -> u64 {
-    chain.genesis_time_sec() + slot * chain.slot_time_sec()
+    chain.genesis_time_sec().saturating_add(slot.saturating_mul(chain.slot_time_sec()))
 }
 pub fn timestamp_of_slot_start_millis(slot: u64, chain: Chain) -> u64 {
-    timestamp_of_slot_start_sec(slot, chain) * MILLIS_PER_SECOND
+    timestamp_of_slot_start_sec(slot, chain).saturating_mul(MILLIS_PER_SECOND)
 }
 pub fn ms_into_slot(slot: u64, chain: Chain) -> u64 {
     let slot_start_ms = timestamp_of_slot_start_millis(slot, chain);
@@ -117,6 +118,49 @@ pub mod as_eth_str {
         };
 
         Ok(wei)
+    }
+}
+
+/// `as_eth_str` for an optional field: absent stays `None` instead of being
+/// forced through the ETH-string codec.
+pub mod as_opt_eth_str {
+    use alloy::primitives::{
+        U256,
+        utils::{format_ether, parse_ether},
+    };
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    use super::eth_to_wei;
+
+    pub fn serialize<S>(data: &Option<U256>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match data {
+            Some(wei) => serializer.serialize_str(&format_ether(*wei)),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<U256>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum StringOrF64 {
+            Str(String),
+            F64(f64),
+        }
+
+        let value = Option::<StringOrF64>::deserialize(deserializer)?;
+        Ok(match value {
+            Some(StringOrF64::Str(s)) => {
+                Some(parse_ether(&s).map_err(|_| serde::de::Error::custom("invalid eth amount"))?)
+            }
+            Some(StringOrF64::F64(f)) => Some(eth_to_wei(f)),
+            None => None,
+        })
     }
 }
 
@@ -428,17 +472,21 @@ pub async fn wait_for_signal() -> eyre::Result<()> {
     Ok(())
 }
 
-pub trait TestRandomSeed: TestRandom {
+// lighthouse v8.2.x replaced the `TestRandom` trait with an `arbitrary`-based
+// generator; build test instances from OS entropy so each call differs.
+pub trait TestRandomSeed: for<'a> arbitrary::Arbitrary<'a> {
     fn test_random() -> Self
     where
         Self: Sized,
     {
-        let mut rng = XorShiftRng::from_os_rng();
-        Self::random_for_test(&mut rng)
+        let mut bytes = vec![0u8; 256 * 1024];
+        rand::rng().fill_bytes(&mut bytes);
+        let mut u = arbitrary::Unstructured::new(&bytes);
+        Self::arbitrary(&mut u).expect("enough entropy for an arbitrary test instance")
     }
 }
 
-impl<T: TestRandom> TestRandomSeed for T {}
+impl<T: for<'a> arbitrary::Arbitrary<'a>> TestRandomSeed for T {}
 
 pub fn bls_pubkey_from_hex(hex: &str) -> eyre::Result<BlsPublicKey> {
     let Ok(bytes) = hex::decode(hex) else {
@@ -461,13 +509,24 @@ mod test {
     use alloy::primitives::keccak256;
 
     use super::{
-        create_admin_jwt, create_jwt, decode_admin_jwt, decode_jwt, random_jwt_secret,
+        create_admin_jwt, create_jwt, decode_admin_jwt, decode_jwt, ms_into_slot,
+        random_jwt_secret, timestamp_of_slot_start_millis, timestamp_of_slot_start_sec,
         validate_admin_jwt, validate_jwt,
     };
     use crate::{
         constants::SIGNER_JWT_EXPIRATION,
-        types::{Jwt, JwtAdminClaims, ModuleId},
+        types::{Chain, Jwt, JwtAdminClaims, ModuleId},
     };
+
+    // An attacker-supplied huge slot must saturate to the far future, not
+    // overflow-panic in debug builds and drop the connection with no response
+    #[test]
+    fn test_slot_timestamp_saturates_on_huge_slot() {
+        assert_eq!(timestamp_of_slot_start_sec(u64::MAX, Chain::Mainnet), u64::MAX);
+        assert_eq!(timestamp_of_slot_start_millis(u64::MAX, Chain::Mainnet), u64::MAX);
+        // The far-future slot has not started, so no time has elapsed into it
+        assert_eq!(ms_into_slot(u64::MAX, Chain::Mainnet), 0);
+    }
 
     #[test]
     fn test_jwt_validation_no_payload_hash() {

@@ -1,11 +1,198 @@
+use std::{
+    future::Future,
+    sync::{
+        OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::{Duration, Instant},
+};
+
+use cb_common::{
+    config::{GetHeaderTransport, RelayConfig},
+    pbs::{ForkName, RelayClient, RelayEntry, SignedBuilderRequestAuth, error::PbsError},
+    signature::verify_builder_request_auth_signature,
+    types::{BlsPublicKey, BlsSecretKey, Chain},
+    wire::{
+        CONSENSUS_VERSION_HEADER, EncodingType, get_user_agent_with_version,
+        safe_read_http_response,
+    },
+};
+use futures::future::join_all;
+use reqwest::{
+    StatusCode,
+    header::{CONTENT_TYPE, HeaderMap, HeaderValue, USER_AGENT},
+};
+use tracing::{Instrument, debug, error, warn};
+use url::Url;
+
+use crate::{
+    constants::{MAX_SIZE_DEFAULT, TIMEOUT_ERROR_CODE_STR},
+    error::PbsClientError,
+    metrics::{RELAY_LATENCY, RELAY_STATUS_CODE},
+};
+
+/// Sends one already-built relay request, recording the per-relay metrics
+/// shared by all three ePBS endpoints, and returns the response and its latency
+/// so the caller can read/decode the body itself. `tag` is the per-endpoint
+/// metric label. Callers build their own `RequestBuilder` because the requests
+/// legitimately differ (bid sets a per-call timeout and timing headers).
+pub(crate) async fn send_to_relay(
+    req: reqwest::RequestBuilder,
+    relay: &RelayClient,
+    tag: &str,
+) -> Result<(reqwest::Response, Duration), PbsError> {
+    let start_request = Instant::now();
+    let res = match req.send().await {
+        Ok(res) => res,
+        Err(err) => {
+            RELAY_STATUS_CODE.with_label_values(&[TIMEOUT_ERROR_CODE_STR, tag, &relay.id]).inc();
+            return Err(err.into());
+        }
+    };
+
+    let request_latency = start_request.elapsed();
+    RELAY_LATENCY.with_label_values(&[tag, &relay.id]).observe(request_latency.as_secs_f64());
+
+    let code = res.status();
+    RELAY_STATUS_CODE.with_label_values(&[code.as_str(), tag, &relay.id]).inc();
+
+    Ok((res, request_latency))
+}
+
+/// Count a request-rejection in `BEACON_NODE_STATUS` before it short-circuits
+/// the handler. Without this a client broken by e.g. the strict
+/// `Eth-Consensus-Version` rule or a bad `Accept` header VANISHES from the
+/// endpoint counter instead of showing up as a 4xx spike - the exact signal an
+/// operator needs during a rollout.
+pub(crate) fn record_client_error(
+    err: impl Into<PbsClientError>,
+    endpoint: &str,
+) -> PbsClientError {
+    let err = err.into();
+    crate::metrics::BEACON_NODE_STATUS
+        .with_label_values(&[err.status_code().as_str(), endpoint])
+        .inc();
+    err
+}
+
+/// Records the HTTP status CB returned to the beacon node for one request on an
+/// ePBS endpoint. One home for the `(status, endpoint)` label pair the three
+/// handlers all bump.
+pub(crate) fn record_beacon_status(code: &str, endpoint: &str) {
+    crate::metrics::BEACON_NODE_STATUS.with_label_values(&[code, endpoint]).inc();
+}
+
+/// Logs and counts a failed ePBS request before it is returned to the beacon
+/// node. A 4xx is the caller's fault, not CB's: only a 5xx is an error.
+pub(crate) fn record_request_failure(err: PbsClientError, endpoint: &str) -> PbsClientError {
+    if err.status_code().is_server_error() {
+        error!(%err, "{endpoint} failed");
+    } else {
+        warn!(%err, "{endpoint} failed");
+    }
+    record_beacon_status(err.status_code().as_str(), endpoint);
+    err
+}
+
+/// Fans `sends` out on detached tasks and waits for all of them: a BN
+/// disconnect must not cancel in-flight writes mid-fan-out, leaving some
+/// builders with the data and others without.
+pub(crate) async fn join_detached_sends<F>(
+    sends: impl IntoIterator<Item = F>,
+) -> Vec<Result<(), PbsError>>
+where
+    F: Future<Output = Result<(), PbsError>> + Send + 'static,
+{
+    let handles: Vec<_> =
+        sends.into_iter().map(|send| tokio::spawn(send.in_current_span())).collect();
+    join_all(handles)
+        .await
+        .into_iter()
+        .map(|joined| joined.unwrap_or_else(|err| Err(PbsError::TokioJoinError(err))))
+        .collect()
+}
+
+/// Logs which relay set an ePBS demux request resolved to (a mux's relays or
+/// the default set), shared by the bid and preferences endpoints.
+pub(crate) fn log_mux_selection(
+    maybe_mux_id: Option<&str>,
+    relay_count: usize,
+    pubkey: &BlsPublicKey,
+) {
+    match maybe_mux_id {
+        Some(mux_id) => {
+            debug!(mux_id, relays = relay_count, pubkey = %pubkey, "using mux config")
+        }
+        None => debug!(relays = relay_count, pubkey = %pubkey, "using default config"),
+    }
+}
+
+/// Count a relay response that CB rejected during validation, by reason (see
+/// `RELAY_INVALID_RESPONSE` for why this is a separate signal from the relay's
+/// HTTP status).
+pub(crate) fn record_invalid_relay_response(reason: &str, endpoint: &str, relay_id: &str) {
+    crate::metrics::RELAY_INVALID_RESPONSE.with_label_values(&[reason, endpoint, relay_id]).inc();
+}
+
+/// POSTs an SSZ body to a builder and enforces the ePBS write-endpoint
+/// contract: 202 Accepted is the only success. The response body is read (and
+/// capped) then discarded - a builder is untrusted and must not stream an
+/// unbounded error body into memory or the logs. Returns the request latency.
+/// Shared by `submitBuilderPreferences` and `submitSignedBeaconBlock`.
+pub(crate) async fn post_ssz_expect_accepted(
+    relay: &RelayClient,
+    url: Url,
+    body: impl Into<reqwest::Body>,
+    headers: HeaderMap,
+    timeout_ms: u64,
+    tag: &str,
+) -> Result<Duration, PbsError> {
+    let req = relay
+        .client
+        .post(url)
+        .timeout(Duration::from_millis(timeout_ms))
+        .headers(headers)
+        .header(CONTENT_TYPE, EncodingType::Ssz.content_type_header().clone())
+        .body(body);
+    let (res, latency) = send_to_relay(req, relay, tag).await?;
+    let code = res.status();
+    safe_read_http_response(res, MAX_SIZE_DEFAULT).await?;
+    if code != StatusCode::ACCEPTED {
+        return Err(PbsError::RelayResponse {
+            error_msg: "expected 202".to_string(),
+            code: code.as_u16(),
+        });
+    }
+    Ok(latency)
+}
+
+/// Base outbound headers shared by the ePBS endpoints: the versioned
+/// `User-Agent` and `Eth-Consensus-Version`. All three relay hops send SSZ
+/// bodies of fork-versioned wire types, so the builder needs the fork header,
+/// and all three are Gloas-only. Callers add their endpoint-specific headers
+/// (bid adds `Accept` and the timing headers).
+pub(crate) fn epbs_base_send_headers(req_headers: &HeaderMap) -> Result<HeaderMap, PbsClientError> {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        USER_AGENT,
+        get_user_agent_with_version(req_headers).map_err(|_| PbsClientError::Internal)?,
+    );
+    headers.insert(
+        CONSENSUS_VERSION_HEADER,
+        HeaderValue::from_str(&ForkName::Gloas.to_string())
+            .expect("fork name is always a valid header value"),
+    );
+    Ok(headers)
+}
+
 const GAS_LIMIT_ADJUSTMENT_FACTOR: u64 = 1024;
 const GAS_LIMIT_MINIMUM: u64 = 5_000;
 
 /// Validates the gas limit against the parent gas limit, according to the
 /// execution spec https://github.com/ethereum/execution-specs/blob/98d6ddaaa709a2b7d0cd642f4cfcdadc8c0808e1/src/ethereum/cancun/fork.py#L1118-L1154
-pub fn check_gas_limit(gas_limit: u64, parent_gas_limit: u64) -> bool {
+pub(crate) fn check_gas_limit(gas_limit: u64, parent_gas_limit: u64) -> bool {
     let max_adjustment_delta = parent_gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR;
-    if gas_limit >= parent_gas_limit + max_adjustment_delta {
+    if gas_limit >= parent_gas_limit.saturating_add(max_adjustment_delta) {
         return false;
     }
 
@@ -18,4 +205,633 @@ pub fn check_gas_limit(gas_limit: u64, parent_gas_limit: u64) -> bool {
     }
 
     true
+}
+
+/// A zero-length `auth.message.data` is invalid per builder-specs
+/// `types/gloas/request_auth.yaml` (pattern `{1,4096}`, "A zero-length `data`
+/// is invalid"). It addresses no builder, so it must be rejected up front
+/// rather than slip through a catch-all relay match in
+/// [`match_relays_by_auth_data`]. Shared by both ePBS request-auth validators.
+pub(crate) fn validate_auth_data(auth: &SignedBuilderRequestAuth) -> Result<(), PbsClientError> {
+    if auth.message.data.is_empty() {
+        warn!("auth data is empty");
+        return Err(PbsClientError::EmptyAuthData);
+    }
+
+    Ok(())
+}
+
+/// Verifies the request auth signature when `verify_signature` is on. The
+/// downstream builder verifies it regardless, which is why the crypto is
+/// opt-in. Shared by the request-auth validators of both ePBS endpoints; the
+/// slot rule differs between them and stays with each caller.
+pub(crate) fn verify_auth_signature(
+    pubkey: &BlsPublicKey,
+    auth: &SignedBuilderRequestAuth,
+    chain: Chain,
+    verify_signature: bool,
+) -> Result<(), PbsClientError> {
+    if verify_signature &&
+        !verify_builder_request_auth_signature(pubkey, &auth.message, &auth.signature, chain)
+    {
+        warn!(pubkey = %pubkey, "auth signature verification failed");
+        return Err(PbsClientError::AuthSigVerify);
+    }
+
+    Ok(())
+}
+
+/// Selects the relays an ePBS request is addressed to.
+///
+/// Each `getExecutionPayloadBid` or `submitBuilderPreferences` call is for one
+/// builder, designated by the caller's `auth.message.data`. Two layers, most
+/// specific first:
+///
+/// 1. A relay with `expected_auth_data` configured matches only that exact byte
+///    string. This is the authoritative form for bilateral agreements where the
+///    data is a shared secret rather than a URL.
+/// 2. Otherwise, data carrying a builder URL (see [`decode_auth_data_url`])
+///    matches the relays whose configured URL it names. Comparison ignores
+///    userinfo, so a bare URL matches a relay entry that embeds its pubkey.
+///
+/// Data matching nothing selects no relay: CB then has no builder to proxy to
+/// and the caller must get the same DataMismatch 400 a builder would return.
+/// The result is usually one relay, several when multiple builders are
+/// configured behind the same agreement. Comparing bids across different
+/// builders is the beacon node's job across its per-entry calls; within the
+/// matched set the winner is the highest total payment.
+pub(crate) fn match_relays_by_auth_data<'a>(
+    relays: &'a [RelayClient],
+    received_data: &[u8],
+) -> Vec<&'a RelayClient> {
+    let data_url = decode_auth_data_url(received_data);
+    relays
+        .iter()
+        .filter(|relay| {
+            if let Some(expected) = &relay.config.expected_auth_data {
+                return received_data == expected.as_ref();
+            }
+            match &data_url {
+                Some(url) => url_matches(&relay.config.entry.url, url),
+                None => false,
+            }
+        })
+        .collect()
+}
+
+/// Resolves the relays an ePBS demux request is sent to: the configured relays
+/// whose auth data matches (see [`match_relays_by_auth_data`]), or, when none
+/// match, a single transient pipe relay dialing the builder URL the auth data
+/// names (self-URL guarded, see [`transient_pipe_relay`]). Shared by the bid
+/// and preferences endpoints so their demux cannot diverge.
+pub(crate) async fn resolve_addressed_relays(
+    relays: &[RelayClient],
+    auth_data: &[u8],
+    advertised_urls: &[Url],
+    pipe_client: &reqwest::Client,
+) -> Result<Vec<RelayClient>, PbsClientError> {
+    let matched = match_relays_by_auth_data(relays, auth_data);
+    if matched.is_empty() {
+        Ok(vec![transient_pipe_relay(auth_data, advertised_urls, pipe_client).await?])
+    } else {
+        Ok(matched.into_iter().cloned().collect())
+    }
+}
+
+/// Extracts a builder URL from `auth.message.data` using Commit-Boost's
+/// purely additive convention: the UTF-8 bytes of the builder's URL, optionally
+/// followed by a NUL byte and opaque extra bytes. Data without extra bytes is
+/// byte-identical to the spec's nothing-agreed default, so parties using the
+/// default need no change; NUL cannot appear in a URL, so the split is
+/// unambiguous. Returns None for opaque data carrying no URL.
+pub(crate) fn decode_auth_data_url(data: &[u8]) -> Option<Url> {
+    let url_bytes = match data.iter().position(|&b| b == 0) {
+        Some(i) => &data[..i],
+        None => data,
+    };
+    std::str::from_utf8(url_bytes).ok().and_then(|s| Url::parse(s).ok())
+}
+
+/// A process-lifetime placeholder pubkey for pipe relays. This value is never
+/// read: bid sigverify is skipped for the pipe (see the rationale at the call
+/// site in `execution_payload_bid.rs`). A single lazily-built valid BLS point
+/// avoids a keygen on every unmatched pipe request.
+fn pipe_relay_placeholder_pubkey() -> BlsPublicKey {
+    static PLACEHOLDER: OnceLock<BlsPublicKey> = OnceLock::new();
+    PLACEHOLDER.get_or_init(|| BlsSecretKey::random().public_key()).clone()
+}
+
+/// Builds the transient client the ePBS pipe dials when `auth.message.data`
+/// names a builder URL no configured relay serves: CB is a pure pipe and
+/// routes the request to the builder the proposer's signed auth data names
+/// (trust is the VC's job via its KM `builder_pubkeys`).
+///
+/// Fail-closed self-URL guard: an unconfigured key's auth data defaults to
+/// CB's own URL, so a decoded URL matching an `advertised_urls` entry - or an
+/// empty `advertised_urls`, which cannot rule that out - is an
+/// `AuthDataMismatch`, never a self-dial. Data carrying no URL at all names
+/// no builder and mismatches as before.
+pub(crate) async fn transient_pipe_relay(
+    received_data: &[u8],
+    advertised_urls: &[Url],
+    pipe_client: &reqwest::Client,
+) -> Result<RelayClient, PbsClientError> {
+    let Some(url) = decode_auth_data_url(received_data) else {
+        return Err(PbsClientError::AuthDataMismatch);
+    };
+    if advertised_urls.is_empty() {
+        // Fail closed; warned once per process here and once at startup in
+        // load_pbs_config, never per request
+        static WARNED: AtomicBool = AtomicBool::new(false);
+        if !WARNED.swap(true, Ordering::Relaxed) {
+            warn!(%url, "advertised_urls is unset: the ePBS transient pipe is disabled, not forwarding to this proposer-addressed builder; set advertised_urls to CB's advertised URL(s) to enable it");
+        }
+        return Err(PbsClientError::AuthDataMismatch);
+    }
+    if advertised_urls.iter().any(|own| url_matches(own, &url)) {
+        warn!(%url, "auth data URL matches CB's own advertised URL, not self-dialing");
+        return Err(PbsClientError::AuthDataMismatch);
+    }
+
+    // SSRF guard: the URL comes straight from untrusted auth data, so refuse a
+    // target that resolves into loopback/private/link-local space before
+    // building the client. We resolve-then-dial and do NOT pin the resolved IP,
+    // so a DNS rebind between this lookup and the dial can still slip through;
+    // that TOCTOU window is an accepted v1 limitation, not a plugged hole. The
+    // check is always compiled and always runs in production; it is skippable
+    // only under the `testing-flags` feature, so an e2e test can dial a local
+    // mock builder on an address this guard would otherwise block.
+    if pipe_target_check_enabled() {
+        let (Some(host), Some(port)) = (url.host_str(), url.port_or_known_default()) else {
+            warn!(%url, "pipe target has no resolvable host/port, refusing to dial");
+            return Err(PbsClientError::PipeTargetBlocked);
+        };
+        let resolved = tokio::net::lookup_host((host, port)).await.map_err(|err| {
+            // Fail closed: a target we cannot resolve is a target we cannot verify.
+            warn!(%url, %err, "pipe target DNS resolution failed, refusing to dial");
+            PbsClientError::PipeTargetBlocked
+        })?;
+        let mut resolved_any = false;
+        for addr in resolved {
+            resolved_any = true;
+            if ip_is_disallowed(addr.ip()) {
+                warn!(%url, "pipe target resolves to a disallowed (loopback/private/link-local) address, refusing to dial");
+                return Err(PbsClientError::PipeTargetBlocked);
+            }
+        }
+        if !resolved_any {
+            // Fail closed: no address to check is no address we verified.
+            warn!(%url, "pipe target resolved to no addresses, refusing to dial");
+            return Err(PbsClientError::PipeTargetBlocked);
+        }
+    }
+
+    let config = RelayConfig {
+        entry: RelayEntry {
+            id: PIPE_RELAY_ID.to_string(),
+            pubkey: pipe_relay_placeholder_pubkey(),
+            url,
+        },
+        id: None,
+        headers: None,
+        get_params: None,
+        get_header: GetHeaderTransport::Http,
+        enable_timing_games: false,
+        target_first_request_ms: None,
+        frequency_get_header_ms: None,
+        bid_poll_timeout_ms: None,
+        validator_registration_batch_size: None,
+        max_execution_payment_gwei: None,
+        expected_auth_data: None,
+    };
+    RelayClient::with_client(config, pipe_client.clone()).map_err(|err| {
+        warn!(%err, "failed to build the pipe relay client");
+        PbsClientError::Internal
+    })
+}
+
+/// The fixed `relay_id` metric label for every transient pipe request. The pipe
+/// dials attacker-influenced hosts, so a per-host label would be an unbounded
+/// Prometheus cardinality vector; one constant collapses them into a single
+/// series (the real URL is still dialed, only the label is the sentinel).
+const PIPE_RELAY_ID: &str = "pipe";
+
+/// Whether the pipe SSRF target check runs. Always true in a normal build; only
+/// the `testing-flags` feature can turn it off, and only via a thread-local a
+/// test sets, so an e2e test can dial a local mock builder.
+fn pipe_target_check_enabled() -> bool {
+    #[cfg(feature = "testing-flags")]
+    {
+        !SKIP_PIPE_TARGET_CHECK.with(|f| f.get())
+    }
+    #[cfg(not(feature = "testing-flags"))]
+    {
+        true
+    }
+}
+
+#[cfg(feature = "testing-flags")]
+thread_local! {
+    static SKIP_PIPE_TARGET_CHECK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// TEST-ONLY (`testing-flags`): skip the pipe SSRF target check so an e2e test
+/// can dial a local mock builder on a loopback/unspecified address the guard
+/// would otherwise block. Never compiled into a release binary.
+#[cfg(feature = "testing-flags")]
+pub fn set_skip_pipe_target_check(val: bool) {
+    SKIP_PIPE_TARGET_CHECK.with(|f| f.set(val));
+}
+
+/// True for an address the ePBS pipe must never dial: loopback and unspecified
+/// in both families, plus the IPv4 private/link-local/broadcast ranges and the
+/// IPv6 unique-local (`fc00::/7`) and link-local (`fe80::/10`) ranges. A
+/// v4-mapped IPv6 address (`::ffff:a.b.c.d`) is unwrapped and re-checked as
+/// IPv4 so an internal target cannot hide behind the mapped form.
+fn ip_is_disallowed(ip: std::net::IpAddr) -> bool {
+    use std::net::IpAddr;
+    if ip.is_loopback() || ip.is_unspecified() {
+        return true;
+    }
+    match ip {
+        IpAddr::V4(v4) => {
+            let oct = v4.octets();
+            v4.is_private() || v4.is_link_local() || v4.is_broadcast() ||
+                // RFC 6598 CGNAT 100.64.0.0/10, which is_private() does not cover
+                // but can front ISP / k8s-CNI internal infrastructure.
+                (oct[0] == 100 && oct[1] & 0xc0 == 0x40)
+        }
+        IpAddr::V6(v6) => {
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return ip_is_disallowed(IpAddr::V4(v4));
+            }
+            let seg = v6.octets();
+            // fc00::/7 unique-local, fe80::/10 link-local
+            seg[0] & 0xfe == 0xfc || u16::from_be_bytes([seg[0], seg[1]]) & 0xffc0 == 0xfe80
+        }
+    }
+}
+
+/// Compares two URLs without checking userinfo/path/queries/frags. A relay
+/// entry URL embeds the relay pubkey as userinfo, so full equality would never
+/// match a bare builder URL.
+pub(crate) fn url_matches(a: &Url, b: &Url) -> bool {
+    // A trailing dot marks a fully-qualified host that resolves to the same
+    // host as its dotless form; canonicalize so it cannot slip the self-URL
+    // guard in `transient_pipe_relay`.
+    fn host_canonical(url: &Url) -> Option<&str> {
+        url.host_str().map(|host| host.strip_suffix('.').unwrap_or(host))
+    }
+    a.scheme() == b.scheme() &&
+        host_canonical(a) == host_canonical(b) &&
+        a.port_or_known_default() == b.port_or_known_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use cb_common::{
+        config::{GetHeaderTransport, RelayConfig},
+        pbs::RelayEntry,
+        types::BlsSecretKey,
+    };
+
+    use super::*;
+
+    fn test_relay(url: &str, expected_auth_data: Option<&[u8]>) -> RelayClient {
+        let entry = RelayEntry {
+            id: url.to_string(),
+            pubkey: BlsSecretKey::random().public_key().into(),
+            url: Url::parse(url).unwrap(),
+        };
+        let mut config = RelayConfig {
+            entry,
+            id: None,
+            headers: None,
+            get_params: None,
+            get_header: GetHeaderTransport::Http,
+            enable_timing_games: false,
+            target_first_request_ms: None,
+            frequency_get_header_ms: None,
+            bid_poll_timeout_ms: None,
+            validator_registration_batch_size: None,
+            max_execution_payment_gwei: None,
+            expected_auth_data: None,
+        };
+        config.expected_auth_data = expected_auth_data.map(|d| d.to_vec().into());
+        RelayClient::new(config).unwrap()
+    }
+
+    #[test]
+    fn match_relays_configured_data_never_matches_empty() {
+        let relays = vec![test_relay("http://a.example.com", Some(&[0xaa]))];
+        // An empty `data` field must not satisfy a relay that declared its data
+        assert!(match_relays_by_auth_data(&relays, &[]).is_empty());
+    }
+
+    #[test]
+    fn validate_auth_data_requires_nonempty_data() {
+        use cb_common::{pbs::BuilderRequestAuth, types::BlsSignature};
+        use lh_types::Slot;
+
+        let with_data = |data: Vec<u8>| SignedBuilderRequestAuth {
+            message: BuilderRequestAuth { data: data.try_into().unwrap(), slot: Slot::new(1) },
+            signature: BlsSignature::empty(),
+        };
+
+        // Zero-length data is invalid per builder-specs request_auth.yaml ({1,4096})
+        assert!(matches!(
+            validate_auth_data(&with_data(vec![])),
+            Err(PbsClientError::EmptyAuthData)
+        ));
+        assert!(validate_auth_data(&with_data(vec![0xaa])).is_ok());
+    }
+
+    #[test]
+    fn match_relays_prefers_configured_auth_data() {
+        let relays = vec![
+            test_relay("http://a.example.com", Some(&[0xaa])),
+            test_relay("http://b.example.com", Some(&[0xbb])),
+        ];
+        let matched = match_relays_by_auth_data(&relays, &[0xbb]);
+        assert_eq!(matched.len(), 1);
+        assert_eq!(matched[0].config.entry.url.host_str(), Some("b.example.com"));
+        // Data matching no configured value selects none, even though the data
+        // is a URL naming a configured relay: configured bytes take precedence
+        assert!(match_relays_by_auth_data(&relays, b"http://a.example.com").is_empty());
+    }
+
+    // Contract vectors: external KM projection tooling round-trips auth_data
+    // through this demux, so the behaviors below are a compatibility contract,
+    // not incidental implementation detail.
+
+    // A relay entry URL embeds its pubkey as userinfo and may omit the default
+    // port; a bare builder URL in auth_data must still match it.
+    #[test]
+    fn match_relays_contract_userinfo_and_default_port_ignored() {
+        let relays = vec![test_relay("https://0xdeadbeef@builder.example.com", None)];
+        assert_eq!(match_relays_by_auth_data(&relays, b"https://builder.example.com").len(), 1);
+        assert_eq!(match_relays_by_auth_data(&relays, b"https://builder.example.com:443").len(), 1);
+        assert!(match_relays_by_auth_data(&relays, b"https://builder.example.com:8443").is_empty());
+    }
+
+    // Cross-form collision: relay A's `expected_auth_data` equals relay B's URL
+    // bytes. For A the exact-byte layer decides (its own URL never enters into
+    // it); B, with no configured bytes, still matches by URL. The matched SET
+    // is {A, B}: configured bytes take precedence per relay, they do not
+    // subtract other relays' URL matches.
+    #[test]
+    fn match_relays_contract_cross_form_collision() {
+        let relays = vec![
+            test_relay("http://a.example.com", Some(b"http://b.example.com")),
+            test_relay("http://b.example.com", None),
+        ];
+        let matched = match_relays_by_auth_data(&relays, b"http://b.example.com");
+        let hosts: Vec<_> =
+            matched.iter().map(|r| r.config.entry.url.host_str().unwrap()).collect();
+        assert_eq!(hosts, vec!["a.example.com", "b.example.com"]);
+        // A's own URL no longer matches anything: configured bytes replace
+        // URL-derived matching for that relay (layer-1 precedence)
+        assert!(match_relays_by_auth_data(&relays, b"http://a.example.com").is_empty());
+    }
+
+    // Matched-SET semantics: one auth_data may select several relays (multiple
+    // builders behind one agreement); the winner is picked later by payment.
+    #[test]
+    fn match_relays_contract_shared_auth_data_matches_all() {
+        let relays = vec![
+            test_relay("http://a.example.com", Some(&[0xcc])),
+            test_relay("http://b.example.com", Some(&[0xcc])),
+        ];
+        let matched = match_relays_by_auth_data(&relays, &[0xcc]);
+        assert_eq!(matched.len(), 2);
+    }
+
+    #[test]
+    fn match_relays_url_fallback_and_unmatched_selects_none() {
+        let relays = vec![
+            test_relay("http://a.example.com", None),
+            test_relay("http://b.example.com", None),
+        ];
+        // URL-carrying data selects the named relay only
+        let matched = match_relays_by_auth_data(&relays, b"http://a.example.com");
+        assert_eq!(matched.len(), 1);
+        assert_eq!(matched[0].config.entry.url.host_str(), Some("a.example.com"));
+        // NUL-suffixed extra bytes route identically
+        let mut with_extra = b"http://a.example.com".to_vec();
+        with_extra.push(0);
+        with_extra.extend_from_slice(&[0xde, 0xad]);
+        assert_eq!(match_relays_by_auth_data(&relays, &with_extra).len(), 1);
+        // A URL naming nothing configured selects none
+        assert!(match_relays_by_auth_data(&relays, b"http://z.example.com").is_empty());
+        // Opaque non-URL data names nothing: no catch-all, no relay
+        assert!(match_relays_by_auth_data(&relays, &[0xde, 0xad]).is_empty());
+        // Empty data carries no URL either
+        assert!(match_relays_by_auth_data(&relays, &[]).is_empty());
+    }
+
+    // The pipe never dials blind: with no advertised_urls the self-URL guard
+    // cannot rule out CB's own URL (an unconfigured key's auth data defaults
+    // to it), so it fails closed with the same mismatch a builder would return.
+    #[tokio::test]
+    async fn transient_pipe_relay_fails_closed_without_advertised_urls() {
+        assert!(matches!(
+            transient_pipe_relay(b"http://builder.example.com", &[], &reqwest::Client::new()).await,
+            Err(PbsClientError::AuthDataMismatch)
+        ));
+    }
+
+    // A decoded URL naming CB itself is never dialed: matching follows
+    // `url_matches`, so userinfo/path/default-port variants still guard.
+    #[tokio::test]
+    async fn transient_pipe_relay_guards_own_advertised_urls() {
+        let advertised = vec![Url::parse("http://cb.example.com:18550").unwrap()];
+        for own in [
+            "http://cb.example.com:18550",
+            "http://cb.example.com:18550/eth/v1/builder",
+            "http://0xdeadbeef@cb.example.com:18550",
+        ] {
+            assert!(
+                matches!(
+                    transient_pipe_relay(own.as_bytes(), &advertised, &reqwest::Client::new())
+                        .await,
+                    Err(PbsClientError::AuthDataMismatch)
+                ),
+                "{own} must not be dialed"
+            );
+        }
+    }
+
+    // Data carrying no URL names no builder: mismatch, no dial.
+    #[tokio::test]
+    async fn transient_pipe_relay_rejects_non_url_data() {
+        let advertised = vec![Url::parse("http://cb.example.com:18550").unwrap()];
+        for data in [&[0xde, 0xad][..], b"not a url", &[]] {
+            assert!(matches!(
+                transient_pipe_relay(data, &advertised, &reqwest::Client::new()).await,
+                Err(PbsClientError::AuthDataMismatch)
+            ));
+        }
+    }
+
+    // A decodable, non-self URL gets a transient client carrying no configured
+    // relay's headers and no per-relay cap (the global default applies), so
+    // pipe bids rank unclamped and leak no credentials. A literal public IP host
+    // is used so the SSRF resolve step needs no network DNS. The metric id is
+    // the fixed `pipe` sentinel, not the untrusted host.
+    #[tokio::test]
+    async fn transient_pipe_relay_builds_a_bare_client() {
+        let advertised = vec![Url::parse("http://cb.example.com:18550").unwrap()];
+        let mut data = b"http://1.1.1.1:8551".to_vec();
+        data.push(0);
+        data.extend_from_slice(&[0xde, 0xad]);
+
+        let relay =
+            transient_pipe_relay(&data, &advertised, &reqwest::Client::new()).await.unwrap();
+        assert_eq!(relay.config.entry.url.as_str(), "http://1.1.1.1:8551/");
+        assert_eq!(relay.id.as_str(), "pipe");
+        assert!(relay.config.headers.is_none());
+        assert!(relay.config.max_execution_payment_gwei.is_none());
+        assert!(relay.config.expected_auth_data.is_none());
+        assert!(!relay.config.enable_timing_games);
+    }
+
+    // The SSRF guard refuses a target that resolves into loopback/private space
+    // even when the URL decodes and is not a self-URL. Literal-IP hosts keep the
+    // resolve step off the network.
+    #[tokio::test]
+    async fn transient_pipe_relay_rejects_disallowed_ip_targets() {
+        let advertised = vec![Url::parse("http://cb.example.com:18550").unwrap()];
+        for host in ["http://127.0.0.1:8551", "http://10.0.0.1:8551"] {
+            assert!(
+                matches!(
+                    transient_pipe_relay(host.as_bytes(), &advertised, &reqwest::Client::new())
+                        .await,
+                    Err(PbsClientError::PipeTargetBlocked)
+                ),
+                "{host} must be refused as an internal target"
+            );
+        }
+        // A public literal IP is not rejected by the IP check (it builds a client)
+        assert!(
+            transient_pipe_relay(b"http://1.1.1.1:8551", &advertised, &reqwest::Client::new())
+                .await
+                .is_ok()
+        );
+    }
+
+    // The disallow predicate covers loopback/unspecified/private/link-local in
+    // both families, and unwraps a v4-mapped v6 so an internal target cannot
+    // hide behind `::ffff:a.b.c.d`.
+    #[test]
+    fn ip_is_disallowed_table() {
+        use std::net::IpAddr;
+        let dis = |s: &str| ip_is_disallowed(s.parse::<IpAddr>().unwrap());
+        // loopback / unspecified, both families
+        assert!(dis("127.0.0.1"));
+        assert!(dis("0.0.0.0"));
+        assert!(dis("::1"));
+        assert!(dis("::"));
+        // private v4
+        assert!(dis("10.0.0.1"));
+        assert!(dis("192.168.1.1"));
+        assert!(dis("172.16.0.1"));
+        // link-local v4 and the v4 broadcast
+        assert!(dis("169.254.1.1"));
+        assert!(dis("255.255.255.255"));
+        // RFC 6598 CGNAT 100.64.0.0/10 (edges), but not 100.x outside the /10
+        assert!(dis("100.64.0.1"));
+        assert!(dis("100.127.255.254"));
+        assert!(!dis("100.63.0.1"));
+        assert!(!dis("100.128.0.1"));
+        // v6 unique-local (fc00::/7) and link-local (fe80::/10)
+        assert!(dis("fc00::1"));
+        assert!(dis("fd12:3456::1"));
+        assert!(dis("fe80::1"));
+        assert!(dis("febf::1"));
+        // v4-mapped internal addresses are unwrapped and caught
+        assert!(dis("::ffff:127.0.0.1"));
+        assert!(dis("::ffff:10.0.0.1"));
+        // public addresses pass, in both families and via the v4-mapped form
+        assert!(!dis("1.1.1.1"));
+        assert!(!dis("8.8.8.8"));
+        assert!(!dis("2606:4700:4700::1111"));
+        assert!(!dis("::ffff:1.1.1.1"));
+    }
+
+    // The placeholder pubkey is stable across pipe requests: one process-wide
+    // point rather than a fresh keygen per unmatched request.
+    #[test]
+    fn pipe_relay_placeholder_pubkey_is_stable() {
+        assert_eq!(pipe_relay_placeholder_pubkey(), pipe_relay_placeholder_pubkey());
+    }
+
+    #[test]
+    fn url_matches_ignores_userinfo_and_default_port() {
+        let u = |s: &str| Url::parse(s).unwrap();
+        // A bare builder URL matches a configured relay whose URL embeds the
+        // relay pubkey as userinfo and omits the default port.
+        assert!(url_matches(
+            &u("https://0xdeadbeef@builder.example.com"),
+            &u("https://builder.example.com")
+        ));
+        assert!(url_matches(
+            &u("https://builder.example.com:443"),
+            &u("https://builder.example.com")
+        ));
+        assert!(!url_matches(&u("http://a.com"), &u("https://a.com")));
+        assert!(!url_matches(&u("https://a.com"), &u("https://b.com")));
+        assert!(!url_matches(&u("http://a.com:8001"), &u("http://a.com:8002")));
+        // A fully-qualified trailing-dot host matches its dotless form, so it
+        // cannot be used to slip the self-URL guard.
+        assert!(url_matches(&u("https://cb.example.com."), &u("https://cb.example.com")));
+        assert!(url_matches(&u("https://cb.example.com"), &u("https://cb.example.com.")));
+    }
+
+    #[test]
+    fn decode_auth_data_url_variants() {
+        // raw UTF-8 URL bytes (the spec's nothing-agreed default)
+        let url = decode_auth_data_url(b"https://builder.example.com").unwrap();
+        assert_eq!(url.host_str(), Some("builder.example.com"));
+        // NUL-suffixed extra bytes decode to the same URL: purely additive
+        let mut with_extra = b"https://builder.example.com".to_vec();
+        with_extra.push(0);
+        with_extra.extend_from_slice(&[0xde, 0xad]);
+        let url = decode_auth_data_url(&with_extra).unwrap();
+        assert_eq!(url.host_str(), Some("builder.example.com"));
+        // empty extra after the NUL is also valid and identical
+        let url = decode_auth_data_url(b"https://builder.example.com\x00").unwrap();
+        assert_eq!(url.host_str(), Some("builder.example.com"));
+        // opaque non-URL bytes carry no routing, with or without a NUL
+        assert!(decode_auth_data_url(&[0xde, 0xad, 0xbe, 0xef]).is_none());
+        assert!(decode_auth_data_url(&[0xde, 0x00, 0xad]).is_none());
+        assert!(decode_auth_data_url(b"not a url").is_none());
+    }
+
+    /// Same label-order pin as the beacon-node counter: all three labels are
+    /// &str, so a permuted order compiles and silently writes another series.
+    #[test]
+    fn record_invalid_relay_response_lands_in_relay_invalid_response() {
+        const TAG: &str = "invalid-relay-response-unit-test";
+
+        let before = crate::metrics::RELAY_INVALID_RESPONSE
+            .with_label_values(&["wrong_fork", TAG, "relay-x"])
+            .get();
+        record_invalid_relay_response("wrong_fork", TAG, "relay-x");
+        let after = crate::metrics::RELAY_INVALID_RESPONSE
+            .with_label_values(&["wrong_fork", TAG, "relay-x"])
+            .get();
+        assert_eq!(after, before + 1);
+    }
+
+    #[test]
+    fn record_client_error_lands_in_beacon_node_status() {
+        const TAG: &str = "record-client-error-unit-test";
+
+        let before = crate::metrics::BEACON_NODE_STATUS.with_label_values(&["400", TAG]).get();
+        let err =
+            record_client_error(cb_common::wire::BodyDeserializeError::MissingVersionHeader, TAG);
+        assert_eq!(err.status_code(), reqwest::StatusCode::BAD_REQUEST);
+        let after = crate::metrics::BEACON_NODE_STATUS.with_label_values(&["400", TAG]).get();
+        assert_eq!(after, before + 1, "the 400 must count under (status, endpoint)");
+    }
 }

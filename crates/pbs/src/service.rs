@@ -30,7 +30,18 @@ pub struct PbsService;
 
 impl PbsService {
     pub async fn run<S: BuilderApiState, A: BuilderApi<S>>(state: PbsState<S>) -> Result<()> {
-        let addr = state.config.endpoint;
+        let listener = TcpListener::bind(state.config.endpoint).await?;
+        Self::run_with_listener::<S, A>(state, listener).await
+    }
+
+    /// Serve from an already-bound listener. Prefer this in tests: discovering
+    /// a free port, dropping the listener, then rebinding leaves a window
+    /// where another process can take the port before the server binds it.
+    pub async fn run_with_listener<S: BuilderApiState, A: BuilderApi<S>>(
+        state: PbsState<S>,
+        listener: TcpListener,
+    ) -> Result<()> {
+        let addr = listener.local_addr()?;
         info!(version = COMMIT_BOOST_VERSION, commit_hash = COMMIT_BOOST_COMMIT, ?addr, chain =? state.config.chain, "starting PBS service");
 
         // Check if refreshing registry muxes is required
@@ -44,7 +55,6 @@ impl PbsService {
         let config_path = state.config_path.clone();
         let state: Arc<RwLock<PbsState<S>>> = RwLock::new(state).into();
         let app = create_app_router::<S, A>(state.clone());
-        let listener = TcpListener::bind(addr).await?;
 
         let task =
             tokio::spawn(
