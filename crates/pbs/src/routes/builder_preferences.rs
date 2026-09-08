@@ -130,10 +130,9 @@ pub async fn submit_builder_preferences<S: BuilderApiState>(
     // One accepting builder is a successful submission: the others are separate
     // destinations, not replicas, and the proposer addressed each by auth data
     if accepted == 0 {
-        // A lone builder's own 400/401 tells the proposer whether its auth data or
-        // its signature was rejected, which a blanket 502 would hide
         return Err(match lone_rejection {
-            Some(code @ (400 | 401)) => PbsClientError::BuilderRejected { code },
+            Some(400) => PbsClientError::BuilderRejected(StatusCode::BAD_REQUEST),
+            Some(401) => PbsClientError::BuilderRejected(StatusCode::UNAUTHORIZED),
             _ => PbsClientError::NoBuilderResponse,
         });
     }

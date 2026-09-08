@@ -41,8 +41,11 @@ pub enum PbsClientError {
     MissingTimingHeader,
     #[error("auth slot does not match the request path")]
     AuthSlotMismatch,
-    #[error("the addressed builder rejected the request with {code}")]
-    BuilderRejected { code: u16 },
+    /// A lone addressed builder's own 400/401 from the preferences endpoint,
+    /// propagated so the proposer learns whether its auth data or its signature
+    /// was rejected (a blanket 500 would hide that).
+    #[error("the addressed builder rejected the request with {}", .0.as_u16())]
+    BuilderRejected(StatusCode),
     #[error("auth signature verification failed")]
     AuthSigVerify,
     #[error("submitted block is not a Gloas block")]
@@ -67,12 +70,7 @@ impl PbsClientError {
             PbsClientError::EmptyAuthData => StatusCode::BAD_REQUEST,
             PbsClientError::MissingTimingHeader => StatusCode::BAD_REQUEST,
             PbsClientError::AuthSlotMismatch => StatusCode::BAD_REQUEST,
-            // A lone addressed builder's own 400/401 from the preferences
-            // endpoint is propagated (the sole constructor guards to those two
-            // codes, so the 502 fallback below is currently dead).
-            PbsClientError::BuilderRejected { code } => {
-                StatusCode::from_u16(*code).unwrap_or(StatusCode::BAD_GATEWAY)
-            }
+            PbsClientError::BuilderRejected(code) => *code,
             PbsClientError::AuthSigVerify => StatusCode::UNAUTHORIZED,
             PbsClientError::NotGloasBlock => StatusCode::BAD_REQUEST,
             PbsClientError::NoPayload => StatusCode::BAD_GATEWAY,
@@ -109,8 +107,8 @@ impl IntoResponse for PbsClientError {
             }
             // The builder's own body is never forwarded: it is untrusted and may be
             // arbitrarily large
-            PbsClientError::BuilderRejected { code } => {
-                format!("The addressed builder rejected the submission with status {code}")
+            PbsClientError::BuilderRejected(code) => {
+                format!("The addressed builder rejected the submission with status {}", code.as_u16())
             }
             PbsClientError::AuthSigVerify => {
                 "Invalid SignedBuilderRequestAuth: signature verification failed".to_string()
