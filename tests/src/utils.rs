@@ -43,6 +43,8 @@ pub const RELAY_API_KEY: &str = "f81d4fae-7dec-11d0-a765-00a0c91e6bf6";
 /// Unmatched auth data is a 400 (no catch-all), so a relay must declare the
 /// data it serves for opaque-data tests to route.
 pub const TEST_AUTH_DATA: &[u8] = &[0xde, 0xad];
+/// The proposer pubkey the mock validator's ePBS requests are filed under.
+pub const TEST_PROPOSER_PUBKEY: &str = "0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae";
 
 pub fn get_local_address(port: u16) -> String {
     format!("http://0.0.0.0:{port}")
@@ -331,63 +333,66 @@ pub fn signed_auth(
     auth
 }
 
-/// Boot PBS in front of one mock relay, letting the test shape both the PBS
-/// config and the relay entry.
+/// Starts a mock relay on a free port, returning its state and port. The
+/// building block of every PBS boot below, and on its own the way a test gets a
+/// builder that PBS does NOT know about (the ePBS pipe target).
+pub async fn spawn_mock_relay(state: MockRelayState) -> Result<(Arc<MockRelayState>, u16)> {
+    let listener = get_free_listener().await;
+    let port = listener.local_addr()?.port();
+    let state = Arc::new(state);
+    tokio::spawn(start_mock_relay_service_with_listener(state.clone(), listener));
+    Ok((state, port))
+}
+
+/// Boot PBS in front of already-spawned mock relays, letting the test shape
+/// the PBS config first. Readiness is awaited: relay_check makes a 200 on
+/// /status mean the whole chain is up.
+pub async fn setup_pbs(
+    chain: Chain,
+    relays: Vec<RelayClient>,
+    tweak: impl FnOnce(&mut PbsConfig),
+) -> Result<MockValidator> {
+    setup_test_env();
+    let pbs_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr()?.port();
+
+    let mut pbs_config = get_pbs_config(pbs_port);
+    tweak(&mut pbs_config);
+    let state = PbsState::new(to_pbs_config(chain, pbs_config, relays), PathBuf::new());
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
+
+    let mock_validator = MockValidator::new(pbs_port)?;
+    wait_for_ready(&mock_validator).await?;
+    Ok(mock_validator)
+}
+
+/// Boot PBS in front of one default-state mock relay, letting the test shape
+/// the PBS config and the relay entry.
 pub async fn setup_relay(
     chain: Chain,
     tweak: impl FnOnce(&mut PbsConfig),
     make_relay: impl FnOnce(u16, BlsPublicKey) -> Result<RelayClient>,
 ) -> Result<(MockValidator, Arc<MockRelayState>)> {
-    setup_test_env();
-    let pbs_listener = get_free_listener().await;
-    let pbs_port = pbs_listener.local_addr()?.port();
-    let relay_listener = get_free_listener().await;
-    let relay_port = relay_listener.local_addr()?.port();
-
-    let mock_state = Arc::new(MockRelayState::new(chain, random_secret()));
-    let mock_relay = make_relay(relay_port, mock_state.signer.public_key())?;
-    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
-
-    let mut pbs_config = get_pbs_config(pbs_port);
-    tweak(&mut pbs_config);
-    let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
-    let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
-
-    let mock_validator = MockValidator::new(pbs_port)?;
-    wait_for_ready(&mock_validator).await?;
-    Ok((mock_validator, mock_state))
+    let (state, port) = spawn_mock_relay(MockRelayState::new(chain, random_secret())).await?;
+    let relay = make_relay(port, state.signer.public_key())?;
+    Ok((setup_pbs(chain, vec![relay], tweak).await?, state))
 }
 
-/// Boot PBS in front of several mock relays, one per supplied `MockRelayState`,
-/// so per-relay knobs and counters stay independent. Returns the validator and
-/// the relay states in configuration order.
+/// Boot PBS in front of several default-entry mock relays, one per state, so
+/// per-relay knobs and counters stay independent. Returns the relay states in
+/// configuration order.
 pub async fn setup_relays(
     chain: Chain,
     states: Vec<MockRelayState>,
 ) -> Result<(MockValidator, Vec<Arc<MockRelayState>>)> {
-    setup_test_env();
-    let pbs_listener = get_free_listener().await;
-    let pbs_port = pbs_listener.local_addr()?.port();
-
-    let mut relays = Vec::new();
-    let mut arc_states = Vec::new();
+    let mut relays = Vec::with_capacity(states.len());
+    let mut arc_states = Vec::with_capacity(states.len());
     for state in states {
-        let relay_listener = get_free_listener().await;
-        let relay_port = relay_listener.local_addr()?.port();
-        let state = Arc::new(state);
-        relays.push(generate_mock_relay(relay_port, state.signer.public_key())?);
-        tokio::spawn(start_mock_relay_service_with_listener(state.clone(), relay_listener));
+        let (state, port) = spawn_mock_relay(state).await?;
+        relays.push(generate_mock_relay(port, state.signer.public_key())?);
         arc_states.push(state);
     }
-
-    let config = to_pbs_config(chain, get_pbs_config(pbs_port), relays);
-    let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
-
-    let mock_validator = MockValidator::new(pbs_port)?;
-    wait_for_ready(&mock_validator).await?;
-    Ok((mock_validator, arc_states))
+    Ok((setup_pbs(chain, relays, |_| {}).await?, arc_states))
 }
 
 /// Like [`setup_relays`], but each relay declares the `expected_auth_data` it
@@ -396,32 +401,18 @@ pub async fn setup_relays_with_auth_data(
     chain: Chain,
     states: Vec<(MockRelayState, &[u8])>,
 ) -> Result<(MockValidator, Vec<Arc<MockRelayState>>)> {
-    setup_test_env();
-    let pbs_listener = get_free_listener().await;
-    let pbs_port = pbs_listener.local_addr()?.port();
-
-    let mut relays = Vec::new();
-    let mut arc_states = Vec::new();
+    let mut relays = Vec::with_capacity(states.len());
+    let mut arc_states = Vec::with_capacity(states.len());
     for (state, auth_data) in states {
-        let relay_listener = get_free_listener().await;
-        let relay_port = relay_listener.local_addr()?.port();
-        let state = Arc::new(state);
+        let (state, port) = spawn_mock_relay(state).await?;
         relays.push(generate_mock_relay_with_auth_data(
-            relay_port,
+            port,
             state.signer.public_key(),
             auth_data,
         )?);
-        tokio::spawn(start_mock_relay_service_with_listener(state.clone(), relay_listener));
         arc_states.push(state);
     }
-
-    let config = to_pbs_config(chain, get_pbs_config(pbs_port), relays);
-    let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
-
-    let mock_validator = MockValidator::new(pbs_port)?;
-    wait_for_ready(&mock_validator).await?;
-    Ok((mock_validator, arc_states))
+    Ok((setup_pbs(chain, relays, |_| {}).await?, arc_states))
 }
 
 /// Poll /status until PBS and its relays are up. relay_check makes a 200 mean

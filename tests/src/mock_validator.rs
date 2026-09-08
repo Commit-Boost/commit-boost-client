@@ -15,7 +15,7 @@ use reqwest::{
 };
 use ssz::Encode;
 
-use crate::utils::generate_mock_relay;
+use crate::utils::{TEST_PROPOSER_PUBKEY, generate_mock_relay};
 
 /// Timeout a test beacon node advertises on bid requests; long enough that the
 /// deadline never bites in tests.
@@ -80,9 +80,7 @@ impl MockValidator {
         request: &BuilderPreferencesRequest,
         content_type: EncodingType,
     ) -> eyre::Result<Response> {
-        let default_pubkey = bls_pubkey_from_hex(
-            "0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae",
-        )?;
+        let default_pubkey = bls_pubkey_from_hex(TEST_PROPOSER_PUBKEY)?;
         let url =
             self.comm_boost.submit_builder_preferences_url(&pubkey.unwrap_or(default_pubkey))?;
 
@@ -162,9 +160,7 @@ impl MockValidator {
         accept: Vec<EncodingType>,
         timeout_ms: u64,
     ) -> eyre::Result<Response> {
-        let default_pubkey = bls_pubkey_from_hex(
-            "0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae",
-        )?;
+        let default_pubkey = bls_pubkey_from_hex(TEST_PROPOSER_PUBKEY)?;
         let url = self.comm_boost.get_execution_payload_bid_url(
             slot,
             &parent_hash,

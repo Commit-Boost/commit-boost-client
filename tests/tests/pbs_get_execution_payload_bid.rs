@@ -1,11 +1,12 @@
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 
 use alloy::primitives::{B256, U256};
 use cb_common::{
     constants::{GENESIS_VALIDATORS_ROOT, GLOAS_FORK_VERSION},
     pbs::{
         DEFAULT_BID_POLL_TIMEOUT_MS, GetExecutionPayloadBidInfo, GetExecutionPayloadBidResponse,
-        HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS, SignedExecutionPayloadBid,
+        HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS, SignedBuilderRequestAuth,
+        SignedExecutionPayloadBid,
     },
     signature::sign_execution_payload_bid_root,
     signer::random_secret,
@@ -13,15 +14,14 @@ use cb_common::{
     utils::utcnow_ms,
     wire::{CONSENSUS_VERSION_HEADER, EncodingType},
 };
-use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
-    mock_relay::{MockRelayState, start_mock_relay_service_with_listener},
+    mock_relay::MockRelayState,
     mock_validator::MockValidator,
     utils::{
-        generate_mock_relay, generate_mock_relay_url_only, generate_mock_relay_with_auth_data,
-        generate_mock_relay_with_max_payment, generate_mock_relay_with_timing_games,
-        get_free_listener, get_pbs_config, opaque_auth, setup_relay, setup_relays, setup_test_env,
-        signed_auth, to_pbs_config, wait_for_ready,
+        TEST_PROPOSER_PUBKEY, generate_mock_relay, generate_mock_relay_url_only,
+        generate_mock_relay_with_auth_data, generate_mock_relay_with_max_payment,
+        generate_mock_relay_with_timing_games, opaque_auth, setup_pbs, setup_relay, setup_relays,
+        setup_relays_with_auth_data, signed_auth, spawn_mock_relay,
     },
 };
 use eyre::Result;
@@ -31,6 +31,32 @@ use tracing::info;
 use tree_hash::TreeHash;
 
 const TEST_SLOT: u64 = 100;
+
+/// The request most tests send: a JSON-accept bid request for `TEST_SLOT` on
+/// a zero parent hash/root, carrying `auth`.
+async fn get_json_bid(
+    mock_validator: &MockValidator,
+    auth: &SignedBuilderRequestAuth,
+) -> Result<reqwest::Response> {
+    mock_validator
+        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(auth), vec![
+            EncodingType::Json,
+        ])
+        .await
+}
+
+/// The literal spec URL of the bid endpoint for `TEST_SLOT`, for the tests that
+/// build their request by hand (bare-URL shape, missing headers, raw bodies).
+fn bid_url(mock_validator: &MockValidator) -> String {
+    format!(
+        "{}eth/v1/builder/execution_payload_bid/{}/{}/{}/{}",
+        mock_validator.comm_boost.config.entry.url,
+        TEST_SLOT,
+        B256::ZERO,
+        B256::ZERO,
+        TEST_PROPOSER_PUBKEY,
+    )
+}
 
 /// Test requesting a bid with a single default relay
 #[tokio::test]
@@ -169,33 +195,16 @@ async fn test_get_execution_payload_bid_highest_total_payment_wins() -> Result<(
 /// minimum still passes through
 #[tokio::test]
 async fn test_get_execution_payload_bid_below_min_bid_passes() -> Result<()> {
-    setup_test_env();
-    let chain = Chain::Hoodi;
-    let pbs_listener = get_free_listener().await;
-    let pbs_port = pbs_listener.local_addr()?.port();
-    let relay_listener = get_free_listener().await;
-    let relay_port = relay_listener.local_addr()?.port();
-
-    // Default mock bid: trustless 10 gwei, no execution payment
-    let mock_state = Arc::new(MockRelayState::new(chain, random_secret()));
-    let mock_relay = generate_mock_relay(relay_port, mock_state.signer.public_key())?;
-    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
-
-    let mut pbs_config = get_pbs_config(pbs_port);
-    pbs_config.min_bid_wei = U256::from(20_000_000_000u64); // 20 gwei
-    let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
-    let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
-
-    let mock_validator = MockValidator::new(pbs_port)?;
-    wait_for_ready(&mock_validator).await?;
+    // Default mock bid: trustless 10 gwei, no execution payment; CB floor 20 gwei
+    let (mock_validator, mock_state) = setup_relay(
+        Chain::Hoodi,
+        |cfg| cfg.min_bid_wei = U256::from(20_000_000_000u64),
+        generate_mock_relay,
+    )
+    .await?;
 
     let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);
-    let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
-            EncodingType::Json,
-        ])
-        .await?;
+    let res = get_json_bid(&mock_validator, &auth).await?;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(mock_state.received_execution_payload_bid(), 1);
     Ok(())
@@ -205,41 +214,17 @@ async fn test_get_execution_payload_bid_below_min_bid_passes() -> Result<()> {
 /// `expected_auth_data` matches is contacted, and its bid is returned.
 #[tokio::test]
 async fn test_get_execution_payload_bid_demux_routes_by_auth_data() -> Result<()> {
-    setup_test_env();
     let chain = Chain::Hoodi;
-    let pbs_listener = get_free_listener().await;
-    let pbs_port = pbs_listener.local_addr()?.port();
-
-    let data_a = vec![0xaa, 0x01];
-    let data_b = vec![0xbb, 0x02];
-    let mut relays = Vec::new();
-    let mut states = Vec::new();
-    for data in [&data_a, &data_b] {
-        let relay_listener = get_free_listener().await;
-        let relay_port = relay_listener.local_addr()?.port();
-        let state = Arc::new(MockRelayState::new(chain, random_secret()));
-        relays.push(generate_mock_relay_with_auth_data(
-            relay_port,
-            state.signer.public_key(),
-            data,
-        )?);
-        tokio::spawn(start_mock_relay_service_with_listener(state.clone(), relay_listener));
-        states.push(state);
-    }
-
-    let config = to_pbs_config(chain, get_pbs_config(pbs_port), relays);
-    let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
-
-    let mock_validator = MockValidator::new(pbs_port)?;
-    wait_for_ready(&mock_validator).await?;
+    let data_a = [0xaa, 0x01];
+    let data_b = [0xbb, 0x02];
+    let (mock_validator, states) = setup_relays_with_auth_data(chain, vec![
+        (MockRelayState::new(chain, random_secret()), &data_a),
+        (MockRelayState::new(chain, random_secret()), &data_b),
+    ])
+    .await?;
 
     let auth = opaque_auth(&data_a, TEST_SLOT);
-    let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
-            EncodingType::Json,
-        ])
-        .await?;
+    let res = get_json_bid(&mock_validator, &auth).await?;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(states[0].received_execution_payload_bid(), 1);
     assert_eq!(states[1].received_execution_payload_bid(), 0);
@@ -250,40 +235,22 @@ async fn test_get_execution_payload_bid_demux_routes_by_auth_data() -> Result<()
 /// to the relay whose configured URL matches, ignoring the entry's userinfo.
 #[tokio::test]
 async fn test_get_execution_payload_bid_demux_by_url_bytes() -> Result<()> {
-    setup_test_env();
     let chain = Chain::Hoodi;
-    let pbs_listener = get_free_listener().await;
-    let pbs_port = pbs_listener.local_addr()?.port();
-
     let mut relays = Vec::new();
     let mut states = Vec::new();
     let mut urls = Vec::new();
     for _ in 0..2 {
-        let relay_listener = get_free_listener().await;
-        let relay_port = relay_listener.local_addr()?.port();
-        let state = Arc::new(MockRelayState::new(chain, random_secret()));
+        let (state, port) = spawn_mock_relay(MockRelayState::new(chain, random_secret())).await?;
         // No expected_auth_data: these relays are addressed by URL-carrying data
-        let relay = generate_mock_relay_url_only(relay_port, state.signer.public_key())?;
-        urls.push(format!("http://0.0.0.0:{relay_port}/"));
-        tokio::spawn(start_mock_relay_service_with_listener(state.clone(), relay_listener));
-        relays.push(relay);
+        relays.push(generate_mock_relay_url_only(port, state.signer.public_key())?);
+        urls.push(format!("http://0.0.0.0:{port}/"));
         states.push(state);
     }
-
-    let config = to_pbs_config(chain, get_pbs_config(pbs_port), relays);
-    let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
-
-    let mock_validator = MockValidator::new(pbs_port)?;
-    wait_for_ready(&mock_validator).await?;
+    let mock_validator = setup_pbs(chain, relays, |_| {}).await?;
 
     // data = UTF-8 bytes of relay-0's URL
     let auth = opaque_auth(urls[0].as_bytes(), TEST_SLOT);
-    let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
-            EncodingType::Json,
-        ])
-        .await?;
+    let res = get_json_bid(&mock_validator, &auth).await?;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(states[0].received_execution_payload_bid(), 1);
     assert_eq!(states[1].received_execution_payload_bid(), 0);
@@ -293,22 +260,14 @@ async fn test_get_execution_payload_bid_demux_by_url_bytes() -> Result<()> {
     with_extra.push(0);
     with_extra.extend_from_slice(&[0xde, 0xad]);
     let auth = opaque_auth(&with_extra, TEST_SLOT);
-    let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
-            EncodingType::Json,
-        ])
-        .await?;
+    let res = get_json_bid(&mock_validator, &auth).await?;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(states[0].received_execution_payload_bid(), 1);
     assert_eq!(states[1].received_execution_payload_bid(), 1);
 
     // a URL matching no configured relay is a 400, nothing contacted
     let auth = opaque_auth(b"https://unknown-builder.example:9999/", TEST_SLOT);
-    let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
-            EncodingType::Json,
-        ])
-        .await?;
+    let res = get_json_bid(&mock_validator, &auth).await?;
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     assert_eq!(states[0].received_execution_payload_bid(), 1);
     assert_eq!(states[1].received_execution_payload_bid(), 1);
@@ -321,44 +280,24 @@ async fn test_get_execution_payload_bid_demux_by_url_bytes() -> Result<()> {
 /// unchanged (blind pipe: the ePBS path does not verify the bid signature).
 #[tokio::test]
 async fn test_get_execution_payload_bid_pipe_dials_unconfigured_builder() -> Result<()> {
-    setup_test_env();
     // This test's mock builder binds to a local (unspecified/loopback) address the
     // pipe's SSRF guard blocks; skip that check so the forward path is exercised.
     cb_pbs::set_skip_pipe_target_check(true);
     let chain = Chain::Hoodi;
-    let pbs_listener = get_free_listener().await;
-    let pbs_port = pbs_listener.local_addr()?.port();
-
     // A configured relay, addressed by opaque bytes only
-    let cfg_listener = get_free_listener().await;
-    let cfg_port = cfg_listener.local_addr()?.port();
-    let cfg_state = Arc::new(MockRelayState::new(chain, random_secret()));
-    let cfg_relay =
-        generate_mock_relay_with_auth_data(cfg_port, cfg_state.signer.public_key(), &[0xaa])?;
-    tokio::spawn(start_mock_relay_service_with_listener(cfg_state.clone(), cfg_listener));
-
+    let (mock_validator, cfg_state) = setup_relay(
+        chain,
+        |cfg| cfg.advertised_urls = vec!["http://cb.self.example:18550".parse().unwrap()],
+        |port, pubkey| generate_mock_relay_with_auth_data(port, pubkey, &[0xaa]),
+    )
+    .await?;
     // The pipe builder runs but is NOT in CB's config
-    let pipe_listener = get_free_listener().await;
-    let pipe_port = pipe_listener.local_addr()?.port();
-    let pipe_state = Arc::new(MockRelayState::new(chain, random_secret()));
-    tokio::spawn(start_mock_relay_service_with_listener(pipe_state.clone(), pipe_listener));
-
-    let mut pbs_config = get_pbs_config(pbs_port);
-    pbs_config.advertised_urls = vec!["http://cb.self.example:18550".parse()?];
-    let config = to_pbs_config(chain, pbs_config, vec![cfg_relay]);
-    let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
-
-    let mock_validator = MockValidator::new(pbs_port)?;
-    wait_for_ready(&mock_validator).await?;
+    let (pipe_state, pipe_port) =
+        spawn_mock_relay(MockRelayState::new(chain, random_secret())).await?;
 
     let pipe_url = format!("http://0.0.0.0:{pipe_port}/");
     let auth = opaque_auth(pipe_url.as_bytes(), TEST_SLOT);
-    let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
-            EncodingType::Json,
-        ])
-        .await?;
+    let res = get_json_bid(&mock_validator, &auth).await?;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(pipe_state.received_execution_payload_bid(), 1);
     assert_eq!(cfg_state.received_execution_payload_bid(), 0, "only the piped builder is dialed");
@@ -382,36 +321,18 @@ async fn test_get_execution_payload_bid_pipe_dials_unconfigured_builder() -> Res
 /// defaults to CB's own URL, which must not become a self-dial loop.
 #[tokio::test]
 async fn test_get_execution_payload_bid_pipe_self_url_not_dialed() -> Result<()> {
-    setup_test_env();
     let chain = Chain::Hoodi;
-    let pbs_listener = get_free_listener().await;
-    let pbs_port = pbs_listener.local_addr()?.port();
-    let relay_listener = get_free_listener().await;
-    let relay_port = relay_listener.local_addr()?.port();
-
     // The mock stands in for whatever answers at CB's advertised URL: anything
     // it receives means the guard failed and a dial went out
-    let mock_state = Arc::new(MockRelayState::new(chain, random_secret()));
-    let mock_relay =
-        generate_mock_relay_with_auth_data(relay_port, mock_state.signer.public_key(), &[0xaa])?;
-    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
-
-    let self_url = format!("http://0.0.0.0:{relay_port}/");
-    let mut pbs_config = get_pbs_config(pbs_port);
-    pbs_config.advertised_urls = vec![self_url.parse()?];
-    let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
-    let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
-
-    let mock_validator = MockValidator::new(pbs_port)?;
-    wait_for_ready(&mock_validator).await?;
+    let (mock_state, port) = spawn_mock_relay(MockRelayState::new(chain, random_secret())).await?;
+    let relay = generate_mock_relay_with_auth_data(port, mock_state.signer.public_key(), &[0xaa])?;
+    let self_url = format!("http://0.0.0.0:{port}/");
+    let mock_validator =
+        setup_pbs(chain, vec![relay], |cfg| cfg.advertised_urls = vec![self_url.parse().unwrap()])
+            .await?;
 
     let auth = opaque_auth(self_url.as_bytes(), TEST_SLOT);
-    let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
-            EncodingType::Json,
-        ])
-        .await?;
+    let res = get_json_bid(&mock_validator, &auth).await?;
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     assert_eq!(mock_state.received_execution_payload_bid(), 0, "a self URL is never dialed");
     Ok(())
@@ -422,37 +343,19 @@ async fn test_get_execution_payload_bid_pipe_self_url_not_dialed() -> Result<()>
 /// is dialed - even though the named builder is alive.
 #[tokio::test]
 async fn test_get_execution_payload_bid_pipe_requires_advertised_urls() -> Result<()> {
-    setup_test_env();
     let chain = Chain::Hoodi;
-    let pbs_listener = get_free_listener().await;
-    let pbs_port = pbs_listener.local_addr()?.port();
-    let relay_listener = get_free_listener().await;
-    let relay_port = relay_listener.local_addr()?.port();
-
-    let cfg_state = Arc::new(MockRelayState::new(chain, random_secret()));
-    let cfg_relay =
-        generate_mock_relay_with_auth_data(relay_port, cfg_state.signer.public_key(), &[0xaa])?;
-    tokio::spawn(start_mock_relay_service_with_listener(cfg_state.clone(), relay_listener));
-
-    let pipe_listener = get_free_listener().await;
-    let pipe_port = pipe_listener.local_addr()?.port();
-    let pipe_state = Arc::new(MockRelayState::new(chain, random_secret()));
-    tokio::spawn(start_mock_relay_service_with_listener(pipe_state.clone(), pipe_listener));
-
     // get_pbs_config leaves advertised_urls empty
-    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![cfg_relay]);
-    let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
-
-    let mock_validator = MockValidator::new(pbs_port)?;
-    wait_for_ready(&mock_validator).await?;
+    let (mock_validator, cfg_state) = setup_relay(
+        chain,
+        |_| {},
+        |port, pubkey| generate_mock_relay_with_auth_data(port, pubkey, &[0xaa]),
+    )
+    .await?;
+    let (pipe_state, pipe_port) =
+        spawn_mock_relay(MockRelayState::new(chain, random_secret())).await?;
 
     let auth = opaque_auth(format!("http://0.0.0.0:{pipe_port}/").as_bytes(), TEST_SLOT);
-    let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
-            EncodingType::Json,
-        ])
-        .await?;
+    let res = get_json_bid(&mock_validator, &auth).await?;
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     assert_eq!(pipe_state.received_execution_payload_bid(), 0, "fail closed: no blind dial");
     assert_eq!(cfg_state.received_execution_payload_bid(), 0);
@@ -463,31 +366,15 @@ async fn test_get_execution_payload_bid_pipe_requires_advertised_urls() -> Resul
 /// data-mismatch message; no relay is contacted.
 #[tokio::test]
 async fn test_get_execution_payload_bid_demux_no_match_400() -> Result<()> {
-    setup_test_env();
-    let chain = Chain::Hoodi;
-    let pbs_listener = get_free_listener().await;
-    let pbs_port = pbs_listener.local_addr()?.port();
-    let relay_listener = get_free_listener().await;
-    let relay_port = relay_listener.local_addr()?.port();
-
-    let mock_state = Arc::new(MockRelayState::new(chain, random_secret()));
-    let mock_relay =
-        generate_mock_relay_with_auth_data(relay_port, mock_state.signer.public_key(), &[0xaa])?;
-    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
-
-    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay]);
-    let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
-
-    let mock_validator = MockValidator::new(pbs_port)?;
-    wait_for_ready(&mock_validator).await?;
+    let (mock_validator, mock_state) = setup_relay(
+        Chain::Hoodi,
+        |_| {},
+        |port, pubkey| generate_mock_relay_with_auth_data(port, pubkey, &[0xaa]),
+    )
+    .await?;
 
     let auth = opaque_auth(&[0xbb], TEST_SLOT);
-    let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
-            EncodingType::Json,
-        ])
-        .await?;
+    let res = get_json_bid(&mock_validator, &auth).await?;
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     assert_eq!(mock_state.received_execution_payload_bid(), 0);
     let body: serde_json::Value = serde_json::from_slice(&res.bytes().await?)?;
@@ -505,30 +392,11 @@ async fn test_get_execution_payload_bid_demux_no_match_400() -> Result<()> {
 /// a builder would.
 #[tokio::test]
 async fn test_get_execution_payload_bid_unmatched_opaque_auth_400() -> Result<()> {
-    setup_test_env();
-    let chain = Chain::Hoodi;
-    let pbs_listener = get_free_listener().await;
-    let pbs_port = pbs_listener.local_addr()?.port();
-    let relay_listener = get_free_listener().await;
-    let relay_port = relay_listener.local_addr()?.port();
-
-    let mock_state = Arc::new(MockRelayState::new(chain, random_secret()));
-    let mock_relay = generate_mock_relay_url_only(relay_port, mock_state.signer.public_key())?;
-    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
-
-    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay]);
-    let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
-
-    let mock_validator = MockValidator::new(pbs_port)?;
-    wait_for_ready(&mock_validator).await?;
+    let (mock_validator, mock_state) =
+        setup_relay(Chain::Hoodi, |_| {}, generate_mock_relay_url_only).await?;
 
     let auth = opaque_auth(&[0xcc], TEST_SLOT);
-    let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
-            EncodingType::Json,
-        ])
-        .await?;
+    let res = get_json_bid(&mock_validator, &auth).await?;
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     assert_eq!(mock_state.received_execution_payload_bid(), 0, "no relay receives anything");
     let body: serde_json::Value = serde_json::from_slice(&res.bytes().await?)?;
@@ -543,32 +411,16 @@ async fn test_get_execution_payload_bid_unmatched_opaque_auth_400() -> Result<()
 /// An opaque (non-URL) auth body is forwarded to the relays verbatim.
 #[tokio::test]
 async fn test_get_execution_payload_bid_forwards_opaque_auth() -> Result<()> {
-    setup_test_env();
-    let chain = Chain::Hoodi;
-    let pbs_listener = get_free_listener().await;
-    let pbs_port = pbs_listener.local_addr()?.port();
-    let relay_listener = get_free_listener().await;
-    let relay_port = relay_listener.local_addr()?.port();
-
     let data = vec![0xde, 0xad, 0xbe, 0xef];
-    let mock_state = Arc::new(MockRelayState::new(chain, random_secret()));
-    let mock_relay =
-        generate_mock_relay_with_auth_data(relay_port, mock_state.signer.public_key(), &data)?;
-    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
-
-    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay]);
-    let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
-
-    let mock_validator = MockValidator::new(pbs_port)?;
-    wait_for_ready(&mock_validator).await?;
+    let (mock_validator, mock_state) = setup_relay(
+        Chain::Hoodi,
+        |_| {},
+        |port, pubkey| generate_mock_relay_with_auth_data(port, pubkey, &data),
+    )
+    .await?;
 
     let auth = opaque_auth(&data, TEST_SLOT);
-    let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
-            EncodingType::Json,
-        ])
-        .await?;
+    let res = get_json_bid(&mock_validator, &auth).await?;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(mock_state.received_execution_payload_bid(), 1);
     assert_eq!(mock_state.received_auth_data(), Some(data));
@@ -606,11 +458,7 @@ async fn test_get_execution_payload_bid_auth_slot_mismatch_400() -> Result<()> {
         setup_relay(Chain::Hoodi, |_| {}, generate_mock_relay).await?;
 
     let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT + 1);
-    let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
-            EncodingType::Json,
-        ])
-        .await?;
+    let res = get_json_bid(&mock_validator, &auth).await?;
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     assert_eq!(
         mock_state.received_execution_payload_bid(),
@@ -781,35 +629,10 @@ async fn test_get_execution_payload_bid_bad_auth_signature_forwarded_by_default(
 
 #[tokio::test]
 async fn test_get_execution_payload_bid_spec_url() -> Result<()> {
-    setup_test_env();
-    let chain = Chain::Hoodi;
-    let signer = random_secret();
+    let (mock_validator, mock_state) =
+        setup_relay(Chain::Hoodi, |_| {}, generate_mock_relay).await?;
 
-    let pbs_listener = get_free_listener().await;
-    let pbs_port = pbs_listener.local_addr()?.port();
-    let relay_listener = get_free_listener().await;
-    let relay_port = relay_listener.local_addr()?.port();
-
-    let mock_state = Arc::new(MockRelayState::new(chain, signer));
-    let mock_relay = generate_mock_relay(relay_port, mock_state.signer.public_key())?;
-    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
-
-    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay]);
-    let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
-
-    let mock_validator = MockValidator::new(pbs_port)?;
-    wait_for_ready(&mock_validator).await?;
-
-    let pubkey = "0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae";
-    let url = format!(
-        "{}eth/v1/builder/execution_payload_bid/{}/{}/{}/{}",
-        mock_validator.comm_boost.config.entry.url,
-        TEST_SLOT,
-        B256::ZERO,
-        B256::ZERO,
-        pubkey,
-    );
+    let url = bid_url(&mock_validator);
     // The auth body, timing headers and version header are required, so even
     // the bare-URL shape test must carry them
     let res = mock_validator
@@ -831,23 +654,7 @@ async fn test_get_execution_payload_bid_spec_url() -> Result<()> {
 /// Accept: application/octet-stream, with Eth-Consensus-Version on the 200.
 #[tokio::test]
 async fn test_get_execution_payload_bid_ssz_response() -> Result<()> {
-    setup_test_env();
-    let chain = Chain::Hoodi;
-    let pbs_listener = get_free_listener().await;
-    let pbs_port = pbs_listener.local_addr()?.port();
-    let relay_listener = get_free_listener().await;
-    let relay_port = relay_listener.local_addr()?.port();
-
-    let mock_state = Arc::new(MockRelayState::new(chain, random_secret()));
-    let mock_relay = generate_mock_relay(relay_port, mock_state.signer.public_key())?;
-    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
-
-    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay]);
-    let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
-
-    let mock_validator = MockValidator::new(pbs_port)?;
-    wait_for_ready(&mock_validator).await?;
+    let (mock_validator, _) = setup_relay(Chain::Hoodi, |_| {}, generate_mock_relay).await?;
 
     let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);
     let res = mock_validator
@@ -878,23 +685,7 @@ async fn test_get_execution_payload_bid_ssz_response() -> Result<()> {
 /// no-preference tiebreak is SSZ, not the legacy JSON default.
 #[tokio::test]
 async fn test_get_execution_payload_bid_no_accept_defaults_to_ssz() -> Result<()> {
-    setup_test_env();
-    let chain = Chain::Hoodi;
-    let pbs_listener = get_free_listener().await;
-    let pbs_port = pbs_listener.local_addr()?.port();
-    let relay_listener = get_free_listener().await;
-    let relay_port = relay_listener.local_addr()?.port();
-
-    let mock_state = Arc::new(MockRelayState::new(chain, random_secret()));
-    let mock_relay = generate_mock_relay(relay_port, mock_state.signer.public_key())?;
-    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
-
-    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay]);
-    let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
-
-    let mock_validator = MockValidator::new(pbs_port)?;
-    wait_for_ready(&mock_validator).await?;
+    let (mock_validator, _) = setup_relay(Chain::Hoodi, |_| {}, generate_mock_relay).await?;
 
     // An empty accept vec makes MockValidator send NO Accept header at all.
     let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);
@@ -920,31 +711,14 @@ async fn test_get_execution_payload_bid_no_accept_defaults_to_ssz() -> Result<()
 /// this also covers the JSON relay-leg decode path end to end.
 #[tokio::test]
 async fn test_get_execution_payload_bid_explicit_json_obeyed() -> Result<()> {
-    setup_test_env();
     let chain = Chain::Hoodi;
-    let pbs_listener = get_free_listener().await;
-    let pbs_port = pbs_listener.local_addr()?.port();
-    let relay_listener = get_free_listener().await;
-    let relay_port = relay_listener.local_addr()?.port();
-
-    let mock_state =
-        Arc::new(MockRelayState::new(chain, random_secret()).with_json_only_response());
-    let mock_relay = generate_mock_relay(relay_port, mock_state.signer.public_key())?;
-    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
-
-    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay]);
-    let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
-
-    let mock_validator = MockValidator::new(pbs_port)?;
-    wait_for_ready(&mock_validator).await?;
+    let (mock_validator, _) = setup_relays(chain, vec![
+        MockRelayState::new(chain, random_secret()).with_json_only_response(),
+    ])
+    .await?;
 
     let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);
-    let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
-            EncodingType::Json,
-        ])
-        .await?;
+    let res = get_json_bid(&mock_validator, &auth).await?;
     assert_eq!(res.status(), StatusCode::OK);
 
     let content_type =
@@ -968,36 +742,19 @@ async fn test_get_execution_payload_bid_explicit_json_obeyed() -> Result<()> {
 /// decode path actually ran.
 #[tokio::test]
 async fn test_get_execution_payload_bid_relay_ssz_response_roundtrip() -> Result<()> {
-    setup_test_env();
-    let chain = Chain::Hoodi;
-    let pbs_listener = get_free_listener().await;
-    let pbs_port = pbs_listener.local_addr()?.port();
-    let relay_listener = get_free_listener().await;
-    let relay_port = relay_listener.local_addr()?.port();
-
     // Relay serves ONLY SSZ, so PBS must decode the SSZ bid on the relay leg.
-    let mock_state = Arc::new(
+    let chain = Chain::Hoodi;
+    let (mock_validator, states) = setup_relays(chain, vec![
         MockRelayState::new(chain, random_secret())
             .with_ssz_only_response()
             .with_trustless_bid_gwei(42),
-    );
-    let mock_relay = generate_mock_relay(relay_port, mock_state.signer.public_key())?;
-    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
-
-    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay]);
-    let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
-
-    let mock_validator = MockValidator::new(pbs_port)?;
-    wait_for_ready(&mock_validator).await?;
+    ])
+    .await?;
+    let mock_state = &states[0];
 
     // BN asks for JSON; PBS decodes SSZ from the relay and re-encodes to JSON.
     let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);
-    let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
-            EncodingType::Json,
-        ])
-        .await?;
+    let res = get_json_bid(&mock_validator, &auth).await?;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(mock_state.received_execution_payload_bid(), 1);
 
@@ -1014,27 +771,14 @@ async fn test_get_execution_payload_bid_relay_ssz_response_roundtrip() -> Result
 /// 200 or panicking. With a single relay this drop yields a 204 to the BN.
 #[tokio::test]
 async fn test_get_execution_payload_bid_relay_ssz_missing_version_header() -> Result<()> {
-    setup_test_env();
     let chain = Chain::Hoodi;
-    let pbs_listener = get_free_listener().await;
-    let pbs_port = pbs_listener.local_addr()?.port();
-    let relay_listener = get_free_listener().await;
-    let relay_port = relay_listener.local_addr()?.port();
-
-    let mock_state = Arc::new(
+    let (mock_validator, states) = setup_relays(chain, vec![
         MockRelayState::new(chain, random_secret())
             .with_ssz_only_response()
             .with_epbs_omit_consensus_version(),
-    );
-    let mock_relay = generate_mock_relay(relay_port, mock_state.signer.public_key())?;
-    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
-
-    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay]);
-    let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
-
-    let mock_validator = MockValidator::new(pbs_port)?;
-    wait_for_ready(&mock_validator).await?;
+    ])
+    .await?;
+    let mock_state = &states[0];
 
     let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);
     let res = mock_validator
@@ -1054,25 +798,12 @@ async fn test_get_execution_payload_bid_relay_ssz_missing_version_header() -> Re
 /// the BN under the bogus fork. Single relay -> 204.
 #[tokio::test]
 async fn test_get_execution_payload_bid_relay_wrong_fork_dropped() -> Result<()> {
-    setup_test_env();
     let chain = Chain::Hoodi;
-    let pbs_listener = get_free_listener().await;
-    let pbs_port = pbs_listener.local_addr()?.port();
-    let relay_listener = get_free_listener().await;
-    let relay_port = relay_listener.local_addr()?.port();
-
-    let mock_state = Arc::new(
+    let (mock_validator, states) = setup_relays(chain, vec![
         MockRelayState::new(chain, random_secret()).with_ssz_only_response().with_epbs_wrong_fork(),
-    );
-    let mock_relay = generate_mock_relay(relay_port, mock_state.signer.public_key())?;
-    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
-
-    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay]);
-    let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
-
-    let mock_validator = MockValidator::new(pbs_port)?;
-    wait_for_ready(&mock_validator).await?;
+    ])
+    .await?;
+    let mock_state = &states[0];
 
     let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);
     let res = mock_validator
@@ -1092,27 +823,14 @@ async fn test_get_execution_payload_bid_relay_wrong_fork_dropped() -> Result<()>
 /// the BN under the bogus fork. Single relay -> 204.
 #[tokio::test]
 async fn test_get_execution_payload_bid_relay_wrong_fork_json_dropped() -> Result<()> {
-    setup_test_env();
     let chain = Chain::Hoodi;
-    let pbs_listener = get_free_listener().await;
-    let pbs_port = pbs_listener.local_addr()?.port();
-    let relay_listener = get_free_listener().await;
-    let relay_port = relay_listener.local_addr()?.port();
-
-    let mock_state = Arc::new(
+    let (mock_validator, states) = setup_relays(chain, vec![
         MockRelayState::new(chain, random_secret())
             .with_json_only_response()
             .with_epbs_wrong_fork(),
-    );
-    let mock_relay = generate_mock_relay(relay_port, mock_state.signer.public_key())?;
-    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
-
-    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay]);
-    let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
-
-    let mock_validator = MockValidator::new(pbs_port)?;
-    wait_for_ready(&mock_validator).await?;
+    ])
+    .await?;
+    let mock_state = &states[0];
 
     let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);
     let res = mock_validator
@@ -1130,33 +848,10 @@ async fn test_get_execution_payload_bid_relay_wrong_fork_json_dropped() -> Resul
 /// (a typed error, not a 500).
 #[tokio::test]
 async fn test_get_execution_payload_bid_unsupported_accept_406() -> Result<()> {
-    setup_test_env();
-    let chain = Chain::Hoodi;
-    let pbs_listener = get_free_listener().await;
-    let pbs_port = pbs_listener.local_addr()?.port();
-    let relay_listener = get_free_listener().await;
-    let relay_port = relay_listener.local_addr()?.port();
+    let (mock_validator, mock_state) =
+        setup_relay(Chain::Hoodi, |_| {}, generate_mock_relay).await?;
 
-    let mock_state = Arc::new(MockRelayState::new(chain, random_secret()));
-    let mock_relay = generate_mock_relay(relay_port, mock_state.signer.public_key())?;
-    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
-
-    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay]);
-    let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
-
-    let mock_validator = MockValidator::new(pbs_port)?;
-    wait_for_ready(&mock_validator).await?;
-
-    let pubkey = "0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae";
-    let url = format!(
-        "{}eth/v1/builder/execution_payload_bid/{}/{}/{}/{}",
-        mock_validator.comm_boost.config.entry.url,
-        TEST_SLOT,
-        B256::ZERO,
-        B256::ZERO,
-        pubkey,
-    );
+    let url = bid_url(&mock_validator);
     let res = mock_validator
         .comm_boost
         .client
@@ -1175,35 +870,16 @@ async fn test_get_execution_payload_bid_unsupported_accept_406() -> Result<()> {
 /// to the relay, same as JSON.
 #[tokio::test]
 async fn test_get_execution_payload_bid_ssz_auth_forwarded() -> Result<()> {
-    setup_test_env();
-    let chain = Chain::Hoodi;
-    let pbs_listener = get_free_listener().await;
-    let pbs_port = pbs_listener.local_addr()?.port();
-    let relay_listener = get_free_listener().await;
-    let relay_port = relay_listener.local_addr()?.port();
-
     let data = vec![0xde, 0xad, 0xbe, 0xef];
-    let mock_state = Arc::new(MockRelayState::new(chain, random_secret()));
-    let mock_relay =
-        generate_mock_relay_with_auth_data(relay_port, mock_state.signer.public_key(), &data)?;
-    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
-
-    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay]);
-    let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
-
-    let mock_validator = MockValidator::new(pbs_port)?;
-    wait_for_ready(&mock_validator).await?;
+    let (mock_validator, mock_state) = setup_relay(
+        Chain::Hoodi,
+        |_| {},
+        |port, pubkey| generate_mock_relay_with_auth_data(port, pubkey, &data),
+    )
+    .await?;
 
     let ssz_body = opaque_auth(&data, TEST_SLOT).as_ssz_bytes();
-    let url = format!(
-        "{}eth/v1/builder/execution_payload_bid/{}/{}/{}/{}",
-        mock_validator.comm_boost.config.entry.url,
-        TEST_SLOT,
-        B256::ZERO,
-        B256::ZERO,
-        "0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae",
-    );
+    let url = bid_url(&mock_validator);
     let res = mock_validator
         .comm_boost
         .client
@@ -1224,32 +900,10 @@ async fn test_get_execution_payload_bid_ssz_auth_forwarded() -> Result<()> {
 /// JSON body, before any relay is queried.
 #[tokio::test]
 async fn test_get_execution_payload_bid_malformed_auth_400() -> Result<()> {
-    setup_test_env();
-    let chain = Chain::Hoodi;
-    let pbs_listener = get_free_listener().await;
-    let pbs_port = pbs_listener.local_addr()?.port();
-    let relay_listener = get_free_listener().await;
-    let relay_port = relay_listener.local_addr()?.port();
+    let (mock_validator, mock_state) =
+        setup_relay(Chain::Hoodi, |_| {}, generate_mock_relay).await?;
 
-    let mock_state = Arc::new(MockRelayState::new(chain, random_secret()));
-    let mock_relay = generate_mock_relay(relay_port, mock_state.signer.public_key())?;
-    tokio::spawn(start_mock_relay_service_with_listener(mock_state.clone(), relay_listener));
-
-    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay]);
-    let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
-
-    let mock_validator = MockValidator::new(pbs_port)?;
-    wait_for_ready(&mock_validator).await?;
-
-    let url = format!(
-        "{}eth/v1/builder/execution_payload_bid/{}/{}/{}/{}",
-        mock_validator.comm_boost.config.entry.url,
-        TEST_SLOT,
-        B256::ZERO,
-        B256::ZERO,
-        "0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae",
-    );
+    let url = bid_url(&mock_validator);
     let res = mock_validator
         .comm_boost
         .client
@@ -1276,32 +930,18 @@ async fn test_get_execution_payload_bid_malformed_auth_400() -> Result<()> {
 /// Boot PBS in front of a single timing-games relay driven by `mock_state`, so
 /// a test can observe the bid poll ladder from the builder's side.
 async fn setup_timing_games_relay(
-    mock_state: Arc<MockRelayState>,
+    mock_state: MockRelayState,
     frequency_get_header_ms: u64,
     bid_poll_timeout_ms: Option<u64>,
-) -> Result<MockValidator> {
-    setup_test_env();
-    let chain = Chain::Hoodi;
-    let pbs_listener = get_free_listener().await;
-    let pbs_port = pbs_listener.local_addr()?.port();
-    let relay_listener = get_free_listener().await;
-    let relay_port = relay_listener.local_addr()?.port();
-
-    let mock_relay = generate_mock_relay_with_timing_games(
-        relay_port,
+) -> Result<(MockValidator, Arc<MockRelayState>)> {
+    let (mock_state, port) = spawn_mock_relay(mock_state).await?;
+    let relay = generate_mock_relay_with_timing_games(
+        port,
         mock_state.signer.public_key(),
         frequency_get_header_ms,
         bid_poll_timeout_ms,
     )?;
-    tokio::spawn(start_mock_relay_service_with_listener(mock_state, relay_listener));
-
-    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay]);
-    let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
-
-    let mock_validator = MockValidator::new(pbs_port)?;
-    wait_for_ready(&mock_validator).await?;
-    Ok(mock_validator)
+    Ok((setup_pbs(Chain::Hoodi, vec![relay], |_| {}).await?, mock_state))
 }
 
 /// Request a bid advertising `budget_ms` as the proposer's `X-Timeout-Ms`.
@@ -1310,7 +950,7 @@ async fn get_bid_with_budget(
     budget_ms: u64,
 ) -> Result<reqwest::Response> {
     let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);
-    Ok(mock_validator
+    mock_validator
         .do_get_execution_payload_bid_with_timeout(
             TEST_SLOT,
             B256::ZERO,
@@ -1320,7 +960,7 @@ async fn get_bid_with_budget(
             vec![EncodingType::Json],
             budget_ms,
         )
-        .await?)
+        .await
 }
 
 /// No poll may promise the builder more time than the shared deadline still has
@@ -1344,9 +984,9 @@ async fn test_get_execution_payload_bid_ladder_timeout_shape() -> Result<()> {
     const POLL_TIMEOUT_MS: u64 = 100;
     const BUDGET_MS: u64 = 2_000;
 
-    let mock_state = Arc::new(MockRelayState::new(Chain::Hoodi, random_secret()));
-    let mock_validator =
-        setup_timing_games_relay(mock_state.clone(), FREQ_MS, Some(POLL_TIMEOUT_MS)).await?;
+    let mock_state = MockRelayState::new(Chain::Hoodi, random_secret());
+    let (mock_validator, mock_state) =
+        setup_timing_games_relay(mock_state, FREQ_MS, Some(POLL_TIMEOUT_MS)).await?;
 
     let res = get_bid_with_budget(&mock_validator, BUDGET_MS).await?;
     assert_eq!(res.status(), StatusCode::OK);
@@ -1394,13 +1034,11 @@ async fn test_get_execution_payload_bid_ladder_returns_best_poll() -> Result<()>
     const STEP_GWEI: u64 = 7;
     const BASE_GWEI: u64 = 10;
 
-    let mock_state = Arc::new(
-        MockRelayState::new(Chain::Hoodi, random_secret())
-            .with_trustless_bid_gwei(BASE_GWEI)
-            .with_improving_bids(STEP_GWEI),
-    );
-    let mock_validator =
-        setup_timing_games_relay(mock_state.clone(), FREQ_MS, Some(POLL_TIMEOUT_MS)).await?;
+    let mock_state = MockRelayState::new(Chain::Hoodi, random_secret())
+        .with_trustless_bid_gwei(BASE_GWEI)
+        .with_improving_bids(STEP_GWEI);
+    let (mock_validator, mock_state) =
+        setup_timing_games_relay(mock_state, FREQ_MS, Some(POLL_TIMEOUT_MS)).await?;
 
     let res = get_bid_with_budget(&mock_validator, BUDGET_MS).await?;
     assert_eq!(res.status(), StatusCode::OK);
@@ -1429,10 +1067,9 @@ async fn test_get_execution_payload_bid_ladder_slow_builder_still_bids() -> Resu
     const DELAY_MS: u64 = 150;
     const BUDGET_MS: u64 = 1_500;
 
-    let mock_state =
-        Arc::new(MockRelayState::new(Chain::Hoodi, random_secret()).with_bid_delay_ms(DELAY_MS));
-    let mock_validator =
-        setup_timing_games_relay(mock_state.clone(), FREQ_MS, Some(POLL_TIMEOUT_MS)).await?;
+    let mock_state = MockRelayState::new(Chain::Hoodi, random_secret()).with_bid_delay_ms(DELAY_MS);
+    let (mock_validator, mock_state) =
+        setup_timing_games_relay(mock_state, FREQ_MS, Some(POLL_TIMEOUT_MS)).await?;
 
     let res = get_bid_with_budget(&mock_validator, BUDGET_MS).await?;
     assert_eq!(res.status(), StatusCode::OK, "the last poll outlasts the builder's delay");
@@ -1465,10 +1102,9 @@ async fn test_get_execution_payload_bid_ladder_early_polls_land_bids() -> Result
     const DELAY_MS: u64 = 100;
     const BUDGET_MS: u64 = 1_500;
 
-    let mock_state =
-        Arc::new(MockRelayState::new(Chain::Hoodi, random_secret()).with_bid_delay_ms(DELAY_MS));
-    let mock_validator =
-        setup_timing_games_relay(mock_state.clone(), FREQ_MS, Some(POLL_TIMEOUT_MS)).await?;
+    let mock_state = MockRelayState::new(Chain::Hoodi, random_secret()).with_bid_delay_ms(DELAY_MS);
+    let (mock_validator, mock_state) =
+        setup_timing_games_relay(mock_state, FREQ_MS, Some(POLL_TIMEOUT_MS)).await?;
 
     let res = get_bid_with_budget(&mock_validator, BUDGET_MS).await?;
     assert_eq!(res.status(), StatusCode::OK);
@@ -1496,9 +1132,9 @@ async fn test_get_execution_payload_bid_deadline_clamps_ladder() -> Result<()> {
 
     let mut polls = Vec::new();
     for budget_ms in [SMALL_BUDGET_MS, LARGE_BUDGET_MS] {
-        let mock_state = Arc::new(MockRelayState::new(Chain::Hoodi, random_secret()));
-        let mock_validator =
-            setup_timing_games_relay(mock_state.clone(), FREQ_MS, Some(POLL_TIMEOUT_MS)).await?;
+        let mock_state = MockRelayState::new(Chain::Hoodi, random_secret());
+        let (mock_validator, mock_state) =
+            setup_timing_games_relay(mock_state, FREQ_MS, Some(POLL_TIMEOUT_MS)).await?;
 
         let res = get_bid_with_budget(&mock_validator, budget_ms).await?;
         assert_eq!(res.status(), StatusCode::OK, "budget {budget_ms}");
@@ -1528,9 +1164,9 @@ async fn test_get_execution_payload_bid_short_budget_single_poll() -> Result<()>
     const BUDGET_MS: u64 = 300;
 
     // Default bid_poll_timeout_ms, which is larger than the whole budget here
-    assert!(DEFAULT_BID_POLL_TIMEOUT_MS > BUDGET_MS);
-    let mock_state = Arc::new(MockRelayState::new(Chain::Hoodi, random_secret()));
-    let mock_validator = setup_timing_games_relay(mock_state.clone(), FREQ_MS, None).await?;
+    const _: () = assert!(DEFAULT_BID_POLL_TIMEOUT_MS > BUDGET_MS);
+    let mock_state = MockRelayState::new(Chain::Hoodi, random_secret());
+    let (mock_validator, mock_state) = setup_timing_games_relay(mock_state, FREQ_MS, None).await?;
 
     let res = get_bid_with_budget(&mock_validator, BUDGET_MS).await?;
     assert_eq!(res.status(), StatusCode::OK);
@@ -1558,9 +1194,9 @@ async fn test_get_execution_payload_bid_poll_timeout_override() -> Result<()> {
         (None, DEFAULT_BID_POLL_TIMEOUT_MS),
         (Some(CUSTOM_POLL_TIMEOUT_MS), CUSTOM_POLL_TIMEOUT_MS),
     ] {
-        let mock_state = Arc::new(MockRelayState::new(Chain::Hoodi, random_secret()));
-        let mock_validator =
-            setup_timing_games_relay(mock_state.clone(), FREQ_MS, configured).await?;
+        let mock_state = MockRelayState::new(Chain::Hoodi, random_secret());
+        let (mock_validator, mock_state) =
+            setup_timing_games_relay(mock_state, FREQ_MS, configured).await?;
 
         let res = get_bid_with_budget(&mock_validator, BUDGET_MS).await?;
         assert_eq!(res.status(), StatusCode::OK, "configured={configured:?}");
@@ -1584,10 +1220,9 @@ async fn test_get_execution_payload_bid_ladder_no_bid_is_204() -> Result<()> {
     const POLL_TIMEOUT_MS: u64 = 200;
     const BUDGET_MS: u64 = 1_000;
 
-    let mock_state =
-        Arc::new(MockRelayState::new(Chain::Hoodi, random_secret()).with_no_epbs_bid());
-    let mock_validator =
-        setup_timing_games_relay(mock_state.clone(), FREQ_MS, Some(POLL_TIMEOUT_MS)).await?;
+    let mock_state = MockRelayState::new(Chain::Hoodi, random_secret()).with_no_epbs_bid();
+    let (mock_validator, mock_state) =
+        setup_timing_games_relay(mock_state, FREQ_MS, Some(POLL_TIMEOUT_MS)).await?;
 
     let res = get_bid_with_budget(&mock_validator, BUDGET_MS).await?;
     assert_eq!(res.status(), StatusCode::NO_CONTENT, "a 204 from every poll must stay a 204");
@@ -1613,11 +1248,7 @@ async fn test_get_execution_payload_bid_one_relay_fails_other_wins_200() -> Resu
     states[0].set_response_override(StatusCode::INTERNAL_SERVER_ERROR);
 
     let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);
-    let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
-            EncodingType::Json,
-        ])
-        .await?;
+    let res = get_json_bid(&mock_validator, &auth).await?;
     assert_eq!(res.status(), StatusCode::OK, "a surviving relay still wins the auction");
 
     let decoded = serde_json::from_slice::<GetExecutionPayloadBidResponse>(&res.bytes().await?)?;
@@ -1662,11 +1293,7 @@ async fn test_get_execution_payload_bid_all_relays_fail_204_not_502() -> Result<
     }
 
     let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);
-    let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
-            EncodingType::Json,
-        ])
-        .await?;
+    let res = get_json_bid(&mock_validator, &auth).await?;
     assert_eq!(
         res.status(),
         StatusCode::NO_CONTENT,
@@ -1879,59 +1506,31 @@ async fn test_get_execution_payload_bid_per_relay_cap_clamps_ranking() -> Result
         // clamped: 5 + min(1000, 5) = 10 loses to 20
         (Some(RELAY_CAP_GWEI), HONEST_TRUSTLESS_GWEI),
     ] {
-        setup_test_env();
         let chain = Chain::Hoodi;
-        let pbs_listener = get_free_listener().await;
-        let pbs_port = pbs_listener.local_addr()?.port();
-
-        let overclaimer_listener = get_free_listener().await;
-        let overclaimer_port = overclaimer_listener.local_addr()?.port();
-        let overclaimer_state = Arc::new(
+        let (overclaimer_state, overclaimer_port) = spawn_mock_relay(
             MockRelayState::new(chain, random_secret())
                 .with_trustless_bid_gwei(OVERCLAIMER_TRUSTLESS_GWEI)
                 .with_trusted_bid_gwei(OVERCLAIMED_TRUSTED_GWEI),
-        );
+        )
+        .await?;
+        let overclaimer_pubkey = overclaimer_state.signer.public_key();
         let overclaimer_relay = match relay_cap {
-            Some(cap) => generate_mock_relay_with_max_payment(
-                overclaimer_port,
-                overclaimer_state.signer.public_key(),
-                cap,
-            )?,
-            None => generate_mock_relay(overclaimer_port, overclaimer_state.signer.public_key())?,
+            Some(cap) => {
+                generate_mock_relay_with_max_payment(overclaimer_port, overclaimer_pubkey, cap)?
+            }
+            None => generate_mock_relay(overclaimer_port, overclaimer_pubkey)?,
         };
-        tokio::spawn(start_mock_relay_service_with_listener(
-            overclaimer_state.clone(),
-            overclaimer_listener,
-        ));
-
-        let honest_listener = get_free_listener().await;
-        let honest_port = honest_listener.local_addr()?.port();
-        let honest_state = Arc::new(
+        let (honest_state, honest_port) = spawn_mock_relay(
             MockRelayState::new(chain, random_secret())
                 .with_trustless_bid_gwei(HONEST_TRUSTLESS_GWEI),
-        );
+        )
+        .await?;
         let honest_relay = generate_mock_relay(honest_port, honest_state.signer.public_key())?;
-        tokio::spawn(start_mock_relay_service_with_listener(honest_state.clone(), honest_listener));
-
-        let pbs_config = get_pbs_config(pbs_port);
-        let config = to_pbs_config(chain, pbs_config, vec![overclaimer_relay, honest_relay]);
-        let state = PbsState::new(config, PathBuf::new());
-        tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
-
-        let mock_validator = MockValidator::new(pbs_port)?;
-        wait_for_ready(&mock_validator).await?;
+        let mock_validator =
+            setup_pbs(chain, vec![overclaimer_relay, honest_relay], |_| {}).await?;
 
         let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);
-        let res = mock_validator
-            .do_get_execution_payload_bid(
-                TEST_SLOT,
-                B256::ZERO,
-                B256::ZERO,
-                None,
-                Some(&auth),
-                vec![EncodingType::Json],
-            )
-            .await?;
+        let res = get_json_bid(&mock_validator, &auth).await?;
         assert_eq!(res.status(), StatusCode::OK, "relay_cap={relay_cap:?}");
         assert_eq!(overclaimer_state.received_execution_payload_bid(), 1);
         assert_eq!(honest_state.received_execution_payload_bid(), 1);
@@ -1968,42 +1567,22 @@ async fn test_get_execution_payload_bid_impl_opts(
     max_execution_payment_gwei: u64,
     require_relay_signature: bool,
 ) -> Result<()> {
-    // Setup test environment
-    setup_test_env();
     let chain = Chain::Hoodi;
-    let pbs_listener = get_free_listener().await;
-    let pbs_port = pbs_listener.local_addr()?.port();
-
-    // Run one mock relay per state so per-relay knobs and counters work
     let mut relays = Vec::new();
     let mut states = Vec::new();
     for state in relay_states {
-        let relay_listener = get_free_listener().await;
-        let relay_port = relay_listener.local_addr()?.port();
-        let state = Arc::new(state);
-        let relay = generate_mock_relay(relay_port, state.signer.public_key())?;
-        tokio::spawn(start_mock_relay_service_with_listener(state.clone(), relay_listener));
-        relays.push(relay);
+        let (state, port) = spawn_mock_relay(state).await?;
+        relays.push(generate_mock_relay(port, state.signer.public_key())?);
         states.push(state);
     }
-
-    // Run the PBS service
-    let mut pbs_config = get_pbs_config(pbs_port);
-    pbs_config.max_execution_payment_gwei = Some(max_execution_payment_gwei);
-    let config = to_pbs_config(chain, pbs_config, relays);
-    let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
-
-    let mock_validator = MockValidator::new(pbs_port)?;
-    wait_for_ready(&mock_validator).await?;
+    let mock_validator = setup_pbs(chain, relays, |pbs_config| {
+        pbs_config.max_execution_payment_gwei = Some(max_execution_payment_gwei)
+    })
+    .await?;
 
     info!("Sending get execution payload bid");
     let auth = opaque_auth(&[0xde, 0xad], TEST_SLOT);
-    let res = mock_validator
-        .do_get_execution_payload_bid(TEST_SLOT, B256::ZERO, B256::ZERO, None, Some(&auth), vec![
-            EncodingType::Json,
-        ])
-        .await?;
+    let res = get_json_bid(&mock_validator, &auth).await?;
     assert_eq!(res.status(), expected_code);
     for (state, expected) in states.iter().zip(expected_relay_counts) {
         assert_eq!(state.received_execution_payload_bid(), *expected);

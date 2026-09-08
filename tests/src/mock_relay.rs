@@ -550,25 +550,15 @@ async fn handle_get_execution_payload_bid(
         ..Default::default()
     };
 
-    let object_root = message.tree_hash_root();
-    let signature = if state.epbs_invalid_signature {
-        let wrong_key = random_secret();
-        sign_execution_payload_bid_root(
-            &wrong_key,
-            &object_root,
-            GLOAS_FORK_VERSION,
-            GENESIS_VALIDATORS_ROOT.into(),
-        )
-    } else {
-        sign_execution_payload_bid_root(
-            &state.signer,
-            &object_root,
-            GLOAS_FORK_VERSION,
-            GENESIS_VALIDATORS_ROOT.into(),
-        )
-    };
-
+    let wrong_signer = state.epbs_invalid_signature.then(random_secret);
+    let signature = sign_execution_payload_bid_root(
+        wrong_signer.as_ref().unwrap_or(&state.signer),
+        &message.tree_hash_root(),
+        GLOAS_FORK_VERSION,
+        GENESIS_VALIDATORS_ROOT.into(),
+    );
     let data = SignedExecutionPayloadBid { message, signature };
+    let served_fork = if state.epbs_wrong_fork { ForkName::Capella } else { ForkName::Gloas };
 
     // Negotiate the RESPONSE encoding from the forwarded Accept, mirroring
     // handle_get_header: honor supported_content_types + the caller's Accept.
@@ -598,7 +588,7 @@ async fn handle_get_execution_payload_bid(
         // JSON carries the fork-versioned wrapper (fork is in the body).
         EncodingType::Json => {
             let versioned = GetExecutionPayloadBidResponse {
-                version: if state.epbs_wrong_fork { ForkName::Capella } else { ForkName::Gloas },
+                version: served_fork,
                 data,
                 metadata: Default::default(),
             };
@@ -611,10 +601,10 @@ async fn handle_get_execution_payload_bid(
     // (non-self-describing) SSZ bytes. The omit knob drives the PBS
     // "SSZ response missing Eth-Consensus-Version" error path.
     if !state.epbs_omit_consensus_version {
-        let fork = if state.epbs_wrong_fork { ForkName::Capella } else { ForkName::Gloas };
-        response
-            .headers_mut()
-            .insert(CONSENSUS_VERSION_HEADER, HeaderValue::from_str(&fork.to_string()).unwrap());
+        response.headers_mut().insert(
+            CONSENSUS_VERSION_HEADER,
+            HeaderValue::from_str(&served_fork.to_string()).unwrap(),
+        );
     }
     response
         .headers_mut()
