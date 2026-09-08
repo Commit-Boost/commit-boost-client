@@ -342,7 +342,8 @@ fn project_mux(
     // values, so the key level only governs p2p bids and entries that omit
     // their own. Unset p2p fields fall back to the entry values (uniform doc,
     // today's behavior).
-    let min_bid = resolve_min_bid(input, mux, warnings)?;
+    let min_bid_wei = mux.min_bid_wei.unwrap_or(input.cfg.pbs.pbs_config.min_bid_wei);
+    let min_bid = wei_to_gwei_floor(&mux.id, min_bid_wei, warnings)?.to_string();
     let key_min_bid = match mux.min_bid_p2p_wei.or(input.cfg.pbs.pbs_config.min_bid_p2p_wei) {
         Some(wei) => wei_to_gwei_floor(&mux.id, wei, warnings)?.to_string(),
         None => min_bid.clone(),
@@ -389,22 +390,6 @@ fn project_mux(
         builder_boost_factor: key_boost,
         builders: Some(entries),
     })
-}
-
-/// Per-mux min_bid in Gwei: the MuxConfig `min_bid_wei` when set, else the
-/// global `min_bid_wei`. Wei sources floor-divide with a warning on a sub-Gwei
-/// remainder.
-fn resolve_min_bid(
-    input: &ProjectionInput,
-    mux: &MuxConfig,
-    warnings: &mut Vec<String>,
-) -> Result<String> {
-    let gwei = if let Some(wei) = mux.min_bid_wei {
-        wei_to_gwei_floor(&mux.id, wei, warnings)?
-    } else {
-        wei_to_gwei_floor(&mux.id, input.cfg.pbs.pbs_config.min_bid_wei, warnings)?
-    };
-    Ok(gwei.to_string())
 }
 
 fn wei_to_gwei_floor(mux_id: &str, wei: U256, warnings: &mut Vec<String>) -> Result<u64> {

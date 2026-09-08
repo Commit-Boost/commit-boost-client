@@ -401,18 +401,8 @@ pub async fn load_pbs_config(config_path: Option<PathBuf>) -> Result<(PbsModuleC
         None => (None, None),
     };
 
-    // The ePBS transient pipe (forwarding a bid/preferences request to a
-    // proposer-addressed builder that is not in the relay config) is fail-closed
-    // without advertised_urls: CB cannot tell an unconfigured key's self-URL
-    // default from an external builder, so it will not dial. Warn once at startup
-    // so this reads as a deliberate opt-in, not a silent 400 at request time.
-    if mux_lookup.is_some() && config.pbs.pbs_config.advertised_urls.is_empty() {
-        warn!(
-            "advertised_urls is unset: the ePBS transient pipe is disabled, so a bid or \
-             preferences request addressed to a builder not in your relay config is rejected \
-             with 400. Set advertised_urls to CB's advertised URL(s) to enable forwarding to \
-             proposer-addressed builders."
-        );
+    if mux_lookup.is_some() {
+        warn_if_transient_pipe_disabled(&config.pbs.pbs_config);
     }
 
     // Build the list of all relays, starting with muxes
@@ -505,18 +495,8 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
         None => (None, None),
     };
 
-    // The ePBS transient pipe (forwarding a bid/preferences request to a
-    // proposer-addressed builder that is not in the relay config) is fail-closed
-    // without advertised_urls: CB cannot tell an unconfigured key's self-URL
-    // default from an external builder, so it will not dial. Warn once at startup
-    // so this reads as a deliberate opt-in, not a silent 400 at request time.
-    if mux_lookup.is_some() && cb_config.pbs.static_config.pbs_config.advertised_urls.is_empty() {
-        warn!(
-            "advertised_urls is unset: the ePBS transient pipe is disabled, so a bid or \
-             preferences request addressed to a builder not in your relay config is rejected \
-             with 400. Set advertised_urls to CB's advertised URL(s) to enable forwarding to \
-             proposer-addressed builders."
-        );
+    if mux_lookup.is_some() {
+        warn_if_transient_pipe_disabled(&cb_config.pbs.static_config.pbs_config);
     }
 
     // Build the list of all relays, starting with muxes
@@ -578,6 +558,23 @@ pub async fn load_pbs_custom_config<T: DeserializeOwned>() -> Result<(PbsModuleC
         },
         cb_config.pbs.extra,
     ))
+}
+
+/// The ePBS transient pipe (forwarding a bid/preferences request to a
+/// proposer-addressed builder that is not in the relay config) is fail-closed
+/// without advertised_urls: CB cannot tell an unconfigured key's self-URL
+/// default from an external builder, so it will not dial. Warned once at
+/// startup so this reads as a deliberate opt-in, not a silent 400 at request
+/// time.
+fn warn_if_transient_pipe_disabled(pbs_config: &PbsConfig) {
+    if pbs_config.advertised_urls.is_empty() {
+        warn!(
+            "advertised_urls is unset: the ePBS transient pipe is disabled, so a bid or \
+             preferences request addressed to a builder not in your relay config is rejected \
+             with 400. Set advertised_urls to CB's advertised URL(s) to enable forwarding to \
+             proposer-addressed builders."
+        );
+    }
 }
 
 /// Default URL for the user's SSV node API endpoint (/v1/validators).

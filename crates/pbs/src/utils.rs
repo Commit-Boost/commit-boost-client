@@ -340,11 +340,8 @@ pub(crate) async fn transient_pipe_relay(
         return Err(PbsClientError::AuthDataMismatch);
     };
     if advertised_urls.is_empty() {
-        // Fail closed, but tell the operator why (once, to avoid per-request
-        // spam): without advertised_urls CB cannot distinguish an unconfigured
-        // key's self-URL default from an external builder. Setting advertised_urls
-        // to CB's advertised URL(s) enables forwarding to proposer-addressed
-        // builders. The same condition is warned once at startup in load_pbs_config.
+        // Fail closed; warned once per process here and once at startup in
+        // load_pbs_config, never per request
         static WARNED: AtomicBool = AtomicBool::new(false);
         if !WARNED.swap(true, Ordering::Relaxed) {
             warn!(%url, "advertised_urls is unset: the ePBS transient pipe is disabled, not forwarding to this proposer-addressed builder; set advertised_urls to CB's advertised URL(s) to enable it");
