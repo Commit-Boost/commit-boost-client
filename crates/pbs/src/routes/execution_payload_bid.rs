@@ -23,8 +23,8 @@ use cb_common::{
     types::Chain,
     utils::{ms_into_slot, utcnow_ms},
     wire::{
-        AcceptedEncodings, AcceptedEncodingsError, CONSENSUS_VERSION_HEADER, EncodingType,
-        build_outbound_accept, decode_versioned_request_body, get_accept_types_with_default,
+        CONSENSUS_VERSION_HEADER, EncodingType, OUTBOUND_ACCEPT_JSON_FIRST,
+        OUTBOUND_ACCEPT_SSZ_FIRST, decode_versioned_request_body, get_accept_types_with_default,
         get_user_agent, parse_response_encoding_and_fork, safe_read_http_response,
     },
 };
@@ -49,8 +49,8 @@ use crate::{
     state::{BuilderApiState, PbsState},
     utils::{
         check_gas_limit, epbs_base_send_headers, log_mux_selection, record_beacon_status,
-        record_client_error, resolve_addressed_relays, send_to_relay, validate_auth_data,
-        verify_auth_signature,
+        record_client_error, record_request_failure, resolve_addressed_relays, send_to_relay,
+        validate_auth_data, verify_auth_signature,
     },
 };
 
@@ -79,17 +79,26 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
     let ua = get_user_agent(&req_headers);
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
 
-    // Parse Accept before req_headers is consumed below; server tiebreak = SSZ.
     // No-preference (absent Accept / wildcard) defaults to SSZ; an explicit
-    // Accept header is still obeyed.
+    // Accept header is obeyed. Parsed once here and threaded through: it picks
+    // both the relay-side Accept and the response encoding.
     let response_encoding = get_accept_types_with_default(&req_headers, EncodingType::Ssz)
         .inspect_err(|err| error!(%err, "error parsing accept header"))
         .map_err(|err| record_client_error(err, GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG))?
-        .preferred(&[EncodingType::Ssz, EncodingType::Json]);
+        .primary;
 
     info!(ua, ms_into_slot, "new request");
 
-    match get_execution_payload_bid(params, body, req_headers, state).await {
+    match get_execution_payload_bid(
+        params,
+        body,
+        req_headers,
+        response_encoding,
+        ms_into_slot,
+        state,
+    )
+    .await
+    {
         Ok(Some(max_bid)) => {
             encode_bid_response(max_bid, response_encoding, GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG)
         }
@@ -99,58 +108,41 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
             record_beacon_status("204", GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG);
             Ok(StatusCode::NO_CONTENT.into_response())
         }
-        Err(err) => {
-            // A 4xx is the caller's fault, not CB's: only a 5xx is an error!
-            if err.status_code().is_server_error() {
-                error!(%err, "get_execution_payload_bid failed");
-            } else {
-                warn!(%err, "get_execution_payload_bid failed");
-            }
-            record_beacon_status(
-                err.status_code().as_str(),
-                GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG,
-            );
-            Err(err)
-        }
+        Err(err) => Err(record_request_failure(err, GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG)),
     }
 }
 
 /// Encodes a winning bid into the 200 response for the caller's negotiated
 /// encoding, stamping the required `Eth-Consensus-Version` header and counting
-/// the returned status. The `None` (no supported encoding) arm is unreachable
-/// in practice - `get_accept_types` already 406s an unsupported Accept, and it
-/// is counted here so a request emits exactly one label - but is kept as a
-/// defensive 406.
+/// the returned status.
 fn encode_bid_response(
     max_bid: GetExecutionPayloadBidResponse,
-    response_encoding: Option<EncodingType>,
+    response_encoding: EncodingType,
     endpoint: &str,
 ) -> Result<Response, PbsClientError> {
-    info!(trustless_bid_eth = format_gwei_as_eth(max_bid.value()), execution_payment_eth = format_gwei_as_eth(max_bid.execution_payment()), block_hash =% max_bid.block_hash(), builder_index = max_bid.builder_index(), "received header");
+    info!(
+        trustless_bid_eth = format_gwei_as_eth(max_bid.value()),
+        execution_payment_eth = format_gwei_as_eth(max_bid.execution_payment()),
+        block_hash = %max_bid.block_hash(),
+        builder_index = max_bid.builder_index(),
+        "received header"
+    );
 
     // Eth-Consensus-Version is required on the 200 for both encodings
     let consensus_version_header = HeaderValue::from_str(&max_bid.version.to_string())
         .expect("fork name is always a valid header value");
 
-    match response_encoding {
-        None => {
-            record_beacon_status("406", endpoint);
-            Err(PbsClientError::HeaderError(AcceptedEncodingsError::UnsupportedAcceptType))
-        }
-        Some(EncodingType::Ssz) => {
-            record_beacon_status("200", endpoint);
+    record_beacon_status("200", endpoint);
+    let mut res = match response_encoding {
+        EncodingType::Ssz => {
             let mut res = max_bid.data.as_ssz_bytes().into_response();
-            res.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
             res.headers_mut().insert(CONTENT_TYPE, EncodingType::Ssz.content_type_header().clone());
-            Ok(res)
+            res
         }
-        Some(EncodingType::Json) => {
-            record_beacon_status("200", endpoint);
-            let mut res = axum::Json(max_bid).into_response();
-            res.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
-            Ok(res)
-        }
-    }
+        EncodingType::Json => axum::Json(max_bid).into_response(),
+    };
+    res.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
+    Ok(res)
 }
 
 /// Implements https://ethereum.github.io/builder-specs/?urls.primaryName=dev#/Builder/getExecutionPayloadBid
@@ -160,9 +152,10 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
     params: GetExecutionPayloadBidParams,
     body: Arc<SignedBuilderRequestAuth>,
     req_headers: HeaderMap,
+    response_encoding: EncodingType,
+    ms_into_slot: u64,
     state: PbsState<S>,
 ) -> Result<Option<GetExecutionPayloadBidResponse>, PbsClientError> {
-    let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
     let (pbs_config, relays, maybe_mux_id) = state.mux_config_and_relays(&params.proposer_pubkey);
 
     log_mux_selection(maybe_mux_id, relays.len(), &params.proposer_pubkey);
@@ -226,23 +219,18 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
     // `send_one_get_execution_payload_bid`
     let mut send_headers = epbs_base_send_headers(&req_headers)?;
 
-    // Forward the caller's Accept preference to the relay so it returns the
-    // format the BN wants, avoiding a decode->re-encode. No-preference defaults
-    // to SSZ (this endpoint is SSZ-by-default). Always offer both encodings as
-    // fallback so a format-limited relay still returns a bid.
-    let caller_accept = get_accept_types_with_default(&req_headers, EncodingType::Ssz)
-        .map_err(|_| PbsClientError::Internal)?;
-    let relay_accept = AcceptedEncodings {
-        primary: caller_accept.primary,
-        fallback: Some(match caller_accept.primary {
-            EncodingType::Ssz => EncodingType::Json,
-            EncodingType::Json => EncodingType::Ssz,
-        }),
+    // Ask the relay for the format the BN wants first, avoiding a
+    // decode->re-encode, but always offer the other encoding as fallback so a
+    // format-limited relay still returns a bid.
+    let relay_accept = match response_encoding {
+        EncodingType::Ssz => &OUTBOUND_ACCEPT_SSZ_FIRST,
+        EncodingType::Json => &OUTBOUND_ACCEPT_JSON_FIRST,
     };
-    send_headers.insert(ACCEPT, build_outbound_accept(relay_accept));
+    send_headers.insert(ACCEPT, relay_accept.clone());
 
+    let caps: Vec<u64> = relays.iter().map(|relay| ranking_cap_gwei(relay, pbs_config)).collect();
     let mut handles = Vec::with_capacity(relays.len());
-    for relay in relays.iter() {
+    for (relay, &cap) in relays.iter().zip(&caps) {
         handles.push(
             send_timed_get_execution_payload_bid(
                 params.clone(),
@@ -251,7 +239,7 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
                 send_headers.clone(),
                 ms_into_slot,
                 max_timeout_ms,
-                ranking_cap_gwei(relay, pbs_config),
+                cap,
                 ValidationContext {
                     extra_validation_enabled: state.extra_validation_enabled(),
                     parent_block: parent_block.clone(),
@@ -263,7 +251,7 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
 
     let results = join_all(handles).await;
     let mut relay_bids = Vec::with_capacity(relays.len());
-    for (res, relay) in results.into_iter().zip(relays.iter()) {
+    for ((res, relay), &cap) in results.into_iter().zip(relays.iter()).zip(&caps) {
         let relay_id = relay.id.as_str();
 
         match res {
@@ -272,9 +260,9 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
                 // value() is already gwei (the gauge is labelled gwei), so it is set unscaled
                 RELAY_HEADER_VALUE.with_label_values(&[relay_id]).set(res.value() as i64);
 
-                relay_bids.push((relay_id, res, ranking_cap_gwei(relay, pbs_config)))
+                relay_bids.push((relay_id, res, cap))
             }
-            Ok(_) => {}
+            Ok(None) => {}
             Err(err) if err.is_timeout() => error!(err = "Timed Out", relay_id),
             Err(err) => error!(%err, relay_id),
         }
@@ -411,10 +399,9 @@ fn ranking_payment(bid: &impl GetExecutionPayloadBidInfo, cap_gwei: u64) -> u64 
     bid.value().saturating_add(bid.execution_payment().min(cap_gwei))
 }
 
-// `L` is an opaque label (relay id for the cross-relay layer, request start
-// time for the per-relay in-flight layer) carried through to the winner; the
-// u64 is that bid's relay execution-payment cap in gwei.
-fn select_max_bid<L, I: GetExecutionPayloadBidInfo>(bids: Vec<(L, I, u64)>) -> Option<(L, I)> {
+/// The winner among `(relay id, bid, that relay's execution-payment cap in
+/// gwei)`, ranked by [`ranking_payment`].
+fn select_max_bid<I: GetExecutionPayloadBidInfo>(bids: Vec<(&str, I, u64)>) -> Option<(&str, I)> {
     bids.into_iter()
         .max_by_key(|(_, bid, cap_gwei)| ranking_payment(bid, *cap_gwei))
         .map(|(label, bid, _)| (label, bid))
@@ -549,12 +536,12 @@ async fn send_timed_get_execution_payload_bid(
                 .filter_map(|res| {
                     // ignore join error and timeouts, log other errors
                     res.ok().and_then(|inner_res| match inner_res {
-                        Ok((start_time, Some(header))) => {
+                        Ok(Some(header)) => {
                             n_headers += 1;
-                            Some((start_time, header, ranking_cap_gwei))
+                            Some((relay.id.as_str(), header, ranking_cap_gwei))
                         }
                         // a 204 is the relay answering "no bid", not failing
-                        Ok((_, None)) => {
+                        Ok(None) => {
                             served_no_bid = true;
                             None
                         }
@@ -595,7 +582,6 @@ async fn send_timed_get_execution_payload_bid(
         validation,
     )
     .await
-    .map(|(_, maybe_header)| maybe_header)
 }
 
 struct RequestContext {
@@ -616,9 +602,8 @@ async fn send_one_get_execution_payload_bid(
     relay: RelayClient,
     mut req_config: RequestContext,
     validation: ValidationContext,
-) -> Result<(u64, Option<GetExecutionPayloadBidResponse>), PbsError> {
-    let start_request_time = utcnow_ms();
-    req_config.headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(start_request_time));
+) -> Result<Option<GetExecutionPayloadBidResponse>, PbsError> {
+    req_config.headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(utcnow_ms()));
 
     // The timeout header indicating how long a relay has to respond, so they can
     // minimize timing games without losing the bid
@@ -661,7 +646,7 @@ async fn send_one_get_execution_payload_bid(
             response = ?response_bytes,
             "no header from relay"
         );
-        return Ok((start_request_time, None));
+        return Ok(None);
     }
 
     let get_header_response = match content_type {
@@ -755,7 +740,7 @@ async fn send_one_get_execution_payload_bid(
         }
     }
 
-    Ok((start_request_time, Some(get_header_response)))
+    Ok(Some(get_header_response))
 }
 
 struct HeaderInfo {
@@ -1240,18 +1225,14 @@ mod tests {
     // TOTAL payment, not the latest-started response.
     #[test]
     fn test_inflight_selection_prefers_max_total_not_latest() {
-        // Labels are request start times (utcnow_ms), as in the timing-games path.
-        let early = 1_000u64;
-        let late = 1_050u64;
-        let mid = 1_025u64;
         // Max total is neither first nor last, and the later-started response
         // pays LESS: this fails both latest-wins and first-wins.
         let bids = vec![
-            (late, MockBid { value: 3, execution_payment: 1 }, u64::MAX), // total 4
-            (early, MockBid { value: 10, execution_payment: 5 }, u64::MAX), // total 15 (winner)
-            (mid, MockBid { value: 6, execution_payment: 2 }, u64::MAX),  // total 8
+            ("late", MockBid { value: 3, execution_payment: 1 }, u64::MAX), // total 4
+            ("early", MockBid { value: 10, execution_payment: 5 }, u64::MAX), // total 15 (winner)
+            ("mid", MockBid { value: 6, execution_payment: 2 }, u64::MAX),  // total 8
         ];
-        let (winner_start, _) = select_max_bid(bids).unwrap();
-        assert_eq!(winner_start, early, "must pick highest total, not latest- or first-started");
+        let (winner, _) = select_max_bid(bids).unwrap();
+        assert_eq!(winner, "early", "must pick highest total, not latest- or first-started");
     }
 }
