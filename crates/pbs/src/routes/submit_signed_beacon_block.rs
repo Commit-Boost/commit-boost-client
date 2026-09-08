@@ -1,28 +1,24 @@
-use axum::{
-    body::Bytes,
-    extract::State,
-    http::{HeaderMap, HeaderValue},
-    response::IntoResponse,
-};
+use axum::{body::Bytes, extract::State, http::HeaderMap, response::IntoResponse};
 use cb_common::{
-    pbs::{RelayClient, error::PbsError, is_gloas},
+    pbs::is_gloas,
     wire::{
-        BodyDeserializeError, CONSENSUS_VERSION_HEADER, EncodingType,
-        content_type_encoding_with_default, decode_signed_beacon_block, get_user_agent,
-        require_consensus_version_header,
+        BodyDeserializeError, EncodingType, content_type_encoding_with_default,
+        decode_signed_beacon_block, get_user_agent, require_consensus_version_header,
     },
 };
-use futures::{FutureExt, future::join_all};
 use reqwest::StatusCode;
 use ssz::Encode;
-use tracing::{Instrument, error, info, warn};
+use tracing::{info, warn};
 
 use crate::{
     PbsStateGuard,
     constants::SUBMIT_SIGNED_BEACON_BLOCK_ENDPOINT_TAG,
     error::PbsClientError,
     state::{BuilderApiState, PbsState},
-    utils::{epbs_base_send_headers, post_ssz_expect_accepted, record_beacon_status},
+    utils::{
+        epbs_base_send_headers, join_detached_sends, post_ssz_expect_accepted,
+        record_beacon_status, record_request_failure,
+    },
 };
 
 /// POST /eth/v1/builder/beacon_blocks (submitSignedBeaconBlock).
@@ -44,19 +40,7 @@ pub async fn handle_submit_signed_beacon_block<S: BuilderApiState>(
             record_beacon_status("202", SUBMIT_SIGNED_BEACON_BLOCK_ENDPOINT_TAG);
             Ok(StatusCode::ACCEPTED.into_response())
         }
-        Err(err) => {
-            // A 4xx is the caller's fault, not CB's: only a 5xx is an error!
-            if err.status_code().is_server_error() {
-                error!(%err, "submit_signed_beacon_block failed");
-            } else {
-                warn!(%err, "submit_signed_beacon_block failed");
-            }
-            record_beacon_status(
-                err.status_code().as_str(),
-                SUBMIT_SIGNED_BEACON_BLOCK_ENDPOINT_TAG,
-            );
-            Err(err)
-        }
+        Err(err) => Err(record_request_failure(err, SUBMIT_SIGNED_BEACON_BLOCK_ENDPOINT_TAG)),
     }
 }
 
@@ -73,9 +57,10 @@ pub async fn submit_signed_beacon_block<S: BuilderApiState>(
     let strict = state.pbs_config().strict_block_decode;
     let ua = get_user_agent(&req_headers);
 
-    // Eth-Consensus-Version is spec-required here and names the block's fork: it
-    // labels the outbound SSZ and, under strict decode, selects the variant.
-    let fork = require_consensus_version_header(&req_headers)?;
+    // Eth-Consensus-Version is spec-required here; under strict decode it also
+    // selects the SSZ variant. Only Gloas is accepted, which is the fork the
+    // outbound headers already carry.
+    require_consensus_version_header(&req_headers)?;
 
     let (out_body, slot) = if strict {
         // Strict: CB decodes and rejects a malformed or non-gloas reveal itself.
@@ -108,40 +93,28 @@ pub async fn submit_signed_beacon_block<S: BuilderApiState>(
     }
     info!(ua, ?slot, strict, "new request");
 
-    // Base headers, then stamp the block's fork as the outbound
-    // Eth-Consensus-Version. The header validator accepts Gloas only, so `fork`
-    // is always Gloas today; it is passed through (not hard-coded) so widening
-    // the accepted set later needs no change here.
-    let mut send_headers = epbs_base_send_headers(&req_headers)?;
-    send_headers.insert(
-        CONSENSUS_VERSION_HEADER,
-        HeaderValue::from_str(&fork.to_string()).expect("fork name is always a valid header value"),
-    );
-
+    let send_headers = epbs_base_send_headers(&req_headers)?;
     let timeout_ms = state.pbs_config().timeout_get_payload_ms;
     let relays = state.all_relays();
-    // Spawned like builder_preferences' sends: a BN disconnect must not cancel
-    // in-flight block broadcasts mid-fan-out, leaving some builders with the
-    // block and others without
-    let mut handles = Vec::with_capacity(relays.len());
-    for relay in relays.iter() {
-        handles.push(
-            tokio::spawn(
-                send_one_submit_signed_beacon_block(
-                    relay.clone(),
-                    out_body.clone(),
-                    send_headers.clone(),
-                    timeout_ms,
-                )
-                .in_current_span(),
+    let results = join_detached_sends(relays.iter().map(|relay| {
+        let (relay, body, headers) = (relay.clone(), out_body.clone(), send_headers.clone());
+        async move {
+            // Every builder implements SSZ for this new endpoint, so the block is
+            // forwarded in SSZ (the fork travels in Eth-Consensus-Version).
+            let url = relay.submit_signed_beacon_block_url()?;
+            post_ssz_expect_accepted(
+                &relay,
+                url,
+                body,
+                headers,
+                timeout_ms,
+                SUBMIT_SIGNED_BEACON_BLOCK_ENDPOINT_TAG,
             )
-            .map(|join_result| {
-                join_result.unwrap_or_else(|err| Err(PbsError::TokioJoinError(err)))
-            }),
-        );
-    }
-
-    let results = join_all(handles).await;
+            .await?;
+            Ok(())
+        }
+    }))
+    .await;
     let accepted = results
         .into_iter()
         .zip(relays.iter())
@@ -161,27 +134,5 @@ pub async fn submit_signed_beacon_block<S: BuilderApiState>(
         return Err(PbsClientError::NoBuilderResponse);
     }
     info!(accepted, addressed = relays.len(), "signed beacon block submitted");
-    Ok(())
-}
-
-async fn send_one_submit_signed_beacon_block(
-    relay: RelayClient,
-    body: Bytes,
-    headers: HeaderMap,
-    timeout_ms: u64,
-) -> Result<(), PbsError> {
-    let url = relay.submit_signed_beacon_block_url()?;
-
-    // Every builder implements SSZ for this new endpoint, so the block is
-    // forwarded in SSZ (the fork travels in Eth-Consensus-Version).
-    post_ssz_expect_accepted(
-        &relay,
-        url,
-        body,
-        headers,
-        timeout_ms,
-        SUBMIT_SIGNED_BEACON_BLOCK_ENDPOINT_TAG,
-    )
-    .await?;
     Ok(())
 }

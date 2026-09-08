@@ -1,4 +1,5 @@
 use std::{
+    future::Future,
     sync::{
         OnceLock,
         atomic::{AtomicBool, Ordering},
@@ -16,11 +17,12 @@ use cb_common::{
         safe_read_http_response,
     },
 };
+use futures::future::join_all;
 use reqwest::{
     StatusCode,
     header::{CONTENT_TYPE, HeaderMap, HeaderValue, USER_AGENT},
 };
-use tracing::{debug, warn};
+use tracing::{Instrument, debug, error, warn};
 use url::Url;
 
 use crate::{
@@ -80,6 +82,36 @@ pub(crate) fn record_beacon_status(code: &str, endpoint: &str) {
     crate::metrics::BEACON_NODE_STATUS.with_label_values(&[code, endpoint]).inc();
 }
 
+/// Logs and counts a failed ePBS request before it is returned to the beacon
+/// node. A 4xx is the caller's fault, not CB's: only a 5xx is an error.
+pub(crate) fn record_request_failure(err: PbsClientError, endpoint: &str) -> PbsClientError {
+    if err.status_code().is_server_error() {
+        error!(%err, "{endpoint} failed");
+    } else {
+        warn!(%err, "{endpoint} failed");
+    }
+    record_beacon_status(err.status_code().as_str(), endpoint);
+    err
+}
+
+/// Fans `sends` out on detached tasks and waits for all of them: a BN
+/// disconnect must not cancel in-flight writes mid-fan-out, leaving some
+/// builders with the data and others without.
+pub(crate) async fn join_detached_sends<F>(
+    sends: impl IntoIterator<Item = F>,
+) -> Vec<Result<(), PbsError>>
+where
+    F: Future<Output = Result<(), PbsError>> + Send + 'static,
+{
+    let handles: Vec<_> =
+        sends.into_iter().map(|send| tokio::spawn(send.in_current_span())).collect();
+    join_all(handles)
+        .await
+        .into_iter()
+        .map(|joined| joined.unwrap_or_else(|err| Err(PbsError::TokioJoinError(err))))
+        .collect()
+}
+
 /// Logs which relay set an ePBS demux request resolved to (a mux's relays or
 /// the default set), shared by the bid and preferences endpoints.
 pub(crate) fn log_mux_selection(
@@ -100,19 +132,6 @@ pub(crate) fn log_mux_selection(
 /// HTTP status).
 pub(crate) fn record_invalid_relay_response(reason: &str, endpoint: &str, relay_id: &str) {
     crate::metrics::RELAY_INVALID_RESPONSE.with_label_values(&[reason, endpoint, relay_id]).inc();
-}
-
-/// The ePBS write endpoints (`submitBuilderPreferences`,
-/// `submitSignedBeaconBlock`) make 202 Accepted the only success: any other
-/// status means the builder did not commit. One home for that rule.
-pub(crate) fn expect_status(code: StatusCode, expected: StatusCode) -> Result<(), PbsError> {
-    if code != expected {
-        return Err(PbsError::RelayResponse {
-            error_msg: format!("expected {}", expected.as_u16()),
-            code: code.as_u16(),
-        });
-    }
-    Ok(())
 }
 
 /// POSTs an SSZ body to a builder and enforces the ePBS write-endpoint
@@ -138,17 +157,20 @@ pub(crate) async fn post_ssz_expect_accepted(
     let (res, latency) = send_to_relay(req, relay, tag).await?;
     let code = res.status();
     safe_read_http_response(res, MAX_SIZE_DEFAULT).await?;
-    expect_status(code, StatusCode::ACCEPTED)?;
+    if code != StatusCode::ACCEPTED {
+        return Err(PbsError::RelayResponse {
+            error_msg: "expected 202".to_string(),
+            code: code.as_u16(),
+        });
+    }
     Ok(latency)
 }
 
 /// Base outbound headers shared by the ePBS endpoints: the versioned
 /// `User-Agent` and `Eth-Consensus-Version`. All three relay hops send SSZ
-/// bodies of fork-versioned wire types, so the builder needs the fork header;
-/// it defaults to Gloas here and callers may override it
-/// (submit_signed_beacon_block overwrites it with the inbound request's fork).
-/// Callers add their endpoint-specific headers (bid adds `Accept` and the
-/// timing headers).
+/// bodies of fork-versioned wire types, so the builder needs the fork header,
+/// and all three are Gloas-only. Callers add their endpoint-specific headers
+/// (bid adds `Accept` and the timing headers).
 pub(crate) fn epbs_base_send_headers(req_headers: &HeaderMap) -> Result<HeaderMap, PbsClientError> {
     let mut headers = HeaderMap::new();
     headers.insert(
@@ -368,10 +390,6 @@ pub(crate) async fn transient_pipe_relay(
     }
 
     let config = RelayConfig {
-        // Fixed sentinel id: this id becomes the `relay_id` metric label, and
-        // the host comes from an untrusted URL, so deriving the label from it
-        // would let an attacker spray unbounded Prometheus series. The real URL
-        // is still dialed via `entry.url`.
         entry: RelayEntry {
             id: PIPE_RELAY_ID.to_string(),
             pubkey: pipe_relay_placeholder_pubkey(),

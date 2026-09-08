@@ -12,10 +12,9 @@ use cb_common::{
     types::Chain,
     wire::{decode_versioned_request_body, get_user_agent},
 };
-use futures::{FutureExt, future::join_all};
 use reqwest::StatusCode;
 use ssz::Encode;
-use tracing::{Instrument, debug, error, info, warn};
+use tracing::{debug, error, info};
 
 use crate::{
     PbsStateGuard,
@@ -23,8 +22,9 @@ use crate::{
     error::PbsClientError,
     state::{BuilderApiState, PbsState},
     utils::{
-        epbs_base_send_headers, log_mux_selection, post_ssz_expect_accepted, record_beacon_status,
-        record_client_error, resolve_addressed_relays, validate_auth_data, verify_auth_signature,
+        epbs_base_send_headers, join_detached_sends, log_mux_selection, post_ssz_expect_accepted,
+        record_beacon_status, record_client_error, record_request_failure,
+        resolve_addressed_relays, validate_auth_data, verify_auth_signature,
     },
 };
 
@@ -57,19 +57,7 @@ pub async fn handle_submit_builder_preferences<S: BuilderApiState>(
             record_beacon_status("202", SUBMIT_BUILDER_PREFERENCES_ENDPOINT_TAG);
             Ok(StatusCode::ACCEPTED.into_response())
         }
-        Err(err) => {
-            // A 4xx is the caller's fault, not CB's: only a 5xx is an error!
-            if err.status_code().is_server_error() {
-                error!(%err, "submit_builder_preferences failed");
-            } else {
-                warn!(%err, "submit_builder_preferences failed");
-            }
-            record_beacon_status(
-                err.status_code().as_str(),
-                SUBMIT_BUILDER_PREFERENCES_ENDPOINT_TAG,
-            );
-            Err(err)
-        }
+        Err(err) => Err(record_request_failure(err, SUBMIT_BUILDER_PREFERENCES_ENDPOINT_TAG)),
     }
 }
 
@@ -103,33 +91,24 @@ pub async fn submit_builder_preferences<S: BuilderApiState>(
 
     let send_headers = epbs_base_send_headers(&req_headers)?;
 
+    // The builder decodes what the proposer signed either way, and SSZ is the
+    // faster wire format on the relay hop; encoded once, shared by every send
+    let body = Bytes::from(request.as_ssz_bytes());
+
     // Preferences are submitted an epoch ahead, so they share the registration
     // timeout rather than the block-production one
     let timeout_ms = pbs_config.timeout_register_validator_ms;
 
-    // Spawned like register_validator's sends: a BN disconnect must not cancel
-    // in-flight writes mid-fan-out, leaving some builders with the prefs and
-    // others without
-    let mut handles = Vec::with_capacity(relays.len());
-    for relay in relays.iter() {
-        handles.push(
-            tokio::spawn(
-                send_one_submit_builder_preferences(
-                    params.proposer_pubkey.clone(),
-                    request.clone(),
-                    relay.clone(),
-                    send_headers.clone(),
-                    timeout_ms,
-                )
-                .in_current_span(),
-            )
-            .map(|join_result| {
-                join_result.unwrap_or_else(|err| Err(PbsError::TokioJoinError(err)))
-            }),
-        );
-    }
-
-    let results = join_all(handles).await;
+    let results = join_detached_sends(relays.iter().map(|relay| {
+        send_one_submit_builder_preferences(
+            params.proposer_pubkey.clone(),
+            body.clone(),
+            relay.clone(),
+            send_headers.clone(),
+            timeout_ms,
+        )
+    }))
+    .await;
     let mut accepted = 0;
     let mut lone_rejection = None;
     for (res, relay) in results.into_iter().zip(relays.iter()) {
@@ -183,19 +162,17 @@ fn validate_preferences_auth(
 
 async fn send_one_submit_builder_preferences(
     proposer_pubkey: cb_common::types::BlsPublicKey,
-    request: BuilderPreferencesRequest,
+    body: Bytes,
     relay: RelayClient,
     headers: HeaderMap,
     timeout_ms: u64,
 ) -> Result<(), PbsError> {
     let url = relay.submit_builder_preferences_url(&proposer_pubkey)?;
 
-    // The builder decodes what the proposer signed either way, and SSZ is the
-    // faster wire format on the relay hop
     let request_latency = post_ssz_expect_accepted(
         &relay,
         url,
-        request.as_ssz_bytes(),
+        body,
         headers,
         timeout_ms,
         SUBMIT_BUILDER_PREFERENCES_ENDPOINT_TAG,
@@ -219,6 +196,19 @@ mod tests {
 
     fn current_slot(chain: Chain) -> u64 {
         (utcnow_sec() - chain.genesis_time_sec()) / chain.slot_time_sec()
+    }
+
+    fn sample_request() -> BuilderPreferencesRequest {
+        BuilderPreferencesRequest {
+            auth: SignedBuilderRequestAuth {
+                message: BuilderRequestAuth {
+                    data: Default::default(),
+                    slot: lh_types::Slot::new(3),
+                },
+                signature: BlsSignature::empty(),
+            },
+            preferences: BuilderPreferences { max_execution_payment: 7 },
+        }
     }
 
     // Empty `auth.message.data` is rejected before sigverify, so it cannot slip
@@ -260,17 +250,7 @@ mod tests {
     /// and `Eth-Consensus-Version` is required regardless of encoding.
     #[test]
     fn decode_defaults_to_ssz_without_a_content_type() {
-        let request = BuilderPreferencesRequest {
-            auth: SignedBuilderRequestAuth {
-                message: BuilderRequestAuth {
-                    data: Default::default(),
-                    slot: lh_types::Slot::new(3),
-                },
-                signature: BlsSignature::empty(),
-            },
-            preferences: BuilderPreferences { max_execution_payment: 7 },
-        };
-        let body = Bytes::from(request.as_ssz_bytes());
+        let body = Bytes::from(sample_request().as_ssz_bytes());
 
         // Missing the header, the SSZ-default body is rejected, not misparsed
         let err =
@@ -317,17 +297,7 @@ mod tests {
     /// `submitSignedBeaconBlock` too — no endpoint is lenient.
     #[test]
     fn decode_rejects_json_without_the_version_header() {
-        let request = BuilderPreferencesRequest {
-            auth: SignedBuilderRequestAuth {
-                message: BuilderRequestAuth {
-                    data: Default::default(),
-                    slot: lh_types::Slot::new(3),
-                },
-                signature: BlsSignature::empty(),
-            },
-            preferences: BuilderPreferences { max_execution_payment: 7 },
-        };
-        let body = Bytes::from(serde_json::to_vec(&request).unwrap());
+        let body = Bytes::from(serde_json::to_vec(&sample_request()).unwrap());
 
         let mut headers = HeaderMap::new();
         headers.insert(
@@ -347,16 +317,7 @@ mod tests {
     /// names the value rather than claiming the header is missing.
     #[test]
     fn decode_rejects_an_unrecognized_fork_value() {
-        let request = BuilderPreferencesRequest {
-            auth: SignedBuilderRequestAuth {
-                message: BuilderRequestAuth {
-                    data: Default::default(),
-                    slot: lh_types::Slot::new(3),
-                },
-                signature: BlsSignature::empty(),
-            },
-            preferences: BuilderPreferences { max_execution_payment: 7 },
-        };
+        let request = sample_request();
         for (ct, body) in [
             ("application/json", Bytes::from(serde_json::to_vec(&request).unwrap())),
             ("application/octet-stream", Bytes::from(request.as_ssz_bytes())),
