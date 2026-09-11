@@ -31,6 +31,19 @@ use docker_compose_types::{
 use eyre::Result;
 use indexmap::IndexMap;
 
+/// A host path as a compose bind-mount source. Compose reads a source with no
+/// `/` or `./` prefix as a NAMED VOLUME, so a relative path needs the prefix;
+/// an absolute one must be passed through, or it is resolved against the
+/// project directory and docker creates a root-owned directory there.
+fn compose_bind_source(path: &Path) -> String {
+    let source = path.display().to_string();
+    if path.is_absolute() || source.starts_with("./") || source.starts_with("../") {
+        source
+    } else {
+        format!("./{source}")
+    }
+}
+
 /// Name of the docker compose file
 pub const CB_COMPOSE_FILE: &str = "cb.docker-compose.yml";
 /// Name of the envs file
@@ -91,8 +104,8 @@ pub async fn handle_docker_init(config_path: PathBuf, output_dir: PathBuf) -> Re
     let mut service_config = ServiceCreationInfo {
         config_info: CommitBoostConfigInfo {
             config_volume: Volumes::Simple(format!(
-                "./{}:{}:ro",
-                config_path.display(),
+                "{}:{}:ro",
+                compose_bind_source(&config_path),
                 CONFIG_DEFAULT
             )),
             cb_config: CommitBoostConfig::from_file(&config_path)?,
@@ -953,6 +966,18 @@ mod tests {
     }
 
     // --- get_env_val ---
+
+    /// Compose reads a bare source as a named volume, so a relative path keeps
+    /// the `./` prefix; an absolute one must NOT get it, or compose resolves
+    /// `.//abs/path` against the project directory and docker creates a
+    /// root-owned directory there instead of mounting the file.
+    #[test]
+    fn test_compose_bind_source_prefixes_only_relative_paths() {
+        assert_eq!(compose_bind_source(Path::new("cb-config.toml")), "./cb-config.toml");
+        assert_eq!(compose_bind_source(Path::new("./cb-config.toml")), "./cb-config.toml");
+        assert_eq!(compose_bind_source(Path::new("../cb-config.toml")), "../cb-config.toml");
+        assert_eq!(compose_bind_source(Path::new("/etc/cb/config.toml")), "/etc/cb/config.toml");
+    }
 
     #[test]
     fn test_get_env_val_returns_string_pair() {
