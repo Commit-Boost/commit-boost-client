@@ -42,10 +42,13 @@ use url::Url;
 use super::get_header::{RequestInfo, validate_get_header_response};
 use crate::{
     constants::{
-        GET_HEADER_ENDPOINT_TAG, MAX_SIZE_GET_HEADER_RESPONSE, TIMEOUT_ERROR_CODE,
-        TRANSPORT_ERROR_CODE,
+        GET_HEADER_STREAM_ENDPOINT_TAG, MAX_SIZE_GET_HEADER_RESPONSE, TIMEOUT_ERROR_STATUS,
+        TRANSPORT_ERROR_STATUS,
     },
-    metrics::{RELAY_LATENCY, RELAY_STATUS_CODE},
+    metrics::{
+        RELAY_LATENCY, RELAY_STATUS_CODE, RELAY_STREAM_CONNECT_LATENCY,
+        RELAY_STREAM_INVALID_FRAMES, RELAY_STREAM_UPDATES,
+    },
     mev_boost::get_header::decode_ssz_payload,
 };
 
@@ -82,7 +85,7 @@ pub(super) async fn get_header_ws(
 ) -> Result<Option<GetHeaderResponse>, PbsError> {
     let (status, res) = stream_header(request_info, relay, url, timeout_ms).await;
     RELAY_STATUS_CODE
-        .with_label_values(&[status.as_str(), GET_HEADER_ENDPOINT_TAG, &relay.id])
+        .with_label_values(&[status.as_str(), GET_HEADER_STREAM_ENDPOINT_TAG, &relay.id])
         .inc();
     res
 }
@@ -96,7 +99,7 @@ async fn stream_header(
     let deadline = Instant::now() + Duration::from_millis(timeout_ms);
     let request = match build_handshake_request(request_info, relay, &url, timeout_ms) {
         Ok(request) => request,
-        Err(err) => return (StatusCode::from_u16(TRANSPORT_ERROR_CODE).unwrap(), Err(err)),
+        Err(err) => return (TRANSPORT_ERROR_STATUS, Err(err)),
     };
 
     let config = WebSocketConfig::default()
@@ -114,13 +117,13 @@ async fn stream_header(
         Ok(Ok(connected)) => connected,
         Ok(Err(err)) => return connect_failed(&err),
         Err(_) => {
-            return (
-                StatusCode::from_u16(TIMEOUT_ERROR_CODE).unwrap(),
-                Err(PbsError::WebSocketTimeout),
-            );
+            return (TIMEOUT_ERROR_STATUS, Err(PbsError::WebSocketTimeout));
         }
     };
     let connect_latency = start_request.elapsed();
+    RELAY_STREAM_CONNECT_LATENCY
+        .with_label_values(&[relay.id.as_str()])
+        .observe(connect_latency.as_secs_f64());
     debug!(relay_id = relay.id.as_ref(), ?connect_latency, "ws connected");
 
     let timer = sleep_until(deadline);
@@ -174,9 +177,16 @@ async fn stream_header(
 
     drop(stream);
 
+    RELAY_STREAM_UPDATES.with_label_values(&[relay.id.as_str()]).observe(updates as f64);
+    if invalid_frames > 0 {
+        RELAY_STREAM_INVALID_FRAMES
+            .with_label_values(&[relay.id.as_str()])
+            .inc_by(invalid_frames as u64);
+    }
+
     let Some((fork, bid_bytes)) = latest else {
         if let Some(err) = stream_error {
-            return (StatusCode::from_u16(TRANSPORT_ERROR_CODE).unwrap(), Err(err));
+            return (TRANSPORT_ERROR_STATUS, Err(err));
         }
 
         debug!(relay_id = relay.id.as_ref(), ?connect_latency, invalid_frames, "no header");
@@ -185,7 +195,7 @@ async fn stream_header(
 
     if let Some(first_bid_latency) = first_bid_latency {
         RELAY_LATENCY
-            .with_label_values(&[GET_HEADER_ENDPOINT_TAG, &relay.id])
+            .with_label_values(&[GET_HEADER_STREAM_ENDPOINT_TAG, &relay.id])
             .observe(first_bid_latency.as_secs_f64());
     }
 
@@ -224,10 +234,7 @@ async fn stream_header(
 /// the headers, so it can be partial or empty.
 fn connect_failed(err: &WsError) -> StreamOutcome {
     let WsError::Http(res) = err else {
-        return (
-            StatusCode::from_u16(TRANSPORT_ERROR_CODE).unwrap(),
-            Err(PbsError::WebSocketConnect(err.to_string())),
-        );
+        return (TRANSPORT_ERROR_STATUS, Err(PbsError::WebSocketConnect(err.to_string())));
     };
 
     let code = res.status();
@@ -237,6 +244,9 @@ fn connect_failed(err: &WsError) -> StreamOutcome {
     } else {
         format!("rejected with {code}: {}", String::from_utf8_lossy(body))
     };
+
+    // A 2xx handshake answer is a failed connect, not a delivered bid
+    let code = if code.is_success() { TRANSPORT_ERROR_STATUS } else { code };
 
     (code, Err(PbsError::WebSocketConnect(msg)))
 }
@@ -374,8 +384,30 @@ mod tests {
         assert_eq!(status, StatusCode::NOT_FOUND);
 
         let (status, res) = connect_failed(&WsError::ConnectionClosed);
-        assert_eq!(status, StatusCode::from_u16(TRANSPORT_ERROR_CODE).unwrap());
+        assert_eq!(status, TRANSPORT_ERROR_STATUS);
         assert!(matches!(res, Err(PbsError::WebSocketConnect(_))));
+    }
+
+    // A url pointing at a plain http endpoint answers the handshake 200. That
+    // is the code the stream series uses for a delivered bid, so a failed
+    // handshake must never carry it.
+    #[test]
+    fn test_connect_failed_never_reports_a_success_code() {
+        for code in [200u16, 204, 299] {
+            let answered = axum::http::Response::builder().status(code).body(None).unwrap();
+            let (status, res) = connect_failed(&WsError::Http(Box::new(answered)));
+            assert_eq!(
+                status, TRANSPORT_ERROR_STATUS,
+                "handshake answered {code} counted as a served stream"
+            );
+            let Err(PbsError::WebSocketConnect(msg)) = res else { panic!("wrong outcome") };
+            assert!(msg.contains(&code.to_string()), "{msg}");
+        }
+
+        // A relay's own rejection code still reaches the series unchanged
+        let moved = axum::http::Response::builder().status(302).body(None).unwrap();
+        let (status, _) = connect_failed(&WsError::Http(Box::new(moved)));
+        assert_eq!(status, StatusCode::FOUND);
     }
 
     #[test]
