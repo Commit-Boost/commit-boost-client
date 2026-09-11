@@ -86,7 +86,12 @@ mux_registry_refresh_interval_seconds = 384
 id = "example-relay"
 # Relay URL in the format scheme://pubkey@host
 url = "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz"
-# Headers to send with each request for this relay
+# Headers to send with each request for this relay, which is how a relay api key is supplied.
+# A value is written one of three ways:
+#   literal  -> headers = { X-Api-Key = "my-api-key" }
+#   file     -> headers = { X-Api-Key = { file = "/run/secrets/relay-key" } }
+#   env      -> headers = { X-Api-Key = { env = "RELAY_API_KEY" } }
+# A file or env value is read at startup and on every config reload (see the configuration docs).
 # OPTIONAL
 headers = { X-MyCustomHeader = "MyCustomValue" }
 # GET parameters to add to each request URL for this relay

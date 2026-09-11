@@ -1,4 +1,7 @@
-use std::path::PathBuf;
+use std::{
+    collections::BTreeSet,
+    path::{Path, PathBuf},
+};
 
 use eyre::{Result, bail};
 use serde::{Deserialize, Serialize};
@@ -127,6 +130,23 @@ impl CommitBoostConfig {
             }
             Err(_) => None,
         }
+    }
+
+    /// Every custom header value configured on a relay, default or mux
+    fn relay_header_sources(&self) -> impl Iterator<Item = &HeaderSource> {
+        let mux_relays = self.muxes.iter().flat_map(|m| m.muxes.iter()).flat_map(|m| &m.relays);
+        self.relays
+            .iter()
+            .chain(mux_relays)
+            .flat_map(|relay| relay.headers.iter().flat_map(|headers| headers.values()))
+    }
+
+    pub fn relay_header_files(&self) -> BTreeSet<&Path> {
+        self.relay_header_sources().filter_map(HeaderSource::as_file).collect()
+    }
+
+    pub fn relay_header_envs(&self) -> BTreeSet<&str> {
+        self.relay_header_sources().filter_map(HeaderSource::as_env).collect()
     }
 
     /// Helper to return if the signer module is needed based on the config

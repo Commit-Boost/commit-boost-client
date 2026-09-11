@@ -70,11 +70,10 @@ pub fn decode_string_to_map(raw: &str) -> Result<HashMap<ModuleId, String>> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod test_env {
     use std::sync::Mutex;
 
-    use super::*;
-    use crate::utils::TestRandomSeed;
+    pub(crate) const RELAY_URL: &str = "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz";
 
     // Serializes all tests that read/write environment variables.
     // std::env::set_var is unsafe (Rust 1.81+) because mutating `environ`
@@ -84,7 +83,7 @@ mod tests {
 
     /// Sets or removes env vars for the duration of `f`, then restores the
     /// original values.  Pass `Some("val")` to set, `None` to ensure absent.
-    fn with_env<R>(vars: &[(&str, Option<&str>)], f: impl FnOnce() -> R) -> R {
+    pub(crate) fn with_env<R>(vars: &[(&str, Option<&str>)], f: impl FnOnce() -> R) -> R {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let saved: Vec<(&str, Option<String>)> =
             vars.iter().map(|(k, _)| (*k, std::env::var(k).ok())).collect();
@@ -103,6 +102,12 @@ mod tests {
         }
         result
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{test_env::with_env, *};
+    use crate::utils::TestRandomSeed;
 
     // Minimal TOML-deserializable type used by load_from_file / load_file_from_env
     // tests.
