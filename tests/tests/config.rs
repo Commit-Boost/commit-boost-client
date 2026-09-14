@@ -1,7 +1,11 @@
 use std::{net::Ipv4Addr, path::PathBuf};
 
 use alloy::primitives::U256;
-use cb_common::{config::CommitBoostConfig, types::Chain, utils::WEI_PER_ETH};
+use cb_common::{
+    config::{CommitBoostConfig, HeaderSource},
+    types::Chain,
+    utils::WEI_PER_ETH,
+};
 use eyre::Result;
 use url::Url;
 
@@ -32,7 +36,7 @@ async fn test_load_pbs_happy() -> Result<()> {
     assert_eq!(config.chain, Chain::Holesky);
     assert_eq!(
         config.relays[0].headers.as_ref().unwrap().get("X-MyCustomHeader").unwrap(),
-        "MyCustomHeader"
+        &HeaderSource::Literal("MyCustomHeader".into())
     );
 
     // Docker and general settings

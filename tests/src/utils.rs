@@ -1,15 +1,15 @@
 use std::{
     collections::HashMap,
     net::{Ipv4Addr, SocketAddr},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, Once},
 };
 
 use alloy::primitives::{B256, U256};
 use cb_common::{
     config::{
-        COMMIT_BOOST_IMAGE_DEFAULT, CommitBoostConfig, GetHeaderTransport, LogsSettings,
-        ModuleKind, ModuleSigningConfig, PbsConfig, PbsModuleConfig, RelayConfig,
+        COMMIT_BOOST_IMAGE_DEFAULT, CommitBoostConfig, GetHeaderTransport, HeaderSource,
+        LogsSettings, ModuleKind, ModuleSigningConfig, PbsConfig, PbsModuleConfig, RelayConfig,
         ReverseProxyHeaderSetup, SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT,
         SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT, SIGNER_PORT_DEFAULT, SignerConfig,
         SignerType, StartSignerConfig, StaticModuleConfig, StaticPbsConfig, TlsMode,
@@ -53,7 +53,10 @@ fn mock_relay_config(port: u16, pubkey: BlsPublicKey) -> Result<RelayConfig> {
             url: get_local_address(port).parse()?,
         },
         id: None,
-        headers: Some(HashMap::from([(HEADER_API_KEY.into(), API_KEY.into())])),
+        headers: Some(HashMap::from([(
+            HEADER_API_KEY.into(),
+            HeaderSource::Literal(API_KEY.into()),
+        )])),
         get_params: None,
         get_header: GetHeaderTransport::Http,
         enable_timing_games: false,
@@ -77,13 +80,16 @@ pub fn generate_mock_relay_with_batch_size(
     RelayClient::new(config)
 }
 
-pub fn generate_mock_relay_with_api_key(
+/// A relay whose api key is read from `path` instead of written in the config
+pub fn generate_mock_relay_with_api_key_file(
     port: u16,
     pubkey: BlsPublicKey,
-    api_key: &str,
+    path: &Path,
 ) -> Result<RelayClient> {
     let mut config = mock_relay_config(port, pubkey)?;
-    config.headers = Some(HashMap::from([(HEADER_API_KEY.into(), api_key.into())]));
+    config.headers = Some(HashMap::from([(HEADER_API_KEY.into(), HeaderSource::File {
+        file: path.to_path_buf(),
+    })]));
     RelayClient::new(config)
 }
 

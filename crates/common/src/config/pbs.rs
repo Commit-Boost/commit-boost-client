@@ -2,8 +2,11 @@
 
 use std::{
     collections::HashMap,
+    fmt,
+    fs::File,
+    io::Read,
     net::{Ipv4Addr, SocketAddr},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
 };
 
@@ -12,13 +15,13 @@ use alloy::{
     providers::{Provider, ProviderBuilder},
 };
 use docker_image::DockerImage;
-use eyre::{Result, ensure};
+use eyre::{Context, Result, ensure};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use url::Url;
 
 use super::{
-    CommitBoostConfig, HTTP_TIMEOUT_SECONDS_DEFAULT, PBS_ENDPOINT_ENV, RuntimeMuxConfig,
-    load_optional_env_var,
+    CommitBoostConfig, HTTP_TIMEOUT_SECONDS_DEFAULT, PBS_ENDPOINT_ENV, RELAY_HEADER_FILE_MAX_BYTES,
+    RuntimeMuxConfig, load_optional_env_var,
 };
 use crate::{
     commit::client::SignerClient,
@@ -46,6 +49,76 @@ pub enum GetHeaderTransport {
     Stream,
 }
 
+/// A custom relay header value: a literal, or a secret read from a file or an
+/// environment variable when the relay client is built (at startup and on every
+/// reload), so an API key never has to sit in plaintext in the config file.
+///
+/// ```toml
+/// headers = { X-Api-Key = "literal" }
+/// headers = { X-Api-Key = { file = "/run/secrets/relay-key" } }
+/// headers = { X-Api-Key = { env = "RELAY_KEY" } }
+/// ```
+#[derive(Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum HeaderSource {
+    Literal(String),
+    File { file: PathBuf },
+    Env { env: String },
+}
+
+impl HeaderSource {
+    /// The header value to send. A file or env value has its trailing
+    /// whitespace dropped (secret stores write a newline) and must be
+    /// non-empty; a literal is sent as written.
+    pub fn resolve(&self) -> Result<String> {
+        let value = match self {
+            Self::Literal(value) => return Ok(value.clone()),
+            Self::File { file } => read_secret_file(file)?,
+            Self::Env { env } => load_env_var(env)?,
+        };
+        let value = value.trim_end().to_string();
+        ensure!(!value.is_empty(), "header value from {self:?} is empty");
+        Ok(value)
+    }
+
+    pub(crate) fn as_file(&self) -> Option<&Path> {
+        match self {
+            Self::File { file } => Some(file),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn as_env(&self) -> Option<&str> {
+        match self {
+            Self::Env { env } => Some(env),
+            _ => None,
+        }
+    }
+}
+
+// A literal is often the secret itself, so Debug never prints it
+impl fmt::Debug for HeaderSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Literal(_) => f.write_str("Literal(<redacted>)"),
+            Self::File { file } => write!(f, "File({file:?})"),
+            Self::Env { env } => write!(f, "Env({env})"),
+        }
+    }
+}
+
+fn read_secret_file(file: &Path) -> Result<String> {
+    let mut value = String::new();
+    File::open(file)
+        .and_then(|f| f.take(RELAY_HEADER_FILE_MAX_BYTES + 1).read_to_string(&mut value))
+        .wrap_err_with(|| format!("unable to read header file {file:?}"))?;
+    ensure!(
+        value.len() as u64 <= RELAY_HEADER_FILE_MAX_BYTES,
+        "header file {file:?} is larger than {RELAY_HEADER_FILE_MAX_BYTES} bytes"
+    );
+    Ok(value)
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RelayConfig {
@@ -55,7 +128,7 @@ pub struct RelayConfig {
     #[serde(rename = "url")]
     pub entry: RelayEntry,
     /// Optional headers to send with each request
-    pub headers: Option<HashMap<String, String>>,
+    pub headers: Option<HashMap<String, HeaderSource>>,
     /// Optional GET parameters to add to each request
     pub get_params: Option<HashMap<String, String>>,
     /// How to fetch headers from this relay
@@ -461,4 +534,104 @@ fn default_ssv_node_api_url() -> Url {
 /// Default URL for the public SSV network API.
 fn default_public_ssv_api_url() -> Url {
     Url::parse("https://api.ssv.network/api/v4/").expect("default URL is valid")
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+
+    use super::*;
+    use crate::config::test_env::{RELAY_URL, with_env};
+
+    fn relay_with_headers(headers: &str) -> Result<RelayConfig, toml::de::Error> {
+        toml::from_str(&format!("url = \"{RELAY_URL}\"\nheaders = {headers}\n"))
+    }
+
+    #[test]
+    fn test_header_source_parses_all_shapes() {
+        let config = relay_with_headers(
+            r#"{ X-Literal = "plain", X-File = { file = "/run/secrets/key" }, X-Env = { env = "RELAY_KEY" } }"#,
+        )
+        .unwrap();
+        let headers = config.headers.as_ref().unwrap();
+        assert_eq!(headers["X-Literal"], HeaderSource::Literal("plain".into()));
+        assert_eq!(headers["X-File"], HeaderSource::File { file: "/run/secrets/key".into() });
+        assert_eq!(headers["X-Env"], HeaderSource::Env { env: "RELAY_KEY".into() });
+        assert_eq!(headers["X-File"].as_file(), Some(Path::new("/run/secrets/key")));
+        assert_eq!(headers["X-Env"].as_env(), Some("RELAY_KEY"));
+        assert_eq!(headers["X-Literal"].as_file(), None);
+        assert_eq!(headers["X-Literal"].as_env(), None);
+
+        // A table matching neither shape is an error, not a silent literal
+        let err = relay_with_headers(r#"{ X-Key = { path = "/x" } }"#).unwrap_err();
+        assert!(err.to_string().contains("X-Key"), "{err}");
+
+        // Both keys at once reads the file; the startup log names the source
+        let config = relay_with_headers(r#"{ X-Key = { file = "/x", env = "Y" } }"#).unwrap();
+        assert_eq!(config.headers.as_ref().unwrap()["X-Key"].as_file(), Some(Path::new("/x")));
+    }
+
+    #[test]
+    fn test_header_source_file_resolution() {
+        let file = |contents: &[u8]| {
+            let mut f = tempfile::NamedTempFile::new().unwrap();
+            f.write_all(contents).unwrap();
+            f
+        };
+        let resolve = |path: &Path| HeaderSource::File { file: path.to_path_buf() }.resolve();
+
+        // secret stores end the file with a newline; leading whitespace is kept
+        assert_eq!(resolve(file(b"s3cret \n").path()).unwrap(), "s3cret");
+        assert_eq!(resolve(file(b" pad \n").path()).unwrap(), " pad");
+        // a literal is sent exactly as written, empty included
+        assert_eq!(HeaderSource::Literal(String::new()).resolve().unwrap(), "");
+        assert_eq!(HeaderSource::Literal(" x ".into()).resolve().unwrap(), " x ");
+
+        // the cap is inclusive
+        let max = RELAY_HEADER_FILE_MAX_BYTES as usize;
+        assert_eq!(resolve(file(&vec![b'a'; max]).path()).unwrap().len(), max);
+
+        let dir = tempfile::tempdir().unwrap();
+        let big = file(&vec![b'a'; max + 1]);
+        for (path, expected) in [
+            (file(b"\n").path().to_path_buf(), "empty"),
+            ("/nonexistent/relay-key".into(), "unable to read header file"),
+            (dir.path().to_path_buf(), "unable to read header file"),
+            (big.path().to_path_buf(), "larger than"),
+        ] {
+            let err = resolve(&path).unwrap_err();
+            assert!(err.to_string().contains(expected), "{path:?}: {err}");
+        }
+    }
+
+    #[test]
+    fn test_header_source_env_var() {
+        with_env(&[("CB_TEST_HEADER_SOURCE_KEY", Some("from-env\n"))], || {
+            assert_eq!(
+                HeaderSource::Env { env: "CB_TEST_HEADER_SOURCE_KEY".into() }.resolve().unwrap(),
+                "from-env"
+            );
+        });
+        with_env(&[("CB_TEST_HEADER_SOURCE_ABSENT", None)], || {
+            let err = HeaderSource::Env { env: "CB_TEST_HEADER_SOURCE_ABSENT".into() }
+                .resolve()
+                .unwrap_err();
+            assert!(err.to_string().contains("CB_TEST_HEADER_SOURCE_ABSENT"), "{err}");
+        });
+        with_env(&[("CB_TEST_HEADER_SOURCE_EMPTY", Some(""))], || {
+            let err = HeaderSource::Env { env: "CB_TEST_HEADER_SOURCE_EMPTY".into() }
+                .resolve()
+                .unwrap_err();
+            assert!(err.to_string().contains("empty"), "{err}");
+        });
+    }
+
+    #[test]
+    fn test_header_source_debug_redacts_literal() {
+        let debug = format!("{:?}", HeaderSource::Literal("s3cret".into()));
+        assert!(!debug.contains("s3cret"), "{debug}");
+        // and the whole relay config inherits that
+        let debug = format!("{:?}", relay_with_headers(r#"{ X-Api-Key = "s3cret" }"#).unwrap());
+        assert!(!debug.contains("s3cret"), "{debug}");
+    }
 }

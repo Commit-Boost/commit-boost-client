@@ -1,6 +1,6 @@
 use std::{
     net::{Ipv4Addr, SocketAddr},
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     vec,
 };
 
@@ -267,6 +267,43 @@ fn create_pbs_service(service_config: &mut ServiceCreationInfo) -> eyre::Result<
                 volumes.push(Volumes::Simple(format!("{actual_path}:{internal_path}:ro")));
             }
         }
+    }
+
+    // Relay header secret files, mounted read-only at their own path so the
+    // config's `{ file = ... }` resolves inside the container unchanged
+    for path in cb_config.relay_header_files() {
+        eyre::ensure!(
+            path.is_absolute(),
+            "Relay header file must be an absolute path to be mounted into cb_pbs: {}",
+            path.display()
+        );
+        // Docker resolves a mount source through symlinks but cleans its target
+        // as text, so `..` would point the two at different files
+        eyre::ensure!(
+            !path.components().any(|part| part == Component::ParentDir),
+            "Relay header file must not contain `..`: {}",
+            path.display()
+        );
+        // Docker's short volume syntax is colon-separated
+        eyre::ensure!(
+            !path.to_string_lossy().contains(':'),
+            "Relay header file must not contain a colon: {}",
+            path.display()
+        );
+        eyre::ensure!(
+            path.is_file(),
+            "Relay header file does not exist or is not a regular file: {}",
+            path.display()
+        );
+        volumes.push(Volumes::Simple(format!("{}:{}:ro", path.display(), path.display())));
+    }
+
+    for env in cb_config.relay_header_envs() {
+        let (key, val) = get_env_same(env);
+        envs.insert(key, val);
+        service_config.warnings.push(format!(
+            "cb_pbs reads the relay header secret {env} from the environment; set it before `docker compose up`"
+        ));
     }
 
     // Chain spec env/volume
@@ -1133,6 +1170,95 @@ mod tests {
         assert!(env_str(&service, CONFIG_ENV).is_some());
         assert!(env_str(&service, PBS_ENDPOINT_ENV).is_some());
         assert!(service.healthcheck.is_some());
+        Ok(())
+    }
+
+    /// Every `{ file = ... }` relay header is bind-mounted read-only at its own
+    /// path and must exist as an absolute regular file; every `{ env = ... }`
+    /// is passed through from the compose environment. Both walk mux relays.
+    #[test]
+    fn test_create_pbs_service_mounts_relay_header_secrets() -> eyre::Result<()> {
+        let with_headers = |default: &str, mux: &str| -> CommitBoostConfig {
+            toml::from_str(&format!(
+                r#"
+                chain = "Holesky"
+                [pbs]
+                docker_image = "ghcr.io/commit-boost/commit-boost:latest"
+                [[relays]]
+                url = "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz"
+                headers = {default}
+                [[relays]]
+                url = "http://0xa119589bb33ef52acbb8116832bec2b58fca590fe5c85eac5d3230b44d5bc09fe73ccd21f88eab31d6de16194d17782e@def.xyz"
+                headers = {default}
+                [[mux]]
+                id = "m"
+                validator_pubkeys = []
+                [[mux.relays]]
+                url = "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@ghi.xyz"
+                headers = {mux}
+                "#
+            ))
+            .expect("valid test config")
+        };
+        let default_key = tempfile::NamedTempFile::new()?;
+        let mux_key = tempfile::NamedTempFile::new()?;
+        let mount_of = |file: &tempfile::NamedTempFile| {
+            format!("{}:{}:ro", file.path().display(), file.path().display())
+        };
+
+        let service_before = create_pbs_service(&mut minimal_service_config())?;
+        let mut sc = minimal_service_config();
+        sc.config_info.cb_config = with_headers(
+            &format!(
+                r#"{{ X-Api-Key = {{ file = "{}" }}, X-Token = {{ env = "RELAY_TOKEN" }}, X-Plain = "plain" }}"#,
+                default_key.path().display()
+            ),
+            &format!(
+                r#"{{ X-Api-Key = {{ file = "{}" }}, X-Token = {{ env = "MUX_TOKEN" }} }}"#,
+                mux_key.path().display()
+            ),
+        );
+        let service = create_pbs_service(&mut sc)?;
+
+        let mounts: Vec<&str> = service
+            .volumes
+            .iter()
+            .filter_map(|v| match v {
+                Volumes::Simple(s) if s.ends_with(":ro") => Some(s.as_str()),
+                _ => None,
+            })
+            .collect();
+        let default_mount = mount_of(&default_key);
+        let mux_mount = mount_of(&mux_key);
+        assert!(mounts.contains(&default_mount.as_str()), "{mounts:?}");
+        assert!(mounts.contains(&mux_mount.as_str()), "{mounts:?}");
+        // the two default relays share a file, so it is mounted once
+        assert_eq!(
+            service.volumes.len(),
+            service_before.volumes.len() + 2,
+            "one mount per distinct file: {:?}",
+            service.volumes
+        );
+        assert_eq!(env_str(&service, "RELAY_TOKEN").as_deref(), Some("${RELAY_TOKEN}"));
+        assert_eq!(env_str(&service, "MUX_TOKEN").as_deref(), Some("${MUX_TOKEN}"));
+        assert!(sc.warnings.iter().any(|w| w.contains("RELAY_TOKEN")), "{:?}", sc.warnings);
+        assert!(sc.warnings.iter().any(|w| w.contains("MUX_TOKEN")), "{:?}", sc.warnings);
+
+        const NOT_A_FILE: &str = "does not exist or is not a regular file";
+        for (headers, expected) in [
+            (r#"{ X-Api-Key = { file = "secrets/relay-key" } }"#, "must be an absolute path"),
+            (r#"{ X-Api-Key = { file = "/nonexistent/relay-key" } }"#, NOT_A_FILE),
+            (r#"{ X-Api-Key = { file = "/tmp" } }"#, NOT_A_FILE),
+            // the mount source is resolved through symlinks and the target is
+            // cleaned as text, so `..` can split the pair
+            (r#"{ X-Api-Key = { file = "/run/secrets/../relay-key" } }"#, "must not contain `..`"),
+            (r#"{ X-Api-Key = { file = "/run/secrets/relay:key" } }"#, "must not contain a colon"),
+        ] {
+            let mut sc = minimal_service_config();
+            sc.config_info.cb_config = with_headers("{}", headers);
+            let err = create_pbs_service(&mut sc).unwrap_err();
+            assert!(err.to_string().contains(expected), "{headers}: {err}");
+        }
         Ok(())
     }
 

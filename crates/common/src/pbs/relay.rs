@@ -1,9 +1,11 @@
 use std::{str::FromStr, sync::Arc};
 
-use alloy::primitives::B256;
+use alloy::{hex, primitives::B256};
 use eyre::WrapErr;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use tracing::info;
 use url::Url;
 
 use super::{
@@ -15,7 +17,7 @@ use super::{
 };
 use crate::{
     DEFAULT_REQUEST_TIMEOUT,
-    config::{GetHeaderTransport, RelayConfig},
+    config::{GetHeaderTransport, HeaderSource, RelayConfig},
     pbs::BuilderApiVersion,
     types::BlsPublicKey,
 };
@@ -103,11 +105,28 @@ impl RelayClient {
         headers.insert(HEADER_VERSION_KEY, HeaderValue::from_static(HEADER_VERSION_VALUE));
 
         if let Some(custom_headers) = &config.headers {
-            for (key, value) in custom_headers {
+            for (key, source) in custom_headers {
+                let resolved = source
+                    .resolve()
+                    .wrap_err_with(|| format!("header {key} of relay {}", config.id()))?;
+                let mut value = HeaderValue::from_str(&resolved)
+                    .wrap_err_with(|| format!("{key} has an invalid header value"))?;
+                // Custom headers carry API keys: keep them out of Debug output
+                value.set_sensitive(true);
                 headers.insert(
-                    HeaderName::from_str(key).wrap_err("{key} is an invalid header name")?,
-                    HeaderValue::from_str(value).wrap_err("{key} has an invalid header value")?,
+                    HeaderName::from_str(key)
+                        .wrap_err_with(|| format!("{key} is an invalid header name"))?,
+                    value,
                 );
+                if !matches!(source, HeaderSource::Literal(_)) {
+                    info!(
+                        relay_id = config.id(),
+                        key,
+                        ?source,
+                        value_sha256 = value_fingerprint(&resolved),
+                        "relay header loaded from a secret source"
+                    );
+                }
             }
         }
 
@@ -202,15 +221,22 @@ impl RelayClient {
     }
 }
 
+/// First 4 bytes of the value's SHA-256: enough to see a rotation
+/// across reloads, too short to identify a value on its own
+fn value_fingerprint(value: &str) -> String {
+    let digest = Sha256::digest(value.as_bytes());
+    hex::encode(&digest[..4])
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
 
     use alloy::primitives::B256;
 
-    use super::{GetHeaderRequest, RelayClient, RelayEntry};
+    use super::{GetHeaderRequest, RelayClient, RelayEntry, value_fingerprint};
     use crate::{
-        config::{GetHeaderTransport, RelayConfig},
+        config::{GetHeaderTransport, RelayConfig, test_env::RELAY_URL},
         utils::bls_pubkey_from_hex_unchecked,
     };
 
@@ -366,6 +392,47 @@ mod tests {
         config.entry.url = "unix:/tmp/relay.sock".parse().unwrap();
         config.get_header = GetHeaderTransport::Stream;
         assert!(RelayClient::new(config).is_err());
+    }
+
+    #[test]
+    fn test_value_fingerprint_tracks_the_value() {
+        assert_eq!(value_fingerprint("s3cret").len(), 8);
+        assert_eq!(value_fingerprint("s3cret"), value_fingerprint("s3cret"));
+        assert_ne!(value_fingerprint("s3cret"), value_fingerprint("s3cret-rotated"));
+    }
+
+    /// A header sourced from a secret file reaches the client's headers with
+    /// the file's value, marked sensitive so it never shows in a Debug dump.
+    #[test]
+    fn test_relay_headers_from_a_secret_file() {
+        use std::io::Write;
+
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        file.write_all(b"file-api-key\n").unwrap();
+        let relay_config = format!(
+            r#"
+            url = "{RELAY_URL}"
+            headers = {{ X-Api-Key = {{ file = "{}" }}, X-Plain = "plain" }}
+            "#,
+            file.path().display()
+        );
+        let relay = RelayClient::new(toml::from_str(&relay_config).unwrap()).unwrap();
+
+        let api_key = relay.stream_headers().get("x-api-key").unwrap();
+        assert_eq!(api_key, "file-api-key");
+        assert!(api_key.is_sensitive());
+        assert_eq!(relay.stream_headers().get("x-plain").unwrap(), "plain");
+        assert!(!format!("{:?}", relay.stream_headers()).contains("file-api-key"));
+
+        // A missing secret file fails the relay, naming the header and relay
+        let relay_config = format!(
+            r#"
+            url = "{RELAY_URL}"
+            headers = {{ X-Api-Key = {{ file = "/nonexistent/relay-key" }} }}
+            "#
+        );
+        let err = RelayClient::new(toml::from_str(&relay_config).unwrap()).unwrap_err();
+        assert!(format!("{err:#}").contains("header X-Api-Key of relay"), "{err:#}");
     }
 
     #[test]
