@@ -42,7 +42,10 @@ use crate::{
         GET_HEADER_ENDPOINT_TAG, MAX_SIZE_GET_HEADER_RESPONSE, TIMEOUT_ERROR_CODE,
         TIMEOUT_ERROR_CODE_STR,
     },
-    metrics::{RELAY_HEADER_VALUE, RELAY_LAST_SLOT, RELAY_LATENCY, RELAY_STATUS_CODE},
+    metrics::{
+        RELAY_HEADER_VALUE, RELAY_LAST_SLOT, RELAY_LATENCY, RELAY_STATUS_CODE,
+        RELAY_STREAM_FALLBACK,
+    },
     state::{BuilderApiState, PbsState},
     utils::check_gas_limit,
 };
@@ -263,6 +266,7 @@ async fn get_header_from_relay(
                 return Err(PbsError::WebSocketConnect(err));
             }
 
+            RELAY_STREAM_FALLBACK.with_label_values(&[relay.id.as_str()]).inc();
             warn!(relay_id = relay.id.as_ref(), %err, timeout_left_ms, "stream failed, falling back to http get_header");
 
             let url = relay.get_header_url(params.slot, &params.parent_hash, &params.pubkey)?;
