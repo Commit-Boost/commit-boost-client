@@ -1,6 +1,6 @@
 use std::{
     net::{Ipv4Addr, SocketAddr},
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     vec,
 };
 
@@ -275,6 +275,19 @@ fn create_pbs_service(service_config: &mut ServiceCreationInfo) -> eyre::Result<
         eyre::ensure!(
             path.is_absolute(),
             "Relay header file must be an absolute path to be mounted into cb_pbs: {}",
+            path.display()
+        );
+        // Docker resolves a mount source through symlinks but cleans its target
+        // as text, so `..` would point the two at different files
+        eyre::ensure!(
+            !path.components().any(|part| part == Component::ParentDir),
+            "Relay header file must not contain `..`: {}",
+            path.display()
+        );
+        // Docker's short volume syntax is colon-separated
+        eyre::ensure!(
+            !path.to_string_lossy().contains(':'),
+            "Relay header file must not contain a colon: {}",
             path.display()
         );
         eyre::ensure!(
@@ -1236,6 +1249,10 @@ mod tests {
             (r#"{ X-Api-Key = { file = "secrets/relay-key" } }"#, "must be an absolute path"),
             (r#"{ X-Api-Key = { file = "/nonexistent/relay-key" } }"#, NOT_A_FILE),
             (r#"{ X-Api-Key = { file = "/tmp" } }"#, NOT_A_FILE),
+            // the mount source is resolved through symlinks and the target is
+            // cleaned as text, so `..` can split the pair
+            (r#"{ X-Api-Key = { file = "/run/secrets/../relay-key" } }"#, "must not contain `..`"),
+            (r#"{ X-Api-Key = { file = "/run/secrets/relay:key" } }"#, "must not contain a colon"),
         ] {
             let mut sc = minimal_service_config();
             sc.config_info.cb_config = with_headers("{}", headers);
