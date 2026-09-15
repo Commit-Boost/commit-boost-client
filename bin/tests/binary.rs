@@ -130,11 +130,16 @@ fn test_init_compose_file_pbs_service_structure() {
     assert_eq!(pbs["image"].as_str(), Some("ghcr.io/commit-boost/commit-boost:latest"), "image");
     assert_eq!(pbs["container_name"].as_str(), Some("cb_pbs"), "container_name");
 
-    // Config file must be mounted inside the container.
+    // Config file must be mounted inside the container, from the path it was
+    // read from. `--config` here is ABSOLUTE, so the source must be that path
+    // verbatim: a `./` prefix would make compose resolve it against the project
+    // directory and docker would create a directory there instead.
     let volumes = pbs["volumes"].as_sequence().expect("volumes is a list");
+    let expected_mount = format!("{}:/cb-config.toml:ro", config.display());
     assert!(
-        volumes.iter().any(|v| v.as_str().map_or(false, |s| s.ends_with(":/cb-config.toml:ro"))),
-        "config must be mounted at /cb-config.toml"
+        volumes.iter().any(|v| v.as_str() == Some(expected_mount.as_str())),
+        "config must be mounted at /cb-config.toml from {}, got {volumes:?}",
+        config.display()
     );
 
     // Required environment variables must be present.
