@@ -56,3 +56,9 @@
 - Introduces SSZ encodings for `get_header` and `submit_block`
 - Introduces optional streaming endpoint to receive bids over WebSocket connection
 - Fix Prysm issue #17136
+
+### v0.11.0-rc2
+- Relay API keys and other custom relay headers can be loaded from a secret file or an environment variable instead of being written in the config (#498)
+- The WebSocket bid stream metrics for handshake latency, bid updates per window, unparseable frames and HTTP fallbacks counts under its own `get_header_stream` endpoint (#499)
+- Add support for Lido Curated Module v2 (#489)
+- Bump sigstore version (#494)
