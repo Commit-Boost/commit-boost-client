@@ -33,15 +33,16 @@ pub struct PbsState<S: BuilderApiState = ()> {
     pub data: S,
 }
 
-/// Builds the shared pipe client the same way [`RelayClient::new`] builds its
-/// own: the CommitBoost version header as a default header and the shared
-/// request timeout.
+/// Redirects are refused: the pipe dials a URL taken from untrusted auth data,
+/// and the SSRF guard in `transient_pipe_relay` validates only the first hop,
+/// so a 3xx into loopback or link-local space would slip straight past it.
 fn build_pipe_client() -> reqwest::Client {
     let mut headers = HeaderMap::new();
     headers.insert(HEADER_VERSION_KEY, HeaderValue::from_static(HEADER_VERSION_VALUE));
     reqwest::Client::builder()
         .default_headers(headers)
         .timeout(DEFAULT_REQUEST_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .expect("a static default header and timeout always build a valid reqwest client")
 }
@@ -98,5 +99,66 @@ where
 
     pub fn extra_validation_enabled(&self) -> bool {
         self.config.pbs_config.extra_validation_enabled
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+
+    use axum::{Router, http::StatusCode, response::IntoResponse, routing::post};
+    use tokio::net::TcpListener;
+
+    use super::build_pipe_client;
+
+    /// A 3xx from a pipe target must not be followed. The SSRF guard validates
+    /// only the first hop, so following one would let an allowed public host
+    /// redirect CB into loopback or link-local space.
+    #[tokio::test]
+    async fn pipe_client_does_not_follow_redirects() -> eyre::Result<()> {
+        // The target a redirect would reach; records whether it was ever dialed.
+        let reached = Arc::new(AtomicBool::new(false));
+        let internal_listener = TcpListener::bind("127.0.0.1:0").await?;
+        let internal_addr = internal_listener.local_addr()?;
+        let flag = reached.clone();
+        let internal = Router::new().route(
+            "/internal",
+            post(move || {
+                let flag = flag.clone();
+                async move {
+                    flag.store(true, Ordering::SeqCst);
+                    StatusCode::OK.into_response()
+                }
+            }),
+        );
+        tokio::spawn(async move { axum::serve(internal_listener, internal).await });
+
+        let redirect_listener = TcpListener::bind("127.0.0.1:0").await?;
+        let redirect_addr = redirect_listener.local_addr()?;
+        let location = format!("http://{internal_addr}/internal");
+        let redirector = Router::new().route(
+            "/bid",
+            post(move || {
+                let location = location.clone();
+                async move {
+                    (StatusCode::TEMPORARY_REDIRECT, [(axum::http::header::LOCATION, location)])
+                        .into_response()
+                }
+            }),
+        );
+        tokio::spawn(async move { axum::serve(redirect_listener, redirector).await });
+
+        let res = build_pipe_client().post(format!("http://{redirect_addr}/bid")).send().await?;
+
+        assert_eq!(
+            res.status(),
+            StatusCode::TEMPORARY_REDIRECT,
+            "the 3xx must surface to the caller, not be followed"
+        );
+        assert!(!reached.load(Ordering::SeqCst), "the redirect target must never be dialed");
+        Ok(())
     }
 }
