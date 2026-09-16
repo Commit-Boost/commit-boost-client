@@ -23,10 +23,7 @@ pub const MAX_SIZE_SUBMIT_BLOCK_RESPONSE: usize = 20 * 1024 * 1024;
 pub const MAX_SIZE_REGISTER_VALIDATOR_REQUEST: usize = 20 * 1024 * 1024;
 
 /// A Gloas `SignedBeaconBlock` carries the signed bid, not the execution
-/// payload (that ships separately in the `ExecutionPayloadEnvelope`), so the
-/// body is blinded-block-sized, not full-block-sized. This 20 MiB cap matches
-/// the inbound blinded block limit (`MAX_SIZE_SUBMIT_BLOCK_RESPONSE`) as a
-/// conservative ceiling; a real block is far smaller.
+/// payload, so it is blinded-block-sized; reuse that limit as the ceiling.
 pub const MAX_SIZE_SUBMIT_SIGNED_BEACON_BLOCK: usize = MAX_SIZE_SUBMIT_BLOCK_RESPONSE;
 
 /// 5 MiB, to account for max execution requests / commitments

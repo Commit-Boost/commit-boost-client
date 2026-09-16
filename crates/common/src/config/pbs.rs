@@ -154,11 +154,8 @@ pub struct PbsConfig {
     /// Minimum bid that will be accepted from get_header
     #[serde(rename = "min_bid_eth", with = "as_eth_str", default = "default_u256")]
     pub min_bid_wei: U256,
-    /// Execution-payment cap in Gwei used when RANKING ePBS bids: a bid ranks
-    /// at `value + min(execution_payment, cap)`, mirroring the BN's valuation
-    /// (beacon-APIs #630 clamps at `max_execution_payment` instead of
-    /// rejecting). Not an accept/reject check; the BN enforces the cap.
-    /// Default: unset (None) = unclamped
+    /// Ranking cap only, never an accept/reject check: a bid ranks at
+    /// `value + min(execution_payment, cap)` (beacon-APIs #630).
     #[serde(default)]
     pub max_execution_payment_gwei: Option<u64>,
     /// When enabled, the BLS signature of an ePBS request's
@@ -171,24 +168,16 @@ pub struct PbsConfig {
     #[serde(default = "default_u64::<LATE_IN_SLOT_TIME_MS>")]
     pub late_in_slot_time_ms: u64,
     /// ePBS bid path only: ms reserved before the proposer's declared deadline
-    /// (Date-Milliseconds + X-Timeout-Ms) for the winning bid's return trip to
-    /// the beacon node and the beacon node's own selection/assembly. CB asks
-    /// the builder for `deadline - this`, deriving its timeout from the
-    /// BN's live X-Timeout-Ms instead of a static config;
-    /// timeout_get_header_ms and late_in_slot_time_ms (legacy get_header
-    /// knobs, which carry no X-Timeout-Ms) are not consulted on the ePBS
-    /// bid path.
+    /// (Date-Milliseconds + X-Timeout-Ms) for the winning bid's return trip. CB
+    /// asks the builder for `deadline - this`.
     #[serde(default = "default_u64::<PROPOSER_DEADLINE_BUFFER_MS>")]
     pub proposer_deadline_buffer_ms: u64,
     /// Enable extra validation of get_header responses
     #[serde(default = "default_bool::<false>")]
     pub extra_validation_enabled: bool,
     /// Opt-in strict decoding of the reveal at POST
-    /// /eth/v1/builder/beacon_blocks. Default (false): CB is a blind pipe,
-    /// forwarding the block bytes to the builder without parsing them (the
-    /// builder validates and rejects, per builder-specs). When true: CB
-    /// decodes the SignedBeaconBlock, rejects a non-gloas or undecodable
-    /// body with 400, and re-encodes it outbound.
+    /// /eth/v1/builder/beacon_blocks. Default (false): CB is a blind pipe and
+    /// the builder validates the block, per builder-specs.
     #[serde(default = "default_bool::<false>")]
     pub strict_block_decode: bool,
     /// Execution Layer RPC url to use for extra validation

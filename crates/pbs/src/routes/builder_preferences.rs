@@ -91,8 +91,7 @@ pub async fn submit_builder_preferences<S: BuilderApiState>(
 
     let send_headers = epbs_base_send_headers(&req_headers)?;
 
-    // The builder decodes what the proposer signed either way, and SSZ is the
-    // faster wire format on the relay hop; encoded once, shared by every send
+    // SSZ on the relay hop; encoded once for every send
     let body = Bytes::from(request.as_ssz_bytes());
 
     // Preferences are submitted an epoch ahead, so they share the registration
@@ -210,9 +209,6 @@ mod tests {
         }
     }
 
-    // Empty `auth.message.data` is rejected before sigverify, so it cannot slip
-    // through a catch-all relay match. Guards the wiring of the shared
-    // `validate_auth_data` into this endpoint.
     #[test]
     fn validate_preferences_auth_rejects_empty_data() {
         use cb_common::types::BlsSecretKey;
@@ -264,8 +260,7 @@ mod tests {
         assert_eq!(decoded.preferences.max_execution_payment, 7);
         assert_eq!(decoded.auth.message.slot.as_u64(), 3);
 
-        // gloas is the ONLY supported value: fulu is rejected
-        // at the wire layer like every other deprecated fork
+        // gloas is the ONLY supported value: even fulu is rejected
         let mut headers = HeaderMap::new();
         headers.insert(CONSENSUS_VERSION_HEADER, axum::http::HeaderValue::from_static("fulu"));
         let err = decode_versioned_request_body::<BuilderPreferencesRequest>(&headers, &body)
@@ -280,10 +275,8 @@ mod tests {
             .expect_err("a deprecated fork must be rejected");
         assert!(matches!(err, BodyDeserializeError::InvalidVersionHeader(ref v) if v == "electra"));
 
-        // Case is folded before the window check (lighthouse FromStr
-        // lowercases), so an uppercase spelling of the one legal value passes.
-        // Pinned: if the spec is ever read as lowercase-only, this is the
-        // deliberate place to change it.
+        // lighthouse's FromStr lowercases, so an uppercase spelling of the one
+        // legal value passes.
         let mut headers = HeaderMap::new();
         headers.insert(CONSENSUS_VERSION_HEADER, axum::http::HeaderValue::from_static("GLOAS"));
         decode_versioned_request_body::<BuilderPreferencesRequest>(&headers, &body)
@@ -292,8 +285,7 @@ mod tests {
 
     /// builder-specs marks `Eth-Consensus-Version` required on this endpoint
     /// for JSON and SSZ alike (builder-specs #165): JSON without it is a 400,
-    /// not a best-effort decode. Since spec PR #165 the same rule covers
-    /// `submitSignedBeaconBlock` too — no endpoint is lenient.
+    /// not a best-effort decode.
     #[test]
     fn decode_rejects_json_without_the_version_header() {
         let body = Bytes::from(serde_json::to_vec(&sample_request()).unwrap());

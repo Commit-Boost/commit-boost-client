@@ -472,8 +472,10 @@ pub async fn wait_for_signal() -> eyre::Result<()> {
     Ok(())
 }
 
-// lighthouse v8.2.x replaced the `TestRandom` trait with an `arbitrary`-based
-// generator; build test instances from OS entropy so each call differs.
+// lighthouse (rev 31d8cfd) replaced `TestRandom` with an `arbitrary` generator.
+// Validated BLS types do NOT randomize: `impl_arbitrary!` yields the all-zeros
+// point, which is an invalid pubkey. Use `BlsSecretKey::random().public_key()`
+// for keys; `BlsSignature::test_random()` is a constant placeholder signature.
 pub trait TestRandomSeed: for<'a> arbitrary::Arbitrary<'a> {
     fn test_random() -> Self
     where

@@ -25,7 +25,6 @@ pub const HEADER_VERSION_VALUE: &str = COMMIT_BOOST_VERSION;
 pub const HEADER_START_TIME_UNIX_MS: &str = "Date-Milliseconds";
 pub const HEADER_TIMEOUT_MS: &str = "X-Timeout-Ms";
 pub const HEADER_API_KEY: &str = "X-Api-Key";
-pub const HEADER_CONSENSUS_VERSION: &str = "Eth-Consensus-Version";
 
 pub const DEFAULT_PBS_JWT_KEY: &str = "DEFAULT_PBS";
 
@@ -44,8 +43,7 @@ pub const LATE_IN_SLOT_TIME_MS: u64 = 2000;
 /// ePBS bid path: ms reserved before the proposer's own deadline
 /// (Date-Milliseconds + X-Timeout-Ms) for the winning bid's return trip to the
 /// beacon node and the beacon node's own selection/assembly. CB asks the
-/// builder for `proposer_deadline − this`. 50ms covers a same-host CB<->BN
-/// comfortably.
+/// builder for `proposer_deadline - this`.
 pub const PROPOSER_DEADLINE_BUFFER_MS: u64 = 50;
 
 /// How long each ePBS bid poll may take before the next one supersedes it. Set

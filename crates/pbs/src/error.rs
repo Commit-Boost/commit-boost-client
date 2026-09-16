@@ -20,19 +20,12 @@ struct ErrorResponse {
 pub enum PbsClientError {
     #[error("no response from relays")]
     NoResponse,
-    /// ePBS submission fan-out where zero addressed builders accepted. 500,
-    /// not 502: neither endpoint's builder-specs response set contains 502
-    /// (submitBuilderPreferences declares {202, 400, 401, 415, 500} - 415 added
-    /// in spec PR #165; submitSignedBeaconBlock declares {202, 400, 415,
-    /// 500}); 502 is not in either set. Legacy routes keep `NoResponse` -> 502.
+    /// 500, not 502: 502 is in neither endpoint's builder-specs response set.
+    /// Legacy routes keep `NoResponse` -> 502.
     #[error("no builder accepted the submission")]
     NoBuilderResponse,
     #[error("auth data does not match a configured builder")]
     AuthDataMismatch,
-    /// The transient pipe was pointed at a builder URL that resolves into
-    /// loopback/private/link-local space (or one that could not be resolved at
-    /// all): an SSRF attempt or a misconfiguration aiming CB at an internal
-    /// host, so it is a bad request, never a target to dial.
     #[error("pipe target resolves to a disallowed address")]
     PipeTargetBlocked,
     #[error("auth data is empty")]
@@ -41,9 +34,8 @@ pub enum PbsClientError {
     MissingTimingHeader,
     #[error("auth slot does not match the request path")]
     AuthSlotMismatch,
-    /// A lone addressed builder's own 400/401 from the preferences endpoint,
-    /// propagated so the proposer learns whether its auth data or its signature
-    /// was rejected (a blanket 500 would hide that).
+    /// Propagated so the proposer learns which builder was rejected; a blanket
+    /// 500 would hide that.
     #[error("the addressed builder rejected the request with {}", .0.as_u16())]
     BuilderRejected(StatusCode),
     #[error("auth signature verification failed")]

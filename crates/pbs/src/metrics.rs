@@ -74,9 +74,7 @@ lazy_static! {
 
     /// Relay responses CB rejected during validation, by reason. Deliberately
     /// NOT a synthetic entry in `RELAY_STATUS_CODE`: the relay's HTTP status
-    /// was already counted there (usually a 200), and overloading a status
-    /// label with validation semantics is how the 555/556 bucketing confusion
-    /// started. A dropped response is an event of its own kind.
+    /// (usually 200) was already counted there.
     pub static ref RELAY_INVALID_RESPONSE: IntCounterVec = register_int_counter_vec_with_registry!(
         "pbs_relay_invalid_response_total",
         "Relay responses rejected by CB validation, by reason",

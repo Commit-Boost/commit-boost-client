@@ -52,7 +52,7 @@ enum Command {
         /// GET each key first and keep any builder entry pinned by another
         /// writer (identity = url + auth_data) that our projection does not
         /// produce, so the full-replace POST does not erase it. Off by default
-        /// (today's exact-projection replace). Fails loudly if the merge would
+        /// (exact-projection replace). Fails loudly if the merge would
         /// break a KM cap (e.g. >64 entries) rather than dropping an entry.
         /// (read-modify-write; not atomic vs a concurrent writer -- the
         /// entry-level PATCH endpoint is the real fix).

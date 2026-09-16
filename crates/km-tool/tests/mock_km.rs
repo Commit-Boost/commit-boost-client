@@ -408,7 +408,7 @@ fn posted_entries(body: &str) -> Vec<(String, String)> {
 }
 
 // (a) Without the flag, a stored third-party entry is IGNORED: the POST body is
-// our projection exactly, unchanged from today's full-replace behavior.
+// our projection exactly, unchanged from the full-replace behavior.
 #[tokio::test]
 async fn without_flag_post_body_is_projection_and_ignores_stored() {
     let key = random_key();

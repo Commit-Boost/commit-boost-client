@@ -63,7 +63,6 @@ pub async fn submit_signed_beacon_block<S: BuilderApiState>(
     require_consensus_version_header(&req_headers)?;
 
     let (out_body, slot) = if strict {
-        // Strict: CB decodes and rejects a malformed or non-gloas reveal itself.
         let block = decode_signed_beacon_block(&req_headers, &body)?;
         if !is_gloas(&block) {
             return Err(PbsClientError::NotGloasBlock);
@@ -121,8 +120,6 @@ pub async fn submit_signed_beacon_block<S: BuilderApiState>(
         .filter(|(res, relay)| match res {
             Ok(()) => true,
             Err(err) => {
-                // Non-winning builders reject by design; only the auction winner
-                // accepts, so a rejection here may be expected
                 warn!(relay_id = relay.id.as_ref(), %err, "builder did not accept the block; may be expected, only the winner accepts");
                 false
             }

@@ -75,7 +75,7 @@ impl CommitBoostConfig {
         Ok((config, config_path))
     }
 
-    /// [`Self::from_env_path`] without the unknown-mux-field warnings. For
+    /// [`Self::from_env_path`] without the unknown-field warnings. For
     /// secondary loads (e.g. log settings) in processes whose primary config
     /// load already warns, so each unknown key is logged once per process.
     pub(crate) fn from_env_path_silent() -> Result<(Self, PathBuf)> {

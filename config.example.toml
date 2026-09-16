@@ -79,7 +79,7 @@ verify_builder_request_auth = false
 # blind mode (the builder validates and rejects a bad block per builder-specs). When true: CB decodes
 # the gloas SignedBeaconBlock itself and rejects a non-gloas or otherwise undecodable body with a 400
 # OPTIONAL, DEFAULT: false
-# strict_block_decode = false
+strict_block_decode = false
 # How late in milliseconds in the slot is "late". This impacts the `get_header` requests, by shortening timeouts for `get_header` calls to
 # relays and make sure a header is returned within this deadline. If the request from the CL comes later in the slot, then fetching headers is skipped
 # to force local building and miniminzing the risk of missed slots. See also the timing games section below

@@ -16,8 +16,6 @@ pub struct LogsSettings {
 
 impl LogsSettings {
     pub fn from_env_config() -> Result<Self> {
-        // Silent load: the service's primary config load already warns about
-        // unknown mux fields; warning here too would log each key twice
         let (mut config, _) = CommitBoostConfig::from_env_path_silent()?;
 
         // Override log dir path if env var is set

@@ -49,8 +49,8 @@ use crate::{
     state::{BuilderApiState, PbsState},
     utils::{
         check_gas_limit, epbs_base_send_headers, log_mux_selection, record_beacon_status,
-        record_client_error, record_request_failure, resolve_addressed_relays, send_to_relay,
-        validate_auth_data, verify_auth_signature,
+        record_client_error, record_invalid_relay_response, record_request_failure,
+        resolve_addressed_relays, send_to_relay, validate_auth_data, verify_auth_signature,
     },
 };
 
@@ -63,8 +63,6 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
     Path(params): Path<GetExecutionPayloadBidParams>,
     body: Bytes,
 ) -> Result<impl IntoResponse, PbsClientError> {
-    // Count decode rejections: a client broken by the strict header rule must
-    // show up as a 400 spike on this endpoint, not vanish from the counter
     let body = Arc::new(
         decode_versioned_request_body::<SignedBuilderRequestAuth>(&req_headers, &body)
             .map_err(|err| record_client_error(err, GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG))?,
@@ -112,9 +110,6 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
     }
 }
 
-/// Encodes a winning bid into the 200 response for the caller's negotiated
-/// encoding, stamping the required `Eth-Consensus-Version` header and counting
-/// the returned status.
 fn encode_bid_response(
     max_bid: GetExecutionPayloadBidResponse,
     response_encoding: EncodingType,
@@ -207,9 +202,8 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
 
     // Zero budget = the proposer's own deadline (minus the buffer) has already
     // passed, so any bid would land too late for the beacon node to use. Return
-    // 204 without a doomed relay call. This honors the PROPOSER's deadline, not a
-    // CB-imposed late-in-slot cutoff, so it is not the preemptive skip the bid
-    // path used to do.
+    // 204 without a doomed relay call. This honors the PROPOSER's deadline, not
+    // a CB-imposed late-in-slot cutoff.
     if max_timeout_ms == 0 {
         warn!(budget_ms, "proposer deadline reached, no time to solicit a bid");
         return Ok(None);
@@ -380,8 +374,6 @@ fn format_gwei_as_eth(gwei: u64) -> String {
     format_ether(U256::from(gwei) * U256::from(1_000_000_000u64))
 }
 
-/// The execution-payment cap used when ranking a relay's bids: the per-relay
-/// override, else the global config value (default u64::MAX = unclamped).
 fn ranking_cap_gwei(relay: &RelayClient, pbs_config: &PbsConfig) -> u64 {
     relay
         .config
@@ -399,8 +391,6 @@ fn ranking_payment(bid: &impl GetExecutionPayloadBidInfo, cap_gwei: u64) -> u64 
     bid.value().saturating_add(bid.execution_payment().min(cap_gwei))
 }
 
-/// The winner among `(relay id, bid, that relay's execution-payment cap in
-/// gwei)`, ranked by [`ranking_payment`].
 fn select_max_bid<I: GetExecutionPayloadBidInfo>(bids: Vec<(&str, I, u64)>) -> Option<(&str, I)> {
     bids.into_iter()
         .max_by_key(|(_, bid, cap_gwei)| ranking_payment(bid, *cap_gwei))
@@ -609,12 +599,8 @@ async fn send_one_get_execution_payload_bid(
     // minimize timing games without losing the bid
     req_config.headers.insert(HEADER_TIMEOUT_MS, HeaderValue::from(req_config.timeout_ms));
 
-    // This is a new endpoint, so every builder is expected to implement SSZ; we
-    // therefore send the request body in SSZ (the most performant encoding)
-    // unconditionally rather than negotiating it. The auth is forwarded
-    // byte-for-byte so the builder verifies what the validator signed. The
-    // response encoding still honors what the beacon node asked for via its
-    // Accept header.
+    // Request body is always SSZ rather than negotiated. The response encoding
+    // still honors what the beacon node asked for via its Accept header.
     let request = relay
         .client
         .post(req_config.url)
@@ -680,7 +666,7 @@ async fn send_one_get_execution_payload_bid(
     // onto CB's 200 to the BN - so a relay claiming any other fork is a bad
     // relay response (this relay contributes no bid), not something to forward
     if get_header_response.version != ForkName::Gloas {
-        crate::utils::record_invalid_relay_response(
+        record_invalid_relay_response(
             "wrong_fork",
             GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG,
             &relay.id,
@@ -715,7 +701,7 @@ async fn send_one_get_execution_payload_bid(
     };
 
     validate_header_data(&header_info, &params).inspect_err(|_| {
-        crate::utils::record_invalid_relay_response(
+        record_invalid_relay_response(
             "header_validation",
             GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG,
             &relay.id,
@@ -726,7 +712,7 @@ async fn send_one_get_execution_payload_bid(
         let parent_block = validation.parent_block.read();
         if let Some(parent_block) = parent_block.as_ref() {
             extra_validation(parent_block, &header_info, &params).inspect_err(|_| {
-                crate::utils::record_invalid_relay_response(
+                record_invalid_relay_response(
                     "extra_validation",
                     GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG,
                     &relay.id,
@@ -812,7 +798,7 @@ fn extra_validation(
         });
     }
 
-    // TODO potentially check builder index -> pubkey mapping
+    // TODO(gloas): check the builder index -> pubkey mapping
 
     if !check_gas_limit(header_info.gas_limit, parent_block.header.gas_limit) {
         return Err(ValidationError::GasLimit {
@@ -901,7 +887,6 @@ mod tests {
 
         mock_header_data.slot = slot;
 
-        // All request-derived fields now agree, so the header validates.
         validate_header_data(&mock_header_data, &mock_params).unwrap();
     }
 
@@ -917,9 +902,6 @@ mod tests {
         }
     }
 
-    // Empty `auth.message.data` is rejected before the slot/sig checks, so it
-    // cannot slip through a catch-all relay match. Guards the wiring of the
-    // shared `validate_auth_data` into this endpoint.
     #[test]
     fn validate_builder_request_auth_rejects_empty_data() {
         let chain = Chain::Hoodi;

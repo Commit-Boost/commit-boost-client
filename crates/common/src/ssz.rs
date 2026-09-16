@@ -13,12 +13,9 @@ fn get_ssz_value_offset_for_fork(fork: ForkName) -> Result<usize, SszValueError>
         ForkName::Fulu => {
             // Message goes header -> blob_kzg_commitments -> execution_requests -> value ->
             // pubkey
-            // `execution_requests` (ExecutionRequestsElectra) is variable-length,
-            // so in the container's fixed section it is a 4-byte offset pointer,
-            // not its serialized body. Since lighthouse-unstable turned
-            // ExecutionRequests into a superstruct enum that no longer implements
-            // `ssz::Decode`, spell the offset width out as the SSZ constant rather
-            // than `<_ as Decode>::ssz_fixed_len()`.
+            // `ExecutionRequests` became a superstruct enum (lighthouse rev
+            // 31d8cfd) and no longer implements `ssz::Decode`, so spell the offset
+            // width out as the SSZ constant rather than `ssz_fixed_len()`.
             Ok(get_message_offset::<BuilderBidFulu>() +
                 <ExecutionPayloadHeaderFulu as ssz::Decode>::ssz_fixed_len() +
                 <KzgCommitments as ssz::Decode>::ssz_fixed_len() +

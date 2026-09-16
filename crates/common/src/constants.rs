@@ -5,7 +5,7 @@ pub const DOMAIN_BEACON_BUILDER: [u8; 4] = [0x0B, 0x00, 0x00, 0x00];
 // Out-of-protocol Builder API request-auth domain (builder-specs
 // DOMAIN_BUILDER_REQUEST_AUTH), for `BuilderRequestAuth` only.
 pub const DOMAIN_BUILDER_REQUEST_AUTH: [u8; 4] = [0x0B, 0x00, 0x00, 0x01];
-// TODO placeholders: gloas devnet fork version
+// TODO(gloas): devnet placeholder; replace with the scheduled fork version.
 pub const GLOAS_FORK_VERSION: [u8; 4] = [0x80, 0x43, 0x50, 0x48];
 pub const GENESIS_VALIDATORS_ROOT: [u8; 32] = [0; 32];
 pub const COMMIT_BOOST_DOMAIN: [u8; 4] = [109, 109, 111, 67];
