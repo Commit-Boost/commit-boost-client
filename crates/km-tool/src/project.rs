@@ -11,7 +11,7 @@
 //! emitted url or auth_data). Grouping-by-identical-bytes is a
 //! reimplementation of the demux contract of cb-pbs's
 //! `match_relays_by_auth_data` (pub(crate) there); the CB-side contract tests
-//! pin those semantics. CAVEAT (also in the plan): CB's own matching is LAXER
+//! pin those semantics. CAVEAT: CB's own matching is LAXER
 //! (`url_matches` ignores userinfo/path/case), so a projected auth_data can
 //! round-trip against CB and still mismatch a builder's exact-byte check;
 //! prefer `expected_auth_data` when the relay URL is not byte-identical to
@@ -25,6 +25,7 @@ use std::{
 use alloy_primitives::U256;
 use cb_common::{
     config::{CommitBoostConfig, MUX_PATH_ENV, MuxConfig, RelayConfig, load_optional_env_var},
+    pbs::MAX_BUILDER_AUTH_DATA_SIZE,
     types::BlsPublicKey,
 };
 use eyre::{Context, Result, bail, ensure};
@@ -38,7 +39,6 @@ use crate::{
 /// KM spec limits (builder_entry.yaml)
 pub const MAX_BUILDER_ENTRIES: usize = 64;
 pub const MAX_BUILDER_PUBKEYS: usize = 64;
-pub const MAX_BUILDER_AUTH_DATA_SIZE: usize = 4096;
 
 const WEI_PER_GWEI: u64 = 1_000_000_000;
 
@@ -171,8 +171,6 @@ pub struct RelayAuthCandidate {
     pub source: String,
     pub relay_id: String,
     pub bytes: Vec<u8>,
-    /// Whether this relay is part of a projected mux (default relays are not)
-    pub projected: bool,
 }
 
 #[derive(Debug)]
@@ -210,7 +208,6 @@ pub fn project_with_url(
                     source: mux.id.clone(),
                     relay_id: relay.id().to_string(),
                     bytes: candidate_auth_data(relay, raw_url),
-                    projected: !keys.is_empty(),
                 });
             }
 
@@ -229,7 +226,6 @@ pub fn project_with_url(
             source: "[[relays]]".to_string(),
             relay_id: relay.id().to_string(),
             bytes: candidate_auth_data(relay, raw_url),
-            projected: false,
         });
     }
 
@@ -243,8 +239,8 @@ fn push_warn(warnings: &mut Vec<String>, msg: String) {
 
 /// Resolves a mux's key set. Explicit `validator_pubkeys` always project. Of
 /// the loaders only the File variant resolves offline; HTTP and Registry
-/// loaders need the network and are skipped with a warning in v1 (schedule
-/// km-apply/km-check when using them, per the plan's drift bounds).
+/// loaders need the network and are skipped with a warning (schedule
+/// km-apply/km-check when using them, so a drifting key set is caught).
 fn resolve_mux_keys(mux: &MuxConfig, warnings: &mut Vec<String>) -> Result<Vec<BlsPublicKey>> {
     let mut keys = mux.validator_pubkeys.clone();
 
@@ -344,8 +340,7 @@ fn project_mux(
     // projection-only p2p fields when set, resolving MUX p2p > global [pbs]
     // p2p. Rationale: projected entries always carry explicit per-entry
     // values, so the key level only governs p2p bids and entries that omit
-    // their own. Unset p2p fields fall back to the entry values (uniform doc,
-    // today's behavior).
+    // their own. Unset p2p fields fall back to the entry values (uniform doc).
     let min_bid_wei = mux.min_bid_wei.unwrap_or(input.cfg.pbs.pbs_config.min_bid_wei);
     let min_bid = wei_to_gwei_floor(&mux.id, min_bid_wei, warnings)?.to_string();
     let key_min_bid = match mux.min_bid_p2p_wei.or(input.cfg.pbs.pbs_config.min_bid_p2p_wei) {
@@ -709,8 +704,7 @@ url = "https://{RELAY_PK_B}@relay-b.example.com"
     #[test]
     fn min_bid_falls_back_global_with_floor_warning() {
         let key = random_key_hex();
-        // 1.5 gwei in eth: 0.0000000015 eth = 1500000000 wei... use
-        // min_bid_eth for a sub-gwei remainder: 0.0000000000015 ETH = 1500 wei
+        // min_bid_eth carries a sub-gwei remainder: 0.0000000000015 ETH = 1500 wei
         let toml_text = format!(
             r#"
 chain = "Holesky"
@@ -904,7 +898,7 @@ url = "https://{RELAY_PK_A}@relay-a.example.com"
         assert_eq!(entry.builder_boost_factor, Some("100".to_string()));
     }
 
-    // Unset p2p fields keep today's uniform projection (key = entry values).
+    // Unset p2p fields keep the uniform projection (key = entry values).
     #[test]
     fn p2p_fields_unset_keep_uniform_projection() {
         let key = random_key_hex();
@@ -1056,7 +1050,6 @@ url = "https://{RELAY_PK_A}@relay-a.example.com"
         let projection = project(&input, &overlay()).unwrap();
         let default_candidate =
             projection.relay_candidates.iter().find(|c| c.source == "[[relays]]").unwrap();
-        assert!(!default_candidate.projected);
         assert_eq!(default_candidate.bytes, b"https://default-relay.example.com".to_vec());
         // the projected doc references only the mux relay
         let doc = projection.docs.values().next().unwrap();

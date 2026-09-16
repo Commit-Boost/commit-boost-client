@@ -185,8 +185,11 @@ impl GetPayloadInfo for SignedBlindedBeaconBlock {
     }
 }
 
-#[allow(non_camel_case_types)]
-pub type MAX_BUILDER_AUTH_DATA_SIZE = typenum::U4096;
+/// Spec limit on `auth.message.data` (builder-specs
+/// `types/gloas/request_auth.yaml`).
+pub type MaxBuilderAuthData = typenum::U4096;
+/// The same limit as a length; derived so the two cannot drift.
+pub const MAX_BUILDER_AUTH_DATA_SIZE: usize = <MaxBuilderAuthData as typenum::Unsigned>::USIZE;
 
 // `BuilderRequestAuth` is used to authenticate requests to a builder. This is
 // useful so that other builders do not DDOS or run replay attacks on the
@@ -196,7 +199,7 @@ pub struct BuilderRequestAuth {
     /// Opaque authentication data agreed with the builder out of band; hex
     /// string on the JSON wire
     #[serde(with = "ssz_types::serde_utils::hex_var_list")]
-    pub data: VariableList<u8, MAX_BUILDER_AUTH_DATA_SIZE>,
+    pub data: VariableList<u8, MaxBuilderAuthData>,
     pub slot: Slot,
 }
 

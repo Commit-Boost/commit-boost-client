@@ -9,7 +9,9 @@ use std::{
 
 use cb_common::{
     config::{GetHeaderTransport, RelayConfig},
-    pbs::{ForkName, RelayClient, RelayEntry, SignedBuilderRequestAuth, error::PbsError},
+    pbs::{
+        ForkName, RelayClient, RelayEntry, SignedBuilderRequestAuth, error::PbsError, url_matches,
+    },
     signature::verify_builder_request_auth_signature,
     types::{BlsPublicKey, BlsSecretKey, Chain},
     wire::{
@@ -28,7 +30,7 @@ use url::Url;
 use crate::{
     constants::{MAX_SIZE_DEFAULT, TIMEOUT_ERROR_CODE_STR},
     error::PbsClientError,
-    metrics::{RELAY_LATENCY, RELAY_STATUS_CODE},
+    metrics::{BEACON_NODE_STATUS, RELAY_INVALID_RESPONSE, RELAY_LATENCY, RELAY_STATUS_CODE},
 };
 
 /// Sends one already-built relay request, recording the per-relay metrics
@@ -62,24 +64,18 @@ pub(crate) async fn send_to_relay(
 /// Count a request-rejection in `BEACON_NODE_STATUS` before it short-circuits
 /// the handler. Without this a client broken by e.g. the strict
 /// `Eth-Consensus-Version` rule or a bad `Accept` header VANISHES from the
-/// endpoint counter instead of showing up as a 4xx spike - the exact signal an
-/// operator needs during a rollout.
+/// endpoint counter instead of showing up as a 4xx spike.
 pub(crate) fn record_client_error(
     err: impl Into<PbsClientError>,
     endpoint: &str,
 ) -> PbsClientError {
     let err = err.into();
-    crate::metrics::BEACON_NODE_STATUS
-        .with_label_values(&[err.status_code().as_str(), endpoint])
-        .inc();
+    BEACON_NODE_STATUS.with_label_values(&[err.status_code().as_str(), endpoint]).inc();
     err
 }
 
-/// Records the HTTP status CB returned to the beacon node for one request on an
-/// ePBS endpoint. One home for the `(status, endpoint)` label pair the three
-/// handlers all bump.
 pub(crate) fn record_beacon_status(code: &str, endpoint: &str) {
-    crate::metrics::BEACON_NODE_STATUS.with_label_values(&[code, endpoint]).inc();
+    BEACON_NODE_STATUS.with_label_values(&[code, endpoint]).inc();
 }
 
 /// Logs and counts a failed ePBS request before it is returned to the beacon
@@ -112,8 +108,6 @@ where
         .collect()
 }
 
-/// Logs which relay set an ePBS demux request resolved to (a mux's relays or
-/// the default set), shared by the bid and preferences endpoints.
 pub(crate) fn log_mux_selection(
     maybe_mux_id: Option<&str>,
     relay_count: usize,
@@ -131,7 +125,7 @@ pub(crate) fn log_mux_selection(
 /// `RELAY_INVALID_RESPONSE` for why this is a separate signal from the relay's
 /// HTTP status).
 pub(crate) fn record_invalid_relay_response(reason: &str, endpoint: &str, relay_id: &str) {
-    crate::metrics::RELAY_INVALID_RESPONSE.with_label_values(&[reason, endpoint, relay_id]).inc();
+    RELAY_INVALID_RESPONSE.with_label_values(&[reason, endpoint, relay_id]).inc();
 }
 
 /// POSTs an SSZ body to a builder and enforces the ePBS write-endpoint
@@ -209,9 +203,7 @@ pub(crate) fn check_gas_limit(gas_limit: u64, parent_gas_limit: u64) -> bool {
 
 /// A zero-length `auth.message.data` is invalid per builder-specs
 /// `types/gloas/request_auth.yaml` (pattern `{1,4096}`, "A zero-length `data`
-/// is invalid"). It addresses no builder, so it must be rejected up front
-/// rather than slip through a catch-all relay match in
-/// [`match_relays_by_auth_data`]. Shared by both ePBS request-auth validators.
+/// is invalid"). Shared by both ePBS request-auth validators.
 pub(crate) fn validate_auth_data(auth: &SignedBuilderRequestAuth) -> Result<(), PbsClientError> {
     if auth.message.data.is_empty() {
         warn!("auth data is empty");
@@ -254,8 +246,8 @@ pub(crate) fn verify_auth_signature(
 ///    matches the relays whose configured URL it names. Comparison ignores
 ///    userinfo, so a bare URL matches a relay entry that embeds its pubkey.
 ///
-/// Data matching nothing selects no relay: CB then has no builder to proxy to
-/// and the caller must get the same DataMismatch 400 a builder would return.
+/// Data matching nothing selects no relay; the caller then falls back to the
+/// transient pipe (see [`resolve_addressed_relays`]).
 /// The result is usually one relay, several when multiple builders are
 /// configured behind the same agreement. Comparing bids across different
 /// builders is the beacon node's job across its per-entry calls; within the
@@ -312,10 +304,9 @@ pub(crate) fn decode_auth_data_url(data: &[u8]) -> Option<Url> {
     std::str::from_utf8(url_bytes).ok().and_then(|s| Url::parse(s).ok())
 }
 
-/// A process-lifetime placeholder pubkey for pipe relays. This value is never
-/// read: bid sigverify is skipped for the pipe (see the rationale at the call
-/// site in `execution_payload_bid.rs`). A single lazily-built valid BLS point
-/// avoids a keygen on every unmatched pipe request.
+/// A process-lifetime placeholder pubkey for pipe relays. The ePBS bid path
+/// verifies no relay bid signature, so it is never read. A single lazily-built
+/// valid BLS point avoids a keygen on every unmatched pipe request.
 fn pipe_relay_placeholder_pubkey() -> BlsPublicKey {
     static PLACEHOLDER: OnceLock<BlsPublicKey> = OnceLock::new();
     PLACEHOLDER.get_or_init(|| BlsSecretKey::random().public_key()).clone()
@@ -470,21 +461,6 @@ fn ip_is_disallowed(ip: std::net::IpAddr) -> bool {
             seg[0] & 0xfe == 0xfc || u16::from_be_bytes([seg[0], seg[1]]) & 0xffc0 == 0xfe80
         }
     }
-}
-
-/// Compares two URLs without checking userinfo/path/queries/frags. A relay
-/// entry URL embeds the relay pubkey as userinfo, so full equality would never
-/// match a bare builder URL.
-pub(crate) fn url_matches(a: &Url, b: &Url) -> bool {
-    // A trailing dot marks a fully-qualified host that resolves to the same
-    // host as its dotless form; canonicalize so it cannot slip the self-URL
-    // guard in `transient_pipe_relay`.
-    fn host_canonical(url: &Url) -> Option<&str> {
-        url.host_str().map(|host| host.strip_suffix('.').unwrap_or(host))
-    }
-    a.scheme() == b.scheme() &&
-        host_canonical(a) == host_canonical(b) &&
-        a.port_or_known_default() == b.port_or_known_default()
 }
 
 #[cfg(test)]
@@ -766,28 +742,6 @@ mod tests {
     }
 
     #[test]
-    fn url_matches_ignores_userinfo_and_default_port() {
-        let u = |s: &str| Url::parse(s).unwrap();
-        // A bare builder URL matches a configured relay whose URL embeds the
-        // relay pubkey as userinfo and omits the default port.
-        assert!(url_matches(
-            &u("https://0xdeadbeef@builder.example.com"),
-            &u("https://builder.example.com")
-        ));
-        assert!(url_matches(
-            &u("https://builder.example.com:443"),
-            &u("https://builder.example.com")
-        ));
-        assert!(!url_matches(&u("http://a.com"), &u("https://a.com")));
-        assert!(!url_matches(&u("https://a.com"), &u("https://b.com")));
-        assert!(!url_matches(&u("http://a.com:8001"), &u("http://a.com:8002")));
-        // A fully-qualified trailing-dot host matches its dotless form, so it
-        // cannot be used to slip the self-URL guard.
-        assert!(url_matches(&u("https://cb.example.com."), &u("https://cb.example.com")));
-        assert!(url_matches(&u("https://cb.example.com"), &u("https://cb.example.com.")));
-    }
-
-    #[test]
     fn decode_auth_data_url_variants() {
         // raw UTF-8 URL bytes (the spec's nothing-agreed default)
         let url = decode_auth_data_url(b"https://builder.example.com").unwrap();
@@ -813,13 +767,10 @@ mod tests {
     fn record_invalid_relay_response_lands_in_relay_invalid_response() {
         const TAG: &str = "invalid-relay-response-unit-test";
 
-        let before = crate::metrics::RELAY_INVALID_RESPONSE
-            .with_label_values(&["wrong_fork", TAG, "relay-x"])
-            .get();
+        let before =
+            RELAY_INVALID_RESPONSE.with_label_values(&["wrong_fork", TAG, "relay-x"]).get();
         record_invalid_relay_response("wrong_fork", TAG, "relay-x");
-        let after = crate::metrics::RELAY_INVALID_RESPONSE
-            .with_label_values(&["wrong_fork", TAG, "relay-x"])
-            .get();
+        let after = RELAY_INVALID_RESPONSE.with_label_values(&["wrong_fork", TAG, "relay-x"]).get();
         assert_eq!(after, before + 1);
     }
 
@@ -827,11 +778,11 @@ mod tests {
     fn record_client_error_lands_in_beacon_node_status() {
         const TAG: &str = "record-client-error-unit-test";
 
-        let before = crate::metrics::BEACON_NODE_STATUS.with_label_values(&["400", TAG]).get();
+        let before = BEACON_NODE_STATUS.with_label_values(&["400", TAG]).get();
         let err =
             record_client_error(cb_common::wire::BodyDeserializeError::MissingVersionHeader, TAG);
         assert_eq!(err.status_code(), reqwest::StatusCode::BAD_REQUEST);
-        let after = crate::metrics::BEACON_NODE_STATUS.with_label_values(&["400", TAG]).get();
+        let after = BEACON_NODE_STATUS.with_label_values(&["400", TAG]).get();
         assert_eq!(after, before + 1, "the 400 must count under (status, endpoint)");
     }
 }

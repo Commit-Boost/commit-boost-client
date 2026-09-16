@@ -72,7 +72,7 @@ pub fn compute_domain_with_fork_version(
 
 /// ePBS bid signing domain, mirroring consensus-specs
 /// `get_domain(state, DOMAIN_BEACON_BUILDER)`.
-pub fn execution_payload_bid_domain(fork_version: [u8; 4], genesis_validators_root: B256) -> B256 {
+fn execution_payload_bid_domain(fork_version: [u8; 4], genesis_validators_root: B256) -> B256 {
     compute_domain_with_fork_version(
         fork_version,
         genesis_validators_root,
@@ -88,16 +88,17 @@ pub fn builder_request_auth_domain(chain: Chain) -> B256 {
     compute_domain(chain, &B32::from(DOMAIN_BUILDER_REQUEST_AUTH))
 }
 
+fn sign_root(secret_key: &BlsSecretKey, object_root: &B256, signing_domain: B256) -> BlsSignature {
+    let signing_data = types::SigningData { object_root: *object_root, signing_domain };
+    sign_message(secret_key, signing_data.tree_hash_root())
+}
+
 pub fn sign_builder_request_auth_root(
     secret_key: &BlsSecretKey,
     object_root: &B256,
     chain: Chain,
 ) -> BlsSignature {
-    let signing_data = types::SigningData {
-        object_root: *object_root,
-        signing_domain: builder_request_auth_domain(chain),
-    };
-    sign_message(secret_key, signing_data.tree_hash_root())
+    sign_root(secret_key, object_root, builder_request_auth_domain(chain))
 }
 
 pub fn verify_builder_request_auth_signature<T: TreeHash>(
@@ -144,11 +145,7 @@ pub fn sign_builder_root(
     secret_key: &BlsSecretKey,
     object_root: &B256,
 ) -> BlsSignature {
-    let signing_domain = chain.builder_domain();
-    let signing_data =
-        types::SigningData { object_root: object_root.tree_hash_root(), signing_domain };
-    let signing_root = signing_data.tree_hash_root();
-    sign_message(secret_key, signing_root)
+    sign_root(secret_key, object_root, chain.builder_domain())
 }
 
 pub fn sign_execution_payload_bid_root(
@@ -157,11 +154,11 @@ pub fn sign_execution_payload_bid_root(
     fork_version: [u8; 4],
     genesis_validators_root: B256,
 ) -> BlsSignature {
-    let signing_data = types::SigningData {
-        object_root: *object_root,
-        signing_domain: execution_payload_bid_domain(fork_version, genesis_validators_root),
-    };
-    sign_message(secret_key, signing_data.tree_hash_root())
+    sign_root(
+        secret_key,
+        object_root,
+        execution_payload_bid_domain(fork_version, genesis_validators_root),
+    )
 }
 
 pub fn sign_commit_boost_root(

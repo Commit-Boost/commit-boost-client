@@ -114,12 +114,13 @@ fn relay_headers(config: &RelayConfig) -> eyre::Result<HeaderMap> {
 
 impl RelayClient {
     pub fn new(config: RelayConfig) -> eyre::Result<Self> {
+        let headers = relay_headers(&config)?;
         let client = reqwest::Client::builder()
-            .default_headers(relay_headers(&config)?)
+            .default_headers(headers.clone())
             .timeout(DEFAULT_REQUEST_TIMEOUT)
             .build()?;
 
-        Self::with_client(config, client)
+        Self::from_parts(config, client, headers)
     }
 
     /// Builds a relay client that reuses an existing `reqwest::Client` (its
@@ -128,6 +129,15 @@ impl RelayClient {
     /// client rather than paying a cold client build on every dial. Otherwise
     /// identical to [`RelayClient::new`].
     pub fn with_client(config: RelayConfig, client: reqwest::Client) -> eyre::Result<Self> {
+        let headers = relay_headers(&config)?;
+        Self::from_parts(config, client, headers)
+    }
+
+    fn from_parts(
+        config: RelayConfig,
+        client: reqwest::Client,
+        headers: HeaderMap,
+    ) -> eyre::Result<Self> {
         let stream_url = match config.get_header {
             GetHeaderTransport::Http => None,
             GetHeaderTransport::Stream => Some(stream_url(&config.entry.url)?),
@@ -137,7 +147,7 @@ impl RelayClient {
             id: Arc::new(config.id().to_owned()),
             client,
             stream_url,
-            stream_headers: Arc::new(relay_headers(&config)?),
+            stream_headers: Arc::new(headers),
             config: Arc::new(config),
         })
     }
@@ -252,17 +262,54 @@ impl RelayClient {
     }
 }
 
+/// Compares two URLs ignoring userinfo/path/query/fragment. A relay entry URL
+/// embeds the relay pubkey as userinfo, so full equality would never match a
+/// bare builder URL.
+pub fn url_matches(a: &Url, b: &Url) -> bool {
+    // A trailing dot marks a fully-qualified host that resolves to the same host
+    // as its dotless form; canonicalize so it cannot slip a self-URL guard.
+    fn host_canonical(url: &Url) -> Option<&str> {
+        url.host_str().map(|host| host.strip_suffix('.').unwrap_or(host))
+    }
+    a.scheme() == b.scheme() &&
+        host_canonical(a) == host_canonical(b) &&
+        a.port_or_known_default() == b.port_or_known_default()
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
 
     use alloy::primitives::B256;
+    use url::Url;
 
-    use super::{GetHeaderRequest, RelayClient, RelayEntry};
+    use super::{GetHeaderRequest, RelayClient, RelayEntry, url_matches};
     use crate::{
         config::{GetHeaderTransport, RelayConfig},
         utils::bls_pubkey_from_hex_unchecked,
     };
+
+    #[test]
+    fn url_matches_ignores_userinfo_and_default_port() {
+        let u = |s: &str| Url::parse(s).unwrap();
+        // A bare builder URL matches a configured relay whose URL embeds the
+        // relay pubkey as userinfo and omits the default port.
+        assert!(url_matches(
+            &u("https://0xdeadbeef@builder.example.com"),
+            &u("https://builder.example.com")
+        ));
+        assert!(url_matches(
+            &u("https://builder.example.com:443"),
+            &u("https://builder.example.com")
+        ));
+        assert!(!url_matches(&u("http://a.com"), &u("https://a.com")));
+        assert!(!url_matches(&u("https://a.com"), &u("https://b.com")));
+        assert!(!url_matches(&u("http://a.com:8001"), &u("http://a.com:8002")));
+        // A fully-qualified trailing-dot host matches its dotless form, so it
+        // cannot be used to slip the self-URL guard.
+        assert!(url_matches(&u("https://cb.example.com."), &u("https://cb.example.com")));
+        assert!(url_matches(&u("https://cb.example.com"), &u("https://cb.example.com.")));
+    }
 
     #[test]
     fn test_relay_entry() {

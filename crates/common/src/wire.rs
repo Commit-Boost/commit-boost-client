@@ -296,7 +296,7 @@ fn essence_encoding(mt: &MediaType, default: EncodingType) -> Option<EncodingTyp
 /// The `Accept` header PBS sends to relays: SSZ first, JSON as fallback.
 pub static OUTBOUND_ACCEPT_SSZ_FIRST: HeaderValue =
     HeaderValue::from_static("application/octet-stream;q=1.0,application/json;q=0.9");
-/// The ePBS bid path forwards the beacon node's Accept preference to the relay.
+/// The `Accept` header PBS sends to relays: JSON first, SSZ as fallback.
 pub static OUTBOUND_ACCEPT_JSON_FIRST: HeaderValue =
     HeaderValue::from_static("application/json;q=1.0,application/octet-stream;q=0.9");
 
@@ -313,7 +313,7 @@ pub fn get_content_type(req_headers: &HeaderMap) -> EncodingType {
 /// The strict form of [`get_consensus_version_header`], per builder-specs
 /// (specs/gloas/builder.md): the header is required on every request that
 /// carries a body, and the builder MUST 400 when it is absent or names a fork
-/// it does not recognize. On this branch "recognized" means GLOAS ONLY
+/// it does not recognize.
 pub fn require_consensus_version_header(
     req_headers: &HeaderMap,
 ) -> Result<ForkName, BodyDeserializeError> {
@@ -329,9 +329,9 @@ pub fn require_consensus_version_header(
     // Echoed into the 400 body, so bound attacker-controlled length
     let unsupported =
         || BodyDeserializeError::InvalidVersionHeader(value.chars().take(64).collect());
-    // The endpoint is defined for the Gloas fork, and only Gloas is accepted for
-    // now: a later fork's semantics are not yet validated here, so it is 400'd
-    // rather than silently handled as gloas.
+    // Gloas-only: these endpoints exist only post-fork, and a later fork's
+    // semantics are not validated here, so it is 400'd rather than silently
+    // handled as gloas. Arms are exhaustive so a new ForkName fails the build.
     match ForkName::from_str(value).map_err(|_| unsupported())? {
         ForkName::Gloas => Ok(ForkName::Gloas),
         ForkName::Base |
@@ -398,7 +398,7 @@ impl FromStr for EncodingType {
         // (e.g. `application/json; charset=utf-8`). Compare essence only.
         let parsed =
             MediaType::parse(value).map_err(|e| format!("invalid content type {value}: {e}"))?;
-        essence_encoding(&parsed, EncodingType::Json)
+        essence_encoding(&parsed, NO_PREFERENCE_DEFAULT)
             .ok_or_else(|| format!("unsupported encoding type: {value}"))
     }
 }
@@ -470,17 +470,7 @@ pub fn deserialize_body(
     headers: &HeaderMap,
     body: Bytes,
 ) -> Result<SignedBlindedBeaconBlock, BodyDeserializeError> {
-    // Determine the encoding to decode with. Precedence:
-    //   - Content-Type absent     → NO_PREFERENCE_DEFAULT
-    //   - Content-Type recognized → use it.
-    //   - Content-Type present but unrecognized → UnsupportedMediaType.
-    let encoding = match headers.get(CONTENT_TYPE) {
-        None => NO_PREFERENCE_DEFAULT,
-        Some(hv) => {
-            let value = hv.to_str().map_err(|_| BodyDeserializeError::UnsupportedMediaType)?;
-            EncodingType::from_str(value).map_err(|_| BodyDeserializeError::UnsupportedMediaType)?
-        }
-    };
+    let encoding = content_type_encoding_with_default(headers, NO_PREFERENCE_DEFAULT)?;
 
     match encoding {
         EncodingType::Json => match get_consensus_version_header(headers) {
@@ -540,8 +530,8 @@ where
     }
 }
 
-/// Decode a `submitSignedBeaconBlock` request body. Like the other ePBS
-/// endpoints it defaults to SSZ when no `Content-Type` is set, and
+/// Decode a `submitSignedBeaconBlock` request body. Unlike the SSZ-default
+/// bid and preferences endpoints, an absent `Content-Type` means JSON.
 /// `Eth-Consensus-Version` is required and must name a known fork for BOTH
 /// encodings (absent -> `MissingVersionHeader`, unrecognized ->
 /// `InvalidVersionHeader`, both -> 400; spec PR #165).
@@ -553,9 +543,7 @@ pub fn decode_signed_beacon_block(
         return Err(BodyDeserializeError::MissingBody);
     }
     // The header is required and must name a known fork on every body-carrying
-    // request. SSZ uses the fork to select the variant; JSON
-    // self-describes via `deny_unknown_fields`, so a recognized-but-mismatched
-    // value is ignored rather than second-guessing a decodable body.
+    // request; SSZ uses the fork to select the variant.
     // Absent Content-Type defaults to JSON, per the builder-specs preamble
     // ("all requests by default send and receive JSON"); octet-stream is only
     // for bodies that carry SSZ.

@@ -103,10 +103,6 @@ impl KmClient {
         Ok(Self { http, base, token })
     }
 
-    pub fn base(&self) -> &Url {
-        &self.base
-    }
-
     fn endpoint(&self, path: &str) -> Result<Url> {
         // string concat, not Url::join: an absolute path would drop a base
         // path prefix (https://vc.example/prefix)
