@@ -62,3 +62,7 @@
 - The WebSocket bid stream metrics for handshake latency, bid updates per window, unparseable frames and HTTP fallbacks counts under its own `get_header_stream` endpoint (#499)
 - Add support for Lido Curated Module v2 (#489)
 - Bump sigstore version (#494)
+
+### v0.11.0-rc3
+- A relay that refuses a `submit_blinded_block` now has its own explanation reported instead of a synthesised message, and the retry count is logged on both the v1 and v2 paths (#502)
+- Update `rustls` to 0.23.45 to clear RUSTSEC-2026-0285 (#502)
