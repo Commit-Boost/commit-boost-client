@@ -163,10 +163,10 @@ If you started the modules correctly you should see the following logs.
 
 After the service started correctly you should see:
 ```text
-2025-11-04T14:22:03.118512Z  INFO starting PBS service version="0.10.0-rc4" commit_hash="eeff25750c01f4adfc95fc08d69d541ace8e4087" addr=0.0.0.0:18550 chain=Hoodi
+2025-11-04T14:22:03.118512Z  INFO starting PBS service version="0.11.0" commit_hash="<release-commit>" addr=0.0.0.0:18550 chain=Hoodi
 ```
 
-The v0.10.0 release commit self-reports version `0.10.0-rc4`; any other checkout prints its own commit hash and version.
+`commit_hash` is the commit the binary was built from, which for a release build is the `commit:` in that release's `.releases/` file.
 
 To check that the setup is correct and you are connected to relays, you can manually trigger the `/status` endpoint, by running:
 

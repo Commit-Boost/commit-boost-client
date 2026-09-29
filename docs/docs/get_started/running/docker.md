@@ -60,7 +60,7 @@ Below is a simple configuration for running only the PBS service on the Hoodi ne
 chain = "Hoodi"
 
 [pbs]
-docker_image = "ghcr.io/commit-boost/commit-boost:v0.10.0"
+docker_image = "ghcr.io/commit-boost/commit-boost:v0.11.0"
 relay_check = true
 wait_all_registrations = true
 
@@ -91,7 +91,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
-    image: ghcr.io/commit-boost/commit-boost:v0.10.0
+    image: ghcr.io/commit-boost/commit-boost:v0.11.0
     container_name: cb_pbs
     ports:
     - 127.0.0.1:18550:18550
@@ -152,7 +152,7 @@ Below is a simple configuration for running only the three modules on the Hoodi 
 chain = "Hoodi"
 
 [pbs]
-docker_image = "ghcr.io/commit-boost/commit-boost:v0.10.0"
+docker_image = "ghcr.io/commit-boost/commit-boost:v0.11.0"
 relay_check = true
 wait_all_registrations = true
 
@@ -165,7 +165,7 @@ id = "def"
 url = "https://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@def.example.com"
 
 [signer]
-docker_image = "ghcr.io/commit-boost/commit-boost:v0.10.0"
+docker_image = "ghcr.io/commit-boost/commit-boost:v0.11.0"
 port = 20000
 
 [signer.local.loader]
@@ -219,7 +219,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
-    image: ghcr.io/commit-boost/commit-boost:v0.10.0
+    image: ghcr.io/commit-boost/commit-boost:v0.11.0
     container_name: cb_pbs
     ports:
     - 127.0.0.1:18550:18550
@@ -237,7 +237,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
-    image: ghcr.io/commit-boost/commit-boost:v0.10.0
+    image: ghcr.io/commit-boost/commit-boost:v0.11.0
     container_name: cb_signer
     ports:
     - 127.0.0.1:20000:20000
