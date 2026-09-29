@@ -1,0 +1,39 @@
+# PBS config that streams bids over websockets, from two relays for every validator and from two
+# other relays for the validators in a mux. Each relay's API key is loaded a different way.
+
+chain = "Hoodi"
+
+[pbs]
+port = 18550
+
+# Used for all validators except the ones in the mux
+[[relays]]
+id = "relay-1"
+url = "https://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@relay-1.xyz"
+get_header = "stream"
+headers = { X-Api-Key = "00000000-0000-4000-8000-000000000001" }
+
+[[relays]]
+id = "relay-2"
+url = "https://0xa119589bb33ef52acbb8116832bec2b58fca590fe5c85eac5d3230b44d5bc09fe73ccd21f88eab31d6de16194d17782e@relay-2.xyz"
+get_header = "stream"
+headers = { X-Api-Key = { env = "RELAY_2_API_KEY" } }
+
+
+[[mux]]
+id = "stream-mux"
+validator_pubkeys = [
+    "0x80c7f782b2467c5898c5516a8b6595d75623960b4afc4f71ee07d40985d20e117ba35e7cd352a3e75fb85a8668a3b745",
+]
+
+[[mux.relays]]
+id = "relay-3"
+url = "https://0x80c7f782b2467c5898c5516a8b6595d75623960b4afc4f71ee07d40985d20e117ba35e7cd352a3e75fb85a8668a3b745@relay-3.xyz"
+get_header = "stream"
+headers = { X-Api-Key = { file = "/run/secrets/relay-3-api-key" } }
+
+[[mux.relays]]
+id = "relay-4"
+url = "https://0x80c7f782b2467c5898c5516a8b6595d75623960b4afc4f71ee07d40985d20e117ba35e7cd352a3e75fb85a8668a3b745@relay-4.xyz"
+get_header = "stream"
+headers = { X-Api-Key = "00000000-0000-4000-8000-000000000004" }

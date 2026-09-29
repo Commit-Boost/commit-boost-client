@@ -73,28 +73,80 @@ Beyond the basics shown above, the `[pbs]` section supports additional knobs. Th
 
 Each `[[relays]]` entry supports, besides `id` and `url`:
 
-- `headers`: optional headers to send with each request to this relay.
+- `headers`: custom headers sent with every request to this relay, which is how a relay API key is supplied. See [Relay API keys](#relay-api-keys).
 - `get_params`: optional GET parameters to add to each request URL for this relay.
-- `get_header` (unreleased, from v0.11): how headers are fetched from this relay, either `"http"` (one request per `get_header`) or `"stream"` (a websocket stream of bid updates, only for relays that support it; see the annotated config example for the stream endpoint and header handshake). Default: `"http"`. Released v0.10.0 does not recognize this option: setting it in a `[[relays]]` entry fails config parsing at startup.
+- `get_header`: how bids are fetched from this relay, either `"http"` (one request per `get_header`) or `"stream"` (a websocket stream of bid updates, for relays that support it). Default: `"http"`. See [Bid streaming](#bid-streaming).
 - `enable_timing_games`: whether to enable timing games for this relay, as tuned by `target_first_request_ms` and `frequency_get_header_ms`. If neither of those is set, this flag has no effect. Advanced users only: misconfiguration can result in e.g. fetching a lower header value or missing a slot (caveats and worked examples in the annotated config example). Default: `false`.
 - `target_first_request_ms`: target time in the slot, in milliseconds, at which to send the first `get_header` request.
 - `frequency_get_header_ms`: frequency, in milliseconds, at which to send `get_header` requests.
 
 The same fields are available on `[[mux.relays]]` entries (see [Mux key loaders](./mux-key-loaders.md)).
 
-#### Header streaming
+### Relay API keys
 
-:::info Unreleased
-This describes behavior on main, unreleased, targeted for v0.11. With `get_header = "stream"`, PBS opens one websocket connection per `get_header` call, keeps the latest bid received until the deadline, then validates and returns it; the timing-game options do not apply while streaming. Any configured `headers` (e.g. an API key) are sent on the websocket handshake. If the connection cannot be established, PBS falls back to a plain HTTP `get_header` with the remaining timeout; a handshake timeout instead surfaces as status `555` in `cb_pbs_relay_status_code_total`, and a relay that rejects the handshake with an HTTP response records that response's own status code. A stream error before any bid arrives yields no header from that relay for the slot, surfaced as `556`; if a bid already arrived, that bid is still returned.
-:::
+Some relays require an API key for [bid streaming](#bid-streaming), sent in the `X-Api-Key` header as a v4 UUID. Generate one however you like, for example with `uuidgen` or an online generator such as [uuidgenerator.net](https://www.uuidgenerator.net/version4). Keep the same key for a given relay: it also goes out on `register_validator`, which is where the relay ties it to your validators.
+
+`headers` accepts the value three ways. Written in the config:
+
+```toml
+headers = { X-Api-Key = "00000000-0000-4000-8000-000000000000" }
+```
+
+Read from a file:
+
+```toml
+headers = { X-Api-Key = { file = "/run/secrets/relay-key" } }
+```
+
+Read from an environment variable:
+
+```toml
+headers = { X-Api-Key = { env = "RELAY_API_KEY" } }
+```
+
+The `file` and `env` forms are read when the relay loads, at startup and on each config reload. Trailing whitespace is stripped, so a file ending in a newline is fine. Startup fails if the file or variable is missing or empty.
+
+Under Docker, `commit-boost init` mounts each `file` path into the container at the same path and passes each `env` name through, so a `file` path must be absolute and must already exist when `init` runs.
+
+### Bid streaming
+
+`get_header = "stream"` replaces the per-slot HTTP request with a websocket. It is set per relay, on `[[relays]]` and `[[mux.relays]]` entries alike. [`examples/configs/pbs_bid_stream.toml`](https://github.com/Commit-Boost/commit-boost-client/blob/main/examples/configs/pbs_bid_stream.toml) streams from two default relays and two mux relays.
+
+#### Connection
+
+For each `get_header` call PBS dials:
+
+```
+ws(s)://<relay host>/eth/v1/builder/header_stream/{slot}/{parent_hash}/{pubkey}
+```
+
+The scheme and host come from the relay's `url`: `https` becomes `wss`, `http` becomes `ws`, any other scheme fails at startup. The pubkey is dropped from the userinfo and `get_params` are appended as usual.
+
+The handshake carries what the HTTP request would: slot, parent hash and pubkey in the path, plus `Date-Milliseconds`, `X-Timeout-Ms`, `X-CommitBoost-Version` and every configured header.
+
+The stream needs the same API key as the HTTP path, sent on the handshake with the rest of `headers`. See [Relay API keys](#relay-api-keys).
+
+#### Bid window
+
+Once connected, the relay sends one binary frame per bid update. PBS keeps the most recent update, and validates and returns it when the window ends or the relay closes the stream. Validation is the same as on the HTTP path, so `skip_sigverify`, `min_bid_eth` and `extra_validation_enabled` apply unchanged. Frames that do not parse as a bid are skipped and counted.
+
+The window is the deadline the HTTP path already computes: `timeout_get_header_ms`, capped by the time left until `late_in_slot_time_ms`, and capped again by the CL's `X-Timeout-Ms` if it sends one. An HTTP `get_header` normally returns early, while a stream is held to the end, so on a streaming relay `timeout_get_header_ms` sets how long PBS holds the CL's request. A CL request arriving at or after `late_in_slot_time_ms` still skips relays entirely and forces local building.
+
+The timing-game options have no effect on a stream. They schedule repeated HTTP requests, and the stream already delivers every update the relay produces. They do apply to the HTTP fallback.
+
+#### Fallback
+
+If the handshake fails, PBS falls back to a plain HTTP `get_header` at the relay's normal URL with whatever time is left in the window, and counts `cb_pbs_relay_stream_fallback_total`. That covers a refused connection, a DNS or TLS failure, and a relay that rejects the upgrade with an HTTP response.
+
+There is no fallback if the handshake is still unanswered when the window ends (recorded as `555`), or if it fails too late to leave time for an HTTP request. There is also none once the stream is open. If it breaks before any bid arrives, that relay contributes no header for the slot (recorded as `556`). If a bid already arrived, PBS validates and returns it as usual.
+
+#### Metrics
+
+Stream and fallback outcomes are recorded separately. `cb_pbs_relay_status_code_total` and `cb_pbs_relay_latency` carry `endpoint="get_header_stream"` for the stream and `endpoint="get_header"` for the fallback, and four `cb_pbs_relay_stream_*` series cover handshake latency, updates per window, unparseable frames and fallbacks. See [Metrics > Bid stream](./running/metrics.md#bid-stream).
 
 ### SSZ support
 
-All Builder API requests and responses currently use JSON.
-
-:::info Unreleased
-This describes behavior on main, unreleased, targeted for v0.11: on `get_header` and v1 `submit_blinded_block` requests, PBS negotiates the response encoding with the beacon node through the `Accept` header. Both SSZ and JSON are supported, the response follows the client's `Accept` preference (q-values, then listing order), defaulting to JSON when no preference is expressed, and a request that accepts neither is rejected with `406`. v2 `submit_blinded_block` responses are empty `202`s, so there is nothing to negotiate. Towards relays, PBS always requests SSZ first and falls back to JSON for relays that do not support it.
-:::
+On `get_header` and v1 `submit_blinded_block` requests, PBS negotiates the response encoding with the beacon node through the `Accept` header. Both SSZ and JSON are supported: the response follows the client's preference (q-values first, then listing order), defaults to JSON when no preference is expressed, and a request that accepts neither is rejected with `406`. v2 `submit_blinded_block` responses are empty `202`s, so there is nothing to negotiate and `Accept` is not enforced on them. Towards relays PBS always requests SSZ first and falls back to JSON for relays that do not support it. Bids delivered over a websocket stream are always SSZ.
 
 ## Logs
 
