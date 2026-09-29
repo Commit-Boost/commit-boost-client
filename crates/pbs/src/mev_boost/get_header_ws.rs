@@ -1,6 +1,6 @@
 //! Streaming get_header over a websocket, for relays configured with
-//! `get_header = { stream = "wss://..." }`. One connection per get_header
-//! call, dropped when the call returns.
+//! `get_header = "stream"`. The stream URL is derived from the relay's own
+//! `url`. One connection per get_header call, dropped when the call returns.
 //!
 //! The request is the handshake itself: slot / parent_hash / pubkey in the
 //! path, deadline and timestamp in headers, same data the HTTP request carries.
