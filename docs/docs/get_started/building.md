@@ -11,7 +11,7 @@ git clone https://github.com/Commit-Boost/commit-boost-client
 ```
 
 Check out the release you want to build. Each release is pinned in `.releases/`
-(e.g. `.releases/v0.10.0.yml` names its `commit:`); check out that commit:
+(e.g. `.releases/v0.11.0.yml` names its `commit:`); check out that commit:
 
 ```bash
 cd commit-boost-client && git checkout <release-commit>
@@ -144,10 +144,10 @@ CB_CONFIG=cb-config.toml ./target/release/commit-boost pbs
 If it works, you should see output like this:
 
 ```
-2025-11-04T14:22:03.118512Z  INFO starting PBS service version="0.10.0-rc4" commit_hash="eeff25750c01f4adfc95fc08d69d541ace8e4087" addr=127.0.0.1:18550 chain=Hoodi
+2025-11-04T14:22:03.118512Z  INFO starting PBS service version="0.11.0" commit_hash="<release-commit>" addr=127.0.0.1:18550 chain=Hoodi
 ```
 
-The v0.10.0 release commit self-reports version `0.10.0-rc4`; timestamps will differ, and any other checkout prints its own commit hash and version. A successful relay check follows the `starting PBS service` line; the full annotated healthy-log reference is in [Expected healthy logs](./troubleshooting.md#expected-healthy-logs).
+Timestamps will differ, and `commit_hash` is the commit the binary was built from, which for a release build is the `commit:` in that release's `.releases/` file. A successful relay check follows the `starting PBS service` line; the full annotated healthy-log reference is in [Expected healthy logs](./troubleshooting.md#expected-healthy-logs).
 
 If you see that, then the PBS service works.
 
@@ -168,7 +168,7 @@ You should see output like this:
 
 ```
 2025-11-04T14:31:44.815702Z  WARN Proxy store not configured. Proxies keys and delegations will not be persisted
-2025-11-04T14:31:44.818193Z  INFO Starting signing service version="0.10.0-rc4" commit_hash="eeff25750c01f4adfc95fc08d69d541ace8e4087" modules=["test"] endpoint=127.0.0.1:20000 loaded_consensus=0 loaded_proxies=0 jwt_auth_fail_limit=3 jwt_auth_fail_timeout=300s reverse_proxy=None
+2025-11-04T14:31:44.818193Z  INFO Starting signing service version="0.11.0" commit_hash="<release-commit>" modules=["test"] endpoint=127.0.0.1:20000 loaded_consensus=0 loaded_proxies=0 jwt_auth_fail_limit=3 jwt_auth_fail_timeout=300s reverse_proxy=None
 2025-11-04T14:31:44.818229Z  WARN No metrics server configured
 2025-11-04T14:31:44.818305Z  WARN Running in insecure HTTP mode, no TLS certificates provided
 ```
