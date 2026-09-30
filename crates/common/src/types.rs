@@ -59,6 +59,7 @@ pub enum MainnetLidoModule {
     Curated = 1,
     SimpleDVT = 2,
     CommunityStaking = 3,
+    CuratedV2 = 4,
 }
 
 pub enum HoleskyLidoModule {
@@ -73,6 +74,7 @@ pub enum HoodiLidoModule {
     SimpleDVT = 2,
     Sandbox = 3,
     CommunityStaking = 4,
+    CuratedV2 = 5,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
