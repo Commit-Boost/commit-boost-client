@@ -140,6 +140,21 @@ If the handshake fails, PBS falls back to a plain HTTP `get_header` at the relay
 
 There is no fallback if the handshake is still unanswered when the window ends (recorded as `555`), or if it fails too late to leave time for an HTTP request. There is also none once the stream is open. If it breaks before any bid arrives, that relay contributes no header for the slot (recorded as `556`). If a bid already arrived, PBS validates and returns it as usual.
 
+On a high-latency connection, where the handshake risks timing out, you can add the relay a second time with `get_header = "http"` and a different `id`. PBS asks both entries every slot and keeps the better bid, so the HTTP entry still returns a header when the stream does not.
+
+```toml
+[[relays]]
+id          = "relay-1-stream"
+url = "https://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@relay-1.xyz"
+get_header  = "stream"
+headers     = { X-Api-Key = "..." }
+
+id          = "relay-1-http"
+url = "https://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@relay-1.xyz"
+get_header  = "http"
+headers     = { X-Api-Key = "..." }
+```
+
 #### Metrics
 
 Stream and fallback outcomes are recorded separately. `cb_pbs_relay_status_code_total` and `cb_pbs_relay_latency` carry `endpoint="get_header_stream"` for the stream and `endpoint="get_header"` for the fallback, and four `cb_pbs_relay_stream_*` series cover handshake latency, updates per window, unparseable frames and fallbacks. See [Metrics > Bid stream](./running/metrics.md#bid-stream).
