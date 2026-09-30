@@ -1,23 +1,53 @@
-toolchain := "nightly-2026-01-01"
+# Used ONLY by fmt/fmt-check: rustfmt.toml relies on nightly-only options.
+# check/clippy/test run on stable via rust-toolchain.toml, so lints always
+# match the shipped compiler.
+fmt_toolchain := "nightly-2026-01-01"
+
+# Used ONLY to resolve dependency updates: min-publish-age needs a newer
+# nightly than the fmt pin above.
+resolver_toolchain := "nightly-2026-06-21"
+
+[doc("""
+  Update dependencies under the publish-age cooldown (.cargo/config.toml):
+  versions published less than 14 days ago are excluded from resolution.
+  Resolution done on stable (cargo add, plain cargo update) is NOT covered;
+  this recipe is the intended path for routine updates. Git dependencies
+  have no publish age and are refreshed WITHOUT any cooldown: review their
+  lockfile rev changes manually.
+""")]
+update *args:
+  rustup toolchain install {{resolver_toolchain}} > /dev/null 2>&1 &&   cargo +{{resolver_toolchain}} update -Z min-publish-age {{args}}
+
+[doc("""
+  Escape hatch for an urgent update to a version younger than the cooldown,
+  e.g. `just update-allow h2 0.4.16`. The bypass applies to the WHOLE
+  resolution of this invocation (transitive picks included), so review the
+  full Cargo.lock diff, not just the target package.
+""")]
+update-allow package version:
+  @echo "NOTE: the cooldown bypass is invocation-global; review the full Cargo.lock diff."
+  rustup toolchain install {{resolver_toolchain}} > /dev/null 2>&1 &&   CARGO_RESOLVER_INCOMPATIBLE_PUBLISH_AGE=allow   cargo +{{resolver_toolchain}} update -Z min-publish-age -p {{package}} --precise {{version}}
 
 fmt:
-  rustup toolchain install {{toolchain}} > /dev/null 2>&1 && \
-  cargo +{{toolchain}} fmt
+  rustup toolchain install {{fmt_toolchain}} > /dev/null 2>&1 && \
+  cargo +{{fmt_toolchain}} fmt
 
 fmt-check:
-  rustup toolchain install {{toolchain}} > /dev/null 2>&1 && \
-  cargo +{{toolchain}} fmt --check
+  rustup toolchain install {{fmt_toolchain}} > /dev/null 2>&1 && \
+  cargo +{{fmt_toolchain}} fmt --check
 
 clippy:
-  cargo +{{toolchain}} clippy --all-features --no-deps -- -D warnings
+  cargo clippy --locked --all-features --no-deps -- -D warnings
 
 # Everything needed to run before pushing
 checklist:
-  cargo check
+  cargo check --locked || (echo "Cargo.lock out of date: resolve with 'just update' (publish-age cooldown), not plain cargo update" && exit 1)
   just fmt
   just clippy
   just test
   cargo audit
+  @out=$(cargo +{{resolver_toolchain}} update --dry-run -Z min-publish-age 2>&1 | grep -E "Downgrading|is too new" || true); \
+  if [ -n "$out" ]; then echo "WARNING: lockfile pins crates younger than the publish-age cooldown:"; echo "$out"; fi
 
 # ===================================
 # === Build Commands for Services ===
@@ -99,7 +129,7 @@ clean:
 
 # Runs the suite of tests for all commit-boost crates.
 test:
-    cargo test --all-features
+    cargo test --locked --all-features
 
 # =====================
 # === Test Coverage ===
@@ -112,11 +142,11 @@ test:
 # If results look wrong after upgrading cargo-llvm-cov, run `just coverage-clean` first.
 # Requires: cargo install cargo-llvm-cov && rustup component add llvm-tools-preview
 coverage:
-  cargo llvm-cov --all-features --html --open
+  cargo llvm-cov --locked --all-features --html --open
 
 # Print a quick coverage summary to the terminal without opening a browser.
 coverage-summary:
-  cargo llvm-cov --all-features --summary-only
+  cargo llvm-cov --locked --all-features --summary-only
 
 # Remove all coverage instrumentation artifacts produced by cargo-llvm-cov.
 coverage-clean:
@@ -141,7 +171,7 @@ coverage-clean:
   - critcmp:         baseline diffing tool used by bench-compare
 """)]
 bench-install-tools:
-  cargo install cargo-criterion critcmp
+  cargo install --locked cargo-criterion critcmp
 
 [doc("""
   Run microbenchmarks and save results as a named baseline. Example: just bench main
@@ -151,14 +181,14 @@ bench-install-tools:
   For accurate baseline comparisons, use bench-compare instead.
 """)]
 bench baseline:
-  cargo bench --package cb-bench-micro -- --save-baseline {{baseline}}
+  cargo bench --locked --package cb-bench-micro -- --save-baseline {{baseline}}
 
 [doc("""
   Run microbenchmarks, save results as "current", then diff against a named baseline.
   Example: just bench-compare main
 """)]
 bench-compare baseline:
-  cargo bench --package cb-bench-micro -- --save-baseline current
+  cargo bench --locked --package cb-bench-micro -- --save-baseline current
   critcmp {{baseline}} current
 
 # =================
