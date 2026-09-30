@@ -29,7 +29,9 @@ const sidebars = {
       collapsed: false,
       items: [
         'get_started/overview',
+        'get_started/building',
         'get_started/configuration',
+        'get_started/mux-key-loaders',
         {
           type: 'category',
           label: 'Running',
@@ -39,8 +41,9 @@ const sidebars = {
           items: [
             'get_started/running/docker',
             'get_started/running/binary',
+            'get_started/running/k8s',
             'get_started/running/metrics',
-
+            'get_started/running/metrics-catalog',
           ],
         },
         'get_started/troubleshooting',
@@ -53,8 +56,9 @@ const sidebars = {
         type: 'generated-index',
       },
       items: [
-        'developing/custom-modules',
-        'developing/commit-module',
+        'developing/commit-modules',
+        'developing/prop-commit-signing',
+        'developing/extending-pbs',
         'developing/environment-setup',
       ],
     },
