@@ -16,6 +16,10 @@ pub struct Overlay {
     /// normalizes (adds a trailing slash) and the entry `url` must stay as
     /// written.
     pub advertised_url: String,
+    /// Also point each VC straight at every builder, with the same auth_data,
+    /// so bids still arrive when Commit-Boost is down
+    #[serde(default)]
+    pub direct_entries: bool,
     #[serde(default)]
     pub vcs: Vec<VcConfig>,
 }

@@ -153,6 +153,10 @@ struct TestEnv {
 }
 
 fn env_for(keys: &[String], vc_urls: &[String]) -> TestEnv {
+    env_with_overlay(keys, vc_urls, "")
+}
+
+fn env_with_overlay(keys: &[String], vc_urls: &[String], overlay_extra: &str) -> TestEnv {
     let token_file = tempfile::NamedTempFile::new().unwrap();
     std::fs::write(token_file.path(), format!("{TOKEN}\n")).unwrap();
     let vcs = vc_urls
@@ -162,8 +166,10 @@ fn env_for(keys: &[String], vc_urls: &[String]) -> TestEnv {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    let overlay =
-        Overlay::parse_str(&format!("advertised_url = \"https://cb.example.com\"\n{vcs}")).unwrap();
+    let overlay = Overlay::parse_str(&format!(
+        "advertised_url = \"https://cb.example.com\"\n{overlay_extra}\n{vcs}"
+    ))
+    .unwrap();
     let input = ProjectionInput::parse_str(&config_toml(keys)).unwrap();
     TestEnv { input, overlay, _token_file: token_file }
 }
@@ -610,4 +616,22 @@ async fn check_flags_duplicate_key_across_vcs() {
         "{:?}",
         report.findings
     );
+}
+
+#[tokio::test]
+async fn check_reads_stored_direct_entries_as_projected() {
+    let key = random_key();
+    let direct = env_with_overlay(std::slice::from_ref(&key), &[], "direct_entries = true");
+    let mut vc = MockVc::holding(std::slice::from_ref(&key));
+    vc.stored.insert(key.clone(), projected_value(&direct, &key));
+    let url = serve(vc).await;
+
+    let env = env_with_overlay(std::slice::from_ref(&key), &[url.clone()], "direct_entries = true");
+    let report = run_check(&env.input, &env.overlay).await.unwrap();
+    assert!(!report.fails(Tier::Warn), "{:?}", report.findings);
+
+    // the same stored doc is drift once the overlay stops asking for them
+    let env = env_for(std::slice::from_ref(&key), &[url]);
+    let report = run_check(&env.input, &env.overlay).await.unwrap();
+    assert!(report.findings.iter().any(|f| f.code == "drift"), "{:?}", report.findings);
 }

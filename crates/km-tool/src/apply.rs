@@ -182,7 +182,8 @@ async fn apply_to_vc(
         }
     }
 
-    let vc_projection = project_with_url(input, overlay.advertised_url_for(vc))?;
+    let vc_projection =
+        project_with_url(input, overlay.advertised_url_for(vc), overlay.direct_entries)?;
     for (key, doc) in &vc_projection.docs {
         let key = key.to_string();
 

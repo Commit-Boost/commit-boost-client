@@ -18,7 +18,7 @@
 //! the builder's advertised URL.
 
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     path::Path,
 };
 
@@ -185,11 +185,15 @@ pub struct Projection {
 
 /// Projects per-key KM docs with the overlay's global advertised URL.
 pub fn project(input: &ProjectionInput, overlay: &Overlay) -> Result<Projection> {
-    project_with_url(input, &overlay.advertised_url)
+    project_with_url(input, &overlay.advertised_url, overlay.direct_entries)
 }
 
 /// Projects with an explicit advertised URL (per-VC overrides).
-pub fn project_with_url(input: &ProjectionInput, advertised_url: &str) -> Result<Projection> {
+pub fn project_with_url(
+    input: &ProjectionInput,
+    advertised_url: &str,
+    direct_entries: bool,
+) -> Result<Projection> {
     let mut warnings = Vec::new();
     let mut docs = BTreeMap::new();
     let mut relay_candidates = Vec::new();
@@ -198,7 +202,8 @@ pub fn project_with_url(input: &ProjectionInput, advertised_url: &str) -> Result
     if let Some(muxes) = &input.cfg.muxes {
         for (mux, raw_urls) in muxes.muxes.iter().zip(&input.mux_relay_urls) {
             let keys = resolve_mux_keys(mux, &mut warnings)?;
-            let doc = project_mux(input, mux, raw_urls, advertised_url, &mut warnings)?;
+            let doc =
+                project_mux(input, mux, raw_urls, advertised_url, direct_entries, &mut warnings)?;
 
             for (relay, raw_url) in mux.relays.iter().zip(raw_urls) {
                 relay_candidates.push(RelayAuthCandidate {
@@ -278,12 +283,15 @@ fn resolve_mux_keys(mux: &MuxConfig, warnings: &mut Vec<String>) -> Result<Vec<B
 
 struct AuthClass {
     relay_ids: Vec<String>,
+    /// Relay URLs without userinfo: relays share a class by auth_data, not by
+    /// builder, so a class can span several builders
+    builder_urls: BTreeSet<String>,
     max_execution_payment_gwei: Option<u64>,
 }
 
 /// Groups a mux's relays into auth_data equivalence classes keyed by identical
 /// candidate bytes, unioning each class's builder pubkeys, requiring one shared
-/// execution-payment cap per class, and enforcing the KM entry-count limit.
+/// execution-payment cap per class.
 fn build_auth_classes(
     mux: &MuxConfig,
     raw_urls: &[String],
@@ -300,6 +308,7 @@ fn build_auth_classes(
         );
         let class = classes.entry(bytes).or_insert_with(|| AuthClass {
             relay_ids: vec![],
+            builder_urls: BTreeSet::new(),
             max_execution_payment_gwei: relay.max_execution_payment_gwei,
         });
         ensure!(
@@ -313,14 +322,8 @@ fn build_auth_classes(
             relay.max_execution_payment_gwei
         );
         class.relay_ids.push(relay.id().to_string());
+        class.builder_urls.insert(strip_userinfo(raw_url));
     }
-
-    ensure!(
-        classes.len() <= MAX_BUILDER_ENTRIES,
-        "mux {}: {} builder entries exceed the KM maximum of {MAX_BUILDER_ENTRIES}",
-        mux.id,
-        classes.len()
-    );
 
     Ok(classes)
 }
@@ -330,6 +333,7 @@ fn project_mux(
     mux: &MuxConfig,
     raw_urls: &[String],
     advertised_url: &str,
+    direct_entries: bool,
     warnings: &mut Vec<String>,
 ) -> Result<BuilderConfigDoc> {
     ensure!(!mux.relays.is_empty(), "mux {} has no relays", mux.id);
@@ -355,18 +359,30 @@ fn project_mux(
         .map(|b| b.to_string())
         .or_else(|| boost.clone());
 
-    // `(url, auth_data-bytes)` uniqueness: classes are keyed by bytes and all
-    // entries share the advertised URL, so uniqueness holds by construction;
-    // asserted anyway to keep the invariant loud.
-    let mut seen: HashSet<(&str, &[u8])> = HashSet::new();
-    let mut entries = Vec::with_capacity(classes.len());
-    // BTreeMap iterates classes in byte order = the KM (url, bytes) sort
+    // `(url, auth_data-bytes)` pairs: one per class at the advertised URL, plus
+    // one per builder URL in the class for direct entries
+    let mut pairs: Vec<(&str, &[u8], &AuthClass)> = Vec::new();
     for (bytes, class) in &classes {
-        ensure!(
-            seen.insert((advertised_url, bytes)),
-            "mux {}: duplicate (url, auth_data) pair",
-            mux.id
-        );
+        pairs.push((advertised_url, bytes, class));
+        if direct_entries {
+            pairs.extend(class.builder_urls.iter().map(|url| (url.as_str(), &bytes[..], class)));
+        }
+    }
+    // the KM sort order
+    pairs.sort_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
+    ensure!(
+        pairs.len() <= MAX_BUILDER_ENTRIES,
+        "mux {}: {} builder entries exceed the KM maximum of {MAX_BUILDER_ENTRIES}",
+        mux.id,
+        pairs.len()
+    );
+
+    // Uniqueness holds by construction unless a relay URL is CB's own advertised
+    // URL; asserted to keep the invariant loud.
+    let mut seen: HashSet<(&str, &[u8])> = HashSet::new();
+    let mut entries = Vec::with_capacity(pairs.len());
+    for (url, bytes, class) in pairs {
+        ensure!(seen.insert((url, bytes)), "mux {}: duplicate (url, auth_data) pair", mux.id);
         // Emit an EMPTY builder_pubkeys. The only builder pubkey cb-km can see
         // is the relay URL's userinfo pubkey, which is the relay's IDENTITY, not
         // the builder's bid-SIGNING key. Lodestar rejects any builder-API bid
@@ -376,7 +392,7 @@ fn project_mux(
         // empty array = accept any builder for this key. Populate this in future
         // once cb-km can supply the builder's actual bid-signing pubkey.
         entries.push(BuilderEntryDoc {
-            url: advertised_url.to_string(),
+            url: url.to_string(),
             auth_data: Some(encode_auth_data(bytes)),
             builder_pubkeys: Some(Vec::new()),
             max_execution_payment: class.max_execution_payment_gwei.map(|g| g.to_string()),
@@ -487,6 +503,111 @@ expected_auth_data = "0x736563726574"
                 r#""builder_pubkeys":[],"min_bid":"500000000"}]}"#
             )
         );
+    }
+
+    fn direct_overlay() -> Overlay {
+        Overlay::parse_str(
+            r#"
+advertised_url = "https://cb.example.com"
+direct_entries = true
+"#,
+        )
+        .unwrap()
+    }
+
+    // Each Commit-Boost entry gets a twin that sends the beacon node straight to
+    // the builder with the same auth_data, so bids still arrive if CB is down.
+    #[test]
+    fn direct_entries_add_a_builder_url_twin() {
+        let key = random_key_hex();
+        let input = ProjectionInput::parse_str(&config_toml(std::slice::from_ref(&key))).unwrap();
+        let projection = project(&input, &direct_overlay()).unwrap();
+        let doc = projection.docs.values().next().unwrap();
+
+        let json = serde_json::to_string(doc).unwrap();
+        assert_eq!(
+            json,
+            concat!(
+                r#"{"min_bid":"500000000","builders":["#,
+                r#"{"url":"https://cb.example.com","#,
+                r#""auth_data":"0x68747470733a2f2f72656c61792d612e6578616d706c652e636f6d","#,
+                r#""builder_pubkeys":[],"min_bid":"500000000"},"#,
+                r#"{"url":"https://cb.example.com","#,
+                r#""auth_data":"0x736563726574","#,
+                r#""builder_pubkeys":[],"min_bid":"500000000"},"#,
+                r#"{"url":"https://relay-a.example.com","#,
+                r#""auth_data":"0x68747470733a2f2f72656c61792d612e6578616d706c652e636f6d","#,
+                r#""builder_pubkeys":[],"min_bid":"500000000"},"#,
+                r#"{"url":"https://relay-b.example.com","#,
+                r#""auth_data":"0x736563726574","#,
+                r#""builder_pubkeys":[],"min_bid":"500000000"}]}"#
+            )
+        );
+    }
+
+    fn two_relay_toml(key: &str, url_b: &str, extra: &str) -> String {
+        format!(
+            r#"
+chain = "Holesky"
+[pbs]
+[[mux]]
+id = "m"
+validator_pubkeys = ["{key}"]
+[[mux.relays]]
+url = "https://{RELAY_PK_A}@relay-a.example.com"
+{extra}
+[[mux.relays]]
+url = "https://{RELAY_PK_B}@{url_b}"
+{extra}
+"#
+        )
+    }
+
+    fn entry_urls(projection: &Projection) -> Vec<String> {
+        let doc = projection.docs.values().next().unwrap();
+        doc.builders.as_ref().unwrap().iter().map(|e| e.url.clone()).collect()
+    }
+
+    // relays grouped by a shared expected_auth_data are still separate builders
+    #[test]
+    fn direct_entries_keep_distinct_builders_in_one_class() {
+        let key = random_key_hex();
+        let text = two_relay_toml(&key, "relay-b.example.com", r#"expected_auth_data = "0xaabb""#);
+        let input = ProjectionInput::parse_str(&text).unwrap();
+        let projection = project(&input, &direct_overlay()).unwrap();
+        assert_eq!(entry_urls(&projection), vec![
+            "https://cb.example.com",
+            "https://relay-a.example.com",
+            "https://relay-b.example.com",
+        ]);
+    }
+
+    // the same builder reached under two relay ids gets one direct entry
+    #[test]
+    fn direct_entries_dedupe_one_builder() {
+        let key = random_key_hex();
+        let text = two_relay_toml(&key, "relay-a.example.com", "");
+        let input = ProjectionInput::parse_str(&text).unwrap();
+        let projection = project(&input, &direct_overlay()).unwrap();
+        assert_eq!(entry_urls(&projection), vec![
+            "https://cb.example.com",
+            "https://relay-a.example.com",
+        ]);
+    }
+
+    #[test]
+    fn direct_entries_count_against_the_entry_cap() {
+        let key = random_key_hex();
+        let relays = (0..MAX_BUILDER_ENTRIES / 2 + 1)
+            .map(|i| format!("[[mux.relays]]\nid = \"r{i}\"\nurl = \"https://{RELAY_PK_A}@relay-{i}.example.com\"\n"))
+            .collect::<String>();
+        let text = format!(
+            "chain = \"Holesky\"\n[pbs]\n[[mux]]\nid = \"m\"\nvalidator_pubkeys = [\"{key}\"]\n{relays}"
+        );
+        let input = ProjectionInput::parse_str(&text).unwrap();
+        assert!(project(&input, &overlay()).is_ok());
+        let err = project(&input, &direct_overlay()).unwrap_err();
+        assert!(err.to_string().contains("exceed the KM maximum"), "{err}");
     }
 
     #[test]
