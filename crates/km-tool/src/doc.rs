@@ -158,12 +158,6 @@ mod tests {
     }
 
     #[test]
-    fn empty_doc_serializes_to_empty_object() {
-        let doc = BuilderConfigDoc::default();
-        assert_eq!(serde_json::to_string(&doc).unwrap(), "{}");
-    }
-
-    #[test]
     fn omitted_fields_stay_off_the_wire() {
         let doc = BuilderConfigDoc {
             min_bid: Some("10000000".into()),

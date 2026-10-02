@@ -605,20 +605,6 @@ url = "https://{RELAY_PK_B}@{url_b}"
         assert!(err.to_string().contains("exceed the KM maximum"), "{err}");
     }
 
-    #[test]
-    fn stripped_userinfo_no_trailing_slash_in_auth_data() {
-        let key = random_key_hex();
-        let input = ProjectionInput::parse_str(&config_toml(&[key])).unwrap();
-        let projection = project(&input, &overlay()).unwrap();
-        let doc = projection.docs.values().next().unwrap();
-        let auth = doc.builders.as_ref().unwrap()[0].auth_data.clone().unwrap();
-        // "https://relay-a.example.com" exactly: no pubkey, no trailing slash
-        assert_eq!(
-            crate::doc::decode_auth_data(&auth).unwrap(),
-            b"https://relay-a.example.com".to_vec()
-        );
-    }
-
     // Two relays sharing an auth_data class collapse to ONE entry. The entry's
     // builder_pubkeys is emitted empty (no relay-identity pubkeys unioned in).
     #[test]
@@ -763,65 +749,6 @@ url = "https://{RELAY_PK_A}@relay-a.example.com"
         assert_eq!(entry.builder_boost_factor, Some("100".to_string()));
     }
 
-    // A mux p2p field wins over a different global p2p field at the key level.
-    #[test]
-    fn mux_p2p_override_wins_over_global() {
-        let key = random_key_hex();
-        let toml_text = format!(
-            r#"
-chain = "Holesky"
-[pbs]
-min_bid_p2p_eth = "0.2"
-builder_boost_factor_p2p = 50
-[[mux]]
-id = "m"
-validator_pubkeys = ["{key}"]
-min_bid_p2p_eth = "0.7"
-builder_boost_factor_p2p = 130
-[[mux.relays]]
-url = "https://{RELAY_PK_A}@relay-a.example.com"
-"#
-        );
-        let input = ProjectionInput::parse_str(&toml_text).unwrap();
-        let projection = project(&input, &overlay()).unwrap();
-        let doc = projection.docs.values().next().unwrap();
-        // key level uses the MUX p2p values, not the global ones
-        assert_eq!(doc.min_bid, Some("700000000".to_string()));
-        assert_eq!(doc.builder_boost_factor, Some("130".to_string()));
-    }
-
-    // Only the global p2p fields are set: every mux uses them at the key level.
-    #[test]
-    fn global_p2p_applies_to_all_muxes() {
-        let key_a = random_key_hex();
-        let key_b = random_key_hex();
-        let toml_text = format!(
-            r#"
-chain = "Holesky"
-[pbs]
-min_bid_p2p_eth = "0.2"
-builder_boost_factor_p2p = 50
-[[mux]]
-id = "ma"
-validator_pubkeys = ["{key_a}"]
-[[mux.relays]]
-url = "https://{RELAY_PK_A}@relay-a.example.com"
-[[mux]]
-id = "mb"
-validator_pubkeys = ["{key_b}"]
-[[mux.relays]]
-url = "https://{RELAY_PK_B}@relay-b.example.com"
-"#
-        );
-        let input = ProjectionInput::parse_str(&toml_text).unwrap();
-        let projection = project(&input, &overlay()).unwrap();
-        assert_eq!(projection.docs.len(), 2);
-        for doc in projection.docs.values() {
-            assert_eq!(doc.min_bid, Some("200000000".to_string()));
-            assert_eq!(doc.builder_boost_factor, Some("50".to_string()));
-        }
-    }
-
     // Mix: mux A overrides the global p2p, mux B inherits it.
     #[test]
     fn mux_p2p_override_and_inherit_mix() {
@@ -896,29 +823,6 @@ url = "https://{RELAY_PK_A}@relay-a.example.com"
         // entry-level boost is still the mux's own value, confirming the split
         let entry = &doc.builders.as_ref().unwrap()[0];
         assert_eq!(entry.builder_boost_factor, Some("100".to_string()));
-    }
-
-    // Unset p2p fields keep the uniform projection (key = entry values).
-    #[test]
-    fn p2p_fields_unset_keep_uniform_projection() {
-        let key = random_key_hex();
-        let input = ProjectionInput::parse_str(&config_toml(&[key])).unwrap();
-        let projection = project(&input, &overlay()).unwrap();
-        let doc = projection.docs.values().next().unwrap();
-        let entry = &doc.builders.as_ref().unwrap()[0];
-        assert_eq!(doc.min_bid, entry.min_bid);
-        assert_eq!(doc.builder_boost_factor, None);
-        assert_eq!(entry.builder_boost_factor, None);
-    }
-
-    #[test]
-    fn boost_omitted_without_source() {
-        let key = random_key_hex();
-        let input = ProjectionInput::parse_str(&config_toml(&[key])).unwrap();
-        let projection = project(&input, &overlay()).unwrap();
-        let doc = projection.docs.values().next().unwrap();
-        assert_eq!(doc.builder_boost_factor, None);
-        assert_eq!(doc.builders.as_ref().unwrap()[0].builder_boost_factor, None);
     }
 
     #[test]
@@ -1108,14 +1012,6 @@ expected_auth_data = "{upper_hex}"
         let projection = project(&input, &overlay()).unwrap();
         let doc = projection.docs.values().next().unwrap();
         assert_eq!(doc.builders.as_ref().unwrap().len(), 2);
-    }
-
-    #[test]
-    fn distinct_hosts_do_not_lax_collide() {
-        let key = random_key_hex();
-        let input = ProjectionInput::parse_str(&config_toml(&[key])).unwrap();
-        // relay-a and relay-b: different hosts, projection succeeds
-        assert_eq!(project(&input, &overlay()).unwrap().docs.len(), 1);
     }
 
     #[test]

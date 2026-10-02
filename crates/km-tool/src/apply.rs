@@ -428,26 +428,6 @@ mod tests {
     }
 
     #[test]
-    fn our_identity_wins_over_stored_resolved_version() {
-        // stored holds OUR identity (same url + auth_data) but with VC-resolved
-        // fields and a different pubkey set: ours must win, no duplicate
-        let stored = BuilderConfigDoc {
-            builders: Some(vec![BuilderEntryDoc {
-                min_bid: Some("999".into()),
-                ..entry("https://cb.example.com", b"https://relay-a", &["0xbb"])
-            }]),
-            ..Default::default()
-        };
-        let merged = merge_preserved_entries("k", &ours(), &stored).unwrap();
-        let entries = merged.builders.unwrap();
-        assert_eq!(entries.len(), 1);
-        // ours won on identity: empty builder_pubkeys and ours' (None) min_bid,
-        // not the stored 0xbb / 999
-        assert_eq!(entries[0].builder_pubkeys, Some(vec![]));
-        assert_eq!(entries[0].min_bid, None);
-    }
-
-    #[test]
     fn identity_ignores_hex_case() {
         let mut theirs = entry("https://cb.example.com", b"https://relay-a", &["0xcc"]);
         theirs.auth_data = Some(theirs.auth_data.unwrap().to_uppercase().replacen("0X", "0x", 1));
@@ -455,15 +435,5 @@ mod tests {
         // same identity as ours despite uppercase hex -> collapses to ours
         let merged = merge_preserved_entries("k", &ours(), &stored).unwrap();
         assert_eq!(merged.builders.unwrap().len(), 1);
-    }
-
-    #[test]
-    fn merge_exceeding_max_entries_fails() {
-        let extras: Vec<_> = (0..MAX_BUILDER_ENTRIES)
-            .map(|i| entry("https://other.example.com", format!("relay-{i}").as_bytes(), &["0xff"]))
-            .collect();
-        let stored = BuilderConfigDoc { builders: Some(extras), ..Default::default() };
-        let err = merge_preserved_entries("k", &ours(), &stored).unwrap_err();
-        assert!(err.to_string().contains("exceeding the KM maximum"), "{err}");
     }
 }

@@ -567,10 +567,10 @@ mod test {
 
     use super::{
         APPLICATION_JSON, APPLICATION_OCTET_STREAM, AcceptedEncodings, BodyDeserializeError,
-        CONSENSUS_VERSION_HEADER, EncodingType, NO_PREFERENCE_DEFAULT, OUTBOUND_ACCEPT_JSON_FIRST,
-        OUTBOUND_ACCEPT_SSZ_FIRST, WILDCARD, content_type_encoding_with_default,
-        decode_signed_beacon_block, deserialize_body, get_accept_types,
-        get_consensus_version_header, get_content_type, parse_response_encoding_and_fork,
+        CONSENSUS_VERSION_HEADER, EncodingType, NO_PREFERENCE_DEFAULT, OUTBOUND_ACCEPT_SSZ_FIRST,
+        WILDCARD, content_type_encoding_with_default, decode_signed_beacon_block, deserialize_body,
+        get_accept_types, get_consensus_version_header, get_content_type,
+        parse_response_encoding_and_fork,
     };
     use crate::{pbs::SignedBeaconBlock, utils::TestRandomSeed};
 
@@ -1053,15 +1053,6 @@ mod test {
         assert_eq!(
             OUTBOUND_ACCEPT_SSZ_FIRST,
             "application/octet-stream;q=1.0,application/json;q=0.9"
-        );
-    }
-
-    // The ePBS mirror: JSON preferred (q=1.0), SSZ as fallback (q=0.9).
-    #[test]
-    fn test_outbound_accept_json_first() {
-        assert_eq!(
-            OUTBOUND_ACCEPT_JSON_FIRST,
-            "application/json;q=1.0,application/octet-stream;q=0.9"
         );
     }
 

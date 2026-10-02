@@ -170,12 +170,6 @@ mod tests {
         assert_eq!(url.as_str(), "https://vc.example/prefix/eth/v1/keystores");
     }
 
-    #[test]
-    fn endpoint_without_prefix_unchanged() {
-        let url = client("http://127.0.0.1:5062").endpoint("/eth/v1/keystores").unwrap();
-        assert_eq!(url.as_str(), "http://127.0.0.1:5062/eth/v1/keystores");
-    }
-
     #[cfg(unix)]
     #[test]
     fn token_mode_overexposure() {

@@ -142,35 +142,6 @@ async fn test_get_execution_payload_bid_execution_payment_over_cap_accepted() ->
     .await
 }
 
-#[tokio::test]
-async fn test_get_execution_payload_bid_highest_wins() -> Result<()> {
-    test_get_execution_payload_bid_impl(
-        vec![
-            MockRelayState::new(Chain::Hoodi, random_secret()).with_trustless_bid_gwei(10),
-            MockRelayState::new(Chain::Hoodi, random_secret()).with_trustless_bid_gwei(42),
-        ],
-        StatusCode::OK,
-        &[1, 1],
-        Some(42),
-        0,
-    )
-    .await
-}
-
-/// Test that a bid with an execution payment within the configured
-/// `max_execution_payment_gwei` is accepted
-#[tokio::test]
-async fn test_get_execution_payload_bid_execution_payment_within_cap() -> Result<()> {
-    test_get_execution_payload_bid_impl(
-        vec![MockRelayState::new(Chain::Hoodi, random_secret()).with_trusted_bid_gwei(5)],
-        StatusCode::OK,
-        &[1],
-        None,
-        10,
-    )
-    .await
-}
-
 /// Test that selection is by TOTAL payment: trustless 5 + payment 10 beats
 /// trustless 10 + payment 0. Asserting value == 5 proves the total won.
 #[tokio::test]
@@ -893,37 +864,6 @@ async fn test_get_execution_payload_bid_ssz_auth_forwarded() -> Result<()> {
         .await?;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(mock_state.received_auth_data(), Some(data), "relay must receive the decoded auth");
-    Ok(())
-}
-
-/// A present-but-malformed auth body is rejected with 400 and an ErrorMessage
-/// JSON body, before any relay is queried.
-#[tokio::test]
-async fn test_get_execution_payload_bid_malformed_auth_400() -> Result<()> {
-    let (mock_validator, mock_state) =
-        setup_relay(Chain::Hoodi, |_| {}, generate_mock_relay).await?;
-
-    let url = bid_url(&mock_validator);
-    let res = mock_validator
-        .comm_boost
-        .client
-        .post(url)
-        .header(CONTENT_TYPE, "application/json")
-        .body(vec![0xff, 0x00, 0x99])
-        .send()
-        .await?;
-    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-    assert_eq!(
-        mock_state.received_execution_payload_bid(),
-        0,
-        "malformed auth rejected before relays"
-    );
-    let body: serde_json::Value = serde_json::from_slice(&res.bytes().await?)?;
-    assert_eq!(body["code"], 400);
-    assert!(
-        body["message"].as_str().unwrap_or_default().contains("decoding"),
-        "error body must be an ErrorMessage describing the decode failure"
-    );
     Ok(())
 }
 

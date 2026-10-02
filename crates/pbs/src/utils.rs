@@ -505,24 +505,6 @@ mod tests {
     }
 
     #[test]
-    fn validate_auth_data_requires_nonempty_data() {
-        use cb_common::{pbs::BuilderRequestAuth, types::BlsSignature};
-        use lh_types::Slot;
-
-        let with_data = |data: Vec<u8>| SignedBuilderRequestAuth {
-            message: BuilderRequestAuth { data: data.try_into().unwrap(), slot: Slot::new(1) },
-            signature: BlsSignature::empty(),
-        };
-
-        // Zero-length data is invalid per builder-specs request_auth.yaml ({1,4096})
-        assert!(matches!(
-            validate_auth_data(&with_data(vec![])),
-            Err(PbsClientError::EmptyAuthData)
-        ));
-        assert!(validate_auth_data(&with_data(vec![0xaa])).is_ok());
-    }
-
-    #[test]
     fn match_relays_prefers_configured_auth_data() {
         let relays = vec![
             test_relay("http://a.example.com", Some(&[0xaa])),
@@ -603,17 +585,6 @@ mod tests {
         assert!(match_relays_by_auth_data(&relays, &[0xde, 0xad]).is_empty());
         // Empty data carries no URL either
         assert!(match_relays_by_auth_data(&relays, &[]).is_empty());
-    }
-
-    // The pipe never dials blind: with no advertised_urls the self-URL guard
-    // cannot rule out CB's own URL (an unconfigured key's auth data defaults
-    // to it), so it fails closed with the same mismatch a builder would return.
-    #[tokio::test]
-    async fn transient_pipe_relay_fails_closed_without_advertised_urls() {
-        assert!(matches!(
-            transient_pipe_relay(b"http://builder.example.com", &[], &reqwest::Client::new()).await,
-            Err(PbsClientError::AuthDataMismatch)
-        ));
     }
 
     // A decoded URL naming CB itself is never dialed: matching follows

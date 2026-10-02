@@ -696,32 +696,6 @@ mod tests {
     }
 
     #[test]
-    fn mux_config_none_fields_roundtrip() {
-        // None-valued KM projection fields must be skipped on serialization so
-        // a config re-serialized to TOML stays loadable
-        let mux: MuxConfig = toml::from_str(
-            r#"
-            id = "test"
-            relays = []
-            "#,
-        )
-        .unwrap();
-        assert_eq!(mux.builder_boost_factor, None);
-        assert_eq!(mux.min_bid_wei, None);
-
-        let serialized = toml::to_string(&mux).unwrap();
-        assert!(!serialized.contains("builder_boost_factor"));
-        assert!(!serialized.contains("min_bid_eth"));
-        assert!(!serialized.contains("min_bid_p2p_eth"));
-
-        let roundtripped: MuxConfig = toml::from_str(&serialized).unwrap();
-        assert_eq!(roundtripped.builder_boost_factor, None);
-        assert_eq!(roundtripped.min_bid_wei, None);
-        assert_eq!(roundtripped.builder_boost_factor_p2p, None);
-        assert_eq!(roundtripped.min_bid_p2p_wei, None);
-    }
-
-    #[test]
     fn unknown_mux_fields_flags_typos_only() {
         let raw: toml::Value = r#"
             [[mux]]

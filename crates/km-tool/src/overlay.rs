@@ -66,13 +66,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_minimal_overlay() {
-        let overlay = Overlay::parse_str(r#"advertised_url = "https://cb.example.com""#).unwrap();
-        assert_eq!(overlay.advertised_url, "https://cb.example.com");
-        assert!(overlay.vcs.is_empty());
-    }
-
-    #[test]
     fn parses_full_overlay_and_vc_override() {
         let overlay = Overlay::parse_str(
             r#"

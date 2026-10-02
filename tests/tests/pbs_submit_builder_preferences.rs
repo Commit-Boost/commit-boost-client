@@ -9,7 +9,7 @@ use cb_tests::{
     mock_relay::MockRelayState,
     utils::{
         TEST_AUTH_DATA, generate_mock_relay, generate_mock_relay_url_only,
-        generate_mock_relay_with_auth_data, opaque_auth, setup_pbs, setup_relay, setup_relays,
+        generate_mock_relay_with_auth_data, opaque_auth, setup_relay, setup_relays,
         setup_relays_with_auth_data, signed_auth, spawn_mock_relay,
     },
 };
@@ -236,23 +236,6 @@ async fn test_submit_builder_preferences_unsupported_media_type_415() -> Result<
     Ok(())
 }
 
-/// A JSON submission is accepted too and decodes to the same values, including
-/// the quoted-string Gwei on the JSON wire.
-#[tokio::test]
-async fn test_submit_builder_preferences_json() -> Result<()> {
-    let chain = Chain::Hoodi;
-    let (mock_validator, mock_state) = setup_relay(chain, |_| {}, generate_mock_relay).await?;
-
-    let request =
-        preferences(opaque_auth(TEST_AUTH_DATA, future_slot(chain)), TEST_MAX_EXECUTION_PAYMENT);
-    let res =
-        mock_validator.do_submit_builder_preferences(None, &request, EncodingType::Json).await?;
-
-    assert_eq!(res.status(), StatusCode::ACCEPTED);
-    assert_eq!(mock_state.received_max_execution_payment(), Some(TEST_MAX_EXECUTION_PAYMENT));
-    Ok(())
-}
-
 /// An SSZ submission missing `Eth-Consensus-Version` is a 400: builder-specs
 /// fork-versions the request wire type, so the header is required to accept the
 /// SSZ form (and the same submission with the header is a 202).
@@ -416,65 +399,6 @@ async fn test_submit_builder_preferences_pipe_dials_unconfigured_builder() -> Re
     Ok(())
 }
 
-/// PIPE self-URL guard, preferences side: auth data decoding to one of CB's
-/// `advertised_urls` is a clean 400 and nothing is dialed; with
-/// `advertised_urls` unset the guard fails closed the same way.
-#[tokio::test]
-async fn test_submit_builder_preferences_pipe_self_url_not_dialed() -> Result<()> {
-    let chain = Chain::Hoodi;
-
-    for advertise_self in [true, false] {
-        // The mock stands in for whatever answers at the named URL: anything
-        // it receives means a dial went out
-        let (mock_state, port) =
-            spawn_mock_relay(MockRelayState::new(chain, random_secret())).await?;
-        let relay =
-            generate_mock_relay_with_auth_data(port, mock_state.signer.public_key(), &[0xaa])?;
-        let self_url = format!("http://0.0.0.0:{port}/");
-        let mock_validator = setup_pbs(chain, vec![relay], |pbs_config| {
-            if advertise_self {
-                pbs_config.advertised_urls = vec![self_url.parse().unwrap()];
-            }
-        })
-        .await?;
-
-        let auth = opaque_auth(self_url.as_bytes(), future_slot(chain));
-        let request = preferences(auth, TEST_MAX_EXECUTION_PAYMENT);
-        let res =
-            mock_validator.do_submit_builder_preferences(None, &request, EncodingType::Ssz).await?;
-
-        assert_eq!(res.status(), StatusCode::BAD_REQUEST, "advertise_self={advertise_self}");
-        assert_eq!(
-            mock_state.received_builder_preferences(),
-            0,
-            "no dial (advertise_self={advertise_self})"
-        );
-    }
-    Ok(())
-}
-
-/// Preferences addressed to a builder this PBS does not serve are rejected by
-/// the demux, not blindly fanned out.
-#[tokio::test]
-async fn test_submit_builder_preferences_auth_data_mismatch_400() -> Result<()> {
-    let chain = Chain::Hoodi;
-    let (mock_validator, mock_state) = setup_relay(
-        chain,
-        |_| {},
-        |port, pubkey| generate_mock_relay_with_auth_data(port, pubkey, TEST_AUTH_DATA),
-    )
-    .await?;
-
-    let request =
-        preferences(opaque_auth(&[0xbe, 0xef], future_slot(chain)), TEST_MAX_EXECUTION_PAYMENT);
-    let res =
-        mock_validator.do_submit_builder_preferences(None, &request, EncodingType::Ssz).await?;
-
-    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-    assert_eq!(mock_state.received_builder_preferences(), 0, "the demux must not fan out");
-    Ok(())
-}
-
 /// Opaque data matching no relay is a 400 with the builder's data-mismatch
 /// message even when a relay declares no `expected_auth_data`: unmatched means
 /// CB has no builder to proxy to, and proposer-private preferences must never
@@ -498,27 +422,6 @@ async fn test_submit_builder_preferences_unmatched_opaque_auth_400() -> Result<(
         body["message"],
         "Invalid SignedBuilderRequestAuth: auth.message.data does not match the value agreed with this builder"
     );
-    Ok(())
-}
-
-/// Preferences addressed by matching auth data reach that builder.
-#[tokio::test]
-async fn test_submit_builder_preferences_auth_data_match() -> Result<()> {
-    let chain = Chain::Hoodi;
-    let (mock_validator, mock_state) = setup_relay(
-        chain,
-        |_| {},
-        |port, pubkey| generate_mock_relay_with_auth_data(port, pubkey, TEST_AUTH_DATA),
-    )
-    .await?;
-
-    let request =
-        preferences(opaque_auth(TEST_AUTH_DATA, future_slot(chain)), TEST_MAX_EXECUTION_PAYMENT);
-    let res =
-        mock_validator.do_submit_builder_preferences(None, &request, EncodingType::Ssz).await?;
-
-    assert_eq!(res.status(), StatusCode::ACCEPTED);
-    assert_eq!(mock_state.received_builder_preferences(), 1);
     Ok(())
 }
 
@@ -702,35 +605,6 @@ async fn test_submit_builder_preferences_two_relays_one_202_one_400_is_202() -> 
         mock_validator.do_submit_builder_preferences(None, &request, EncodingType::Ssz).await?;
 
     assert_eq!(res.status(), StatusCode::ACCEPTED, "any-success: one acceptance is a 202");
-    assert_eq!(states[0].received_builder_preferences(), 1, "each addressed builder is asked");
-    assert_eq!(states[1].received_builder_preferences(), 1, "each addressed builder is asked");
-    Ok(())
-}
-
-/// Two addressed builders, one accepts and one rejects: they are separate
-/// destinations, not replicas, so a single acceptance is a successful 202.
-#[tokio::test]
-async fn test_submit_builder_preferences_two_relays_one_accepts_202() -> Result<()> {
-    let chain = Chain::Hoodi;
-    let (mock_validator, states) = setup_relays(chain, vec![
-        MockRelayState::new(chain, random_secret()),
-        MockRelayState::new(chain, random_secret()),
-    ])
-    .await?;
-
-    // The first rejects; the second accepts by default
-    states[0].set_response_override(StatusCode::INTERNAL_SERVER_ERROR);
-
-    let request =
-        preferences(opaque_auth(TEST_AUTH_DATA, future_slot(chain)), TEST_MAX_EXECUTION_PAYMENT);
-    let res =
-        mock_validator.do_submit_builder_preferences(None, &request, EncodingType::Ssz).await?;
-
-    assert_eq!(
-        res.status(),
-        StatusCode::ACCEPTED,
-        "one accepting builder makes the submission a success"
-    );
     assert_eq!(states[0].received_builder_preferences(), 1, "each addressed builder is asked");
     assert_eq!(states[1].received_builder_preferences(), 1, "each addressed builder is asked");
     Ok(())

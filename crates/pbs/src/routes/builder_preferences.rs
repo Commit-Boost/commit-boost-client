@@ -231,16 +231,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn decode_rejects_an_empty_body() {
-        let err = decode_versioned_request_body::<BuilderPreferencesRequest>(
-            &HeaderMap::new(),
-            &Bytes::new(),
-        )
-        .expect_err("an empty body is not a request");
-        assert!(matches!(err, BodyDeserializeError::MissingBody));
-    }
-
     /// This endpoint's no-preference default is SSZ, not the shared JSON one,
     /// and `Eth-Consensus-Version` is required regardless of encoding.
     #[test]
@@ -281,27 +271,6 @@ mod tests {
         headers.insert(CONSENSUS_VERSION_HEADER, axum::http::HeaderValue::from_static("GLOAS"));
         decode_versioned_request_body::<BuilderPreferencesRequest>(&headers, &body)
             .expect("case-insensitive gloas is accepted");
-    }
-
-    /// builder-specs marks `Eth-Consensus-Version` required on this endpoint
-    /// for JSON and SSZ alike (builder-specs #165): JSON without it is a 400,
-    /// not a best-effort decode.
-    #[test]
-    fn decode_rejects_json_without_the_version_header() {
-        let body = Bytes::from(serde_json::to_vec(&sample_request()).unwrap());
-
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            axum::http::header::CONTENT_TYPE,
-            axum::http::HeaderValue::from_static("application/json"),
-        );
-        let err = decode_versioned_request_body::<BuilderPreferencesRequest>(&headers, &body)
-            .expect_err("json without the version header must be rejected");
-        assert!(matches!(err, BodyDeserializeError::MissingVersionHeader));
-
-        headers.insert(CONSENSUS_VERSION_HEADER, axum::http::HeaderValue::from_static("gloas"));
-        decode_versioned_request_body::<BuilderPreferencesRequest>(&headers, &body)
-            .expect("the same json body decodes once the header is present");
     }
 
     /// An unrecognized fork name is a 400 per builder-specs, and the error

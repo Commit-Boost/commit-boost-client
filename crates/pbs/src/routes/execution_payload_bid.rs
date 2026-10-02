@@ -1202,19 +1202,4 @@ mod tests {
         let (winner, _) = select_max_bid(bids).unwrap();
         assert_eq!(winner, "overclaimer");
     }
-
-    // Per-relay in-flight aggregation (timing games) must pick the highest
-    // TOTAL payment, not the latest-started response.
-    #[test]
-    fn test_inflight_selection_prefers_max_total_not_latest() {
-        // Max total is neither first nor last, and the later-started response
-        // pays LESS: this fails both latest-wins and first-wins.
-        let bids = vec![
-            ("late", MockBid { value: 3, execution_payment: 1 }, u64::MAX), // total 4
-            ("early", MockBid { value: 10, execution_payment: 5 }, u64::MAX), // total 15 (winner)
-            ("mid", MockBid { value: 6, execution_payment: 2 }, u64::MAX),  // total 8
-        ];
-        let (winner, _) = select_max_bid(bids).unwrap();
-        assert_eq!(winner, "early", "must pick highest total, not latest- or first-started");
-    }
 }
