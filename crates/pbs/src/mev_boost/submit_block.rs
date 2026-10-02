@@ -20,7 +20,7 @@ use cb_common::{
 };
 use futures::{FutureExt, future::select_ok};
 use reqwest::{
-    StatusCode,
+    Response, StatusCode,
     header::{ACCEPT, CONTENT_TYPE, USER_AGENT},
 };
 use ssz::Encode;
@@ -186,6 +186,32 @@ async fn submit_block_with_timeout(
 
         retry += 1;
     }
+}
+
+/// How much of a refusing relay's body reaches the error and the logs.
+const MAX_REFUSAL_MESSAGE_BYTES: usize = 2 * 1024;
+
+async fn refusal_error(res: Response, url: &str, code: StatusCode) -> PbsError {
+    let error_msg = match read_chunked_body_with_max(res, MAX_SIZE_SUBMIT_BLOCK_RESPONSE, url).await
+    {
+        Ok(body) if !body.is_empty() => {
+            let end = body.len().min(MAX_REFUSAL_MESSAGE_BYTES);
+            String::from_utf8_lossy(&body[..end]).into_owned()
+        }
+        Ok(_) => "relay sent no body".to_string(),
+        Err(err) => format!("body unreadable: {err}"),
+    };
+    PbsError::RelayResponse { error_msg, code: code.as_u16() }
+}
+
+/// we requested the payload from all relays, but some may have not received it
+fn warn_payload_refused(relay: &RelayClient, retry: u32, err: &PbsError) {
+    warn!(
+        relay_id = relay.id.as_ref(),
+        retry,
+        %err,
+        "failed to get payload (this might be ok if other relays have it)"
+    );
 }
 
 // submits blinded signed block and expects the execution payload + blobs bundle
@@ -456,28 +482,21 @@ async fn send_submit_block_impl(
                 });
             }
             _ => {
-                return Err(PbsError::RelayResponse {
-                    error_msg: format!(
-                        "relay sent unexpected code for builder route v2 {}: {code}",
-                        relay.id.as_ref()
-                    ),
-                    code: code.as_u16(),
-                });
+                let err = refusal_error(res, url.as_str(), code).await;
+                // A 404 means the relay has no v2 route at all, which
+                // submit_block_with_timeout reports in its own words
+                if code != StatusCode::NOT_FOUND {
+                    warn_payload_refused(relay, retry, &err);
+                }
+                return Err(err);
             }
         }
     }
 
     // If the code is not OK, return early
     if code != StatusCode::OK {
-        let response_bytes =
-            read_chunked_body_with_max(res, MAX_SIZE_SUBMIT_BLOCK_RESPONSE, url.as_str()).await?;
-        let err = PbsError::RelayResponse {
-            error_msg: String::from_utf8_lossy(&response_bytes).into_owned(),
-            code: code.as_u16(),
-        };
-
-        // we requested the payload from all relays, but some may have not received it
-        warn!(relay_id = relay.id.as_ref(), %err, "failed to get payload (this might be ok if other relays have it)");
+        let err = refusal_error(res, url.as_str(), code).await;
+        warn_payload_refused(relay, retry, &err);
         return Err(err);
     }
 
@@ -623,4 +642,75 @@ fn validate_unblinded_block_fulu(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn response(code: StatusCode, body: impl Into<reqwest::Body>) -> Response {
+        Response::from(axum::http::Response::builder().status(code).body(body.into()).unwrap())
+    }
+
+    /// A relay refusing a v2 submission says why in the body
+    #[tokio::test]
+    async fn test_refusal_carries_the_relay_message() {
+        let err = refusal_error(
+            response(
+                StatusCode::BAD_REQUEST,
+                r#"{"code":400,"message":"no execution payload for this request, block was never seen by this relay"}"#,
+            ),
+            "http://relay.test/eth/v2/builder/blinded_blocks",
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+
+        let PbsError::RelayResponse { error_msg, code } = err else {
+            panic!("expected a relay response error, got {err}")
+        };
+        assert_eq!(code, 400);
+        assert!(error_msg.contains("block was never seen by this relay"), "{error_msg}");
+
+        // and a refusal with nothing to say still names the status
+        let err = refusal_error(
+            response(StatusCode::BAD_REQUEST, ""),
+            "http://relay.test/eth/v2/builder/blinded_blocks",
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+        let PbsError::RelayResponse { error_msg, .. } = err else { panic!("wrong error") };
+        assert_eq!(error_msg, "relay sent no body");
+    }
+
+    /// A refusal must not cost the relay its status code
+    #[tokio::test]
+    async fn test_refusal_keeps_a_retryable_status_code() {
+        let err = refusal_error(
+            response(StatusCode::SERVICE_UNAVAILABLE, ""),
+            "http://relay.test/eth/v2/builder/blinded_blocks",
+            StatusCode::SERVICE_UNAVAILABLE,
+        )
+        .await;
+
+        assert!(err.should_retry(), "a 503 must stay retryable: {err}");
+        let PbsError::RelayResponse { code, .. } = err else { panic!("wrong error") };
+        assert_eq!(code, 503);
+    }
+
+    /// A relay answering with megabytes must not put them all through a log
+    /// line: the appender is lossy under load and drops the lines that matter.
+    #[tokio::test]
+    async fn test_refusal_message_is_bounded() {
+        let err = refusal_error(
+            response(StatusCode::BAD_REQUEST, "x".repeat(64 * 1024)),
+            "http://relay.test/eth/v2/builder/blinded_blocks",
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+        let PbsError::RelayResponse { error_msg, .. } = err else { panic!("wrong error") };
+        // sliced on a byte boundary, so a split multi-byte char can add a
+        // replacement char on top of the cap
+        assert!(error_msg.len() <= MAX_REFUSAL_MESSAGE_BYTES + 3, "{}", error_msg.len());
+        assert!(error_msg.len() >= MAX_REFUSAL_MESSAGE_BYTES, "truncated too far");
+    }
 }

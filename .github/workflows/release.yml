@@ -301,7 +301,7 @@ jobs:
           pattern: "commit-boost-*"
 
       - name: Sign all binaries with Sigstore
-        uses: sigstore/gh-action-sigstore-python@v3.0.0
+        uses: sigstore/gh-action-sigstore-python@v3.5.0
         with:
           inputs: ./artifacts/**/*.tar.gz
 

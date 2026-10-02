@@ -90,6 +90,9 @@ pub const HTTP_TIMEOUT_SECONDS_DEFAULT: u64 = 10;
 /// Max content length for Muxer HTTP responses, in bytes
 pub const MUXER_HTTP_MAX_LENGTH: usize = 1024 * 1024 * 10; // 10 MiB
 
+/// Caps a mispointed `file`, which would otherwise be read into memory whole
+pub const RELAY_HEADER_FILE_MAX_BYTES: u64 = 8 * 1024;
+
 ///////////////////////// MODULES /////////////////////////
 
 /// The unique ID of the module

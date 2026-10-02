@@ -92,3 +92,18 @@ datasources:
 Once Grafana is running, you can [import](https://grafana.com/docs/grafana/latest/dashboards/build-dashboards/import-dashboards/) the Commit-Boost dashboards from [here](https://github.com/Commit-Boost/commit-boost-client/tree/main/provisioning/grafana), making sure to select the correct `Prometheus` datasource.
 
 
+
+## Bid stream
+
+For a relay with `get_header = "stream"`, every series below is labelled by `relay_id`. The stream's own outcome and time-to-first-bid share the two general relay series under `endpoint="get_header_stream"`; the HTTP fallback keeps `endpoint="get_header"`, so the two divide slots served by the stream from slots served by the fallback.
+
+| Question | Series |
+|---|---|
+| Is the stream serving bids? | `cb_pbs_relay_status_code_total{endpoint="get_header_stream"}`: `200` a bid was delivered, `204` connected but no bid before the deadline, `555` the bid window ran out during the handshake, `556` a transport error (connect failed, stream broke mid-window, or the handshake was answered with anything but `101`), any other code the relay's own refusal of the upgrade |
+| How fast does the first bid arrive? | `cb_pbs_relay_latency{endpoint="get_header_stream"}` |
+| Is it falling back to HTTP? | `cb_pbs_relay_stream_fallback_total`: handshake failures that had bid window left to retry over HTTP. One at startup is the registration race; a steady rate means the relay is refusing the stream. The fallback's own results are under `endpoint="get_header"` |
+| Is the handshake slow? | `cb_pbs_relay_stream_connect_latency` |
+| Is it actually streaming? | `cb_pbs_relay_stream_updates`: bid updates received per window. A healthy relay sends several; windows that carry at most one update mean the stream connects but does not stream |
+| Are the frames usable? | `cb_pbs_relay_stream_invalid_frames_total`: frames that could not be parsed as a bid, absent while zero |
+
+Two things the series do not tell apart. A bid that arrives but fails decoding or validation still counts as `200`, the same as over HTTP; the validation error is in the logs. And a request the beacon node abandons mid-window records no outcome at all.

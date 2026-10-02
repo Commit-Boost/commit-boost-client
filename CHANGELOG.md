@@ -46,7 +46,23 @@
 ### v0.10.0
 - Accumulation of rc1-rc4
 
+### v0.10.1
+- Add support for Lido Curated Module v2 (#489)
+- Correct the reported version: v0.10.0 binaries self-reported as `0.10.0-rc4`
+- Update dependencies to clear advisories present in v0.10.0: `h2` (RUSTSEC-2026-0258), `ruint` (RUSTSEC-2026-0220), and the yanked `spin` 0.9.8
+- Add a publish-age cooldown for dependency resolution and `--locked` builds (#492)
+
 ### v0.11.0-rc1
 - Introduces SSZ encodings for `get_header` and `submit_block`
 - Introduces optional streaming endpoint to receive bids over WebSocket connection
 - Fix Prysm issue #17136
+
+### v0.11.0-rc2
+- Relay API keys and other custom relay headers can be loaded from a secret file or an environment variable instead of being written in the config (#498)
+- The WebSocket bid stream metrics for handshake latency, bid updates per window, unparseable frames and HTTP fallbacks counts under its own `get_header_stream` endpoint (#499)
+- Add support for Lido Curated Module v2 (#489)
+- Bump sigstore version (#494)
+
+### v0.11.0-rc3
+- A relay that refuses a `submit_blinded_block` now has its own explanation reported instead of a synthesised message, and the retry count is logged on both the v1 and v2 paths (#502)
+- Update `rustls` to 0.23.45 to clear RUSTSEC-2026-0285 (#502)

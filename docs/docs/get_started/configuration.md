@@ -31,6 +31,20 @@ After the sidecar is started, it will expose a port (`18550` in this example), t
 In this setup, the signer module will not be started.
 :::
 
+## Relay API keys
+
+`headers` on a `[[relays]]` (or `[[mux.relays]]`) entry is a map of custom headers sent with every request to that relay, which is how a relay API key is supplied. A value is a literal, or a secret that Commit-Boost reads when the relay is loaded (at startup and on every config reload) from a file or an environment variable, so the key never has to be written in the config file:
+
+```toml
+[[relays]]
+url = "https://0x...@relay.example.com"
+headers = { X-Api-Key = { file = "/run/secrets/relay-key" } }
+# or: headers = { X-Api-Key = { env = "RELAY_API_KEY" } }
+# or: headers = { X-Api-Key = "literal-key" }
+```
+
+The value is used as written apart from trailing whitespace (secret stores end the file with a newline); an empty or unreadable secret is a startup error naming the file. `commit-boost init` mounts every `file` path read-only into the PBS container at the same path and passes every `env` variable through from the environment `docker compose` runs in. The file must be readable by the container user. A secret rotated in place is picked up by a config reload; a bind-mounted file that is rotated by replacing it needs a container restart, since the mount keeps the original.
+
 ## Signer module
 
 Commit-Boost supports both local and remote signers. The signer module is responsible for signing the transactions that other modules generates. Please note that only one signer at a time is allowed.
