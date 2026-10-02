@@ -9,7 +9,7 @@ use cb_common::{
 };
 use cb_tests::{
     signer_service::{start_server, verify_pubkeys},
-    utils::{self, setup_test_env},
+    utils::{self, get_free_listener, setup_test_env},
 };
 use eyre::{Result, bail};
 use reqwest::Certificate;
@@ -37,7 +37,8 @@ async fn test_signer_tls() -> Result<()> {
     setup_test_env();
     let module_id = ModuleId(JWT_MODULE.to_string());
     let mod_cfgs = create_mod_signing_configs().await;
-    let start_config = start_server(20100, &mod_cfgs, ADMIN_SECRET.to_string(), true).await?;
+    let start_config =
+        start_server(get_free_listener().await, &mod_cfgs, ADMIN_SECRET.to_string(), true).await?;
     let jwt_config = mod_cfgs.get(&module_id).expect("JWT config for test module not found");
 
     // Run a pubkeys request

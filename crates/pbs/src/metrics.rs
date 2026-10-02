@@ -115,4 +115,14 @@ lazy_static! {
         &["relay_id"],
         PBS_METRICS_REGISTRY
     ).unwrap();
+
+    /// Relay responses CB rejected during validation, by reason. Deliberately
+    /// NOT a synthetic entry in `RELAY_STATUS_CODE`: the relay's HTTP status
+    /// (usually 200) was already counted there.
+    pub static ref RELAY_INVALID_RESPONSE: IntCounterVec = register_int_counter_vec_with_registry!(
+        "pbs_relay_invalid_response_total",
+        "Relay responses rejected by CB validation, by reason",
+        &["reason", "endpoint", "relay_id"],
+        PBS_METRICS_REGISTRY
+    ).unwrap();
 }
