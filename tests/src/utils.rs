@@ -3,6 +3,7 @@ use std::{
     net::{Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
     sync::{Arc, Once},
+    time::Duration,
 };
 
 use alloy::primitives::{B256, U256};
@@ -21,7 +22,10 @@ use cb_common::{
 };
 use eyre::Result;
 use rcgen::generate_simple_self_signed;
+use reqwest::StatusCode;
 use url::Url;
+
+use crate::mock_validator::MockValidator;
 
 pub const HEADER_API_KEY: &str = "x-api-key";
 pub const API_KEY: &str = "123e4567-e89b-12d3-a456-426614174000";
@@ -235,4 +239,19 @@ pub fn create_module_config(id: ModuleId, signing_id: B256) -> StaticModuleConfi
 
 pub fn bls_pubkey_from_hex_unchecked(hex: &str) -> BlsPublicKey {
     bls_pubkey_from_hex(hex).unwrap()
+}
+
+/// Poll /status until PBS and its relays are up. relay_check makes a 200 mean
+/// the whole chain is ready; the fixed 100ms sleep used elsewhere flakes under
+/// parallel suite load.
+pub async fn wait_for_ready(mock_validator: &MockValidator) -> Result<()> {
+    for _ in 0..100 {
+        if let Ok(res) = mock_validator.do_get_status().await &&
+            res.status() == StatusCode::OK
+        {
+            return Ok(());
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    eyre::bail!("PBS/relays did not become ready within 2s")
 }
