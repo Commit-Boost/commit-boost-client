@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::sync::Arc;
 
 use alloy::primitives::U256;
 use axum::{
@@ -34,7 +34,7 @@ struct SsvNodeValidatorsRequestBody {
 /// Creates a simple mock server to simulate the SSV API endpoint under
 /// various conditions for testing. Note this ignores
 pub async fn create_mock_ssv_node_server(
-    port: u16,
+    listener: TcpListener,
     state: Option<SsvNodeMockState>,
 ) -> Result<JoinHandle<()>, axum::Error> {
     let data = include_str!("../../tests/data/ssv_valid_node.json");
@@ -50,8 +50,6 @@ pub async fn create_mock_ssv_node_server(
         .with_state(state)
         .into_make_service();
 
-    let address = SocketAddr::from(([127, 0, 0, 1], port));
-    let listener = TcpListener::bind(address).await.map_err(axum::Error::new)?;
     let server = axum::serve(listener, router).with_graceful_shutdown(async {
         tokio::signal::ctrl_c().await.expect("Failed to listen for shutdown signal");
     });
@@ -60,7 +58,7 @@ pub async fn create_mock_ssv_node_server(
             eprintln!("Server error: {e}");
         }
     }));
-    info!("Mock server started on http://localhost:{port}/");
+    info!("mock SSV server started");
     result
 }
 
