@@ -12,6 +12,7 @@ use super::{
     HEADER_VERSION_KEY, HEADER_VERSION_VALUE,
     constants::{
         GET_HEADER_STREAM_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
+        SUBMIT_SIGNED_BEACON_BLOCK_PATH,
     },
     error::PbsError,
 };
@@ -94,46 +95,72 @@ pub struct RelayClient {
     pub config: Arc<RelayConfig>,
 }
 
-impl RelayClient {
-    pub fn new(config: RelayConfig) -> eyre::Result<Self> {
-        let stream_url = match config.get_header {
-            GetHeaderTransport::Http => None,
-            GetHeaderTransport::Stream => Some(stream_url(&config.entry.url)?),
-        };
+/// The baseline outbound headers for a relay: the CommitBoost version header
+/// plus any operator-configured custom headers. Shared by the client's default
+/// headers and the get_header stream handshake so the two cannot diverge.
+fn relay_headers(config: &RelayConfig) -> eyre::Result<HeaderMap> {
+    let mut headers = HeaderMap::new();
+    headers.insert(HEADER_VERSION_KEY, HeaderValue::from_static(HEADER_VERSION_VALUE));
 
-        let mut headers = HeaderMap::new();
-        headers.insert(HEADER_VERSION_KEY, HeaderValue::from_static(HEADER_VERSION_VALUE));
-
-        if let Some(custom_headers) = &config.headers {
-            for (key, source) in custom_headers {
-                let resolved = source
-                    .resolve()
-                    .wrap_err_with(|| format!("header {key} of relay {}", config.id()))?;
-                let mut value = HeaderValue::from_str(&resolved)
-                    .wrap_err_with(|| format!("{key} has an invalid header value"))?;
-                // Custom headers carry API keys: keep them out of Debug output
-                value.set_sensitive(true);
-                headers.insert(
-                    HeaderName::from_str(key)
-                        .wrap_err_with(|| format!("{key} is an invalid header name"))?,
-                    value,
+    if let Some(custom_headers) = &config.headers {
+        for (key, source) in custom_headers {
+            let resolved = source
+                .resolve()
+                .wrap_err_with(|| format!("header {key} of relay {}", config.id()))?;
+            let mut value = HeaderValue::from_str(&resolved)
+                .wrap_err_with(|| format!("{key} has an invalid header value"))?;
+            // Custom headers carry API keys: keep them out of Debug output
+            value.set_sensitive(true);
+            headers.insert(
+                HeaderName::from_str(key)
+                    .wrap_err_with(|| format!("{key} is an invalid header name"))?,
+                value,
+            );
+            if !matches!(source, HeaderSource::Literal(_)) {
+                info!(
+                    relay_id = config.id(),
+                    key,
+                    ?source,
+                    value_sha256 = value_fingerprint(&resolved),
+                    "relay header loaded from a secret source"
                 );
-                if !matches!(source, HeaderSource::Literal(_)) {
-                    info!(
-                        relay_id = config.id(),
-                        key,
-                        ?source,
-                        value_sha256 = value_fingerprint(&resolved),
-                        "relay header loaded from a secret source"
-                    );
-                }
             }
         }
+    }
 
+    Ok(headers)
+}
+
+impl RelayClient {
+    pub fn new(config: RelayConfig) -> eyre::Result<Self> {
+        let headers = relay_headers(&config)?;
         let client = reqwest::Client::builder()
             .default_headers(headers.clone())
             .timeout(DEFAULT_REQUEST_TIMEOUT)
             .build()?;
+
+        Self::from_parts(config, client, headers)
+    }
+
+    /// Builds a relay client that reuses an existing `reqwest::Client` (its
+    /// connection pool and TLS config) instead of constructing a fresh one.
+    /// The ePBS transient pipe dials per request, so it reuses one process-wide
+    /// client rather than paying a cold client build on every dial. Otherwise
+    /// identical to [`RelayClient::new`].
+    pub fn with_client(config: RelayConfig, client: reqwest::Client) -> eyre::Result<Self> {
+        let headers = relay_headers(&config)?;
+        Self::from_parts(config, client, headers)
+    }
+
+    fn from_parts(
+        config: RelayConfig,
+        client: reqwest::Client,
+        headers: HeaderMap,
+    ) -> eyre::Result<Self> {
+        let stream_url = match config.get_header {
+            GetHeaderTransport::Http => None,
+            GetHeaderTransport::Stream => Some(stream_url(&config.entry.url)?),
+        };
 
         Ok(Self {
             id: Arc::new(config.id().to_owned()),
@@ -219,6 +246,53 @@ impl RelayClient {
     pub fn submit_block_url(&self, api_version: BuilderApiVersion) -> Result<Url, PbsError> {
         self.builder_api_url(SUBMIT_BLOCK_PATH, api_version)
     }
+
+    /// builder-API: POST /eth/v1/builder/execution_payload_bid/{slot}/
+    /// {parent_hash}/{parent_root}/{proposer_pubkey}
+    pub fn get_execution_payload_bid_url(
+        &self,
+        slot: u64,
+        parent_hash: &B256,
+        parent_root: &B256,
+        validator_pubkey: &BlsPublicKey,
+    ) -> Result<Url, PbsError> {
+        self.builder_api_url(
+            &format!(
+                "/execution_payload_bid/{slot}/{parent_hash}/{parent_root}/{validator_pubkey}"
+            ),
+            BuilderApiVersion::V1,
+        )
+    }
+
+    /// builder-API: POST /eth/v1/builder/builder_preferences/{proposer_pubkey}
+    pub fn submit_builder_preferences_url(
+        &self,
+        validator_pubkey: &BlsPublicKey,
+    ) -> Result<Url, PbsError> {
+        self.builder_api_url(
+            &format!("/builder_preferences/{validator_pubkey}"),
+            BuilderApiVersion::V1,
+        )
+    }
+
+    /// builder-API: POST /eth/v1/builder/beacon_blocks
+    pub fn submit_signed_beacon_block_url(&self) -> Result<Url, PbsError> {
+        self.builder_api_url(SUBMIT_SIGNED_BEACON_BLOCK_PATH, BuilderApiVersion::V1)
+    }
+}
+
+/// Compares two URLs ignoring userinfo/path/query/fragment. A relay entry URL
+/// embeds the relay pubkey as userinfo, so full equality would never match a
+/// bare builder URL.
+pub fn url_matches(a: &Url, b: &Url) -> bool {
+    // A trailing dot marks a fully-qualified host that resolves to the same host
+    // as its dotless form; canonicalize so it cannot slip a self-URL guard.
+    fn host_canonical(url: &Url) -> Option<&str> {
+        url.host_str().map(|host| host.strip_suffix('.').unwrap_or(host))
+    }
+    a.scheme() == b.scheme() &&
+        host_canonical(a) == host_canonical(b) &&
+        a.port_or_known_default() == b.port_or_known_default()
 }
 
 /// First 4 bytes of the value's SHA-256: enough to see a rotation
@@ -233,12 +307,35 @@ mod tests {
     use std::collections::HashMap;
 
     use alloy::primitives::B256;
+    use url::Url;
 
-    use super::{GetHeaderRequest, RelayClient, RelayEntry, value_fingerprint};
+    use super::{GetHeaderRequest, RelayClient, RelayEntry, url_matches, value_fingerprint};
     use crate::{
         config::{GetHeaderTransport, RelayConfig, test_env::RELAY_URL},
         utils::bls_pubkey_from_hex_unchecked,
     };
+
+    #[test]
+    fn url_matches_ignores_userinfo_and_default_port() {
+        let u = |s: &str| Url::parse(s).unwrap();
+        // A bare builder URL matches a configured relay whose URL embeds the
+        // relay pubkey as userinfo and omits the default port.
+        assert!(url_matches(
+            &u("https://0xdeadbeef@builder.example.com"),
+            &u("https://builder.example.com")
+        ));
+        assert!(url_matches(
+            &u("https://builder.example.com:443"),
+            &u("https://builder.example.com")
+        ));
+        assert!(!url_matches(&u("http://a.com"), &u("https://a.com")));
+        assert!(!url_matches(&u("https://a.com"), &u("https://b.com")));
+        assert!(!url_matches(&u("http://a.com:8001"), &u("http://a.com:8002")));
+        // A fully-qualified trailing-dot host matches its dotless form, so it
+        // cannot be used to slip the self-URL guard.
+        assert!(url_matches(&u("https://cb.example.com."), &u("https://cb.example.com")));
+        assert!(url_matches(&u("https://cb.example.com"), &u("https://cb.example.com.")));
+    }
 
     #[test]
     fn test_relay_entry() {
@@ -299,9 +396,8 @@ mod tests {
         let validator_pubkey = bls_pubkey_from_hex_unchecked(
             "0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae",
         );
-        // Note: HashMap iteration order is not guaranteed, so we can't predict the
-        // exact order of parameters Instead of hard-coding the order, we'll
-        // check that both parameters are present in the URL
+        // HashMap iteration order is not guaranteed, so assert both parameters are
+        // present rather than hard-coding their order in the URL.
         let url_prefix = format!(
             "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz/eth/v1/builder/header/{slot}/{parent_hash}/{validator_pubkey}?"
         );
@@ -467,5 +563,86 @@ mod tests {
         }"#;
         let config = serde_json::from_str::<RelayConfig>(relay_config).unwrap();
         assert_eq!(config.get_header, GetHeaderTransport::Http);
+    }
+
+    #[test]
+    fn test_relay_url_get_execution_payload() {
+        let slot = 0;
+        let parent_hash = B256::ZERO;
+        let parent_root = B256::ZERO;
+        let validator_pubkey = bls_pubkey_from_hex_unchecked(
+            "0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae",
+        );
+        let expected = format!(
+            "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz/eth/v1/builder/execution_payload_bid/{slot}/{parent_hash}/{parent_root}/{validator_pubkey}"
+        );
+
+        let relay_config = r#"
+        {
+            "url": "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz"
+        }"#;
+
+        let config = serde_json::from_str::<RelayConfig>(relay_config).unwrap();
+        let relay = RelayClient::new(config).unwrap();
+
+        assert_eq!(
+            relay
+                .get_execution_payload_bid_url(slot, &parent_hash, &parent_root, &validator_pubkey)
+                .unwrap()
+                .to_string(),
+            expected
+        );
+
+        let relay_config = r#"
+        {
+            "url": "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz//"
+        }"#;
+
+        let config = serde_json::from_str::<RelayConfig>(relay_config).unwrap();
+        let relay = RelayClient::new(config).unwrap();
+
+        assert_eq!(
+            relay
+                .get_execution_payload_bid_url(slot, &parent_hash, &parent_root, &validator_pubkey)
+                .unwrap()
+                .to_string(),
+            expected
+        );
+    }
+
+    #[test]
+    fn test_relay_url_with_get_params_get_execution_payload() {
+        let slot = 0;
+        let parent_hash = B256::ZERO;
+        let parent_root = B256::ZERO;
+        let validator_pubkey = bls_pubkey_from_hex_unchecked(
+            "0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae",
+        );
+        // HashMap iteration order is not guaranteed, so assert both parameters are
+        // present rather than hard-coding their order in the URL.
+        let url_prefix = format!(
+            "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz/eth/v1/builder/execution_payload_bid/{slot}/{parent_hash}/{parent_root}/{validator_pubkey}?"
+        );
+
+        let mut get_params = HashMap::new();
+        get_params.insert("param1".to_string(), "value1".to_string());
+        get_params.insert("param2".to_string(), "value2".to_string());
+
+        let relay_config = r#"
+        {
+            "url": "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz"
+        }"#;
+
+        let mut config = serde_json::from_str::<RelayConfig>(relay_config).unwrap();
+        config.get_params = Some(get_params);
+        let relay = RelayClient::new(config).unwrap();
+
+        let url = relay
+            .get_execution_payload_bid_url(slot, &parent_hash, &parent_root, &validator_pubkey)
+            .unwrap()
+            .to_string();
+        assert!(url.starts_with(&url_prefix));
+        assert!(url.contains("param1=value1"));
+        assert!(url.contains("param2=value2"));
     }
 }
