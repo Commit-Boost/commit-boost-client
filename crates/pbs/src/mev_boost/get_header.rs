@@ -1,4 +1,6 @@
 use std::{
+    collections::HashMap,
+    iter::once,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -10,6 +12,7 @@ use alloy::{
 };
 use axum::http::{HeaderMap, HeaderValue};
 use cb_common::{
+    config::GetHeaderTransport,
     constants::APPLICATION_BUILDER_DOMAIN,
     pbs::{
         EMPTY_TX_ROOT_HASH, ExecutionPayloadHeaderRef, ForkName, ForkVersionDecode, GetHeaderInfo,
@@ -25,7 +28,7 @@ use cb_common::{
         parse_response_encoding_and_fork, safe_read_http_response,
     },
 };
-use futures::future::join_all;
+use futures::{FutureExt, future::join_all};
 use parking_lot::RwLock;
 use reqwest::{
     StatusCode,
@@ -38,14 +41,12 @@ use url::Url;
 
 use super::get_header_ws::get_header_ws;
 use crate::{
+    bid_stream::record_stream_fallback,
     constants::{
-        GET_HEADER_ENDPOINT_TAG, MAX_SIZE_GET_HEADER_RESPONSE, TIMEOUT_ERROR_CODE,
-        TIMEOUT_ERROR_CODE_STR,
+        GET_HEADER_ENDPOINT_TAG, GET_HEADER_STREAM_ENDPOINT_TAG, MAX_SIZE_GET_HEADER_RESPONSE,
+        TIMEOUT_ERROR_CODE, TIMEOUT_ERROR_CODE_STR,
     },
-    metrics::{
-        RELAY_HEADER_VALUE, RELAY_LAST_SLOT, RELAY_LATENCY, RELAY_STATUS_CODE,
-        RELAY_STREAM_FALLBACK,
-    },
+    metrics::{RELAY_HEADER_VALUE, RELAY_LAST_SLOT, RELAY_LATENCY, RELAY_STATUS_CODE},
     state::{BuilderApiState, PbsState},
     utils::check_gas_limit,
 };
@@ -171,52 +172,80 @@ pub async fn get_header<S: BuilderApiState>(
             parent_block,
         },
     });
+    // A stream relay races its normal HTTP request; each is a separate candidate
+    // below
+    let params = &request_info.params;
     let mut handles = Vec::with_capacity(relays.len());
     for relay in relays.iter() {
-        handles.push(
-            get_header_from_relay(
-                request_info.clone(),
-                relay.clone(),
-                ms_into_slot,
-                max_timeout_ms,
-            )
-            .in_current_span(),
-        );
-    }
-
-    let results = join_all(handles).await;
-    let mut relay_bids = Vec::with_capacity(relays.len());
-    for (i, res) in results.into_iter().enumerate() {
-        let relay_id = relays[i].id.as_str();
-
-        match res {
-            Ok(Some(res)) => {
-                RELAY_LAST_SLOT.with_label_values(&[relay_id]).set(slot);
-                let value_gwei = (res.data.message.value() / U256::from(1_000_000_000))
-                    .try_into()
-                    .unwrap_or_default();
-                RELAY_HEADER_VALUE.with_label_values(&[relay_id]).set(value_gwei);
-
-                relay_bids.push((relay_id, res))
+        let relay_id = relay.id.as_str();
+        let http_url = match relay.get_header_url(params.slot, &params.parent_hash, &params.pubkey)
+        {
+            Ok(url) => url,
+            Err(err) => {
+                error!(%err, relay_id);
+                continue;
             }
-            Ok(_) => {}
-            Err(err) if err.is_timeout() => error!(err = "Timed Out", relay_id),
-            Err(err) => error!(%err, relay_id),
+        };
+        let stream_url =
+            relay.get_header_stream_url(params.slot, &params.parent_hash, &params.pubkey);
+
+        let requests =
+            once(GetHeaderRequest::Http(http_url)).chain(stream_url.map(GetHeaderRequest::Stream));
+        for request in requests {
+            let transport = request.transport();
+            handles.push(
+                get_header_from_relay(
+                    request_info.clone(),
+                    relay.clone(),
+                    ms_into_slot,
+                    max_timeout_ms,
+                    request,
+                )
+                .map(move |res| (relay_id, transport, res))
+                .in_current_span(),
+            );
         }
     }
 
-    let max_bid = relay_bids.into_iter().max_by_key(|(_, bid)| *bid.value());
+    let mut relay_bids = Vec::with_capacity(handles.len());
+    let mut best_per_relay: HashMap<&str, U256> = HashMap::new();
+    for (relay_id, transport, res) in join_all(handles).await {
+        match res {
+            Ok(Some(res)) => {
+                let best = best_per_relay.entry(relay_id).or_default();
+                *best = (*best).max(*res.value());
+                relay_bids.push((relay_id, transport, res))
+            }
+            Ok(None) => {}
+            Err(err) if transport == GetHeaderTransport::Stream => {
+                warn!(%err, relay_id, "stream failed");
+                record_stream_fallback(GET_HEADER_STREAM_ENDPOINT_TAG, relay_id);
+            }
+            Err(err) if err.is_timeout() => {
+                error!(err = "Timed Out", relay_id, transport = transport.as_str())
+            }
+            Err(err) => error!(%err, relay_id, transport = transport.as_str()),
+        }
+    }
+    for (relay_id, value) in best_per_relay {
+        RELAY_LAST_SLOT.with_label_values(&[relay_id]).set(slot);
+        let value_gwei = (value / U256::from(1_000_000_000)).try_into().unwrap_or_default();
+        RELAY_HEADER_VALUE.with_label_values(&[relay_id]).set(value_gwei);
+    }
 
-    if let Some((winning_relay_id, ref bid)) = max_bid {
+    let max_bid = relay_bids.into_iter().max_by_key(|(_, _, bid)| *bid.value());
+
+    if let Some((winning_relay_id, transport, ref bid)) = max_bid {
         info!(
             relay_id = winning_relay_id,
+            transport = transport.as_str(),
             value_eth = format_ether(*bid.value()),
             block_hash = %bid.block_hash(),
             "auction winner"
         );
     }
 
-    Ok(max_bid.map(|(_, bid)| bid))
+    Ok(max_bid.map(|(_, _, bid)| bid))
 }
 
 /// Fetch the parent block from the RPC URL for extra validation of the header.
@@ -249,44 +278,11 @@ async fn get_header_from_relay(
     relay: RelayClient,
     ms_into_slot: u64,
     timeout_left_ms: u64,
+    request: GetHeaderRequest,
 ) -> Result<Option<GetHeaderResponse>, PbsError> {
-    let params = &request_info.params;
-    let request =
-        match relay.get_header_stream_url(params.slot, &params.parent_hash, &params.pubkey) {
-            Some(url) => GetHeaderRequest::Stream(url),
-            None => GetHeaderRequest::Http(relay.get_header_url(
-                params.slot,
-                &params.parent_hash,
-                &params.pubkey,
-            )?),
-        };
-
     match request {
         GetHeaderRequest::Stream(url) => {
-            let started = Instant::now();
-            let err = match get_header_ws(&request_info, &relay, url, timeout_left_ms).await {
-                Err(PbsError::WebSocketConnect(err)) => err,
-                res => return res,
-            };
-
-            let elapsed_ms = started.elapsed().as_millis() as u64;
-            let timeout_left_ms = timeout_left_ms.saturating_sub(elapsed_ms);
-            if timeout_left_ms == 0 {
-                return Err(PbsError::WebSocketConnect(err));
-            }
-
-            RELAY_STREAM_FALLBACK.with_label_values(&[relay.id.as_str()]).inc();
-            warn!(relay_id = relay.id.as_ref(), %err, timeout_left_ms, "stream failed, falling back to http get_header");
-
-            let url = relay.get_header_url(params.slot, &params.parent_hash, &params.pubkey)?;
-            send_timed_get_header(
-                request_info,
-                relay,
-                ms_into_slot + elapsed_ms,
-                url,
-                timeout_left_ms,
-            )
-            .await
+            get_header_ws(&request_info, &relay, url, timeout_left_ms).await
         }
         GetHeaderRequest::Http(url) => {
             send_timed_get_header(request_info, relay, ms_into_slot, url, timeout_left_ms).await
@@ -746,21 +742,23 @@ mod tests {
 
     use alloy::primitives::{B256, U256};
     use cb_common::{
-        config::{GetHeaderTransport, PbsConfig, PbsModuleConfig, RelayConfig},
+        config::{PbsConfig, PbsModuleConfig, RelayConfig},
         pbs::*,
         signature::sign_builder_message,
         ssz::get_bid_value_from_signed_builder_bid_ssz,
         types::{BlsPublicKeyBytes, BlsSecretKey, BlsSignature, Chain},
         utils::{TestRandomSeed, timestamp_of_slot_start_sec},
     };
+    use futures::SinkExt;
     use ssz::Encode;
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
         net::TcpListener,
     };
+    use tokio_tungstenite::{accept_async, tungstenite::Message};
 
     use super::{validate_header_data, *};
-    use crate::constants::GET_HEADER_STREAM_ENDPOINT_TAG;
+    use crate::metrics::{RELAY_STREAM_FALLBACK, RELAY_STREAM_UPDATES};
 
     #[test]
     fn test_validate_header() {
@@ -915,6 +913,31 @@ mod tests {
         addr
     }
 
+    /// A relay whose stream sends `frames` copies of a bid for another parent,
+    /// then closes. Its HTTP get_header fails.
+    async fn start_invalid_bid_stream_relay(frames: usize) -> SocketAddr {
+        let json = fs::read("../../tests/data/get_header/fulu.json").unwrap();
+        // Message type bid, fork fulu
+        let mut frame = vec![0x01, 6];
+        frame.extend(decode_json_payload(&json).unwrap().data.as_ssz_bytes());
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            while let Ok((socket, _)) = listener.accept().await {
+                let frame = frame.clone();
+                tokio::spawn(async move {
+                    let Ok(mut stream) = accept_async(socket).await else { return };
+                    for _ in 0..frames {
+                        let _ = stream.send(Message::Binary(frame.clone().into())).await;
+                    }
+                    let _ = stream.close(None).await;
+                });
+            }
+        });
+        addr
+    }
+
     /// get_header against one stream relay at `addr`. Returns the relay's id,
     /// which labels its metrics, and the bid.
     async fn get_header_from_stream_relay(addr: SocketAddr) -> (String, Option<GetHeaderResponse>) {
@@ -975,10 +998,31 @@ mod tests {
                 "handshake answered {status}"
             );
             assert_eq!(
-                RELAY_STREAM_FALLBACK.with_label_values(&[&relay_id]).get(),
+                RELAY_STREAM_FALLBACK
+                    .with_label_values(&[GET_HEADER_STREAM_ENDPOINT_TAG, &relay_id])
+                    .get(),
                 fallbacks,
                 "handshake answered {status}"
             );
         }
+    }
+
+    // A window whose every bid fails validation records 200 and one failed
+    // stream. Its updates count every bid it accepted, not only those it held.
+    #[tokio::test]
+    async fn test_stream_fallback_counts_a_window_with_no_valid_bid() {
+        let addr = start_invalid_bid_stream_relay(10).await;
+        let (relay_id, bid) = get_header_from_stream_relay(addr).await;
+        assert!(bid.is_none());
+
+        let status = RELAY_STATUS_CODE.with_label_values(&[
+            StatusCode::OK.as_str(),
+            GET_HEADER_STREAM_ENDPOINT_TAG,
+            &relay_id,
+        ]);
+        assert_eq!(status.get(), 1);
+        let stream = [GET_HEADER_STREAM_ENDPOINT_TAG, relay_id.as_str()];
+        assert_eq!(RELAY_STREAM_FALLBACK.with_label_values(&stream).get(), 1);
+        assert_eq!(RELAY_STREAM_UPDATES.with_label_values(&stream).get_sample_sum(), 10.0);
     }
 }

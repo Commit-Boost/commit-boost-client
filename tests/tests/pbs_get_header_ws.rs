@@ -17,7 +17,7 @@ use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
     mock_relay::{MockRelayState, start_mock_relay_service_with_listener},
     mock_validator::MockValidator,
-    mock_ws_relay::{MockWsRelayState, start_mock_ws_relay_service},
+    mock_ws_relay::{MockWsRelayState, start_mock_dual_relay_service, start_mock_ws_relay_service},
     utils::{
         API_KEY, generate_mock_relay, generate_mock_stream_relay,
         generate_mock_stream_relay_with_timing_games, get_free_listener, get_pbs_config,
@@ -324,38 +324,10 @@ async fn test_get_header_ws_unreachable_relay_returns_204() -> Result<()> {
     Ok(())
 }
 
-/// A relay configured to stream that rejects the handshake — here by not
-/// serving the stream route at all — is still asked over HTTP, so its bid stays
-/// in the auction instead of the relay silently dropping out.
+/// The HTTP request raced alongside the stream is the relay's normal
+/// get_header, timing games included.
 #[tokio::test]
-async fn test_get_header_ws_falls_back_to_http() -> Result<()> {
-    setup_test_env();
-    let signer = random_secret();
-    let pubkey = signer.public_key();
-    let chain = Chain::Hoodi;
-
-    let listener = get_free_listener().await;
-    let port = listener.local_addr()?.port();
-    let relay_state =
-        Arc::new(MockRelayState::new(chain, signer.clone()).with_bid_value(U256::from(42)));
-    tokio::spawn(start_mock_relay_service_with_listener(relay_state.clone(), listener));
-
-    let relay = generate_mock_stream_relay(port, pubkey)?;
-    let validator = start_pbs(chain, vec![relay], 1_000).await?;
-
-    let (code, res) = get_header_json(&validator).await?;
-    assert_eq!(code, StatusCode::OK);
-    assert_bid(&res.unwrap(), chain, &signer, U256::from(42));
-
-    // Timing games are off for this relay, so the fallback is a single request
-    assert_eq!(relay_state.received_get_header(), 1);
-    Ok(())
-}
-
-/// The handshake can fail early in the slot, so the fallback is a normal http
-/// get_header and still plays this relay's timing games.
-#[tokio::test]
-async fn test_get_header_ws_fallback_runs_timing_games() -> Result<()> {
+async fn test_get_header_ws_race_http_runs_timing_games() -> Result<()> {
     setup_test_env();
     let signer = random_secret();
     let pubkey = signer.public_key();
@@ -376,7 +348,7 @@ async fn test_get_header_ws_fallback_runs_timing_games() -> Result<()> {
     assert_bid(&res.unwrap(), chain, &signer, U256::from(10));
 
     let n_requests = relay_state.received_get_header();
-    assert!(n_requests > 1, "fallback skipped the timing games loop: {n_requests} requests");
+    assert!(n_requests > 1, "HTTP skipped the timing games loop: {n_requests} requests");
     Ok(())
 }
 
@@ -410,5 +382,100 @@ async fn test_get_header_ws_wins_auction_against_http() -> Result<()> {
     // Both transports were actually queried
     assert_eq!(http_state.received_get_header(), 1);
     assert_eq!(stream_state.received_connections(), 1);
+    Ok(())
+}
+
+/// One relay serving both the HTTP `get_header` and the stream on the same
+/// port, as a real relay does. Returns the two mock states and the stream-mode
+/// relay client.
+async fn start_dual_relay(
+    http_state: MockRelayState,
+    ws_state: MockWsRelayState,
+    pubkey: cb_common::types::BlsPublicKey,
+) -> Result<(Arc<MockRelayState>, Arc<MockWsRelayState>, cb_common::pbs::RelayClient)> {
+    let http_listener = get_free_listener().await;
+    let http_addr = http_listener.local_addr()?;
+    let http_state = Arc::new(http_state);
+    tokio::spawn(start_mock_relay_service_with_listener(http_state.clone(), http_listener));
+
+    let listener = get_free_listener().await;
+    let port = listener.local_addr()?.port();
+    let ws_state = Arc::new(ws_state);
+    tokio::spawn(start_mock_dual_relay_service(ws_state.clone(), listener, http_addr));
+
+    Ok((http_state, ws_state, generate_mock_stream_relay(port, pubkey)?))
+}
+
+/// A handshake that outlasts the budget: the HTTP request raced alongside it
+/// supplies the bid.
+#[tokio::test]
+async fn test_get_header_ws_race_handshake_timeout_http_bid_serves() -> Result<()> {
+    setup_test_env();
+    let signer = random_secret();
+    let chain = Chain::Hoodi;
+    let (http_state, ws_state, relay) = start_dual_relay(
+        MockRelayState::new(chain, signer.clone()).with_bid_value(U256::from(42)),
+        MockWsRelayState::new(chain, signer.clone()).with_handshake_delay(Duration::from_secs(2)),
+        signer.public_key(),
+    )
+    .await?;
+    let validator = start_pbs(chain, vec![relay], 300).await?;
+
+    let (code, res) = get_header_json(&validator).await?;
+    assert_eq!(code, StatusCode::OK);
+    assert_bid(&res.unwrap(), chain, &signer, U256::from(42));
+    assert_eq!(http_state.received_get_header(), 1);
+    assert_eq!(ws_state.handshake_attempts(), 1);
+    assert_eq!(ws_state.received_connections(), 0, "the handshake never completed");
+    Ok(())
+}
+
+/// A stream that breaks after a bid keeps that bid, here above the HTTP one.
+#[tokio::test]
+async fn test_get_header_ws_race_stream_break_keeps_held_bid() -> Result<()> {
+    setup_test_env();
+    let signer = random_secret();
+    let chain = Chain::Hoodi;
+    let (_, ws_state, relay) = start_dual_relay(
+        MockRelayState::new(chain, signer.clone()).with_bid_value(U256::from(10)),
+        MockWsRelayState::new(chain, signer.clone())
+            .with_bid_values(vec![U256::from(50)])
+            .abort_after_bids(),
+        signer.public_key(),
+    )
+    .await?;
+    let validator = start_pbs(chain, vec![relay], 1_000).await?;
+
+    let (code, res) = get_header_json(&validator).await?;
+    assert_eq!(code, StatusCode::OK);
+    assert_bid(&res.unwrap(), chain, &signer, U256::from(50));
+    assert_eq!(ws_state.received_connections(), 1);
+    Ok(())
+}
+
+/// The stream and the HTTP request are separate candidates: the higher bid
+/// wins, and the stream's candidate is its latest bid, not its highest.
+#[tokio::test]
+async fn test_get_header_ws_race_higher_bid_wins() -> Result<()> {
+    setup_test_env();
+    let signer = random_secret();
+    let chain = Chain::Hoodi;
+
+    for (http_bid, stream_bids, served) in [(10, [20, 50], 50), (60, [70, 50], 60)] {
+        let (http_state, ws_state, relay) = start_dual_relay(
+            MockRelayState::new(chain, signer.clone()).with_bid_value(U256::from(http_bid)),
+            MockWsRelayState::new(chain, signer.clone())
+                .with_bid_values(stream_bids.map(U256::from).to_vec()),
+            signer.public_key(),
+        )
+        .await?;
+        let validator = start_pbs(chain, vec![relay], 1_000).await?;
+
+        let (code, res) = get_header_json(&validator).await?;
+        assert_eq!(code, StatusCode::OK);
+        assert_bid(&res.unwrap(), chain, &signer, U256::from(served));
+        assert_eq!(http_state.received_get_header(), 1);
+        assert_eq!(ws_state.received_connections(), 1);
+    }
     Ok(())
 }

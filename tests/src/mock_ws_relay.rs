@@ -62,6 +62,13 @@ pub struct MockWsRelayState {
     /// Sign this many of the last bids for another parent hash, so they fail
     /// validation
     invalid_last_bids: usize,
+    /// Wait this long before answering the handshake, as a relay whose
+    /// handshake outlasts PBS's budget
+    handshake_delay: Duration,
+    /// Drop the connection after the last bid, with no close frame, as a
+    /// stream that breaks
+    abort_after_bids: bool,
+    handshake_attempts: AtomicU64,
     received_connections: AtomicU64,
     last_request: Mutex<Option<StreamRequest>>,
 }
@@ -76,6 +83,9 @@ impl MockWsRelayState {
             hold_open: false,
             unknown_frames: false,
             invalid_last_bids: 0,
+            handshake_delay: Duration::ZERO,
+            abort_after_bids: false,
+            handshake_attempts: AtomicU64::new(0),
             received_connections: AtomicU64::new(0),
             last_request: Mutex::new(None),
         }
@@ -99,6 +109,20 @@ impl MockWsRelayState {
 
     pub fn with_invalid_last_bids(self, invalid_last_bids: usize) -> Self {
         Self { invalid_last_bids, ..self }
+    }
+
+    pub fn with_handshake_delay(self, handshake_delay: Duration) -> Self {
+        Self { handshake_delay, ..self }
+    }
+
+    pub fn abort_after_bids(self) -> Self {
+        Self { abort_after_bids: true, ..self }
+    }
+
+    /// Connections that reached the stream, counted before the handshake, so
+    /// one that never completes still shows
+    pub fn handshake_attempts(&self) -> u64 {
+        self.handshake_attempts.load(Ordering::Relaxed)
     }
 
     pub fn received_connections(&self) -> u64 {
@@ -128,6 +152,10 @@ pub async fn start_mock_ws_relay_service(
 // The handshake callback's Err type is fixed by tungstenite
 #[allow(clippy::result_large_err)]
 async fn serve_stream(state: Arc<MockWsRelayState>, stream: TcpStream) -> eyre::Result<()> {
+    state.handshake_attempts.fetch_add(1, Ordering::Relaxed);
+    if !state.handshake_delay.is_zero() {
+        tokio::time::sleep(state.handshake_delay).await;
+    }
     let mut request = None;
     let mut ws = accept_hdr_async(stream, |req: &Request, res: Response| {
         request = parse_request(req);
@@ -159,6 +187,10 @@ async fn serve_stream(state: Arc<MockWsRelayState>, stream: TcpStream) -> eyre::
         if !state.update_interval.is_zero() {
             tokio::time::sleep(state.update_interval).await;
         }
+    }
+
+    if state.abort_after_bids {
+        return Ok(());
     }
 
     if state.hold_open {
@@ -194,4 +226,38 @@ fn parse_request(req: &Request) -> Option<StreamRequest> {
 
 fn header(req: &Request, name: &str) -> Option<String> {
     req.headers().get(name)?.to_str().ok().map(ToOwned::to_owned)
+}
+
+/// Serves a get_header stream relay and an HTTP relay on one listener, as a
+/// real relay does: a connection whose request asks for a websocket upgrade
+/// goes to the stream, any other is forwarded byte for byte to the HTTP relay
+/// at `http_addr`.
+pub async fn start_mock_dual_relay_service(
+    ws_state: Arc<MockWsRelayState>,
+    listener: TcpListener,
+    http_addr: std::net::SocketAddr,
+) -> eyre::Result<()> {
+    loop {
+        let (stream, addr) = listener.accept().await?;
+        let ws_state = ws_state.clone();
+        tokio::spawn(async move {
+            let res = async {
+                let mut head = [0u8; 2048];
+                let n = stream.peek(&mut head).await?;
+                let head = String::from_utf8_lossy(&head[..n]).to_ascii_lowercase();
+                if head.contains("upgrade: websocket") {
+                    serve_stream(ws_state, stream).await
+                } else {
+                    let mut stream = stream;
+                    let mut upstream = TcpStream::connect(http_addr).await?;
+                    tokio::io::copy_bidirectional(&mut stream, &mut upstream).await?;
+                    Ok(())
+                }
+            }
+            .await;
+            if let Err(err) = res {
+                debug!(%addr, %err, "mock dual relay connection ended");
+            }
+        });
+    }
 }
