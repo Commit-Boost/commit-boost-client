@@ -43,7 +43,7 @@ async fn stream_header(
     timeout_ms: u64,
 ) -> StreamOutcome {
     let deadline = Instant::now() + Duration::from_millis(timeout_ms);
-    let request = match handshake_request(&url, relay, &request_info.headers, timeout_ms) {
+    let request = match handshake_request(&url, relay, &request_info.headers) {
         Ok(request) => request,
         Err(err) => return (TRANSPORT_ERROR_STATUS, Err(err)),
     };

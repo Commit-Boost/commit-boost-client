@@ -10,11 +10,12 @@
 
 use std::{
     collections::VecDeque,
+    io,
     sync::{Arc, OnceLock},
     time::Duration,
 };
 
-use axum::http::{HeaderMap, HeaderValue, Request, header::USER_AGENT};
+use axum::http::{HeaderMap, HeaderValue, Request, Uri, header::USER_AGENT};
 use cb_common::{
     pbs::{ForkName, HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS, RelayClient, error::PbsError},
     utils::utcnow_ms,
@@ -22,11 +23,15 @@ use cb_common::{
 use futures::StreamExt;
 use reqwest::StatusCode;
 use rustls::{ClientConfig, RootCertStore, crypto::aws_lc_rs};
-use tokio::time::{Instant, sleep_until, timeout_at};
+use tokio::{
+    net::{TcpStream, lookup_host},
+    time::{Instant, sleep_until, timeout_at},
+};
 use tokio_tungstenite::{
-    Connector, connect_async_tls_with_config,
+    Connector, MaybeTlsStream, WebSocketStream, client_async_tls_with_config,
     tungstenite::{
-        Bytes, Error as WsError, Message, client::IntoClientRequest, protocol::WebSocketConfig,
+        Bytes, Error as WsError, Message, client::IntoClientRequest, error::UrlError,
+        protocol::WebSocketConfig,
     },
 };
 use tracing::{debug, warn};
@@ -67,12 +72,12 @@ pub(crate) struct Held<T> {
     pub(crate) invalid_frames: usize,
 }
 
-/// The handshake for `url`, with the same headers an HTTP request carries
+/// The handshake for `url`, with the same headers an HTTP request carries.
+/// `read_bid_stream` adds the timing headers once connected.
 pub(crate) fn handshake_request(
     url: &Url,
     relay: &RelayClient,
     send_headers: &HeaderMap,
-    timeout_ms: u64,
 ) -> Result<Request<()>, PbsError> {
     let mut request = url
         .as_str()
@@ -88,9 +93,6 @@ pub(crate) fn handshake_request(
         headers.insert(key, value.clone());
     }
 
-    headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(utcnow_ms()));
-    headers.insert(HEADER_TIMEOUT_MS, HeaderValue::from(timeout_ms));
-
     Ok(request)
 }
 
@@ -105,19 +107,9 @@ pub(crate) async fn read_bid_stream<T>(
     endpoint: &str,
     mut parse: impl FnMut(Frame) -> Result<T, PbsError>,
 ) -> Result<Held<T>, (StatusCode, PbsError)> {
-    let config = WebSocketConfig::default()
-        .max_message_size(Some(MAX_SIZE_GET_HEADER_RESPONSE))
-        .max_frame_size(Some(MAX_SIZE_GET_HEADER_RESPONSE));
-
     let start_request = Instant::now();
-    let connect = connect_async_tls_with_config(
-        request,
-        Some(config),
-        true,
-        Some(Connector::Rustls(tls_config().clone())),
-    );
-    let (mut stream, _) = match timeout_at(deadline, connect).await {
-        Ok(Ok(connected)) => connected,
+    let mut stream = match timeout_at(deadline, connect(request, deadline)).await {
+        Ok(Ok(Some(stream))) => stream,
         // A relay with no bid can answer the handshake as it answers get_header
         Ok(Err(WsError::Http(res))) if res.status() == StatusCode::NO_CONTENT => {
             return Ok(Held {
@@ -129,7 +121,7 @@ pub(crate) async fn read_bid_stream<T>(
             });
         }
         Ok(Err(err)) => return Err(connect_failed(&err)),
-        Err(_) => return Err((TIMEOUT_ERROR_STATUS, PbsError::WebSocketTimeout)),
+        Ok(Ok(None)) | Err(_) => return Err((TIMEOUT_ERROR_STATUS, PbsError::WebSocketTimeout)),
     };
     let connect_latency = start_request.elapsed();
     RELAY_STREAM_CONNECT_LATENCY
@@ -198,6 +190,73 @@ pub(crate) async fn read_bid_stream<T>(
     }
 
     Ok(Held { frames, updates, connect_latency, first_frame_latency, invalid_frames })
+}
+
+/// Opens TCP first, so the handshake can ask the relay to end its stream one
+/// downlink trip before `deadline`: a relay honouring the timing headers ends
+/// it at Date-Milliseconds + X-Timeout-Ms, and a frame sent then still has to
+/// travel. None when no time would be left.
+async fn connect(
+    mut request: Request<()>,
+    deadline: Instant,
+) -> Result<Option<WebSocketStream<MaybeTlsStream<TcpStream>>>, WsError> {
+    let (socket, rtt) = connect_tcp(request.uri()).await?;
+
+    let Some(timeout_ms) =
+        relay_timeout_ms(deadline.saturating_duration_since(Instant::now()), rtt)
+    else {
+        return Ok(None);
+    };
+    let headers = request.headers_mut();
+    headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(utcnow_ms()));
+    headers.insert(HEADER_TIMEOUT_MS, HeaderValue::from(timeout_ms));
+
+    let config = WebSocketConfig::default()
+        .max_message_size(Some(MAX_SIZE_GET_HEADER_RESPONSE))
+        .max_frame_size(Some(MAX_SIZE_GET_HEADER_RESPONSE));
+    let connector = Connector::Rustls(tls_config().clone());
+    let (stream, _) =
+        client_async_tls_with_config(request, socket, Some(config), Some(connector)).await?;
+
+    Ok(Some(stream))
+}
+
+/// The TCP handshake's duration is one round trip, free of clock skew. Name
+/// resolution is left out of it.
+async fn connect_tcp(uri: &Uri) -> Result<(TcpStream, Duration), WsError> {
+    let host = uri.host().ok_or(WsError::Url(UrlError::NoHostName))?;
+    let host = host.strip_prefix('[').and_then(|host| host.strip_suffix(']')).unwrap_or(host);
+    let port = uri
+        .port_u16()
+        .or(match uri.scheme_str() {
+            Some("wss") => Some(443),
+            Some("ws") => Some(80),
+            _ => None,
+        })
+        .ok_or(WsError::Url(UrlError::UnsupportedUrlScheme))?;
+
+    let mut last_err = None;
+    for addr in lookup_host((host, port)).await? {
+        let start = Instant::now();
+        match TcpStream::connect(addr).await {
+            Ok(socket) => {
+                let rtt = start.elapsed();
+                socket.set_nodelay(true)?;
+                return Ok((socket, rtt));
+            }
+            Err(err) => last_err = Some(err),
+        }
+    }
+
+    Err(WsError::Io(last_err.unwrap_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "could not resolve to any address")
+    })))
+}
+
+/// The time left less half the round trip, the estimate of one downlink trip
+fn relay_timeout_ms(time_left: Duration, rtt: Duration) -> Option<u64> {
+    let timeout_ms = time_left.saturating_sub(rtt / 2).as_millis() as u64;
+    (timeout_ms > 0).then_some(timeout_ms)
 }
 
 pub(crate) fn record_stream_fallback(endpoint: &str, relay_id: &str) {
@@ -301,6 +360,16 @@ mod tests {
         }
 
         assert_eq!(fork_from_wire(forks.len() as u8), None);
+    }
+
+    #[test]
+    fn test_relay_timeout_leaves_the_downlink_trip() {
+        let ms = Duration::from_millis;
+        assert_eq!(relay_timeout_ms(ms(1_000), ms(100)), Some(950));
+        assert_eq!(relay_timeout_ms(ms(1_000), Duration::ZERO), Some(1_000));
+        // Nothing left: no frame could land before the deadline
+        assert_eq!(relay_timeout_ms(ms(50), ms(100)), None);
+        assert_eq!(relay_timeout_ms(ms(40), ms(100)), None);
     }
 
     #[test]
