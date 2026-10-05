@@ -9,7 +9,7 @@ use alloy::primitives::utils::format_ether;
 use cb_common::pbs::{GetHeaderInfo, GetHeaderResponse, RelayClient, error::PbsError};
 use reqwest::StatusCode;
 use tokio::time::Instant;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use url::Url;
 
 use super::get_header::{RequestInfo, decode_ssz_payload, validate_get_header_response};
@@ -21,8 +21,8 @@ use crate::{
 
 type StreamOutcome = (StatusCode, Result<Option<GetHeaderResponse>, PbsError>);
 
-/// Open a stream to the relay, keep the latest bid until the deadline, then
-/// validate and return it.
+/// Open a stream to the relay, hold its newest bids until the deadline, then
+/// return the latest one that passes validation.
 pub(super) async fn get_header_ws(
     request_info: &RequestInfo,
     relay: &RelayClient,
@@ -48,29 +48,41 @@ async fn stream_header(
         Err(err) => return (TRANSPORT_ERROR_STATUS, Err(err)),
     };
 
-    let Held { latest, updates, connect_latency, first_frame_latency, invalid_frames } =
+    let Held { frames, updates, connect_latency, first_frame_latency, invalid_frames } =
         match read_bid_stream(request, deadline, relay, GET_HEADER_STREAM_ENDPOINT_TAG, Ok).await {
             Ok(held) => held,
             Err((status, err)) => return (status, Err(err)),
         };
 
-    let Some(Frame { fork, bid }) = latest else {
-        debug!(relay_id = relay.id.as_ref(), ?connect_latency, invalid_frames, "no header");
-        return (StatusCode::NO_CONTENT, Ok(None));
-    };
-
-    let response = match decode_ssz_payload(&bid, fork) {
-        Ok(response) => response,
-        Err(err) => return (StatusCode::OK, Err(err)),
-    };
-
+    // The latest valid bid stands. Newest first, so the usual case validates once
     let start_validate = Instant::now();
-    let validated = validate_get_header_response(request_info, relay, &response);
+    let mut newest_err = None;
+    let latest_valid = frames.iter().rev().find_map(|frame| {
+        let validated = decode_ssz_payload(&frame.bid, frame.fork).and_then(|response| {
+            validate_get_header_response(request_info, relay, &response).map(|()| response)
+        });
+        match validated {
+            Ok(response) => Some((frame, response)),
+            Err(err) => {
+                newest_err.get_or_insert(err);
+                None
+            }
+        }
+    });
     let validate_latency = start_validate.elapsed();
 
-    if let Err(err) = validated {
-        return (StatusCode::OK, Err(err));
-    }
+    let (Frame { fork, bid }, response) = match (latest_valid, newest_err) {
+        (Some(valid), None) => valid,
+        (Some(valid), Some(err)) => {
+            warn!(relay_id = relay.id.as_ref(), %err, "latest stream bid invalid, an earlier one stands");
+            valid
+        }
+        (None, Some(err)) => return (StatusCode::OK, Err(err)),
+        (None, None) => {
+            debug!(relay_id = relay.id.as_ref(), ?connect_latency, invalid_frames, "no header");
+            return (StatusCode::NO_CONTENT, Ok(None));
+        }
+    };
 
     info!(
         relay_id = relay.id.as_ref(),

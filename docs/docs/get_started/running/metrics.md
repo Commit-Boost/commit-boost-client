@@ -106,4 +106,4 @@ For a relay with `get_header = "stream"`, every series below is labelled by `rel
 | Is it actually streaming? | `cb_pbs_relay_stream_updates`: bid updates received per window. A healthy relay sends several; windows that carry at most one update mean the stream connects but does not stream |
 | Are the frames usable? | `cb_pbs_relay_stream_invalid_frames_total`: frames that could not be parsed as a bid, absent while zero |
 
-Two things the series do not tell apart. A bid that arrives but fails decoding or validation still counts as `200`, the same as over HTTP; the validation error is in the logs. And a request the beacon node abandons mid-window records no outcome at all.
+Two things the series do not tell apart. The stream holds its newest 8 bids and returns the latest that passes validation, but a window in which every held bid fails decoding or validation still counts as `200`, the same as over HTTP; the validation error is in the logs. And a request the beacon node abandons mid-window records no outcome at all.

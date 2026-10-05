@@ -59,6 +59,9 @@ pub struct MockWsRelayState {
     /// Precede each bid with frames PBS can't parse, which it must skip rather
     /// than treat as the end of the stream
     unknown_frames: bool,
+    /// Sign this many of the last bids for another parent hash, so they fail
+    /// validation
+    invalid_last_bids: usize,
     received_connections: AtomicU64,
     last_request: Mutex<Option<StreamRequest>>,
 }
@@ -72,6 +75,7 @@ impl MockWsRelayState {
             update_interval: Duration::ZERO,
             hold_open: false,
             unknown_frames: false,
+            invalid_last_bids: 0,
             received_connections: AtomicU64::new(0),
             last_request: Mutex::new(None),
         }
@@ -91,6 +95,10 @@ impl MockWsRelayState {
 
     pub fn with_unknown_frames(self) -> Self {
         Self { unknown_frames: true, ..self }
+    }
+
+    pub fn with_invalid_last_bids(self, invalid_last_bids: usize) -> Self {
+        Self { invalid_last_bids, ..self }
     }
 
     pub fn received_connections(&self) -> u64 {
@@ -131,7 +139,7 @@ async fn serve_stream(state: Arc<MockWsRelayState>, stream: TcpStream) -> eyre::
     state.received_connections.fetch_add(1, Ordering::Relaxed);
     *state.last_request.lock().unwrap() = Some(request.clone());
 
-    for value in &state.bid_values {
+    for (i, value) in state.bid_values.iter().enumerate() {
         if state.unknown_frames {
             // Unknown message type, unknown fork, truncated prefix
             for frame in [vec![0x7f, FORK_FULU, 1], vec![MSG_BID, 0xff, 1], vec![MSG_BID]] {
@@ -139,13 +147,10 @@ async fn serve_stream(state: Arc<MockWsRelayState>, stream: TcpStream) -> eyre::
             }
         }
 
-        let bid = mock_signed_builder_bid(
-            state.chain,
-            &state.signer,
-            request.slot,
-            request.parent_hash,
-            *value,
-        );
+        let is_invalid = i + state.invalid_last_bids >= state.bid_values.len();
+        let parent_hash = if is_invalid { B256::repeat_byte(0xee) } else { request.parent_hash };
+        let bid =
+            mock_signed_builder_bid(state.chain, &state.signer, request.slot, parent_hash, *value);
 
         let mut frame = vec![MSG_BID, FORK_FULU];
         frame.extend_from_slice(&bid.as_ssz_bytes());

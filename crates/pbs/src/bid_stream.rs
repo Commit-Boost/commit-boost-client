@@ -9,6 +9,7 @@
 //! ```
 
 use std::{
+    collections::VecDeque,
     sync::{Arc, OnceLock},
     time::Duration,
 };
@@ -44,6 +45,10 @@ const FRAME_PREFIX_LEN: usize = 2;
 
 const MSG_BID: u8 = 0x01;
 
+/// A stream holds only its newest frames, which bounds its memory and the
+/// validation a caller leaves until the deadline
+const MAX_HELD_FRAMES: usize = 8;
+
 /// One bid update, its bid still SSZ-encoded
 pub(crate) struct Frame {
     pub(crate) fork: ForkName,
@@ -52,9 +57,9 @@ pub(crate) struct Frame {
 
 /// What a stream held when its window closed
 pub(crate) struct Held<T> {
-    /// The last frame the parse closure accepted. None when the relay had no
-    /// bid.
-    pub(crate) latest: Option<T>,
+    /// The newest `MAX_HELD_FRAMES` frames the parse closure accepted, oldest
+    /// first. Empty when the relay had no bid.
+    pub(crate) frames: VecDeque<T>,
     /// Frames the parse closure accepted
     pub(crate) updates: usize,
     pub(crate) connect_latency: Duration,
@@ -89,10 +94,10 @@ pub(crate) fn handshake_request(
     Ok(request)
 }
 
-/// Opens the stream and holds the last frame `parse` accepts, until `deadline`
-/// or the relay ends the stream. A frame `parse` rejects counts as invalid. On
-/// failure, returns the status the failure records under. Time to the first
-/// frame is recorded under `endpoint`.
+/// Opens the stream and holds the newest frames `parse` accepts, until
+/// `deadline` or the relay ends the stream. A frame `parse` rejects counts as
+/// invalid. On failure, returns the status the failure records under. Time to
+/// the first frame is recorded under `endpoint`.
 pub(crate) async fn read_bid_stream<T>(
     request: Request<()>,
     deadline: Instant,
@@ -125,7 +130,7 @@ pub(crate) async fn read_bid_stream<T>(
     let timer = sleep_until(deadline);
     tokio::pin!(timer);
 
-    let mut latest = None;
+    let mut frames = VecDeque::with_capacity(MAX_HELD_FRAMES);
     let mut updates = 0usize;
     let mut first_frame_latency = None;
     let mut invalid_frames = 0usize;
@@ -153,7 +158,10 @@ pub(crate) async fn read_bid_stream<T>(
             Ok(frame) => {
                 first_frame_latency.get_or_insert_with(|| start_request.elapsed());
                 updates += 1;
-                latest = Some(frame);
+                if frames.len() == MAX_HELD_FRAMES {
+                    frames.pop_front();
+                }
+                frames.push_back(frame);
             }
             Err(err) => {
                 invalid_frames += 1;
@@ -179,7 +187,7 @@ pub(crate) async fn read_bid_stream<T>(
         return Err((TRANSPORT_ERROR_STATUS, err));
     }
 
-    Ok(Held { latest, updates, connect_latency, first_frame_latency, invalid_frames })
+    Ok(Held { frames, updates, connect_latency, first_frame_latency, invalid_frames })
 }
 
 /// A relay rejecting the handshake puts the reason in the body, which
