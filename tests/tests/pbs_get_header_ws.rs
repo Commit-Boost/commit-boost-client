@@ -132,6 +132,39 @@ async fn test_get_header_ws_returns_latest_bid() -> Result<()> {
     Ok(())
 }
 
+/// Bids that fail validation do not displace the valid one before them, while
+/// it is among the newest 8 the stream holds
+#[tokio::test]
+async fn test_get_header_ws_returns_latest_valid_bid() -> Result<()> {
+    setup_test_env();
+    let signer = random_secret();
+    let chain = Chain::Hoodi;
+
+    for (invalid_bids, served) in [(7, Some(50)), (8, None)] {
+        let mut bid_values = vec![U256::from(50)];
+        bid_values.resize(invalid_bids + 1, U256::from(60));
+        let (_relay_state, relay) = start_stream_relay(
+            MockWsRelayState::new(chain, signer.clone())
+                .with_bid_values(bid_values)
+                .with_invalid_last_bids(invalid_bids),
+            signer.public_key(),
+        )
+        .await?;
+
+        let validator = start_pbs(chain, vec![relay], 1_000).await?;
+
+        let (code, res) = get_header_json(&validator).await?;
+        match served {
+            Some(value) => {
+                assert_eq!(code, StatusCode::OK, "{invalid_bids} invalid bids");
+                assert_bid(&res.unwrap(), chain, &signer, U256::from(value));
+            }
+            None => assert_eq!(code, StatusCode::NO_CONTENT, "{invalid_bids} invalid bids"),
+        }
+    }
+    Ok(())
+}
+
 /// Frames PBS can't parse are skipped, not treated as the end of the stream:
 /// the updates after them still count.
 #[tokio::test]
