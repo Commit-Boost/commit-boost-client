@@ -1,11 +1,10 @@
 use alloy::primitives::U256;
 use lh_bls::Signature;
-use lh_types::ForkName;
+use lh_types::{ExecutionRequestsElectra, ForkName, MainnetEthSpec};
 use ssz::BYTES_PER_LENGTH_OFFSET;
 
 use crate::pbs::{
-    BuilderBidFulu, ExecutionPayloadHeaderFulu, ExecutionRequests, KzgCommitments,
-    error::SszValueError,
+    BuilderBidFulu, ExecutionPayloadHeaderFulu, KzgCommitments, error::SszValueError,
 };
 
 // Get the offset of the message in a SignedBuilderBid SSZ structure
@@ -17,7 +16,7 @@ fn get_ssz_value_offset_for_fork(fork: ForkName) -> Result<usize, SszValueError>
             Ok(get_message_offset::<BuilderBidFulu>() +
                 <ExecutionPayloadHeaderFulu as ssz::Decode>::ssz_fixed_len() +
                 <KzgCommitments as ssz::Decode>::ssz_fixed_len() +
-                <ExecutionRequests as ssz::Decode>::ssz_fixed_len())
+                <ExecutionRequestsElectra<MainnetEthSpec> as ssz::Decode>::ssz_fixed_len())
         }
 
         _ => Err(SszValueError::UnsupportedFork { name: fork }),
@@ -76,8 +75,8 @@ mod test {
     use super::get_bid_value_from_signed_builder_bid_ssz;
     use crate::{
         pbs::{
-            BuilderBid, BuilderBidFulu, ExecutionPayloadHeaderFulu, ExecutionRequests,
-            SignedBuilderBid, error::SszValueError,
+            BuilderBid, BuilderBidFulu, ExecutionPayloadHeaderFulu, SignedBuilderBid,
+            error::SszValueError,
         },
         types::{BlsPublicKeyBytes, BlsSignature},
         utils::TestRandomSeed,
@@ -116,7 +115,7 @@ mod test {
             let message = BuilderBid::Fulu(BuilderBidFulu {
                 header: ExecutionPayloadHeaderFulu::test_random(),
                 blob_kzg_commitments: Default::default(),
-                execution_requests: ExecutionRequests::default(),
+                execution_requests: Default::default(),
                 value: known_value,
                 pubkey,
             });
