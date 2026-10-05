@@ -251,8 +251,17 @@ async fn get_header_from_relay(
     timeout_left_ms: u64,
 ) -> Result<Option<GetHeaderResponse>, PbsError> {
     let params = &request_info.params;
+    let request =
+        match relay.get_header_stream_url(params.slot, &params.parent_hash, &params.pubkey) {
+            Some(url) => GetHeaderRequest::Stream(url),
+            None => GetHeaderRequest::Http(relay.get_header_url(
+                params.slot,
+                &params.parent_hash,
+                &params.pubkey,
+            )?),
+        };
 
-    match relay.get_header_request(params.slot, &params.parent_hash, &params.pubkey)? {
+    match request {
         GetHeaderRequest::Stream(url) => {
             let started = Instant::now();
             let err = match get_header_ws(&request_info, &relay, url, timeout_left_ms).await {
