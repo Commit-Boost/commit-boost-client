@@ -10,6 +10,7 @@ use cb_common::{
 use cb_signer::service::SigningService;
 use eyre::Result;
 use reqwest::{Certificate, Response, StatusCode};
+use tokio::net::TcpListener;
 use tracing::info;
 
 use crate::utils::{get_signer_config, get_start_signer_config};
@@ -17,7 +18,7 @@ use crate::utils::{get_signer_config, get_start_signer_config};
 // Starts the signer moduler server on a separate task and returns its
 // configuration
 pub async fn start_server(
-    port: u16,
+    listener: TcpListener,
     mod_signing_configs: &HashMap<ModuleId, ModuleSigningConfig>,
     admin_secret: String,
     use_tls: bool,
@@ -31,13 +32,14 @@ pub async fn start_server(
         format: ValidatorKeysFormat::Lighthouse,
     };
     let mut config = get_signer_config(loader, use_tls);
-    config.port = port;
+    config.port = listener.local_addr()?.port();
     config.jwt_auth_fail_limit = 3; // Set a low fail limit for testing
     config.jwt_auth_fail_timeout_seconds = 3; // Set a short timeout for testing
     let start_config = get_start_signer_config(config, chain, mod_signing_configs, admin_secret);
 
     // Run the Signer
-    let server_handle = tokio::spawn(SigningService::run(start_config.clone()));
+    let server_handle =
+        tokio::spawn(SigningService::run_with_listener(start_config.clone(), listener));
 
     // Wait for the server to start
     let (url, client) = match start_config.tls_certificates {
