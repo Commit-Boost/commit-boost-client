@@ -742,10 +742,11 @@ fn extra_validation(
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, path::Path};
+    use std::{fs, net::SocketAddr, path::Path};
 
     use alloy::primitives::{B256, U256};
     use cb_common::{
+        config::{GetHeaderTransport, PbsConfig, PbsModuleConfig, RelayConfig},
         pbs::*,
         signature::sign_builder_message,
         ssz::get_bid_value_from_signed_builder_bid_ssz,
@@ -753,8 +754,13 @@ mod tests {
         utils::{TestRandomSeed, timestamp_of_slot_start_sec},
     };
     use ssz::Encode;
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+    };
 
     use super::{validate_header_data, *};
+    use crate::constants::GET_HEADER_STREAM_ENDPOINT_TAG;
 
     #[test]
     fn test_validate_header() {
@@ -888,6 +894,91 @@ mod tests {
 
             // Compare to the original value
             assert_eq!(*decoded.value(), bid_value);
+        }
+    }
+
+    /// A relay that answers every request, the stream handshake included, with
+    /// `status` and no body
+    async fn start_status_relay(status: StatusCode) -> SocketAddr {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut request = [0u8; 4096];
+                    let _ = socket.read(&mut request).await;
+                    let response = format!("HTTP/1.1 {status}\r\ncontent-length: 0\r\n\r\n");
+                    let _ = socket.write_all(response.as_bytes()).await;
+                });
+            }
+        });
+        addr
+    }
+
+    /// get_header against one stream relay at `addr`. Returns the relay's id,
+    /// which labels its metrics, and the bid.
+    async fn get_header_from_stream_relay(addr: SocketAddr) -> (String, Option<GetHeaderResponse>) {
+        let pubkey = BlsSecretKey::test_random().public_key();
+        let relay_id = format!("stream_relay_{}", addr.port());
+        let relay = RelayClient::new(RelayConfig {
+            entry: RelayEntry {
+                id: relay_id.clone(),
+                pubkey: pubkey.clone(),
+                url: format!("http://{pubkey}@{addr}").parse().unwrap(),
+            },
+            id: None,
+            headers: None,
+            get_params: None,
+            get_header: GetHeaderTransport::Stream,
+            enable_timing_games: false,
+            target_first_request_ms: None,
+            frequency_get_header_ms: None,
+            validator_registration_batch_size: None,
+        })
+        .unwrap();
+        let mut pbs_config: PbsConfig = serde_json::from_str("{}").unwrap();
+        pbs_config.late_in_slot_time_ms = u64::MAX;
+        let state = PbsState::new(
+            PbsModuleConfig {
+                chain: Chain::Hoodi,
+                endpoint: addr,
+                pbs_config: Arc::new(pbs_config),
+                relays: vec![relay.clone()],
+                all_relays: vec![relay],
+                signer_client: None,
+                registry_muxes: None,
+                mux_lookup: None,
+            },
+            Default::default(),
+        );
+        let params = GetHeaderParams { slot: 1, parent_hash: B256::ZERO, pubkey };
+
+        let bid = get_header(params, HeaderMap::new(), state).await.unwrap();
+        (relay_id, bid)
+    }
+
+    #[tokio::test]
+    async fn test_stream_fallback_counts_a_refused_handshake_not_a_204() {
+        for (status, fallbacks) in [(StatusCode::NO_CONTENT, 0), (StatusCode::NOT_FOUND, 1)] {
+            let addr = start_status_relay(status).await;
+            let (relay_id, bid) = get_header_from_stream_relay(addr).await;
+            assert!(bid.is_none());
+            assert_eq!(
+                RELAY_STATUS_CODE
+                    .with_label_values(&[
+                        status.as_str(),
+                        GET_HEADER_STREAM_ENDPOINT_TAG,
+                        &relay_id
+                    ])
+                    .get(),
+                1,
+                "handshake answered {status}"
+            );
+            assert_eq!(
+                RELAY_STREAM_FALLBACK.with_label_values(&[&relay_id]).get(),
+                fallbacks,
+                "handshake answered {status}"
+            );
         }
     }
 }

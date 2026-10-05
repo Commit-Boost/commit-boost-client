@@ -99,7 +99,7 @@ For a relay with `get_header = "stream"`, every series below is labelled by `rel
 
 | Question | Series |
 |---|---|
-| Is the stream serving bids? | `cb_pbs_relay_status_code_total{endpoint="get_header_stream"}`: `200` a bid was delivered, `204` connected but no bid before the deadline, `555` the bid window ran out during the handshake, `556` a transport error (connect failed, stream broke mid-window, or the handshake was answered with anything but `101`), any other code the relay's own refusal of the upgrade |
+| Is the stream serving bids? | `cb_pbs_relay_status_code_total{endpoint="get_header_stream"}`: `200` a bid was delivered, `204` no bid (the relay answered the handshake `204`, or sent no bid before the deadline), `555` the bid window ran out during the handshake, `556` a transport error (connect failed, stream broke mid-window, or the handshake was answered with a `2xx` other than `204`), any other code the relay's own refusal of the upgrade |
 | How fast does the first bid arrive? | `cb_pbs_relay_latency{endpoint="get_header_stream"}` |
 | Is it falling back to HTTP? | `cb_pbs_relay_stream_fallback_total`: handshake failures that had bid window left to retry over HTTP. One at startup is the registration race; a steady rate means the relay is refusing the stream. The fallback's own results are under `endpoint="get_header"` |
 | Is the handshake slow? | `cb_pbs_relay_stream_connect_latency` |
