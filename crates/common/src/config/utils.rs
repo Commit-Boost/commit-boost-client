@@ -107,7 +107,6 @@ pub(crate) mod test_env {
 #[cfg(test)]
 mod tests {
     use super::{test_env::with_env, *};
-    use crate::utils::TestRandomSeed;
 
     // Minimal TOML-deserializable type used by load_from_file / load_file_from_env
     // tests.
@@ -140,8 +139,10 @@ mod tests {
 
     #[test]
     fn test_remove_duplicate_keys() {
-        let key1 = BlsPublicKey::test_random();
-        let key2 = BlsPublicKey::test_random();
+        // Real, distinct keys: `arbitrary` for a validated point falls back to
+        // the (invalid) all-zeros pubkey, so derive from random secret keys.
+        let key1 = crate::types::BlsSecretKey::random().public_key();
+        let key2 = crate::types::BlsSecretKey::random().public_key();
         let keys = vec![key1.clone(), key2.clone(), key1.clone()];
 
         let unique_keys = remove_duplicate_keys(keys);

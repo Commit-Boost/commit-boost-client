@@ -11,6 +11,7 @@ testing-flags = []
 [dependencies]
 aes.workspace = true
 alloy.workspace = true
+arbitrary.workspace = true
 async-trait.workspace = true
 axum.workspace = true
 base64.workspace = true
