@@ -259,8 +259,7 @@ async fn test_submit_block_too_large() -> Result<()> {
 
     let config = to_pbs_config(chain, get_pbs_config(pbs_port), relays);
     let state = PbsState::new(config, PathBuf::new());
-    drop(pbs_listener);
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
 
     // leave some time to start servers
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -476,8 +475,7 @@ async fn submit_block_impl(
     let pbs_config = get_pbs_config(pbs_port);
     let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
     let state = PbsState::new(config, PathBuf::new());
-    drop(pbs_listener);
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
 
     // leave some time to start servers
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -549,8 +547,7 @@ async fn submit_block_ssz_override(
     let pbs_config = get_pbs_config(pbs_port);
     let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
     let state = PbsState::new(config, PathBuf::new());
-    drop(pbs_listener);
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -689,8 +686,7 @@ async fn test_submit_block_tolerates_mime_params_in_content_type() -> Result<()>
     let pbs_config = get_pbs_config(pbs_port);
     let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
     let state = PbsState::new(config, PathBuf::new());
-    drop(pbs_listener);
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 
