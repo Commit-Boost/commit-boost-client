@@ -188,24 +188,17 @@ impl RelayClient {
         )
     }
 
-    pub fn get_header_request(
+    /// The get_header stream, `None` when the relay does not stream
+    pub fn get_header_stream_url(
         &self,
         slot: u64,
         parent_hash: &B256,
         validator_pubkey: &BlsPublicKey,
-    ) -> Result<GetHeaderRequest, PbsError> {
-        Ok(match &self.stream_url {
-            None => {
-                GetHeaderRequest::Http(self.get_header_url(slot, parent_hash, validator_pubkey)?)
-            }
-            Some(base) => {
-                let mut url = base.clone();
-                url.set_path(&format!("{}/{slot}/{parent_hash}/{validator_pubkey}", base.path()));
-
-                self.append_get_params(&mut url);
-                GetHeaderRequest::Stream(url)
-            }
-        })
+    ) -> Option<Url> {
+        let mut url = self.stream_url.clone()?;
+        url.set_path(&format!("{}/{slot}/{parent_hash}/{validator_pubkey}", url.path()));
+        self.append_get_params(&mut url);
+        Some(url)
     }
 
     pub fn get_status_url(&self) -> Result<Url, PbsError> {
@@ -234,7 +227,7 @@ mod tests {
 
     use alloy::primitives::B256;
 
-    use super::{GetHeaderRequest, RelayClient, RelayEntry, value_fingerprint};
+    use super::{RelayClient, RelayEntry, value_fingerprint};
     use crate::{
         config::{GetHeaderTransport, RelayConfig, test_env::RELAY_URL},
         utils::bls_pubkey_from_hex_unchecked,
@@ -326,7 +319,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_header_request() {
+    fn test_get_header_stream_url() {
         let slot = 0;
         let parent_hash = B256::ZERO;
         let validator_pubkey = bls_pubkey_from_hex_unchecked(
@@ -338,29 +331,16 @@ mod tests {
         }"#;
         let base_config = serde_json::from_str::<RelayConfig>(relay_config).unwrap();
 
-        // Default transport: plain HTTP endpoint
+        // Default transport: no stream
         let relay = RelayClient::new(base_config.clone()).unwrap();
-        let GetHeaderRequest::Http(url) =
-            relay.get_header_request(slot, &parent_hash, &validator_pubkey).unwrap()
-        else {
-            panic!("expected http request");
-        };
-        assert_eq!(
-            url,
-            relay.get_header_url(slot, &parent_hash, &validator_pubkey).unwrap(),
-            "http dispatch must match the plain url builder"
-        );
+        assert!(relay.get_header_stream_url(slot, &parent_hash, &validator_pubkey).is_none());
 
         // Streaming: the relay url over ws, at the fixed stream path, with the
         // pubkey credentials dropped
         let mut config = base_config.clone();
         config.get_header = GetHeaderTransport::Stream;
         let relay = RelayClient::new(config).unwrap();
-        let GetHeaderRequest::Stream(url) =
-            relay.get_header_request(slot, &parent_hash, &validator_pubkey).unwrap()
-        else {
-            panic!("expected stream request");
-        };
+        let url = relay.get_header_stream_url(slot, &parent_hash, &validator_pubkey).unwrap();
         assert_eq!(
             url.to_string(),
             format!(
@@ -375,11 +355,7 @@ mod tests {
         config.get_header = GetHeaderTransport::Stream;
         config.get_params = Some(HashMap::from([("token".to_string(), "abc".to_string())]));
         let relay = RelayClient::new(config).unwrap();
-        let GetHeaderRequest::Stream(url) =
-            relay.get_header_request(slot, &parent_hash, &validator_pubkey).unwrap()
-        else {
-            panic!("expected stream request");
-        };
+        let url = relay.get_header_stream_url(slot, &parent_hash, &validator_pubkey).unwrap();
         assert_eq!(
             url.to_string(),
             format!(
