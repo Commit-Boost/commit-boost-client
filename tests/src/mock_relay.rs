@@ -23,10 +23,9 @@ use axum::{
 use cb_common::{
     pbs::{
         BUILDER_V1_API_PATH, BUILDER_V2_API_PATH, BlobsBundle, BuilderBid, BuilderBidFulu,
-        ExecutionPayloadElectra, ExecutionPayloadHeaderFulu, ExecutionRequests, ForkName,
-        GET_HEADER_PATH, GET_STATUS_PATH, GetHeaderParams, GetHeaderResponse, GetPayloadInfo,
-        PayloadAndBlobs, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH, SignedBuilderBid,
-        SubmitBlindedBlockResponse,
+        ExecutionPayloadElectra, ExecutionPayloadHeaderFulu, ForkName, GET_HEADER_PATH,
+        GET_STATUS_PATH, GetHeaderParams, GetHeaderResponse, GetPayloadInfo, PayloadAndBlobs,
+        REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH, SignedBuilderBid, SubmitBlindedBlockResponse,
     },
     signature::sign_builder_root,
     types::{BlsSecretKey, Chain},
@@ -256,7 +255,7 @@ pub fn mock_signed_builder_bid(
     let message = BuilderBid::Fulu(BuilderBidFulu {
         header,
         blob_kzg_commitments: Default::default(),
-        execution_requests: ExecutionRequests::default(),
+        execution_requests: Default::default(),
         value,
         pubkey: signer.public_key().into(),
     });
