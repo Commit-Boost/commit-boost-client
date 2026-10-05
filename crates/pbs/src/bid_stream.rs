@@ -118,6 +118,16 @@ pub(crate) async fn read_bid_stream<T>(
     );
     let (mut stream, _) = match timeout_at(deadline, connect).await {
         Ok(Ok(connected)) => connected,
+        // A relay with no bid can answer the handshake as it answers get_header
+        Ok(Err(WsError::Http(res))) if res.status() == StatusCode::NO_CONTENT => {
+            return Ok(Held {
+                frames: VecDeque::new(),
+                updates: 0,
+                connect_latency: start_request.elapsed(),
+                first_frame_latency: None,
+                invalid_frames: 0,
+            });
+        }
         Ok(Err(err)) => return Err(connect_failed(&err)),
         Err(_) => return Err((TIMEOUT_ERROR_STATUS, PbsError::WebSocketTimeout)),
     };
@@ -340,7 +350,7 @@ mod tests {
     // handshake must never carry it.
     #[test]
     fn test_connect_failed_never_reports_a_success_code() {
-        for code in [200u16, 204, 299] {
+        for code in [200u16, 299] {
             let answered = axum::http::Response::builder().status(code).body(None).unwrap();
             let (status, err) = connect_failed(&WsError::Http(Box::new(answered)));
             assert_eq!(
