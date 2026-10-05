@@ -66,3 +66,6 @@
 ### v0.11.0-rc3
 - A relay that refuses a `submit_blinded_block` now has its own explanation reported instead of a synthesised message, and the retry count is logged on both the v1 and v2 paths (#502)
 - Update `rustls` to 0.23.45 to clear RUSTSEC-2026-0285 (#502)
+
+### v0.11.0
+- Mainnet release for bid streaming, bundling rc1 to rc3.
