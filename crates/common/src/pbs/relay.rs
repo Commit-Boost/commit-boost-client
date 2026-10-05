@@ -62,6 +62,15 @@ pub enum GetHeaderRequest {
     Stream(Url),
 }
 
+impl GetHeaderRequest {
+    pub fn transport(&self) -> GetHeaderTransport {
+        match self {
+            Self::Http(_) => GetHeaderTransport::Http,
+            Self::Stream(_) => GetHeaderTransport::Stream,
+        }
+    }
+}
+
 fn stream_url(entry: &Url) -> eyre::Result<Url> {
     let scheme = match entry.scheme() {
         "http" | "ws" => "ws",

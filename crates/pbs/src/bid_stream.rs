@@ -35,8 +35,8 @@ use url::Url;
 use crate::{
     constants::{MAX_SIZE_GET_HEADER_RESPONSE, TIMEOUT_ERROR_STATUS, TRANSPORT_ERROR_STATUS},
     metrics::{
-        RELAY_LATENCY, RELAY_STREAM_CONNECT_LATENCY, RELAY_STREAM_INVALID_FRAMES,
-        RELAY_STREAM_UPDATES,
+        RELAY_LATENCY, RELAY_STREAM_CONNECT_LATENCY, RELAY_STREAM_FALLBACK,
+        RELAY_STREAM_INVALID_FRAMES, RELAY_STREAM_UPDATES,
     },
 };
 
@@ -96,8 +96,8 @@ pub(crate) fn handshake_request(
 
 /// Opens the stream and holds the newest frames `parse` accepts, until
 /// `deadline` or the relay ends the stream. A frame `parse` rejects counts as
-/// invalid. On failure, returns the status the failure records under. Time to
-/// the first frame is recorded under `endpoint`.
+/// invalid. On failure, returns the status the failure records under. The
+/// stream metrics are recorded under `endpoint`.
 pub(crate) async fn read_bid_stream<T>(
     request: Request<()>,
     deadline: Instant,
@@ -133,9 +133,9 @@ pub(crate) async fn read_bid_stream<T>(
     };
     let connect_latency = start_request.elapsed();
     RELAY_STREAM_CONNECT_LATENCY
-        .with_label_values(&[relay.id.as_str()])
+        .with_label_values(&[endpoint, relay.id.as_str()])
         .observe(connect_latency.as_secs_f64());
-    debug!(relay_id = relay.id.as_ref(), ?connect_latency, "ws connected");
+    debug!(relay_id = relay.id.as_ref(), endpoint, ?connect_latency, "ws connected");
 
     let timer = sleep_until(deadline);
     tokio::pin!(timer);
@@ -184,10 +184,10 @@ pub(crate) async fn read_bid_stream<T>(
 
     drop(stream);
 
-    RELAY_STREAM_UPDATES.with_label_values(&[relay.id.as_str()]).observe(updates as f64);
+    RELAY_STREAM_UPDATES.with_label_values(&[endpoint, relay.id.as_str()]).observe(updates as f64);
     if invalid_frames > 0 {
         RELAY_STREAM_INVALID_FRAMES
-            .with_label_values(&[relay.id.as_str()])
+            .with_label_values(&[endpoint, relay.id.as_str()])
             .inc_by(invalid_frames as u64);
     }
 
@@ -198,6 +198,10 @@ pub(crate) async fn read_bid_stream<T>(
     }
 
     Ok(Held { frames, updates, connect_latency, first_frame_latency, invalid_frames })
+}
+
+pub(crate) fn record_stream_fallback(endpoint: &str, relay_id: &str) {
+    RELAY_STREAM_FALLBACK.with_label_values(&[endpoint, relay_id]).inc();
 }
 
 /// A relay rejecting the handshake puts the reason in the body, which

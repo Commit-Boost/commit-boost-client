@@ -49,6 +49,15 @@ pub enum GetHeaderTransport {
     Stream,
 }
 
+impl GetHeaderTransport {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Http => "http",
+            Self::Stream => "stream",
+        }
+    }
+}
+
 /// A custom relay header value: a literal, or a secret read from a file or an
 /// environment variable when the relay client is built (at startup and on every
 /// reload), so an API key never has to sit in plaintext in the config file.
