@@ -112,15 +112,25 @@ Once Grafana is running, you can [import](https://grafana.com/docs/grafana/lates
 
 ## Bid stream
 
-For a relay with `get_header = "stream"` (see [Configuration > Bid streaming](../configuration.md#bid-streaming)), every series below is labeled by `relay_id` and `endpoint`. The stream's outcome and time-to-first-bid share the two general relay series under `endpoint="get_header_stream"`, and the HTTP request that runs alongside it every slot keeps `endpoint="get_header"`.
+:::info Unreleased
+From v0.12.0-rc1, compared with v0.11.0:
+- The `cb_pbs_relay_stream_*` series carry an `endpoint` label. In v0.11.0 they carry `relay_id` only.
+- `cb_pbs_relay_stream_fallback_total` counts every failed stream. In v0.11.0 it counts handshake failures retried over HTTP.
+- A handshake answered `204` records `204`. In v0.11.0 it records `556`.
+- A streaming relay's HTTP request records under `endpoint="get_header"` on every request. In v0.11.0 it records only on a fallback.
+:::
+
+For a relay with `get_header = "stream"` (see [Configuration > Bid streaming](../configuration.md#bid-streaming)), every series below is labeled by `relay_id` and `endpoint`. The stream's outcome and time-to-first-bid share the two general relay series under `endpoint="get_header_stream"`, and the HTTP request that runs alongside it keeps `endpoint="get_header"`.
 
 | Question | Series |
 |---|---|
-| Is the stream serving bids? | `cb_pbs_relay_status_code_total{endpoint="get_header_stream"}`: `200` a bid was delivered, `204` no bid (the handshake was answered `204`, or no bid arrived before the deadline), `555` the bid window ran out during the handshake, `556` a transport error (connect failed, the stream broke before a bid, or the handshake was answered with a `2xx` other than `204` instead of the upgrade), any other code the relay's own refusal of the upgrade |
+| Is the stream serving bids? | `cb_pbs_relay_status_code_total{endpoint="get_header_stream"}`: `200` a bid was delivered, `204` no bid (the handshake was answered `204`, or the stream ended or the deadline passed without one), `555` the bid window ran out during the handshake, `556` a transport error (connect failed, the stream broke before a bid, or the handshake was answered with a `2xx` other than `204` instead of the upgrade), any other code the relay's own refusal of the upgrade |
 | How fast does the first bid arrive? | `cb_pbs_relay_latency{endpoint="get_header_stream"}` |
-| Is the stream failing? | `cb_pbs_relay_stream_fallback_total{endpoint="get_header_stream"}`: streams that failed while the relay's HTTP request ran alongside: a handshake that could not connect, timed out or was refused, a stream that broke before a bid, or a window in which every held bid failed decoding or validation. A `204` is no bid, not a failure. It counts every failed stream, whether or not the HTTP request returned a bid; the HTTP results are under `endpoint="get_header"`. For a steady rate, the status series above gives the reason |
+| Is the stream failing? | `cb_pbs_relay_stream_fallback_total{endpoint="get_header_stream"}`: [failed streams](../configuration.md#http-request), counted whether or not the HTTP request returned a bid. For a steady rate, the status series above and the `stream failed` log line give the reason |
 | Is the handshake slow? | `cb_pbs_relay_stream_connect_latency` |
-| Is it actually streaming? | `cb_pbs_relay_stream_updates`: frames accepted per window, which is every frame whose message type and fork byte can be read; their bids are decoded and validated only when the window closes. A healthy relay sends several; windows that carry at most one update mean the stream connects but does not stream |
+| Is it actually streaming? | `cb_pbs_relay_stream_updates`: bids received per request. On `get_header_stream` every frame with a readable message type and fork byte counts, before its bid is checked. A healthy relay sends several; at most one per request means the stream connects but does not stream |
 | Are the frames usable? | `cb_pbs_relay_stream_invalid_frames_total`: frames dropped on arrival because their message type or fork byte cannot be read, absent while zero. A bid that fails decoding or validation is not counted here |
 
-When the window closes, the stream serves the latest bid that passes decoding and validation, from the newest 8 it holds. A failing bid newer than the one served is not counted as a failure; the error is in the logs. A window in which every held bid fails counts as `200` on the status series, the same as an invalid bid over HTTP, and as one failed stream. A request the beacon node abandons mid-window records no outcome at all.
+When the newest bid fails validation and an earlier one is served, the failure is logged, not counted. A window in which every kept bid fails counts as `200` on the status series, the same as an invalid bid over HTTP, and as one failed stream. If the beacon node drops the request before the deadline, no status is recorded.
+
+The [ePBS bid stream](../epbs.md#bid-streaming) (unreleased, from v0.12.0-rc1) reports the same series under `endpoint="get_execution_payload_bid_stream"`, and its HTTP request under `endpoint="get_execution_payload_bid"`. It decodes each bid as it arrives and does not validate it, so `cb_pbs_relay_stream_updates` counts only bids that decode, and `cb_pbs_relay_stream_invalid_frames_total` also counts those that do not. A stream that ends with only undecodable bids is no bid (`204`), not a failed stream; if its connection drops instead, it records `556` and a failed stream.

@@ -13,6 +13,7 @@ pub const RELOAD_PATH: &str = "/reload";
 
 pub const GET_EXECUTION_PAYLOAD_BID_PATH: &str =
     "/execution_payload_bid/{slot}/{parent_hash}/{parent_root}/{proposer_pubkey}";
+pub const GET_EXECUTION_PAYLOAD_BID_STREAM_PATH: &str = "/execution_payload_bid_stream";
 pub const SUBMIT_BUILDER_PREFERENCES_PATH: &str = "/builder_preferences/{proposer_pubkey}";
 pub const SUBMIT_SIGNED_BEACON_BLOCK_PATH: &str = "/beacon_blocks";
 
@@ -24,6 +25,9 @@ pub const HEADER_VERSION_KEY: &str = "X-CommitBoost-Version";
 pub const HEADER_VERSION_VALUE: &str = COMMIT_BOOST_VERSION;
 pub const HEADER_START_TIME_UNIX_MS: &str = "Date-Milliseconds";
 pub const HEADER_TIMEOUT_MS: &str = "X-Timeout-Ms";
+/// The SSZ `SignedBuilderRequestAuth` as padded standard base64, on the ePBS
+/// bid stream handshake: a websocket upgrade has no body
+pub const HEADER_REQUEST_AUTH: &str = "X-Request-Auth";
 pub const HEADER_API_KEY: &str = "X-Api-Key";
 pub const HEADER_CONSENSUS_VERSION: &str = "Eth-Consensus-Version";
 

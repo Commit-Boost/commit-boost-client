@@ -52,9 +52,9 @@ lazy_static! {
     .unwrap();
 
 
-    // THE WEBSOCKET BID STREAM
+    // THE WEBSOCKET BID STREAMS
     // Outcome and time-to-first-bid ride RELAY_STATUS_CODE / RELAY_LATENCY
-    // under `get_header_stream`
+    // under `get_header_stream` and `get_execution_payload_bid_stream`
 
     /// Websocket handshake latency by relay
     pub static ref RELAY_STREAM_CONNECT_LATENCY: HistogramVec = register_histogram_vec_with_registry!(
@@ -67,8 +67,8 @@ lazy_static! {
     .unwrap();
 
     /// Stream frames accepted on arrival per window, by relay
-    // What a frame must pass on arrival is the endpoint's: get_header_stream
-    // reads only its prefix, and validates the bids it holds at the deadline
+    // On arrival get_header_stream checks only the frame prefix, while
+    // get_execution_payload_bid_stream decodes the bid
     pub static ref RELAY_STREAM_UPDATES: HistogramVec = register_histogram_vec_with_registry!(
         "relay_stream_updates",
         "Stream frames accepted on arrival per window, by relay",

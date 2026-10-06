@@ -1992,6 +1992,7 @@ dependencies = [
  "async-trait",
  "axum 0.8.9",
  "axum-extra",
+ "base64 0.22.1",
  "cb-common",
  "cb-metrics",
  "ethereum_serde_utils 0.7.0",
@@ -2056,6 +2057,7 @@ version = "0.11.0"
 dependencies = [
  "alloy",
  "axum 0.8.9",
+ "base64 0.22.1",
  "cb-common",
  "cb-pbs",
  "cb-signer",

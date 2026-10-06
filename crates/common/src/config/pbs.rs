@@ -140,7 +140,7 @@ pub struct RelayConfig {
     pub headers: Option<HashMap<String, HeaderSource>>,
     /// Optional GET parameters to add to each request
     pub get_params: Option<HashMap<String, String>>,
-    /// How to fetch headers from this relay
+    /// How to fetch bids from this relay
     #[serde(default)]
     pub get_header: GetHeaderTransport,
     /// Whether to enable timing games

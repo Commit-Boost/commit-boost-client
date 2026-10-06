@@ -50,9 +50,9 @@ const FRAME_PREFIX_LEN: usize = 2;
 
 const MSG_BID: u8 = 0x01;
 
-/// A stream holds only its newest frames, which bounds its memory and the
-/// validation a caller leaves until the deadline
-const MAX_HELD_FRAMES: usize = 8;
+/// A PBS stream holds only its newest frames, which bounds its memory and the
+/// validation it leaves until the deadline
+pub(crate) const MAX_HELD_FRAMES: usize = 8;
 
 /// One bid update, its bid still SSZ-encoded
 pub(crate) struct Frame {
@@ -62,8 +62,8 @@ pub(crate) struct Frame {
 
 /// What a stream held when its window closed
 pub(crate) struct Held<T> {
-    /// The newest `MAX_HELD_FRAMES` frames the parse closure accepted, oldest
-    /// first. Empty when the relay had no bid.
+    /// The newest frames the parse closure accepted, up to the caller's cap,
+    /// oldest first
     pub(crate) frames: VecDeque<T>,
     /// Frames the parse closure accepted
     pub(crate) updates: usize,
@@ -72,8 +72,8 @@ pub(crate) struct Held<T> {
     pub(crate) invalid_frames: usize,
 }
 
-/// The handshake for `url`, with the same headers an HTTP request carries.
-/// `read_bid_stream` adds the timing headers once connected.
+/// The handshake for `url`, with the caller's user agent and the relay's
+/// headers
 pub(crate) fn handshake_request(
     url: &Url,
     relay: &RelayClient,
@@ -96,15 +96,14 @@ pub(crate) fn handshake_request(
     Ok(request)
 }
 
-/// Opens the stream and holds the newest frames `parse` accepts, until
-/// `deadline` or the relay ends the stream. A frame `parse` rejects counts as
-/// invalid. On failure, returns the status the failure records under. The
-/// stream metrics are recorded under `endpoint`.
+/// Holds the newest `max_held` frames `parse` accepts until `deadline` or the
+/// end of the stream. An error carries the status the failure records under.
 pub(crate) async fn read_bid_stream<T>(
     request: Request<()>,
     deadline: Instant,
     relay: &RelayClient,
     endpoint: &str,
+    max_held: usize,
     mut parse: impl FnMut(Frame) -> Result<T, PbsError>,
 ) -> Result<Held<T>, (StatusCode, PbsError)> {
     let start_request = Instant::now();
@@ -132,7 +131,7 @@ pub(crate) async fn read_bid_stream<T>(
     let timer = sleep_until(deadline);
     tokio::pin!(timer);
 
-    let mut frames = VecDeque::with_capacity(MAX_HELD_FRAMES);
+    let mut frames = VecDeque::with_capacity(max_held);
     let mut updates = 0usize;
     let mut first_frame_latency = None;
     let mut invalid_frames = 0usize;
@@ -150,7 +149,7 @@ pub(crate) async fn read_bid_stream<T>(
             Some(Ok(Message::Close(_))) | None => break,
             Some(Ok(_)) => continue,
             Some(Err(err)) => {
-                warn!(relay_id = relay.id.as_ref(), %err, "ws stream error");
+                debug!(relay_id = relay.id.as_ref(), %err, "ws stream error");
                 stream_error = Some(PbsError::WebSocket(format!("stream error: {err}")));
                 break;
             }
@@ -160,7 +159,7 @@ pub(crate) async fn read_bid_stream<T>(
             Ok(frame) => {
                 first_frame_latency.get_or_insert_with(|| start_request.elapsed());
                 updates += 1;
-                if frames.len() == MAX_HELD_FRAMES {
+                if frames.len() == max_held {
                     frames.pop_front();
                 }
                 frames.push_back(frame);
@@ -192,10 +191,8 @@ pub(crate) async fn read_bid_stream<T>(
     Ok(Held { frames, updates, connect_latency, first_frame_latency, invalid_frames })
 }
 
-/// Opens TCP first, so the handshake can ask the relay to end its stream one
-/// downlink trip before `deadline`: a relay honouring the timing headers ends
-/// it at Date-Milliseconds + X-Timeout-Ms, and a frame sent then still has to
-/// travel. None when no time would be left.
+/// Opens TCP first and times it, so `X-Timeout-Ms` ends the relay's stream one
+/// downlink trip before `deadline`. None when no time would be left.
 async fn connect(
     mut request: Request<()>,
     deadline: Instant,
@@ -259,7 +256,8 @@ fn relay_timeout_ms(time_left: Duration, rtt: Duration) -> Option<u64> {
     (timeout_ms > 0).then_some(timeout_ms)
 }
 
-pub(crate) fn record_stream_fallback(endpoint: &str, relay_id: &str) {
+pub(crate) fn record_stream_failure(endpoint: &str, relay_id: &str, err: &PbsError) {
+    warn!(%err, relay_id, endpoint, "stream failed");
     RELAY_STREAM_FALLBACK.with_label_values(&[endpoint, relay_id]).inc();
 }
 
@@ -371,6 +369,17 @@ mod tests {
         // Nothing left: no frame could land before the deadline
         assert_eq!(relay_timeout_ms(ms(50), ms(100)), None);
         assert_eq!(relay_timeout_ms(ms(40), ms(100)), None);
+    }
+
+    // The host of an IPv6 url keeps its brackets, which name resolution rejects
+    #[tokio::test]
+    async fn test_connect_tcp_to_an_ipv6_literal() {
+        let Ok(listener) = tokio::net::TcpListener::bind("[::1]:0").await else {
+            return; // no IPv6 loopback on this host
+        };
+        let port = listener.local_addr().unwrap().port();
+        let uri: Uri = format!("ws://[::1]:{port}/").parse().unwrap();
+        assert!(connect_tcp(&uri).await.is_ok());
     }
 
     #[test]

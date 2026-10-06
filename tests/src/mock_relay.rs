@@ -328,6 +328,10 @@ impl MockRelayState {
         }
     }
 
+    pub fn with_trustless_bid_gwei(self, trustless_bid_gwei: u64) -> Self {
+        Self { trustless_bid_gwei, ..self }
+    }
+
     /// Hold every bid request `delay_ms` before answering, so a caller with a
     /// shorter `X-Timeout-Ms` times out.
     pub fn with_bid_delay_ms(self, delay_ms: u64) -> Self {
@@ -394,6 +398,32 @@ pub fn mock_signed_builder_bid(
     SignedBuilderBid { message, signature }
 }
 
+/// CB does not verify bid signatures (the beacon node does), so the mock
+/// serves an unsigned bid
+pub fn mock_execution_payload_bid(
+    slot: u64,
+    parent_hash: B256,
+    parent_root: B256,
+    value: u64,
+    execution_payment: u64,
+) -> SignedExecutionPayloadBid {
+    let mut block_hash = B256::ZERO;
+    block_hash.0[0] = 1;
+
+    let message = ExecutionPayloadBid {
+        parent_block_hash: parent_hash.into(),
+        parent_block_root: parent_root,
+        block_hash: block_hash.into(),
+        gas_limit: 30_000_000,
+        builder_index: 42,
+        slot: Slot::new(slot),
+        value,
+        execution_payment,
+        ..Default::default()
+    };
+    SignedExecutionPayloadBid { message, signature: BlsSignature::empty() }
+}
+
 async fn handle_get_execution_payload_bid(
     State(state): State<Arc<MockRelayState>>,
     Path((slot, parent_hash, parent_root, _pubkey)): Path<(u64, B256, B256, BlsPublicKey)>,
@@ -453,23 +483,8 @@ async fn handle_get_execution_payload_bid(
         tokio::time::sleep(Duration::from_millis(delay_ms)).await;
     }
 
-    let mut block_hash = B256::ZERO;
-    block_hash.0[0] = 1;
-
-    let message = ExecutionPayloadBid {
-        parent_block_hash: parent_hash.into(),
-        parent_block_root: parent_root,
-        block_hash: block_hash.into(),
-        gas_limit: 30_000_000,
-        builder_index: 42,
-        slot: Slot::new(slot),
-        value: state.trustless_bid_gwei,
-        ..Default::default()
-    };
-
-    // CB does not verify bid signatures (the beacon node does), so the mock
-    // serves an unsigned bid
-    let data = SignedExecutionPayloadBid { message, signature: BlsSignature::empty() };
+    let data =
+        mock_execution_payload_bid(slot, parent_hash, parent_root, state.trustless_bid_gwei, 0);
 
     // Negotiate the RESPONSE encoding from the forwarded Accept, mirroring
     // handle_get_header: honor supported_content_types + the caller's Accept.
