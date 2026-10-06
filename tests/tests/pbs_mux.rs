@@ -245,8 +245,15 @@ async fn test_mux() -> Result<()> {
     let state = PbsState::new(config, PathBuf::new());
     tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
 
-    // leave some time to start servers
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    // PBS checks /status on every relay once at startup; wait for that check so
+    // the status count below holds only this test's request
+    for _ in 0..100 {
+        if mock_state.received_get_status() == 3 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(mock_state.received_get_status(), 3);
 
     // Send default request without specifying a validator key
     let mock_validator = MockValidator::new(pbs_port)?;
@@ -271,7 +278,7 @@ async fn test_mux() -> Result<()> {
     // Status requests should go to all relays
     info!("Sending get status");
     assert_eq!(mock_validator.do_get_status().await?.status(), StatusCode::OK);
-    assert_eq!(mock_state.received_get_status(), 3); // default + 2 mux relays were used
+    assert_eq!(mock_state.received_get_status(), 6); // default + 2 mux relays were used
 
     // Register requests should go to all relays
     info!("Sending register validator");
