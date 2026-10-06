@@ -6,7 +6,7 @@ use std::{
 use alloy::primitives::utils::{ParseUnits, Unit};
 use axum::body::Bytes;
 use cb_common::{
-    pbs::{RelayClient, error::PbsError},
+    pbs::{HEADER_VERSION_KEY, RelayClient, decode_auth_data_url, error::PbsError},
     types::BlsPublicKey,
     wire::{
         CONSENSUS_VERSION_HEADER, EncodingType, get_user_agent_with_version,
@@ -23,6 +23,7 @@ use url::Url;
 
 use crate::{
     constants::{MAX_SIZE_DEFAULT, TIMEOUT_ERROR_CODE_STR},
+    dial::{auth_data_address, dial_relay},
     error::PbsClientError,
     metrics::{BEACON_NODE_STATUS, RELAY_LATENCY, RELAY_STATUS_CODE},
 };
@@ -188,25 +189,51 @@ pub fn check_gas_limit(gas_limit: u64, parent_gas_limit: u64) -> bool {
     true
 }
 
-/// The relay an ePBS request addresses: the first whose URL hostname equals
-/// `auth_data`. No match is a 400.
-pub(crate) fn resolve_addressed_relay(
+/// The first configured relay that the address in `auth_data` names, by
+/// hostname or, for a URL, by origin; otherwise a relay that dials it. Also
+/// returns what `timeout_ms` leaves after setting up that dial.
+pub(crate) async fn resolve_addressed_relay(
     relays: &[RelayClient],
     auth_data: &[u8],
-) -> Result<RelayClient, PbsClientError> {
-    let addressed = relays.iter().find(|relay| {
-        relay.config.entry.url.host_str().is_some_and(|host| host.as_bytes() == auth_data)
+    req_headers: &HeaderMap,
+    timeout_ms: u64,
+) -> Result<(RelayClient, u64), PbsClientError> {
+    let address = auth_data_address(auth_data);
+    let by_host = relays.iter().find(|relay| {
+        relay.config.entry.url.host_str().is_some_and(|host| host.as_bytes() == address)
     });
-    match addressed {
-        Some(relay) => Ok(relay.clone()),
-        None => {
-            warn!(
-                auth_data = %String::from_utf8_lossy(auth_data),
-                "auth data matches no configured relay"
-            );
-            Err(PbsClientError::AuthDataMismatch)
-        }
+    if let Some(relay) = by_host {
+        return Ok((relay.clone(), timeout_ms));
     }
+    let data_url = decode_auth_data_url(address);
+    let by_origin = data_url.as_ref().and_then(|data_url| {
+        relays.iter().find(|relay| {
+            let url = &relay.config.entry.url;
+            url.scheme() == data_url.scheme() &&
+                url.host() == data_url.host() &&
+                url.port_or_known_default() == data_url.port_or_known_default()
+        })
+    });
+    if let Some(relay) = by_origin {
+        return Ok((relay.clone(), timeout_ms));
+    }
+    // Every Commit-Boost dial carries this header, so a request dialed back into
+    // a Commit-Boost, this one included, goes no further
+    if req_headers.contains_key(HEADER_VERSION_KEY) {
+        warn!(
+            auth_data = ?String::from_utf8_lossy(auth_data),
+            "auth data matches no configured relay and the request came from a Commit-Boost, not dialing on"
+        );
+        return Err(PbsClientError::AuthDataMismatch);
+    }
+    let started = Instant::now();
+    let relay = dial_relay(data_url, address, Duration::from_millis(timeout_ms)).await?;
+    let left_ms = timeout_ms.saturating_sub(started.elapsed().as_millis() as u64);
+    // A request with no time left would still reach the builder
+    if left_ms == 0 {
+        return Err(PbsClientError::NoBuilderResponse);
+    }
+    Ok((relay, left_ms))
 }
 
 #[cfg(test)]
@@ -239,24 +266,38 @@ mod tests {
         RelayClient::new(config).unwrap()
     }
 
-    #[test]
-    fn resolve_relay_by_hostname() {
+    #[tokio::test]
+    async fn resolve_relay_by_auth_data() {
         let relays = vec![
             test_relay("https://0xdeadbeef@builder-a.example.com"),
             test_relay("https://builder-b.example.com:8443/eth"),
             test_relay("http://[::1]:18550"),
         ];
-        let host = |data: &[u8]| -> Option<String> {
-            resolve_addressed_relay(&relays, data)
+        // From a Commit-Boost, so a miss is an error, not a dial
+        let mut from_cb = HeaderMap::new();
+        from_cb.insert(HEADER_VERSION_KEY, reqwest::header::HeaderValue::from_static("test"));
+        let host = async |data: &[u8]| -> Option<String> {
+            resolve_addressed_relay(&relays, data, &from_cb, 0)
+                .await
                 .ok()
-                .map(|relay| relay.config.entry.url.host_str().unwrap().to_string())
+                .map(|(relay, _)| relay.config.entry.url.host_str().unwrap().to_string())
         };
-        assert_eq!(host(b"builder-a.example.com").as_deref(), Some("builder-a.example.com"));
-        assert_eq!(host(b"builder-b.example.com").as_deref(), Some("builder-b.example.com"));
-        assert_eq!(host(b"[::1]").as_deref(), Some("[::1]"));
-        assert!(host(b"Builder-A.example.com").is_none());
-        assert!(host(b"builder-a.example.com:443").is_none());
-        // a URL is not a hostname
-        assert!(host(b"https://builder-a.example.com").is_none());
+        assert_eq!(host(b"builder-a.example.com").await.as_deref(), Some("builder-a.example.com"));
+        assert_eq!(host(b"builder-b.example.com").await.as_deref(), Some("builder-b.example.com"));
+        assert_eq!(host(b"[::1]").await.as_deref(), Some("[::1]"));
+        assert!(host(b"Builder-A.example.com").await.is_none());
+        assert!(host(b"builder-a.example.com:443").await.is_none());
+        // A URL matches on scheme, host and port
+        assert_eq!(
+            host(b"https://builder-a.example.com:443/eth").await.as_deref(),
+            Some("builder-a.example.com")
+        );
+        assert!(host(b"http://builder-a.example.com").await.is_none());
+        assert!(host(b"https://builder-b.example.com").await.is_none());
+        // Parameters after `?` are for the builder and do not affect routing
+        assert_eq!(
+            host(b"builder-a.example.com?ofac=1").await.as_deref(),
+            Some("builder-a.example.com")
+        );
     }
 }
