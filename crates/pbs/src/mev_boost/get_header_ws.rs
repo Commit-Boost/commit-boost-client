@@ -14,7 +14,7 @@ use url::Url;
 
 use super::get_header::{RequestInfo, decode_ssz_payload, validate_get_header_response};
 use crate::{
-    bid_stream::{Frame, Held, handshake_request, read_bid_stream},
+    bid_stream::{Frame, Held, MAX_HELD_FRAMES, handshake_request, read_bid_stream},
     constants::{GET_HEADER_STREAM_ENDPOINT_TAG, TRANSPORT_ERROR_STATUS},
     metrics::RELAY_STATUS_CODE,
 };
@@ -49,7 +49,16 @@ async fn stream_header(
     };
 
     let Held { frames, updates, connect_latency, first_frame_latency, invalid_frames } =
-        match read_bid_stream(request, deadline, relay, GET_HEADER_STREAM_ENDPOINT_TAG, Ok).await {
+        match read_bid_stream(
+            request,
+            deadline,
+            relay,
+            GET_HEADER_STREAM_ENDPOINT_TAG,
+            MAX_HELD_FRAMES,
+            Ok,
+        )
+        .await
+        {
             Ok(held) => held,
             Err((status, err)) => return (status, Err(err)),
         };

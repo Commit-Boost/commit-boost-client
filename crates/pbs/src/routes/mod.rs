@@ -1,5 +1,6 @@
 mod builder_preferences;
 mod execution_payload_bid;
+mod execution_payload_bid_ws;
 mod get_header;
 mod register_validator;
 mod reload;

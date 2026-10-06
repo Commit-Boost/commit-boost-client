@@ -174,6 +174,7 @@ fn dial_config(url: Url) -> RelayConfig {
         id: None,
         headers: None,
         get_params: None,
+        // HTTP only: a stream's connection skips DialResolver's address check
         get_header: GetHeaderTransport::Http,
         enable_timing_games: false,
         target_first_request_ms: None,
@@ -292,6 +293,7 @@ mod tests {
                 (Ok(relay), Ok(url)) => {
                     assert_eq!(relay.config.entry.url.as_str(), url, "{case}");
                     assert_eq!(relay.id.as_str(), "dial", "{case}");
+                    assert_eq!(relay.config.get_header, GetHeaderTransport::Http, "{case}");
                 }
                 (Err(err), Err(message)) => assert_eq!(err.to_string(), message, "{case}"),
                 _ => panic!("{case}: expected {expected:?}, got {:?}", res.map(|_| ())),

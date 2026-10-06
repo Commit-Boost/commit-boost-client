@@ -75,7 +75,7 @@ Each `[[relays]]` entry supports, besides `id` and `url`:
 
 - `headers`: custom headers sent with every request to this relay, which is how a relay API key is supplied. See [Relay API keys](#relay-api-keys).
 - `get_params`: optional GET parameters to add to each request URL for this relay.
-- `get_header`: how bids are fetched from this relay, either `"http"` (one request per `get_header`) or `"stream"` (that request plus a websocket stream of bid updates, for relays that support it). Default: `"http"`. See [Bid streaming](#bid-streaming).
+- `get_header`: how bids are fetched from this relay: `"http"`, one request per `get_header`, or `"stream"`, a websocket stream of bid updates for relays that support it. (unreleased, from v0.12.0-rc1) A streaming relay also gets the HTTP request. Default: `"http"`; details under [Bid streaming](#bid-streaming).
 - `enable_timing_games`: whether to enable timing games for this relay, as tuned by `target_first_request_ms` and `frequency_get_header_ms`. If neither of those is set, this flag has no effect. Advanced users only: misconfiguration can result in e.g. fetching a lower header value or missing a slot (caveats and worked examples in the annotated config example). Default: `false`.
 - `target_first_request_ms`: target time in the slot, in milliseconds, at which to send the first `get_header` request.
 - `frequency_get_header_ms`: frequency, in milliseconds, at which to send `get_header` requests.
@@ -110,7 +110,19 @@ Under Docker, `commit-boost init` mounts each `file` path into the container at 
 
 ### Bid streaming
 
+:::info Unreleased
+From v0.12.0-rc1, compared with v0.11.0:
+- The relay's HTTP request runs alongside every stream. In v0.11.0 it runs only when the handshake fails with time left.
+- The stream serves its latest valid bid. In v0.11.0 only the last bid is validated.
+- A `204` answer to the handshake is no bid. In v0.11.0 it records `556` and retries over HTTP.
+- `X-Timeout-Ms` on the handshake leaves out half the TCP connect time. In v0.11.0 it is the whole window.
+- A failed stream logs `stream failed`. In v0.11.0 it logs `stream failed, falling back to http get_header`, and only when it retries.
+- A relay also listed with `get_header = "http"`, as the v0.11.0 docs advised, gets two HTTP requests per `get_header`, and after the Gloas fork only the first of the two serves ePBS; remove the `"http"` entry.
+:::
+
 `get_header = "stream"` adds a websocket stream of bid updates to the relay's per-slot HTTP request. It is set per relay, on `[[relays]]` and `[[mux.relays]]` entries alike. [`examples/configs/pbs_bid_stream.toml`](https://github.com/Commit-Boost/commit-boost-client/blob/main/examples/configs/pbs_bid_stream.toml) streams from two default relays and two mux relays.
+
+(unreleased, from v0.12.0-rc1) After the Gloas fork the same setting also streams [ePBS bids](./epbs.md#bid-streaming).
 
 #### Connection
 
@@ -120,7 +132,7 @@ For each `get_header` call PBS dials:
 ws(s)://<relay host>/eth/v1/builder/header_stream/{slot}/{parent_hash}/{pubkey}
 ```
 
-The scheme and host come from the relay's `url`: `https` becomes `wss`, `http` becomes `ws`, any other scheme fails at startup. The pubkey is dropped from the userinfo and `get_params` are appended as usual.
+The scheme and host come from the relay's `url`: `https` becomes `wss`, `http` becomes `ws`, any other scheme fails at startup. The pubkey is dropped from the userinfo and `get_params` are appended as usual. The stream connects directly, ignoring `HTTP_PROXY`, `HTTPS_PROXY` and `ALL_PROXY`.
 
 The handshake carries what the HTTP request would: slot, parent hash and pubkey in the path, plus `Date-Milliseconds`, `X-Timeout-Ms`, `X-CommitBoost-Version` and every configured header. `X-Timeout-Ms` is the time left in the bid window minus half the TCP connect time, so the relay's last update arrives before the window closes.
 
@@ -128,7 +140,7 @@ The stream needs the same API key as the HTTP path, sent on the handshake with t
 
 #### Bid window
 
-Once connected, the relay sends one binary frame per bid update. When the window ends or the relay closes the stream, PBS returns the latest update that passes validation, checking the held updates newest first. Validation is the same as on the HTTP path, so `skip_sigverify`, `min_bid_eth` and `extra_validation_enabled` apply unchanged. Frames that do not parse as a bid are skipped and counted.
+Once connected, the relay sends one binary frame per bid update. PBS keeps the last 8 bids and, when the window ends or the relay closes the stream, returns the newest one that passes validation. Validation is the same as on the HTTP path, so `skip_sigverify`, `min_bid_eth` and `extra_validation_enabled` apply unchanged. Frames whose message type or fork byte cannot be read are skipped and counted.
 
 The window is the deadline the HTTP path already computes: `timeout_get_header_ms`, capped by the time left until `late_in_slot_time_ms`, and capped again by the CL's `X-Timeout-Ms` if it sends one. An HTTP `get_header` normally returns early, while a stream is held to the end, so on a streaming relay `timeout_get_header_ms` sets how long PBS holds the CL's request. A CL request arriving at or after `late_in_slot_time_ms` still skips relays entirely and forces local building.
 
@@ -136,13 +148,13 @@ The timing-game options have no effect on the stream, which already delivers eve
 
 #### HTTP request
 
-PBS sends the relay its normal HTTP `get_header` every slot, alongside the stream. The stream's bid and the HTTP bid are separate candidates and the better one wins, so a failed stream leaves the HTTP bid in the auction. The `auction winner` log line names the winning `transport`.
+PBS sends the relay its normal HTTP `get_header` alongside the stream. The stream's bid and the HTTP bid are separate candidates and the better one wins, so a failed stream leaves the HTTP bid in the auction. The `auction winner` log line names the winning `transport`.
 
-A stream fails when the handshake times out or does not upgrade, when it breaks before any bid arrives, or when every bid it held is invalid. If it breaks after a bid arrived, PBS validates the held bids as usual. A `204` answer to the handshake means the relay has no bid, not a failure.
+A stream fails when it cannot connect, when the handshake times out or the relay refuses it, when the connection drops before any bid arrives, or when none of the bids PBS kept passes validation. Commit-Boost logs each failed stream as `stream failed` with the reason, and counts it in `cb_pbs_relay_stream_fallback_total`. A drop after a bid arrived is not a failure: PBS validates the bids it kept as usual. A `204` answer to the handshake means the relay has no bid.
 
-#### Metrics
+#### Stream metrics
 
-Stream and HTTP outcomes are recorded separately. `cb_pbs_relay_status_code_total` and `cb_pbs_relay_latency` carry `endpoint="get_header_stream"` for the stream and `endpoint="get_header"` for the HTTP request, and four `cb_pbs_relay_stream_*` series cover handshake latency, updates per window, unparseable frames and failed streams. See [Metrics > Bid stream](./running/metrics.md#bid-stream).
+Stream and HTTP outcomes are recorded separately. `cb_pbs_relay_status_code_total` and `cb_pbs_relay_latency` carry `endpoint="get_header_stream"` for the stream and `endpoint="get_header"` for the HTTP request, and four `cb_pbs_relay_stream_*` series cover handshake latency, updates per window, unparseable frames and failed streams; [Metrics > Bid stream](./running/metrics.md#bid-stream) says what each value means.
 
 ### SSZ support
 

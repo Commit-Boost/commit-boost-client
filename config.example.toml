@@ -100,16 +100,17 @@ headers = { X-MyCustomHeader = "MyCustomValue" }
 # GET parameters to add to each request URL for this relay
 # OPTIONAL
 get_params = { param1 = "value1", param2 = "value2" }
-# How to fetch headers from this relay.
+# How to fetch bids from this relay.
 #   "http"     -> one request per get_header, at the relay url above
 #   "stream"   -> websocket stream of bid updates, only for relays that support it. Connects to
-#                 ws(s)://<relay url>/eth/v1/builder/header_stream/{slot}/{parent_hash}/{pubkey},
-#                 and sends the relay's normal HTTP request alongside, timing games included. The
-#                 stream's latest valid bid and the HTTP bid are separate candidates in the
-#                 auction, so a stream that fails leaves the HTTP bid in the auction.
+#                 ws(s)://<relay host>/eth/v1/builder/header_stream/{slot}/{parent_hash}/{pubkey}.
+#                 (unreleased, from v0.12.0-rc1) The relay's normal HTTP request runs alongside,
+#                 timing games included, and the better bid wins, so a failed stream still
+#                 leaves the HTTP bid.
 #                 Requires a UUID api key, set it in `headers` field above under the `X-Api-Key`
 #                 name; it is sent on the websocket handshake. Can use 
 #                 https://www.uuidgenerator.net/version4 to generate one.
+#                 (unreleased, from v0.12.0-rc1) After Gloas this also streams ePBS bids (https://commit-boost.github.io/commit-boost-client/get_started/epbs#bid-streaming)
 # OPTIONAL, DEFAULT: "http"
 get_header = "http"
 # Whether to enable timing games, as tuned by `target_first_request_ms` and `frequency_get_header_ms`.

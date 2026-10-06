@@ -18,7 +18,7 @@ use cb_tests::{
     mock_relay::{MockRelayState, start_mock_relay_service_with_listener},
     mock_validator::MockValidator,
     mock_ws_relay::{
-        MockWsRelayState, start_mock_dual_relay_service, start_mock_ws_relay_service,
+        MockWsRelayState, start_mock_dual_relay, start_mock_ws_relay_service,
         start_mock_ws_relay_with_full_backlog,
     },
     utils::{
@@ -65,8 +65,7 @@ async fn start_pbs(
 
     let config = to_pbs_config(chain, pbs_config, relays);
     let state = PbsState::new(config, PathBuf::new());
-    drop(listener);
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, listener));
 
     // leave some time to start servers
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -289,10 +288,8 @@ async fn test_get_header_ws_returns_at_deadline() -> Result<()> {
     Ok(())
 }
 
-/// A relay that ends its stream at Date-Milliseconds + X-Timeout-Ms sends its
-/// last bid then, and each frame takes one downlink trip to arrive. PBS asks it
-/// to end half the TCP connect time before PBS's own deadline, so that bid
-/// still lands.
+/// PBS asks the relay to end its stream half a TCP connect before PBS's own
+/// deadline, so the last bid, one downlink trip later, still lands.
 #[tokio::test]
 async fn test_get_header_ws_last_bid_lands_before_deadline() -> Result<()> {
     setup_test_env();
@@ -329,8 +326,9 @@ async fn test_get_header_ws_last_bid_lands_before_deadline() -> Result<()> {
     let relay_end_ms = request.start_time_ms.unwrap() + request.timeout_ms.unwrap();
     let early_ms = (requested_at_ms + timeout_ms) as i64 - relay_end_ms as i64;
     let half_connect_ms = connect_ms as i64 / 2;
+    // PBS's delay before connecting skews both sides, hence the slack
     assert!(
-        (half_connect_ms - 100..=half_connect_ms + 20).contains(&early_ms),
+        (half_connect_ms - 250..=half_connect_ms + 20).contains(&early_ms),
         "relay asked to end {early_ms}ms before the deadline, connect took {connect_ms}ms"
     );
     Ok(())
@@ -441,27 +439,6 @@ async fn test_get_header_ws_wins_auction_against_http() -> Result<()> {
     Ok(())
 }
 
-/// One relay serving both the HTTP `get_header` and the stream on the same
-/// port, as a real relay does. Returns the two mock states and the stream-mode
-/// relay client.
-async fn start_dual_relay(
-    http_state: MockRelayState,
-    ws_state: MockWsRelayState,
-    pubkey: cb_common::types::BlsPublicKey,
-) -> Result<(Arc<MockRelayState>, Arc<MockWsRelayState>, cb_common::pbs::RelayClient)> {
-    let http_listener = get_free_listener().await;
-    let http_addr = http_listener.local_addr()?;
-    let http_state = Arc::new(http_state);
-    tokio::spawn(start_mock_relay_service_with_listener(http_state.clone(), http_listener));
-
-    let listener = get_free_listener().await;
-    let port = listener.local_addr()?.port();
-    let ws_state = Arc::new(ws_state);
-    tokio::spawn(start_mock_dual_relay_service(ws_state.clone(), listener, http_addr));
-
-    Ok((http_state, ws_state, generate_mock_stream_relay(port, pubkey)?))
-}
-
 /// A handshake that outlasts the budget: the HTTP request raced alongside it
 /// supplies the bid.
 #[tokio::test]
@@ -469,10 +446,9 @@ async fn test_get_header_ws_race_handshake_timeout_http_bid_serves() -> Result<(
     setup_test_env();
     let signer = random_secret();
     let chain = Chain::Hoodi;
-    let (http_state, ws_state, relay) = start_dual_relay(
+    let (http_state, ws_state, relay) = start_mock_dual_relay(
         MockRelayState::new(chain, signer.clone()).with_bid_value(U256::from(42)),
         MockWsRelayState::new(chain, signer.clone()).with_handshake_delay(Duration::from_secs(2)),
-        signer.public_key(),
     )
     .await?;
     let validator = start_pbs(chain, vec![relay], 300).await?;
@@ -492,12 +468,11 @@ async fn test_get_header_ws_race_stream_break_keeps_held_bid() -> Result<()> {
     setup_test_env();
     let signer = random_secret();
     let chain = Chain::Hoodi;
-    let (_, ws_state, relay) = start_dual_relay(
+    let (_, ws_state, relay) = start_mock_dual_relay(
         MockRelayState::new(chain, signer.clone()).with_bid_value(U256::from(10)),
         MockWsRelayState::new(chain, signer.clone())
             .with_bid_values(vec![U256::from(50)])
             .abort_after_bids(),
-        signer.public_key(),
     )
     .await?;
     let validator = start_pbs(chain, vec![relay], 1_000).await?;
@@ -509,20 +484,21 @@ async fn test_get_header_ws_race_stream_break_keeps_held_bid() -> Result<()> {
     Ok(())
 }
 
-/// The stream and the HTTP request are separate candidates: the higher bid
-/// wins, and the stream's candidate is its latest bid, not its highest.
+/// The higher candidate wins, the stream's being its latest bid, not its
+/// highest; a stream with no bid leaves the HTTP one.
 #[tokio::test]
 async fn test_get_header_ws_race_higher_bid_wins() -> Result<()> {
     setup_test_env();
     let signer = random_secret();
     let chain = Chain::Hoodi;
 
-    for (http_bid, stream_bids, served) in [(10, [20, 50], 50), (60, [70, 50], 60)] {
-        let (http_state, ws_state, relay) = start_dual_relay(
+    for (http_bid, stream_bids, served) in
+        [(10, vec![20, 50], 50), (60, vec![70, 50], 60), (42, vec![], 42)]
+    {
+        let (http_state, ws_state, relay) = start_mock_dual_relay(
             MockRelayState::new(chain, signer.clone()).with_bid_value(U256::from(http_bid)),
             MockWsRelayState::new(chain, signer.clone())
-                .with_bid_values(stream_bids.map(U256::from).to_vec()),
-            signer.public_key(),
+                .with_bid_values(stream_bids.into_iter().map(U256::from).collect()),
         )
         .await?;
         let validator = start_pbs(chain, vec![relay], 1_000).await?;
