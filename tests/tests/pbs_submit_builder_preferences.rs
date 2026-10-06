@@ -9,7 +9,7 @@ use cb_tests::{
     mock_relay::MockRelayState,
     utils::{
         TEST_AUTH_DATA, generate_mock_relay, opaque_auth, setup_relay, setup_relays,
-        setup_relays_on_hosts,
+        setup_relays_on_hosts, spawn_mock_relay,
     },
 };
 use eyre::Result;
@@ -173,10 +173,9 @@ async fn test_submit_builder_preferences_past_slot_forwarded() -> Result<()> {
     Ok(())
 }
 
-/// Auth data matching no relay's hostname is a 400 with the builder's
-/// data-mismatch message: unmatched means CB has no builder to proxy to, and
-/// proposer-private preferences must never broadcast to builders the proposer
-/// did not address.
+/// Auth data that is neither a hostname nor a URL is a 400 with the builder's
+/// data-mismatch message: CB has no builder to proxy to, and proposer-private
+/// preferences must never broadcast to builders the proposer did not address.
 #[tokio::test]
 async fn test_submit_builder_preferences_unmatched_auth_data_400() -> Result<()> {
     let chain = Chain::Hoodi;
@@ -268,5 +267,25 @@ async fn test_submit_builder_preferences_two_relays_addressed_one_only() -> Resu
     assert_eq!(res.status(), StatusCode::ACCEPTED);
     assert_eq!(states[0].received_builder_preferences(), 0, "the unaddressed builder is not");
     assert_eq!(states[1].received_builder_preferences(), 1, "the addressed builder is asked");
+    Ok(())
+}
+
+/// Preferences whose auth data names a builder outside the config are sent
+/// to it by a dial and accepted with its 202
+#[tokio::test]
+async fn test_submit_builder_preferences_dial() -> Result<()> {
+    // The mock builder listens on an address the dial check refuses
+    cb_pbs::set_skip_dial_target_check(true);
+    let chain = Chain::Hoodi;
+    let (mock_validator, _) = setup_relay(chain, |_| {}, generate_mock_relay).await?;
+    let (dial_state, dial_port) =
+        spawn_mock_relay(MockRelayState::new(chain, random_secret())).await?;
+
+    let auth = opaque_auth(format!("http://0.0.0.0:{dial_port}/").as_bytes(), TEST_SLOT);
+    let request = preferences(auth, TEST_MAX_EXECUTION_PAYMENT);
+    let res =
+        mock_validator.do_submit_builder_preferences(None, &request, EncodingType::Ssz).await?;
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
+    assert_eq!(dial_state.received_builder_preferences(), 1);
     Ok(())
 }

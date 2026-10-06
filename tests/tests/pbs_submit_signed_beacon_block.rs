@@ -56,18 +56,16 @@ async fn test_submit_signed_beacon_block_broadcasts_to_all_relays() -> Result<()
     Ok(())
 }
 
-/// The block is broadcast; if every builder rejects it, PBS maps the all-reject
-/// outcome to a 500 (no builder accepted).
+/// Every builder rejecting the block is still a 202: the beacon node gossips
+/// the block anyway, so a builder's answer is not a failure. Each is asked.
 #[tokio::test]
-async fn test_submit_signed_beacon_block_broadcast_all_reject_500() -> Result<()> {
+async fn test_submit_signed_beacon_block_broadcast_all_reject_202() -> Result<()> {
     let chain = Chain::Hoodi;
     let (mock_validator, states) = setup_relays(chain, vec![
         MockRelayState::new(chain, random_secret()),
         MockRelayState::new(chain, random_secret()),
     ])
     .await?;
-
-    // Make every builder reject the broadcast
     for state in &states {
         state.set_response_override(StatusCode::INTERNAL_SERVER_ERROR);
     }
@@ -75,36 +73,7 @@ async fn test_submit_signed_beacon_block_broadcast_all_reject_500() -> Result<()
     let block = gloas_block(TEST_SLOT);
     let res = mock_validator.do_submit_signed_beacon_block(&block, EncodingType::Ssz).await?;
 
-    assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
-    assert_eq!(states[0].received_signed_beacon_block(), 1, "every builder is asked");
-    assert_eq!(states[1].received_signed_beacon_block(), 1, "every builder is asked");
-    Ok(())
-}
-
-/// A broadcast where one builder accepts and the other rejects is still a 202:
-/// one acceptance across the broadcast is success. This is the core of the
-/// stateless broadcast model, distinct from the all-accept and all-reject
-/// extremes the other tests cover.
-#[tokio::test]
-async fn test_submit_signed_beacon_block_broadcast_one_accepts_202() -> Result<()> {
-    let chain = Chain::Hoodi;
-    let (mock_validator, states) = setup_relays(chain, vec![
-        MockRelayState::new(chain, random_secret()),
-        MockRelayState::new(chain, random_secret()),
-    ])
-    .await?;
-
-    // Only the second builder accepts; the first rejects. PBS must still 202.
-    states[0].set_response_override(StatusCode::INTERNAL_SERVER_ERROR);
-
-    let block = gloas_block(TEST_SLOT);
-    let res = mock_validator.do_submit_signed_beacon_block(&block, EncodingType::Ssz).await?;
-
-    assert_eq!(
-        res.status(),
-        StatusCode::ACCEPTED,
-        "one accepting builder makes the broadcast a success"
-    );
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
     assert_eq!(states[0].received_signed_beacon_block(), 1, "every builder is asked");
     assert_eq!(states[1].received_signed_beacon_block(), 1, "every builder is asked");
     Ok(())
