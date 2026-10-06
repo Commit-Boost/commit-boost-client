@@ -311,14 +311,7 @@ pub fn require_consensus_version_header(
     // Gloas-only until later forks are defined
     match ForkName::from_str(value).map_err(|_| unsupported())? {
         ForkName::Gloas => Ok(ForkName::Gloas),
-        ForkName::Base |
-        ForkName::Altair |
-        ForkName::Bellatrix |
-        ForkName::Capella |
-        ForkName::Deneb |
-        ForkName::Electra |
-        ForkName::Fulu |
-        ForkName::Heze => Err(unsupported()),
+        _ => Err(unsupported()),
     }
 }
 

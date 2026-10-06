@@ -4,8 +4,8 @@ use alloy::primitives::{B256, U256};
 use cb_common::{
     config::RuntimeMuxConfig,
     pbs::{
-        GetExecutionPayloadBidInfo, GetExecutionPayloadBidResponse, HEADER_START_TIME_UNIX_MS,
-        HEADER_TIMEOUT_MS, SignedBuilderRequestAuth, SignedExecutionPayloadBid,
+        GetExecutionPayloadBidResponse, HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS,
+        SignedBuilderRequestAuth, SignedExecutionPayloadBid,
     },
     signer::random_secret,
     types::Chain,
@@ -77,8 +77,8 @@ async fn test_get_execution_payload_bid() -> Result<()> {
 
     let res = serde_json::from_slice::<GetExecutionPayloadBidResponse>(&res.bytes().await?)?;
     assert_eq!(res.version.to_string(), "gloas");
-    assert_ne!(res.block_hash(), B256::ZERO);
-    assert_eq!(res.value(), 10);
+    assert_ne!(res.data.message.block_hash.0, B256::ZERO);
+    assert_eq!(res.data.message.value, 10);
     Ok(())
 }
 
@@ -327,8 +327,8 @@ async fn test_get_execution_payload_bid_spec_url() -> Result<()> {
 
 /// The response encoding follows the caller's Accept and defaults to JSON when
 /// none is sent (builder-specs), and the 200 carries Eth-Consensus-Version
-/// either way. Default relays answer in SSZ, so the last row's relay serves
-/// only JSON to cover the JSON decode on the relay leg too.
+/// either way. Default relays answer in SSZ; the JSON-only relays cover the
+/// relay's JSON passed through and converted to SSZ.
 #[tokio::test]
 async fn test_get_execution_payload_bid_response_encoding() -> Result<()> {
     let chain = Chain::Hoodi;
@@ -339,6 +339,11 @@ async fn test_get_execution_payload_bid_response_encoding() -> Result<()> {
             vec![EncodingType::Json],
             MockRelayState::new(chain, random_secret()).with_json_only_response(),
             EncodingType::Json,
+        ),
+        (
+            vec![EncodingType::Ssz],
+            MockRelayState::new(chain, random_secret()).with_json_only_response(),
+            EncodingType::Ssz,
         ),
     ];
     for (accept, relay, expected) in cases {
@@ -370,7 +375,7 @@ async fn test_get_execution_payload_bid_response_encoding() -> Result<()> {
             }
             EncodingType::Json => {
                 let bid = serde_json::from_slice::<GetExecutionPayloadBidResponse>(&body)?;
-                (bid.data.message.slot.as_u64(), bid.block_hash())
+                (bid.data.message.slot.as_u64(), bid.data.message.block_hash.0)
             }
         };
         assert_eq!(slot, TEST_SLOT, "{expected}");

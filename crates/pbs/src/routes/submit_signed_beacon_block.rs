@@ -77,7 +77,6 @@ pub async fn submit_signed_beacon_block<S: BuilderApiState>(
     }))
     .await;
     let accepted = results
-        .into_iter()
         .zip(relays.iter())
         .filter(|(res, relay)| match res {
             Ok(()) => true,
