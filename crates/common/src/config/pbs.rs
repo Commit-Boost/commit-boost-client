@@ -32,7 +32,7 @@ use crate::{
     },
     pbs::{
         DEFAULT_PBS_PORT, DEFAULT_REGISTRY_REFRESH_SECONDS, DefaultTimeout, LATE_IN_SLOT_TIME_MS,
-        REGISTER_VALIDATOR_RETRY_LIMIT, RelayClient, RelayEntry,
+        PROPOSER_DEADLINE_BUFFER_MS, REGISTER_VALIDATOR_RETRY_LIMIT, RelayClient, RelayEntry,
     },
     types::{BlsPublicKey, Chain, Jwt, ModuleId},
     utils::{
@@ -202,9 +202,14 @@ pub struct PbsConfig {
     /// Minimum bid that will be accepted from get_header
     #[serde(rename = "min_bid_eth", with = "as_eth_str", default = "default_u256")]
     pub min_bid_wei: U256,
-    /// How late in the slot we consider to be "late"
+    /// How late in the slot we consider to be "late" (legacy get_header path)
     #[serde(default = "default_u64::<LATE_IN_SLOT_TIME_MS>")]
     pub late_in_slot_time_ms: u64,
+    /// ePBS bid path only: ms reserved before the proposer's declared deadline
+    /// (Date-Milliseconds + X-Timeout-Ms) for the winning bid's return trip. CB
+    /// asks the builder for `deadline - this`.
+    #[serde(default = "default_u64::<PROPOSER_DEADLINE_BUFFER_MS>")]
+    pub proposer_deadline_buffer_ms: u64,
     /// Enable extra validation of get_header responses
     #[serde(default = "default_bool::<false>")]
     pub extra_validation_enabled: bool,
@@ -244,6 +249,15 @@ impl PbsConfig {
             "timeout_register_validator_ms must be greater than 0"
         );
         ensure!(self.late_in_slot_time_ms > 0, "late_in_slot_time_ms must be greater than 0");
+
+        // The buffer comes out of the proposer's deadline, which is clamped to
+        // one slot, so a buffer of a slot or more leaves no time for the bid
+        // request. 0 is allowed (no reserve).
+        let slot_time_ms = chain.slot_time_sec().saturating_mul(1000);
+        ensure!(
+            self.proposer_deadline_buffer_ms < slot_time_ms,
+            "proposer_deadline_buffer_ms must be less than one slot ({slot_time_ms} ms)"
+        );
 
         ensure!(
             self.timeout_get_header_ms < self.late_in_slot_time_ms,
