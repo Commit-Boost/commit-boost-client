@@ -41,7 +41,7 @@ To go through Commit-Boost, every entry's `url` is Commit-Boost's own URL, and i
 
 List each builder as a relay entry, as for PBS: in `[[relays]]`, or in the `[[mux.relays]]` of the mux that lists the proposer's key. ePBS adds one option, `[pbs] proposer_deadline_buffer_ms` (default `50`): the time kept back from the beacon node's deadline (see [Timing](#timing)). It must be under one slot, `12000` on mainnet.
 
-### 2. Point each validator key at Commit-Boost
+### 2. Point each validator key at Commit-Boost {#validator-builder-config}
 
 Write each key's builder config through its validator client's keymanager API, which must implement the builder config endpoint ([keymanager-APIs #88](https://github.com/ethereum/keymanager-APIs/pull/88)). Add one entry per builder: `url` is Commit-Boost's URL, and `auth_data` is the hex of the builder's hostname. A key without builder config sends the default auth data of Commit-Boost's own URL, which matches no builder, so every bid request gets `400`.
 
