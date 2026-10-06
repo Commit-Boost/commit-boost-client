@@ -12,6 +12,7 @@ use super::{
     HEADER_VERSION_KEY, HEADER_VERSION_VALUE,
     constants::{
         GET_HEADER_STREAM_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
+        SUBMIT_SIGNED_BEACON_BLOCK_PATH,
     },
     error::PbsError,
 };
@@ -218,6 +219,39 @@ impl RelayClient {
 
     pub fn submit_block_url(&self, api_version: BuilderApiVersion) -> Result<Url, PbsError> {
         self.builder_api_url(SUBMIT_BLOCK_PATH, api_version)
+    }
+
+    /// builder-API: POST /eth/v1/builder/execution_payload_bid/{slot}/
+    /// {parent_hash}/{parent_root}/{proposer_pubkey}
+    pub fn get_execution_payload_bid_url(
+        &self,
+        slot: u64,
+        parent_hash: &B256,
+        parent_root: &B256,
+        validator_pubkey: &BlsPublicKey,
+    ) -> Result<Url, PbsError> {
+        self.builder_api_url(
+            &format!(
+                "/execution_payload_bid/{slot}/{parent_hash}/{parent_root}/{validator_pubkey}"
+            ),
+            BuilderApiVersion::V1,
+        )
+    }
+
+    /// builder-API: POST /eth/v1/builder/builder_preferences/{proposer_pubkey}
+    pub fn submit_builder_preferences_url(
+        &self,
+        validator_pubkey: &BlsPublicKey,
+    ) -> Result<Url, PbsError> {
+        self.builder_api_url(
+            &format!("/builder_preferences/{validator_pubkey}"),
+            BuilderApiVersion::V1,
+        )
+    }
+
+    /// builder-API: POST /eth/v1/builder/beacon_blocks
+    pub fn submit_signed_beacon_block_url(&self) -> Result<Url, PbsError> {
+        self.builder_api_url(SUBMIT_SIGNED_BEACON_BLOCK_PATH, BuilderApiVersion::V1)
     }
 }
 
@@ -467,5 +501,55 @@ mod tests {
         }"#;
         let config = serde_json::from_str::<RelayConfig>(relay_config).unwrap();
         assert_eq!(config.get_header, GetHeaderTransport::Http);
+    }
+
+    #[test]
+    fn test_relay_url_get_execution_payload() {
+        let slot = 0;
+        let parent_hash = B256::ZERO;
+        let parent_root = B256::ZERO;
+        let validator_pubkey = bls_pubkey_from_hex_unchecked(
+            "0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae",
+        );
+        let expected = format!(
+            "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz/eth/v1/builder/execution_payload_bid/{slot}/{parent_hash}/{parent_root}/{validator_pubkey}"
+        );
+
+        let relay_config = r#"
+        {
+            "url": "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz"
+        }"#;
+
+        let config = serde_json::from_str::<RelayConfig>(relay_config).unwrap();
+        let relay = RelayClient::new(config).unwrap();
+
+        assert_eq!(
+            relay
+                .get_execution_payload_bid_url(slot, &parent_hash, &parent_root, &validator_pubkey)
+                .unwrap()
+                .to_string(),
+            expected
+        );
+
+        let relay_config = r#"
+        {
+            "url": "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz//"
+        }"#;
+
+        let config = serde_json::from_str::<RelayConfig>(relay_config).unwrap();
+        let relay = RelayClient::new(config).unwrap();
+
+        assert_eq!(
+            relay
+                .get_execution_payload_bid_url(slot, &parent_hash, &parent_root, &validator_pubkey)
+                .unwrap()
+                .to_string(),
+            expected
+        );
+
+        assert_eq!(
+            relay.submit_builder_preferences_url(&validator_pubkey).unwrap().to_string(),
+            "http://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz/eth/v1/builder/builder_preferences/0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae"
+        );
     }
 }

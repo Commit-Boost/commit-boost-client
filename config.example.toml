@@ -31,6 +31,9 @@ wait_all_registrations = true
 # this should be lower than that, leaving some margin for overhead
 # OPTIONAL, DEFAULT: 950
 timeout_get_header_ms = 950
+# (unreleased, from v0.12.0-rc1) ePBS bids only: ms kept back from the beacon node's X-Timeout-Ms deadline, must be under one slot, 12000 on mainnet (https://commit-boost.github.io/commit-boost-client/get_started/epbs#timing)
+# OPTIONAL, DEFAULT: 50
+# proposer_deadline_buffer_ms = 50
 # Timeout in milliseconds for the `submit_blinded_block` call to relays.
 # OPTIONAL, DEFAULT: 4000
 timeout_get_payload_ms = 4000
@@ -139,7 +142,7 @@ frequency_get_header_ms = 300
 # Configuration for the PBS multiplexers, which enable different configs to be used for get header requests, depending on validator pubkey
 # Note that:
 # - multiple sets of keys can be defined by adding multiple [[mux]] sections. The validator pubkey sets need to be disjoint
-# - the mux is only used for get header requests
+# - the mux is only used for get header requests, and (unreleased, from v0.12.0-rc1) ePBS bid and builder preferences requests
 # - if any value is missing from the mux config, the default value from the main config will be used
 [[mux]]
 # Unique ID for the mux config

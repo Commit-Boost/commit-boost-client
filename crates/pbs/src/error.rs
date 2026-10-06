@@ -20,6 +20,20 @@ struct ErrorResponse {
 pub enum PbsClientError {
     #[error("no response from relays")]
     NoResponse,
+    /// 500, not 502: 502 is in neither endpoint's builder-specs response set.
+    /// Legacy routes keep `NoResponse` -> 502.
+    #[error("no builder accepted the submission")]
+    NoBuilderResponse,
+    #[error("auth data does not match a configured builder")]
+    AuthDataMismatch,
+    #[error("missing or invalid timing headers")]
+    MissingTimingHeader,
+    #[error("auth slot does not match the request path")]
+    AuthSlotMismatch,
+    /// Propagated so the proposer learns which builder was rejected; a blanket
+    /// 500 would hide that.
+    #[error("the addressed builder rejected the request with {}", .0.as_u16())]
+    BuilderRejected(StatusCode),
     #[error("no payload from relays")]
     NoPayload,
     #[error("internal server error")]
@@ -34,6 +48,11 @@ impl PbsClientError {
     pub fn status_code(&self) -> StatusCode {
         match self {
             PbsClientError::NoResponse => StatusCode::BAD_GATEWAY,
+            PbsClientError::NoBuilderResponse => StatusCode::INTERNAL_SERVER_ERROR,
+            PbsClientError::AuthDataMismatch => StatusCode::BAD_REQUEST,
+            PbsClientError::MissingTimingHeader => StatusCode::BAD_REQUEST,
+            PbsClientError::AuthSlotMismatch => StatusCode::BAD_REQUEST,
+            PbsClientError::BuilderRejected(code) => *code,
             PbsClientError::NoPayload => StatusCode::BAD_GATEWAY,
             PbsClientError::Internal => StatusCode::INTERNAL_SERVER_ERROR,
             PbsClientError::DecodeError(BodyDeserializeError::UnsupportedMediaType) => {
@@ -50,10 +69,25 @@ impl IntoResponse for PbsClientError {
         let status = self.status_code();
         let message = match &self {
             PbsClientError::NoResponse => "no response from relays".to_string(),
+            PbsClientError::NoBuilderResponse => "no builder accepted the submission".to_string(),
+            PbsClientError::AuthDataMismatch => {
+                "Invalid SignedBuilderRequestAuth: auth.message.data does not match any configured builder".to_string()
+            }
+            PbsClientError::MissingTimingHeader => {
+                "Invalid request: Date-Milliseconds and X-Timeout-Ms headers are required".to_string()
+            }
+            PbsClientError::AuthSlotMismatch => {
+                "Invalid SignedBuilderRequestAuth: auth.message.slot does not match the proposal slot in the request path".to_string()
+            }
+            // The builder's own body is never forwarded: it is untrusted and may be
+            // arbitrarily large
+            PbsClientError::BuilderRejected(code) => {
+                format!("The addressed builder rejected the request with status {}", code.as_u16())
+            }
             PbsClientError::NoPayload => "no payload from relays".to_string(),
             PbsClientError::Internal => "internal server error".to_string(),
-            PbsClientError::DecodeError(e) => format!("error decoding request: {e}"),
-            PbsClientError::HeaderError(e) => format!("header error: {e}"),
+            PbsClientError::DecodeError(err) => format!("error decoding request: {err}"),
+            PbsClientError::HeaderError(err) => format!("header error: {err}"),
         };
 
         // Return the spec's JSON `ErrorMessage` rather than plain text so clients
@@ -78,6 +112,16 @@ mod test {
     fn other_decode_errors_map_to_400() {
         assert_eq!(
             PbsClientError::DecodeError(BodyDeserializeError::MissingVersionHeader).status_code(),
+            StatusCode::BAD_REQUEST,
+        );
+        // The unrecognized-fork variant must stay 400: it sits under the
+        // variant-specific 415 arm, and only the DecodeError(_) catch-all
+        // routes it today
+        assert_eq!(
+            PbsClientError::DecodeError(BodyDeserializeError::InvalidVersionHeader(
+                "futurefork".to_string()
+            ))
+            .status_code(),
             StatusCode::BAD_REQUEST,
         );
     }
