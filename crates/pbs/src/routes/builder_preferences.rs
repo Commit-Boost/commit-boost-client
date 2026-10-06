@@ -5,14 +5,12 @@ use axum::{
     response::IntoResponse,
 };
 use cb_common::{
-    pbs::{
-        BuilderPreferencesRequest, RelayClient, SubmitBuilderPreferencesParams, error::PbsError,
-    },
+    pbs::{BuilderPreferencesRequest, SubmitBuilderPreferencesParams},
     wire::{decode_versioned_request_body, get_user_agent},
 };
 use reqwest::StatusCode;
 use ssz::Encode;
-use tracing::{debug, error, info};
+use tracing::{error, info};
 
 use crate::{
     PbsStateGuard,
@@ -21,7 +19,7 @@ use crate::{
     state::{BuilderApiState, PbsState},
     utils::{
         builder_rejection, epbs_base_send_headers, log_mux_selection, post_ssz_expect_accepted,
-        record_beacon_status, record_client_error, record_request_failure, resolve_addressed_relay,
+        record_beacon_status, record_request_failure, resolve_addressed_relay,
     },
 };
 
@@ -33,7 +31,7 @@ pub async fn handle_submit_builder_preferences<S: BuilderApiState>(
 ) -> Result<impl IntoResponse, PbsClientError> {
     let request =
         decode_versioned_request_body::<BuilderPreferencesRequest>(&req_headers, &body)
-            .map_err(|err| record_client_error(err, SUBMIT_BUILDER_PREFERENCES_ENDPOINT_TAG))?;
+            .map_err(|err| record_request_failure(err, SUBMIT_BUILDER_PREFERENCES_ENDPOINT_TAG))?;
     tracing::Span::current().record("validator", tracing::field::debug(&params.proposer_pubkey));
     tracing::Span::current().record("slot", request.auth.message.slot.as_u64());
 
@@ -78,50 +76,33 @@ pub async fn submit_builder_preferences<S: BuilderApiState>(
     // timeout rather than the block-production one
     let timeout_ms = pbs_config.timeout_register_validator_ms;
 
-    let relay_id = relay.id.clone();
-    match send_submit_builder_preferences(
-        params.proposer_pubkey,
-        body,
-        relay,
-        send_headers,
-        timeout_ms,
-    )
-    .await
-    {
-        Ok(()) => {
-            info!(%relay_id, "builder preferences submitted");
+    let relay_id = relay.id.as_ref();
+    let sent = match relay.submit_builder_preferences_url(&params.proposer_pubkey) {
+        Ok(url) => {
+            post_ssz_expect_accepted(
+                &relay,
+                url,
+                body,
+                send_headers,
+                timeout_ms,
+                SUBMIT_BUILDER_PREFERENCES_ENDPOINT_TAG,
+            )
+            .await
+        }
+        Err(err) => Err(err),
+    };
+    match sent {
+        Ok(latency) => {
+            info!(relay_id, ?latency, "builder preferences submitted");
             Ok(())
         }
         Err(err) => {
             if err.is_timeout() {
-                error!(err = "Timed Out", %relay_id);
+                error!(err = "Timed Out", relay_id);
             } else {
-                error!(%err, %relay_id);
+                error!(%err, relay_id);
             }
             Err(builder_rejection(&err).unwrap_or(PbsClientError::NoBuilderResponse))
         }
     }
-}
-
-async fn send_submit_builder_preferences(
-    proposer_pubkey: cb_common::types::BlsPublicKey,
-    body: Bytes,
-    relay: RelayClient,
-    headers: HeaderMap,
-    timeout_ms: u64,
-) -> Result<(), PbsError> {
-    let url = relay.submit_builder_preferences_url(&proposer_pubkey)?;
-
-    let request_latency = post_ssz_expect_accepted(
-        &relay,
-        url,
-        body,
-        headers,
-        timeout_ms,
-        SUBMIT_BUILDER_PREFERENCES_ENDPOINT_TAG,
-    )
-    .await?;
-
-    debug!(relay_id = relay.id.as_ref(), latency = ?request_latency, "preferences accepted");
-    Ok(())
 }
