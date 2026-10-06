@@ -1,4 +1,5 @@
 mod api;
+mod bid_stream;
 mod constants;
 mod dial;
 mod error;

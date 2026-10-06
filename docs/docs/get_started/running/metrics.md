@@ -112,13 +112,15 @@ Once Grafana is running, you can [import](https://grafana.com/docs/grafana/lates
 
 ## Bid stream
 
-For a relay with `get_header = "stream"` (see [Configuration > Bid streaming](../configuration.md#bid-streaming)), every series below is labelled by `relay_id`. The stream's outcome and time-to-first-bid share the two general relay series under `endpoint="get_header_stream"`, and the HTTP fallback keeps `endpoint="get_header"`.
+For a relay with `get_header = "stream"` (see [Configuration > Bid streaming](../configuration.md#bid-streaming)), every series below is labeled by `relay_id` and `endpoint`. The stream's outcome and time-to-first-bid share the two general relay series under `endpoint="get_header_stream"`, and the HTTP request that runs alongside it every slot keeps `endpoint="get_header"`.
 
 | Question | Series |
 |---|---|
-| Is the stream serving bids? | `cb_pbs_relay_status_code_total{endpoint="get_header_stream"}`: `200` a bid was delivered, `204` connected but no bid before the deadline, `555` the bid window ran out during the handshake, `556` a transport error (connect failed, the stream broke mid-window, or the handshake was answered with a success code instead of the upgrade), any other code the relay's own refusal of the upgrade |
+| Is the stream serving bids? | `cb_pbs_relay_status_code_total{endpoint="get_header_stream"}`: `200` a bid was delivered, `204` no bid (the handshake was answered `204`, or no bid arrived before the deadline), `555` the bid window ran out during the handshake, `556` a transport error (connect failed, the stream broke before a bid, or the handshake was answered with a `2xx` other than `204` instead of the upgrade), any other code the relay's own refusal of the upgrade |
 | How fast does the first bid arrive? | `cb_pbs_relay_latency{endpoint="get_header_stream"}` |
-| Is it falling back to HTTP? | `cb_pbs_relay_stream_fallback_total`: handshake failures that had bid window left to retry over HTTP. A steady rate means the relay is refusing or dropping the upgrade. The fallback's own results are under `endpoint="get_header"` |
+| Is the stream failing? | `cb_pbs_relay_stream_fallback_total{endpoint="get_header_stream"}`: streams that failed while the relay's HTTP request ran alongside: a handshake that could not connect, timed out or was refused, a stream that broke before a bid, or a window in which every held bid failed decoding or validation. A `204` is no bid, not a failure. It counts every failed stream, whether or not the HTTP request returned a bid; the HTTP results are under `endpoint="get_header"`. For a steady rate, the status series above gives the reason |
 | Is the handshake slow? | `cb_pbs_relay_stream_connect_latency` |
-| Is it actually streaming? | `cb_pbs_relay_stream_updates`: bid updates received per window. A healthy relay sends several; windows that carry at most one update mean the stream connects but does not stream |
-| Are the frames usable? | `cb_pbs_relay_stream_invalid_frames_total`: frames that could not be parsed as a bid, absent while zero |
+| Is it actually streaming? | `cb_pbs_relay_stream_updates`: frames accepted per window, which is every frame whose message type and fork byte can be read; their bids are decoded and validated only when the window closes. A healthy relay sends several; windows that carry at most one update mean the stream connects but does not stream |
+| Are the frames usable? | `cb_pbs_relay_stream_invalid_frames_total`: frames dropped on arrival because their message type or fork byte cannot be read, absent while zero. A bid that fails decoding or validation is not counted here |
+
+When the window closes, the stream serves the latest bid that passes decoding and validation, from the newest 8 it holds. A failing bid newer than the one served is not counted as a failure; the error is in the logs. A window in which every held bid fails counts as `200` on the status series, the same as an invalid bid over HTTP, and as one failed stream. A request the beacon node abandons mid-window records no outcome at all.
