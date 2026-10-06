@@ -23,12 +23,17 @@ use axum::{
 use cb_common::{
     pbs::{
         BUILDER_V1_API_PATH, BUILDER_V2_API_PATH, BlobsBundle, BuilderBid, BuilderBidFulu,
-        ExecutionPayloadElectra, ExecutionPayloadHeaderFulu, ForkName, GET_HEADER_PATH,
-        GET_STATUS_PATH, GetHeaderParams, GetHeaderResponse, GetPayloadInfo, PayloadAndBlobs,
-        REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH, SignedBuilderBid, SubmitBlindedBlockResponse,
+        BuilderPreferencesRequest, ExecutionPayloadBid, ExecutionPayloadElectra,
+        ExecutionPayloadHeaderFulu, ForkName, ForkVersionDecode, GET_EXECUTION_PAYLOAD_BID_PATH,
+        GET_HEADER_PATH, GET_STATUS_PATH, GetExecutionPayloadBidResponse, GetHeaderParams,
+        GetHeaderResponse, GetPayloadInfo, HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS,
+        PayloadAndBlobs, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
+        SUBMIT_BUILDER_PREFERENCES_PATH, SUBMIT_SIGNED_BEACON_BLOCK_PATH, SignedBeaconBlock,
+        SignedBuilderBid, SignedBuilderRequestAuth, SignedExecutionPayloadBid,
+        SubmitBlindedBlockResponse,
     },
     signature::sign_builder_root,
-    types::{BlsSecretKey, Chain},
+    types::{BlsPublicKey, BlsSecretKey, BlsSignature, Chain},
     utils::{TestRandomSeed, timestamp_of_slot_start_sec},
     wire::{
         CONSENSUS_VERSION_HEADER, EncodingType, deserialize_body, get_accept_types,
@@ -39,9 +44,9 @@ use cb_pbs::{
     GET_HEADER_ENDPOINT_TAG, MAX_SIZE_SUBMIT_BLOCK_RESPONSE, REGISTER_VALIDATOR_ENDPOINT_TAG,
     STATUS_ENDPOINT_TAG, SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG,
 };
-use lh_types::KzgProof;
+use lh_types::{KzgProof, Slot};
 use reqwest::header::{ACCEPT, CONTENT_TYPE};
-use ssz::Encode;
+use ssz::{Decode, Encode};
 use tokio::net::TcpListener;
 use tracing::{debug, error};
 use tree_hash::TreeHash;
@@ -92,6 +97,24 @@ pub struct MockRelayState {
     received_get_status: Arc<AtomicU64>,
     received_register_validator: Arc<AtomicU64>,
     received_submit_block: Arc<AtomicU64>,
+    received_execution_payload_bid: Arc<AtomicU64>,
+    received_builder_preferences: Arc<AtomicU64>,
+    received_signed_beacon_block: Arc<AtomicU64>,
+    /// `slot` of the last signed beacon block forwarded, decoded from the SSZ
+    /// body PBS sent, so a test can assert the block survived the hop
+    received_block_slot: RwLock<Option<u64>>,
+    /// The last `BuilderPreferencesRequest` submitted, so a test can assert
+    /// both the preferences and the auth were forwarded unchanged
+    received_preferences: RwLock<Option<BuilderPreferencesRequest>>,
+    /// The `{proposer_pubkey}` path segment of the last preferences submission
+    received_preferences_pubkey: RwLock<Option<BlsPublicKey>>,
+    /// Hold every bid request this long before answering, simulating a builder
+    /// that sits on a request instead of answering promptly
+    bid_delay_ms: Option<u64>,
+    /// The last `SignedBuilderRequestAuth` forwarded on a bid request
+    received_auth: RwLock<Option<SignedBuilderRequestAuth>>,
+    /// The `X-Timeout-Ms` of the last bid request
+    received_bid_timeout_ms: RwLock<Option<u64>>,
     response_override: RwLock<Option<StatusCode>>,
     bid_value: RwLock<U256>,
     /// The raw `Accept` header PBS sent on the most recent get_header request,
@@ -100,6 +123,10 @@ pub struct MockRelayState {
     /// Api key header seen per endpoint tag, so a test can assert the relay's
     /// configured key rides on every request PBS sends it.
     api_keys_seen: RwLock<HashMap<&'static str, String>>,
+    /// Served as the bid's `value`
+    trustless_bid_gwei: u64, // default 10
+    /// When true, an SSZ bid is served without `Eth-Consensus-Version`
+    epbs_omit_consensus_version: bool,
 }
 
 impl MockRelayState {
@@ -117,6 +144,45 @@ impl MockRelayState {
     }
     pub fn received_submit_block(&self) -> u64 {
         self.received_submit_block.load(Ordering::Relaxed)
+    }
+    pub fn received_execution_payload_bid(&self) -> u64 {
+        self.received_execution_payload_bid.load(Ordering::Relaxed)
+    }
+    pub fn received_builder_preferences(&self) -> u64 {
+        self.received_builder_preferences.load(Ordering::Relaxed)
+    }
+    pub fn received_signed_beacon_block(&self) -> u64 {
+        self.received_signed_beacon_block.load(Ordering::Relaxed)
+    }
+    /// `slot` of the last signed beacon block PBS forwarded
+    pub fn received_block_slot(&self) -> Option<u64> {
+        *self.received_block_slot.read().unwrap()
+    }
+
+    /// `max_execution_payment` of the last submitted preferences
+    pub fn received_max_execution_payment(&self) -> Option<u64> {
+        self.received_preferences
+            .read()
+            .unwrap()
+            .as_ref()
+            .map(|r| r.preferences.max_execution_payment)
+    }
+
+    /// The `SignedBuilderRequestAuth` carried by the last submitted preferences
+    pub fn received_preferences_auth(&self) -> Option<SignedBuilderRequestAuth> {
+        self.received_preferences.read().unwrap().as_ref().map(|r| r.auth.clone())
+    }
+
+    /// The proposer the last preferences submission was filed under
+    pub fn received_preferences_pubkey(&self) -> Option<BlsPublicKey> {
+        self.received_preferences_pubkey.read().unwrap().clone()
+    }
+
+    pub fn received_bid_timeout_ms(&self) -> Option<u64> {
+        *self.received_bid_timeout_ms.read().unwrap()
+    }
+    pub fn received_auth_data(&self) -> Option<Vec<u8>> {
+        self.received_auth.read().unwrap().as_ref().map(|a| a.message.data.to_vec())
     }
     pub fn large_body(&self) -> bool {
         self.large_body
@@ -165,10 +231,21 @@ impl MockRelayState {
             received_get_status: Default::default(),
             received_register_validator: Default::default(),
             received_submit_block: Default::default(),
+            received_execution_payload_bid: Default::default(),
+            received_builder_preferences: Default::default(),
+            received_signed_beacon_block: Default::default(),
+            received_block_slot: RwLock::new(None),
+            received_preferences: RwLock::new(None),
+            received_preferences_pubkey: RwLock::new(None),
+            bid_delay_ms: None,
+            received_auth: RwLock::new(None),
+            received_bid_timeout_ms: RwLock::new(None),
             response_override: RwLock::new(None),
             bid_value: RwLock::new(U256::from(10)),
             received_get_header_accept: RwLock::new(None),
             api_keys_seen: RwLock::new(HashMap::new()),
+            trustless_bid_gwei: 10,
+            epbs_omit_consensus_version: false,
             supported_content_types: Arc::new(
                 [EncodingType::Json, EncodingType::Ssz].iter().cloned().collect(),
             ),
@@ -217,6 +294,35 @@ impl MockRelayState {
     pub fn with_submit_block_version(self, fork: ForkName) -> Self {
         Self { submit_block_version_override: Some(fork), ..self }
     }
+
+    /// Restrict this relay to SSZ responses on the bid endpoint, so the bid
+    /// 200 is served as SSZ regardless of the caller's fallback preference.
+    pub fn with_ssz_only_response(self) -> Self {
+        Self {
+            supported_content_types: Arc::new([EncodingType::Ssz].into_iter().collect()),
+            ..self
+        }
+    }
+
+    /// Restrict this relay to JSON responses on the bid endpoint.
+    pub fn with_json_only_response(self) -> Self {
+        Self {
+            supported_content_types: Arc::new([EncodingType::Json].into_iter().collect()),
+            ..self
+        }
+    }
+
+    /// Hold every bid request `delay_ms` before answering, so a caller with a
+    /// shorter `X-Timeout-Ms` times out.
+    pub fn with_bid_delay_ms(self, delay_ms: u64) -> Self {
+        Self { bid_delay_ms: Some(delay_ms), ..self }
+    }
+
+    /// Serve an SSZ bid 200 WITHOUT the `Eth-Consensus-Version` header, to
+    /// exercise the PBS missing-fork error path on the outbound SSZ decode.
+    pub fn with_epbs_omit_consensus_version(self) -> Self {
+        Self { epbs_omit_consensus_version: true, ..self }
+    }
 }
 
 pub fn mock_relay_app_router(state: Arc<MockRelayState>) -> Router {
@@ -224,7 +330,11 @@ pub fn mock_relay_app_router(state: Arc<MockRelayState>) -> Router {
         .route(GET_HEADER_PATH, get(handle_get_header))
         .route(GET_STATUS_PATH, get(handle_get_status))
         .route(REGISTER_VALIDATOR_PATH, post(handle_register_validator))
-        .route(SUBMIT_BLOCK_PATH, post(handle_submit_block_v1));
+        .route(SUBMIT_BLOCK_PATH, post(handle_submit_block_v1))
+        // ePBS endpoints are v1 of new resources per builder-specs
+        .route(GET_EXECUTION_PAYLOAD_BID_PATH, post(handle_get_execution_payload_bid))
+        .route(SUBMIT_BUILDER_PREFERENCES_PATH, post(handle_submit_builder_preferences))
+        .route(SUBMIT_SIGNED_BEACON_BLOCK_PATH, post(handle_submit_signed_beacon_block));
 
     let v2_builder_routes = if state.supports_submit_block_v2 {
         Router::new().route(SUBMIT_BLOCK_PATH, post(handle_submit_block_v2))
@@ -262,6 +372,129 @@ pub fn mock_signed_builder_bid(
     let signature = sign_builder_root(chain, signer, &message.tree_hash_root());
 
     SignedBuilderBid { message, signature }
+}
+
+async fn handle_get_execution_payload_bid(
+    State(state): State<Arc<MockRelayState>>,
+    Path((slot, parent_hash, parent_root, _pubkey)): Path<(u64, B256, B256, BlsPublicKey)>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Response {
+    state.received_execution_payload_bid.fetch_add(1, Ordering::Relaxed);
+    // Builders MUST 400 a bid request without both timing headers
+    let header_u64 =
+        |name| headers.get(name).and_then(|v| v.to_str().ok()).and_then(|v| v.parse::<u64>().ok());
+    let (Some(_), Some(timeout_ms)) =
+        (header_u64(HEADER_START_TIME_UNIX_MS), header_u64(HEADER_TIMEOUT_MS))
+    else {
+        return (StatusCode::BAD_REQUEST, "missing Date-Milliseconds or X-Timeout-Ms header")
+            .into_response();
+    };
+    *state.received_bid_timeout_ms.write().unwrap() = Some(timeout_ms);
+
+    // Decode the request auth the way a real builder does: Content-Type
+    // selects JSON vs SSZ. The wire type is fork-versioned per builder-specs,
+    // so the SSZ form additionally requires Eth-Consensus-Version; PBS always
+    // forwards SSZ, making this the assertion that the header arrives as gloas.
+    if !body.is_empty() {
+        let auth = match get_content_type(&headers) {
+            EncodingType::Ssz => {
+                if get_consensus_version_header(&headers) != Some(ForkName::Gloas) {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        "missing Eth-Consensus-Version header".to_string(),
+                    )
+                        .into_response();
+                }
+                SignedBuilderRequestAuth::from_ssz_bytes(&body).ok()
+            }
+            EncodingType::Json => serde_json::from_slice::<SignedBuilderRequestAuth>(&body).ok(),
+        };
+        if let Some(auth) = auth {
+            *state.received_auth.write().unwrap() = Some(auth);
+        }
+    }
+
+    // Honor a forced status like the other handlers, so a test can make a relay
+    // fail on the bid endpoint (its bid is then dropped by PBS). The request was
+    // already counted above.
+    if let Some(status) = *state.response_override.read().unwrap() {
+        return status.into_response();
+    }
+
+    // Sleep, never block: concurrent polls must overlap, not serialize
+    if let Some(delay_ms) = state.bid_delay_ms {
+        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+    }
+
+    let mut block_hash = B256::ZERO;
+    block_hash.0[0] = 1;
+
+    let message = ExecutionPayloadBid {
+        parent_block_hash: parent_hash.into(),
+        parent_block_root: parent_root,
+        block_hash: block_hash.into(),
+        gas_limit: 30_000_000,
+        builder_index: 42,
+        slot: Slot::new(slot),
+        value: state.trustless_bid_gwei,
+        ..Default::default()
+    };
+
+    // CB does not verify bid signatures (the beacon node does), so the mock
+    // serves an unsigned bid
+    let data = SignedExecutionPayloadBid { message, signature: BlsSignature::empty() };
+
+    // Negotiate the RESPONSE encoding from the forwarded Accept, mirroring
+    // handle_get_header: honor supported_content_types + the caller's Accept.
+    let accept_types = match get_accept_types(&headers) {
+        Ok(a) => a,
+        Err(e) => {
+            return (StatusCode::BAD_REQUEST, format!("error parsing accept header: {e}"))
+                .into_response();
+        }
+    };
+    let content_type = if state.supported_content_types.contains(&EncodingType::Ssz) &&
+        accept_types.contains(EncodingType::Ssz)
+    {
+        EncodingType::Ssz
+    } else if state.supported_content_types.contains(&EncodingType::Json) &&
+        accept_types.contains(EncodingType::Json)
+    {
+        EncodingType::Json
+    } else {
+        return (StatusCode::NOT_ACCEPTABLE, "No acceptable content type found".to_string())
+            .into_response();
+    };
+
+    let response_body = match content_type {
+        // SSZ carries the inner bid; the fork travels in Eth-Consensus-Version.
+        EncodingType::Ssz => data.as_ssz_bytes(),
+        // JSON carries the fork-versioned wrapper (fork is in the body).
+        EncodingType::Json => {
+            let versioned = GetExecutionPayloadBidResponse {
+                version: ForkName::Gloas,
+                data,
+                metadata: Default::default(),
+            };
+            serde_json::to_vec(&versioned).unwrap()
+        }
+    };
+
+    let mut response = (StatusCode::OK, response_body).into_response();
+    // A real builder tags the 200 with the fork so a client can decode the
+    // (non-self-describing) SSZ bytes. The omit knob drives the PBS
+    // "SSZ response missing Eth-Consensus-Version" error path.
+    if !state.epbs_omit_consensus_version {
+        response.headers_mut().insert(
+            CONSENSUS_VERSION_HEADER,
+            HeaderValue::from_str(&ForkName::Gloas.to_string()).unwrap(),
+        );
+    }
+    response
+        .headers_mut()
+        .insert(CONTENT_TYPE, HeaderValue::from_str(&content_type.to_string()).unwrap());
+    response
 }
 
 async fn handle_get_header(
@@ -348,6 +581,67 @@ async fn handle_get_status(
     // eliminating the flake without altering production behavior.
     tokio::time::sleep(Duration::from_millis(20)).await;
     StatusCode::OK
+}
+
+/// Decodes the submission the way a real builder does (Content-Type selects
+/// JSON vs SSZ), records it, and 202s unless the test overrode the response.
+async fn handle_submit_builder_preferences(
+    Path(proposer_pubkey): Path<BlsPublicKey>,
+    headers: HeaderMap,
+    State(state): State<Arc<MockRelayState>>,
+    body: axum::body::Bytes,
+) -> Response {
+    state.received_builder_preferences.fetch_add(1, Ordering::Relaxed);
+    // A real builder keys preferences by proposer, so the path segment PBS sent
+    // is part of what a test must be able to assert
+    *state.received_preferences_pubkey.write().unwrap() = Some(proposer_pubkey);
+
+    let decoded = match get_content_type(&headers) {
+        EncodingType::Json => serde_json::from_slice::<BuilderPreferencesRequest>(&body).ok(),
+        // The wire type is fork-versioned per builder-specs, so a real builder
+        // requires Eth-Consensus-Version on the SSZ form; PBS always forwards
+        // SSZ, making this the assertion that the header arrives as gloas.
+        EncodingType::Ssz => get_consensus_version_header(&headers)
+            .filter(|fork| *fork == ForkName::Gloas)
+            .and_then(|_| BuilderPreferencesRequest::from_ssz_bytes(&body).ok()),
+    };
+    let Some(request) = decoded else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
+    *state.received_preferences.write().unwrap() = Some(request);
+
+    if let Some(status) = state.response_override.read().unwrap().as_ref() {
+        // An error body over PBS's 1 KiB read cap
+        if state.large_body() {
+            return (*status, "x".repeat(2048)).into_response();
+        }
+        return (*status).into_response();
+    }
+
+    StatusCode::ACCEPTED.into_response()
+}
+
+/// Decodes the forwarded block (PBS always sends SSZ with
+/// `Eth-Consensus-Version`), records its slot, and 202s
+/// unless the test overrode the response.
+async fn handle_submit_signed_beacon_block(
+    headers: HeaderMap,
+    State(state): State<Arc<MockRelayState>>,
+    body: axum::body::Bytes,
+) -> Response {
+    state.received_signed_beacon_block.fetch_add(1, Ordering::Relaxed);
+
+    if let Some(fork) = get_consensus_version_header(&headers) &&
+        let Ok(block) = SignedBeaconBlock::from_ssz_bytes_by_fork(&body, fork)
+    {
+        *state.received_block_slot.write().unwrap() = Some(block.slot().as_u64());
+    }
+
+    if let Some(status) = state.response_override.read().unwrap().as_ref() {
+        return (*status).into_response();
+    }
+
+    StatusCode::ACCEPTED.into_response()
 }
 
 async fn handle_register_validator(

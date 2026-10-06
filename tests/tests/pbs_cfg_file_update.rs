@@ -66,6 +66,7 @@ async fn test_cfg_file_update() -> Result<()> {
         min_bid_wei: U256::ZERO,
         late_in_slot_time_ms: u64::MAX / 2, /* serde gets very upset about serializing u64::MAX
                                              * or anything close to it */
+        proposer_deadline_buffer_ms: 0,
         extra_validation_enabled: false,
         rpc_url: None,
         ssv_node_api_url: Url::parse("http://example.com").unwrap(),

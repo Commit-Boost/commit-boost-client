@@ -46,6 +46,7 @@ const sidebars = {
             'get_started/running/metrics-catalog',
           ],
         },
+        'get_started/epbs',
         'get_started/troubleshooting',
       ],
     },
