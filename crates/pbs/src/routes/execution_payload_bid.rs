@@ -8,9 +8,9 @@ use axum::{
 };
 use cb_common::{
     pbs::{
-        GetExecutionPayloadBidInfo, GetExecutionPayloadBidParams, GetExecutionPayloadBidResponse,
-        HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS, RelayClient, SignedBuilderRequestAuth,
-        SignedExecutionPayloadBid, error::PbsError,
+        GetExecutionPayloadBidParams, GetExecutionPayloadBidResponse, HEADER_START_TIME_UNIX_MS,
+        HEADER_TIMEOUT_MS, RelayClient, SignedBuilderRequestAuth, SignedExecutionPayloadBid,
+        error::PbsError,
     },
     utils::{ms_into_slot, utcnow_ms},
     wire::{
@@ -34,8 +34,7 @@ use crate::{
     state::{BuilderApiState, PbsState},
     utils::{
         builder_rejection, epbs_base_send_headers, format_gwei_as_eth, log_mux_selection,
-        record_beacon_status, record_client_error, record_request_failure, resolve_addressed_relay,
-        send_to_relay,
+        record_beacon_status, record_request_failure, resolve_addressed_relay, send_to_relay,
     },
 };
 
@@ -46,7 +45,7 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
     body: Bytes,
 ) -> Result<impl IntoResponse, PbsClientError> {
     let auth = decode_versioned_request_body::<SignedBuilderRequestAuth>(&req_headers, &body)
-        .map_err(|err| record_client_error(err, GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG))?;
+        .map_err(|err| record_request_failure(err, GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG))?;
     tracing::Span::current().record("slot", params.slot);
     tracing::Span::current().record("parent_hash", tracing::field::debug(params.parent_hash));
     tracing::Span::current().record("parent_root", tracing::field::debug(params.parent_root));
@@ -58,16 +57,19 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
     let ms_into_slot = ms_into_slot(params.slot, state.config.chain);
 
     let response_encoding = get_accept_types(&req_headers)
-        .inspect_err(|err| error!(%err, "error parsing accept header"))
-        .map_err(|err| record_client_error(err, GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG))?
+        .map_err(|err| record_request_failure(err, GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG))?
         .primary;
 
     info!(ua, ms_into_slot, "new request");
 
+    let version = req_headers.get(CONSENSUS_VERSION_HEADER).cloned();
     match get_execution_payload_bid(params, auth, req_headers, state).await {
-        Ok(Some(bid)) => {
-            encode_bid_response(bid, response_encoding, GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG)
-        }
+        Ok(Some(bid)) => Ok(encode_bid_response(
+            bid,
+            response_encoding,
+            version,
+            GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG,
+        )),
         Ok(None) => {
             info!("no bid for slot");
             record_beacon_status("204", GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG);
@@ -77,34 +79,42 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
     }
 }
 
-fn encode_bid_response(
+/// A relay's bid with the body and encoding it arrived in, so a beacon node
+/// that asks for the same encoding gets the relay's bytes unchanged
+pub(crate) struct RelayBid {
     bid: GetExecutionPayloadBidResponse,
+    body: Bytes,
+    encoding: EncodingType,
+}
+
+/// `version` is the beacon node's own `Eth-Consensus-Version`: the 200 names
+/// the fork it asked for
+fn encode_bid_response(
+    RelayBid { bid, body, encoding }: RelayBid,
     response_encoding: EncodingType,
+    version: Option<HeaderValue>,
     endpoint: &str,
-) -> Result<Response, PbsClientError> {
+) -> Response {
+    let message = &bid.data.message;
     info!(
-        trustless_bid_eth = format_gwei_as_eth(bid.value()),
-        execution_payment_eth = format_gwei_as_eth(bid.execution_payment()),
-        block_hash = %bid.block_hash(),
-        builder_index = bid.builder_index(),
+        trustless_bid_eth = format_gwei_as_eth(message.value),
+        execution_payment_eth = format_gwei_as_eth(message.execution_payment),
+        block_hash = %message.block_hash,
+        builder_index = message.builder_index,
         "received header"
     );
 
-    // Eth-Consensus-Version is required on the 200 for both encodings
-    let consensus_version_header = HeaderValue::from_str(&bid.version.to_string())
-        .expect("fork name is always a valid header value");
-
     record_beacon_status("200", endpoint);
+    let content_type = [(CONTENT_TYPE, response_encoding.content_type_header().clone())];
     let mut res = match response_encoding {
-        EncodingType::Ssz => {
-            let mut res = bid.data.as_ssz_bytes().into_response();
-            res.headers_mut().insert(CONTENT_TYPE, EncodingType::Ssz.content_type_header().clone());
-            res
-        }
+        _ if encoding == response_encoding => (content_type, body).into_response(),
+        EncodingType::Ssz => (content_type, bid.data.as_ssz_bytes()).into_response(),
         EncodingType::Json => axum::Json(bid).into_response(),
     };
-    res.headers_mut().insert(CONSENSUS_VERSION_HEADER, consensus_version_header);
-    Ok(res)
+    if let Some(version) = version {
+        res.headers_mut().insert(CONSENSUS_VERSION_HEADER, version);
+    }
+    res
 }
 
 /// Implements https://ethereum.github.io/builder-specs/?urls.primaryName=dev#/Builder/getExecutionPayloadBid
@@ -114,7 +124,7 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
     auth: SignedBuilderRequestAuth,
     req_headers: HeaderMap,
     state: PbsState<S>,
-) -> Result<Option<GetExecutionPayloadBidResponse>, PbsClientError> {
+) -> Result<Option<RelayBid>, PbsClientError> {
     let (pbs_config, relays, maybe_mux_id) = state.mux_config_and_relays(&params.proposer_pubkey);
 
     log_mux_selection(maybe_mux_id, relays.len(), &params.proposer_pubkey);
@@ -145,7 +155,7 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
 
     let mut send_headers = epbs_base_send_headers(&req_headers)?;
 
-    // The bid is re-encoded for the BN anyway, so ask for the cheaper SSZ
+    // SSZ is smaller and reaches a beacon node that asks for SSZ unchanged
     send_headers.insert(ACCEPT, OUTBOUND_ACCEPT_SSZ_FIRST.clone());
     let body = Bytes::from(auth.as_ssz_bytes());
 
@@ -154,13 +164,13 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
     // A relay that errors or times out contributes no bid: 204, never a 502.
     // The builder's own 400 and 401 still reach the proposer.
     match send_get_execution_payload_bid(params, body, relay, send_headers, max_timeout_ms).await {
-        Ok(Some(bid)) => {
+        Ok(Some(relay_bid)) => {
             RELAY_LAST_SLOT.with_label_values(&[relay_id.as_str()]).set(slot as i64);
-            // value() is already gwei (the gauge is labelled gwei), so it is set unscaled
+            // The bid's value is already gwei, the gauge's unit, so it is set unscaled
             RELAY_HEADER_VALUE
                 .with_label_values(&[relay_id.as_str()])
-                .set(i64::try_from(bid.value()).unwrap_or_default());
-            Ok(Some(bid))
+                .set(i64::try_from(relay_bid.bid.data.message.value).unwrap_or_default());
+            Ok(Some(relay_bid))
         }
         Ok(None) => Ok(None),
         Err(err) if err.is_timeout() => {
@@ -205,7 +215,7 @@ async fn send_get_execution_payload_bid(
     relay: RelayClient,
     mut headers: HeaderMap,
     timeout_ms: u64,
-) -> Result<Option<GetExecutionPayloadBidResponse>, PbsError> {
+) -> Result<Option<RelayBid>, PbsError> {
     let url = relay.get_execution_payload_bid_url(
         params.slot,
         &params.parent_hash,
@@ -240,7 +250,6 @@ async fn send_get_execution_payload_bid(
     };
 
     let response_bytes = safe_read_http_response(res, MAX_SIZE_GET_HEADER_RESPONSE).await?;
-    let header_size_bytes = response_bytes.len();
     if code == StatusCode::NO_CONTENT {
         debug!(
             relay_id = relay.id.as_ref(),
@@ -252,13 +261,9 @@ async fn send_get_execution_payload_bid(
         return Ok(None);
     }
 
-    let get_header_response = match content_type {
-        EncodingType::Json => serde_json::from_slice::<GetExecutionPayloadBidResponse>(
-            &response_bytes,
-        )
-        .map_err(|err| PbsError::JsonDecode {
-            err,
-            raw: String::from_utf8_lossy(&response_bytes).into_owned(),
+    let bid = match content_type {
+        EncodingType::Json => serde_json::from_slice(&response_bytes).map_err(|err| {
+            PbsError::JsonDecode { err, raw: String::from_utf8_lossy(&response_bytes).into_owned() }
         })?,
         EncodingType::Ssz => {
             // SSZ requires the fork from Eth-Consensus-Version; its absence is a
@@ -279,18 +284,7 @@ async fn send_get_execution_payload_bid(
         }
     };
 
-    debug!(
-        relay_id = relay.id.as_ref(),
-        header_size_bytes,
-        latency = ?request_latency,
-        version =? get_header_response.version,
-        trustless_bid_eth = format_gwei_as_eth(get_header_response.data.message.value),
-        execution_payment_eth = format_gwei_as_eth(get_header_response.data.message.execution_payment),
-        block_hash = %get_header_response.data.message.block_hash,
-        "received new header"
-    );
-
-    Ok(Some(get_header_response))
+    Ok(Some(RelayBid { bid, body: response_bytes.into(), encoding: content_type }))
 }
 
 #[cfg(test)]

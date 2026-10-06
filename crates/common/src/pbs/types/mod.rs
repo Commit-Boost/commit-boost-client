@@ -74,31 +74,6 @@ pub type SignedExecutionPayloadBid = lh_types::SignedExecutionPayloadBid<Mainnet
 /// {proposer_pubkey}`
 pub type GetExecutionPayloadBidResponse = ForkVersionedResponse<SignedExecutionPayloadBid>;
 
-pub trait GetExecutionPayloadBidInfo {
-    fn block_hash(&self) -> B256;
-    fn value(&self) -> u64;
-    fn execution_payment(&self) -> u64;
-    fn builder_index(&self) -> u64;
-}
-
-impl GetExecutionPayloadBidInfo for GetExecutionPayloadBidResponse {
-    fn block_hash(&self) -> B256 {
-        self.data.message.block_hash.0
-    }
-
-    fn value(&self) -> u64 {
-        self.data.message.value
-    }
-
-    fn execution_payment(&self) -> u64 {
-        self.data.message.execution_payment
-    }
-
-    fn builder_index(&self) -> u64 {
-        self.data.message.builder_index
-    }
-}
-
 /// Path params of POST
 /// `/eth/v1/builder/execution_payload_bid/{slot}/{parent_hash}/{parent_root}/
 /// {proposer_pubkey}`
