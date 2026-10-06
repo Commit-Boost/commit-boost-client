@@ -4,8 +4,9 @@ use std::{
 };
 
 use alloy::primitives::utils::{ParseUnits, Unit};
+use axum::body::Bytes;
 use cb_common::{
-    pbs::{ForkName, RelayClient, error::PbsError},
+    pbs::{RelayClient, error::PbsError},
     types::BlsPublicKey,
     wire::{
         CONSENSUS_VERSION_HEADER, EncodingType, get_user_agent_with_version,
@@ -15,7 +16,7 @@ use cb_common::{
 use futures::future::join_all;
 use reqwest::{
     StatusCode,
-    header::{CONTENT_TYPE, HeaderMap, HeaderValue, USER_AGENT},
+    header::{CONTENT_TYPE, HeaderMap, USER_AGENT},
 };
 use tracing::{Instrument, debug, error, warn};
 use url::Url;
@@ -54,24 +55,17 @@ pub(crate) async fn send_to_relay(
     Ok((res, request_latency))
 }
 
-/// Count a request-rejection in `BEACON_NODE_STATUS` before it short-circuits
-/// the handler, so rejected requests show up as 4xx in the endpoint counter.
-pub(crate) fn record_client_error(
-    err: impl Into<PbsClientError>,
-    endpoint: &str,
-) -> PbsClientError {
-    let err = err.into();
-    BEACON_NODE_STATUS.with_label_values(&[err.status_code().as_str(), endpoint]).inc();
-    err
-}
-
 pub(crate) fn record_beacon_status(code: &str, endpoint: &str) {
     BEACON_NODE_STATUS.with_label_values(&[code, endpoint]).inc();
 }
 
 /// Logs and counts a failed ePBS request before it is returned to the beacon
 /// node. A 4xx is the caller's fault, not CB's: only a 5xx is an error.
-pub(crate) fn record_request_failure(err: PbsClientError, endpoint: &str) -> PbsClientError {
+pub(crate) fn record_request_failure(
+    err: impl Into<PbsClientError>,
+    endpoint: &str,
+) -> PbsClientError {
+    let err = err.into();
     if err.status_code().is_server_error() {
         error!(%err, "{endpoint} failed");
     } else {
@@ -84,7 +78,7 @@ pub(crate) fn record_request_failure(err: PbsClientError, endpoint: &str) -> Pbs
 /// Fans `sends` out on detached tasks and waits for all of them
 pub(crate) async fn join_detached_sends<F>(
     sends: impl IntoIterator<Item = F>,
-) -> Vec<Result<(), PbsError>>
+) -> impl Iterator<Item = Result<(), PbsError>>
 where
     F: Future<Output = Result<(), PbsError>> + Send + 'static,
 {
@@ -94,7 +88,6 @@ where
         .await
         .into_iter()
         .map(|joined| joined.unwrap_or_else(|err| Err(PbsError::TokioJoinError(err))))
-        .collect()
 }
 
 pub(crate) fn log_mux_selection(
@@ -116,7 +109,7 @@ pub(crate) fn log_mux_selection(
 pub(crate) async fn post_ssz_expect_accepted(
     relay: &RelayClient,
     url: Url,
-    body: impl Into<reqwest::Body>,
+    body: Bytes,
     headers: HeaderMap,
     timeout_ms: u64,
     tag: &str,
@@ -160,18 +153,16 @@ pub(crate) fn builder_rejection(err: &PbsError) -> Option<PbsClientError> {
 }
 
 /// Headers every ePBS relay request carries: the versioned `User-Agent`, and
-/// `Eth-Consensus-Version` since each body is a fork-versioned type.
+/// the beacon node's `Eth-Consensus-Version`, which the route has validated
 pub(crate) fn epbs_base_send_headers(req_headers: &HeaderMap) -> Result<HeaderMap, PbsClientError> {
     let mut headers = HeaderMap::new();
     headers.insert(
         USER_AGENT,
         get_user_agent_with_version(req_headers).map_err(|_| PbsClientError::Internal)?,
     );
-    headers.insert(
-        CONSENSUS_VERSION_HEADER,
-        HeaderValue::from_str(&ForkName::Gloas.to_string())
-            .expect("fork name is always a valid header value"),
-    );
+    if let Some(version) = req_headers.get(CONSENSUS_VERSION_HEADER) {
+        headers.insert(CONSENSUS_VERSION_HEADER, version.clone());
+    }
     Ok(headers)
 }
 
