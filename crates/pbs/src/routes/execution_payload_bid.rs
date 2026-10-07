@@ -14,7 +14,7 @@ use cb_common::{
     },
     utils::{ms_into_slot, utcnow_ms},
     wire::{
-        CONSENSUS_VERSION_HEADER, EncodingType, OUTBOUND_ACCEPT_SSZ_FIRST,
+        CONSENSUS_VERSION_HEADER, EncodingType, GLOAS_CONSENSUS_VERSION, OUTBOUND_ACCEPT_SSZ_FIRST,
         decode_versioned_request_body, get_accept_types, get_user_agent,
         parse_response_encoding_and_fork, read_chunked_body_with_max, safe_read_http_response,
     },
@@ -64,14 +64,10 @@ pub async fn handle_get_execution_payload_bid<S: BuilderApiState>(
 
     info!(ua, ms_into_slot, "new request");
 
-    let version = req_headers.get(CONSENSUS_VERSION_HEADER).cloned();
     match get_execution_payload_bid(params, auth, req_headers, state).await {
-        Ok(Some(bid)) => Ok(encode_bid_response(
-            bid,
-            response_encoding,
-            version,
-            GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG,
-        )),
+        Ok(Some(bid)) => {
+            Ok(encode_bid_response(bid, response_encoding, GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG))
+        }
         Ok(None) => {
             info!("no bid for slot");
             record_beacon_status("204", GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG);
@@ -89,12 +85,9 @@ pub(crate) struct RelayBid {
     encoding: EncodingType,
 }
 
-/// `version` is the beacon node's own `Eth-Consensus-Version`: the 200 names
-/// the fork it asked for
 fn encode_bid_response(
     RelayBid { bid, body, encoding }: RelayBid,
     response_encoding: EncodingType,
-    version: Option<HeaderValue>,
     endpoint: &str,
 ) -> Response {
     let message = &bid.data.message;
@@ -113,9 +106,7 @@ fn encode_bid_response(
         EncodingType::Ssz => (content_type, bid.data.as_ssz_bytes()).into_response(),
         EncodingType::Json => axum::Json(bid).into_response(),
     };
-    if let Some(version) = version {
-        res.headers_mut().insert(CONSENSUS_VERSION_HEADER, version);
-    }
+    res.headers_mut().insert(CONSENSUS_VERSION_HEADER, GLOAS_CONSENSUS_VERSION.clone());
     res
 }
 
