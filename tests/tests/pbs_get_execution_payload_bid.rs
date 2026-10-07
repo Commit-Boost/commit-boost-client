@@ -356,6 +356,30 @@ async fn test_get_execution_payload_bid_spec_url() -> Result<()> {
     Ok(())
 }
 
+/// The beacon node's `Eth-Consensus-Version` parses in any case, and CB sends
+/// the spec's lowercase name on to the relay and back in the 200
+#[tokio::test]
+async fn test_get_execution_payload_bid_sends_the_spec_consensus_version() -> Result<()> {
+    let (mock_validator, mock_state) =
+        setup_relay(Chain::Hoodi, |_| {}, generate_mock_relay).await?;
+    let res = mock_validator
+        .comm_boost
+        .client
+        .post(bid_url(&mock_validator))
+        .header(HEADER_START_TIME_UNIX_MS, utcnow_ms())
+        .header(HEADER_TIMEOUT_MS, 60_000u64)
+        .header(CONSENSUS_VERSION_HEADER, "GLOAS")
+        .header(CONTENT_TYPE, EncodingType::Ssz.content_type_header().clone())
+        .body(opaque_auth(TEST_AUTH_DATA, TEST_SLOT).as_ssz_bytes())
+        .send()
+        .await?;
+    assert_eq!(res.status(), StatusCode::OK);
+    let echoed = res.headers().get(CONSENSUS_VERSION_HEADER).and_then(|v| v.to_str().ok());
+    assert_eq!(echoed, Some("gloas"));
+    assert_eq!(mock_state.received_bid_consensus_version().as_deref(), Some("gloas"));
+    Ok(())
+}
+
 /// The response encoding follows the caller's Accept and defaults to JSON when
 /// none is sent (builder-specs), and the 200 carries Eth-Consensus-Version
 /// either way. Default relays answer in SSZ; the JSON-only relays cover the
