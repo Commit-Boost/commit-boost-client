@@ -280,6 +280,8 @@ fn essence_encoding(mt: &MediaType) -> Option<EncodingType> {
 pub static OUTBOUND_ACCEPT_SSZ_FIRST: HeaderValue =
     HeaderValue::from_static("application/octet-stream;q=1.0,application/json;q=0.9");
 
+pub static GLOAS_CONSENSUS_VERSION: HeaderValue = HeaderValue::from_static("gloas");
+
 pub fn get_content_type(req_headers: &HeaderMap) -> EncodingType {
     EncodingType::from_str(
         req_headers
