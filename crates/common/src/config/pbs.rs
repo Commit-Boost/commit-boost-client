@@ -250,13 +250,12 @@ impl PbsConfig {
         );
         ensure!(self.late_in_slot_time_ms > 0, "late_in_slot_time_ms must be greater than 0");
 
-        // The buffer comes out of the proposer's deadline, which is clamped to
-        // one slot, so a buffer of a slot or more leaves no time for the bid
-        // request. 0 is allowed (no reserve).
+        // 0 leaves the bid no time to get back to the beacon node, and a slot or
+        // more leaves the builder none, as the proposer's deadline is clamped to a slot
         let slot_time_ms = chain.slot_time_sec().saturating_mul(1000);
         ensure!(
-            self.proposer_deadline_buffer_ms < slot_time_ms,
-            "proposer_deadline_buffer_ms must be less than one slot ({slot_time_ms} ms)"
+            (1..slot_time_ms).contains(&self.proposer_deadline_buffer_ms),
+            "proposer_deadline_buffer_ms must be greater than 0 and less than one slot ({slot_time_ms} ms)"
         );
 
         ensure!(
@@ -556,6 +555,42 @@ mod tests {
 
     use super::*;
     use crate::config::test_env::{RELAY_URL, with_env};
+
+    fn config_with_buffer(buffer: u64) -> String {
+        format!(
+            "chain = \"Holesky\"\n[pbs]\nproposer_deadline_buffer_ms = {buffer}\n\
+             [[relays]]\nurl = \"{RELAY_URL}\"\n"
+        )
+    }
+
+    #[tokio::test]
+    async fn test_deadline_buffer_range() {
+        for (buffer, accepted) in [(0, false), (1, true), (11999, true), (12000, false)] {
+            let config: CommitBoostConfig = toml::from_str(&config_with_buffer(buffer)).unwrap();
+            assert_eq!(config.validate().await.is_ok(), accepted, "{buffer}");
+        }
+    }
+
+    // The service and a custom PBS module load [pbs] through different functions
+    #[test]
+    fn test_loaders_reject_zero_deadline_buffer() {
+        #[derive(Deserialize)]
+        struct NoExtra {}
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cb-config.toml");
+        std::fs::write(&path, config_with_buffer(0)).unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let service = runtime.block_on(load_pbs_config(Some(path.clone()))).map(|_| ());
+        let custom = with_env(&[(CONFIG_ENV, path.to_str())], || {
+            runtime.block_on(load_pbs_custom_config::<NoExtra>()).map(|_| ())
+        });
+        for result in [service, custom] {
+            let err = result.expect_err("a zero deadline buffer loaded");
+            let expected =
+                "proposer_deadline_buffer_ms must be greater than 0 and less than one slot";
+            assert!(format!("{err:#}").contains(expected), "{err:#}");
+        }
+    }
 
     fn relay_with_headers(headers: &str) -> Result<RelayConfig, toml::de::Error> {
         toml::from_str(&format!("url = \"{RELAY_URL}\"\nheaders = {headers}\n"))

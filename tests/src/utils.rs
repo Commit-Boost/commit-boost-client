@@ -138,7 +138,7 @@ pub fn get_pbs_config(port: u16) -> PbsConfig {
         skip_sigverify: false,
         min_bid_wei: U256::ZERO,
         late_in_slot_time_ms: u64::MAX,
-        proposer_deadline_buffer_ms: 0,
+        proposer_deadline_buffer_ms: 50,
         extra_validation_enabled: false,
 
         ssv_node_api_url: Url::parse("http://localhost:0").unwrap(),
