@@ -9,8 +9,8 @@ use cb_common::{
     pbs::{RelayClient, error::PbsError},
     types::BlsPublicKey,
     wire::{
-        CONSENSUS_VERSION_HEADER, EncodingType, get_user_agent_with_version,
-        read_chunked_body_with_max,
+        CONSENSUS_VERSION_HEADER, EncodingType, GLOAS_CONSENSUS_VERSION,
+        get_user_agent_with_version, read_chunked_body_with_max,
     },
 };
 use futures::future::join_all;
@@ -153,16 +153,14 @@ pub(crate) fn builder_rejection(err: &PbsError) -> Option<PbsClientError> {
 }
 
 /// Headers every ePBS relay request carries: the versioned `User-Agent`, and
-/// the beacon node's `Eth-Consensus-Version`, which the route has validated
+/// `Eth-Consensus-Version`, which the route has validated as Gloas
 pub(crate) fn epbs_base_send_headers(req_headers: &HeaderMap) -> Result<HeaderMap, PbsClientError> {
     let mut headers = HeaderMap::new();
     headers.insert(
         USER_AGENT,
         get_user_agent_with_version(req_headers).map_err(|_| PbsClientError::Internal)?,
     );
-    if let Some(version) = req_headers.get(CONSENSUS_VERSION_HEADER) {
-        headers.insert(CONSENSUS_VERSION_HEADER, version.clone());
-    }
+    headers.insert(CONSENSUS_VERSION_HEADER, GLOAS_CONSENSUS_VERSION.clone());
     Ok(headers)
 }
 
