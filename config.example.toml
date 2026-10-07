@@ -31,7 +31,7 @@ wait_all_registrations = true
 # this should be lower than that, leaving some margin for overhead
 # OPTIONAL, DEFAULT: 950
 timeout_get_header_ms = 950
-# (unreleased, from v0.12.0-rc1) ePBS bids only: ms kept back from the beacon node's X-Timeout-Ms deadline, must be under one slot, 12000 on mainnet (https://commit-boost.github.io/commit-boost-client/get_started/epbs#timing)
+# (unreleased, from v0.12.0-rc1) ePBS bids only: ms kept back from the beacon node's X-Timeout-Ms deadline, must be above 0 and under one slot, 12000 on mainnet (https://commit-boost.github.io/commit-boost-client/get_started/epbs#timing)
 # OPTIONAL, DEFAULT: 50
 # proposer_deadline_buffer_ms = 50
 # Timeout in milliseconds for the `submit_blinded_block` call to relays.
