@@ -115,6 +115,8 @@ pub struct MockRelayState {
     received_auth: RwLock<Option<SignedBuilderRequestAuth>>,
     /// The `X-Timeout-Ms` of the last bid request
     received_bid_timeout_ms: RwLock<Option<u64>>,
+    /// The raw `Eth-Consensus-Version` of the last bid request
+    received_bid_consensus_version: RwLock<Option<String>>,
     response_override: RwLock<Option<StatusCode>>,
     bid_value: RwLock<U256>,
     /// The raw `Accept` header PBS sent on the most recent get_header request,
@@ -186,6 +188,9 @@ impl MockRelayState {
     pub fn received_bid_timeout_ms(&self) -> Option<u64> {
         *self.received_bid_timeout_ms.read().unwrap()
     }
+    pub fn received_bid_consensus_version(&self) -> Option<String> {
+        self.received_bid_consensus_version.read().unwrap().clone()
+    }
     pub fn received_auth_data(&self) -> Option<Vec<u8>> {
         self.received_auth.read().unwrap().as_ref().map(|a| a.message.data.to_vec())
     }
@@ -248,6 +253,7 @@ impl MockRelayState {
             bid_delay_ms: None,
             received_auth: RwLock::new(None),
             received_bid_timeout_ms: RwLock::new(None),
+            received_bid_consensus_version: RwLock::new(None),
             response_override: RwLock::new(None),
             bid_value: RwLock::new(U256::from(10)),
             received_get_header_accept: RwLock::new(None),
@@ -405,6 +411,8 @@ async fn handle_get_execution_payload_bid(
             .into_response();
     };
     *state.received_bid_timeout_ms.write().unwrap() = Some(timeout_ms);
+    *state.received_bid_consensus_version.write().unwrap() =
+        headers.get(CONSENSUS_VERSION_HEADER).and_then(|v| v.to_str().ok()).map(str::to_owned);
 
     // Decode the request auth the way a real builder does: Content-Type
     // selects JSON vs SSZ. The wire type is fork-versioned per builder-specs,
