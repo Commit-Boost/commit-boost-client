@@ -39,7 +39,7 @@ To go through Commit-Boost, every entry's `url` is Commit-Boost's own URL, and i
 
 ### 1. Add the builders to Commit-Boost
 
-List each builder as a relay entry, as for PBS: in `[[relays]]`, or in the `[[mux.relays]]` of the mux that lists the proposer's key. ePBS adds one option, `[pbs] proposer_deadline_buffer_ms` (default `50`): the time kept back from the beacon node's deadline (see [Timing](#timing)). It must be under one slot, `12000` on mainnet.
+List each builder as a relay entry, as for PBS: in `[[relays]]`, or in the `[[mux.relays]]` of the mux that lists the proposer's key. ePBS adds one option, `[pbs] proposer_deadline_buffer_ms` (default `50`): the time kept back from the beacon node's deadline (see [Timing](#timing)). It must be above `0` and under one slot, `12000` on mainnet.
 
 ### 2. Point each validator key at Commit-Boost {#validator-builder-config}
 
@@ -66,8 +66,8 @@ curl -X POST "$KEYMANAGER_URL/eth/v1/validator/$PUBKEY/builder_config" \
 
 The call is `POST /eth/v1/validator/{pubkey}/builder_config`, authenticated with the keymanager API's bearer token. The body replaces the key's config in full, and the validator client answers `202` once it is stored. Besides `url` and `auth_data`, an entry or the top level can set:
 
-- `min_bid` and `builder_boost_factor` are optional. At the top level they apply to every entry, and to p2p bids, unless an entry sets its own. A top-level `min_bid` also floors the bids that come through Commit-Boost, so a value above your builders' bids sends every proposal to p2p bids or a local block.
-- `max_execution_payment`, when an entry omits it, gets the validator client's default, which differs between clients (Lodestar stores `0`, Nimbus the maximum). Lodestar accepts a nonzero value only when started with `--allowDangerousTrustedPayments`.
+- `min_bid` and `builder_boost_factor` are optional. At the top level they apply to p2p bids and to every entry that does not set its own, so a top-level `min_bid` above your builders' bids sends every proposal to a p2p bid or a local block, unless an entry sets a lower one of its own.
+- `max_execution_payment`, when an entry omits it, gets the validator client's default, which differs between clients and can be `0`, so no execution payment counts. Lodestar accepts a nonzero value only when started with `--allowDangerousTrustedPayments`.
 - `builder_pubkeys` limits which builder keys' bids the beacon node accepts; leave it empty to accept any. Don't copy the pubkey from the relay URL: that is the relay's key, not the builder's bid-signing key.
 
 ## Routing by auth data
@@ -88,7 +88,7 @@ A key without builder config sends Commit-Boost's own hostname as its `auth_data
 
 The builder specs require each bid request to carry `Date-Milliseconds` and `X-Timeout-Ms`, which together say how long the beacon node will wait for a bid. Commit-Boost subtracts your `proposer_deadline_buffer_ms` from the time remaining and sends the result to the builder as its `X-Timeout-Ms`, so the builder knows how long it has to answer.
 
-Think of `proposer_deadline_buffer_ms` as the slack you keep from the beacon node's remaining time: enough for the bid to get back from Commit-Boost to the beacon node and for the beacon node to process it. If no time is left, Commit-Boost does not ask the builder.
+Think of `proposer_deadline_buffer_ms` as the slack you keep from the beacon node's remaining time: enough for the bid to get back from Commit-Boost to the beacon node and for the beacon node to process it. If no time is left, Commit-Boost does not ask the builder. With `0`, Commit-Boost refuses to start or reload: the builder gets the whole deadline, so a bid it sends at the deadline reaches the beacon node late.
 
 Builder preferences use `timeout_register_validator_ms`, and the signed block `timeout_get_payload_ms`.
 
@@ -99,7 +99,7 @@ With [metrics](./running/metrics.md) enabled, the ePBS endpoints use the `endpoi
 | Question | Series |
 |---|---|
 | What did Commit-Boost answer the beacon node? | `cb_pbs_beacon_node_status_code_total`: `200` or `204` for a bid request, `202` for preferences, `202` for the signed block whatever the builders answer, `4xx` for a rejected request, `500` when no builder accepted the preferences |
-| What did each builder answer? | `cb_pbs_relay_status_code_total`, by `relay_id`: the builder's HTTP status, or `555` when no response arrived (timeout, DNS or connection failure). Requests to builders outside your config count under `relay_id="dial"` |
+| What did each builder answer? | `cb_pbs_relay_status_code_total`, by `relay_id`: the builder's HTTP status, or `555` when no response arrived (timeout, DNS or connection failure). Requests to builders outside your config count under `relay_id="dial"`, except one Commit-Boost [refuses to dial](#builders-outside-your-config), which gets no request |
 | How fast are builders? | `cb_pbs_relay_latency`, by `relay_id` |
 | What are builders bidding? | `cb_pbs_relay_header_value` (the bid's `value` in Gwei, without the execution payment) and `cb_pbs_relay_last_slot`, by `relay_id`, from each bid a builder serves |
 
@@ -110,6 +110,7 @@ With [metrics](./running/metrics.md) enabled, the ePBS endpoints use the `endpoi
 | Bid requests get `400` "auth.message.data does not match any configured builder" | The auth data is neither a hostname nor an `http(s)` URL, or the request came from another Commit-Boost and matches none of this one's relay entries | Correct the `auth_data` in the key's [builder config](#validator-builder-config), or add the builder as a relay entry on the Commit-Boost the request reaches |
 | Bid requests get `400` "the addressed builder's host does not resolve or resolves to a disallowed address" | The auth data names a builder outside your config whose host does not resolve or resolves to an [internal address](#builders-outside-your-config). A key without builder config sends Commit-Boost's own hostname, which usually does | Add the builder as a relay entry for the key, or write or correct the key's [builder config](#validator-builder-config) |
 | A builder answers bid requests with `400` (`cb_pbs_relay_status_code_total{endpoint="get_execution_payload_bid",http_status_code="400"}`) | The builder compares auth data byte for byte and expects something other than what the key sends, such as its hostname without `?` parameters | Send the auth data the builder expects: its hostname or its URL, the forms Commit-Boost [routes by](#routing-by-auth-data), with `?` parameters only if it accepts them |
+| Commit-Boost does not start or reload, or `commit-boost init` fails, with "proposer_deadline_buffer_ms must be greater than 0 and less than one slot" | `proposer_deadline_buffer_ms` is `0`, or one slot or more | Set it above `0` and under one slot, or remove it to use the default `50` |
 | The signed block gets `415` | The beacon node sends it as JSON | Configure the beacon node to send SSZ |
 | Commit-Boost logs "no builder accepted the signed beacon block" | The winning bid came from a builder outside your config, which gets the block over gossip, or your builders did not accept it. The beacon node gossips the block either way | If the bid came from a configured builder, check its answer in `cb_pbs_relay_status_code_total{endpoint="submit_signed_beacon_block"}` |
 | Commit-Boost returns `200` but the beacon node builds locally | The beacon node rejected the bid, or valued its local block higher after `builder_boost_factor` | Compare the bid with the key's `min_bid` and `builder_boost_factor` |
