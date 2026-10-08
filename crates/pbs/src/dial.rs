@@ -1,6 +1,7 @@
 use std::{
+    io,
     net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs},
-    sync::LazyLock,
+    sync::{Arc, LazyLock, OnceLock},
     time::Duration,
 };
 
@@ -10,7 +11,8 @@ use cb_common::{
     types::BlsPublicKey,
     utils::bls_pubkey_from_hex,
 };
-use tokio::sync::Semaphore;
+use reqwest::dns::{Addrs, Name, Resolve, Resolving};
+use tokio::{sync::Semaphore, task::JoinHandle};
 use tracing::{info, warn};
 use url::Url;
 
@@ -36,8 +38,8 @@ pub(crate) fn auth_data_address(data: &[u8]) -> &[u8] {
     data.iter().position(|&byte| byte == b'?').map_or(data, |end| &data[..end])
 }
 
-/// A relay for the builder that an unmatched address names. The target is
-/// untrusted, so it is resolved once and dialed only at the vetted addresses.
+/// A relay for the builder an unmatched address names, checked before the dial
+/// and, for a hostname, again on each new connection
 pub(crate) async fn dial_relay(
     data_url: Option<Url>,
     address: &[u8],
@@ -47,10 +49,7 @@ pub(crate) async fn dial_relay(
     let origin = url.origin().ascii_serialization();
     let addrs = resolve_dial_target(&url, &origin, lookup_timeout).await?;
     info!(%origin, ?addrs, "auth data names a builder outside the config, dialing it");
-    pinned_relay(url, &addrs).map_err(|err| {
-        warn!(%err, "failed to build the dial client");
-        PbsClientError::Internal
-    })
+    dial_client(url)
 }
 
 /// `data_url`, else `https://<hostname>/` for the builder-specs default auth
@@ -90,15 +89,10 @@ async fn resolve_dial_target(
         vet_dial_addrs(origin, &[addr])?;
         return Ok(vec![addr]);
     }
-    let Ok(permit) = DIAL_LOOKUPS.try_acquire() else {
+    let Some(lookup) = spawn_lookup(host_port) else {
         warn!(%origin, "too many dial lookups in flight, not dialing");
         return Err(PbsClientError::NoBuilderResponse);
     };
-    let lookup = tokio::task::spawn_blocking(move || {
-        // Held until the lookup returns, which a timeout does not stop
-        let _permit = permit;
-        host_port.to_socket_addrs().map(Iterator::collect::<Vec<_>>)
-    });
     let addrs = match tokio::time::timeout(lookup_timeout, lookup).await {
         Ok(Ok(Ok(addrs))) => addrs,
         Ok(Ok(Err(err))) => {
@@ -116,6 +110,16 @@ async fn resolve_dial_target(
     Ok(addrs)
 }
 
+/// `None` when every lookup slot is taken
+fn spawn_lookup(host_port: String) -> Option<JoinHandle<io::Result<Vec<SocketAddr>>>> {
+    let permit = DIAL_LOOKUPS.try_acquire().ok()?;
+    Some(tokio::task::spawn_blocking(move || {
+        // Held until the lookup returns, which a timeout does not stop
+        let _permit = permit;
+        host_port.to_socket_addrs().map(Iterator::collect::<Vec<_>>)
+    }))
+}
+
 /// Every address is checked, since the dial may connect to any of them
 fn vet_dial_addrs(origin: &str, addrs: &[SocketAddr]) -> Result<(), PbsClientError> {
     if dial_target_check_enabled() && addrs.iter().any(|addr| ip_is_disallowed(addr.ip())) {
@@ -125,28 +129,73 @@ fn vet_dial_addrs(origin: &str, addrs: &[SocketAddr]) -> Result<(), PbsClientErr
     Ok(())
 }
 
-/// A relay that dials `url` only at `addrs`: a system proxy would resolve the
-/// host again, and a redirect target was never checked.
-fn pinned_relay(url: Url, addrs: &[SocketAddr]) -> eyre::Result<RelayClient> {
-    let mut client =
-        reqwest::Client::builder().no_proxy().redirect(reqwest::redirect::Policy::none());
-    if let Some(domain) = url.domain() {
-        client = client.resolve_to_addrs(domain, addrs);
-    }
+/// Dial hosts are chosen by the request, so an idle connection is reused for at
+/// most one slot. The pool sweeps at this interval, so it closes within two.
+const DIAL_IDLE_TIMEOUT: Duration = Duration::from_secs(12);
+
+/// Lets a builder dialed again reuse its connection. A failed build is not
+/// kept, so the next dial tries again.
+static DIAL_CLIENT: OnceLock<RelayClient> = OnceLock::new();
+
+/// No proxy, which would resolve the host itself, and no redirects, since one
+/// to an IP address would skip the resolver
+fn build_dial_client() -> eyre::Result<RelayClient> {
     RelayClient::with_client_builder(
-        RelayConfig {
-            entry: RelayEntry { id: DIAL_RELAY_ID.to_string(), pubkey: DIAL_PUBKEY.clone(), url },
-            id: None,
-            headers: None,
-            get_params: None,
-            get_header: GetHeaderTransport::Http,
-            enable_timing_games: false,
-            target_first_request_ms: None,
-            frequency_get_header_ms: None,
-            validator_registration_batch_size: None,
-        },
-        client,
+        dial_config(Url::parse("https://dial.invalid/").expect("a valid URL")),
+        reqwest::Client::builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .dns_resolver(DialResolver)
+            .pool_idle_timeout(DIAL_IDLE_TIMEOUT)
+            .pool_max_idle_per_host(1),
     )
+}
+
+/// The shared dial client, addressed to `url`
+fn dial_client(url: Url) -> Result<RelayClient, PbsClientError> {
+    let shared = match DIAL_CLIENT.get() {
+        Some(shared) => shared,
+        None => {
+            let built = build_dial_client().map_err(|err| {
+                warn!(%err, "failed to build the dial client");
+                PbsClientError::Internal
+            })?;
+            DIAL_CLIENT.get_or_init(|| built)
+        }
+    };
+    let mut relay = shared.clone();
+    relay.config = Arc::new(dial_config(url));
+    Ok(relay)
+}
+
+fn dial_config(url: Url) -> RelayConfig {
+    RelayConfig {
+        entry: RelayEntry { id: DIAL_RELAY_ID.to_string(), pubkey: DIAL_PUBKEY.clone(), url },
+        id: None,
+        headers: None,
+        get_params: None,
+        get_header: GetHeaderTransport::Http,
+        enable_timing_games: false,
+        target_first_request_ms: None,
+        frequency_get_header_ms: None,
+        validator_registration_batch_size: None,
+    }
+}
+
+/// Run for each new connection to a hostname (an IP address skips it): refuses
+/// it while every lookup slot is taken or if any address is disallowed
+struct DialResolver;
+
+impl Resolve for DialResolver {
+    fn resolve(&self, name: Name) -> Resolving {
+        Box::pin(async move {
+            let lookup = spawn_lookup(format!("{}:0", name.as_str()))
+                .ok_or("too many dial lookups in flight")?;
+            let addrs = lookup.await??;
+            vet_dial_addrs(name.as_str(), &addrs)?;
+            Ok(Box::new(addrs.into_iter()) as Addrs)
+        })
+    }
 }
 
 #[cfg(feature = "testing-flags")]
@@ -212,6 +261,8 @@ fn ip_is_disallowed(ip: IpAddr) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use axum::http::StatusCode;
     use cb_common::pbs::decode_auth_data_url;
 
@@ -248,10 +299,13 @@ mod tests {
         }
     }
 
-    // Holds every permit, so a hostname lookup in a unit test running beside it
-    // is refused
+    /// Taken by every test that holds or takes a lookup slot, since the slots
+    /// are shared by the whole test binary
+    static LOOKUP_SLOTS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
     #[tokio::test]
     async fn lookup_cap_refuses_hostnames_not_ip_literals() {
+        let _slots = LOOKUP_SLOTS.lock().await;
         let _held = DIAL_LOOKUPS.try_acquire_many(32).unwrap();
         let dial = |address: &'static [u8]| dial_relay(None, address, Duration::from_secs(1));
         assert!(dial(b"1.1.1.1").await.is_ok());
@@ -270,25 +324,84 @@ mod tests {
         ));
     }
 
-    // A hostname target is dialed at the given address with no lookup
-    // (`.invalid` never resolves), and a redirect is not followed
-    #[tokio::test]
-    async fn pinned_relay_dials_the_given_address_and_refuses_redirects() -> eyre::Result<()> {
-        use axum::{Router, http::header::LOCATION, routing::post};
+    /// A builder on loopback whose `/bid` redirects to `/internal` and whose
+    /// `/slow` answers after 50 ms, and its count of accepted connections
+    async fn mock_builder() -> eyre::Result<(u16, Arc<AtomicUsize>)> {
+        use axum::{Router, http::header::LOCATION, routing::post, serve::ListenerExt};
 
+        let connections = Arc::new(AtomicUsize::new(0));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-        let addr = listener.local_addr()?;
+        let port = listener.local_addr()?.port();
+        let accepted = connections.clone();
+        let listener = listener.tap_io(move |_| {
+            accepted.fetch_add(1, Ordering::Relaxed);
+        });
         let builder = Router::new()
             .route(
                 "/bid",
                 post(|| async { (StatusCode::TEMPORARY_REDIRECT, [(LOCATION, "/internal")]) }),
             )
-            .route("/internal", post(|| async { StatusCode::OK }));
+            .route("/internal", post(|| async { StatusCode::OK }))
+            .route(
+                "/slow",
+                post(|| async {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    StatusCode::OK
+                }),
+            );
         tokio::spawn(async move { axum::serve(listener, builder).await });
+        Ok((port, connections))
+    }
 
-        let url = Url::parse(&format!("http://dial-target.invalid:{}/bid", addr.port()))?;
-        let res = pinned_relay(url.clone(), &[addr])?.client.post(url).send().await?;
-        assert_eq!(res.status(), StatusCode::TEMPORARY_REDIRECT);
+    // An IP literal skips the resolver, which would refuse loopback
+    #[tokio::test]
+    async fn dials_share_connections_and_refuse_redirects() -> eyre::Result<()> {
+        let (port, connections) = mock_builder().await?;
+        let url = Url::parse(&format!("http://127.0.0.1:{port}/bid"))?;
+        for _ in 0..2 {
+            let res = dial_client(url.clone())?.client.post(url.clone()).send().await?;
+            assert_eq!(res.status(), StatusCode::TEMPORARY_REDIRECT);
+        }
+        assert_eq!(connections.load(Ordering::Relaxed), 1);
+
+        tokio::time::pause();
+        tokio::time::advance(DIAL_IDLE_TIMEOUT + Duration::from_secs(1)).await;
+        tokio::time::resume();
+        dial_client(url.clone())?.client.post(url).send().await?;
+        assert_eq!(connections.load(Ordering::Relaxed), 2);
+        Ok(())
+    }
+
+    // Two requests at once need two connections, and only one stays idle
+    #[tokio::test]
+    async fn dial_client_keeps_one_idle_connection_per_host() -> eyre::Result<()> {
+        let (port, connections) = mock_builder().await?;
+        let url = Url::parse(&format!("http://127.0.0.1:{port}/slow"))?;
+        let client = dial_client(url.clone())?.client;
+        for _ in 0..2 {
+            tokio::try_join!(client.post(url.clone()).send(), client.post(url.clone()).send())?;
+        }
+        assert_eq!(connections.load(Ordering::Relaxed), 3);
+        Ok(())
+    }
+
+    // No check runs before these dials, so only the resolver refuses
+    // `localhost`, which resolves to loopback
+    #[cfg(feature = "testing-flags")]
+    #[tokio::test]
+    async fn dial_client_checks_the_addresses_it_resolves() -> eyre::Result<()> {
+        let _slots = LOOKUP_SLOTS.lock().await;
+        let (port, _) = mock_builder().await?;
+        let url = Url::parse(&format!("http://localhost:{port}/bid"))?;
+        let dial = || dial_client(url.clone()).map(|relay| relay.client.post(url.clone()).send());
+        assert!(dial()?.await.is_err());
+        set_skip_dial_target_check(true);
+        let held = DIAL_LOOKUPS.try_acquire_many(32)?;
+        assert!(dial()?.await.is_err());
+        drop(held);
+        let res = dial()?.await;
+        set_skip_dial_target_check(false);
+        assert_eq!(res?.status(), StatusCode::TEMPORARY_REDIRECT);
         Ok(())
     }
 
