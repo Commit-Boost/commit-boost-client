@@ -66,6 +66,7 @@ async fn test_cfg_file_update() -> Result<()> {
         min_bid_wei: U256::ZERO,
         late_in_slot_time_ms: u64::MAX / 2, /* serde gets very upset about serializing u64::MAX
                                              * or anything close to it */
+        proposer_deadline_buffer_ms: 0,
         extra_validation_enabled: false,
         rpc_url: None,
         ssv_node_api_url: Url::parse("http://example.com").unwrap(),
@@ -114,8 +115,7 @@ async fn test_cfg_file_update() -> Result<()> {
     // Run the PBS service
     let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![relay1.clone()]);
     let state = PbsState::new(config, config_path.clone());
-    drop(pbs_listener);
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
 
     // leave some time to start servers - extra time for the file watcher
     tokio::time::sleep(Duration::from_millis(1000)).await;

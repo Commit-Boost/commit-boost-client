@@ -3,6 +3,7 @@ use std::{
     net::{Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
     sync::{Arc, Once},
+    time::Duration,
 };
 
 use alloy::primitives::{B256, U256};
@@ -14,20 +15,32 @@ use cb_common::{
         SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT, SIGNER_PORT_DEFAULT, SignerConfig,
         SignerType, StartSignerConfig, StaticModuleConfig, StaticPbsConfig, TlsMode,
     },
-    pbs::{RelayClient, RelayEntry},
-    signer::SignerLoader,
-    types::{BlsPublicKey, Chain, ModuleId},
+    pbs::{BuilderRequestAuth, RelayClient, RelayEntry, SignedBuilderRequestAuth},
+    signer::{SignerLoader, random_secret},
+    types::{BlsPublicKey, BlsSignature, Chain, ModuleId},
     utils::{bls_pubkey_from_hex, default_host},
 };
+use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use eyre::Result;
+use lh_types::Slot;
 use rcgen::generate_simple_self_signed;
+use reqwest::StatusCode;
 use url::Url;
+
+use crate::{
+    mock_relay::{MockRelayState, start_mock_relay_service_with_listener},
+    mock_validator::MockValidator,
+};
 
 pub const HEADER_API_KEY: &str = "x-api-key";
 pub const API_KEY: &str = "123e4567-e89b-12d3-a456-426614174000";
 /// Distinct from [`API_KEY`], which `MockValidator` also sends to PBS: a relay
 /// that sees this one can only have got it from its own config.
 pub const RELAY_API_KEY: &str = "f81d4fae-7dec-11d0-a765-00a0c91e6bf6";
+/// The mock relays' hostname, so their default auth data
+pub const TEST_AUTH_DATA: &[u8] = b"0.0.0.0";
+/// The proposer pubkey the mock validator's ePBS requests are filed under.
+pub const TEST_PROPOSER_PUBKEY: &str = "0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae";
 
 pub fn get_local_address(port: u16) -> String {
     format!("http://0.0.0.0:{port}")
@@ -125,6 +138,7 @@ pub fn get_pbs_config(port: u16) -> PbsConfig {
         skip_sigverify: false,
         min_bid_wei: U256::ZERO,
         late_in_slot_time_ms: u64::MAX,
+        proposer_deadline_buffer_ms: 0,
         extra_validation_enabled: false,
 
         ssv_node_api_url: Url::parse("http://localhost:0").unwrap(),
@@ -235,4 +249,112 @@ pub fn create_module_config(id: ModuleId, signing_id: B256) -> StaticModuleConfi
 
 pub fn bls_pubkey_from_hex_unchecked(hex: &str) -> BlsPublicKey {
     bls_pubkey_from_hex(hex).unwrap()
+}
+
+/// Build a `SignedBuilderRequestAuth` carrying opaque `data`. CB forwards it
+/// unmodified and leaves the signature to the builder, so an empty one
+/// suffices.
+pub fn opaque_auth(data: &[u8], slot: u64) -> SignedBuilderRequestAuth {
+    SignedBuilderRequestAuth {
+        message: BuilderRequestAuth {
+            data: ssz_types::VariableList::new(data.to_vec())
+                .expect("data fits in MaxBuilderAuthData"),
+            slot: Slot::new(slot),
+        },
+        signature: BlsSignature::empty(),
+    }
+}
+
+/// Starts a mock relay on a free port, returning its state and port: the
+/// building block of every PBS boot below.
+pub async fn spawn_mock_relay(state: MockRelayState) -> Result<(Arc<MockRelayState>, u16)> {
+    let listener = get_free_listener().await;
+    let port = listener.local_addr()?.port();
+    let state = Arc::new(state);
+    tokio::spawn(start_mock_relay_service_with_listener(state.clone(), listener));
+    Ok((state, port))
+}
+
+/// Boot PBS in front of already-spawned mock relays, letting the test shape
+/// the PBS config first. Readiness is awaited: relay_check makes a 200 on
+/// /status mean the whole chain is up.
+pub async fn setup_pbs(
+    chain: Chain,
+    relays: Vec<RelayClient>,
+    tweak: impl FnOnce(&mut PbsConfig),
+) -> Result<MockValidator> {
+    setup_test_env();
+    let pbs_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr()?.port();
+
+    let mut pbs_config = get_pbs_config(pbs_port);
+    tweak(&mut pbs_config);
+    let state = PbsState::new(to_pbs_config(chain, pbs_config, relays), PathBuf::new());
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
+
+    let mock_validator = MockValidator::new(pbs_port)?;
+    wait_for_ready(&mock_validator).await?;
+    Ok(mock_validator)
+}
+
+/// Boot PBS in front of one default-state mock relay, letting the test shape
+/// the PBS config and the relay entry.
+pub async fn setup_relay(
+    chain: Chain,
+    tweak: impl FnOnce(&mut PbsConfig),
+    make_relay: impl FnOnce(u16, BlsPublicKey) -> Result<RelayClient>,
+) -> Result<(MockValidator, Arc<MockRelayState>)> {
+    let (state, port) = spawn_mock_relay(MockRelayState::new(chain, random_secret())).await?;
+    let relay = make_relay(port, state.signer.public_key())?;
+    Ok((setup_pbs(chain, vec![relay], tweak).await?, state))
+}
+
+/// Boot PBS in front of several default-entry mock relays, one per state, so
+/// per-relay knobs and counters stay independent. Returns the relay states in
+/// configuration order.
+pub async fn setup_relays(
+    chain: Chain,
+    states: Vec<MockRelayState>,
+) -> Result<(MockValidator, Vec<Arc<MockRelayState>>)> {
+    let mut relays = Vec::with_capacity(states.len());
+    let mut arc_states = Vec::with_capacity(states.len());
+    for state in states {
+        let (state, port) = spawn_mock_relay(state).await?;
+        relays.push(generate_mock_relay(port, state.signer.public_key())?);
+        arc_states.push(state);
+    }
+    Ok((setup_pbs(chain, relays, |_| {}).await?, arc_states))
+}
+
+/// Starts one mock relay per state, each with a URL naming its host, so tests
+/// can address one builder among several by its hostname.
+pub async fn setup_relays_on_hosts(
+    chain: Chain,
+    states: Vec<(MockRelayState, &str)>,
+) -> Result<(MockValidator, Vec<Arc<MockRelayState>>)> {
+    let mut relays = Vec::with_capacity(states.len());
+    let mut arc_states = Vec::with_capacity(states.len());
+    for (state, host) in states {
+        let (state, port) = spawn_mock_relay(state).await?;
+        let mut config = mock_relay_config(port, state.signer.public_key())?;
+        config.entry.url = format!("http://{host}:{port}").parse()?;
+        relays.push(RelayClient::new(config)?);
+        arc_states.push(state);
+    }
+    Ok((setup_pbs(chain, relays, |_| {}).await?, arc_states))
+}
+
+/// Poll /status until PBS and its relays are up. relay_check makes a 200 mean
+/// the whole chain is ready; the fixed 100ms sleep used elsewhere flakes under
+/// parallel suite load.
+pub async fn wait_for_ready(mock_validator: &MockValidator) -> Result<()> {
+    for _ in 0..100 {
+        if let Ok(res) = mock_validator.do_get_status().await &&
+            res.status() == StatusCode::OK
+        {
+            return Ok(());
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    eyre::bail!("PBS/relays did not become ready within 2s")
 }

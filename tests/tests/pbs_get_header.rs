@@ -255,8 +255,7 @@ async fn test_get_header_impl(
     pbs_config.rpc_url = rpc_url;
     let config = to_pbs_config(chain, pbs_config, vec![mock_relay.clone()]);
     let state = PbsState::new(config, PathBuf::new());
-    drop(pbs_listener);
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
 
     // leave some time to start servers
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -336,8 +335,7 @@ async fn test_get_header_returns_204_if_no_relay_reachable() -> Result<()> {
     // Run the PBS service
     let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay.clone()]);
     let state = PbsState::new(config, PathBuf::new());
-    drop(pbs_listener);
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
 
     // leave some time to start servers
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -371,8 +369,7 @@ async fn test_get_header_returns_400_if_request_is_invalid() -> Result<()> {
     // Run the PBS service
     let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![mock_relay.clone()]);
     let state = PbsState::new(config, PathBuf::new());
-    drop(pbs_listener);
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
 
     // leave some time to start servers
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -534,8 +531,7 @@ async fn test_get_header_tolerates_mime_params_in_content_type() -> Result<()> {
     let pbs_config = get_pbs_config(pbs_port);
     let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
     let state = PbsState::new(config, PathBuf::new());
-    drop(pbs_listener);
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -574,8 +570,7 @@ async fn test_get_header_tolerates_json_charset_param() -> Result<()> {
     let pbs_config = get_pbs_config(pbs_port);
     let config = to_pbs_config(chain, pbs_config, vec![mock_relay]);
     let state = PbsState::new(config, PathBuf::new());
-    drop(pbs_listener);
-    tokio::spawn(PbsService::run::<(), DefaultBuilderApi>(state));
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 

@@ -171,8 +171,7 @@ mod tests {
     use crate::{
         constants::APPLICATION_BUILDER_DOMAIN,
         pbs::{
-            BlindedBeaconBlockElectra, BuilderBid, BuilderBidElectra,
-            ExecutionPayloadHeaderElectra, ExecutionRequests,
+            BlindedBeaconBlockElectra, BuilderBid, BuilderBidElectra, ExecutionPayloadHeaderElectra,
         },
         types::{BlsSecretKey, Chain},
         utils::TestRandomSeed,
@@ -189,13 +188,13 @@ mod tests {
 
     #[test]
     fn test_builder_bid_sign_and_verify() {
-        let secret_key = BlsSecretKey::test_random();
+        let secret_key = BlsSecretKey::random();
         let pubkey = secret_key.public_key();
 
         let message = BuilderBid::Electra(BuilderBidElectra {
             header: ExecutionPayloadHeaderElectra::test_random(),
             blob_kzg_commitments: Default::default(),
-            execution_requests: ExecutionRequests::default(),
+            execution_requests: Default::default(),
             value: U256::from(10),
             pubkey: pubkey.clone().into(),
         });
@@ -214,7 +213,7 @@ mod tests {
 
     #[test]
     fn test_blinded_block_sign_and_verify() {
-        let secret_key = BlsSecretKey::test_random();
+        let secret_key = BlsSecretKey::random();
         let pubkey = secret_key.public_key();
 
         let block = BlindedBeaconBlockElectra::test_random();

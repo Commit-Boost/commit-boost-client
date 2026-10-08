@@ -6,12 +6,13 @@ use axum::http::HeaderValue;
 use bytes::Bytes;
 use futures::StreamExt;
 use headers_accept::Accept;
-use lh_types::{BeaconBlock, ForkName, SignedBeaconBlock, map_fork_name};
+use lh_types::{BeaconBlock, ForkName, SignedBeaconBlock as LhSignedBeaconBlock, map_fork_name};
 use mediatype::{MediaType, ReadParams, names};
 use reqwest::{
     Response,
     header::{ACCEPT, CONTENT_TYPE, HeaderMap, ToStrError},
 };
+use ssz::Decode;
 use thiserror::Error;
 
 use crate::pbs::{HEADER_VERSION_VALUE, SignedBlindedBeaconBlock};
@@ -72,7 +73,6 @@ pub async fn read_chunked_body_with_max(
     max_size: usize,
     request_url: &str,
 ) -> Result<Vec<u8>, ResponseReadError> {
-    // Get the content length from the response headers
     #[cfg(not(feature = "testing-flags"))]
     let content_length = res.content_length();
 
@@ -280,6 +280,8 @@ fn essence_encoding(mt: &MediaType) -> Option<EncodingType> {
 pub static OUTBOUND_ACCEPT_SSZ_FIRST: HeaderValue =
     HeaderValue::from_static("application/octet-stream;q=1.0,application/json;q=0.9");
 
+pub static GLOAS_CONSENSUS_VERSION: HeaderValue = HeaderValue::from_static("gloas");
+
 pub fn get_content_type(req_headers: &HeaderMap) -> EncodingType {
     EncodingType::from_str(
         req_headers
@@ -288,6 +290,31 @@ pub fn get_content_type(req_headers: &HeaderMap) -> EncodingType {
             .unwrap_or(APPLICATION_JSON),
     )
     .unwrap_or(EncodingType::Json)
+}
+
+/// Reads `Eth-Consensus-Version`, which builder-specs requires on every request
+/// with a body: absent, or naming a fork this build does not recognize, is a
+/// 400.
+pub fn require_consensus_version_header(
+    req_headers: &HeaderMap,
+) -> Result<ForkName, BodyDeserializeError> {
+    let value = req_headers
+        .get(CONSENSUS_VERSION_HEADER)
+        .ok_or(BodyDeserializeError::MissingVersionHeader)?;
+    let value = value
+        .to_str()
+        .map_err(|_| BodyDeserializeError::InvalidVersionHeader("<non-ascii>".to_string()))?;
+    if value.is_empty() {
+        return Err(BodyDeserializeError::InvalidVersionHeader("<empty>".to_string()));
+    }
+    // Echoed into the 400 body, so bound attacker-controlled length
+    let unsupported =
+        || BodyDeserializeError::InvalidVersionHeader(value.chars().take(64).collect());
+    // Gloas-only until later forks are defined
+    match ForkName::from_str(value).map_err(|_| unsupported())? {
+        ForkName::Gloas => Ok(ForkName::Gloas),
+        _ => Err(unsupported()),
+    }
 }
 
 pub fn get_consensus_version_header(req_headers: &HeaderMap) -> Option<ForkName> {
@@ -384,23 +411,28 @@ pub enum BodyDeserializeError {
     UnsupportedMediaType,
     #[error("missing consensus version header")]
     MissingVersionHeader,
+    #[error("unsupported consensus version header: {0}")]
+    InvalidVersionHeader(String),
+    #[error("missing request body")]
+    MissingBody,
+}
+
+/// The request body encoding to decode with, from the Content-Type.
+pub fn content_type_encoding(headers: &HeaderMap) -> Result<EncodingType, BodyDeserializeError> {
+    match headers.get(CONTENT_TYPE) {
+        None => Ok(NO_PREFERENCE_DEFAULT),
+        Some(hv) => {
+            let value = hv.to_str().map_err(|_| BodyDeserializeError::UnsupportedMediaType)?;
+            EncodingType::from_str(value).map_err(|_| BodyDeserializeError::UnsupportedMediaType)
+        }
+    }
 }
 
 pub fn deserialize_body(
     headers: &HeaderMap,
     body: Bytes,
 ) -> Result<SignedBlindedBeaconBlock, BodyDeserializeError> {
-    // Determine the encoding to decode with. Precedence:
-    //   - Content-Type absent     → NO_PREFERENCE_DEFAULT
-    //   - Content-Type recognized → use it.
-    //   - Content-Type present but unrecognized → UnsupportedMediaType.
-    let encoding = match headers.get(CONTENT_TYPE) {
-        None => NO_PREFERENCE_DEFAULT,
-        Some(hv) => {
-            let value = hv.to_str().map_err(|_| BodyDeserializeError::UnsupportedMediaType)?;
-            EncodingType::from_str(value).map_err(|_| BodyDeserializeError::UnsupportedMediaType)?
-        }
-    };
+    let encoding = content_type_encoding(headers)?;
 
     match encoding {
         EncodingType::Json => match get_consensus_version_header(headers) {
@@ -409,13 +441,13 @@ pub fn deserialize_body(
             // reports the wrong fork for every Fulu block.
             Some(version) => Ok(map_fork_name!(
                 version,
-                SignedBeaconBlock,
+                LhSignedBeaconBlock,
                 serde_json::from_slice(&body).map_err(BodyDeserializeError::SerdeJsonError)?
             )),
             // builder-specs doesn't require the header for JSON bodies.
             // A request without it still has to decode and an untagged decode would silently pick
             // Electra. Assume Fulu to be conservative until ePBS warrants the refactor
-            None => Ok(SignedBeaconBlock::Fulu(
+            None => Ok(LhSignedBeaconBlock::Fulu(
                 serde_json::from_slice(&body).map_err(BodyDeserializeError::SerdeJsonError)?,
             )),
         },
@@ -426,6 +458,37 @@ pub fn deserialize_body(
             .map_err(BodyDeserializeError::SszDecodeError),
             None => Err(BodyDeserializeError::MissingVersionHeader),
         },
+    }
+}
+
+/// Decode a fork-versioned ePBS request body (builder-specs fork-versions
+/// `SignedBuilderRequestAuth` and `BuilderPreferencesRequest`) as JSON or SSZ,
+/// defaulting to JSON when no `Content-Type` is set. An empty body is rejected
+/// first so a missing body reads as `MissingBody`. `Eth-Consensus-Version` is
+/// required for BOTH encodings and its value must name a fork this build
+/// recognizes (absent -> `MissingVersionHeader`, unrecognized ->
+/// `InvalidVersionHeader`, both -> 400), per builder-specs
+/// specs/gloas/builder.md.
+pub fn decode_versioned_request_body<T>(
+    headers: &HeaderMap,
+    body: &Bytes,
+) -> Result<T, BodyDeserializeError>
+where
+    T: serde::de::DeserializeOwned + Decode,
+{
+    if body.is_empty() {
+        return Err(BodyDeserializeError::MissingBody);
+    }
+    // Content-Type first so an unsupported media type stays a 415
+    let encoding = content_type_encoding(headers)?;
+    require_consensus_version_header(headers)?;
+    match encoding {
+        EncodingType::Json => {
+            serde_json::from_slice(body.as_ref()).map_err(BodyDeserializeError::SerdeJsonError)
+        }
+        EncodingType::Ssz => {
+            T::from_ssz_bytes(body.as_ref()).map_err(BodyDeserializeError::SszDecodeError)
+        }
     }
 }
 
@@ -1001,5 +1064,99 @@ mod test {
             ForkName::Fulu,
             "a headerless JSON body must not fall back to the untagged Electra match"
         );
+    }
+
+    // ── decode_versioned_request_body ────────────────────────────────────────
+
+    fn sample_preferences_request() -> crate::pbs::BuilderPreferencesRequest {
+        use crate::pbs::{BuilderPreferences, BuilderRequestAuth, SignedBuilderRequestAuth};
+        crate::pbs::BuilderPreferencesRequest {
+            preferences: BuilderPreferences { max_execution_payment: 7 },
+            auth: SignedBuilderRequestAuth {
+                message: BuilderRequestAuth {
+                    data: vec![0xde, 0xad].try_into().unwrap(),
+                    slot: lh_types::Slot::new(3),
+                },
+                signature: crate::types::BlsSignature::empty(),
+            },
+        }
+    }
+
+    fn versioned_headers(
+        content_type: Option<&'static str>,
+        version: Option<&'static str>,
+    ) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        if let Some(ct) = content_type {
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static(ct));
+        }
+        if let Some(v) = version {
+            headers.insert(
+                HeaderName::try_from(CONSENSUS_VERSION_HEADER).unwrap(),
+                HeaderValue::from_static(v),
+            );
+        }
+        headers
+    }
+
+    /// The three ePBS request bodies share this decoder, so the encoding and
+    /// version-header rules are pinned here once rather than per endpoint.
+    #[test]
+    fn test_decode_versioned_request_body() {
+        use ssz::Encode;
+
+        use super::decode_versioned_request_body;
+        use crate::pbs::BuilderPreferencesRequest;
+
+        let request = sample_preferences_request();
+        let ssz_body = Bytes::from(request.as_ssz_bytes());
+        let json_body = Bytes::from(serde_json::to_vec(&request).unwrap());
+        let decode = |headers: &HeaderMap, body: &Bytes| {
+            decode_versioned_request_body::<BuilderPreferencesRequest>(headers, body)
+        };
+
+        // An empty body is a missing body, whatever the headers say: checked
+        // before the version header, so a bare POST names the body
+        assert!(matches!(
+            decode(&versioned_headers(None, None), &Bytes::new()),
+            Err(BodyDeserializeError::MissingBody)
+        ));
+
+        // No Content-Type means JSON (builder-specs), so SSZ must be labeled
+        let decoded = decode(&versioned_headers(None, Some("gloas")), &json_body).unwrap();
+        assert_eq!(decoded.auth.message.slot.as_u64(), 3);
+        assert!(matches!(
+            decode(&versioned_headers(None, Some("gloas")), &ssz_body),
+            Err(BodyDeserializeError::SerdeJsonError(_))
+        ));
+        let decoded =
+            decode(&versioned_headers(Some(APPLICATION_OCTET_STREAM), Some("gloas")), &ssz_body)
+                .unwrap();
+        assert_eq!(decoded.preferences.max_execution_payment, 7);
+
+        // lighthouse's FromStr lowercases, so an uppercase gloas passes
+        decode(&versioned_headers(None, Some("GLOAS")), &json_body).unwrap();
+
+        // The version header is required for both encodings
+        for (ct, body) in [(Some(APPLICATION_OCTET_STREAM), &ssz_body), (None, &json_body)] {
+            assert!(matches!(
+                decode(&versioned_headers(ct, None), body),
+                Err(BodyDeserializeError::MissingVersionHeader)
+            ));
+            // Only gloas is accepted: an earlier fork or an unknown name names
+            // the bad value
+            for bad in ["fulu", "electra", "futurefork"] {
+                assert!(matches!(
+                    decode(&versioned_headers(ct, Some(bad)), body),
+                    Err(BodyDeserializeError::InvalidVersionHeader(ref v)) if v == bad
+                ));
+            }
+        }
+
+        // An unsupported media type is a 415 before the version header is read
+        assert!(matches!(
+            decode(&versioned_headers(Some("text/plain"), None), &ssz_body),
+            Err(BodyDeserializeError::UnsupportedMediaType)
+        ));
     }
 }
