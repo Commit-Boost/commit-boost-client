@@ -38,3 +38,6 @@ url.workspace = true
 uuid.workspace = true
 webpki-roots.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
