@@ -7,6 +7,7 @@ version.workspace = true
 [dependencies]
 cb-cli.workspace = true
 cb-common.workspace = true
+cb-km.workspace = true
 cb-metrics.workspace = true
 cb-pbs.workspace = true
 cb-signer.workspace = true
@@ -20,7 +21,9 @@ tree_hash_derive.workspace = true
 
 [dev-dependencies]
 assert_cmd.workspace = true
+axum.workspace = true
 predicates.workspace = true
+serde_json.workspace = true
 serde_yaml.workspace = true
 tempfile.workspace = true
 

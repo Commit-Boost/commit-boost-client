@@ -76,6 +76,7 @@ fn mock_relay_config(port: u16, pubkey: BlsPublicKey) -> Result<RelayConfig> {
         target_first_request_ms: None,
         frequency_get_header_ms: None,
         validator_registration_batch_size: None,
+        max_execution_payment_gwei: None,
     })
 }
 
@@ -148,6 +149,9 @@ pub fn get_pbs_config(port: u16) -> PbsConfig {
         register_validator_retry_limit: u32::MAX,
         validator_registration_batch_size: None,
         mux_registry_refresh_interval_seconds: 5,
+        max_execution_payment_gwei: None,
+        min_bid_p2p_wei: None,
+        builder_boost_factor_p2p: None,
     }
 }
 

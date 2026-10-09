@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use eyre::{Result, bail};
+use eyre::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::types::{Chain, ChainLoader, ForkVersion, load_chain_from_file};
@@ -59,14 +59,14 @@ impl CommitBoostConfig {
     }
 
     pub fn from_file(path: &PathBuf) -> Result<Self> {
-        let (config, _): (Self, _) = load_from_file(path)?;
-        Ok(config)
+        load_checked(path)
     }
 
     // When loading the config from the environment, it's important that every path
     // is replaced with the correct value if the config is loaded inside a container
     pub fn from_env_path() -> Result<(Self, PathBuf)> {
-        let (helper_config, config_path): (HelperConfig, PathBuf) = load_file_from_env(CONFIG_ENV)?;
+        let config_path = PathBuf::from(load_env_var(CONFIG_ENV)?);
+        let helper_config: HelperConfig = load_checked(&config_path)?;
 
         let chain = match helper_config.chain {
             ChainLoader::Path { path, genesis_time_secs } => {
@@ -182,6 +182,17 @@ impl CommitBoostConfig {
             })
             .unwrap_or_default()
     }
+}
+
+/// Parses the config twice from one read: as a `toml::Value` to check each
+/// `[[mux]]` alone, then as `T` from the text, so a type error keeps its line
+fn load_checked<P: AsRef<Path> + std::fmt::Debug, T: serde::de::DeserializeOwned>(
+    path: P,
+) -> Result<T> {
+    let text =
+        std::fs::read_to_string(&path).wrap_err(format!("Unable to find config file: {path:?}"))?;
+    check_mux_tables(&toml::from_str(&text).wrap_err("could not deserialize toml from string")?)?;
+    toml::from_str(&text).wrap_err("could not deserialize toml from string")
 }
 
 /// Helper struct to load the chain spec file

@@ -32,6 +32,7 @@ bytes = "1.10.1"
 criterion = { version = "0.5", features = ["html_reports"] }
 cb-cli = { path = "crates/cli" }
 cb-common = { path = "crates/common" }
+cb-km = { path = "crates/km" }
 cb-metrics = { path = "crates/metrics" }
 cb-pbs = { path = "crates/pbs" }
 cb-signer = { path = "crates/signer" }

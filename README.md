@@ -21,7 +21,7 @@ Commit-Boost is a modular sidecar that allows Ethereum validators to opt-in to d
 - Support for hard-forks and new protocol requirements
 
 ## Get started
-- [Node operators](https://commit-boost.github.io/commit-boost-client/category/get-started)
+- [Node operators](https://commit-boost.github.io/commit-boost-client/category/get-started). From the Gloas fork, a validator key gets no bids through Commit-Boost until its builder config points at Commit-Boost, which [`commit-boost builder-config`](https://commit-boost.github.io/commit-boost-client/get_started/epbs#builder-config-command) writes
 - [Developers](https://commit-boost.github.io/commit-boost-client/category/developing). Check out also the [examples](/examples)
 
 ## Audit

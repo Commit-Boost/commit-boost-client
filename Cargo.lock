@@ -1972,6 +1972,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "cb-km"
+version = "0.11.0"
+dependencies = [
+ "alloy",
+ "axum 0.8.9",
+ "cb-common",
+ "clap",
+ "eyre",
+ "reqwest 0.13.5",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
 name = "cb-metrics"
 version = "0.11.0"
 dependencies = [
@@ -2275,8 +2295,10 @@ name = "commit-boost"
 version = "0.11.0"
 dependencies = [
  "assert_cmd",
+ "axum 0.8.9",
  "cb-cli",
  "cb-common",
+ "cb-km",
  "cb-metrics",
  "cb-pbs",
  "cb-signer",
@@ -2284,6 +2306,7 @@ dependencies = [
  "color-eyre",
  "eyre",
  "predicates",
+ "serde_json",
  "serde_yaml",
  "tempfile",
  "tokio",

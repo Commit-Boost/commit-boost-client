@@ -71,4 +71,8 @@ Or for the Signer service:
 CB_CONFIG=./cb-config.toml CB_JWTS="MY_MODULE=<secret>" CB_SIGNER_ADMIN_JWT="<secret>" commit-boost signer
 ```
 
+:::warning ePBS
+From the Gloas fork, a validator key gets no bids through Commit-Boost until its builder config points at Commit-Boost. [`commit-boost builder-config`](../epbs.md#builder-config-command) writes it; run it again after changing the relays or muxes, since a config reload does not reach the validator clients.
+:::
+
 For a worked signer startup, see [Verifying the Signer Service](../building.md#verifying-the-signer-service).

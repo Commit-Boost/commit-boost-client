@@ -36,8 +36,8 @@ use crate::{
     },
     types::{BlsPublicKey, Chain, Jwt, ModuleId},
     utils::{
-        WEI_PER_ETH, as_eth_str, default_bool, default_host, default_u16, default_u32, default_u64,
-        default_u256,
+        WEI_PER_ETH, as_eth_str, as_opt_eth_str, default_bool, default_host, default_u16,
+        default_u32, default_u64, default_u256,
     },
 };
 
@@ -145,6 +145,59 @@ pub struct RelayConfig {
     /// request
     #[serde(deserialize_with = "empty_string_as_none", default)]
     pub validator_registration_batch_size: Option<usize>,
+    /// Overrides the `[pbs]` cap for this relay; read only by
+    /// `commit-boost builder-config`
+    pub max_execution_payment_gwei: Option<ExecutionPaymentCap>,
+}
+
+/// The cap on the execution payment a validator counts toward a bid
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+#[serde(try_from = "CapValue", into = "CapValue")]
+pub enum ExecutionPaymentCap {
+    Gwei(u64),
+    /// `"unclamped"`: the whole execution payment counts
+    Unclamped,
+}
+
+impl ExecutionPaymentCap {
+    /// The keymanager `max_execution_payment`, where the largest Uint64
+    /// leaves the payment unclamped
+    pub fn gwei(self) -> u64 {
+        match self {
+            Self::Gwei(gwei) => gwei,
+            Self::Unclamped => u64::MAX,
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(untagged)]
+enum CapValue {
+    Gwei(u64),
+    Keyword(String),
+}
+
+impl TryFrom<CapValue> for ExecutionPaymentCap {
+    type Error = String;
+
+    fn try_from(value: CapValue) -> Result<Self, Self::Error> {
+        match value {
+            CapValue::Gwei(gwei) => Ok(Self::Gwei(gwei)),
+            CapValue::Keyword(word) if word == "unclamped" => Ok(Self::Unclamped),
+            CapValue::Keyword(word) => {
+                Err(format!("expected a Gwei amount or \"unclamped\", got {word:?}"))
+            }
+        }
+    }
+}
+
+impl From<ExecutionPaymentCap> for CapValue {
+    fn from(cap: ExecutionPaymentCap) -> Self {
+        match cap {
+            ExecutionPaymentCap::Gwei(gwei) => Self::Gwei(gwei),
+            ExecutionPaymentCap::Unclamped => Self::Keyword("unclamped".to_string()),
+        }
+    }
 }
 
 fn empty_string_as_none<'de, D>(deserializer: D) -> Result<Option<usize>, D::Error>
@@ -236,6 +289,14 @@ pub struct PbsConfig {
     /// from the registry, in seconds
     #[serde(default = "default_u64::<{ DEFAULT_REGISTRY_REFRESH_SECONDS }>")]
     pub mux_registry_refresh_interval_seconds: u64,
+    // The fields below are read only by `commit-boost builder-config`, which
+    // writes them into the validators' builder config
+    pub max_execution_payment_gwei: Option<ExecutionPaymentCap>,
+    /// Key-level value, for p2p bids
+    #[serde(rename = "min_bid_p2p_eth", with = "as_opt_eth_str", default)]
+    pub min_bid_p2p_wei: Option<U256>,
+    /// Key-level value, for p2p bids
+    pub builder_boost_factor_p2p: Option<u64>,
 }
 
 impl PbsConfig {

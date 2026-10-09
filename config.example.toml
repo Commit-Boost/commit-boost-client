@@ -34,6 +34,15 @@ timeout_get_header_ms = 950
 # (unreleased, from v0.12.0-rc1) ePBS bids only: ms kept back from the beacon node's X-Timeout-Ms deadline, must be above 0 and under one slot, 12000 on mainnet (https://commit-boost.github.io/commit-boost-client/get_started/epbs#timing)
 # OPTIONAL, DEFAULT: 50
 # proposer_deadline_buffer_ms = 50
+# (unreleased, from v0.12.0-rc1) Read only by `commit-boost builder-config`: the cap, in Gwei, on the execution payment a validator counts toward a bid, or "unclamped" to count all of it (https://commit-boost.github.io/commit-boost-client/get_started/epbs#builder-config-command)
+# OPTIONAL, DEFAULT: "unclamped"
+# max_execution_payment_gwei = 0
+# (unreleased, from v0.12.0-rc1) Read only by `commit-boost builder-config`: the min_bid it writes for bids received over p2p (https://commit-boost.github.io/commit-boost-client/get_started/epbs#builder-config-command)
+# OPTIONAL, DEFAULT: the entries' min_bid
+# min_bid_p2p_eth = 0.0
+# (unreleased, from v0.12.0-rc1) Read only by `commit-boost builder-config`: the builder_boost_factor it writes for bids received over p2p (https://commit-boost.github.io/commit-boost-client/get_started/epbs#builder-config-command)
+# OPTIONAL, DEFAULT: the entries' builder_boost_factor
+# builder_boost_factor_p2p = 100
 # Timeout in milliseconds for the `submit_blinded_block` call to relays.
 # OPTIONAL, DEFAULT: 4000
 timeout_get_payload_ms = 4000
@@ -138,6 +147,9 @@ target_first_request_ms = 200
 # Frequency in ms to send get_header requests
 # OPTIONAL
 frequency_get_header_ms = 300
+# (unreleased, from v0.12.0-rc1) Read only by `commit-boost builder-config`: this relay's cap, instead of the [pbs] one (https://commit-boost.github.io/commit-boost-client/get_started/epbs#builder-config-command)
+# OPTIONAL, DEFAULT: the [pbs] cap
+# max_execution_payment_gwei = 0
 
 # Configuration for the PBS multiplexers, which enable different configs to be used for get header requests, depending on validator pubkey
 # Note that:
@@ -184,12 +196,21 @@ loader = "./tests/data/mux_keys.example.json"
 # loader = { registry = "stader", node_operator_id = 8, stader_pool = "permissionless", enable_refreshing = false }
 late_in_slot_time_ms = 1500
 timeout_get_header_ms = 900
+# (unreleased, from v0.12.0-rc1) Read only by `commit-boost builder-config`, not by the PBS service: the min_bid it writes for this mux's keys, for p2p bids too unless [pbs] min_bid_p2p_eth is set (https://commit-boost.github.io/commit-boost-client/get_started/epbs#builder-config-command)
+# OPTIONAL, DEFAULT: the [pbs] min_bid_eth
+# min_bid_eth = 0.0
+# (unreleased, from v0.12.0-rc1) Read only by `commit-boost builder-config`: the builder_boost_factor it writes for this mux's keys, for p2p bids too unless [pbs] builder_boost_factor_p2p is set (https://commit-boost.github.io/commit-boost-client/get_started/epbs#builder-config-command)
+# OPTIONAL, DEFAULT: 100
+# builder_boost_factor = 100
 # For each mux, one or more [[mux.relays]] can be defined, which will be used for the matching validator pubkeys
 # Only the relays defined here will be used, and the relays defined in the main [[relays]] config will be ignored
 # The fields specified here are the same as in [[relays]] (headers, get_params, enable_timing_games, target_first_request_ms, frequency_get_header_ms)
 [[mux.relays]]
 id = "mux-relay-1"
 url = "http://0xa119589bb33ef52acbb8116832bec2b58fca590fe5c85eac5d3230b44d5bc09fe73ccd21f88eab31d6de16194d17782e@def.xyz"
+# (unreleased, from v0.12.0-rc1) Read only by `commit-boost builder-config`: this relay's cap, instead of the [pbs] one (https://commit-boost.github.io/commit-boost-client/get_started/epbs#builder-config-command)
+# OPTIONAL, DEFAULT: the [pbs] cap
+# max_execution_payment_gwei = 0
 
 # Configuration for the Signer service, only required if any `commit` module is present, or if `pbs.with_signer = true`
 # Currently two types of Signer service are supported (only one can be used at a time):

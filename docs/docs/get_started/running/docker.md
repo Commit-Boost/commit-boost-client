@@ -32,6 +32,10 @@ This will run all the configured services, including PBS, signer and commit modu
 
 The MEV-Boost server will be exposed at `pbs.port` from the config, `18550` in our example. You'll need to point your CL/Validator client to this port to be able to source blocks from the builder market.
 
+:::warning ePBS
+From the Gloas fork, a validator key gets no bids through Commit-Boost until its builder config points at Commit-Boost. [`commit-boost builder-config`](../epbs.md#builder-config-command) writes it; run it again after changing the relays or muxes, since a config reload does not reach the validator clients.
+:::
+
 ## Logs
 To check the logs, run:
 ```bash

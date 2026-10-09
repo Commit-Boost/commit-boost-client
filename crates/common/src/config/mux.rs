@@ -24,7 +24,7 @@ use crate::{
     interop::{lido::utils::*, ssv::utils::*, stader::utils::*},
     pbs::RelayClient,
     types::{BlsPublicKey, Chain, StaderPool},
-    utils::default_bool,
+    utils::{as_opt_eth_str, default_bool},
     wire::safe_read_http_response,
 };
 
@@ -153,6 +153,11 @@ pub struct MuxConfig {
     pub loader: Option<MuxKeysLoader>,
     pub timeout_get_header_ms: Option<u64>,
     pub late_in_slot_time_ms: Option<u64>,
+    // The fields below are read only by `commit-boost builder-config`, which
+    // writes them into the validators' builder config
+    pub builder_boost_factor: Option<u64>,
+    #[serde(rename = "min_bid_eth", with = "as_opt_eth_str", default)]
+    pub min_bid_wei: Option<U256>,
 }
 
 impl MuxConfig {
@@ -304,6 +309,22 @@ impl MuxKeysLoader {
         let deduped_keys = remove_duplicate_keys(keys);
         Ok(deduped_keys)
     }
+}
+
+/// The flattened `Option<PbsMuxes>` reads a `[[mux]]` that fails to parse as
+/// no muxes at all, so parse each one alone to surface its error
+pub fn check_mux_tables(raw: &toml::Value) -> eyre::Result<()> {
+    let Some(muxes) = raw.get("mux") else { return Ok(()) };
+    let Some(muxes) = muxes.as_array() else {
+        eyre::bail!("`mux` is not an array of tables: write [[mux]], not [mux]")
+    };
+    for mux in muxes {
+        let id = mux.get("id").and_then(toml::Value::as_str).unwrap_or_default();
+        mux.clone()
+            .try_into::<MuxConfig>()
+            .wrap_err_with(|| format!("could not parse [[mux]] {id}"))?;
+    }
+    Ok(())
 }
 
 fn load_file<P: AsRef<Path> + std::fmt::Debug>(path: P) -> eyre::Result<String> {
@@ -546,4 +567,76 @@ async fn fetch_ssv_pubkeys_from_public_api(
     }
 
     Ok(pubkeys)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        config::{
+            CONFIG_ENV, CommitBoostConfig,
+            test_env::{RELAY_URL, with_env},
+        },
+        types::BlsSecretKey,
+    };
+
+    // Both loaders refuse a mux that fails to parse, rather than run without muxes
+    #[test]
+    fn a_mux_that_fails_to_parse_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cb-config.toml");
+        let key = BlsSecretKey::random().public_key().as_hex_string();
+        let key2 = BlsSecretKey::random().public_key().as_hex_string();
+        for (line, ok) in [("", true), ("builder_boost_factor = 1.5", false)] {
+            std::fs::write(
+                &path,
+                format!(
+                    "chain = \"Holesky\"\n[pbs]\n[[relays]]\nurl = \"{RELAY_URL}\"\n\
+                     [[mux]]\nid = \"m1\"\nvalidator_pubkeys = [\"{key}\"]\n\
+                     [[mux.relays]]\nurl = \"{RELAY_URL}\"\n\
+                     [[mux]]\nid = \"m2\"\nvalidator_pubkeys = [\"{key2}\"]\n{line}\n\
+                     [[mux.relays]]\nurl = \"{RELAY_URL}\"\n"
+                ),
+            )
+            .unwrap();
+            let from_env =
+                with_env(&[(CONFIG_ENV, path.to_str())], CommitBoostConfig::from_env_path);
+            for (loader, muxes) in [
+                ("from_file", CommitBoostConfig::from_file(&path).map(|cfg| cfg.muxes)),
+                ("from_env_path", from_env.map(|(cfg, _)| cfg.muxes)),
+            ] {
+                match muxes {
+                    Ok(muxes) => {
+                        assert!(ok && muxes.is_some_and(|m| m.muxes.len() == 2), "{loader}: {line}")
+                    }
+                    Err(err) => assert!(
+                        !ok && format!("{err:#}").contains("could not parse [[mux]] m2"),
+                        "{loader}: {line}: {err:#}"
+                    ),
+                }
+            }
+        }
+    }
+
+    // `[mux]` for `[[mux]]` would otherwise also read as no muxes
+    #[test]
+    fn a_mux_that_is_not_an_array_of_tables_is_an_error() {
+        for text in ["[mux]\nid = \"m\"", "mux = \"m\""] {
+            let raw: toml::Value = toml::from_str(text).unwrap();
+            assert!(check_mux_tables(&raw).is_err(), "{text}");
+        }
+    }
+
+    #[test]
+    fn a_config_error_names_its_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cb-config.toml");
+        let text =
+            format!("chain = \"Holesky\"\n[pbs]\n[[relays]]\nurl = \"{RELAY_URL}\"\nfoo = 1\n");
+        std::fs::write(&path, text).unwrap();
+        let from_env = with_env(&[(CONFIG_ENV, path.to_str())], CommitBoostConfig::from_env_path);
+        for err in [CommitBoostConfig::from_file(&path).unwrap_err(), from_env.unwrap_err()] {
+            assert!(format!("{err:#}").contains("line 5"), "{err:#}");
+        }
+    }
 }

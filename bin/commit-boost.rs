@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, process::ExitCode};
 
 use cb_cli::docker_init::handle_docker_init;
 use cb_common::{
@@ -42,12 +42,14 @@ enum Commands {
         #[arg(short, long("output"), default_value = "./")]
         output_path: PathBuf,
     },
+
+    /// Print or write each validator key's ePBS builder config, for its
+    /// validator client's keymanager API
+    BuilderConfig(cb_km::cli::BuilderConfigArgs),
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
-    // Parse the CLI arguments (currently only used for version info, more can be
-    // added later)
+async fn main() -> Result<ExitCode> {
     let cli = Cli::parse();
 
     color_eyre::install()?;
@@ -56,9 +58,10 @@ async fn main() -> Result<()> {
         Commands::Pbs => run_pbs_service().await?,
         Commands::Signer => run_signer_service().await?,
         Commands::Init { config_path, output_path } => run_init(config_path, output_path).await?,
+        Commands::BuilderConfig(args) => return Ok(cb_km::cli::run(args).await),
     }
 
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }
 
 /// Run the PBS service

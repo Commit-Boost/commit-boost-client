@@ -75,6 +75,9 @@ async fn test_cfg_file_update() -> Result<()> {
         register_validator_retry_limit: 3,
         validator_registration_batch_size: None,
         mux_registry_refresh_interval_seconds: 384,
+        max_execution_payment_gwei: None,
+        min_bid_p2p_wei: None,
+        builder_boost_factor_p2p: None,
     };
     let cb_config = CommitBoostConfig {
         chain,
@@ -97,6 +100,7 @@ async fn test_cfg_file_update() -> Result<()> {
             headers: None,
             target_first_request_ms: None,
             validator_registration_batch_size: None,
+            max_execution_payment_gwei: None,
             entry: RelayEntry {
                 id: relay1.id.to_string(),
                 url: Url::parse(&format!("http://localhost:{relay1_port}"))?,
@@ -150,6 +154,7 @@ async fn test_cfg_file_update() -> Result<()> {
             headers: None,
             target_first_request_ms: None,
             validator_registration_batch_size: None,
+            max_execution_payment_gwei: None,
             entry: RelayEntry {
                 id: relay2_id,
                 url: Url::parse(&format!("http://{pubkey}@localhost:{relay2_port}"))?,

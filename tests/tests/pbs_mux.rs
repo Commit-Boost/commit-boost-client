@@ -384,6 +384,8 @@ async fn test_ssv_multi_with_node() -> Result<()> {
             relays: vec![(*relay.config).clone()],
             timeout_get_header_ms: Some(u64::MAX - 1),
             validator_pubkeys: vec![],
+            builder_boost_factor: None,
+            min_bid_wei: None,
         }],
     };
 
@@ -491,6 +493,8 @@ async fn test_ssv_multi_with_public() -> Result<()> {
             relays: vec![(*relay.config).clone()],
             timeout_get_header_ms: Some(u64::MAX - 1),
             validator_pubkeys: vec![],
+            builder_boost_factor: None,
+            min_bid_wei: None,
         }],
     };
 

@@ -179,6 +179,7 @@ fn dial_config(url: Url) -> RelayConfig {
         target_first_request_ms: None,
         frequency_get_header_ms: None,
         validator_registration_batch_size: None,
+        max_execution_payment_gwei: None,
     }
 }
 

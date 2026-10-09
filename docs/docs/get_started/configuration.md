@@ -705,6 +705,8 @@ Passing the minted token on the command line is acceptable only because it expir
 
 In addition to the manual `/reload` endpoint, the PBS service watches the config file for changes and automatically reloads the configuration whenever the file is modified, with no restart or API call needed. If a reload fails (e.g. because of a misconfigured option), the previous configuration is kept: the watcher logs a warning and the `/reload` endpoint returns a 500 error.
 
+From the Gloas fork, a reload does not reach your validator clients' builder config: after changing `[[relays]]`, `[[mux]]` or a value [`commit-boost builder-config`](./epbs.md#builder-config-command) reads, run it again.
+
 :::caution Custom PBS binaries
 Custom PBS binaries only get the file watcher if they pass the real config path to `PbsState::new`; see [Extending PBS](../developing/extending-pbs.md#entry-point). `POST /reload` works either way.
 :::

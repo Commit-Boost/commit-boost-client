@@ -84,11 +84,9 @@ pub fn test_encode_decode<T: Serialize + DeserializeOwned>(d: &str) -> T {
 pub mod as_eth_str {
     use alloy::primitives::{
         U256,
-        utils::{format_ether, parse_ether},
+        utils::{ParseUnits, Unit, format_ether},
     };
     use serde::Deserialize;
-
-    use super::eth_to_wei;
 
     pub fn serialize<S>(data: &U256, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -109,15 +107,42 @@ pub mod as_eth_str {
             F64(f64),
         }
 
-        let value = StringOrF64::deserialize(deserializer)?;
-        let wei = match value {
-            StringOrF64::Str(s) => {
-                parse_ether(&s).map_err(|_| serde::de::Error::custom("invalid eth amount"))?
-            }
-            StringOrF64::F64(f) => eth_to_wei(f),
+        let value = match StringOrF64::deserialize(deserializer)? {
+            StringOrF64::Str(s) => s,
+            // Its shortest decimal form, so `0.009` is exact
+            StringOrF64::F64(f) => f.to_string(),
         };
+        // A negative amount parses as a signed value, which is refused
+        match ParseUnits::parse_units(&value, Unit::ETHER) {
+            Ok(ParseUnits::U256(wei)) => Ok(wei),
+            _ => Err(serde::de::Error::custom(format!("invalid eth amount: {value}"))),
+        }
+    }
+}
 
-        Ok(wei)
+/// `as_eth_str` for an optional field
+pub mod as_opt_eth_str {
+    use alloy::primitives::U256;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(data: &Option<U256>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match data {
+            Some(wei) => super::as_eth_str::serialize(wei, serializer),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<U256>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Eth(#[serde(with = "super::as_eth_str")] U256);
+
+        Ok(Option::<Eth>::deserialize(deserializer)?.map(|Eth(wei)| wei))
     }
 }
 
@@ -465,7 +490,7 @@ pub fn bls_pubkey_from_hex_unchecked(hex: &str) -> BlsPublicKey {
 
 #[cfg(test)]
 mod test {
-    use alloy::primitives::keccak256;
+    use alloy::primitives::{U256, keccak256};
 
     use super::{
         create_admin_jwt, create_jwt, decode_admin_jwt, decode_jwt, ms_into_slot,
@@ -690,5 +715,27 @@ mod test {
         assert!(secret.chars().all(|c| c.is_ascii_alphanumeric()));
         // Two calls should produce distinct values with overwhelming probability.
         assert_ne!(secret, random_jwt_secret());
+    }
+
+    #[test]
+    fn eth_amounts_parse_exactly_and_refuse_non_finite_or_negative() {
+        #[derive(serde::Deserialize)]
+        struct Amount {
+            #[serde(with = "super::as_eth_str")]
+            eth: U256,
+        }
+        let parse = |toml: &str| toml::from_str::<Amount>(toml).map(|amount| amount.eth);
+        for (toml, wei) in [
+            ("eth = 0.009", 9_000_000_000_000_000u64),
+            ("eth = \"0.009\"", 9_000_000_000_000_000),
+            ("eth = 0.0157", 15_700_000_000_000_000),
+            ("eth = 0.0021", 2_100_000_000_000_000),
+            ("eth = 1", 1_000_000_000_000_000_000),
+        ] {
+            assert_eq!(parse(toml).unwrap(), U256::from(wei), "{toml}");
+        }
+        for toml in ["eth = -0.1", "eth = \"-0.1\"", "eth = nan", "eth = inf"] {
+            assert!(parse(toml).is_err(), "{toml}");
+        }
     }
 }

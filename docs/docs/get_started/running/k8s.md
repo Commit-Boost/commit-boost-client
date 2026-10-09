@@ -12,6 +12,10 @@ Commit-Boost can be deployed on Kubernetes using the [Helm chart](https://helm.s
 The current Helm chart supports only the **PBS Service**. It does **not** support the Signer Service or custom commit modules. If you need Signer or module support, please use the [Docker](./docker.md) or [Binary](./binary.md) deployment methods instead.
 :::
 
+:::warning ePBS
+From the Gloas fork, a validator key gets no bids through Commit-Boost until its builder config points at Commit-Boost. [`commit-boost builder-config`](../epbs.md#builder-config-on-kubernetes) writes it, from a sidecar in each validator client's pod.
+:::
+
 ## Prerequisites
 
 - A Kubernetes cluster
