@@ -307,7 +307,15 @@ Either form may end in `?` and form-encoded parameters for the builder, such as 
 
 A key's builder config may name a builder you have not added as a relay entry. Commit-Boost dials that builder anyway: a hostname at `https://<hostname>` on the default port, and a URL at its scheme, host and port. It answers `400` instead when the host does not resolve, or resolves to any address that is not public unicast, such as a loopback, private, link-local or `100.64.0.0/10` address, so a builder on your own network has to be a relay entry. These requests connect directly, ignoring `HTTP_PROXY`, `HTTPS_PROXY` and `ALL_PROXY`, follow no redirects and do not carry your relay `headers`. A builder reached this way gets the signed block over gossip, not from Commit-Boost. Neither `[[relays]]` nor a mux's relays limit which builders a key can reach this way, and anyone who can reach Commit-Boost's port can make it dial a public host, so keep that port private. Commit-Boost looks up at most 32 of these hosts at once and answers further requests as if the builder had not responded.
 
-A key without builder config sends Commit-Boost's own hostname as its `auth_data`, so it gets no bids. Commit-Boost answers `400` when that hostname resolves to a loopback or private address, as it usually does, and otherwise dials `https://<hostname>` on port 443, where Commit-Boost itself does not listen. Commit-Boost never dials for a request that came from another Commit-Boost, so chained Commit-Boosts route only through relay entries.
+Commit-Boost never dials for a request that came from another Commit-Boost, so chained Commit-Boosts route only through relay entries. It answers `400` to auth data that names Commit-Boost itself ([missing builder config](#missing-builder-config)).
+
+## Keys with a missing or stale builder config {#missing-builder-config}
+
+A key with no builder config sends Commit-Boost's hostname as its `auth_data`, and Prysm sends Commit-Boost's whole URL for an entry without `auth_data`. Commit-Boost tells these apart by the request's `Host` header, a hostname at any port or a URL at its host and port, answers `400` at once, and logs a warning naming the key. A key whose `auth_data` names one of Commit-Boost's relays, but not one of the key's own relays, has a stale config: Commit-Boost logs a warning and dials that relay as a builder outside your config, without its `headers`. Both mean the key needs its builder config written again with [`commit-boost builder-config`](#builder-config-command) or your tooling.
+
+Commit-Boost names up to 5 such keys an epoch (32 slots, counted from its start), with their mux and `auth_data`, and logs how many more there were when the epoch ends. Preferences arrive about an epoch before the slot, so the warning comes only minutes before the proposal; to catch it sooner, read a key back after writing it. A key whose validator client names no builder at all never reaches Commit-Boost, and Nimbus does not send its keys' builder config, so neither shows here.
+
+Neither warning catches every miss. A key moved to a mux whose relays have the same hostnames routes as before and is not reported, while its validator client keeps the old mux's values. A key whose `auth_data` names a relay you removed counts as `dial` and is dialed as a builder outside your config. Reading every key back on a timer and comparing it with its body in `print`'s document is the only check that finds these, and a validator client that lost its builder config.
 
 ## Timing
 
@@ -325,14 +333,25 @@ With [metrics](./running/metrics.md) enabled, the ePBS endpoints use the `endpoi
 |---|---|
 | What did Commit-Boost answer the beacon node? | `cb_pbs_beacon_node_status_code_total`: `200` or `204` for a bid request, `202` for preferences, `202` for the signed block whatever the builders answer, `4xx` for a rejected request, `500` when no builder accepted the preferences |
 | What did each builder answer? | `cb_pbs_relay_status_code_total`, by `relay_id`: the builder's HTTP status, or `555` when no response arrived (timeout, DNS or connection failure). Requests to builders outside your config count under `relay_id="dial"`, except one Commit-Boost [refuses to dial](#builders-outside-your-config), which gets no request |
+| Do keys' builder configs name their relays? | `cb_pbs_auth_data_route_total`, by `endpoint` and `outcome`: `relay` for one of the key's relays, `dial` for auth data Commit-Boost dials, including dials it then refuses, and `no_config` and `stale` for a [missing or stale builder config](#missing-builder-config). |
 | How fast are builders? | `cb_pbs_relay_latency`, by `relay_id` |
 | What are builders bidding? | `cb_pbs_relay_header_value` (the bid's `value` in Gwei, without the execution payment) and `cb_pbs_relay_last_slot`, by `relay_id`, from each bid a builder serves |
+
+Every `cb_pbs_auth_data_route_total` series starts at `0`, so this alerts on the first key with a missing or stale builder config:
+
+```promql
+increase(cb_pbs_auth_data_route_total{outcome=~"no_config|stale"}[1h]) > 0
+```
+
+If you add no builders outside your config, alert on `outcome="dial"` too: a key whose config names a relay you removed is dialed, not reported as stale.
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
 | Bid requests get `400` "auth.message.data does not match any configured builder" | The auth data is neither a hostname nor an `http(s)` URL, or the request came from another Commit-Boost and matches none of this one's relay entries | Correct the `auth_data` in the key's [builder config](#validator-builder-config), or add the builder as a relay entry on the Commit-Boost the request reaches |
+| Bid or preferences requests get `400` "auth.message.data names Commit-Boost itself", and Commit-Boost warns "auth data names Commit-Boost itself" | The key has no builder config, or an entry without `auth_data` | Write the key's builder config with [`commit-boost builder-config`](#builder-config-command) or your tooling |
+| Commit-Boost warns "auth data names another of Commit-Boost's relays" | The key's builder config is stale: it moved to a mux with other relays, or got the `[[relays]]` config while in a mux | Write the key's builder config again |
 | Bid requests get `400` "the addressed builder's host does not resolve or resolves to a disallowed address" | The auth data names a builder outside your config whose host does not resolve or resolves to an [internal address](#builders-outside-your-config) | Add the builder as a relay entry for the key, or write or correct the key's [builder config](#validator-builder-config) |
 | A builder answers bid requests with `400` (`cb_pbs_relay_status_code_total{endpoint="get_execution_payload_bid",http_status_code="400"}`) | The builder compares auth data byte for byte and expects something other than what the key sends, such as its hostname without `?` parameters | Send the auth data the builder expects: its hostname or its URL, the forms Commit-Boost [routes by](#routing-by-auth-data), with `?` parameters only if it accepts them |
 | Commit-Boost does not start or reload, or `commit-boost init` fails, with "proposer_deadline_buffer_ms must be greater than 0 and less than one slot" | `proposer_deadline_buffer_ms` is `0`, or one slot or more | Set it above `0` and under one slot, or remove it to use the default `50` |

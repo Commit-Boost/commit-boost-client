@@ -4,7 +4,7 @@ use std::{
 };
 
 use alloy::primitives::utils::{ParseUnits, Unit};
-use axum::body::Bytes;
+use axum::{body::Bytes, http::uri::Authority};
 use cb_common::{
     pbs::{HEADER_VERSION_KEY, RelayClient, decode_auth_data_url, error::PbsError},
     types::BlsPublicKey,
@@ -16,16 +16,20 @@ use cb_common::{
 use futures::future::join_all;
 use reqwest::{
     StatusCode,
-    header::{CONTENT_TYPE, HeaderMap, USER_AGENT},
+    header::{CONTENT_TYPE, HOST, HeaderMap, USER_AGENT},
 };
 use tracing::{Instrument, debug, error, warn};
 use url::Url;
 
 use crate::{
-    constants::{MAX_SIZE_DEFAULT, TIMEOUT_ERROR_CODE_STR},
+    config_miss::{self, Miss},
+    constants::{
+        GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG, MAX_SIZE_DEFAULT,
+        SUBMIT_BUILDER_PREFERENCES_ENDPOINT_TAG, TIMEOUT_ERROR_CODE_STR,
+    },
     dial::{auth_data_address, dial_relay},
     error::PbsClientError,
-    metrics::{BEACON_NODE_STATUS, RELAY_LATENCY, RELAY_STATUS_CODE},
+    metrics::{AUTH_DATA_ROUTE, BEACON_NODE_STATUS, RELAY_LATENCY, RELAY_STATUS_CODE},
 };
 
 /// Sends one already-built relay request, recording the per-relay metrics
@@ -69,6 +73,9 @@ pub(crate) fn record_request_failure(
     let err = err.into();
     if err.status_code().is_server_error() {
         error!(%err, "{endpoint} failed");
+    } else if matches!(err, PbsClientError::NoBuilderConfig) {
+        // config_miss warned about the key, a few times an epoch
+        debug!(%err, "{endpoint} failed");
     } else {
         warn!(%err, "{endpoint} failed");
     }
@@ -187,32 +194,90 @@ pub fn check_gas_limit(gas_limit: u64, parent_gas_limit: u64) -> bool {
     true
 }
 
+/// The key a bid or preferences request is for, and every relay Commit-Boost
+/// has, to tell a missing or stale builder config from a dial
+pub(crate) struct Addressed<'a> {
+    pub endpoint: &'static str,
+    pub pubkey: &'a BlsPublicKey,
+    pub mux_id: Option<&'a str>,
+    pub all_relays: &'a [RelayClient],
+}
+
+/// The relay `address` names, by hostname or, for a URL, by origin
+fn relay_named<'a>(
+    relays: &'a [RelayClient],
+    address: &[u8],
+    data_url: Option<&Url>,
+) -> Option<&'a RelayClient> {
+    relays.iter().find(|relay| {
+        let url = &relay.config.entry.url;
+        match data_url {
+            Some(data_url) => {
+                url.scheme() == data_url.scheme() &&
+                    url.host() == data_url.host() &&
+                    url.port_or_known_default() == data_url.port_or_known_default()
+            }
+            None => url.host_str().is_some_and(|host| host.as_bytes() == address),
+        }
+    })
+}
+
+/// Whether auth data naming none of the key's relays names another of
+/// Commit-Boost's relays, or Commit-Boost itself by the request's `Host`
+fn classify_miss(
+    address: &[u8],
+    data_url: Option<&Url>,
+    req_headers: &HeaderMap,
+    all_relays: &[RelayClient],
+) -> Option<Miss> {
+    if relay_named(all_relays, address, data_url).is_some() {
+        return Some(Miss::Stale);
+    }
+    let own: Authority = req_headers.get(HOST)?.to_str().ok()?.parse().ok()?;
+    let is_own = match data_url {
+        // A URL also names a port, so a builder on Commit-Boost's host at another
+        // port is still dialed
+        Some(data_url) => {
+            let default = if data_url.scheme() == "https" { 443 } else { 80 };
+            data_url.host_str()?.eq_ignore_ascii_case(own.host()) &&
+                data_url.port_or_known_default() == Some(own.port_u16().unwrap_or(default))
+        }
+        None => address.eq_ignore_ascii_case(own.host().as_bytes()),
+    };
+    is_own.then_some(Miss::NoConfig)
+}
+
+/// The outcomes `resolve_addressed_relay` counts
+const AUTH_DATA_OUTCOMES: [&str; 4] = ["relay", "no_config", "stale", "dial"];
+
+/// Creates every auth data route series at 0, so an alert sees the first miss
+/// as an increase
+pub(crate) fn init_auth_data_route_metric() {
+    for endpoint in
+        [GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG, SUBMIT_BUILDER_PREFERENCES_ENDPOINT_TAG]
+    {
+        for outcome in AUTH_DATA_OUTCOMES {
+            AUTH_DATA_ROUTE.with_label_values(&[endpoint, outcome]);
+        }
+    }
+}
+
 /// The first configured relay that the address in `auth_data` names, by
-/// hostname or, for a URL, by origin; otherwise a relay that dials it. Also
-/// returns what `timeout_ms` leaves after setting up that dial.
+/// hostname or, for a URL, by origin; otherwise a relay that dials it, unless
+/// it names Commit-Boost itself. Also returns what `timeout_ms` leaves after
+/// setting up that dial.
 pub(crate) async fn resolve_addressed_relay(
     relays: &[RelayClient],
     auth_data: &[u8],
     req_headers: &HeaderMap,
     timeout_ms: u64,
+    addressed: &Addressed<'_>,
 ) -> Result<(RelayClient, u64), PbsClientError> {
+    let count = |outcome| AUTH_DATA_ROUTE.with_label_values(&[addressed.endpoint, outcome]).inc();
     let address = auth_data_address(auth_data);
-    let by_host = relays.iter().find(|relay| {
-        relay.config.entry.url.host_str().is_some_and(|host| host.as_bytes() == address)
-    });
-    if let Some(relay) = by_host {
-        return Ok((relay.clone(), timeout_ms));
-    }
     let data_url = decode_auth_data_url(address);
-    let by_origin = data_url.as_ref().and_then(|data_url| {
-        relays.iter().find(|relay| {
-            let url = &relay.config.entry.url;
-            url.scheme() == data_url.scheme() &&
-                url.host() == data_url.host() &&
-                url.port_or_known_default() == data_url.port_or_known_default()
-        })
-    });
-    if let Some(relay) = by_origin {
+    if let Some(relay) = relay_named(relays, address, data_url.as_ref()) {
+        count("relay");
         return Ok((relay.clone(), timeout_ms));
     }
     // Every Commit-Boost dial carries this header, so a request dialed back into
@@ -223,6 +288,18 @@ pub(crate) async fn resolve_addressed_relay(
             "auth data matches no configured relay and the request came from a Commit-Boost, not dialing on"
         );
         return Err(PbsClientError::AuthDataMismatch);
+    }
+    match classify_miss(address, data_url.as_ref(), req_headers, addressed.all_relays) {
+        Some(Miss::NoConfig) => {
+            config_miss::record(addressed.pubkey, addressed.mux_id, auth_data, Miss::NoConfig);
+            count("no_config");
+            return Err(PbsClientError::NoBuilderConfig);
+        }
+        Some(Miss::Stale) => {
+            config_miss::record(addressed.pubkey, addressed.mux_id, auth_data, Miss::Stale);
+            count("stale");
+        }
+        None => count("dial"),
     }
     let started = Instant::now();
     let relay = dial_relay(data_url, address, Duration::from_millis(timeout_ms)).await?;
@@ -265,6 +342,44 @@ mod tests {
         RelayClient::new(config).unwrap()
     }
 
+    // A miss naming Commit-Boost's own host, as a hostname or Prysm's whole URL,
+    // is a key with no builder config; one naming another of its relays is
+    // stale, even on Commit-Boost's host; anything else is a dial
+    #[test]
+    fn classify_auth_data_misses() {
+        let all =
+            vec![test_relay("https://other.example.com"), test_relay("http://127.0.0.1:9000")];
+        let with_host = |host: &str| {
+            let mut headers = HeaderMap::new();
+            headers.insert(HOST, host.parse().unwrap());
+            headers
+        };
+        for (data, host, expected) in [
+            ("cb.example.com", "cb.example.com:18550", Some(Miss::NoConfig)),
+            ("CB.example.com", "cb.example.com", Some(Miss::NoConfig)),
+            ("http://cb.example.com:18550", "cb.example.com:18550", Some(Miss::NoConfig)),
+            ("http://cb.example.com", "cb.example.com", Some(Miss::NoConfig)),
+            ("http://cb.example.com:9000", "cb.example.com:18550", None),
+            ("http://cb.example.com:18550", "CB.example.com:18550", Some(Miss::NoConfig)),
+            ("https://cb.example.com", "cb.example.com", Some(Miss::NoConfig)),
+            ("[::1]", "[::1]:18550", Some(Miss::NoConfig)),
+            // A Host that is not an authority names nothing
+            ("cb.example.com", "cb example.com", None),
+            ("other.example.com", "cb.example.com:18550", Some(Miss::Stale)),
+            ("https://other.example.com", "cb.example.com:18550", Some(Miss::Stale)),
+            ("127.0.0.1", "127.0.0.1:18550", Some(Miss::Stale)),
+            ("builder.example.com", "cb.example.com:18550", None),
+            ("http://builder.example.com", "cb.example.com:18550", None),
+        ] {
+            let data_url = decode_auth_data_url(data.as_bytes());
+            let miss = classify_miss(data.as_bytes(), data_url.as_ref(), &with_host(host), &all);
+            assert_eq!(miss, expected, "{data} at {host}");
+        }
+        // Without a Host header Commit-Boost cannot tell its own name
+        let none = classify_miss(b"cb.example.com", None, &HeaderMap::new(), &all);
+        assert_eq!(none, None);
+    }
+
     #[tokio::test]
     async fn resolve_relay_by_auth_data() {
         let relays = vec![
@@ -276,7 +391,10 @@ mod tests {
         let mut from_cb = HeaderMap::new();
         from_cb.insert(HEADER_VERSION_KEY, reqwest::header::HeaderValue::from_static("test"));
         let host = async |data: &[u8]| -> Option<String> {
-            resolve_addressed_relay(&relays, data, &from_cb, 0)
+            let pubkey = BlsSecretKey::random().public_key();
+            let addressed =
+                Addressed { endpoint: "test", pubkey: &pubkey, mux_id: None, all_relays: &relays };
+            resolve_addressed_relay(&relays, data, &from_cb, 0, &addressed)
                 .await
                 .ok()
                 .map(|(relay, _)| relay.config.entry.url.host_str().unwrap().to_string())
@@ -292,11 +410,80 @@ mod tests {
             Some("builder-a.example.com")
         );
         assert!(host(b"http://builder-a.example.com").await.is_none());
+        assert!(host(b"http://builder-a.example.com:443").await.is_none());
         assert!(host(b"https://builder-b.example.com").await.is_none());
         // Parameters after `?` are for the builder and do not affect routing
         assert_eq!(
             host(b"builder-a.example.com?ofac=1").await.as_deref(),
             Some("builder-a.example.com")
         );
+    }
+
+    // Each endpoint has every outcome's series before any request
+    #[test]
+    fn auth_data_route_series_start_at_zero() {
+        use prometheus::core::Collector;
+
+        init_auth_data_route_metric();
+        let family = &AUTH_DATA_ROUTE.collect()[0];
+        let present = |endpoint: &str, outcome: &str| {
+            family.get_metric().iter().any(|metric| {
+                let labels: Vec<_> =
+                    metric.get_label().iter().map(|label| label.get_value()).collect();
+                labels.contains(&endpoint) && labels.contains(&outcome)
+            })
+        };
+        for endpoint in
+            [GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG, SUBMIT_BUILDER_PREFERENCES_ENDPOINT_TAG]
+        {
+            for outcome in AUTH_DATA_OUTCOMES {
+                assert!(present(endpoint, outcome), "{endpoint} {outcome}");
+            }
+        }
+    }
+
+    // Each route counts its outcome: one of the key's relays, Commit-Boost
+    // itself (refused), another of its relays (stale, still dialed) and any
+    // other builder (dialed). A request from a Commit-Boost goes no further and
+    // is not counted. The dials here are to addresses the dial check refuses
+    #[tokio::test]
+    async fn resolve_counts_each_outcome() {
+        let relays = vec![test_relay("https://builder-a.example.com")];
+        let all = vec![relays[0].clone(), test_relay("http://127.0.0.1:9000")];
+        let endpoint = "resolve_counts_each_outcome";
+        let pubkey = BlsSecretKey::random().public_key();
+        let addressed = Addressed { endpoint, pubkey: &pubkey, mux_id: None, all_relays: &all };
+        let mut to_cb = HeaderMap::new();
+        to_cb.insert(HOST, reqwest::header::HeaderValue::from_static("cb.example.com:18550"));
+        let mut from_cb = to_cb.clone();
+        from_cb.insert(HEADER_VERSION_KEY, reqwest::header::HeaderValue::from_static("test"));
+        let outcomes = AUTH_DATA_OUTCOMES;
+        let counts = || {
+            outcomes.map(|outcome| AUTH_DATA_ROUTE.with_label_values(&[endpoint, outcome]).get())
+        };
+        for (data, headers, outcome, expected) in [
+            ("builder-a.example.com", &to_cb, Some("relay"), "routed"),
+            ("cb.example.com", &to_cb, Some("no_config"), "no builder config"),
+            ("127.0.0.1", &to_cb, Some("stale"), "dialed"),
+            ("10.0.0.1", &to_cb, Some("dial"), "dialed"),
+            ("cb.example.com", &from_cb, None, "not dialed on"),
+        ] {
+            let before = counts();
+            let result =
+                resolve_addressed_relay(&relays, data.as_bytes(), headers, 1000, &addressed);
+            let result = match result.await {
+                Ok(_) => "routed",
+                Err(PbsClientError::NoBuilderConfig) => "no builder config",
+                Err(PbsClientError::DialTargetBlocked) => "dialed",
+                Err(PbsClientError::AuthDataMismatch) => "not dialed on",
+                Err(err) => panic!("{data}: {err}"),
+            };
+            assert_eq!(result, expected, "{data}");
+            let after = counts();
+            for (i, name) in outcomes.iter().enumerate() {
+                let counted = u64::from(Some(*name) == outcome);
+                assert_eq!(after[i] - before[i], counted, "{data}: {name}");
+            }
+        }
     }
 }

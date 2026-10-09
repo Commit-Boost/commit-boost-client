@@ -569,8 +569,10 @@ async fn test_get_execution_payload_bid_relay_timing_headers() -> Result<()> {
     Ok(())
 }
 
-/// Auth data naming Commit-Boost's own URL is dialed once, and that hop, a
-/// request from a Commit-Boost, is not dialed on: the builder's 400
+/// Auth data naming Commit-Boost as the request reached it is a key with no
+/// builder config: 400, with nothing dialed. Under another name it is dialed
+/// once, and that hop, a request from a Commit-Boost, is not dialed on: the
+/// builder's 400
 #[tokio::test]
 async fn test_get_execution_payload_bid_dial_self_400() -> Result<()> {
     // As if Commit-Boost's own address were public
@@ -578,12 +580,23 @@ async fn test_get_execution_payload_bid_dial_self_400() -> Result<()> {
     let (mock_validator, cfg_state) =
         setup_relay(Chain::Hoodi, |_| {}, generate_mock_relay).await?;
     let own = &mock_validator.comm_boost.config.entry.url;
-    let own = format!("http://{}:{}/", own.host_str().unwrap(), own.port().unwrap());
-
-    let res = get_json_bid(&mock_validator, &opaque_auth(own.as_bytes(), TEST_SLOT)).await?;
-    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-    let body: serde_json::Value = serde_json::from_slice(&res.bytes().await?)?;
-    assert_eq!(body["message"], "The addressed builder rejected the request with status 400");
+    let port = own.port().unwrap();
+    for (host, message) in [
+        (
+            own.host_str().unwrap(),
+            "Invalid SignedBuilderRequestAuth: auth.message.data names Commit-Boost itself; the key's builder config names no relay",
+        ),
+        // Commit-Boost listens on 0.0.0.0, which 127.0.0.1 reaches under a name
+        // other than the request's Host
+        ("127.0.0.1", "The addressed builder rejected the request with status 400"),
+    ] {
+        let auth_data = format!("http://{host}:{port}/");
+        let res =
+            get_json_bid(&mock_validator, &opaque_auth(auth_data.as_bytes(), TEST_SLOT)).await?;
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST, "{host}");
+        let body: serde_json::Value = serde_json::from_slice(&res.bytes().await?)?;
+        assert_eq!(body["message"], message, "{host}");
+    }
     assert_eq!(cfg_state.received_execution_payload_bid(), 0);
     Ok(())
 }

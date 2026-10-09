@@ -21,9 +21,11 @@ use url::Url;
 
 use crate::{
     api::BuilderApi,
+    config_miss,
     metrics::PBS_METRICS_REGISTRY,
     routes::create_app_router,
     state::{BuilderApiState, PbsState, PbsStateGuard},
+    utils::init_auth_data_route_metric,
 };
 
 pub struct PbsService;
@@ -50,6 +52,9 @@ impl PbsService {
                 matches!(loader, MuxKeysLoader::Registry { enable_refreshing: true, .. })
             })
         });
+
+        config_miss::start(state.config.chain.slot_time_sec().saturating_mul(32));
+        init_auth_data_route_metric();
 
         let config_path = state.config_path.clone();
         let state: Arc<RwLock<PbsState<S>>> = RwLock::new(state).into();

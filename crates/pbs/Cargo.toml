@@ -41,3 +41,4 @@ thiserror.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
+tracing-test.workspace = true

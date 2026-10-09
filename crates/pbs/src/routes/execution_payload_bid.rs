@@ -35,8 +35,9 @@ use crate::{
     metrics::{RELAY_HEADER_VALUE, RELAY_LAST_SLOT},
     state::{BuilderApiState, PbsState},
     utils::{
-        builder_rejection, epbs_base_send_headers, format_gwei_as_eth, log_mux_selection,
-        record_beacon_status, record_request_failure, resolve_addressed_relay, send_to_relay,
+        Addressed, builder_rejection, epbs_base_send_headers, format_gwei_as_eth,
+        log_mux_selection, record_beacon_status, record_request_failure, resolve_addressed_relay,
+        send_to_relay,
     },
 };
 
@@ -144,11 +145,18 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
         return Ok(None);
     }
 
+    let addressed = Addressed {
+        endpoint: GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG,
+        pubkey: &params.proposer_pubkey,
+        mux_id: maybe_mux_id,
+        all_relays: state.all_relays(),
+    };
     let (relay, max_timeout_ms) = match resolve_addressed_relay(
         relays,
         auth.message.data.as_ref(),
         &req_headers,
         max_timeout_ms,
+        &addressed,
     )
     .await
     {

@@ -2032,6 +2032,7 @@ dependencies = [
  "tokio-tungstenite",
  "tower-http",
  "tracing",
+ "tracing-test",
  "tree_hash",
  "types",
  "url",

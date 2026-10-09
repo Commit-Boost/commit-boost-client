@@ -18,8 +18,9 @@ use crate::{
     error::PbsClientError,
     state::{BuilderApiState, PbsState},
     utils::{
-        builder_rejection, epbs_base_send_headers, log_mux_selection, post_ssz_expect_accepted,
-        record_beacon_status, record_request_failure, resolve_addressed_relay,
+        Addressed, builder_rejection, epbs_base_send_headers, log_mux_selection,
+        post_ssz_expect_accepted, record_beacon_status, record_request_failure,
+        resolve_addressed_relay,
     },
 };
 
@@ -67,11 +68,18 @@ pub async fn submit_builder_preferences<S: BuilderApiState>(
 
     // Preferences are submitted an epoch ahead, so they share the registration
     // timeout rather than the block-production one
+    let addressed = Addressed {
+        endpoint: SUBMIT_BUILDER_PREFERENCES_ENDPOINT_TAG,
+        pubkey: &params.proposer_pubkey,
+        mux_id: maybe_mux_id,
+        all_relays: state.all_relays(),
+    };
     let (relay, timeout_ms) = resolve_addressed_relay(
         relays,
         request.auth.message.data.as_ref(),
         &req_headers,
         pbs_config.timeout_register_validator_ms,
+        &addressed,
     )
     .await?;
 

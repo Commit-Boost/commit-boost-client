@@ -26,6 +26,8 @@ pub enum PbsClientError {
     NoBuilderResponse,
     #[error("auth data does not match a configured builder")]
     AuthDataMismatch,
+    #[error("auth data names Commit-Boost itself, not a builder")]
+    NoBuilderConfig,
     #[error("dial target does not resolve or resolves to a disallowed address")]
     DialTargetBlocked,
     #[error("missing or invalid timing headers")]
@@ -52,6 +54,7 @@ impl PbsClientError {
             PbsClientError::NoResponse => StatusCode::BAD_GATEWAY,
             PbsClientError::NoBuilderResponse => StatusCode::INTERNAL_SERVER_ERROR,
             PbsClientError::AuthDataMismatch => StatusCode::BAD_REQUEST,
+            PbsClientError::NoBuilderConfig => StatusCode::BAD_REQUEST,
             PbsClientError::DialTargetBlocked => StatusCode::BAD_REQUEST,
             PbsClientError::MissingTimingHeader => StatusCode::BAD_REQUEST,
             PbsClientError::AuthSlotMismatch => StatusCode::BAD_REQUEST,
@@ -75,6 +78,9 @@ impl IntoResponse for PbsClientError {
             PbsClientError::NoBuilderResponse => "no builder accepted the submission".to_string(),
             PbsClientError::AuthDataMismatch => {
                 "Invalid SignedBuilderRequestAuth: auth.message.data does not match any configured builder".to_string()
+            }
+            PbsClientError::NoBuilderConfig => {
+                "Invalid SignedBuilderRequestAuth: auth.message.data names Commit-Boost itself; the key's builder config names no relay".to_string()
             }
             PbsClientError::DialTargetBlocked => {
                 "Invalid SignedBuilderRequestAuth: the addressed builder's host does not resolve or resolves to a disallowed address".to_string()

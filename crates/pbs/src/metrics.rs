@@ -97,6 +97,15 @@ lazy_static! {
     .unwrap();
 
     // TO BEACON NODE
+    /// ePBS auth data routing outcome, by endpoint
+    pub static ref AUTH_DATA_ROUTE: IntCounterVec = register_int_counter_vec_with_registry!(
+        "auth_data_route_total",
+        "How ePBS requests' auth data routed",
+        &["endpoint", "outcome"],
+        PBS_METRICS_REGISTRY
+    )
+    .unwrap();
+
     /// Status code returned to beacon node by endpoint
     pub static ref BEACON_NODE_STATUS: IntCounterVec = register_int_counter_vec_with_registry!(
         "beacon_node_status_code_total",
