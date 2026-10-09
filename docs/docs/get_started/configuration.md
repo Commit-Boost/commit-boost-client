@@ -703,7 +703,7 @@ Passing the minted token on the command line is acceptable only because it expir
 
 ### Automatic reload (PBS only)
 
-In addition to the manual `/reload` endpoint, the PBS service watches the config file for changes and automatically reloads the configuration whenever the file is modified, with no restart or API call needed. If a reload fails (e.g. because of a misconfigured option), the previous configuration is kept: the watcher logs a warning and the `/reload` endpoint returns a 500 error.
+In addition to the manual `/reload` endpoint, the PBS service watches the config file and automatically reloads the configuration whenever its contents change, with no restart or API call needed. That includes a file replaced by a rename in its directory, as editors and Ansible do, and a Kubernetes ConfigMap or Secret update; a Kubernetes `subPath` mount is never updated. A change that leaves the contents as they were, such as `touch`, does not reload, and neither does a change to a file the config names, such as a mux keys file: send `POST /reload` for those. If a reload fails (e.g. because of a misconfigured option), the previous configuration is kept: the watcher logs a warning and tries again at the next change, and the `/reload` endpoint returns a 500 error.
 
 From the Gloas fork, a reload does not reach your validator clients' builder config: after changing `[[relays]]`, `[[mux]]` or a value [`commit-boost builder-config`](./epbs.md#builder-config-command) reads, run it again.
 

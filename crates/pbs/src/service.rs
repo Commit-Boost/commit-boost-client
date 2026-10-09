@@ -12,7 +12,6 @@ use cb_common::{
 };
 use cb_metrics::provider::MetricsProvider;
 use eyre::{Context, Result, bail};
-use notify::{Error, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use parking_lot::RwLock;
 use prometheus::core::Collector;
 use tokio::net::TcpListener;
@@ -21,7 +20,7 @@ use url::Url;
 
 use crate::{
     api::BuilderApi,
-    config_miss,
+    config_miss, config_watch,
     metrics::PBS_METRICS_REGISTRY,
     routes::create_app_router,
     state::{BuilderApiState, PbsState, PbsStateGuard},
@@ -76,43 +75,30 @@ impl PbsService {
         }
 
         // Set up the filesystem watcher for the config file
-        let mut watcher: RecommendedWatcher;
+        let _watcher;
         if config_path.to_str() != Some("") {
             let state_for_watcher = state.clone();
             let config_path_for_watcher = config_path.clone();
-            watcher = RecommendedWatcher::new(
-                move |result: Result<Event, Error>| {
-                    match result {
-                        Err(err) => {
-                            warn!(%err, "error watching PBS config file for changes");
-                            return;
-                        }
-                        Ok(event) => {
-                            if !event.kind.is_modify() {
-                                return;
-                            }
-                        }
+            // The watcher calls back on its own thread, and loading the config
+            // needs this runtime: its loaders and the rpc_url check are async
+            let runtime = tokio::runtime::Handle::current();
+            _watcher = config_watch::watch(&config_path, move || {
+                info!("detected change in PBS config file, reloading configuration");
+                let result =
+                    runtime.block_on(load_pbs_config(Some(config_path_for_watcher.to_path_buf())));
+                match result {
+                    Ok((new_config, _)) => {
+                        let mut state = state_for_watcher.write();
+                        state.config = Arc::new(new_config);
+                        info!("configuration reloaded from file after update");
+                        true
                     }
-
-                    // Reload the configuration when the file is modified
-                    info!("detected change in PBS config file, reloading configuration");
-                    let result = futures::executor::block_on(load_pbs_config(Some(
-                        config_path_for_watcher.to_path_buf(),
-                    )));
-                    match result {
-                        Ok((new_config, _)) => {
-                            let mut state = state_for_watcher.write();
-                            state.config = Arc::new(new_config);
-                            info!("configuration reloaded from file after update");
-                        }
-                        Err(err) => {
-                            warn!(%err, "failed to reload configuration from file after update");
-                        }
+                    Err(err) => {
+                        warn!(%err, "failed to reload configuration from file after update");
+                        false
                     }
-                },
-                notify::Config::default(),
-            )?;
-            watcher.watch(config_path.as_path(), RecursiveMode::Recursive)?;
+                }
+            })?;
             info!("watching PBS config file for changes: {:?}", config_path);
         }
 

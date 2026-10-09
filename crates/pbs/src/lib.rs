@@ -1,5 +1,6 @@
 mod api;
 mod config_miss;
+mod config_watch;
 mod constants;
 mod dial;
 mod error;

@@ -8,7 +8,7 @@ use cb_common::{
     },
     pbs::RelayEntry,
     signer::random_secret,
-    types::Chain,
+    types::{BlsPublicKey, Chain},
 };
 use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
@@ -175,6 +175,123 @@ async fn test_cfg_file_update() -> Result<()> {
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(relay1_state.received_get_header(), 1); // no change
     assert_eq!(relay2_state.received_get_header(), 1); // incremented
+
+    Ok(())
+}
+
+/// The relay entry a config file names for the mock relay on `port`
+fn relay_config(port: u16, pubkey: &BlsPublicKey) -> Result<RelayConfig> {
+    let id = format!("mock_{port}");
+    Ok(RelayConfig {
+        id: Some(id.clone()),
+        enable_timing_games: false,
+        frequency_get_header_ms: None,
+        get_params: None,
+        get_header: GetHeaderTransport::Http,
+        headers: None,
+        target_first_request_ms: None,
+        validator_registration_batch_size: None,
+        max_execution_payment_gwei: None,
+        entry: RelayEntry {
+            id,
+            url: Url::parse(&format!("http://{pubkey}@localhost:{port}"))?,
+            pubkey: pubkey.clone(),
+        },
+    })
+}
+
+/// A Kubernetes ConfigMap update swaps the `..data` symlink the config file
+/// points through. Every update reloads the configuration, not only the first,
+/// and one that fails to load, as an unreachable rpc_url does, leaves the next
+#[cfg(unix)]
+#[tokio::test]
+async fn test_cfg_configmap_updates() -> Result<()> {
+    use std::os::unix::fs::symlink;
+
+    setup_test_env();
+    let signer = random_secret();
+    let pubkey = signer.public_key();
+    let chain = Chain::Hoodi;
+    let pbs_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr()?.port();
+
+    let mut relays = Vec::new();
+    for _ in 0..2 {
+        let listener = get_free_listener().await;
+        let port = listener.local_addr()?.port();
+        let state = Arc::new(MockRelayState::new(chain, signer.clone()));
+        tokio::spawn(start_mock_relay_service_with_listener(state.clone(), listener));
+        relays.push((port, state));
+    }
+
+    // An rpc_url nothing listens on, which the config's validation checks
+    let closed = get_free_listener().await;
+    let rpc_url = Url::parse(&format!("http://{}", closed.local_addr()?))?;
+    drop(closed);
+
+    // Writes a config naming one relay to `..v{version}` and points `..data` at it
+    let dir = tempfile::tempdir()?;
+    let write_version = |version: usize, relay: usize, rpc_url: Option<Url>| -> Result<()> {
+        let cb_config = CommitBoostConfig {
+            chain,
+            pbs: StaticPbsConfig {
+                docker_image: "cb-fake-repo/cb-fake-image:latest".to_string(),
+                // TOML integers stop at i64::MAX
+                pbs_config: PbsConfig {
+                    timeout_get_header_ms: 950,
+                    timeout_get_payload_ms: 4000,
+                    timeout_register_validator_ms: 3000,
+                    late_in_slot_time_ms: u64::MAX / 2,
+                    rpc_url,
+                    http_timeout_seconds: 1,
+                    ..get_pbs_config(pbs_port)
+                },
+                with_signer: false,
+            },
+            muxes: None,
+            modules: None,
+            signer: None,
+            logs: LogsSettings::default(),
+            metrics: None,
+            relays: vec![relay_config(relays[relay].0, &pubkey)?],
+        };
+        let path = dir.path().join(format!("..v{version}"));
+        std::fs::create_dir(&path)?;
+        std::fs::write(path.join("cb-config.toml"), toml::to_string_pretty(&cb_config)?)?;
+        let tmp = dir.path().join("..data_tmp");
+        symlink(format!("..v{version}"), &tmp)?;
+        std::fs::rename(&tmp, dir.path().join("..data"))?;
+        Ok(())
+    };
+    write_version(0, 0, None)?;
+    let config_path = dir.path().join("cb-config.toml");
+    symlink("..data/cb-config.toml", &config_path)?;
+
+    let first = generate_mock_relay(relays[0].0, pubkey.clone())?;
+    let config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![first]);
+    let state = PbsState::new(config, config_path);
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+
+    let mock_validator = MockValidator::new(pbs_port)?;
+    let received =
+        || relays.iter().map(|(_, state)| state.received_get_header()).collect::<Vec<_>>();
+    let res = mock_validator.do_get_header(None, Vec::new(), ForkName::Fulu).await?;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(received(), [1, 0]);
+
+    // Relay 2; relay 1 with an rpc_url that fails, so relay 2 stays; relay 1.
+    // A watch on the file itself misses the second update
+    for (version, relay, rpc_url, expected) in
+        [(1, 1, None, [1, 1]), (2, 0, Some(rpc_url.clone()), [1, 2]), (3, 0, None, [2, 2])]
+    {
+        write_version(version, relay, rpc_url)?;
+        std::fs::remove_dir_all(dir.path().join(format!("..v{}", version - 1)))?;
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+        let res = mock_validator.do_get_header(None, Vec::new(), ForkName::Fulu).await?;
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(received(), expected, "update {version}");
+    }
 
     Ok(())
 }
