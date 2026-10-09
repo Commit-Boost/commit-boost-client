@@ -8,6 +8,7 @@ use std::{
     net::{Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
 
 use alloy::{
@@ -341,8 +342,17 @@ impl PbsConfig {
         }
 
         if let Some(rpc_url) = &self.rpc_url {
+            ensure!(
+                self.http_timeout_seconds > 0,
+                "http_timeout_seconds must be greater than 0 to check rpc_url"
+            );
             let provider = ProviderBuilder::new().connect_http(rpc_url.clone());
-            let chain_id = provider.get_chain_id().await?;
+            let timeout = Duration::from_secs(self.http_timeout_seconds);
+            let chain_id =
+                tokio::time::timeout(timeout, provider.get_chain_id()).await.map_err(|_| {
+                    // The URL is left out: it often carries an API key
+                    eyre::eyre!("rpc_url did not answer eth_chainId within {timeout:?}")
+                })??;
             let chain_id_big = U256::from(chain_id);
             ensure!(
                 chain_id_big == chain.id(),
@@ -622,6 +632,33 @@ mod tests {
             "chain = \"Holesky\"\n[pbs]\nproposer_deadline_buffer_ms = {buffer}\n\
              [[relays]]\nurl = \"{RELAY_URL}\"\n"
         )
+    }
+
+    // An RPC that accepts the connection and never answers
+    #[tokio::test]
+    async fn test_stalled_rpc_url_fails_validation() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Ok((socket, _)) = listener.accept().await {
+                held.push(socket);
+            }
+        });
+        let config: CommitBoostConfig = toml::from_str(&format!(
+            "chain = \"Holesky\"\n[pbs]\nrpc_url = \"http://{addr}\"\nhttp_timeout_seconds = 1\n\
+             [[relays]]\nurl = \"{RELAY_URL}\"\n"
+        ))
+        .unwrap();
+        let validate = tokio::time::timeout(Duration::from_secs(10), config.validate());
+        let err = validate.await.expect("validate hung").expect_err("a stalled rpc_url validated");
+        assert!(format!("{err:#}").contains("did not answer eth_chainId within 1s"), "{err:#}");
+
+        // A zero timeout could never let the check pass
+        let mut config = config;
+        config.pbs.pbs_config.http_timeout_seconds = 0;
+        let err = config.validate().await.expect_err("a zero http_timeout_seconds validated");
+        assert!(format!("{err:#}").contains("http_timeout_seconds must be greater than 0"));
     }
 
     #[tokio::test]
