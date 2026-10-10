@@ -1,8 +1,9 @@
 use std::{
+    collections::HashMap,
     io,
     net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs},
     sync::{Arc, LazyLock, OnceLock},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use cb_common::{
@@ -11,6 +12,7 @@ use cb_common::{
     types::BlsPublicKey,
     utils::bls_pubkey_from_hex,
 };
+use parking_lot::Mutex;
 use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 use tokio::{sync::Semaphore, task::JoinHandle};
 use tracing::{info, warn};
@@ -109,7 +111,32 @@ async fn resolve_dial_target(
         }
     };
     vet_dial_addrs(origin, &addrs)?;
+    remember_checked(url.host_str().unwrap_or_default(), &addrs);
     Ok(addrs)
+}
+
+/// How long a dial check's lookup serves new connections to its host, so the
+/// resolver does not repeat it. Short, so a later connection sees a DNS change
+const CHECKED_ADDRS_TTL: Duration = Duration::from_secs(2);
+
+/// Each host's checked addresses and when they were resolved
+type CheckedAddrs = HashMap<String, (Instant, Vec<SocketAddr>)>;
+
+static CHECKED_ADDRS: LazyLock<Mutex<CheckedAddrs>> = LazyLock::new(Default::default);
+
+/// Kept with port 0, as the resolver's own lookup returns them, so another
+/// dial to the host on another port connects to its own. Drops expired entries
+fn remember_checked(host: &str, addrs: &[SocketAddr]) {
+    let addrs = addrs.iter().map(|addr| SocketAddr::new(addr.ip(), 0)).collect();
+    let mut checked = CHECKED_ADDRS.lock();
+    checked.retain(|_, (at, _)| at.elapsed() < CHECKED_ADDRS_TTL);
+    checked.insert(host.to_owned(), (Instant::now(), addrs));
+}
+
+fn recently_checked(host: &str) -> Option<Vec<SocketAddr>> {
+    let checked = CHECKED_ADDRS.lock();
+    let (at, addrs) = checked.get(host)?;
+    (at.elapsed() < CHECKED_ADDRS_TTL).then(|| addrs.clone())
 }
 
 /// `None` when every lookup slot is taken
@@ -184,16 +211,21 @@ fn dial_config(url: Url) -> RelayConfig {
     }
 }
 
-/// Run for each new connection to a hostname (an IP address skips it): refuses
-/// it while every lookup slot is taken or if any address is disallowed
+/// Run for each new connection to a hostname (an IP address skips it): takes
+/// the dial check's recent lookup or its own, and refuses a disallowed address
 struct DialResolver;
 
 impl Resolve for DialResolver {
     fn resolve(&self, name: Name) -> Resolving {
         Box::pin(async move {
-            let lookup = spawn_lookup(format!("{}:0", name.as_str()))
-                .ok_or("too many dial lookups in flight")?;
-            let addrs = lookup.await??;
+            let addrs = match recently_checked(name.as_str()) {
+                Some(addrs) => addrs,
+                None => {
+                    spawn_lookup(format!("{}:0", name.as_str()))
+                        .ok_or("too many dial lookups in flight")?
+                        .await??
+                }
+            };
             vet_dial_addrs(name.as_str(), &addrs)?;
             Ok(Box::new(addrs.into_iter()) as Addrs)
         })
@@ -405,6 +437,48 @@ mod tests {
         set_skip_dial_target_check(false);
         assert_eq!(res?.status(), StatusCode::TEMPORARY_REDIRECT);
         Ok(())
+    }
+
+    // With every lookup slot held, the connection can only use the addresses
+    // the dial's check resolved
+    #[cfg(feature = "testing-flags")]
+    #[tokio::test]
+    async fn dial_connects_to_the_addresses_its_check_resolved() -> eyre::Result<()> {
+        let _slots = LOOKUP_SLOTS.lock().await;
+        let (port, _) = mock_builder().await?;
+        let url = Url::parse(&format!("http://localhost:{port}/bid"))?;
+        set_skip_dial_target_check(true);
+        let relay = dial_relay(Some(url.clone()), b"", Duration::from_secs(5)).await?;
+        let held = DIAL_LOOKUPS.try_acquire_many(32)?;
+        let res = relay.client.post(url).send().await;
+        drop(held);
+        set_skip_dial_target_check(false);
+        // dial_client_checks_the_addresses_it_resolves needs a lookup
+        CHECKED_ADDRS.lock().remove("localhost");
+        assert_eq!(res?.status(), StatusCode::TEMPORARY_REDIRECT);
+        Ok(())
+    }
+
+    // A remembered address is checked again before a connection uses it
+    #[tokio::test]
+    async fn dial_resolver_checks_remembered_addresses() {
+        remember_checked("remembered.invalid", &["127.0.0.1:0".parse().unwrap()]);
+        let res = DialResolver.resolve("remembered.invalid".parse().unwrap()).await;
+        CHECKED_ADDRS.lock().remove("remembered.invalid");
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn checked_addrs_drop_their_port_expire_and_are_swept() {
+        let addrs = ["1.1.1.1:443".parse().unwrap()];
+        let expired = Instant::now().checked_sub(CHECKED_ADDRS_TTL).unwrap();
+        CHECKED_ADDRS.lock().insert("expired.invalid".into(), (expired, addrs.to_vec()));
+        assert_eq!(recently_checked("expired.invalid"), None);
+        remember_checked("fresh.invalid", &addrs);
+        assert_eq!(recently_checked("fresh.invalid"), Some(vec!["1.1.1.1:0".parse().unwrap()]));
+        let mut checked = CHECKED_ADDRS.lock();
+        assert!(!checked.contains_key("expired.invalid"));
+        checked.remove("fresh.invalid");
     }
 
     #[test]
