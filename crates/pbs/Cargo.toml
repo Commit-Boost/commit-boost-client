@@ -5,6 +5,9 @@ publish = false
 rust-version.workspace = true
 version.workspace = true
 
+[features]
+testing-flags = []
+
 [dependencies]
 alloy.workspace = true
 async-trait.workspace = true
@@ -35,3 +38,6 @@ url.workspace = true
 uuid.workspace = true
 webpki-roots.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

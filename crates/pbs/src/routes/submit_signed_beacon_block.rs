@@ -4,7 +4,7 @@ use cb_common::wire::{
     require_consensus_version_header,
 };
 use reqwest::StatusCode;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::{
     PbsStateGuard,
@@ -35,7 +35,8 @@ pub async fn handle_submit_signed_beacon_block<S: BuilderApiState>(
 
 /// Implements https://ethereum.github.io/builder-specs/?urls.primaryName=dev#/Builder/submitSignedBeaconBlock
 /// Forwards the block bytes, undecoded, to every configured builder, since CB
-/// keeps no auction state to know which bid won. Returns 202 if one accepts
+/// keeps no auction state to know which bid won. Returns 202 whatever they
+/// answer: the beacon node gossips the block anyway
 pub async fn submit_signed_beacon_block<S: BuilderApiState>(
     body: Bytes,
     req_headers: HeaderMap,
@@ -86,11 +87,10 @@ pub async fn submit_signed_beacon_block<S: BuilderApiState>(
             }
         })
         .count();
-
-    // Only the winner accepts, so one 202 across the broadcast is success
     if accepted == 0 {
-        return Err(PbsClientError::NoBuilderResponse);
+        warn!(addressed = relays.len(), "no builder accepted the signed beacon block");
+    } else {
+        info!(accepted, addressed = relays.len(), "signed beacon block accepted");
     }
-    info!(accepted, addressed = relays.len(), "signed beacon block submitted");
     Ok(())
 }

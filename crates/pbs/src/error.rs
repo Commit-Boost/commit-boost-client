@@ -20,12 +20,14 @@ struct ErrorResponse {
 pub enum PbsClientError {
     #[error("no response from relays")]
     NoResponse,
-    /// 500, not 502: 502 is in neither endpoint's builder-specs response set.
-    /// Legacy routes keep `NoResponse` -> 502.
+    /// 500, not 502: 502 is not in the preferences endpoint's builder-specs
+    /// response set. Legacy routes keep `NoResponse` -> 502.
     #[error("no builder accepted the submission")]
     NoBuilderResponse,
     #[error("auth data does not match a configured builder")]
     AuthDataMismatch,
+    #[error("dial target does not resolve or resolves to a disallowed address")]
+    DialTargetBlocked,
     #[error("missing or invalid timing headers")]
     MissingTimingHeader,
     #[error("auth slot does not match the request path")]
@@ -50,6 +52,7 @@ impl PbsClientError {
             PbsClientError::NoResponse => StatusCode::BAD_GATEWAY,
             PbsClientError::NoBuilderResponse => StatusCode::INTERNAL_SERVER_ERROR,
             PbsClientError::AuthDataMismatch => StatusCode::BAD_REQUEST,
+            PbsClientError::DialTargetBlocked => StatusCode::BAD_REQUEST,
             PbsClientError::MissingTimingHeader => StatusCode::BAD_REQUEST,
             PbsClientError::AuthSlotMismatch => StatusCode::BAD_REQUEST,
             PbsClientError::BuilderRejected(code) => *code,
@@ -72,6 +75,9 @@ impl IntoResponse for PbsClientError {
             PbsClientError::NoBuilderResponse => "no builder accepted the submission".to_string(),
             PbsClientError::AuthDataMismatch => {
                 "Invalid SignedBuilderRequestAuth: auth.message.data does not match any configured builder".to_string()
+            }
+            PbsClientError::DialTargetBlocked => {
+                "Invalid SignedBuilderRequestAuth: the addressed builder's host does not resolve or resolves to a disallowed address".to_string()
             }
             PbsClientError::MissingTimingHeader => {
                 "Invalid request: Date-Milliseconds and X-Timeout-Ms headers are required".to_string()

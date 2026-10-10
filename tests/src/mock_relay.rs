@@ -129,6 +129,11 @@ pub struct MockRelayState {
     trustless_bid_gwei: u64, // default 10
     /// When true, an SSZ bid is served without `Eth-Consensus-Version`
     epbs_omit_consensus_version: bool,
+    /// When true, a JSON bid is pretty-printed, so it differs from the compact
+    /// form a re-encode produces
+    pretty_json_bid: bool,
+    /// The body of the last bid served
+    served_bid: RwLock<Option<axum::body::Bytes>>,
 }
 
 impl MockRelayState {
@@ -188,6 +193,9 @@ impl MockRelayState {
     }
     pub fn received_auth_data(&self) -> Option<Vec<u8>> {
         self.received_auth.read().unwrap().as_ref().map(|a| a.message.data.to_vec())
+    }
+    pub fn served_bid(&self) -> Option<axum::body::Bytes> {
+        self.served_bid.read().unwrap().clone()
     }
     pub fn large_body(&self) -> bool {
         self.large_body
@@ -252,6 +260,8 @@ impl MockRelayState {
             api_keys_seen: RwLock::new(HashMap::new()),
             trustless_bid_gwei: 10,
             epbs_omit_consensus_version: false,
+            pretty_json_bid: false,
+            served_bid: RwLock::new(None),
             supported_content_types: Arc::new(
                 [EncodingType::Json, EncodingType::Ssz].iter().cloned().collect(),
             ),
@@ -328,6 +338,10 @@ impl MockRelayState {
     /// exercise the PBS missing-fork error path on the outbound SSZ decode.
     pub fn with_epbs_omit_consensus_version(self) -> Self {
         Self { epbs_omit_consensus_version: true, ..self }
+    }
+
+    pub fn with_pretty_json_bid(self) -> Self {
+        Self { pretty_json_bid: true, ..self }
     }
 }
 
@@ -427,6 +441,10 @@ async fn handle_get_execution_payload_bid(
     // fail on the bid endpoint (its bid is then dropped by PBS). The request was
     // already counted above.
     if let Some(status) = *state.response_override.read().unwrap() {
+        // An error body over PBS's 1 KiB read cap
+        if state.large_body() {
+            return (status, "x".repeat(2048)).into_response();
+        }
         return status.into_response();
     }
 
@@ -485,9 +503,15 @@ async fn handle_get_execution_payload_bid(
                 data,
                 metadata: Default::default(),
             };
-            serde_json::to_vec(&versioned).unwrap()
+            if state.pretty_json_bid {
+                serde_json::to_vec_pretty(&versioned).unwrap()
+            } else {
+                serde_json::to_vec(&versioned).unwrap()
+            }
         }
     };
+    let response_body = axum::body::Bytes::from(response_body);
+    *state.served_bid.write().unwrap() = Some(response_body.clone());
 
     let mut response = (StatusCode::OK, response_body).into_response();
     // A real builder tags the 200 with the fork so a client can decode the

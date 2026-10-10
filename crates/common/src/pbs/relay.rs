@@ -97,6 +97,14 @@ pub struct RelayClient {
 
 impl RelayClient {
     pub fn new(config: RelayConfig) -> eyre::Result<Self> {
+        Self::with_client_builder(config, reqwest::Client::builder())
+    }
+
+    /// [`Self::new`] on a client builder that already holds extra settings
+    pub fn with_client_builder(
+        config: RelayConfig,
+        builder: reqwest::ClientBuilder,
+    ) -> eyre::Result<Self> {
         let stream_url = match config.get_header {
             GetHeaderTransport::Http => None,
             GetHeaderTransport::Stream => Some(stream_url(&config.entry.url)?),
@@ -131,10 +139,8 @@ impl RelayClient {
             }
         }
 
-        let client = reqwest::Client::builder()
-            .default_headers(headers.clone())
-            .timeout(DEFAULT_REQUEST_TIMEOUT)
-            .build()?;
+        let client =
+            builder.default_headers(headers.clone()).timeout(DEFAULT_REQUEST_TIMEOUT).build()?;
 
         Ok(Self {
             id: Arc::new(config.id().to_owned()),
@@ -255,6 +261,13 @@ impl RelayClient {
     }
 }
 
+/// `address`, the auth data before any `?`, as a builder URL. Only `http` and
+/// `https` count, since `builder-a:prod` parses as a URL too.
+pub fn decode_auth_data_url(address: &[u8]) -> Option<Url> {
+    let url = Url::parse(std::str::from_utf8(address).ok()?).ok()?;
+    matches!(url.scheme(), "http" | "https").then_some(url)
+}
+
 /// First 4 bytes of the value's SHA-256: enough to see a rotation
 /// across reloads, too short to identify a value on its own
 fn value_fingerprint(value: &str) -> String {
@@ -268,11 +281,29 @@ mod tests {
 
     use alloy::primitives::B256;
 
-    use super::{GetHeaderRequest, RelayClient, RelayEntry, value_fingerprint};
+    use super::{
+        GetHeaderRequest, RelayClient, RelayEntry, decode_auth_data_url, value_fingerprint,
+    };
     use crate::{
         config::{GetHeaderTransport, RelayConfig, test_env::RELAY_URL},
         utils::bls_pubkey_from_hex_unchecked,
     };
+
+    #[test]
+    fn decode_auth_data_url_accepts_only_http_urls() {
+        let cases: [(&[u8], Option<&str>); 5] = [
+            (b"https://Builder-A.example.com:443/eth", Some("https://builder-a.example.com/eth")),
+            (b"http://10.0.0.1:18550", Some("http://10.0.0.1:18550/")),
+            // Opaque data and host:port parse as URLs with their own scheme
+            (b"builder-a:prod", None),
+            (b"localhost:18550", None),
+            (b"builder-a.example.com", None),
+        ];
+        for (data, expected) in cases {
+            let decoded = decode_auth_data_url(data).map(|url| url.to_string());
+            assert_eq!(decoded.as_deref(), expected, "{}", String::from_utf8_lossy(data));
+        }
+    }
 
     #[test]
     fn test_relay_entry() {
