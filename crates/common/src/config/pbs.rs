@@ -49,6 +49,15 @@ pub enum GetHeaderTransport {
     Stream,
 }
 
+impl GetHeaderTransport {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Http => "http",
+            Self::Stream => "stream",
+        }
+    }
+}
+
 /// A custom relay header value: a literal, or a secret read from a file or an
 /// environment variable when the relay client is built (at startup and on every
 /// reload), so an API key never has to sit in plaintext in the config file.
@@ -131,7 +140,7 @@ pub struct RelayConfig {
     pub headers: Option<HashMap<String, HeaderSource>>,
     /// Optional GET parameters to add to each request
     pub get_params: Option<HashMap<String, String>>,
-    /// How to fetch headers from this relay
+    /// How to fetch bids from this relay
     #[serde(default)]
     pub get_header: GetHeaderTransport,
     /// Whether to enable timing games

@@ -11,8 +11,8 @@ use url::Url;
 use super::{
     HEADER_VERSION_KEY, HEADER_VERSION_VALUE,
     constants::{
-        GET_HEADER_STREAM_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
-        SUBMIT_SIGNED_BEACON_BLOCK_PATH,
+        GET_EXECUTION_PAYLOAD_BID_STREAM_PATH, GET_HEADER_STREAM_PATH, GET_STATUS_PATH,
+        REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH, SUBMIT_SIGNED_BEACON_BLOCK_PATH,
     },
     error::PbsError,
 };
@@ -63,6 +63,15 @@ pub enum GetHeaderRequest {
     Stream(Url),
 }
 
+impl GetHeaderRequest {
+    pub fn transport(&self) -> GetHeaderTransport {
+        match self {
+            Self::Http(_) => GetHeaderTransport::Http,
+            Self::Stream(_) => GetHeaderTransport::Stream,
+        }
+    }
+}
+
 fn stream_url(entry: &Url) -> eyre::Result<Url> {
     let scheme = match entry.scheme() {
         "http" | "ws" => "ws",
@@ -87,9 +96,10 @@ pub struct RelayClient {
     pub id: Arc<String>,
     /// HTTP client to send requests
     pub client: reqwest::Client,
-    /// Base url of the get_header stream, `Some` only when the relay streams.
+    /// Base url of the get_header stream, whose origin the ePBS bid stream
+    /// shares. `Some` only when the relay streams.
     stream_url: Option<Url>,
-    /// Baseline headers for the get_header stream handshake.
+    /// Baseline headers for the bid stream handshakes.
     stream_headers: Arc<HeaderMap>,
     /// Configuration of the relay
     pub config: Arc<RelayConfig>,
@@ -195,24 +205,17 @@ impl RelayClient {
         )
     }
 
-    pub fn get_header_request(
+    /// The get_header stream, `None` when the relay does not stream
+    pub fn get_header_stream_url(
         &self,
         slot: u64,
         parent_hash: &B256,
         validator_pubkey: &BlsPublicKey,
-    ) -> Result<GetHeaderRequest, PbsError> {
-        Ok(match &self.stream_url {
-            None => {
-                GetHeaderRequest::Http(self.get_header_url(slot, parent_hash, validator_pubkey)?)
-            }
-            Some(base) => {
-                let mut url = base.clone();
-                url.set_path(&format!("{}/{slot}/{parent_hash}/{validator_pubkey}", base.path()));
-
-                self.append_get_params(&mut url);
-                GetHeaderRequest::Stream(url)
-            }
-        })
+    ) -> Option<Url> {
+        let mut url = self.stream_url.clone()?;
+        url.set_path(&format!("{}/{slot}/{parent_hash}/{validator_pubkey}", url.path()));
+        self.append_get_params(&mut url);
+        Some(url)
     }
 
     pub fn get_status_url(&self) -> Result<Url, PbsError> {
@@ -242,6 +245,24 @@ impl RelayClient {
             ),
             BuilderApiVersion::V1,
         )
+    }
+
+    /// The ePBS bid stream, at the get_header stream's origin. `None` when the
+    /// relay does not stream.
+    pub fn get_execution_payload_bid_stream_url(
+        &self,
+        slot: u64,
+        parent_hash: &B256,
+        parent_root: &B256,
+        validator_pubkey: &BlsPublicKey,
+    ) -> Option<Url> {
+        let mut url = self.stream_url.clone()?;
+        url.set_path(&format!(
+            "{}{GET_EXECUTION_PAYLOAD_BID_STREAM_PATH}/{slot}/{parent_hash}/{parent_root}/{validator_pubkey}",
+            BuilderApiVersion::V1.path()
+        ));
+        self.append_get_params(&mut url);
+        Some(url)
     }
 
     /// builder-API: POST /eth/v1/builder/builder_preferences/{proposer_pubkey}
@@ -281,9 +302,7 @@ mod tests {
 
     use alloy::primitives::B256;
 
-    use super::{
-        GetHeaderRequest, RelayClient, RelayEntry, decode_auth_data_url, value_fingerprint,
-    };
+    use super::{RelayClient, RelayEntry, decode_auth_data_url, value_fingerprint};
     use crate::{
         config::{GetHeaderTransport, RelayConfig, test_env::RELAY_URL},
         utils::bls_pubkey_from_hex_unchecked,
@@ -391,9 +410,10 @@ mod tests {
     }
 
     #[test]
-    fn test_get_header_request() {
+    fn test_stream_urls() {
         let slot = 0;
         let parent_hash = B256::ZERO;
+        let parent_root = B256::repeat_byte(1);
         let validator_pubkey = bls_pubkey_from_hex_unchecked(
             "0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae",
         );
@@ -403,17 +423,18 @@ mod tests {
         }"#;
         let base_config = serde_json::from_str::<RelayConfig>(relay_config).unwrap();
 
-        // Default transport: plain HTTP endpoint
+        // Default transport: no stream
         let relay = RelayClient::new(base_config.clone()).unwrap();
-        let GetHeaderRequest::Http(url) =
-            relay.get_header_request(slot, &parent_hash, &validator_pubkey).unwrap()
-        else {
-            panic!("expected http request");
-        };
-        assert_eq!(
-            url,
-            relay.get_header_url(slot, &parent_hash, &validator_pubkey).unwrap(),
-            "http dispatch must match the plain url builder"
+        assert!(relay.get_header_stream_url(slot, &parent_hash, &validator_pubkey).is_none());
+        assert!(
+            relay
+                .get_execution_payload_bid_stream_url(
+                    slot,
+                    &parent_hash,
+                    &parent_root,
+                    &validator_pubkey
+                )
+                .is_none()
         );
 
         // Streaming: the relay url over ws, at the fixed stream path, with the
@@ -421,11 +442,7 @@ mod tests {
         let mut config = base_config.clone();
         config.get_header = GetHeaderTransport::Stream;
         let relay = RelayClient::new(config).unwrap();
-        let GetHeaderRequest::Stream(url) =
-            relay.get_header_request(slot, &parent_hash, &validator_pubkey).unwrap()
-        else {
-            panic!("expected stream request");
-        };
+        let url = relay.get_header_stream_url(slot, &parent_hash, &validator_pubkey).unwrap();
         assert_eq!(
             url.to_string(),
             format!(
@@ -440,15 +457,25 @@ mod tests {
         config.get_header = GetHeaderTransport::Stream;
         config.get_params = Some(HashMap::from([("token".to_string(), "abc".to_string())]));
         let relay = RelayClient::new(config).unwrap();
-        let GetHeaderRequest::Stream(url) =
-            relay.get_header_request(slot, &parent_hash, &validator_pubkey).unwrap()
-        else {
-            panic!("expected stream request");
-        };
+        let url = relay.get_header_stream_url(slot, &parent_hash, &validator_pubkey).unwrap();
         assert_eq!(
             url.to_string(),
             format!(
                 "wss://abc.xyz:4444/eth/v1/builder/header_stream/{slot}/{parent_hash}/{validator_pubkey}?token=abc"
+            )
+        );
+        let url = relay
+            .get_execution_payload_bid_stream_url(
+                slot,
+                &parent_hash,
+                &parent_root,
+                &validator_pubkey,
+            )
+            .unwrap();
+        assert_eq!(
+            url.to_string(),
+            format!(
+                "wss://abc.xyz:4444/eth/v1/builder/execution_payload_bid_stream/{slot}/{parent_hash}/{parent_root}/{validator_pubkey}?token=abc"
             )
         );
 

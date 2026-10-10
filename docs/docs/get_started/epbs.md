@@ -27,7 +27,7 @@ The ePBS bid endpoint does not use these PBS options, which will be deprecated a
 - `skip_sigverify`, `min_bid_eth` and `extra_validation_enabled`: the beacon node checks the bid against the on-chain builder registry and applies the `min_bid` from its builder config.
 - `timeout_get_header_ms`, `late_in_slot_time_ms`, their `[[mux]]` overrides and the timing-games options: the beacon node's deadline bounds the request (see [Timing](#timing)).
 
-A `get_header = "stream"` relay is asked for ePBS bids over plain HTTP.
+For a builder whose relay entry sets `get_header = "stream"`, Commit-Boost also reads its bids from a [stream](#bid-streaming).
 
 ## How a bid request reaches a builder
 
@@ -92,16 +92,29 @@ Think of `proposer_deadline_buffer_ms` as the slack you keep from the beacon nod
 
 Builder preferences use `timeout_register_validator_ms`, and the signed block `timeout_get_payload_ms`.
 
+## Bid streaming
+
+A builder answers an HTTP bid request once, so a better bid it makes after answering never reaches the beacon node. Over a websocket stream it can keep sending bids until just before the beacon node's deadline.
+
+Ask the builder whether it serves the ePBS bid stream, at `ws(s)://<relay host>/eth/v1/builder/execution_payload_bid_stream/{slot}/{parent_hash}/{parent_root}/{proposer_pubkey}`. If it does, set `get_header = "stream"` on its relay entry. Before the fork the same setting reads the builder's `get_header` bids from its [PBS stream](./configuration.md#bid-streaming), so for a builder that serves only one of the two, Commit-Boost logs a failed stream on each request to the other and uses the HTTP bid. The handshake carries the relay entry's `headers`, so a builder that requires an [API key](./configuration.md#relay-api-keys) gets it.
+
+For each bid request to a streaming builder, Commit-Boost sends the usual HTTP request and opens the stream at the same time. It returns the HTTP bid or the latest streamed bid that decodes, whichever has the higher `value + execution_payment`, and the streamed bid on a tie. Commit-Boost does not apply the key's `max_execution_payment` to this choice; the beacon node applies it afterwards. If the stream fails, the HTTP bid still reaches the beacon node. A builder [outside your config](#builders-outside-your-config) is always asked over HTTP.
+
+Streaming makes bid requests slower. Commit-Boost replies to the beacon node once the builder's HTTP response is in and the stream has ended: when the builder closes it, when it fails, or at the beacon node's deadline less `proposer_deadline_buffer_ms`. An HTTP builder is answered as soon as it responds. `timeout_get_header_ms` does not shorten the wait. If the beacon node reports bid requests timing out on streaming builders, raise `proposer_deadline_buffer_ms`.
+
+The stream [connects directly](./configuration.md#connection), without your proxy settings, while the HTTP request uses them. If your host reaches builders only through a proxy, keep them on `"http"`.
+
 ## Metrics
 
-With [metrics](./running/metrics.md) enabled, the ePBS endpoints use the `endpoint` labels `get_execution_payload_bid`, `submit_builder_preferences` and `submit_signed_beacon_block`.
+With [metrics](./running/metrics.md) enabled, the ePBS endpoints use the `endpoint` labels `get_execution_payload_bid`, `submit_builder_preferences` and `submit_signed_beacon_block`, and a [streaming](#bid-streaming) builder's stream uses `get_execution_payload_bid_stream`.
 
 | Question | Series |
 |---|---|
 | What did Commit-Boost answer the beacon node? | `cb_pbs_beacon_node_status_code_total`: `200` or `204` for a bid request, `202` for preferences, `202` for the signed block whatever the builders answer, `4xx` for a rejected request, `500` when no builder accepted the preferences |
 | What did each builder answer? | `cb_pbs_relay_status_code_total`, by `relay_id`: the builder's HTTP status, or `555` when no response arrived (timeout, DNS or connection failure). Requests to builders outside your config count under `relay_id="dial"`, except one Commit-Boost [refuses to dial](#builders-outside-your-config), which gets no request |
 | How fast are builders? | `cb_pbs_relay_latency`, by `relay_id` |
-| What are builders bidding? | `cb_pbs_relay_header_value` (the bid's `value` in Gwei, without the execution payment) and `cb_pbs_relay_last_slot`, by `relay_id`, from each bid a builder serves |
+| Is a builder's bid stream working? | `cb_pbs_relay_status_code_total{endpoint="get_execution_payload_bid_stream"}`: `200` when the stream supplied a bid, `204` when it had none, any other code a failed stream: `555` the deadline ran out before the handshake completed, `556` a connection that failed or dropped before a bid, or the builder's own refusal such as `404`. When Commit-Boost returns a streaming builder's bid, it also logs `selected bid`, with `transport` set to `stream` or `http` for where that bid came from |
+| What are builders bidding? | `cb_pbs_relay_header_value` (the bid's `value` in Gwei, without the execution payment) and `cb_pbs_relay_last_slot`, by `relay_id`, from the bid Commit-Boost returns for each builder; with a streaming builder, whichever of its two bids it chose |
 
 ## Troubleshooting
 
@@ -110,7 +123,9 @@ With [metrics](./running/metrics.md) enabled, the ePBS endpoints use the `endpoi
 | Bid requests get `400` "auth.message.data does not match any configured builder" | The auth data is neither a hostname nor an `http(s)` URL, or the request came from another Commit-Boost and matches none of this one's relay entries | Correct the `auth_data` in the key's [builder config](#validator-builder-config), or add the builder as a relay entry on the Commit-Boost the request reaches |
 | Bid requests get `400` "the addressed builder's host does not resolve or resolves to a disallowed address" | The auth data names a builder outside your config whose host does not resolve or resolves to an [internal address](#builders-outside-your-config). A key without builder config sends Commit-Boost's own hostname, which usually does | Add the builder as a relay entry for the key, or write or correct the key's [builder config](#validator-builder-config) |
 | A builder answers bid requests with `400` (`cb_pbs_relay_status_code_total{endpoint="get_execution_payload_bid",http_status_code="400"}`) | The builder compares auth data byte for byte and expects something other than what the key sends, such as its hostname without `?` parameters | Send the auth data the builder expects: its hostname or its URL, the forms Commit-Boost [routes by](#routing-by-auth-data), with `?` parameters only if it accepts them |
+| Bid requests to a streaming builder log "stream failed" with "rejected with 404", and `cb_pbs_relay_stream_fallback_total{endpoint="get_execution_payload_bid_stream"}` rises | The builder does not serve the ePBS bid stream. Its HTTP bid still reaches the beacon node | Set `get_header = "http"` on its relay entry |
 | Commit-Boost does not start or reload, or `commit-boost init` fails, with "proposer_deadline_buffer_ms must be greater than 0 and less than one slot" | `proposer_deadline_buffer_ms` is `0`, or one slot or more | Set it above `0` and under one slot, or remove it to use the default `50` |
+| Bid requests to a streaming builder log "stream failed" with "websocket timed out" or a connection error | Commit-Boost could not open the stream before the deadline, for example because your network allows only proxied connections, which the stream does not use. The HTTP bid still reaches the beacon node | Keep the builder on `get_header = "http"`, or allow direct connections to it |
+| Commit-Boost returns `200` but the beacon node builds locally | The beacon node rejected the bid, or valued its local block higher after `builder_boost_factor` | Compare the bid with the key's `min_bid` and `builder_boost_factor` |
 | The signed block gets `415` | The beacon node sends it as JSON | Configure the beacon node to send SSZ |
 | Commit-Boost logs "no builder accepted the signed beacon block" | The winning bid came from a builder outside your config, which gets the block over gossip, or your builders did not accept it. The beacon node gossips the block either way | If the bid came from a configured builder, check its answer in `cb_pbs_relay_status_code_total{endpoint="submit_signed_beacon_block"}` |
-| Commit-Boost returns `200` but the beacon node builds locally | The beacon node rejected the bid, or valued its local block higher after `builder_boost_factor` | Compare the bid with the key's `min_bid` and `builder_boost_factor` |
