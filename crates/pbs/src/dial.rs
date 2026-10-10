@@ -59,6 +59,8 @@ fn dial_target(data_url: Option<Url>, address: &[u8]) -> Result<Url, PbsClientEr
         .or_else(|| {
             let url =
                 Url::parse(&format!("https://{}/", std::str::from_utf8(address).ok()?)).ok()?;
+            // Parsing also takes a port, userinfo, a path, upper case and
+            // numeric IPv4, so only a host already in canonical form passes
             (url.host_str()?.as_bytes() == address).then_some(url)
         })
         .ok_or_else(|| {
