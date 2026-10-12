@@ -92,6 +92,7 @@ async fn test_auto_refresh() -> Result<()> {
             late_in_slot_time_ms: Some(u64::MAX),
             relays: vec![(*mux_relay.config).clone()],
             timeout_get_header_ms: Some(u64::MAX - 1),
+            proposer_deadline_buffer_ms: None,
             validator_pubkeys: vec![],
         }],
     };

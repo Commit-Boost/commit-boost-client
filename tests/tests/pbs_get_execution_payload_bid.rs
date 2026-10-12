@@ -193,7 +193,7 @@ async fn test_get_execution_payload_bid_dial() -> Result<()> {
 /// relay only in a mux is not reached so by other keys: it is dialed instead
 #[tokio::test]
 async fn test_get_execution_payload_bid_mux_routes_to_mux_relays() -> Result<()> {
-    let relays = setup_mux_relays(Chain::Hoodi).await?;
+    let relays = setup_mux_relays(Chain::Hoodi, None).await?;
     let bid = async |key: Option<BlsPublicKey>, auth_data: &[u8]| {
         relays
             .validator
@@ -225,6 +225,40 @@ async fn test_get_execution_payload_bid_mux_routes_to_mux_relays() -> Result<()>
     let to_mux = format!("http://0.0.0.0:{}", relays.mux_port);
     assert_eq!(bid(None, to_mux.as_bytes()).await?.status(), StatusCode::BAD_REQUEST);
     assert_eq!(relays.mux_state.received_execution_payload_bid(), 1);
+    Ok(())
+}
+
+/// A key in a mux gets the mux's `proposer_deadline_buffer_ms`, other keys
+/// `[pbs]`'s, and a mux's `0` does not load
+#[tokio::test]
+async fn test_get_execution_payload_bid_mux_buffer() -> Result<()> {
+    let relays = setup_mux_relays(Chain::Hoodi, Some(2_000)).await?;
+    let bid = async |key: Option<BlsPublicKey>| {
+        relays
+            .validator
+            .do_get_execution_payload_bid_with_timeout(
+                TEST_SLOT,
+                B256::ZERO,
+                B256::ZERO,
+                key,
+                Some(&opaque_auth(TEST_AUTH_DATA, TEST_SLOT)),
+                vec![EncodingType::Json],
+                60_000,
+            )
+            .await
+    };
+    assert_eq!(bid(Some(relays.muxed_key.clone())).await?.status(), StatusCode::OK);
+    assert_eq!(bid(None).await?.status(), StatusCode::OK);
+
+    // One 12 s slot, less each buffer
+    assert_eq!(relays.mux_state.received_bid_timeout_ms(), Some(10_000));
+    assert_eq!(relays.default_state.received_bid_timeout_ms(), Some(11_950));
+
+    let err = setup_mux_relays(Chain::Hoodi, Some(0)).await.err().expect("a buffer of 0 loaded");
+    assert!(
+        err.to_string().contains("proposer_deadline_buffer_ms must be greater than 0"),
+        "{err}"
+    );
     Ok(())
 }
 

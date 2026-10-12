@@ -6,9 +6,9 @@ description: Mux (multiplexer) configuration and key loader types
 
 The PBS multiplexer (or *mux*) lets you route different validators to different relay sets or timing game configurations. Instead of a single `[[relays]]` list for all your validators, you declare one or more `[[mux]]` entries that match specific validator pubkeys to custom relay and timing settings.
 
-A mux covers cases like a Lido or SSV node operator who sends some validators to an operator-specific relay while the rest use the global relay set, or per-group timing games: `timeout_get_header_ms` and `late_in_slot_time_ms` can be set per-mux, overriding the PBS defaults for those validators. The mux key loaders (File, URL, Registry) populate a mux's validator set from a file, an HTTP endpoint, or an on-chain registry, so you don't have to list hundreds or thousands of pubkeys by hand.
+A mux covers cases like a Lido or SSV node operator who sends some validators to an operator-specific relay while the rest use the global relay set, or per-group timing games: `timeout_get_header_ms`, `late_in_slot_time_ms` and (unreleased, from v0.12.0-rc1) the ePBS `proposer_deadline_buffer_ms` can be set per-mux, overriding the PBS defaults for those validators. The mux key loaders (File, URL, Registry) populate a mux's validator set from a file, an HTTP endpoint, or an on-chain registry, so you don't have to list hundreds or thousands of pubkeys by hand.
 
-Mux entries are an optional addition to the `[[relays]]` section. A mux affects only `get_header` requests: validator registrations and `submit_blinded_block` always go to all configured relays, global and mux alike.
+Mux entries are an optional addition to the `[[relays]]` section. A mux affects `get_header` requests and, for ePBS, bid and builder preferences requests: validator registrations, `submit_blinded_block` and the ePBS signed block always go to all configured relays, global and mux alike.
 
 ---
 

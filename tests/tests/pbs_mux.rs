@@ -383,6 +383,7 @@ async fn test_ssv_multi_with_node() -> Result<()> {
             late_in_slot_time_ms: Some(u64::MAX),
             relays: vec![(*relay.config).clone()],
             timeout_get_header_ms: Some(u64::MAX - 1),
+            proposer_deadline_buffer_ms: None,
             validator_pubkeys: vec![],
         }],
     };
@@ -490,6 +491,7 @@ async fn test_ssv_multi_with_public() -> Result<()> {
             late_in_slot_time_ms: Some(u64::MAX),
             relays: vec![(*relay.config).clone()],
             timeout_get_header_ms: Some(u64::MAX - 1),
+            proposer_deadline_buffer_ms: None,
             validator_pubkeys: vec![],
         }],
     };

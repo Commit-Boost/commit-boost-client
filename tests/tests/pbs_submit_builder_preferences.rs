@@ -294,7 +294,7 @@ async fn test_submit_builder_preferences_dial() -> Result<()> {
 /// by other keys: it is dialed, and the dial check refuses 0.0.0.0
 #[tokio::test]
 async fn test_submit_builder_preferences_mux_key_reaches_a_relays_entry() -> Result<()> {
-    let relays = setup_mux_relays(Chain::Hoodi).await?;
+    let relays = setup_mux_relays(Chain::Hoodi, None).await?;
     let mock_validator = &relays.validator;
     let (muxed_key, default_port, mux_port) =
         (relays.muxed_key.clone(), relays.default_port, relays.mux_port);

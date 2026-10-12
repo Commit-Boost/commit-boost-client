@@ -141,7 +141,12 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
 
     // No bid could reach the beacon node before its deadline
     if max_timeout_ms == 0 {
-        warn!(budget_ms, "proposer deadline reached, no time to solicit a bid");
+        warn!(
+            budget_ms,
+            buffer_ms = pbs_config.proposer_deadline_buffer_ms,
+            mux_id = maybe_mux_id.unwrap_or("none"),
+            "proposer deadline reached, no time to solicit a bid"
+        );
         return Ok(None);
     }
 
