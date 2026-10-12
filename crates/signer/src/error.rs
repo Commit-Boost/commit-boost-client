@@ -47,11 +47,11 @@ impl IntoResponse for SignerModuleError {
             }
             SignerModuleError::UnknownProxySigner(_) => (StatusCode::NOT_FOUND, self.to_string()),
             SignerModuleError::DirkCommunicationError(_) => {
-                (StatusCode::BAD_GATEWAY, "Dirk communication error".to_string())
+                (StatusCode::BAD_GATEWAY, self.to_string())
             }
             SignerModuleError::DirkNotSupported => (StatusCode::BAD_REQUEST, self.to_string()),
             SignerModuleError::Internal(_) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string())
+                (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
             }
             SignerModuleError::SignerError(err) => (StatusCode::BAD_REQUEST, err.to_string()),
             SignerModuleError::ModuleIdNotFound => (StatusCode::NOT_FOUND, self.to_string()),
