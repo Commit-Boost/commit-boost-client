@@ -8,8 +8,8 @@ use cb_common::{
 use cb_tests::{
     mock_relay::MockRelayState,
     utils::{
-        TEST_AUTH_DATA, generate_mock_relay, opaque_auth, setup_relay, setup_relays,
-        setup_relays_on_hosts, spawn_mock_relay,
+        TEST_AUTH_DATA, generate_mock_relay, opaque_auth, setup_mux_relays, setup_relay,
+        setup_relays, setup_relays_on_hosts, spawn_mock_relay,
     },
 };
 use eyre::Result;
@@ -173,9 +173,8 @@ async fn test_submit_builder_preferences_past_slot_forwarded() -> Result<()> {
     Ok(())
 }
 
-/// Auth data that is neither a hostname nor a URL is a 400 with the builder's
-/// data-mismatch message: CB has no builder to proxy to, and proposer-private
-/// preferences must never broadcast to builders the proposer did not address.
+/// Auth data that is neither a hostname nor a URL is a 400, and no builder is
+/// asked: preferences go only to the builder the proposer addressed
 #[tokio::test]
 async fn test_submit_builder_preferences_unmatched_auth_data_400() -> Result<()> {
     let chain = Chain::Hoodi;
@@ -287,5 +286,27 @@ async fn test_submit_builder_preferences_dial() -> Result<()> {
         mock_validator.do_submit_builder_preferences(None, &request, EncodingType::Ssz).await?;
     assert_eq!(res.status(), StatusCode::ACCEPTED);
     assert_eq!(dial_state.received_builder_preferences(), 1);
+    Ok(())
+}
+
+/// A key in a `[[mux]]` sends preferences to a builder configured only in
+/// `[[relays]]` through that entry. A builder only in the mux is not reached so
+/// by other keys: it is dialed, and the dial check refuses 0.0.0.0
+#[tokio::test]
+async fn test_submit_builder_preferences_mux_key_reaches_a_relays_entry() -> Result<()> {
+    let relays = setup_mux_relays(Chain::Hoodi).await?;
+    let mock_validator = &relays.validator;
+    let (muxed_key, default_port, mux_port) =
+        (relays.muxed_key.clone(), relays.default_port, relays.mux_port);
+    let (default_state, mux_state) = (&relays.default_state, &relays.mux_state);
+    let submit = async |key, port| {
+        let auth = opaque_auth(format!("http://0.0.0.0:{port}").as_bytes(), TEST_SLOT);
+        let request = preferences(auth, TEST_MAX_EXECUTION_PAYMENT);
+        mock_validator.do_submit_builder_preferences(key, &request, EncodingType::Ssz).await
+    };
+    assert_eq!(submit(Some(muxed_key), default_port).await?.status(), StatusCode::ACCEPTED);
+    assert_eq!(submit(None, mux_port).await?.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(default_state.received_builder_preferences(), 1);
+    assert_eq!(mux_state.received_builder_preferences(), 0);
     Ok(())
 }

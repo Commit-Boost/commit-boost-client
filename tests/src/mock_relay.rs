@@ -41,8 +41,9 @@ use cb_common::{
     },
 };
 use cb_pbs::{
-    GET_HEADER_ENDPOINT_TAG, MAX_SIZE_SUBMIT_BLOCK_RESPONSE, REGISTER_VALIDATOR_ENDPOINT_TAG,
-    STATUS_ENDPOINT_TAG, SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG,
+    GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG, GET_HEADER_ENDPOINT_TAG,
+    MAX_SIZE_SUBMIT_BLOCK_RESPONSE, REGISTER_VALIDATOR_ENDPOINT_TAG, STATUS_ENDPOINT_TAG,
+    SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG,
 };
 use lh_types::{KzgProof, Slot};
 use reqwest::header::{ACCEPT, CONTENT_TYPE};
@@ -103,6 +104,8 @@ pub struct MockRelayState {
     /// `slot` of the last signed beacon block forwarded, decoded from the SSZ
     /// body PBS sent, so a test can assert the block survived the hop
     received_block_slot: RwLock<Option<u64>>,
+    /// Content-Type and body of the last signed beacon block forwarded
+    received_block_request: RwLock<Option<(Option<String>, axum::body::Bytes)>>,
     /// The last `BuilderPreferencesRequest` submitted, so a test can assert
     /// both the preferences and the auth were forwarded unchanged
     received_preferences: RwLock<Option<BuilderPreferencesRequest>>,
@@ -161,6 +164,11 @@ impl MockRelayState {
     pub fn received_signed_beacon_block(&self) -> u64 {
         self.received_signed_beacon_block.load(Ordering::Relaxed)
     }
+    /// The last forwarded block's Content-Type and body
+    pub fn received_block_request(&self) -> Option<(Option<String>, axum::body::Bytes)> {
+        self.received_block_request.read().unwrap().clone()
+    }
+
     /// `slot` of the last signed beacon block PBS forwarded
     pub fn received_block_slot(&self) -> Option<u64> {
         *self.received_block_slot.read().unwrap()
@@ -248,6 +256,7 @@ impl MockRelayState {
             received_builder_preferences: Default::default(),
             received_signed_beacon_block: Default::default(),
             received_block_slot: RwLock::new(None),
+            received_block_request: RwLock::new(None),
             received_preferences: RwLock::new(None),
             received_preferences_pubkey: RwLock::new(None),
             bid_delay_ms: None,
@@ -401,6 +410,7 @@ async fn handle_get_execution_payload_bid(
     body: axum::body::Bytes,
 ) -> Response {
     state.received_execution_payload_bid.fetch_add(1, Ordering::Relaxed);
+    state.record_api_key(GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG, &headers);
     // Builders MUST 400 a bid request without both timing headers
     let header_u64 =
         |name| headers.get(name).and_then(|v| v.to_str().ok()).and_then(|v| v.parse::<u64>().ok());
@@ -653,15 +663,16 @@ async fn handle_submit_builder_preferences(
     StatusCode::ACCEPTED.into_response()
 }
 
-/// Decodes the forwarded block (PBS always sends SSZ with
-/// `Eth-Consensus-Version`), records its slot, and 202s
-/// unless the test overrode the response.
+/// Records the forwarded block's Content-Type and body, and its slot when it is
+/// SSZ, and 202s unless the test overrode the response
 async fn handle_submit_signed_beacon_block(
     headers: HeaderMap,
     State(state): State<Arc<MockRelayState>>,
     body: axum::body::Bytes,
 ) -> Response {
     state.received_signed_beacon_block.fetch_add(1, Ordering::Relaxed);
+    let content_type = headers.get(CONTENT_TYPE).and_then(|v| v.to_str().ok()).map(String::from);
+    *state.received_block_request.write().unwrap() = Some((content_type, body.clone()));
 
     if let Some(fork) = get_consensus_version_header(&headers) &&
         let Ok(block) = SignedBeaconBlock::from_ssz_bytes_by_fork(&body, fork)
