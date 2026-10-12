@@ -51,6 +51,11 @@ where
         &self.config.all_relays
     }
 
+    /// Returns the default relays, `[[relays]]`, in config order
+    pub fn default_relays(&self) -> &[RelayClient] {
+        &self.config.relays
+    }
+
     /// Returns the PBS config and relay clients for the given validator pubkey.
     /// If the pubkey is not found in any mux, the default configs are
     /// returned

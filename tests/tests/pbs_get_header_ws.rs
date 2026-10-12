@@ -19,7 +19,7 @@ use cb_tests::{
     mock_validator::MockValidator,
     mock_ws_relay::{MockWsRelayState, start_mock_ws_relay_service},
     utils::{
-        API_KEY, generate_mock_relay, generate_mock_stream_relay,
+        RELAY_API_KEY, generate_mock_relay, generate_mock_stream_relay,
         generate_mock_stream_relay_with_timing_games, get_free_listener, get_pbs_config,
         setup_test_env, to_pbs_config,
     },
@@ -177,7 +177,7 @@ async fn test_get_header_ws_sends_api_key() -> Result<()> {
     assert_eq!(code, StatusCode::OK);
 
     let request = relay_state.last_request().expect("relay saw no request");
-    assert_eq!(request.api_key.as_deref(), Some(API_KEY));
+    assert_eq!(request.api_key.as_deref(), Some(RELAY_API_KEY));
     Ok(())
 }
 
