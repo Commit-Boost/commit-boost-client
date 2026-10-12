@@ -16,7 +16,7 @@ use cb_common::{
     wire::{
         CONSENSUS_VERSION_HEADER, EncodingType, GLOAS_CONSENSUS_VERSION, OUTBOUND_ACCEPT_SSZ_FIRST,
         decode_versioned_request_body, get_accept_types, get_user_agent,
-        parse_response_encoding_and_fork, read_chunked_body_with_max, safe_read_http_response,
+        parse_response_encoding_and_fork, safe_read_http_response,
     },
 };
 use reqwest::{
@@ -36,7 +36,8 @@ use crate::{
     state::{BuilderApiState, PbsState},
     utils::{
         builder_rejection, epbs_base_send_headers, format_gwei_as_eth, log_mux_selection,
-        record_beacon_status, record_request_failure, resolve_addressed_relay, send_to_relay,
+        record_beacon_status, record_request_failure, relay_response_error,
+        resolve_addressed_relay, send_to_relay,
     },
 };
 
@@ -146,14 +147,15 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
 
     let (relay, max_timeout_ms) = match resolve_addressed_relay(
         relays,
+        state.default_relays(),
         auth.message.data.as_ref(),
         &req_headers,
         max_timeout_ms,
     )
     .await
     {
-        // A dial with no time left, or refused for too many lookups, is a builder
-        // that did not answer
+        // A dial that runs out of time or lookup slots is a builder that did not
+        // answer
         Err(PbsClientError::NoBuilderResponse) => return Ok(None),
         resolved => resolved?,
     };
@@ -183,7 +185,7 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
             Ok(None)
         }
         Err(err) => {
-            error!(err = ?err, %relay_id);
+            error!(?err, %relay_id);
             builder_rejection(&err).map_or(Ok(None), Err)
         }
     }
@@ -244,14 +246,7 @@ async fn send_get_execution_payload_bid(
         send_to_relay(request, &relay, GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG).await?;
     let code = res.status();
     if !code.is_success() {
-        // Read after the status check, so a body over the cap still reports the
-        // builder's status
-        let url = res.url().to_string();
-        let error_msg = match read_chunked_body_with_max(res, MAX_SIZE_DEFAULT, &url).await {
-            Ok(body) => String::from_utf8_lossy(&body).into_owned(),
-            Err(err) => err.to_string(),
-        };
-        return Err(PbsError::RelayResponse { error_msg, code: code.as_u16() });
+        return Err(relay_response_error(res, "expected 200 or 204").await);
     }
 
     let (content_type, fork) = parse_response_encoding_and_fork(res.headers(), code.as_u16())?;

@@ -291,13 +291,14 @@ mod tests {
 
     #[test]
     fn decode_auth_data_url_accepts_only_http_urls() {
-        let cases: [(&[u8], Option<&str>); 5] = [
+        let cases: [(&[u8], Option<&str>); 6] = [
             (b"https://Builder-A.example.com:443/eth", Some("https://builder-a.example.com/eth")),
             (b"http://10.0.0.1:18550", Some("http://10.0.0.1:18550/")),
             // Opaque data and host:port parse as URLs with their own scheme
             (b"builder-a:prod", None),
             (b"localhost:18550", None),
             (b"builder-a.example.com", None),
+            (b"http://1.1.1.1/\xff", None),
         ];
         for (data, expected) in cases {
             let decoded = decode_auth_data_url(data).map(|url| url.to_string());
