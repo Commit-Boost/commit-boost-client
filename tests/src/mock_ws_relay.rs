@@ -21,11 +21,7 @@ use cb_common::{
 };
 use futures::SinkExt;
 use ssz::Encode;
-use tokio::{
-    net::{TcpListener, TcpSocket, TcpStream},
-    sync::oneshot,
-    time::timeout,
-};
+use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::{
     accept_hdr_async,
     tungstenite::{
@@ -95,10 +91,6 @@ pub struct MockWsRelayState {
     /// Drop the connection after the last bid, with no close frame, as a
     /// stream that breaks
     abort_after_bids: bool,
-    /// End the stream at Date-Milliseconds + X-Timeout-Ms, as a relay honouring
-    /// the timing headers does: the last bid goes out then, the earlier ones
-    /// `update_interval` apart before it, and each reaches PBS this much later
-    ends_at_timeout: Option<Duration>,
     handshake_attempts: AtomicU64,
     received_connections: AtomicU64,
     last_request: Mutex<Option<StreamRequest>>,
@@ -118,7 +110,6 @@ impl MockWsRelayState {
             invalid_last_bids: 0,
             handshake_delay: Duration::ZERO,
             abort_after_bids: false,
-            ends_at_timeout: None,
             handshake_attempts: AtomicU64::new(0),
             received_connections: AtomicU64::new(0),
             last_request: Mutex::new(None),
@@ -159,10 +150,6 @@ impl MockWsRelayState {
 
     pub fn abort_after_bids(self) -> Self {
         Self { abort_after_bids: true, ..self }
-    }
-
-    pub fn ends_at_timeout(self, downlink_latency: Duration) -> Self {
-        Self { ends_at_timeout: Some(downlink_latency), ..self }
     }
 
     /// Connections that reached the stream, counted before the handshake, so
@@ -219,27 +206,9 @@ async fn serve_stream(state: Arc<MockWsRelayState>, stream: TcpStream) -> eyre::
     state.received_connections.fetch_add(1, Ordering::Relaxed);
     *state.last_request.lock().unwrap() = Some(request.clone());
 
-    let stream_end_ms = match state.ends_at_timeout {
-        Some(_) => Some(
-            request
-                .start_time_ms
-                .zip(request.timeout_ms)
-                .map(|(start, timeout)| start + timeout)
-                .ok_or_else(|| eyre::eyre!("no timing headers"))?,
-        ),
-        None => None,
-    };
-
     let n_bids =
         if request.parent_root.is_some() { state.epbs_bids.len() } else { state.bid_values.len() };
     for i in 0..n_bids {
-        if let (Some(end_ms), Some(latency)) = (stream_end_ms, state.ends_at_timeout) {
-            let sent_ms =
-                end_ms - state.update_interval.as_millis() as u64 * (n_bids - 1 - i) as u64;
-            let arrives_ms = sent_ms + latency.as_millis() as u64;
-            tokio::time::sleep(Duration::from_millis(arrives_ms.saturating_sub(utcnow_ms()))).await;
-        }
-
         if state.unknown_frames {
             // Unknown message type, unknown fork, truncated prefix
             for frame in [vec![0x7f, FORK_FULU, 1], vec![MSG_BID, 0xff, 1], vec![MSG_BID]] {
@@ -251,7 +220,7 @@ async fn serve_stream(state: Arc<MockWsRelayState>, stream: TcpStream) -> eyre::
         let frame = bid_frame(&state, &request, i, is_invalid);
         ws.send(Message::Binary(frame.into())).await?;
 
-        if stream_end_ms.is_none() && !state.update_interval.is_zero() {
+        if !state.update_interval.is_zero() {
             tokio::time::sleep(state.update_interval).await;
         }
     }
@@ -346,37 +315,6 @@ fn parse_request(req: &Request, accepted_at_ms: u64) -> Option<StreamRequest> {
 
 fn header(req: &Request, name: &str) -> Option<String> {
     req.headers().get(name)?.to_str().ok().map(ToOwned::to_owned)
-}
-
-/// Fills the accept queue until `drain` fires, so a connect waits a second for
-/// its SYN retransmit; a delayed accept would not slow it. Returns the port.
-pub async fn start_mock_ws_relay_with_full_backlog(
-    state: Arc<MockWsRelayState>,
-    drain: oneshot::Receiver<()>,
-) -> eyre::Result<u16> {
-    let socket = TcpSocket::new_v4()?;
-    socket.bind(([127, 0, 0, 1], 0).into())?;
-    let listener = socket.listen(1)?;
-    let addr = listener.local_addr()?;
-
-    // How many connections the queue admits is up to the OS: fill it until one
-    // does not complete
-    let mut fillers = Vec::new();
-    while let Ok(filler) = timeout(Duration::from_millis(200), TcpStream::connect(addr)).await {
-        fillers.push(filler?);
-        eyre::ensure!(fillers.len() < 16, "accept queue never filled");
-    }
-
-    tokio::spawn(async move {
-        let _ = drain.await;
-        for _ in &fillers {
-            listener.accept().await?;
-        }
-        drop(fillers);
-        start_mock_ws_relay_service(state, listener).await
-    });
-
-    Ok(addr.port())
 }
 
 /// One relay serving its HTTP API and its bid stream on the same port, as a

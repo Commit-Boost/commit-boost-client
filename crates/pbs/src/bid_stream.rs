@@ -10,12 +10,11 @@
 
 use std::{
     collections::VecDeque,
-    io,
     sync::{Arc, OnceLock},
     time::Duration,
 };
 
-use axum::http::{HeaderMap, HeaderValue, Request, Uri, header::USER_AGENT};
+use axum::http::{HeaderMap, HeaderValue, Request, header::USER_AGENT};
 use cb_common::{
     pbs::{ForkName, HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS, RelayClient, error::PbsError},
     utils::utcnow_ms,
@@ -24,14 +23,13 @@ use futures::StreamExt;
 use reqwest::StatusCode;
 use rustls::{ClientConfig, RootCertStore, crypto::aws_lc_rs};
 use tokio::{
-    net::{TcpStream, lookup_host},
+    net::TcpStream,
     time::{Instant, sleep_until, timeout_at},
 };
 use tokio_tungstenite::{
-    Connector, MaybeTlsStream, WebSocketStream, client_async_tls_with_config,
+    Connector, MaybeTlsStream, WebSocketStream, connect_async_tls_with_config,
     tungstenite::{
-        Bytes, Error as WsError, Message, client::IntoClientRequest, error::UrlError,
-        protocol::WebSocketConfig,
+        Bytes, Error as WsError, Message, client::IntoClientRequest, protocol::WebSocketConfig,
     },
 };
 use tracing::{debug, warn};
@@ -108,7 +106,7 @@ pub(crate) async fn read_bid_stream<T>(
 ) -> Result<Held<T>, (StatusCode, PbsError)> {
     let start_request = Instant::now();
     let mut stream = match timeout_at(deadline, connect(request, deadline)).await {
-        Ok(Ok(Some(stream))) => stream,
+        Ok(Ok(stream)) => stream,
         // A relay with no bid can answer the handshake as it answers get_header
         Ok(Err(WsError::Http(res))) if res.status() == StatusCode::NO_CONTENT => {
             return Ok(Held {
@@ -120,7 +118,7 @@ pub(crate) async fn read_bid_stream<T>(
             });
         }
         Ok(Err(err)) => return Err(connect_failed(&err)),
-        Ok(Ok(None)) | Err(_) => return Err((TIMEOUT_ERROR_STATUS, PbsError::WebSocketTimeout)),
+        Err(_) => return Err((TIMEOUT_ERROR_STATUS, PbsError::WebSocketTimeout)),
     };
     let connect_latency = start_request.elapsed();
     RELAY_STREAM_CONNECT_LATENCY
@@ -191,19 +189,13 @@ pub(crate) async fn read_bid_stream<T>(
     Ok(Held { frames, updates, connect_latency, first_frame_latency, invalid_frames })
 }
 
-/// Opens TCP first and times it, so `X-Timeout-Ms` ends the relay's stream one
-/// downlink trip before `deadline`. None when no time would be left.
+/// Opens the stream with the timing headers stamped now. As over HTTP,
+/// `X-Timeout-Ms` is the time left to `deadline`; the trip back is the relay's.
 async fn connect(
     mut request: Request<()>,
     deadline: Instant,
-) -> Result<Option<WebSocketStream<MaybeTlsStream<TcpStream>>>, WsError> {
-    let (socket, rtt) = connect_tcp(request.uri()).await?;
-
-    let Some(timeout_ms) =
-        relay_timeout_ms(deadline.saturating_duration_since(Instant::now()), rtt)
-    else {
-        return Ok(None);
-    };
+) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, WsError> {
+    let timeout_ms = deadline.saturating_duration_since(Instant::now()).as_millis() as u64;
     let headers = request.headers_mut();
     headers.insert(HEADER_START_TIME_UNIX_MS, HeaderValue::from(utcnow_ms()));
     headers.insert(HEADER_TIMEOUT_MS, HeaderValue::from(timeout_ms));
@@ -213,47 +205,9 @@ async fn connect(
         .max_frame_size(Some(MAX_SIZE_GET_HEADER_RESPONSE));
     let connector = Connector::Rustls(tls_config().clone());
     let (stream, _) =
-        client_async_tls_with_config(request, socket, Some(config), Some(connector)).await?;
+        connect_async_tls_with_config(request, Some(config), true, Some(connector)).await?;
 
-    Ok(Some(stream))
-}
-
-/// The TCP handshake's duration is one round trip, free of clock skew. Name
-/// resolution is left out of it.
-async fn connect_tcp(uri: &Uri) -> Result<(TcpStream, Duration), WsError> {
-    let host = uri.host().ok_or(WsError::Url(UrlError::NoHostName))?;
-    let host = host.strip_prefix('[').and_then(|host| host.strip_suffix(']')).unwrap_or(host);
-    let port = uri
-        .port_u16()
-        .or(match uri.scheme_str() {
-            Some("wss") => Some(443),
-            Some("ws") => Some(80),
-            _ => None,
-        })
-        .ok_or(WsError::Url(UrlError::UnsupportedUrlScheme))?;
-
-    let mut last_err = None;
-    for addr in lookup_host((host, port)).await? {
-        let start = Instant::now();
-        match TcpStream::connect(addr).await {
-            Ok(socket) => {
-                let rtt = start.elapsed();
-                socket.set_nodelay(true)?;
-                return Ok((socket, rtt));
-            }
-            Err(err) => last_err = Some(err),
-        }
-    }
-
-    Err(WsError::Io(last_err.unwrap_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidInput, "could not resolve to any address")
-    })))
-}
-
-/// The time left less half the round trip, the estimate of one downlink trip
-fn relay_timeout_ms(time_left: Duration, rtt: Duration) -> Option<u64> {
-    let timeout_ms = time_left.saturating_sub(rtt / 2).as_millis() as u64;
-    (timeout_ms > 0).then_some(timeout_ms)
+    Ok(stream)
 }
 
 pub(crate) fn record_stream_failure(endpoint: &str, relay_id: &str, err: &PbsError) {
@@ -359,27 +313,6 @@ mod tests {
         }
 
         assert_eq!(fork_from_wire(forks.len() as u8), None);
-    }
-
-    #[test]
-    fn test_relay_timeout_leaves_the_downlink_trip() {
-        let ms = Duration::from_millis;
-        assert_eq!(relay_timeout_ms(ms(1_000), ms(100)), Some(950));
-        assert_eq!(relay_timeout_ms(ms(1_000), Duration::ZERO), Some(1_000));
-        // Nothing left: no frame could land before the deadline
-        assert_eq!(relay_timeout_ms(ms(50), ms(100)), None);
-        assert_eq!(relay_timeout_ms(ms(40), ms(100)), None);
-    }
-
-    // The host of an IPv6 url keeps its brackets, which name resolution rejects
-    #[tokio::test]
-    async fn test_connect_tcp_to_an_ipv6_literal() {
-        let Ok(listener) = tokio::net::TcpListener::bind("[::1]:0").await else {
-            return; // no IPv6 loopback on this host
-        };
-        let port = listener.local_addr().unwrap().port();
-        let uri: Uri = format!("ws://[::1]:{port}/").parse().unwrap();
-        assert!(connect_tcp(&uri).await.is_ok());
     }
 
     #[test]

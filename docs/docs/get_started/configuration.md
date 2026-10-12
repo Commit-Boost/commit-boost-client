@@ -115,7 +115,6 @@ From v0.12.0-rc1, compared with v0.11.0:
 - The relay's HTTP request runs alongside every stream. In v0.11.0 it runs only when the handshake fails with time left.
 - The stream serves its latest valid bid. In v0.11.0 only the last bid is validated.
 - A `204` answer to the handshake is no bid. In v0.11.0 it records `556` and retries over HTTP.
-- `X-Timeout-Ms` on the handshake leaves out half the TCP connect time. In v0.11.0 it is the whole window.
 - A failed stream logs `stream failed`. In v0.11.0 it logs `stream failed, falling back to http get_header`, and only when it retries.
 - A relay also listed with `get_header = "http"`, as the v0.11.0 docs advised, gets two HTTP requests per `get_header`, and after the Gloas fork only the first of the two serves ePBS; remove the `"http"` entry.
 :::

@@ -17,10 +17,7 @@ use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
 use cb_tests::{
     mock_relay::{MockRelayState, start_mock_relay_service_with_listener},
     mock_validator::MockValidator,
-    mock_ws_relay::{
-        MockWsRelayState, start_mock_dual_relay, start_mock_ws_relay_service,
-        start_mock_ws_relay_with_full_backlog,
-    },
+    mock_ws_relay::{MockWsRelayState, start_mock_dual_relay, start_mock_ws_relay_service},
     utils::{
         RELAY_API_KEY, generate_mock_relay, generate_mock_stream_relay,
         generate_mock_stream_relay_with_timing_games, get_free_listener, get_pbs_config,
@@ -30,7 +27,6 @@ use cb_tests::{
 use eyre::Result;
 use lh_types::ForkName;
 use reqwest::StatusCode;
-use tokio::sync::oneshot;
 use tree_hash::TreeHash;
 
 fn request_slot() -> u64 {
@@ -285,52 +281,6 @@ async fn test_get_header_ws_returns_at_deadline() -> Result<()> {
     // Held open, so PBS waited out its full budget and no longer
     assert!(elapsed >= Duration::from_millis(timeout_ms), "returned early: {elapsed:?}");
     assert!(elapsed < Duration::from_millis(2 * timeout_ms), "returned late: {elapsed:?}");
-    Ok(())
-}
-
-/// PBS asks the relay to end its stream half a TCP connect before PBS's own
-/// deadline, so the last bid, one downlink trip later, still lands.
-#[tokio::test]
-async fn test_get_header_ws_last_bid_lands_before_deadline() -> Result<()> {
-    setup_test_env();
-    let signer = random_secret();
-    let chain = Chain::Hoodi;
-    let timeout_ms = 3_000;
-
-    let relay_state = Arc::new(
-        MockWsRelayState::new(chain, signer.clone())
-            .with_bid_values(vec![U256::from(10), U256::from(20)])
-            .with_update_interval(Duration::from_millis(400))
-            .ends_at_timeout(Duration::from_millis(200)),
-    );
-    let (drain, drained) = oneshot::channel();
-    let port = start_mock_ws_relay_with_full_backlog(relay_state.clone(), drained).await?;
-    let relay = generate_mock_stream_relay(port, signer.public_key())?;
-    let validator = start_pbs(chain, vec![relay], timeout_ms).await?;
-
-    let requested_at_ms = utcnow_ms();
-    let (res, ()) = tokio::join!(get_header_json(&validator), async {
-        // After PBS's first SYN, before its retransmit
-        tokio::time::sleep(Duration::from_millis(500)).await;
-        let _ = drain.send(());
-    });
-    let (code, res) = res?;
-
-    assert_eq!(code, StatusCode::OK);
-    assert_bid(&res.unwrap(), chain, &signer, U256::from(20));
-
-    let request = relay_state.last_request().expect("relay saw no request");
-    let connect_ms = request.accepted_at_ms - requested_at_ms;
-    assert!(connect_ms >= 500, "the connect was not delayed: {connect_ms}ms");
-
-    let relay_end_ms = request.start_time_ms.unwrap() + request.timeout_ms.unwrap();
-    let early_ms = (requested_at_ms + timeout_ms) as i64 - relay_end_ms as i64;
-    let half_connect_ms = connect_ms as i64 / 2;
-    // PBS's delay before connecting skews both sides, hence the slack
-    assert!(
-        (half_connect_ms - 250..=half_connect_ms + 20).contains(&early_ms),
-        "relay asked to end {early_ms}ms before the deadline, connect took {connect_ms}ms"
-    );
     Ok(())
 }
 
