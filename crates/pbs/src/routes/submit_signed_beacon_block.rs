@@ -1,10 +1,9 @@
 use axum::{body::Bytes, extract::State, http::HeaderMap, response::IntoResponse};
 use cb_common::wire::{
-    BodyDeserializeError, EncodingType, content_type_encoding, get_user_agent,
-    require_consensus_version_header,
+    BodyDeserializeError, content_type_encoding, get_user_agent, require_consensus_version_header,
 };
 use reqwest::StatusCode;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use crate::{
     PbsStateGuard,
@@ -12,8 +11,8 @@ use crate::{
     error::PbsClientError,
     state::{BuilderApiState, PbsState},
     utils::{
-        epbs_base_send_headers, join_detached_sends, post_ssz_expect_accepted,
-        record_beacon_status, record_request_failure,
+        epbs_base_send_headers, join_detached_sends, post_expect_accepted, record_beacon_status,
+        record_request_failure,
     },
 };
 
@@ -34,9 +33,8 @@ pub async fn handle_submit_signed_beacon_block<S: BuilderApiState>(
 }
 
 /// Implements https://ethereum.github.io/builder-specs/?urls.primaryName=dev#/Builder/submitSignedBeaconBlock
-/// Forwards the block bytes, undecoded, to every configured builder, since CB
-/// keeps no auction state to know which bid won. Returns 202 whatever they
-/// answer: the beacon node gossips the block anyway
+/// Forwards the block, undecoded, to every configured builder, as CB does not
+/// know which bid won, and answers 202 whatever they answer
 pub async fn submit_signed_beacon_block<S: BuilderApiState>(
     body: Bytes,
     req_headers: HeaderMap,
@@ -49,11 +47,8 @@ pub async fn submit_signed_beacon_block<S: BuilderApiState>(
     if body.is_empty() {
         return Err(BodyDeserializeError::MissingBody.into());
     }
-    // Forwarded undecoded as SSZ, so anything else, an unlabelled (JSON) body
-    // included, is a 415
-    if content_type_encoding(&req_headers)? != EncodingType::Ssz {
-        return Err(BodyDeserializeError::UnsupportedMediaType.into());
-    }
+    // An unlabelled block is JSON, the builder-specs default
+    let encoding = content_type_encoding(&req_headers)?;
 
     info!(ua, "new request");
 
@@ -64,10 +59,11 @@ pub async fn submit_signed_beacon_block<S: BuilderApiState>(
         let (relay, body, headers) = (relay.clone(), body.clone(), send_headers.clone());
         async move {
             let url = relay.submit_signed_beacon_block_url()?;
-            post_ssz_expect_accepted(
+            post_expect_accepted(
                 &relay,
                 url,
                 body,
+                encoding,
                 headers,
                 timeout_ms,
                 SUBMIT_SIGNED_BEACON_BLOCK_ENDPOINT_TAG,
@@ -82,15 +78,11 @@ pub async fn submit_signed_beacon_block<S: BuilderApiState>(
         .filter(|(res, relay)| match res {
             Ok(()) => true,
             Err(err) => {
-                debug!(relay_id = relay.id.as_ref(), %err, "builder did not accept the block; only the winner accepts");
+                debug!(relay_id = relay.id.as_ref(), %err, "builder did not accept the block");
                 false
             }
         })
         .count();
-    if accepted == 0 {
-        warn!(addressed = relays.len(), "no builder accepted the signed beacon block");
-    } else {
-        info!(accepted, addressed = relays.len(), "signed beacon block accepted");
-    }
+    info!(accepted, relays = relays.len(), "signed beacon block forwarded");
     Ok(())
 }

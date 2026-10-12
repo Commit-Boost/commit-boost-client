@@ -9,7 +9,7 @@ use cb_tests::{
     mock_relay::MockRelayState,
     mock_validator::MockValidator,
     mock_ws_relay::{MockWsRelayState, start_mock_dual_relay},
-    utils::{API_KEY, TEST_AUTH_DATA, opaque_auth, setup_pbs},
+    utils::{RELAY_API_KEY, TEST_AUTH_DATA, opaque_auth, setup_pbs},
 };
 use eyre::Result;
 use reqwest::StatusCode;
@@ -187,7 +187,7 @@ async fn test_get_execution_payload_bid_ws_handshake_and_deadline() -> Result<()
         (BUDGET_MS - BUFFER_MS - 100..=BUDGET_MS - BUFFER_MS).contains(&relay_timeout_ms),
         "timeout header {relay_timeout_ms}ms"
     );
-    assert_eq!(request.api_key.as_deref(), Some(API_KEY));
+    assert_eq!(request.api_key.as_deref(), Some(RELAY_API_KEY));
     assert!(request.user_agent.is_some_and(|ua| ua.contains("commit-boost")));
     Ok(())
 }

@@ -1,8 +1,9 @@
 use std::{
+    collections::HashMap,
     io,
     net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs},
     sync::{Arc, LazyLock, OnceLock},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use cb_common::{
@@ -11,6 +12,7 @@ use cb_common::{
     types::BlsPublicKey,
     utils::bls_pubkey_from_hex,
 };
+use parking_lot::Mutex;
 use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 use tokio::{sync::Semaphore, task::JoinHandle};
 use tracing::{info, warn};
@@ -22,9 +24,8 @@ use crate::error::PbsClientError;
 /// per-host metric label would be unbounded
 const DIAL_RELAY_ID: &str = "dial";
 
-/// The BLS12-381 G1 generator, standing in for the pubkey `RelayEntry` requires
-/// but only PBS reads. A workaround to leave `RelayClient` unchanged until PBS
-/// is deprecated, when the pubkey can go.
+/// The BLS12-381 G1 generator, filling the pubkey `RelayEntry` requires and
+/// only PBS reads
 static DIAL_PUBKEY: LazyLock<BlsPublicKey> = LazyLock::new(|| {
     bls_pubkey_from_hex(
         "0x97f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb",
@@ -52,13 +53,20 @@ pub(crate) async fn dial_relay(
     dial_client(url)
 }
 
+/// `https://<authority>/`, whose `host_str` is the authority's hostname in the
+/// form of default auth data
+pub(crate) fn host_url(authority: &str) -> Option<Url> {
+    Url::parse(&format!("https://{authority}/")).ok()
+}
+
 /// `data_url`, else `https://<hostname>/` for the builder-specs default auth
 /// data, a bare hostname
 fn dial_target(data_url: Option<Url>, address: &[u8]) -> Result<Url, PbsClientError> {
     data_url
         .or_else(|| {
-            let url =
-                Url::parse(&format!("https://{}/", std::str::from_utf8(address).ok()?)).ok()?;
+            let url = host_url(std::str::from_utf8(address).ok()?)?;
+            // Parsing also takes a port, userinfo, a path, upper case and
+            // numeric IPv4, so only a host already in canonical form passes
             (url.host_str()?.as_bytes() == address).then_some(url)
         })
         .ok_or_else(|| {
@@ -79,11 +87,8 @@ async fn resolve_dial_target(
     origin: &str,
     lookup_timeout: Duration,
 ) -> Result<Vec<SocketAddr>, PbsClientError> {
-    let host_port = format!(
-        "{}:{}",
-        url.host_str().unwrap_or_default(),
-        url.port_or_known_default().unwrap_or_default()
-    );
+    let host = url.host_str().unwrap_or_default();
+    let host_port = format!("{host}:{}", url.port_or_known_default().unwrap_or_default());
     // An IP literal needs no lookup
     if let Ok(addr) = host_port.parse::<SocketAddr>() {
         vet_dial_addrs(origin, &[addr])?;
@@ -99,15 +104,41 @@ async fn resolve_dial_target(
             warn!(%origin, %err, "dial target lookup failed, not dialing");
             return Err(PbsClientError::DialTargetBlocked);
         }
-        Ok(Err(_)) => return Err(PbsClientError::Internal),
-        // Transient, unlike a failed lookup: the builder counts as not answering
+        Ok(Err(err)) => {
+            warn!(%origin, %err, "dial target lookup did not finish");
+            return Err(PbsClientError::Internal);
+        }
         Err(_) => {
             warn!(%origin, ?lookup_timeout, "dial target lookup timed out, not dialing");
             return Err(PbsClientError::NoBuilderResponse);
         }
     };
     vet_dial_addrs(origin, &addrs)?;
+    remember_checked(host, &addrs);
     Ok(addrs)
+}
+
+/// How long a dial check's lookup serves new connections to its host, so the
+/// resolver does not repeat it. Short, so a later connection sees a DNS change
+const CHECKED_ADDRS_TTL: Duration = Duration::from_secs(2);
+
+type CheckedAddrs = HashMap<String, (Instant, Vec<SocketAddr>)>;
+
+static CHECKED_ADDRS: LazyLock<Mutex<CheckedAddrs>> = LazyLock::new(Default::default);
+
+/// Kept with port 0, as the resolver's own lookup returns them, so another
+/// dial to the host on another port connects to its own. Drops expired entries
+fn remember_checked(host: &str, addrs: &[SocketAddr]) {
+    let addrs = addrs.iter().map(|addr| SocketAddr::new(addr.ip(), 0)).collect();
+    let mut checked = CHECKED_ADDRS.lock();
+    checked.retain(|_, (at, _)| at.elapsed() < CHECKED_ADDRS_TTL);
+    checked.insert(host.to_owned(), (Instant::now(), addrs));
+}
+
+fn recently_checked(host: &str) -> Option<Vec<SocketAddr>> {
+    let checked = CHECKED_ADDRS.lock();
+    let (at, addrs) = checked.get(host)?;
+    (at.elapsed() < CHECKED_ADDRS_TTL).then(|| addrs.clone())
 }
 
 /// `None` when every lookup slot is taken
@@ -129,8 +160,8 @@ fn vet_dial_addrs(origin: &str, addrs: &[SocketAddr]) -> Result<(), PbsClientErr
     Ok(())
 }
 
-/// Dial hosts are chosen by the request, so an idle connection is reused for at
-/// most one slot. The pool sweeps at this interval, so it closes within two.
+/// Dial hosts are chosen by the request, so an idle connection is kept for one
+/// mainnet slot. The pool sweeps at this interval, so it closes within two.
 const DIAL_IDLE_TIMEOUT: Duration = Duration::from_secs(12);
 
 /// Lets a builder dialed again reuse its connection. A failed build is not
@@ -183,16 +214,21 @@ fn dial_config(url: Url) -> RelayConfig {
     }
 }
 
-/// Run for each new connection to a hostname (an IP address skips it): refuses
-/// it while every lookup slot is taken or if any address is disallowed
+/// Run for each new connection to a hostname (an IP address skips it): takes
+/// the dial check's recent lookup or its own, and refuses a disallowed address
 struct DialResolver;
 
 impl Resolve for DialResolver {
     fn resolve(&self, name: Name) -> Resolving {
         Box::pin(async move {
-            let lookup = spawn_lookup(format!("{}:0", name.as_str()))
-                .ok_or("too many dial lookups in flight")?;
-            let addrs = lookup.await??;
+            let addrs = match recently_checked(name.as_str()) {
+                Some(addrs) => addrs,
+                None => {
+                    spawn_lookup(format!("{}:0", name.as_str()))
+                        .ok_or("too many dial lookups in flight")?
+                        .await??
+                }
+            };
             vet_dial_addrs(name.as_str(), &addrs)?;
             Ok(Box::new(addrs.into_iter()) as Addrs)
         })
@@ -274,13 +310,14 @@ mod tests {
     async fn dial_relay_targets() {
         const MISMATCH: &str = "auth data does not match a configured builder";
         const BLOCKED: &str = "dial target does not resolve or resolves to a disallowed address";
-        let cases: [(&[u8], Result<&str, &str>); 8] = [
+        let cases: [(&[u8], Result<&str, &str>); 9] = [
             (b"http://1.1.1.1:8551", Ok("http://1.1.1.1:8551/")),
             (b"1.1.1.1", Ok("https://1.1.1.1/")),
-            (b"1.1.1.1?ofac=1", Ok("https://1.1.1.1/")),
+            (b"1.1.1.1?ofac=1?v=2", Ok("https://1.1.1.1/")),
             (b"[2606:4700:4700::1111]", Ok("https://[2606:4700:4700::1111]/")),
             (b"10.0.0.1", Err(BLOCKED)),
             (b"1.1.1.1:8551", Err(MISMATCH)),
+            (b"Builder.example.com", Err(MISMATCH)),
             (b"ftp://1.1.1.1", Err(MISMATCH)),
             (&[0xde, 0xad], Err(MISMATCH)),
         ];
@@ -312,6 +349,117 @@ mod tests {
         let dial = |address: &'static [u8]| dial_relay(None, address, Duration::from_secs(1));
         assert!(dial(b"1.1.1.1").await.is_ok());
         assert!(matches!(dial(b"builder.invalid").await, Err(PbsClientError::NoBuilderResponse)));
+    }
+
+    // A label over 63 octets fails in the stub resolver, without a query
+    #[tokio::test]
+    async fn dial_target_that_does_not_resolve_is_blocked() {
+        let _slots = LOOKUP_SLOTS.lock().await;
+        let host = format!("{}.invalid", "a".repeat(64));
+        let res = dial_relay(None, host.as_bytes(), Duration::from_secs(5)).await;
+        assert!(matches!(res, Err(PbsClientError::DialTargetBlocked)), "{:?}", res.map(|_| ()));
+    }
+
+    // One blocking thread, so the lookup queues behind another task
+    #[test]
+    fn lookup_holds_its_slot_until_it_returns() {
+        let _slots = LOOKUP_SLOTS.blocking_lock();
+        let runtime =
+            tokio::runtime::Builder::new_current_thread().max_blocking_threads(1).build().unwrap();
+        runtime.block_on(async {
+            let (release, blocked) = std::sync::mpsc::channel::<()>();
+            let busy = tokio::task::spawn_blocking(move || blocked.recv());
+            let lookup = spawn_lookup("1.1.1.1:443".to_owned()).unwrap();
+            assert_eq!(DIAL_LOOKUPS.available_permits(), 31);
+            release.send(()).unwrap();
+            busy.await.unwrap().unwrap();
+            lookup.await.unwrap().unwrap();
+            assert_eq!(DIAL_LOOKUPS.available_permits(), 32);
+        });
+    }
+
+    // One blocking thread, so the lookup waits behind another task, and that
+    // wait is taken from the time left for the builder
+    #[cfg(feature = "testing-flags")]
+    #[test]
+    fn dial_lookup_time_is_taken_from_the_timeout() {
+        let _slots = LOOKUP_SLOTS.blocking_lock();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .max_blocking_threads(1)
+            .build()
+            .unwrap();
+        let left_ms = runtime.block_on(async {
+            tokio::task::spawn_blocking(|| std::thread::sleep(Duration::from_millis(50)));
+            set_skip_dial_target_check(true);
+            let res = crate::utils::resolve_addressed_relay(
+                &[],
+                &[],
+                b"localhost",
+                &Default::default(),
+                1000,
+            )
+            .await;
+            set_skip_dial_target_check(false);
+            res.map(|(_, left_ms)| left_ms)
+        });
+        // dial_client_checks_the_addresses_it_resolves needs a lookup
+        CHECKED_ADDRS.lock().remove("localhost");
+        assert!(left_ms.unwrap() <= 950);
+    }
+
+    #[tokio::test]
+    async fn bid_dial_without_a_lookup_slot_is_no_bid() -> eyre::Result<()> {
+        use cb_common::{
+            config::PbsModuleConfig,
+            pbs::{HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS},
+            types::Chain,
+            utils::utcnow_ms,
+        };
+        use parking_lot::RwLock;
+
+        use crate::{DefaultBuilderApi, PbsState, routes::create_app_router};
+
+        let _slots = LOOKUP_SLOTS.lock().await;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let addr = listener.local_addr()?;
+        let state = PbsState::new(
+            PbsModuleConfig {
+                chain: Chain::Hoodi,
+                endpoint: addr,
+                pbs_config: Arc::new(serde_json::from_str("{}")?),
+                relays: vec![],
+                all_relays: vec![],
+                signer_client: None,
+                registry_muxes: None,
+                mux_lookup: None,
+            },
+            Default::default(),
+        );
+        let app = create_app_router::<(), DefaultBuilderApi>(Arc::new(RwLock::new(state)));
+        tokio::spawn(async move { axum::serve(listener, app).await });
+
+        let _held = DIAL_LOOKUPS.try_acquire_many(32)?;
+        let zero = format!("0x{}", "0".repeat(64));
+        let url = format!(
+            "http://{addr}/eth/v1/builder/execution_payload_bid/1/{zero}/{zero}/{}",
+            *DIAL_PUBKEY
+        );
+        let auth = serde_json::json!({
+            // "builder.invalid"
+            "message": { "data": "0x6275696c6465722e696e76616c6964", "slot": "1" },
+            "signature": format!("0x{}", "0".repeat(192)),
+        });
+        let res = reqwest::Client::new()
+            .post(url)
+            .header("Eth-Consensus-Version", "gloas")
+            .header(HEADER_START_TIME_UNIX_MS, utcnow_ms())
+            .header(HEADER_TIMEOUT_MS, 1000)
+            .json(&auth)
+            .send()
+            .await?;
+        assert_eq!(res.status(), StatusCode::NO_CONTENT);
+        Ok(())
     }
 
     #[test]
@@ -407,6 +555,52 @@ mod tests {
         Ok(())
     }
 
+    // With every lookup slot held, the connection can only use the addresses
+    // the dial's check resolved
+    #[cfg(feature = "testing-flags")]
+    #[tokio::test]
+    async fn dial_connects_to_the_addresses_its_check_resolved() -> eyre::Result<()> {
+        let _slots = LOOKUP_SLOTS.lock().await;
+        let (port, _) = mock_builder().await?;
+        let url = Url::parse(&format!("http://localhost:{port}/bid"))?;
+        set_skip_dial_target_check(true);
+        let relay = dial_relay(Some(url.clone()), b"", Duration::from_secs(5)).await?;
+        let held = DIAL_LOOKUPS.try_acquire_many(32)?;
+        let res = relay.client.post(url).send().await;
+        drop(held);
+        set_skip_dial_target_check(false);
+        // dial_client_checks_the_addresses_it_resolves needs a lookup
+        CHECKED_ADDRS.lock().remove("localhost");
+        assert_eq!(res?.status(), StatusCode::TEMPORARY_REDIRECT);
+        Ok(())
+    }
+
+    // A remembered address is checked again before a connection uses it. With
+    // every slot held, ignoring the entry would fail on the cap instead
+    #[tokio::test]
+    async fn dial_resolver_checks_remembered_addresses() {
+        let _slots = LOOKUP_SLOTS.lock().await;
+        let _held = DIAL_LOOKUPS.try_acquire_many(32).unwrap();
+        remember_checked("remembered.invalid", &["127.0.0.1:0".parse().unwrap()]);
+        let res = DialResolver.resolve("remembered.invalid".parse().unwrap()).await;
+        CHECKED_ADDRS.lock().remove("remembered.invalid");
+        let err = res.err().expect("a loopback address is refused").to_string();
+        assert_eq!(err, PbsClientError::DialTargetBlocked.to_string());
+    }
+
+    #[test]
+    fn checked_addrs_drop_their_port_expire_and_are_swept() {
+        let addrs = ["1.1.1.1:443".parse().unwrap()];
+        let expired = Instant::now().checked_sub(CHECKED_ADDRS_TTL).unwrap();
+        CHECKED_ADDRS.lock().insert("expired.invalid".into(), (expired, addrs.to_vec()));
+        assert_eq!(recently_checked("expired.invalid"), None);
+        remember_checked("fresh.invalid", &addrs);
+        assert_eq!(recently_checked("fresh.invalid"), Some(vec!["1.1.1.1:0".parse().unwrap()]));
+        let mut checked = CHECKED_ADDRS.lock();
+        assert!(!checked.contains_key("expired.invalid"));
+        checked.remove("fresh.invalid");
+    }
+
     #[test]
     fn ip_is_disallowed_table() {
         for (ip, disallowed) in [
@@ -440,7 +634,7 @@ mod tests {
             ("fec0::1", true),
             ("ff02::1", true),
             ("2001:db8::1", true),
-            ("64:ff9b:1::a00:1", true),
+            ("64:ff9b:1::101:101", true),
             ("2002:a00:1::1", true),
             ("2001::1", true),
             ("1.1.1.1", false),
