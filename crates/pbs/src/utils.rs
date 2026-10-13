@@ -6,7 +6,7 @@ use std::{
 use alloy::primitives::utils::{ParseUnits, Unit};
 use axum::body::Bytes;
 use cb_common::{
-    pbs::{RelayClient, error::PbsError},
+    pbs::{HEADER_VERSION_KEY, RelayClient, decode_auth_data_url, error::PbsError},
     types::BlsPublicKey,
     wire::{
         CONSENSUS_VERSION_HEADER, EncodingType, GLOAS_CONSENSUS_VERSION,
@@ -15,14 +15,15 @@ use cb_common::{
 };
 use futures::future::join_all;
 use reqwest::{
-    StatusCode,
-    header::{CONTENT_TYPE, HeaderMap, USER_AGENT},
+    Response, StatusCode,
+    header::{CONTENT_TYPE, HOST, HeaderMap, USER_AGENT},
 };
 use tracing::{Instrument, debug, error, warn};
 use url::Url;
 
 use crate::{
     constants::{MAX_SIZE_DEFAULT, TIMEOUT_ERROR_CODE_STR},
+    dial::{auth_data_address, dial_relay, host_url},
     error::PbsClientError,
     metrics::{BEACON_NODE_STATUS, RELAY_LATENCY, RELAY_STATUS_CODE},
 };
@@ -103,13 +104,13 @@ pub(crate) fn log_mux_selection(
     }
 }
 
-/// POSTs an SSZ body to a builder; 202 Accepted is the only success. A failed
-/// response's body, capped at `MAX_SIZE_DEFAULT`, becomes the error message.
-/// Returns the request latency.
-pub(crate) async fn post_ssz_expect_accepted(
+/// POSTs `body` in `encoding` to a builder and returns the latency; 202 is the
+/// only success
+pub(crate) async fn post_expect_accepted(
     relay: &RelayClient,
     url: Url,
     body: Bytes,
+    encoding: EncodingType,
     headers: HeaderMap,
     timeout_ms: u64,
     tag: &str,
@@ -119,22 +120,26 @@ pub(crate) async fn post_ssz_expect_accepted(
         .post(url)
         .timeout(Duration::from_millis(timeout_ms))
         .headers(headers)
-        .header(CONTENT_TYPE, EncodingType::Ssz.content_type_header().clone())
+        .header(CONTENT_TYPE, encoding.content_type_header().clone())
         .body(body);
     let (res, latency) = send_to_relay(req, relay, tag).await?;
-    let code = res.status();
-    if code == StatusCode::ACCEPTED {
+    if res.status() == StatusCode::ACCEPTED {
         return Ok(latency);
     }
-    // Read after the status check, so a body over the cap still reports the
-    // builder's status
+    Err(relay_response_error(res, "expected 202").await)
+}
+
+/// A failed builder response as an error; a body over the cap still reports the
+/// status
+pub(crate) async fn relay_response_error(res: Response, if_empty: &str) -> PbsError {
+    let code = res.status().as_u16();
     let url = res.url().to_string();
     let error_msg = match read_chunked_body_with_max(res, MAX_SIZE_DEFAULT, &url).await {
         Ok(body) if !body.is_empty() => String::from_utf8_lossy(&body).into_owned(),
-        Ok(_) => "expected 202".to_string(),
+        Ok(_) => if_empty.to_string(),
         Err(err) => err.to_string(),
     };
-    Err(PbsError::RelayResponse { error_msg, code: code.as_u16() })
+    PbsError::RelayResponse { error_msg, code }
 }
 
 /// A gwei amount in ETH, for logs
@@ -186,25 +191,75 @@ pub fn check_gas_limit(gas_limit: u64, parent_gas_limit: u64) -> bool {
     true
 }
 
-/// The relay an ePBS request addresses: the first whose URL hostname equals
-/// `auth_data`. No match is a 400.
-pub(crate) fn resolve_addressed_relay(
+/// The relay `auth_data` names among `relays`, then `default_relays`, else a
+/// dial to it, with what the dial's setup left of `timeout_ms`
+pub(crate) async fn resolve_addressed_relay(
     relays: &[RelayClient],
+    default_relays: &[RelayClient],
     auth_data: &[u8],
-) -> Result<RelayClient, PbsClientError> {
-    let addressed = relays.iter().find(|relay| {
-        relay.config.entry.url.host_str().is_some_and(|host| host.as_bytes() == auth_data)
-    });
-    match addressed {
-        Some(relay) => Ok(relay.clone()),
-        None => {
-            warn!(
-                auth_data = %String::from_utf8_lossy(auth_data),
-                "auth data matches no configured relay"
-            );
-            Err(PbsClientError::AuthDataMismatch)
+    req_headers: &HeaderMap,
+    timeout_ms: u64,
+) -> Result<(RelayClient, u64), PbsClientError> {
+    let address = auth_data_address(auth_data);
+    let data_url = decode_auth_data_url(address);
+    // A relay configured for other keys is reached with its own settings rather
+    // than dialed without them
+    if let Some(relay) = relays
+        .iter()
+        .chain(default_relays)
+        .find(|relay| names_relay(relay, address, data_url.as_ref()))
+    {
+        return Ok((relay.clone(), timeout_ms));
+    }
+    // Every Commit-Boost dial carries this header, so a request dialed back into
+    // a Commit-Boost, this one included, goes no further
+    if req_headers.contains_key(HEADER_VERSION_KEY) {
+        warn!(
+            auth_data = ?String::from_utf8_lossy(auth_data),
+            "auth data matches no configured relay and the request came from a Commit-Boost, not dialing on"
+        );
+        return Err(PbsClientError::AuthDataMismatch);
+    }
+    // A key without builder config sends this Commit-Boost's host, which a dial
+    // would reach on port 443, not here
+    if is_request_host(req_headers, address) {
+        warn!(
+            auth_data = ?String::from_utf8_lossy(auth_data),
+            "auth data names the host this request was sent to, not dialing"
+        );
+        return Err(PbsClientError::AuthDataMismatch);
+    }
+    let started = Instant::now();
+    let relay = dial_relay(data_url, address, Duration::from_millis(timeout_ms)).await?;
+    let left_ms = timeout_ms.saturating_sub(started.elapsed().as_millis() as u64);
+    // A request with no time left would still reach the builder
+    if left_ms == 0 {
+        return Err(PbsClientError::NoBuilderResponse);
+    }
+    Ok((relay, left_ms))
+}
+
+/// Whether `address` is the relay's hostname or, as a URL, its scheme, host and
+/// port
+fn names_relay(relay: &RelayClient, address: &[u8], data_url: Option<&Url>) -> bool {
+    let url = &relay.config.entry.url;
+    match data_url {
+        None => url.host_str().is_some_and(|host| host.as_bytes() == address),
+        Some(data_url) => {
+            url.scheme() == data_url.scheme() &&
+                url.host() == data_url.host() &&
+                url.port_or_known_default() == data_url.port_or_known_default()
         }
     }
+}
+
+/// Whether `address` is the host in the request's `Host` header, in the form of
+/// default auth data
+fn is_request_host(req_headers: &HeaderMap, address: &[u8]) -> bool {
+    req_headers
+        .get(HOST)
+        .and_then(|host| host_url(host.to_str().ok()?))
+        .is_some_and(|url| url.host_str().is_some_and(|host| host.as_bytes() == address))
 }
 
 #[cfg(test)]
@@ -237,24 +292,106 @@ mod tests {
         RelayClient::new(config).unwrap()
     }
 
-    #[test]
-    fn resolve_relay_by_hostname() {
+    /// Headers of a request from a Commit-Boost, so a miss is an error, not a
+    /// dial
+    fn from_cb() -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(HEADER_VERSION_KEY, reqwest::header::HeaderValue::from_static("test"));
+        headers
+    }
+
+    #[tokio::test]
+    async fn resolve_relay_by_auth_data() {
         let relays = vec![
             test_relay("https://0xdeadbeef@builder-a.example.com"),
             test_relay("https://builder-b.example.com:8443/eth"),
             test_relay("http://[::1]:18550"),
         ];
-        let host = |data: &[u8]| -> Option<String> {
-            resolve_addressed_relay(&relays, data)
+        let from_cb = from_cb();
+        let host = async |data: &[u8]| -> Option<String> {
+            resolve_addressed_relay(&relays, &[], data, &from_cb, 0)
+                .await
                 .ok()
-                .map(|relay| relay.config.entry.url.host_str().unwrap().to_string())
+                .map(|(relay, _)| relay.config.entry.url.host_str().unwrap().to_string())
         };
-        assert_eq!(host(b"builder-a.example.com").as_deref(), Some("builder-a.example.com"));
-        assert_eq!(host(b"builder-b.example.com").as_deref(), Some("builder-b.example.com"));
-        assert_eq!(host(b"[::1]").as_deref(), Some("[::1]"));
-        assert!(host(b"Builder-A.example.com").is_none());
-        assert!(host(b"builder-a.example.com:443").is_none());
-        // a URL is not a hostname
-        assert!(host(b"https://builder-a.example.com").is_none());
+        assert_eq!(host(b"builder-a.example.com").await.as_deref(), Some("builder-a.example.com"));
+        assert_eq!(host(b"builder-b.example.com").await.as_deref(), Some("builder-b.example.com"));
+        assert_eq!(host(b"[::1]").await.as_deref(), Some("[::1]"));
+        assert!(host(b"Builder-A.example.com").await.is_none());
+        assert!(host(b"builder-a.example.com:443").await.is_none());
+        // A URL matches on scheme, host and port
+        assert_eq!(
+            host(b"https://builder-a.example.com:443/eth").await.as_deref(),
+            Some("builder-a.example.com")
+        );
+        assert!(host(b"http://builder-a.example.com:443").await.is_none());
+        assert!(host(b"https://builder-b.example.com").await.is_none());
+        // Parameters after `?` are for the builder and do not affect routing
+        assert_eq!(
+            host(b"builder-a.example.com?ofac=1").await.as_deref(),
+            Some("builder-a.example.com")
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_falls_back_to_default_relays_in_config_order() {
+        let own = vec![test_relay("https://builder-a.example.com/mux")];
+        let default_relays = vec![
+            test_relay("https://builder-a.example.com:8443"),
+            test_relay("https://builder-b.example.com:8443/eth"),
+            test_relay("https://builder-b.example.com:9000"),
+            test_relay("https://builder-b.example.com:9000/second"),
+        ];
+        let from_cb = from_cb();
+        let url = async |data: &[u8]| {
+            resolve_addressed_relay(&own, &default_relays, data, &from_cb, 0)
+                .await
+                .ok()
+                .map(|(relay, _)| relay.config.entry.url.to_string())
+        };
+        assert_eq!(
+            url(b"builder-a.example.com").await.as_deref(),
+            Some("https://builder-a.example.com/mux")
+        );
+        assert_eq!(
+            url(b"builder-b.example.com").await.as_deref(),
+            Some("https://builder-b.example.com:8443/eth")
+        );
+        assert_eq!(
+            url(b"https://builder-b.example.com:9000").await.as_deref(),
+            Some("https://builder-b.example.com:9000/")
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_refuses_the_host_the_request_was_sent_to() {
+        let resolve = async |host: &'static str, data: &[u8]| {
+            let mut headers = HeaderMap::new();
+            headers.insert(HOST, reqwest::header::HeaderValue::from_static(host));
+            resolve_addressed_relay(&[], &[], data, &headers, 1000)
+                .await
+                .map(|(relay, _)| relay.config.entry.url.to_string())
+        };
+        for (host, data) in [
+            ("1.1.1.1:18550", &b"1.1.1.1"[..]),
+            ("1.1.1.1", b"1.1.1.1"),
+            ("[2606:4700:4700:0:0:0:0:1111]:18550", b"[2606:4700:4700::1111]"),
+        ] {
+            let res = resolve(host, data).await;
+            assert!(matches!(res, Err(PbsClientError::AuthDataMismatch)), "{host}");
+        }
+        assert_eq!(resolve("2.2.2.2:18550", b"1.1.1.1").await.unwrap(), "https://1.1.1.1/");
+    }
+
+    // Not from a Commit-Boost, so a miss is dialed at the address before `?`,
+    // and refused once the dial's setup leaves no time
+    #[tokio::test]
+    async fn resolve_dials_the_address_before_the_parameters() {
+        let headers = HeaderMap::new();
+        let dial =
+            |timeout_ms| resolve_addressed_relay(&[], &[], b"1.1.1.1?ofac=1", &headers, timeout_ms);
+        let (relay, _) = dial(1000).await.unwrap();
+        assert_eq!(relay.config.entry.url.as_str(), "https://1.1.1.1/");
+        assert!(matches!(dial(0).await, Err(PbsClientError::NoBuilderResponse)));
     }
 }

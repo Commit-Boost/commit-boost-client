@@ -41,8 +41,9 @@ use cb_common::{
     },
 };
 use cb_pbs::{
-    GET_HEADER_ENDPOINT_TAG, MAX_SIZE_SUBMIT_BLOCK_RESPONSE, REGISTER_VALIDATOR_ENDPOINT_TAG,
-    STATUS_ENDPOINT_TAG, SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG,
+    GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG, GET_HEADER_ENDPOINT_TAG,
+    MAX_SIZE_SUBMIT_BLOCK_RESPONSE, REGISTER_VALIDATOR_ENDPOINT_TAG, STATUS_ENDPOINT_TAG,
+    SUBMIT_BLINDED_BLOCK_ENDPOINT_TAG,
 };
 use lh_types::{KzgProof, Slot};
 use reqwest::header::{ACCEPT, CONTENT_TYPE};
@@ -103,6 +104,8 @@ pub struct MockRelayState {
     /// `slot` of the last signed beacon block forwarded, decoded from the SSZ
     /// body PBS sent, so a test can assert the block survived the hop
     received_block_slot: RwLock<Option<u64>>,
+    /// Content-Type and body of the last signed beacon block forwarded
+    received_block_request: RwLock<Option<(Option<String>, axum::body::Bytes)>>,
     /// The last `BuilderPreferencesRequest` submitted, so a test can assert
     /// both the preferences and the auth were forwarded unchanged
     received_preferences: RwLock<Option<BuilderPreferencesRequest>>,
@@ -129,6 +132,11 @@ pub struct MockRelayState {
     trustless_bid_gwei: u64, // default 10
     /// When true, an SSZ bid is served without `Eth-Consensus-Version`
     epbs_omit_consensus_version: bool,
+    /// When true, a JSON bid is pretty-printed, so it differs from the compact
+    /// form a re-encode produces
+    pretty_json_bid: bool,
+    /// The body of the last bid served
+    served_bid: RwLock<Option<axum::body::Bytes>>,
 }
 
 impl MockRelayState {
@@ -156,6 +164,11 @@ impl MockRelayState {
     pub fn received_signed_beacon_block(&self) -> u64 {
         self.received_signed_beacon_block.load(Ordering::Relaxed)
     }
+    /// The last forwarded block's Content-Type and body
+    pub fn received_block_request(&self) -> Option<(Option<String>, axum::body::Bytes)> {
+        self.received_block_request.read().unwrap().clone()
+    }
+
     /// `slot` of the last signed beacon block PBS forwarded
     pub fn received_block_slot(&self) -> Option<u64> {
         *self.received_block_slot.read().unwrap()
@@ -188,6 +201,9 @@ impl MockRelayState {
     }
     pub fn received_auth_data(&self) -> Option<Vec<u8>> {
         self.received_auth.read().unwrap().as_ref().map(|a| a.message.data.to_vec())
+    }
+    pub fn served_bid(&self) -> Option<axum::body::Bytes> {
+        self.served_bid.read().unwrap().clone()
     }
     pub fn large_body(&self) -> bool {
         self.large_body
@@ -240,6 +256,7 @@ impl MockRelayState {
             received_builder_preferences: Default::default(),
             received_signed_beacon_block: Default::default(),
             received_block_slot: RwLock::new(None),
+            received_block_request: RwLock::new(None),
             received_preferences: RwLock::new(None),
             received_preferences_pubkey: RwLock::new(None),
             bid_delay_ms: None,
@@ -252,6 +269,8 @@ impl MockRelayState {
             api_keys_seen: RwLock::new(HashMap::new()),
             trustless_bid_gwei: 10,
             epbs_omit_consensus_version: false,
+            pretty_json_bid: false,
+            served_bid: RwLock::new(None),
             supported_content_types: Arc::new(
                 [EncodingType::Json, EncodingType::Ssz].iter().cloned().collect(),
             ),
@@ -329,6 +348,10 @@ impl MockRelayState {
     pub fn with_epbs_omit_consensus_version(self) -> Self {
         Self { epbs_omit_consensus_version: true, ..self }
     }
+
+    pub fn with_pretty_json_bid(self) -> Self {
+        Self { pretty_json_bid: true, ..self }
+    }
 }
 
 pub fn mock_relay_app_router(state: Arc<MockRelayState>) -> Router {
@@ -387,6 +410,7 @@ async fn handle_get_execution_payload_bid(
     body: axum::body::Bytes,
 ) -> Response {
     state.received_execution_payload_bid.fetch_add(1, Ordering::Relaxed);
+    state.record_api_key(GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG, &headers);
     // Builders MUST 400 a bid request without both timing headers
     let header_u64 =
         |name| headers.get(name).and_then(|v| v.to_str().ok()).and_then(|v| v.parse::<u64>().ok());
@@ -427,6 +451,10 @@ async fn handle_get_execution_payload_bid(
     // fail on the bid endpoint (its bid is then dropped by PBS). The request was
     // already counted above.
     if let Some(status) = *state.response_override.read().unwrap() {
+        // An error body over PBS's 1 KiB read cap
+        if state.large_body() {
+            return (status, "x".repeat(2048)).into_response();
+        }
         return status.into_response();
     }
 
@@ -485,9 +513,15 @@ async fn handle_get_execution_payload_bid(
                 data,
                 metadata: Default::default(),
             };
-            serde_json::to_vec(&versioned).unwrap()
+            if state.pretty_json_bid {
+                serde_json::to_vec_pretty(&versioned).unwrap()
+            } else {
+                serde_json::to_vec(&versioned).unwrap()
+            }
         }
     };
+    let response_body = axum::body::Bytes::from(response_body);
+    *state.served_bid.write().unwrap() = Some(response_body.clone());
 
     let mut response = (StatusCode::OK, response_body).into_response();
     // A real builder tags the 200 with the fork so a client can decode the
@@ -629,15 +663,16 @@ async fn handle_submit_builder_preferences(
     StatusCode::ACCEPTED.into_response()
 }
 
-/// Decodes the forwarded block (PBS always sends SSZ with
-/// `Eth-Consensus-Version`), records its slot, and 202s
-/// unless the test overrode the response.
+/// Records the forwarded block's Content-Type and body, and its slot when it is
+/// SSZ, and 202s unless the test overrode the response
 async fn handle_submit_signed_beacon_block(
     headers: HeaderMap,
     State(state): State<Arc<MockRelayState>>,
     body: axum::body::Bytes,
 ) -> Response {
     state.received_signed_beacon_block.fetch_add(1, Ordering::Relaxed);
+    let content_type = headers.get(CONTENT_TYPE).and_then(|v| v.to_str().ok()).map(String::from);
+    *state.received_block_request.write().unwrap() = Some((content_type, body.clone()));
 
     if let Some(fork) = get_consensus_version_header(&headers) &&
         let Ok(block) = SignedBeaconBlock::from_ssz_bytes_by_fork(&body, fork)

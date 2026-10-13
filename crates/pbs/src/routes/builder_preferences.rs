@@ -6,7 +6,7 @@ use axum::{
 };
 use cb_common::{
     pbs::{BuilderPreferencesRequest, SubmitBuilderPreferencesParams},
-    wire::{decode_versioned_request_body, get_user_agent},
+    wire::{EncodingType, decode_versioned_request_body, get_user_agent},
 };
 use reqwest::StatusCode;
 use ssz::Encode;
@@ -18,7 +18,7 @@ use crate::{
     error::PbsClientError,
     state::{BuilderApiState, PbsState},
     utils::{
-        builder_rejection, epbs_base_send_headers, log_mux_selection, post_ssz_expect_accepted,
+        builder_rejection, epbs_base_send_headers, log_mux_selection, post_expect_accepted,
         record_beacon_status, record_request_failure, resolve_addressed_relay,
     },
 };
@@ -65,24 +65,30 @@ pub async fn submit_builder_preferences<S: BuilderApiState>(
 
     log_mux_selection(maybe_mux_id, relays.len(), &params.proposer_pubkey);
 
-    let relay = resolve_addressed_relay(relays, request.auth.message.data.as_ref())?;
+    // Preferences are submitted an epoch ahead, so they share the registration
+    // timeout rather than the block-production one
+    let (relay, timeout_ms) = resolve_addressed_relay(
+        relays,
+        state.default_relays(),
+        request.auth.message.data.as_ref(),
+        &req_headers,
+        pbs_config.timeout_register_validator_ms,
+    )
+    .await?;
 
     let send_headers = epbs_base_send_headers(&req_headers)?;
 
     // SSZ on the relay hop
     let body = Bytes::from(request.as_ssz_bytes());
 
-    // Preferences are submitted an epoch ahead, so they share the registration
-    // timeout rather than the block-production one
-    let timeout_ms = pbs_config.timeout_register_validator_ms;
-
     let relay_id = relay.id.as_ref();
     let sent = match relay.submit_builder_preferences_url(&params.proposer_pubkey) {
         Ok(url) => {
-            post_ssz_expect_accepted(
+            post_expect_accepted(
                 &relay,
                 url,
                 body,
+                EncodingType::Ssz,
                 send_headers,
                 timeout_ms,
                 SUBMIT_BUILDER_PREFERENCES_ENDPOINT_TAG,

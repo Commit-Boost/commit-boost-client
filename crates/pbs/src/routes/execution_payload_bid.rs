@@ -28,13 +28,16 @@ use tracing::{debug, error, info, warn};
 
 use crate::{
     PbsStateGuard,
-    constants::{GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG, MAX_SIZE_GET_HEADER_RESPONSE},
+    constants::{
+        GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG, MAX_SIZE_DEFAULT, MAX_SIZE_GET_HEADER_RESPONSE,
+    },
     error::PbsClientError,
     metrics::{RELAY_HEADER_VALUE, RELAY_LAST_SLOT},
     state::{BuilderApiState, PbsState},
     utils::{
         builder_rejection, epbs_base_send_headers, format_gwei_as_eth, log_mux_selection,
-        record_beacon_status, record_request_failure, resolve_addressed_relay, send_to_relay,
+        record_beacon_status, record_request_failure, relay_response_error,
+        resolve_addressed_relay, send_to_relay,
     },
 };
 
@@ -125,8 +128,6 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
         return Err(PbsClientError::AuthSlotMismatch);
     }
 
-    let relay = resolve_addressed_relay(relays, auth.message.data.as_ref())?;
-
     // The beacon node's deadline, not timeout_get_header_ms, bounds the request
     let slot_ms = state.config.chain.slot_time_sec().saturating_mul(1000);
     let budget_ms = request_budget_ms(&req_headers, utcnow_ms(), slot_ms)?;
@@ -143,6 +144,21 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
         warn!(budget_ms, "proposer deadline reached, no time to solicit a bid");
         return Ok(None);
     }
+
+    let (relay, max_timeout_ms) = match resolve_addressed_relay(
+        relays,
+        state.default_relays(),
+        auth.message.data.as_ref(),
+        &req_headers,
+        max_timeout_ms,
+    )
+    .await
+    {
+        // A dial that runs out of time or lookup slots is a builder that did not
+        // answer
+        Err(PbsClientError::NoBuilderResponse) => return Ok(None),
+        resolved => resolved?,
+    };
 
     let mut send_headers = epbs_base_send_headers(&req_headers)?;
 
@@ -169,7 +185,7 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
             Ok(None)
         }
         Err(err) => {
-            error!(%err, %relay_id);
+            error!(?err, %relay_id);
             builder_rejection(&err).map_or(Ok(None), Err)
         }
     }
@@ -229,17 +245,11 @@ async fn send_get_execution_payload_bid(
     let (res, request_latency) =
         send_to_relay(request, &relay, GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG).await?;
     let code = res.status();
+    if !code.is_success() {
+        return Err(relay_response_error(res, "expected 200 or 204").await);
+    }
 
-    // Parse the negotiated Content-Type (and optional fork) before the body is
-    // consumed. Only successful responses carry a meaningful encoding; on
-    // non-success we fall through to safe_read_http_response's NonSuccess error,
-    // so these values are never consumed.
-    let (content_type, fork) = if code.is_success() {
-        parse_response_encoding_and_fork(res.headers(), code.as_u16())?
-    } else {
-        (EncodingType::Json, None)
-    };
-
+    let (content_type, fork) = parse_response_encoding_and_fork(res.headers(), code.as_u16())?;
     let response_bytes = safe_read_http_response(res, MAX_SIZE_GET_HEADER_RESPONSE).await?;
     if code == StatusCode::NO_CONTENT {
         debug!(
@@ -253,9 +263,15 @@ async fn send_get_execution_payload_bid(
     }
 
     let bid = match content_type {
-        EncodingType::Json => serde_json::from_slice(&response_bytes).map_err(|err| {
-            PbsError::JsonDecode { err, raw: String::from_utf8_lossy(&response_bytes).into_owned() }
-        })?,
+        EncodingType::Json => {
+            serde_json::from_slice(&response_bytes).map_err(|err| PbsError::JsonDecode {
+                err,
+                raw: String::from_utf8_lossy(
+                    &response_bytes[..response_bytes.len().min(MAX_SIZE_DEFAULT)],
+                )
+                .into_owned(),
+            })?
+        }
         EncodingType::Ssz => {
             // SSZ requires the fork from Eth-Consensus-Version; its absence is a
             // relay protocol violation.

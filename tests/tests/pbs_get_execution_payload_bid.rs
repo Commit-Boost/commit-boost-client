@@ -1,25 +1,21 @@
-use std::{collections::HashMap, path::PathBuf};
-
 use alloy::primitives::{B256, U256};
 use cb_common::{
-    config::RuntimeMuxConfig,
     pbs::{
-        GetExecutionPayloadBidResponse, HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS,
+        GetExecutionPayloadBidResponse, HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS, RelayClient,
         SignedBuilderRequestAuth, SignedExecutionPayloadBid,
     },
     signer::random_secret,
-    types::Chain,
+    types::{BlsPublicKey, Chain},
     utils::utcnow_ms,
     wire::{CONSENSUS_VERSION_HEADER, EncodingType},
 };
-use cb_pbs::{DefaultBuilderApi, PbsService, PbsState};
+use cb_pbs::GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG;
 use cb_tests::{
     mock_relay::MockRelayState,
     mock_validator::MockValidator,
     utils::{
-        TEST_AUTH_DATA, TEST_PROPOSER_PUBKEY, generate_mock_relay, get_free_listener,
-        get_pbs_config, opaque_auth, setup_relay, setup_relays, setup_relays_on_hosts,
-        spawn_mock_relay, to_pbs_config, wait_for_ready,
+        RELAY_API_KEY, TEST_AUTH_DATA, TEST_PROPOSER_PUBKEY, generate_mock_relay, opaque_auth,
+        setup_mux_relays, setup_relay, setup_relays, setup_relays_on_hosts, spawn_mock_relay,
     },
 };
 use eyre::Result;
@@ -121,9 +117,8 @@ async fn test_get_execution_payload_bid_shared_auth_data_asks_the_first() -> Res
 }
 
 /// The spec default auth data, the builder's hostname, routes to the relay on
-/// that host, and the auth reaches the relay unchanged. A hostname no relay
-/// has is a 400 with the builder's data-mismatch message, and no relay is
-/// contacted.
+/// that host, and the auth reaches the relay unchanged. An unconfigured
+/// `localhost` resolves to loopback, so it is refused with 400 and not dialed.
 #[tokio::test]
 async fn test_get_execution_payload_bid_demux_by_hostname() -> Result<()> {
     let chain = Chain::Hoodi;
@@ -148,52 +143,88 @@ async fn test_get_execution_payload_bid_demux_by_hostname() -> Result<()> {
     assert_eq!(body["code"], 400);
     assert_eq!(
         body["message"],
-        "Invalid SignedBuilderRequestAuth: auth.message.data does not match any configured builder"
+        "Invalid SignedBuilderRequestAuth: the addressed builder's host does not resolve or resolves to a disallowed address"
     );
     Ok(())
 }
 
-/// A key listed in a `[[mux]]` is served by that mux's relays: its bid request
-/// reaches the mux relay and not the default `[[relays]]` one.
+/// Auth data that matches no relay entry is dialed, and the builder gets the
+/// auth, `?` parameters included, unchanged. A request from a Commit-Boost is
+/// not dialed, though a configured relay still serves it.
+#[tokio::test]
+async fn test_get_execution_payload_bid_dial() -> Result<()> {
+    // The mock builder listens on an address the dial check refuses
+    cb_pbs::set_skip_dial_target_check(true);
+    let chain = Chain::Hoodi;
+    let (mut mock_validator, cfg_state) = setup_relay(chain, |_| {}, generate_mock_relay).await?;
+    let (dial_state, dial_port) =
+        spawn_mock_relay(MockRelayState::new(chain, random_secret())).await?;
+    let dial_auth_data = format!("http://0.0.0.0:{dial_port}/?ofac=1").into_bytes();
+
+    let res = get_json_bid(&mock_validator, &opaque_auth(&dial_auth_data, TEST_SLOT)).await?;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(dial_state.received_auth_data(), Some(dial_auth_data.clone()));
+    // A dial carries none of the relays' configured headers, the API key included
+    assert_eq!(dial_state.api_key_seen(GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG), None);
+
+    // RelayClient::new's client sends the Commit-Boost version header
+    mock_validator.comm_boost =
+        RelayClient::new(mock_validator.comm_boost.config.as_ref().clone())?;
+    let res = get_json_bid(&mock_validator, &opaque_auth(&dial_auth_data, TEST_SLOT)).await?;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let body: serde_json::Value = serde_json::from_slice(&res.bytes().await?)?;
+    assert_eq!(
+        body["message"],
+        "Invalid SignedBuilderRequestAuth: auth.message.data does not match any configured builder"
+    );
+    let res = get_json_bid(&mock_validator, &opaque_auth(TEST_AUTH_DATA, TEST_SLOT)).await?;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(dial_state.received_execution_payload_bid(), 1);
+    assert_eq!(cfg_state.received_execution_payload_bid(), 1);
+    assert_eq!(
+        cfg_state.api_key_seen(GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG).as_deref(),
+        Some(RELAY_API_KEY)
+    );
+    Ok(())
+}
+
+/// A key in a `[[mux]]` is served by that mux's relays, and reaches a relay
+/// configured only in `[[relays]]` through its entry, its API key included. A
+/// relay only in a mux is not reached so by other keys: it is dialed instead
 #[tokio::test]
 async fn test_get_execution_payload_bid_mux_routes_to_mux_relays() -> Result<()> {
-    let chain = Chain::Hoodi;
-    let (default_state, default_port) =
-        spawn_mock_relay(MockRelayState::new(chain, random_secret())).await?;
-    let (mux_state, mux_port) =
-        spawn_mock_relay(MockRelayState::new(chain, random_secret())).await?;
-    let default_relay = generate_mock_relay(default_port, default_state.signer.public_key())?;
-    let mux_relay = generate_mock_relay(mux_port, mux_state.signer.public_key())?;
+    let relays = setup_mux_relays(Chain::Hoodi).await?;
+    let bid = async |key: Option<BlsPublicKey>, auth_data: &[u8]| {
+        relays
+            .validator
+            .do_get_execution_payload_bid(
+                TEST_SLOT,
+                B256::ZERO,
+                B256::ZERO,
+                key,
+                Some(&opaque_auth(auth_data, TEST_SLOT)),
+                vec![EncodingType::Json],
+            )
+            .await
+    };
+    let muxed = Some(relays.muxed_key.clone());
 
-    let pbs_listener = get_free_listener().await;
-    let pbs_port = pbs_listener.local_addr()?.port();
-    let mut config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![default_relay.clone()]);
-    config.all_relays = vec![mux_relay.clone(), default_relay];
-    let muxed_key = random_secret().public_key();
-    config.mux_lookup = Some(HashMap::from([(muxed_key.clone(), RuntimeMuxConfig {
-        id: "test".to_string(),
-        config: config.pbs_config.clone(),
-        relays: vec![mux_relay],
-    })]));
-    let state = PbsState::new(config, PathBuf::new());
-    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
-    let mock_validator = MockValidator::new(pbs_port)?;
-    wait_for_ready(&mock_validator).await?;
+    assert_eq!(bid(muxed.clone(), TEST_AUTH_DATA).await?.status(), StatusCode::OK);
+    assert_eq!(relays.mux_state.received_execution_payload_bid(), 1);
+    assert_eq!(relays.default_state.received_execution_payload_bid(), 0);
 
-    let auth = opaque_auth(TEST_AUTH_DATA, TEST_SLOT);
-    let res = mock_validator
-        .do_get_execution_payload_bid(
-            TEST_SLOT,
-            B256::ZERO,
-            B256::ZERO,
-            Some(muxed_key),
-            Some(&auth),
-            vec![EncodingType::Json],
-        )
-        .await?;
-    assert_eq!(res.status(), StatusCode::OK);
-    assert_eq!(mux_state.received_execution_payload_bid(), 1);
-    assert_eq!(default_state.received_execution_payload_bid(), 0);
+    let to_default = format!("http://0.0.0.0:{}", relays.default_port);
+    assert_eq!(bid(muxed, to_default.as_bytes()).await?.status(), StatusCode::OK);
+    assert_eq!(relays.default_state.received_execution_payload_bid(), 1);
+    assert_eq!(
+        relays.default_state.api_key_seen(GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG).as_deref(),
+        Some(RELAY_API_KEY)
+    );
+
+    // Dialed, and the dial check refuses 0.0.0.0
+    let to_mux = format!("http://0.0.0.0:{}", relays.mux_port);
+    assert_eq!(bid(None, to_mux.as_bytes()).await?.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(relays.mux_state.received_execution_payload_bid(), 1);
     Ok(())
 }
 
@@ -274,7 +305,8 @@ async fn test_get_execution_payload_bid_rejected_before_relays() -> Result<()> {
 }
 
 /// A deadline that has already passed means there is no time to serve the
-/// request: CB returns 204 rather than calling a relay it cannot beat.
+/// request: CB returns 204 rather than calling a relay it cannot beat, or
+/// looking up a dial target (`localhost` would be refused with 400).
 #[tokio::test]
 async fn test_get_execution_payload_bid_expired_deadline_204() -> Result<()> {
     let (mock_validator, mock_state) =
@@ -285,18 +317,20 @@ async fn test_get_execution_payload_bid_expired_deadline_204() -> Result<()> {
         &B256::ZERO,
         &random_secret().public_key(),
     )?;
-    let res = mock_validator
-        .comm_boost
-        .client
-        .post(url)
-        .header(HEADER_START_TIME_UNIX_MS, utcnow_ms() - 5_000)
-        .header(HEADER_TIMEOUT_MS, 1_000u64)
-        .header("Eth-Consensus-Version", "gloas")
-        .header(CONTENT_TYPE, EncodingType::Ssz.content_type_header().clone())
-        .body(opaque_auth(TEST_AUTH_DATA, TEST_SLOT).as_ssz_bytes())
-        .send()
-        .await?;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    for auth_data in [TEST_AUTH_DATA, b"localhost"] {
+        let res = mock_validator
+            .comm_boost
+            .client
+            .post(url.clone())
+            .header(HEADER_START_TIME_UNIX_MS, utcnow_ms() - 5_000)
+            .header(HEADER_TIMEOUT_MS, 1_000u64)
+            .header("Eth-Consensus-Version", "gloas")
+            .header(CONTENT_TYPE, EncodingType::Ssz.content_type_header().clone())
+            .body(opaque_auth(auth_data, TEST_SLOT).as_ssz_bytes())
+            .send()
+            .await?;
+        assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    }
     assert_eq!(mock_state.received_execution_payload_bid(), 0, "no relay call past the deadline");
     Ok(())
 }
@@ -408,6 +442,22 @@ async fn test_get_execution_payload_bid_response_encoding() -> Result<()> {
     Ok(())
 }
 
+/// A beacon node that asks for the relay's encoding gets the relay's body byte
+/// for byte; a re-encode would drop the pretty-printing
+#[tokio::test]
+async fn test_get_execution_payload_bid_json_passthrough() -> Result<()> {
+    let chain = Chain::Hoodi;
+    let relay = MockRelayState::new(chain, random_secret())
+        .with_json_only_response()
+        .with_pretty_json_bid();
+    let (mock_validator, states) = setup_relays(chain, vec![relay]).await?;
+
+    let res = get_json_bid(&mock_validator, &opaque_auth(TEST_AUTH_DATA, TEST_SLOT)).await?;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(Some(res.bytes().await?), states[0].served_bid());
+    Ok(())
+}
+
 /// An SSZ bid without `Eth-Consensus-Version` cannot be forwarded, since CB's
 /// 200 must name the fork: that relay contributes no bid, so the request is a
 /// 204. The relay is still contacted, so the 204 proves the drop.
@@ -442,6 +492,21 @@ async fn test_get_execution_payload_bid_relay_status() -> Result<()> {
         assert_eq!(res.status(), expected, "builder answered {builder}");
     }
     assert_eq!(mock_state.received_execution_payload_bid(), 3);
+    Ok(())
+}
+
+/// An error body over PBS's 1 KiB read cap still reports the builder's status.
+#[tokio::test]
+async fn test_get_execution_payload_bid_large_error_body() -> Result<()> {
+    let chain = Chain::Hoodi;
+    let (mock_validator, states) =
+        setup_relays(chain, vec![MockRelayState::new(chain, random_secret()).with_large_body()])
+            .await?;
+    for status in [StatusCode::BAD_REQUEST, StatusCode::UNAUTHORIZED] {
+        states[0].set_response_override(status);
+        let res = get_json_bid(&mock_validator, &opaque_auth(TEST_AUTH_DATA, TEST_SLOT)).await?;
+        assert_eq!(res.status(), status);
+    }
     Ok(())
 }
 
@@ -504,5 +569,24 @@ async fn test_get_execution_payload_bid_relay_timing_headers() -> Result<()> {
     assert_eq!(res.status(), StatusCode::OK);
     let timeout_ms = mock_state.received_bid_timeout_ms().expect("relay saw X-Timeout-Ms");
     assert!(0 < timeout_ms && timeout_ms <= 11_900, "relay saw X-Timeout-Ms {timeout_ms}");
+    Ok(())
+}
+
+/// Auth data naming Commit-Boost's own URL is dialed once: the second hop, from
+/// a Commit-Boost, answers 400 and the beacon node gets it
+#[tokio::test]
+async fn test_get_execution_payload_bid_dial_self_400() -> Result<()> {
+    // As if Commit-Boost's own address were public
+    cb_pbs::set_skip_dial_target_check(true);
+    let (mock_validator, cfg_state) =
+        setup_relay(Chain::Hoodi, |_| {}, generate_mock_relay).await?;
+    let own = &mock_validator.comm_boost.config.entry.url;
+    let own = format!("http://{}:{}/", own.host_str().unwrap(), own.port().unwrap());
+
+    let res = get_json_bid(&mock_validator, &opaque_auth(own.as_bytes(), TEST_SLOT)).await?;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let body: serde_json::Value = serde_json::from_slice(&res.bytes().await?)?;
+    assert_eq!(body["message"], "The addressed builder rejected the request with status 400");
+    assert_eq!(cfg_state.received_execution_payload_bid(), 0);
     Ok(())
 }

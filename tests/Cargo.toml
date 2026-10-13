@@ -34,3 +34,4 @@ url.workspace = true
 [dev-dependencies]
 tracing-test.workspace = true
 cb-common = { path = "../crates/common", features = ["testing-flags"] }
+cb-pbs = { path = "../crates/pbs", features = ["testing-flags"] }

@@ -11,7 +11,7 @@ use cb_common::{
     config::{
         COMMIT_BOOST_IMAGE_DEFAULT, CommitBoostConfig, GetHeaderTransport, HeaderSource,
         LogsSettings, ModuleKind, ModuleSigningConfig, PbsConfig, PbsModuleConfig, RelayConfig,
-        ReverseProxyHeaderSetup, SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT,
+        ReverseProxyHeaderSetup, RuntimeMuxConfig, SIGNER_JWT_AUTH_FAIL_LIMIT_DEFAULT,
         SIGNER_JWT_AUTH_FAIL_TIMEOUT_SECONDS_DEFAULT, SIGNER_PORT_DEFAULT, SignerConfig,
         SignerType, StartSignerConfig, StaticModuleConfig, StaticPbsConfig, TlsMode,
     },
@@ -68,7 +68,7 @@ fn mock_relay_config(port: u16, pubkey: BlsPublicKey) -> Result<RelayConfig> {
         id: None,
         headers: Some(HashMap::from([(
             HEADER_API_KEY.into(),
-            HeaderSource::Literal(API_KEY.into()),
+            HeaderSource::Literal(RELAY_API_KEY.into()),
         )])),
         get_params: None,
         get_header: GetHeaderTransport::Http,
@@ -138,7 +138,7 @@ pub fn get_pbs_config(port: u16) -> PbsConfig {
         skip_sigverify: false,
         min_bid_wei: U256::ZERO,
         late_in_slot_time_ms: u64::MAX,
-        proposer_deadline_buffer_ms: 0,
+        proposer_deadline_buffer_ms: 50,
         extra_validation_enabled: false,
 
         ssv_node_api_url: Url::parse("http://localhost:0").unwrap(),
@@ -347,6 +347,42 @@ pub async fn setup_relays_on_hosts(
 /// Poll /status until PBS and its relays are up. relay_check makes a 200 mean
 /// the whole chain is ready; the fixed 100ms sleep used elsewhere flakes under
 /// parallel suite load.
+/// A PBS with a `[[relays]]` relay and a relay only in the `[[mux]]` of
+/// `muxed_key`, both on host 0.0.0.0
+pub struct MuxedRelays {
+    pub validator: MockValidator,
+    pub muxed_key: BlsPublicKey,
+    pub default_state: Arc<MockRelayState>,
+    pub default_port: u16,
+    pub mux_state: Arc<MockRelayState>,
+    pub mux_port: u16,
+}
+
+pub async fn setup_mux_relays(chain: Chain) -> Result<MuxedRelays> {
+    let (default_state, default_port) =
+        spawn_mock_relay(MockRelayState::new(chain, random_secret())).await?;
+    let (mux_state, mux_port) =
+        spawn_mock_relay(MockRelayState::new(chain, random_secret())).await?;
+    let default_relay = generate_mock_relay(default_port, default_state.signer.public_key())?;
+    let mux_relay = generate_mock_relay(mux_port, mux_state.signer.public_key())?;
+
+    let pbs_listener = get_free_listener().await;
+    let pbs_port = pbs_listener.local_addr()?.port();
+    let mut config = to_pbs_config(chain, get_pbs_config(pbs_port), vec![default_relay.clone()]);
+    config.all_relays = vec![mux_relay.clone(), default_relay];
+    let muxed_key = random_secret().public_key();
+    config.mux_lookup = Some(HashMap::from([(muxed_key.clone(), RuntimeMuxConfig {
+        id: "test".to_string(),
+        config: config.pbs_config.clone(),
+        relays: vec![mux_relay],
+    })]));
+    let state = PbsState::new(config, PathBuf::new());
+    tokio::spawn(PbsService::run_with_listener::<(), DefaultBuilderApi>(state, pbs_listener));
+    let validator = MockValidator::new(pbs_port)?;
+    wait_for_ready(&validator).await?;
+    Ok(MuxedRelays { validator, muxed_key, default_state, default_port, mux_state, mux_port })
+}
+
 pub async fn wait_for_ready(mock_validator: &MockValidator) -> Result<()> {
     for _ in 0..100 {
         if let Ok(res) = mock_validator.do_get_status().await &&
