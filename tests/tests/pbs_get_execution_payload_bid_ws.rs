@@ -20,12 +20,10 @@ const TEST_SLOT: u64 = 255;
 const PARENT_ROOT: B256 = B256::repeat_byte(1);
 const BUDGET_MS: u64 = 1_000;
 
-/// A relay bidding `http` gwei over HTTP and streaming `stream_bids`, each a
-/// `(value, execution_payment)` in gwei
-fn relay_states(http: u64, stream_bids: Vec<(u64, u64)>) -> (MockRelayState, MockWsRelayState) {
+/// A relay streaming `stream_bids`, each a `(value, execution_payment)` in gwei
+fn relay_states(stream_bids: Vec<(u64, u64)>) -> (MockRelayState, MockWsRelayState) {
     let signer = random_secret();
-    let http_state =
-        MockRelayState::new(Chain::Hoodi, signer.clone()).with_trustless_bid_gwei(http);
+    let http_state = MockRelayState::new(Chain::Hoodi, signer.clone());
     (http_state, MockWsRelayState::new(Chain::Hoodi, signer).with_epbs_bids(stream_bids))
 }
 
@@ -66,32 +64,27 @@ fn assert_bid(res: Option<GetExecutionPayloadBidResponse>, value: u64, execution
 }
 
 /// A relay that streams get_header but not the ePBS bid answers the handshake
-/// with 404, and the HTTP request PBS falls back to supplies the bid.
+/// with 404, and PBS falls back to HTTP: its bid is served, and the builder's
+/// 401 reaches the beacon node.
 #[tokio::test]
-async fn test_get_execution_payload_bid_ws_no_stream_route_http_bid_serves() -> Result<()> {
-    let (http_state, ws_state) = relay_states(42, vec![(90, 0)]);
-    let (validator, http_state, ws_state) =
-        start_relay((http_state, ws_state.without_epbs_stream())).await?;
+async fn test_get_execution_payload_bid_ws_no_stream_route_falls_back_to_http() -> Result<()> {
+    for rejection in [None, Some(StatusCode::UNAUTHORIZED)] {
+        let (http_state, ws_state) = relay_states(vec![]);
+        let (validator, http_state, ws_state) =
+            start_relay((http_state.with_trustless_bid_gwei(42), ws_state.without_epbs_stream()))
+                .await?;
+        if let Some(status) = rejection {
+            http_state.set_response_override(status);
+        }
 
-    let (code, res) = get_bid(&validator).await?;
-    assert_eq!(code, StatusCode::OK);
-    assert_bid(res, 42, 0);
-    assert_eq!(http_state.received_execution_payload_bid(), 1);
-    assert_eq!(ws_state.handshake_attempts(), 1);
-    assert_eq!(ws_state.received_connections(), 0, "the handshake never completed");
-    Ok(())
-}
-
-/// The builder's 401 to the fallback HTTP request reaches the beacon node.
-#[tokio::test]
-async fn test_get_execution_payload_bid_ws_no_stream_bid_http_rejection_passes() -> Result<()> {
-    let (http_state, ws_state) = relay_states(10, vec![(50, 0)]);
-    let (validator, http_state, _) =
-        start_relay((http_state, ws_state.without_epbs_stream())).await?;
-    http_state.set_response_override(StatusCode::UNAUTHORIZED);
-
-    let (code, _) = get_bid(&validator).await?;
-    assert_eq!(code, StatusCode::UNAUTHORIZED);
+        let (code, res) = get_bid(&validator).await?;
+        assert_eq!(code, rejection.unwrap_or(StatusCode::OK));
+        if rejection.is_none() {
+            assert_bid(res, 42, 0);
+        }
+        assert_eq!(http_state.received_execution_payload_bid(), 1);
+        assert_eq!(ws_state.handshake_attempts(), 1);
+    }
     Ok(())
 }
 
@@ -100,7 +93,7 @@ async fn test_get_execution_payload_bid_ws_no_stream_bid_http_rejection_passes()
 #[tokio::test]
 async fn test_get_execution_payload_bid_ws_serves_latest_bid_without_http() -> Result<()> {
     let (validator, http_state, ws_state) =
-        start_relay(relay_states(60, vec![(70, 0), (50, 0)])).await?;
+        start_relay(relay_states(vec![(70, 0), (50, 0)])).await?;
 
     let (code, res) = get_bid(&validator).await?;
     assert_eq!(code, StatusCode::OK);
@@ -114,7 +107,7 @@ async fn test_get_execution_payload_bid_ws_serves_latest_bid_without_http() -> R
 /// (50) before it.
 #[tokio::test]
 async fn test_get_execution_payload_bid_ws_skips_invalid_bid() -> Result<()> {
-    let (http_state, ws_state) = relay_states(10, vec![(50, 0), (90, 0)]);
+    let (http_state, ws_state) = relay_states(vec![(50, 0), (90, 0)]);
     let (validator, ..) = start_relay((http_state, ws_state.with_invalid_last_bids(1))).await?;
 
     let (code, res) = get_bid(&validator).await?;
@@ -128,7 +121,7 @@ async fn test_get_execution_payload_bid_ws_skips_invalid_bid() -> Result<()> {
 #[tokio::test]
 async fn test_get_execution_payload_bid_ws_handshake_and_deadline() -> Result<()> {
     const BUFFER_MS: u64 = 200;
-    let (http_state, ws_state) = relay_states(10, vec![(20, 0)]);
+    let (http_state, ws_state) = relay_states(vec![(20, 0)]);
     let (_, ws_state, relay) = start_mock_dual_relay(http_state, ws_state.hold_open()).await?;
     let validator = setup_pbs(Chain::Hoodi, vec![relay], |pbs_config| {
         pbs_config.proposer_deadline_buffer_ms = BUFFER_MS
@@ -136,6 +129,7 @@ async fn test_get_execution_payload_bid_ws_handshake_and_deadline() -> Result<()
     .await?;
 
     let start = Instant::now();
+    let sent_at = cb_common::utils::utcnow_ms();
     let (code, _) = get_bid(&validator).await?;
     assert_eq!(code, StatusCode::OK);
     assert!(start.elapsed() < Duration::from_millis(BUDGET_MS), "{:?}", start.elapsed());
@@ -156,6 +150,8 @@ async fn test_get_execution_payload_bid_ws_handshake_and_deadline() -> Result<()
         (BUDGET_MS - BUFFER_MS - 100..=BUDGET_MS - BUFFER_MS).contains(&relay_timeout_ms),
         "timeout header {relay_timeout_ms}ms"
     );
+    let start_time_ms = request.start_time_ms.expect("missing start time header");
+    assert!((sent_at..sent_at + BUDGET_MS).contains(&start_time_ms), "{start_time_ms}");
     assert_eq!(request.api_key.as_deref(), Some(RELAY_API_KEY));
     assert!(request.user_agent.is_some_and(|ua| ua.contains("commit-boost")));
     Ok(())

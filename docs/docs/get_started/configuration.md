@@ -142,7 +142,7 @@ If the handshake fails, PBS falls back to a plain HTTP `get_header` at the relay
 
 There is no fallback if the handshake is still unanswered when the window ends (recorded as `555`), or if it fails too late to leave time for an HTTP request. There is also none once the stream is open. If it breaks before any bid arrives, that relay contributes no header for the slot (recorded as `556`). If a bid already arrived, PBS validates and returns it as usual.
 
-On a high-latency connection, where the handshake risks timing out, you can add the relay a second time with `get_header = "http"` and a different `id`. PBS asks both entries every slot and keeps the better bid, so the HTTP entry still returns a header when the stream does not.
+On a high-latency connection, where the handshake risks timing out, you can add the relay a second time with `get_header = "http"` and a different `id`. PBS asks both entries every slot and keeps the better bid, so the HTTP entry still returns a header when the stream does not. (unreleased, from v0.12.0-rc1) After the Gloas fork only the first of the two entries serves [ePBS bids](./epbs.md#bid-streaming).
 
 ```toml
 [[relays]]

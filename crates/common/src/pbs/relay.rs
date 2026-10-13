@@ -87,8 +87,7 @@ pub struct RelayClient {
     pub id: Arc<String>,
     /// HTTP client to send requests
     pub client: reqwest::Client,
-    /// Base url of the get_header stream, whose origin the ePBS bid stream
-    /// shares. `Some` only when the relay streams.
+    /// Base url of the get_header stream, `Some` only when the relay streams.
     stream_url: Option<Url>,
     /// Baseline headers for the bid stream handshakes.
     stream_headers: Arc<HeaderMap>,
