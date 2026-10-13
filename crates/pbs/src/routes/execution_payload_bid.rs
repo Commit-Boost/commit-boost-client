@@ -151,6 +151,7 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
     let (relay, max_timeout_ms) = match resolve_addressed_relay(
         relays,
         state.default_relays(),
+        state.pbs_config().dial_unconfigured_builders,
         auth.message.data.as_ref(),
         &req_headers,
         max_timeout_ms,

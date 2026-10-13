@@ -39,7 +39,7 @@ To go through Commit-Boost, every entry's `url` is Commit-Boost's own URL, and i
 
 ### 1. Add the builders to Commit-Boost
 
-List each builder as a relay entry, as for PBS: in `[[relays]]`, or in the `[[mux.relays]]` of the mux that lists the proposer's key. ePBS adds one option, `[pbs] proposer_deadline_buffer_ms` (default `50`): the time kept back from the beacon node's deadline (see [Timing](#timing)). It must be above `0` and under one slot, `12000` on mainnet.
+List each builder as a relay entry, as for PBS: in `[[relays]]`, or in the `[[mux.relays]]` of the mux that lists the proposer's key. ePBS adds two `[pbs]` options. `proposer_deadline_buffer_ms` (default `50`) is the time kept back from the beacon node's deadline (see [Timing](#timing)). It must be above `0` and under one slot, `12000` on mainnet. `dial_unconfigured_builders` (default `true`) turns [dialing builders outside your config](#builders-outside-your-config) on or off.
 
 ### 2. Point each validator key at Commit-Boost {#validator-builder-config}
 
@@ -82,6 +82,8 @@ Either form may end in `?` and form-encoded parameters for the builder, such as 
 
 A key's builder config may name a builder you have not added as a relay entry. Commit-Boost dials that builder anyway: a hostname at `https://<hostname>` on the default port, and a URL at its scheme, host and port. It answers `400` instead when the host does not resolve, or resolves to any address that is not public unicast, such as a loopback, private, link-local or `100.64.0.0/10` address, so a builder on your own network has to be a relay entry. These requests connect directly, ignoring `HTTP_PROXY`, `HTTPS_PROXY` and `ALL_PROXY`, follow no redirects and do not carry your relay `headers`. A builder reached this way gets the signed block over gossip, unless it is also a relay entry in `[[relays]]` or a mux. Neither `[[relays]]` nor a mux's relays limit which builders a key can reach this way, and anyone who can reach Commit-Boost's port can make it dial a public host, so keep that port private. Commit-Boost looks up at most 32 of these hosts at once and answers further requests as if the builder had not responded, as it does when a lookup runs out of the request's time.
 
+To turn dialing off, set `dial_unconfigured_builders = false` in `[pbs]`. Commit-Boost then answers `400` to a bid or preferences request whose `auth_data` matches no relay entry, and asks no builder.
+
 On a validator client whose builder URL is Commit-Boost, a key without builder config sends Commit-Boost's own hostname as its `auth_data`, so it gets no bids: unless a relay entry has that hostname, which then gets the request, Commit-Boost answers `400` without dialing. A client that sends Commit-Boost's full URL instead also gets `400`. Commit-Boost never dials for a request that came from another Commit-Boost, so chained Commit-Boosts route only through relay entries.
 
 ## Timing
@@ -120,7 +122,7 @@ With [metrics](./running/metrics.md) enabled, the ePBS endpoints use the `endpoi
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Bid requests get `400` "auth.message.data does not match any configured builder" | The auth data is neither a lowercase hostname without a port nor an `http(s)` URL, names the host the request was sent to (a key without builder config), or the request came from another Commit-Boost and matches none of this one's relay entries | Correct the `auth_data` in the key's [builder config](#validator-builder-config), or add the builder as a relay entry on the Commit-Boost the request reaches |
+| Bid requests get `400` "auth.message.data does not match any configured builder" | The auth data is neither a lowercase hostname without a port nor an `http(s)` URL, names the host the request was sent to (a key without builder config), the request came from another Commit-Boost and matches none of this one's relay entries, or `dial_unconfigured_builders` is `false` and no relay entry matches | Correct the `auth_data` in the key's [builder config](#validator-builder-config), or add the builder as a relay entry on the Commit-Boost the request reaches |
 | Bid requests get `400` "the addressed builder's host does not resolve or resolves to a disallowed address" | The auth data names a builder outside your config whose host does not resolve or resolves to an [internal address](#builders-outside-your-config) | Add the builder as a relay entry for the key, or write or correct the key's [builder config](#validator-builder-config) |
 | A builder answers bid requests with `400` (`cb_pbs_relay_status_code_total{endpoint="get_execution_payload_bid",http_status_code="400"}`) | The builder compares auth data byte for byte and expects something other than what the key sends, such as its hostname without `?` parameters | Send the auth data the builder expects: its hostname or its URL, the forms Commit-Boost [routes by](#routing-by-auth-data), with `?` parameters only if it accepts them |
 | Bid requests to a streaming builder log "stream failed" with "rejected with 404", and `cb_pbs_relay_epbs_stream_fallback_total` rises | The builder does not serve the ePBS bid stream. Commit-Boost asks it over HTTP instead | Set `get_header = "http"` on its relay entry |

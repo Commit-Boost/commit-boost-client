@@ -289,6 +289,28 @@ async fn test_submit_builder_preferences_dial() -> Result<()> {
     Ok(())
 }
 
+/// With `dial_unconfigured_builders` off, preferences for a builder outside the
+/// config get a 400 and are not sent
+#[tokio::test]
+async fn test_submit_builder_preferences_dial_off_400() -> Result<()> {
+    // The mock builder listens on an address the dial check refuses
+    cb_pbs::set_skip_dial_target_check(true);
+    let chain = Chain::Hoodi;
+    let (mock_validator, _) =
+        setup_relay(chain, |cfg| cfg.dial_unconfigured_builders = false, generate_mock_relay)
+            .await?;
+    let (dial_state, dial_port) =
+        spawn_mock_relay(MockRelayState::new(chain, random_secret())).await?;
+
+    let auth = opaque_auth(format!("http://0.0.0.0:{dial_port}/").as_bytes(), TEST_SLOT);
+    let request = preferences(auth, TEST_MAX_EXECUTION_PAYMENT);
+    let res =
+        mock_validator.do_submit_builder_preferences(None, &request, EncodingType::Ssz).await?;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(dial_state.received_builder_preferences(), 0);
+    Ok(())
+}
+
 /// A key in a `[[mux]]` sends preferences to a builder configured only in
 /// `[[relays]]` through that entry. A builder only in the mux is not reached so
 /// by other keys: it is dialed, and the dial check refuses 0.0.0.0

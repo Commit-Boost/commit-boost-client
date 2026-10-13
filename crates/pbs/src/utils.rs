@@ -192,10 +192,12 @@ pub fn check_gas_limit(gas_limit: u64, parent_gas_limit: u64) -> bool {
 }
 
 /// The relay `auth_data` names among `relays`, then `default_relays`, else a
-/// dial to it, with what the dial's setup left of `timeout_ms`
+/// dial to it if `dial_unconfigured_builders`, with what the dial's setup left
+/// of `timeout_ms`
 pub(crate) async fn resolve_addressed_relay(
     relays: &[RelayClient],
     default_relays: &[RelayClient],
+    dial_unconfigured_builders: bool,
     auth_data: &[u8],
     req_headers: &HeaderMap,
     timeout_ms: u64,
@@ -210,6 +212,13 @@ pub(crate) async fn resolve_addressed_relay(
         .find(|relay| names_relay(relay, address, data_url.as_ref()))
     {
         return Ok((relay.clone(), timeout_ms));
+    }
+    if !dial_unconfigured_builders {
+        warn!(
+            auth_data = ?String::from_utf8_lossy(auth_data),
+            "auth data matches no configured relay and dial_unconfigured_builders is off, not dialing"
+        );
+        return Err(PbsClientError::AuthDataMismatch);
     }
     // Every Commit-Boost dial carries this header, so a request dialed back into
     // a Commit-Boost, this one included, goes no further
@@ -309,7 +318,7 @@ mod tests {
         ];
         let from_cb = from_cb();
         let host = async |data: &[u8]| -> Option<String> {
-            resolve_addressed_relay(&relays, &[], data, &from_cb, 0)
+            resolve_addressed_relay(&relays, &[], true, data, &from_cb, 0)
                 .await
                 .ok()
                 .map(|(relay, _)| relay.config.entry.url.host_str().unwrap().to_string())
@@ -344,7 +353,7 @@ mod tests {
         ];
         let from_cb = from_cb();
         let url = async |data: &[u8]| {
-            resolve_addressed_relay(&own, &default_relays, data, &from_cb, 0)
+            resolve_addressed_relay(&own, &default_relays, true, data, &from_cb, 0)
                 .await
                 .ok()
                 .map(|(relay, _)| relay.config.entry.url.to_string())
@@ -368,7 +377,7 @@ mod tests {
         let resolve = async |host: &'static str, data: &[u8]| {
             let mut headers = HeaderMap::new();
             headers.insert(HOST, reqwest::header::HeaderValue::from_static(host));
-            resolve_addressed_relay(&[], &[], data, &headers, 1000)
+            resolve_addressed_relay(&[], &[], true, data, &headers, 1000)
                 .await
                 .map(|(relay, _)| relay.config.entry.url.to_string())
         };
@@ -388,10 +397,33 @@ mod tests {
     #[tokio::test]
     async fn resolve_dials_the_address_before_the_parameters() {
         let headers = HeaderMap::new();
-        let dial =
-            |timeout_ms| resolve_addressed_relay(&[], &[], b"1.1.1.1?ofac=1", &headers, timeout_ms);
+        let dial = |timeout_ms| {
+            resolve_addressed_relay(&[], &[], true, b"1.1.1.1?ofac=1", &headers, timeout_ms)
+        };
         let (relay, _) = dial(1000).await.unwrap();
         assert_eq!(relay.config.entry.url.as_str(), "https://1.1.1.1/");
         assert!(matches!(dial(0).await, Err(PbsClientError::NoBuilderResponse)));
+    }
+
+    // With dialing off, configured relays still serve and a miss is refused
+    #[tokio::test]
+    async fn resolve_without_dialing_refuses_a_miss() {
+        let own = vec![test_relay("https://builder-a.example.com")];
+        let default_relays = vec![test_relay("https://builder-b.example.com")];
+        let headers = HeaderMap::new();
+        let resolve = async |data: &[u8]| {
+            resolve_addressed_relay(&own, &default_relays, false, data, &headers, 1000)
+                .await
+                .map(|(relay, _)| relay.config.entry.url.to_string())
+        };
+        assert_eq!(
+            resolve(b"builder-a.example.com").await.unwrap(),
+            "https://builder-a.example.com/"
+        );
+        assert_eq!(
+            resolve(b"builder-b.example.com").await.unwrap(),
+            "https://builder-b.example.com/"
+        );
+        assert!(matches!(resolve(b"1.1.1.1").await, Err(PbsClientError::AuthDataMismatch)));
     }
 }
