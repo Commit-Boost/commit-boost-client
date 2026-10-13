@@ -60,24 +60,15 @@ async fn stream_execution_payload_bid(
     headers.insert(HEADER_REQUEST_AUTH, request_auth);
 
     // Each frame is decoded on arrival, so the newest is the latest bid that
-    // decodes and the only one to hold
+    // decodes
     let parse = |frame: Frame| decode_ssz_bid(frame.bid, frame.fork);
-    let Held { mut frames, updates, connect_latency, first_frame_latency, invalid_frames } =
-        match read_bid_stream(
-            request,
-            deadline,
-            relay,
-            GET_EXECUTION_PAYLOAD_BID_STREAM_ENDPOINT_TAG,
-            1,
-            parse,
-        )
-        .await
-        {
+    let Held { latest, updates, connect_latency, first_frame_latency, invalid_frames } =
+        match read_bid_stream(request, deadline, relay, parse).await {
             Ok(held) => held,
             Err((status, err)) => return (status, Err(err)),
         };
 
-    let Some(bid) = frames.pop_back() else {
+    let Some(bid) = latest else {
         debug!(relay_id = relay.id.as_ref(), ?connect_latency, invalid_frames, "no bid");
         return (StatusCode::NO_CONTENT, Ok(None));
     };

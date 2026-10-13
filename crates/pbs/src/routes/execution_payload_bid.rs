@@ -32,11 +32,10 @@ use super::execution_payload_bid_ws::get_execution_payload_bid_ws;
 use crate::{
     PbsStateGuard,
     constants::{
-        GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG, GET_EXECUTION_PAYLOAD_BID_STREAM_ENDPOINT_TAG,
-        MAX_SIZE_DEFAULT, MAX_SIZE_GET_HEADER_RESPONSE,
+        GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG, MAX_SIZE_DEFAULT, MAX_SIZE_GET_HEADER_RESPONSE,
     },
     error::PbsClientError,
-    metrics::{RELAY_HEADER_VALUE, RELAY_LAST_SLOT, RELAY_STREAM_FALLBACK},
+    metrics::{RELAY_EPBS_STREAM_FALLBACK, RELAY_HEADER_VALUE, RELAY_LAST_SLOT},
     state::{BuilderApiState, PbsState},
     utils::{
         builder_rejection, epbs_base_send_headers, format_gwei_as_eth, log_mux_selection,
@@ -238,9 +237,7 @@ async fn stream_execution_payload_bid(
         return Ok(None);
     }
 
-    RELAY_STREAM_FALLBACK
-        .with_label_values(&[GET_EXECUTION_PAYLOAD_BID_STREAM_ENDPOINT_TAG, relay.id.as_str()])
-        .inc();
+    RELAY_EPBS_STREAM_FALLBACK.with_label_values(&[relay.id.as_str()]).inc();
     warn!(relay_id = relay.id.as_ref(), %err, timeout_left_ms, "stream failed, falling back to http");
     send_get_execution_payload_bid(params, body, relay, send_headers, timeout_left_ms).await
 }
@@ -376,10 +373,14 @@ mod tests {
 
     use super::*;
     use crate::{
-        constants::{TIMEOUT_ERROR_STATUS, TRANSPORT_ERROR_STATUS},
+        constants::{
+            GET_EXECUTION_PAYLOAD_BID_STREAM_ENDPOINT_TAG, TIMEOUT_ERROR_STATUS,
+            TRANSPORT_ERROR_STATUS,
+        },
         metrics::{
-            PBS_METRICS_REGISTRY, RELAY_LATENCY, RELAY_STATUS_CODE, RELAY_STREAM_CONNECT_LATENCY,
-            RELAY_STREAM_INVALID_FRAMES, RELAY_STREAM_UPDATES,
+            PBS_METRICS_REGISTRY, RELAY_EPBS_STREAM_CONNECT_LATENCY,
+            RELAY_EPBS_STREAM_INVALID_FRAMES, RELAY_EPBS_STREAM_UPDATES, RELAY_LATENCY,
+            RELAY_STATUS_CODE,
         },
     };
 
@@ -624,7 +625,7 @@ mod tests {
     }
 
     fn fallbacks(relay_id: &str) -> u64 {
-        RELAY_STREAM_FALLBACK.with_label_values(&[STREAM, relay_id]).get()
+        RELAY_EPBS_STREAM_FALLBACK.with_label_values(&[relay_id]).get()
     }
 
     // A handshake answered 204 is no bid. Only a refused handshake falls back
@@ -677,12 +678,12 @@ mod tests {
             assert_eq!(status_count(StatusCode::NO_CONTENT, &relay_id), 1);
             assert_eq!(fallbacks(&relay_id), 0);
             assert_eq!(posts.load(Ordering::Relaxed), 0);
-            let stream = [STREAM, relay_id.as_str()];
+            let relay = [relay_id.as_str()];
             assert_eq!(
-                RELAY_STREAM_INVALID_FRAMES.with_label_values(&stream).get(),
+                RELAY_EPBS_STREAM_INVALID_FRAMES.with_label_values(&relay).get(),
                 n_frames as u64
             );
-            assert_eq!(RELAY_STREAM_UPDATES.with_label_values(&stream).get_sample_sum(), 0.0);
+            assert_eq!(RELAY_EPBS_STREAM_UPDATES.with_label_values(&relay).get_sample_sum(), 0.0);
         }
     }
 
@@ -709,16 +710,19 @@ mod tests {
         assert_eq!(status_count(StatusCode::OK, &relay_id), 1);
         assert_eq!(RELAY_HEADER_VALUE.with_label_values(&[&relay_id]).get(), 77);
         assert_eq!(RELAY_LAST_SLOT.with_label_values(&[&relay_id]).get(), 1);
-        let stream = [STREAM, relay_id.as_str()];
-        assert_eq!(RELAY_STREAM_UPDATES.with_label_values(&stream).get_sample_sum(), 2.0);
-        assert_eq!(RELAY_STREAM_CONNECT_LATENCY.with_label_values(&stream).get_sample_count(), 1);
+        let relay = [relay_id.as_str()];
+        assert_eq!(RELAY_EPBS_STREAM_UPDATES.with_label_values(&relay).get_sample_sum(), 2.0);
+        assert_eq!(
+            RELAY_EPBS_STREAM_CONNECT_LATENCY.with_label_values(&relay).get_sample_count(),
+            1
+        );
         // The last bid arrives 450 ms in
-        let latency = RELAY_LATENCY.with_label_values(&stream);
+        let latency = RELAY_LATENCY.with_label_values(&[STREAM, relay_id.as_str()]);
         assert_eq!(latency.get_sample_count(), 1);
         assert!(latency.get_sample_sum() < 0.3, "{}", latency.get_sample_sum());
     }
 
-    // Dashboards and the docs select the stream series by label name
+    // Dashboards and the docs select the stream series by name
     #[tokio::test]
     async fn test_epbs_stream_series_are_labeled_by_name() {
         let messages = vec![Message::Binary(vec![0x01, 7, 1].into()), bid_frame(1, 0)];
@@ -729,12 +733,12 @@ mod tests {
 
         let scrape = TextEncoder::new().encode_to_string(&PBS_METRICS_REGISTRY.gather()).unwrap();
         for (series, relay_id) in [
-            ("relay_stream_connect_latency_count", &relay_id),
-            ("relay_stream_updates_sum", &relay_id),
-            ("relay_stream_invalid_frames_total", &relay_id),
-            ("relay_stream_fallback_total", &failed_id),
+            ("relay_epbs_stream_connect_latency_count", &relay_id),
+            ("relay_epbs_stream_updates_sum", &relay_id),
+            ("relay_epbs_stream_invalid_frames_total", &relay_id),
+            ("relay_epbs_stream_fallback_total", &failed_id),
         ] {
-            let series = format!(r#"{series}{{endpoint="{STREAM}",relay_id="{relay_id}"}}"#);
+            let series = format!(r#"{series}{{relay_id="{relay_id}"}}"#);
             assert!(scrape.contains(&series), "{series}");
         }
     }

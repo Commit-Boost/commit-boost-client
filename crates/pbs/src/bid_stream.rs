@@ -1,4 +1,4 @@
-//! The websocket bid stream of a relay configured with `get_header = "stream"`.
+//! The ePBS bid stream of a relay configured with `get_header = "stream"`.
 //! One connection per request, dropped at the deadline. The handshake carries
 //! the request, and the relay replies with one binary frame per bid update:
 //!
@@ -9,7 +9,6 @@
 //! ```
 
 use std::{
-    collections::VecDeque,
     sync::{Arc, OnceLock},
     time::Duration,
 };
@@ -36,10 +35,13 @@ use tracing::{debug, warn};
 use url::Url;
 
 use crate::{
-    constants::{MAX_SIZE_GET_HEADER_RESPONSE, TIMEOUT_ERROR_STATUS, TRANSPORT_ERROR_STATUS},
+    constants::{
+        GET_EXECUTION_PAYLOAD_BID_STREAM_ENDPOINT_TAG, MAX_SIZE_GET_HEADER_RESPONSE,
+        TIMEOUT_ERROR_STATUS, TRANSPORT_ERROR_STATUS,
+    },
     metrics::{
-        RELAY_LATENCY, RELAY_STREAM_CONNECT_LATENCY, RELAY_STREAM_FALLBACK,
-        RELAY_STREAM_INVALID_FRAMES, RELAY_STREAM_UPDATES,
+        RELAY_EPBS_STREAM_CONNECT_LATENCY, RELAY_EPBS_STREAM_INVALID_FRAMES,
+        RELAY_EPBS_STREAM_UPDATES, RELAY_LATENCY,
     },
 };
 
@@ -47,10 +49,6 @@ use crate::{
 const FRAME_PREFIX_LEN: usize = 2;
 
 const MSG_BID: u8 = 0x01;
-
-/// A PBS stream holds only its newest frames, which bounds its memory and the
-/// validation it leaves until the deadline
-pub(crate) const MAX_HELD_FRAMES: usize = 8;
 
 /// One bid update, its bid still SSZ-encoded
 pub(crate) struct Frame {
@@ -60,9 +58,8 @@ pub(crate) struct Frame {
 
 /// What a stream held when its window closed
 pub(crate) struct Held<T> {
-    /// The newest frames the parse closure accepted, up to the caller's cap,
-    /// oldest first
-    pub(crate) frames: VecDeque<T>,
+    /// The newest frame the parse closure accepted
+    pub(crate) latest: Option<T>,
     /// Frames the parse closure accepted
     pub(crate) updates: usize,
     pub(crate) connect_latency: Duration,
@@ -94,23 +91,22 @@ pub(crate) fn handshake_request(
     Ok(request)
 }
 
-/// Holds the newest `max_held` frames `parse` accepts until `deadline` or the
-/// end of the stream. An error carries the status the failure records under.
+/// Holds the newest frame `parse` accepts until `deadline` or the end of the
+/// stream. An error carries the status the failure records under.
 pub(crate) async fn read_bid_stream<T>(
     request: Request<()>,
     deadline: Instant,
     relay: &RelayClient,
-    endpoint: &str,
-    max_held: usize,
     mut parse: impl FnMut(Frame) -> Result<T, PbsError>,
 ) -> Result<Held<T>, (StatusCode, PbsError)> {
+    let endpoint = GET_EXECUTION_PAYLOAD_BID_STREAM_ENDPOINT_TAG;
     let start_request = Instant::now();
     let mut stream = match timeout_at(deadline, connect(request, deadline)).await {
         Ok(Ok(stream)) => stream,
         // A relay with no bid can answer the handshake as it answers get_header
         Ok(Err(WsError::Http(res))) if res.status() == StatusCode::NO_CONTENT => {
             return Ok(Held {
-                frames: VecDeque::new(),
+                latest: None,
                 updates: 0,
                 connect_latency: start_request.elapsed(),
                 first_frame_latency: None,
@@ -121,15 +117,15 @@ pub(crate) async fn read_bid_stream<T>(
         Err(_) => return Err((TIMEOUT_ERROR_STATUS, PbsError::WebSocketTimeout)),
     };
     let connect_latency = start_request.elapsed();
-    RELAY_STREAM_CONNECT_LATENCY
-        .with_label_values(&[endpoint, relay.id.as_str()])
+    RELAY_EPBS_STREAM_CONNECT_LATENCY
+        .with_label_values(&[relay.id.as_str()])
         .observe(connect_latency.as_secs_f64());
     debug!(relay_id = relay.id.as_ref(), endpoint, ?connect_latency, "ws connected");
 
     let timer = sleep_until(deadline);
     tokio::pin!(timer);
 
-    let mut frames = VecDeque::with_capacity(max_held);
+    let mut latest = None;
     let mut updates = 0usize;
     let mut first_frame_latency = None;
     let mut invalid_frames = 0usize;
@@ -157,10 +153,7 @@ pub(crate) async fn read_bid_stream<T>(
             Ok(frame) => {
                 first_frame_latency.get_or_insert_with(|| start_request.elapsed());
                 updates += 1;
-                if frames.len() == max_held {
-                    frames.pop_front();
-                }
-                frames.push_back(frame);
+                latest = Some(frame);
             }
             Err(err) => {
                 invalid_frames += 1;
@@ -173,10 +166,10 @@ pub(crate) async fn read_bid_stream<T>(
 
     drop(stream);
 
-    RELAY_STREAM_UPDATES.with_label_values(&[endpoint, relay.id.as_str()]).observe(updates as f64);
+    RELAY_EPBS_STREAM_UPDATES.with_label_values(&[relay.id.as_str()]).observe(updates as f64);
     if invalid_frames > 0 {
-        RELAY_STREAM_INVALID_FRAMES
-            .with_label_values(&[endpoint, relay.id.as_str()])
+        RELAY_EPBS_STREAM_INVALID_FRAMES
+            .with_label_values(&[relay.id.as_str()])
             .inc_by(invalid_frames as u64);
     }
 
@@ -186,7 +179,7 @@ pub(crate) async fn read_bid_stream<T>(
         return Err((TRANSPORT_ERROR_STATUS, err));
     }
 
-    Ok(Held { frames, updates, connect_latency, first_frame_latency, invalid_frames })
+    Ok(Held { latest, updates, connect_latency, first_frame_latency, invalid_frames })
 }
 
 /// Opens the stream with the timing headers stamped now. As over HTTP,
@@ -208,11 +201,6 @@ async fn connect(
         connect_async_tls_with_config(request, Some(config), true, Some(connector)).await?;
 
     Ok(stream)
-}
-
-pub(crate) fn record_stream_failure(endpoint: &str, relay_id: &str, err: &PbsError) {
-    warn!(%err, relay_id, endpoint, "stream failed");
-    RELAY_STREAM_FALLBACK.with_label_values(&[endpoint, relay_id]).inc();
 }
 
 /// A relay rejecting the handshake puts the reason in the body, which

@@ -16,7 +16,6 @@ use cb_common::{
         RelayClient,
     },
     types::{BlsSecretKey, Chain},
-    utils::utcnow_ms,
     wire::CONSENSUS_VERSION_HEADER,
 };
 use futures::SinkExt;
@@ -59,14 +58,13 @@ pub struct StreamRequest {
     pub api_key: Option<String>,
     pub consensus_version: Option<String>,
     pub request_auth: Option<String>,
-    /// When the relay accepted the connection, unix ms
-    pub accepted_at_ms: u64,
 }
 
 pub struct MockWsRelayState {
     pub chain: Chain,
     pub signer: BlsSecretKey,
-    /// One frame pushed per value, in order
+    /// One frame pushed per value, in order. The last one is what PBS must
+    /// return.
     bid_values: Vec<U256>,
     /// One frame per `(value, execution_payment)` in gwei, on the ePBS bid
     /// stream
@@ -82,15 +80,8 @@ pub struct MockWsRelayState {
     /// Precede each bid with frames PBS can't parse, which it must skip rather
     /// than treat as the end of the stream
     unknown_frames: bool,
-    /// Make this many of the last bids fail validation: signed for another
-    /// parent hash, or on the ePBS stream cut short so they do not decode
+    /// Cut this many of the last ePBS bids short, so they do not decode
     invalid_last_bids: usize,
-    /// Wait this long before answering the handshake, as a relay whose
-    /// handshake outlasts PBS's budget
-    handshake_delay: Duration,
-    /// Drop the connection after the last bid, with no close frame, as a
-    /// stream that breaks
-    abort_after_bids: bool,
     handshake_attempts: AtomicU64,
     received_connections: AtomicU64,
     last_request: Mutex<Option<StreamRequest>>,
@@ -108,8 +99,6 @@ impl MockWsRelayState {
             hold_open: false,
             unknown_frames: false,
             invalid_last_bids: 0,
-            handshake_delay: Duration::ZERO,
-            abort_after_bids: false,
             handshake_attempts: AtomicU64::new(0),
             received_connections: AtomicU64::new(0),
             last_request: Mutex::new(None),
@@ -142,14 +131,6 @@ impl MockWsRelayState {
 
     pub fn with_invalid_last_bids(self, invalid_last_bids: usize) -> Self {
         Self { invalid_last_bids, ..self }
-    }
-
-    pub fn with_handshake_delay(self, handshake_delay: Duration) -> Self {
-        Self { handshake_delay, ..self }
-    }
-
-    pub fn abort_after_bids(self) -> Self {
-        Self { abort_after_bids: true, ..self }
     }
 
     /// Connections that reached the stream, counted before the handshake, so
@@ -185,14 +166,10 @@ pub async fn start_mock_ws_relay_service(
 // The handshake callback's Err type is fixed by tungstenite
 #[allow(clippy::result_large_err)]
 async fn serve_stream(state: Arc<MockWsRelayState>, stream: TcpStream) -> eyre::Result<()> {
-    let accepted_at_ms = utcnow_ms();
     state.handshake_attempts.fetch_add(1, Ordering::Relaxed);
-    if !state.handshake_delay.is_zero() {
-        tokio::time::sleep(state.handshake_delay).await;
-    }
     let mut request = None;
     let mut ws = accept_hdr_async(stream, |req: &Request, res: Response| {
-        request = parse_request(req, accepted_at_ms);
+        request = parse_request(req);
         if state.no_epbs_stream && request.as_ref().is_some_and(|req| req.parent_root.is_some()) {
             let mut not_found = ErrorResponse::new(None);
             *not_found.status_mut() = StatusCode::NOT_FOUND;
@@ -223,10 +200,6 @@ async fn serve_stream(state: Arc<MockWsRelayState>, stream: TcpStream) -> eyre::
         if !state.update_interval.is_zero() {
             tokio::time::sleep(state.update_interval).await;
         }
-    }
-
-    if state.abort_after_bids {
-        return Ok(());
     }
 
     if state.hold_open {
@@ -263,12 +236,11 @@ fn bid_frame(
             (FORK_GLOAS, bid)
         }
         None => {
-            let parent_hash = if invalid { B256::repeat_byte(0xee) } else { request.parent_hash };
             let bid = mock_signed_builder_bid(
                 state.chain,
                 &state.signer,
                 request.slot,
-                parent_hash,
+                request.parent_hash,
                 state.bid_values[i],
             );
             (FORK_FULU, bid.as_ssz_bytes())
@@ -283,7 +255,7 @@ fn bid_frame(
 /// The request is the handshake: the fixed stream path followed by
 /// `/{slot}/{parent_hash}/{pubkey}` (with `/{parent_root}` before the pubkey on
 /// the ePBS bid stream), plus the same headers the HTTP path sends.
-fn parse_request(req: &Request, accepted_at_ms: u64) -> Option<StreamRequest> {
+fn parse_request(req: &Request) -> Option<StreamRequest> {
     let path = req.uri().path();
     let v1 = BuilderApiVersion::V1.path();
     let (rest, epbs) =
@@ -309,7 +281,6 @@ fn parse_request(req: &Request, accepted_at_ms: u64) -> Option<StreamRequest> {
         api_key: header(req, HEADER_API_KEY),
         consensus_version: header(req, CONSENSUS_VERSION_HEADER),
         request_auth: header(req, HEADER_REQUEST_AUTH),
-        accepted_at_ms,
     })
 }
 
