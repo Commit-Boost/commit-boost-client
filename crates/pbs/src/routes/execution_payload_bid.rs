@@ -362,7 +362,7 @@ mod tests {
     use axum::http::Method;
     use cb_common::{
         config::{GetHeaderTransport, PbsModuleConfig, RelayConfig},
-        pbs::{BuilderRequestAuth, ExecutionPayloadBid, RelayEntry},
+        pbs::{BuilderRequestAuth, ExecutionPayloadBid, PROPOSER_DEADLINE_BUFFER_MS, RelayEntry},
         types::{BlsSecretKey, BlsSignature, Chain},
     };
     use futures::SinkExt;
@@ -676,9 +676,9 @@ mod tests {
         assert_eq!(status_count(StatusCode::NOT_FOUND, &relay_id), 1);
         assert_eq!(fallbacks(&relay_id), 1);
 
-        // 1000 ms less the default 50 ms buffer and the 200 ms handshake
+        // 1000 ms less the default buffer and the 200 ms handshake
         let [handshake, fallback] = requests.lock().unwrap()[..] else { panic!("two requests") };
-        assert!((1..=750).contains(&fallback.1), "{}", fallback.1);
+        assert!((1..=800 - PROPOSER_DEADLINE_BUFFER_MS).contains(&fallback.1), "{}", fallback.1);
 
         // Both requests name the same deadline: the fallback's time left is
         // the handshake's, less the time the handshake took
