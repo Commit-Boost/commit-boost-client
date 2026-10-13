@@ -30,7 +30,7 @@ fn relay_states(http: u64, stream_bids: Vec<(u64, u64)>) -> (MockRelayState, Moc
 }
 
 /// PBS in front of one stream-mode relay serving both states on one port
-async fn start_race(
+async fn start_relay(
     (http_state, ws_state): (MockRelayState, MockWsRelayState),
 ) -> Result<(MockValidator, Arc<MockRelayState>, Arc<MockWsRelayState>)> {
     let (http_state, ws_state, relay) = start_mock_dual_relay(http_state, ws_state).await?;
@@ -66,12 +66,12 @@ fn assert_bid(res: Option<GetExecutionPayloadBidResponse>, value: u64, execution
 }
 
 /// A relay that streams get_header but not the ePBS bid answers the handshake
-/// with 404, and the HTTP request raced alongside it supplies the bid.
+/// with 404, and the HTTP request PBS falls back to supplies the bid.
 #[tokio::test]
 async fn test_get_execution_payload_bid_ws_no_stream_route_http_bid_serves() -> Result<()> {
     let (http_state, ws_state) = relay_states(42, vec![(90, 0)]);
     let (validator, http_state, ws_state) =
-        start_race((http_state, ws_state.without_epbs_stream())).await?;
+        start_relay((http_state, ws_state.without_epbs_stream())).await?;
 
     let (code, res) = get_bid(&validator).await?;
     assert_eq!(code, StatusCode::OK);
@@ -82,12 +82,12 @@ async fn test_get_execution_payload_bid_ws_no_stream_route_http_bid_serves() -> 
     Ok(())
 }
 
-/// With no bid from the stream, the builder's HTTP 401 reaches the beacon node.
+/// The builder's 401 to the fallback HTTP request reaches the beacon node.
 #[tokio::test]
 async fn test_get_execution_payload_bid_ws_no_stream_bid_http_rejection_passes() -> Result<()> {
     let (http_state, ws_state) = relay_states(10, vec![(50, 0)]);
     let (validator, http_state, _) =
-        start_race((http_state, ws_state.without_epbs_stream())).await?;
+        start_relay((http_state, ws_state.without_epbs_stream())).await?;
     http_state.set_response_override(StatusCode::UNAUTHORIZED);
 
     let (code, _) = get_bid(&validator).await?;
@@ -95,48 +95,18 @@ async fn test_get_execution_payload_bid_ws_no_stream_bid_http_rejection_passes()
     Ok(())
 }
 
-/// The builder's HTTP 401 does not displace the stream's bid.
+/// A relay whose stream serves a bid gets no HTTP request, and its latest bid
+/// is served, not its highest.
 #[tokio::test]
-async fn test_get_execution_payload_bid_ws_http_rejection_stream_bid_serves() -> Result<()> {
-    let (validator, http_state, _) = start_race(relay_states(10, vec![(50, 0)])).await?;
-    http_state.set_response_override(StatusCode::UNAUTHORIZED);
+async fn test_get_execution_payload_bid_ws_serves_latest_bid_without_http() -> Result<()> {
+    let (validator, http_state, ws_state) =
+        start_relay(relay_states(60, vec![(70, 0), (50, 0)])).await?;
 
     let (code, res) = get_bid(&validator).await?;
     assert_eq!(code, StatusCode::OK);
     assert_bid(res, 50, 0);
-    assert_eq!(http_state.received_execution_payload_bid(), 1);
-    Ok(())
-}
-
-/// An HTTP request that runs out the window does not displace the stream's bid.
-#[tokio::test]
-async fn test_get_execution_payload_bid_ws_http_timeout_stream_bid_serves() -> Result<()> {
-    let (http_state, ws_state) = relay_states(10, vec![(50, 0)]);
-    let (validator, ..) = start_race((http_state.with_bid_delay_ms(BUDGET_MS), ws_state)).await?;
-
-    let (code, res) = get_bid(&validator).await?;
-    assert_eq!(code, StatusCode::OK);
-    assert_bid(res, 50, 0);
-    Ok(())
-}
-
-/// The stream and the HTTP request are separate candidates: the higher value +
-/// execution_payment wins, the stream's bid on a tie, and the stream's
-/// candidate is its latest bid, not its highest.
-#[tokio::test]
-async fn test_get_execution_payload_bid_ws_higher_total_wins() -> Result<()> {
-    for (http, stream_bids, served) in
-        [(60, vec![(70, 0), (50, 0)], (60, 0)), (50, vec![(10, 40)], (10, 40))]
-    {
-        let (validator, http_state, ws_state) =
-            start_race(relay_states(http, stream_bids.clone())).await?;
-
-        let (code, res) = get_bid(&validator).await?;
-        assert_eq!(code, StatusCode::OK, "http {http}, stream {stream_bids:?}");
-        assert_bid(res, served.0, served.1);
-        assert_eq!(http_state.received_execution_payload_bid(), 1);
-        assert_eq!(ws_state.received_connections(), 1);
-    }
+    assert_eq!(http_state.received_execution_payload_bid(), 0);
+    assert_eq!(ws_state.received_connections(), 1);
     Ok(())
 }
 
@@ -145,7 +115,7 @@ async fn test_get_execution_payload_bid_ws_higher_total_wins() -> Result<()> {
 #[tokio::test]
 async fn test_get_execution_payload_bid_ws_skips_invalid_bid() -> Result<()> {
     let (http_state, ws_state) = relay_states(10, vec![(50, 0), (90, 0)]);
-    let (validator, ..) = start_race((http_state, ws_state.with_invalid_last_bids(1))).await?;
+    let (validator, ..) = start_relay((http_state, ws_state.with_invalid_last_bids(1))).await?;
 
     let (code, res) = get_bid(&validator).await?;
     assert_eq!(code, StatusCode::OK);
@@ -159,8 +129,7 @@ async fn test_get_execution_payload_bid_ws_skips_invalid_bid() -> Result<()> {
 async fn test_get_execution_payload_bid_ws_handshake_and_deadline() -> Result<()> {
     const BUFFER_MS: u64 = 200;
     let (http_state, ws_state) = relay_states(10, vec![(20, 0)]);
-    let (_, ws_state, relay) =
-        start_mock_dual_relay(http_state.with_bid_delay_ms(400), ws_state.hold_open()).await?;
+    let (_, ws_state, relay) = start_mock_dual_relay(http_state, ws_state.hold_open()).await?;
     let validator = setup_pbs(Chain::Hoodi, vec![relay], |pbs_config| {
         pbs_config.proposer_deadline_buffer_ms = BUFFER_MS
     })

@@ -16,29 +16,26 @@ use url::Url;
 
 use super::execution_payload_bid::{RelayBid, decode_ssz_bid};
 use crate::{
-    bid_stream::{Frame, Held, handshake_request, read_bid_stream, record_stream_failure},
+    bid_stream::{Frame, Held, handshake_request, read_bid_stream},
     constants::{GET_EXECUTION_PAYLOAD_BID_STREAM_ENDPOINT_TAG, TRANSPORT_ERROR_STATUS},
     metrics::RELAY_STATUS_CODE,
 };
 
 type StreamOutcome = (StatusCode, Result<Option<RelayBid>, PbsError>);
 
-/// The relay's latest bid at the deadline. A failed stream is no bid.
+/// The relay's latest bid at the deadline
 pub(super) async fn get_execution_payload_bid_ws(
     auth_ssz: &[u8],
     relay: &RelayClient,
     send_headers: &HeaderMap,
     url: Url,
     timeout_ms: u64,
-) -> Option<RelayBid> {
+) -> Result<Option<RelayBid>, PbsError> {
     let (status, res) =
         stream_execution_payload_bid(auth_ssz, relay, send_headers, url, timeout_ms).await;
     let endpoint = GET_EXECUTION_PAYLOAD_BID_STREAM_ENDPOINT_TAG;
     RELAY_STATUS_CODE.with_label_values(&[status.as_str(), endpoint, &relay.id]).inc();
-    res.unwrap_or_else(|err| {
-        record_stream_failure(endpoint, &relay.id, &err);
-        None
-    })
+    res
 }
 
 async fn stream_execution_payload_bid(

@@ -7,7 +7,6 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use cb_common::{
-    config::GetHeaderTransport,
     pbs::{
         ForkName, GetExecutionPayloadBidParams, GetExecutionPayloadBidResponse,
         HEADER_START_TIME_UNIX_MS, HEADER_TIMEOUT_MS, RelayClient, SignedBuilderRequestAuth,
@@ -25,16 +24,19 @@ use reqwest::{
     header::{ACCEPT, CONTENT_TYPE},
 };
 use ssz::{Decode, Encode};
+use tokio::time::Instant;
 use tracing::{debug, error, info, warn};
+use url::Url;
 
 use super::execution_payload_bid_ws::get_execution_payload_bid_ws;
 use crate::{
     PbsStateGuard,
     constants::{
-        GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG, MAX_SIZE_DEFAULT, MAX_SIZE_GET_HEADER_RESPONSE,
+        GET_EXECUTION_PAYLOAD_BID_ENDPOINT_TAG, GET_EXECUTION_PAYLOAD_BID_STREAM_ENDPOINT_TAG,
+        MAX_SIZE_DEFAULT, MAX_SIZE_GET_HEADER_RESPONSE,
     },
     error::PbsClientError,
-    metrics::{RELAY_HEADER_VALUE, RELAY_LAST_SLOT},
+    metrics::{RELAY_HEADER_VALUE, RELAY_LAST_SLOT, RELAY_STREAM_FALLBACK},
     state::{BuilderApiState, PbsState},
     utils::{
         builder_rejection, epbs_base_send_headers, format_gwei_as_eth, log_mux_selection,
@@ -176,73 +178,71 @@ pub async fn get_execution_payload_bid<S: BuilderApiState>(
         &params.parent_root,
         &params.proposer_pubkey,
     );
-    let streams = stream_url.is_some();
-    let (http, stream) = match stream_url {
-        None => (
-            send_get_execution_payload_bid(params, body, relay, send_headers, max_timeout_ms).await,
-            None,
-        ),
-        Some(url) => tokio::join!(
-            send_get_execution_payload_bid(
-                params,
-                body.clone(),
-                relay.clone(),
-                send_headers.clone(),
-                max_timeout_ms,
-            ),
-            get_execution_payload_bid_ws(&body, &relay, &send_headers, url, max_timeout_ms)
-        ),
+    let res = match stream_url {
+        Some(url) => {
+            stream_execution_payload_bid(params, body, relay, send_headers, url, max_timeout_ms)
+                .await
+        }
+        None => {
+            send_get_execution_payload_bid(params, body, relay, send_headers, max_timeout_ms).await
+        }
     };
-
     // A relay that errors or times out contributes no bid: 204, never a 502.
-    // The builder's own 400 and 401 reach the proposer when no bid does.
-    let http = match http {
-        Ok(bid) => bid,
+    // The builder's own 400 and 401 still reach the proposer.
+    match res {
+        Ok(Some(relay_bid)) => {
+            RELAY_LAST_SLOT.with_label_values(&[relay_id.as_str()]).set(slot as i64);
+            // The bid's value is already gwei, the gauge's unit, so it is set unscaled
+            RELAY_HEADER_VALUE
+                .with_label_values(&[relay_id.as_str()])
+                .set(i64::try_from(relay_bid.bid.data.message.value).unwrap_or_default());
+            Ok(Some(relay_bid))
+        }
+        Ok(None) => Ok(None),
         Err(err) if err.is_timeout() => {
             error!(err = "Timed Out", %relay_id, timeout_ms = max_timeout_ms);
-            None
+            Ok(None)
         }
         Err(err) => {
             error!(?err, %relay_id);
-            match builder_rejection(&err) {
-                Some(rejection) if stream.is_none() => return Err(rejection),
-                _ => None,
-            }
+            builder_rejection(&err).map_or(Ok(None), Err)
         }
-    };
-
-    let selected = select_bid(http, stream);
-    if streams && let Some((_, transport)) = &selected {
-        info!(transport = transport.as_str(), "selected bid");
     }
-    let relay_bid = selected.map(|(relay_bid, _)| relay_bid);
-    if let Some(relay_bid) = &relay_bid {
-        RELAY_LAST_SLOT.with_label_values(&[relay_id.as_str()]).set(slot as i64);
-        // The bid's value is already gwei, the gauge's unit, so it is set unscaled
-        RELAY_HEADER_VALUE
-            .with_label_values(&[relay_id.as_str()])
-            .set(i64::try_from(relay_bid.bid.data.message.value).unwrap_or_default());
-    }
-    Ok(relay_bid)
 }
 
-/// The higher `value + execution_payment` and the leg it came from, the
-/// stream's bid on a tie. Unclamped: the beacon node applies its own cap.
-fn select_bid(
-    http: Option<RelayBid>,
-    stream: Option<RelayBid>,
-) -> Option<(RelayBid, GetHeaderTransport)> {
-    let total = |relay_bid: &RelayBid| {
-        let bid = &relay_bid.bid.data.message;
-        bid.value.saturating_add(bid.execution_payment)
-    };
-    match (http, stream) {
-        (Some(http), Some(stream)) if total(&http) > total(&stream) => {
-            Some((http, GetHeaderTransport::Http))
-        }
-        (http, None) => http.map(|bid| (bid, GetHeaderTransport::Http)),
-        (_, stream) => stream.map(|bid| (bid, GetHeaderTransport::Stream)),
+/// The bid over the relay's stream. As on get_header, only a stream that fails
+/// to connect is retried over HTTP, with the time it left; any other failure is
+/// no bid.
+async fn stream_execution_payload_bid(
+    params: GetExecutionPayloadBidParams,
+    body: Bytes,
+    relay: RelayClient,
+    send_headers: HeaderMap,
+    url: Url,
+    timeout_ms: u64,
+) -> Result<Option<RelayBid>, PbsError> {
+    let started = Instant::now();
+    let err =
+        match get_execution_payload_bid_ws(&body, &relay, &send_headers, url, timeout_ms).await {
+            Err(err @ PbsError::WebSocketConnect(_)) => err,
+            Err(err) => {
+                warn!(relay_id = relay.id.as_ref(), %err, "stream failed");
+                return Ok(None);
+            }
+            res => return res,
+        };
+
+    let timeout_left_ms = timeout_ms.saturating_sub(started.elapsed().as_millis() as u64);
+    if timeout_left_ms == 0 {
+        warn!(relay_id = relay.id.as_ref(), %err, "stream failed");
+        return Ok(None);
     }
+
+    RELAY_STREAM_FALLBACK
+        .with_label_values(&[GET_EXECUTION_PAYLOAD_BID_STREAM_ENDPOINT_TAG, relay.id.as_str()])
+        .inc();
+    warn!(relay_id = relay.id.as_ref(), %err, timeout_left_ms, "stream failed, falling back to http");
+    send_get_execution_payload_bid(params, body, relay, send_headers, timeout_left_ms).await
 }
 
 /// Milliseconds left until `Date-Milliseconds + X-Timeout-Ms`, but no more than
@@ -353,29 +353,33 @@ pub(super) fn decode_ssz_bid(body: Bytes, fork: ForkName) -> Result<RelayBid, Pb
 
 #[cfg(test)]
 mod tests {
-    use std::{net::SocketAddr, sync::Arc};
+    use std::{
+        net::SocketAddr,
+        sync::{
+            Arc,
+            atomic::{AtomicU64, Ordering},
+        },
+    };
 
     use alloy::primitives::B256;
+    use axum::http::Method;
     use cb_common::{
-        config::{PbsModuleConfig, RelayConfig},
+        config::{GetHeaderTransport, PbsModuleConfig, RelayConfig},
         pbs::{BuilderRequestAuth, ExecutionPayloadBid, RelayEntry},
         types::{BlsSecretKey, BlsSignature, Chain},
     };
     use futures::SinkExt;
     use lh_types::Slot;
     use prometheus::TextEncoder;
-    use tokio::net::TcpListener;
+    use tokio::net::{TcpListener, TcpStream};
     use tokio_tungstenite::{accept_async, tungstenite::Message};
 
     use super::*;
     use crate::{
-        constants::{
-            GET_EXECUTION_PAYLOAD_BID_STREAM_ENDPOINT_TAG, TIMEOUT_ERROR_STATUS,
-            TRANSPORT_ERROR_STATUS,
-        },
+        constants::{TIMEOUT_ERROR_STATUS, TRANSPORT_ERROR_STATUS},
         metrics::{
             PBS_METRICS_REGISTRY, RELAY_LATENCY, RELAY_STATUS_CODE, RELAY_STREAM_CONNECT_LATENCY,
-            RELAY_STREAM_FALLBACK, RELAY_STREAM_INVALID_FRAMES, RELAY_STREAM_UPDATES,
+            RELAY_STREAM_INVALID_FRAMES, RELAY_STREAM_UPDATES,
         },
     };
 
@@ -444,52 +448,50 @@ mod tests {
         RelayBid { bid, body: Bytes::new(), encoding: EncodingType::Ssz }
     }
 
-    // (http, stream, served): each bid a `(value, execution_payment)`
-    #[test]
-    fn test_select_bid() {
-        for (http, stream, served) in [
-            // The HTTP bid's execution payment counts as much as the stream's
-            (Some((10, 60)), Some((50, 0)), Some((GetHeaderTransport::Http, (10, 60)))),
-            // The stream wins a tie
-            (Some((50, 0)), Some((10, 40)), Some((GetHeaderTransport::Stream, (10, 40)))),
-            // A total past u64::MAX saturates rather than wrapping to a low one
-            (Some((u64::MAX, 1)), Some((1, 0)), Some((GetHeaderTransport::Http, (u64::MAX, 1)))),
-            (None, Some((1, 0)), Some((GetHeaderTransport::Stream, (1, 0)))),
-            (Some((1, 0)), None, Some((GetHeaderTransport::Http, (1, 0)))),
-            (None, None, None),
-        ] {
-            let selected = select_bid(
-                http.map(|(v, p)| relay_bid(v, p)),
-                stream.map(|(v, p)| relay_bid(v, p)),
-            )
-            .map(|(relay_bid, transport)| {
-                let bid = &relay_bid.bid.data.message;
-                (transport, (bid.value, bid.execution_payment))
-            });
-            assert_eq!(selected, served, "http {http:?}, stream {stream:?}");
+    /// Counts the relay's HTTP bid requests, told apart from a stream
+    /// handshake by their method
+    async fn count_post(socket: &TcpStream, posts: &AtomicU64) {
+        let mut head = [0u8; 4];
+        if socket.peek(&mut head).await.is_ok_and(|n| head[..n].starts_with(b"POST")) {
+            posts.fetch_add(1, Ordering::Relaxed);
         }
     }
 
     /// A relay that answers every request, the stream handshake included, with
     /// `status` and no body
-    async fn start_status_relay(status: StatusCode) -> SocketAddr {
+    async fn start_status_relay(status: StatusCode) -> (SocketAddr, Arc<AtomicU64>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let relay = axum::Router::new().fallback(move || async move { status });
+        let posts = Arc::new(AtomicU64::new(0));
+        let counted = posts.clone();
+        let relay = axum::Router::new().fallback(move |method: Method| async move {
+            if method == Method::POST {
+                counted.fetch_add(1, Ordering::Relaxed);
+            }
+            status
+        });
         tokio::spawn(async move { axum::serve(listener, relay).await });
-        addr
+        (addr, posts)
     }
 
     /// A relay whose stream sends `messages`, `gap` apart, then closes, or with
     /// `close` false drops the connection with no close frame. Its HTTP request
     /// fails.
-    async fn start_stream_relay(messages: Vec<Message>, gap: Duration, close: bool) -> SocketAddr {
+    async fn start_stream_relay(
+        messages: Vec<Message>,
+        gap: Duration,
+        close: bool,
+    ) -> (SocketAddr, Arc<AtomicU64>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
+        let posts = Arc::new(AtomicU64::new(0));
+        let counted = posts.clone();
         tokio::spawn(async move {
             while let Ok((socket, _)) = listener.accept().await {
                 let messages = messages.clone();
+                let counted = counted.clone();
                 tokio::spawn(async move {
+                    count_post(&socket, &counted).await;
                     let Ok(mut stream) = accept_async(socket).await else { return };
                     for message in messages {
                         let _ = stream.send(message).await;
@@ -501,20 +503,53 @@ mod tests {
                 });
             }
         });
-        addr
+        (addr, posts)
     }
 
-    /// A relay that accepts the connection and never answers the handshake
-    async fn start_silent_relay() -> SocketAddr {
+    /// A relay that accepts the connection and never answers
+    async fn start_silent_relay() -> (SocketAddr, Arc<AtomicU64>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
+        let posts = Arc::new(AtomicU64::new(0));
+        let counted = posts.clone();
         tokio::spawn(async move {
-            let mut held = Vec::new();
             while let Ok((socket, _)) = listener.accept().await {
-                held.push(socket);
+                let counted = counted.clone();
+                tokio::spawn(async move {
+                    count_post(&socket, &counted).await;
+                    std::future::pending::<()>().await;
+                });
             }
         });
-        addr
+        (addr, posts)
+    }
+
+    /// A relay that refuses the stream handshake after `delay` and answers the
+    /// HTTP request with a `(40, 2)` bid. Returns the HTTP request's
+    /// `X-Timeout-Ms`.
+    async fn start_refusing_relay(delay: Duration) -> (SocketAddr, Arc<AtomicU64>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let timeout_ms = Arc::new(AtomicU64::new(0));
+        let recorded = timeout_ms.clone();
+        let relay = axum::Router::new().fallback(move |method: Method, headers: HeaderMap| {
+            let recorded = recorded.clone();
+            async move {
+                if method != Method::POST {
+                    tokio::time::sleep(delay).await;
+                    return StatusCode::NOT_FOUND.into_response();
+                }
+                let sent = headers.get(HEADER_TIMEOUT_MS).and_then(|v| v.to_str().ok());
+                recorded.store(sent.and_then(|v| v.parse().ok()).unwrap(), Ordering::Relaxed);
+                let mut res = relay_bid(40, 2).bid.data.as_ssz_bytes().into_response();
+                let headers = res.headers_mut();
+                headers.insert(CONTENT_TYPE, EncodingType::Ssz.content_type_header().clone());
+                headers.insert(CONSENSUS_VERSION_HEADER, GLOAS_CONSENSUS_VERSION.clone());
+                res
+            }
+        });
+        tokio::spawn(async move { axum::serve(listener, relay).await });
+        (addr, timeout_ms)
     }
 
     fn bid_frame(value: u64, execution_payment: u64) -> Message {
@@ -588,28 +623,45 @@ mod tests {
         RELAY_STATUS_CODE.with_label_values(&[status.as_str(), STREAM, relay_id]).get()
     }
 
-    fn failed_streams(relay_id: &str) -> u64 {
+    fn fallbacks(relay_id: &str) -> u64 {
         RELAY_STREAM_FALLBACK.with_label_values(&[STREAM, relay_id]).get()
     }
 
-    // A handshake answered 204 is no bid. A refused handshake, one that runs
-    // out the window, a stream that breaks before a bid, and a frame over the
-    // size cap are failed streams.
+    // A handshake answered 204 is no bid. Only a refused handshake falls back
+    // to HTTP: one that runs out the window, a stream that breaks before a bid,
+    // and a frame over the size cap are no bid, with no HTTP request.
     #[tokio::test]
     async fn test_epbs_stream_failures_by_status() {
         let oversized = Message::Binary(vec![0; MAX_SIZE_GET_HEADER_RESPONSE + 1].into());
-        for (relay, status, failed) in [
+        for ((relay, posts), status, fell_back) in [
             (start_status_relay(StatusCode::NO_CONTENT).await, StatusCode::NO_CONTENT, 0),
             (start_status_relay(StatusCode::NOT_FOUND).await, StatusCode::NOT_FOUND, 1),
-            (start_silent_relay().await, TIMEOUT_ERROR_STATUS, 1),
-            (start_stream_relay(vec![], ZERO, false).await, TRANSPORT_ERROR_STATUS, 1),
-            (start_stream_relay(vec![oversized], ZERO, true).await, TRANSPORT_ERROR_STATUS, 1),
+            (start_silent_relay().await, TIMEOUT_ERROR_STATUS, 0),
+            (start_stream_relay(vec![], ZERO, false).await, TRANSPORT_ERROR_STATUS, 0),
+            (start_stream_relay(vec![oversized], ZERO, true).await, TRANSPORT_ERROR_STATUS, 0),
         ] {
             let (relay_id, bid) = bid_from_stream_relay(relay, 300).await;
             assert!(bid.is_none(), "{status}");
             assert_eq!(status_count(status, &relay_id), 1, "{status}");
-            assert_eq!(failed_streams(&relay_id), failed, "{status}");
+            assert_eq!(fallbacks(&relay_id), fell_back, "{status}");
+            assert_eq!(posts.load(Ordering::Relaxed), fell_back, "{status}");
         }
+    }
+
+    // The HTTP request a refused handshake falls back to has the time the
+    // handshake left, and its bid is served
+    #[tokio::test]
+    async fn test_epbs_stream_refused_handshake_falls_back_with_the_time_left() {
+        let (relay, timeout_ms) = start_refusing_relay(Duration::from_millis(200)).await;
+        let (relay_id, bid) = bid_from_stream_relay(relay, 1_000).await;
+        let bid = bid.expect("the HTTP bid").bid;
+        assert_eq!((bid.data.message.value, bid.data.message.execution_payment), (40, 2));
+        assert_eq!(status_count(StatusCode::NOT_FOUND, &relay_id), 1);
+        assert_eq!(fallbacks(&relay_id), 1);
+
+        // 1000 ms less the default 50 ms buffer and the 200 ms handshake
+        let timeout_ms = timeout_ms.load(Ordering::Relaxed);
+        assert!((1..=750).contains(&timeout_ms), "{timeout_ms}");
     }
 
     // A window whose every bid fails to decode is no bid, not a failed stream,
@@ -618,12 +670,13 @@ mod tests {
     async fn test_epbs_stream_undecodable_bids_are_no_bid() {
         for n_frames in [1, 3] {
             let undecodable = Message::Binary(vec![0x01, 7, 1, 2, 3].into());
-            let relay = start_stream_relay(vec![undecodable; n_frames], ZERO, true).await;
+            let (relay, posts) = start_stream_relay(vec![undecodable; n_frames], ZERO, true).await;
             let (relay_id, bid) = bid_from_stream_relay(relay, 1_000).await;
             assert!(bid.is_none());
 
             assert_eq!(status_count(StatusCode::NO_CONTENT, &relay_id), 1);
-            assert_eq!(failed_streams(&relay_id), 0);
+            assert_eq!(fallbacks(&relay_id), 0);
+            assert_eq!(posts.load(Ordering::Relaxed), 0);
             let stream = [STREAM, relay_id.as_str()];
             assert_eq!(
                 RELAY_STREAM_INVALID_FRAMES.with_label_values(&stream).get(),
@@ -635,7 +688,8 @@ mod tests {
 
     // Messages other than bids do not end the stream. The served bid keeps the
     // frame's fork and sets the relay's gauges: its value without the execution
-    // payment, and the slot. The latency series times the first bid.
+    // payment, and the slot. The latency series times the first bid. The relay
+    // gets no HTTP request.
     #[tokio::test]
     async fn test_epbs_stream_bid_after_other_messages_is_served_and_recorded() {
         let messages = vec![
@@ -644,12 +698,13 @@ mod tests {
             Message::Ping(vec![1].into()),
             bid_frame(77, 5),
         ];
-        let relay = start_stream_relay(messages, Duration::from_millis(150), true).await;
+        let (relay, posts) = start_stream_relay(messages, Duration::from_millis(150), true).await;
         let (relay_id, bid) = bid_from_stream_relay(relay, 2_000).await;
         let bid = bid.expect("the stream's bid").bid;
         assert_eq!(bid.version, ForkName::Gloas);
         let bid = &bid.data.message;
         assert_eq!((bid.value, bid.execution_payment), (77, 5));
+        assert_eq!(posts.load(Ordering::Relaxed), 0);
 
         assert_eq!(status_count(StatusCode::OK, &relay_id), 1);
         assert_eq!(RELAY_HEADER_VALUE.with_label_values(&[&relay_id]).get(), 77);
@@ -668,9 +723,9 @@ mod tests {
     async fn test_epbs_stream_series_are_labeled_by_name() {
         let messages = vec![Message::Binary(vec![0x01, 7, 1].into()), bid_frame(1, 0)];
         let (relay_id, _) =
-            bid_from_stream_relay(start_stream_relay(messages, ZERO, true).await, 1_000).await;
+            bid_from_stream_relay(start_stream_relay(messages, ZERO, true).await.0, 1_000).await;
         let (failed_id, _) =
-            bid_from_stream_relay(start_status_relay(StatusCode::NOT_FOUND).await, 300).await;
+            bid_from_stream_relay(start_status_relay(StatusCode::NOT_FOUND).await.0, 300).await;
 
         let scrape = TextEncoder::new().encode_to_string(&PBS_METRICS_REGISTRY.gather()).unwrap();
         for (series, relay_id) in [
