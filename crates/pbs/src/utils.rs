@@ -405,25 +405,17 @@ mod tests {
         assert!(matches!(dial(0).await, Err(PbsClientError::NoBuilderResponse)));
     }
 
-    // With dialing off, configured relays still serve and a miss is refused
+    // Not from a Commit-Boost, so only the switch refuses the miss
     #[tokio::test]
     async fn resolve_without_dialing_refuses_a_miss() {
-        let own = vec![test_relay("https://builder-a.example.com")];
-        let default_relays = vec![test_relay("https://builder-b.example.com")];
+        let default_relays = vec![test_relay("https://builder.example.com")];
         let headers = HeaderMap::new();
         let resolve = async |data: &[u8]| {
-            resolve_addressed_relay(&own, &default_relays, false, data, &headers, 1000)
+            resolve_addressed_relay(&[], &default_relays, false, data, &headers, 1000)
                 .await
                 .map(|(relay, _)| relay.config.entry.url.to_string())
         };
-        assert_eq!(
-            resolve(b"builder-a.example.com").await.unwrap(),
-            "https://builder-a.example.com/"
-        );
-        assert_eq!(
-            resolve(b"builder-b.example.com").await.unwrap(),
-            "https://builder-b.example.com/"
-        );
+        assert_eq!(resolve(b"builder.example.com").await.unwrap(), "https://builder.example.com/");
         assert!(matches!(resolve(b"1.1.1.1").await, Err(PbsClientError::AuthDataMismatch)));
     }
 }

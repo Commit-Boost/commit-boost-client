@@ -293,7 +293,7 @@ async fn test_submit_builder_preferences_dial() -> Result<()> {
 /// config get a 400 and are not sent
 #[tokio::test]
 async fn test_submit_builder_preferences_dial_off_400() -> Result<()> {
-    // The mock builder listens on an address the dial check refuses
+    // So only the switch, not the address check, can stop the dial
     cb_pbs::set_skip_dial_target_check(true);
     let chain = Chain::Hoodi;
     let (mock_validator, _) =

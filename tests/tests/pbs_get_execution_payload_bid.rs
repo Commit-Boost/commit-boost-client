@@ -192,7 +192,7 @@ async fn test_get_execution_payload_bid_dial() -> Result<()> {
 /// gets a 400 and no builder is asked, while a configured relay still serves
 #[tokio::test]
 async fn test_get_execution_payload_bid_dial_off_400() -> Result<()> {
-    // The mock builder listens on an address the dial check refuses
+    // So only the switch, not the address check, can stop the dial
     cb_pbs::set_skip_dial_target_check(true);
     let chain = Chain::Hoodi;
     let (mock_validator, cfg_state) =
