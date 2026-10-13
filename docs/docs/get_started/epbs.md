@@ -39,7 +39,7 @@ To go through Commit-Boost, every entry's `url` is Commit-Boost's own URL, and i
 
 ### 1. Add the builders to Commit-Boost
 
-List each builder as a relay entry, as for PBS: in `[[relays]]`, or in the `[[mux.relays]]` of the mux that lists the proposer's key. ePBS adds two `[pbs]` options. `proposer_deadline_buffer_ms` (default `50`) is the time kept back from the beacon node's deadline (see [Timing](#timing)). It must be above `0` and under one slot, `12000` on mainnet. `dial_unconfigured_builders` (default `true`) turns [dialing builders outside your config](#builders-outside-your-config) on or off.
+List each builder as a relay entry, as for PBS: in `[[relays]]`, or in the `[[mux.relays]]` of the mux that lists the proposer's key. A key can still reach a builder you do not list, unless you set `[pbs] dial_unconfigured_builders = false` (see [Builders outside your config](#builders-outside-your-config)).
 
 ### 2. Point each validator key at Commit-Boost {#validator-builder-config}
 
@@ -88,9 +88,9 @@ On a validator client whose builder URL is Commit-Boost, a key without builder c
 
 ## Timing
 
-The builder specs require each bid request to carry `Date-Milliseconds` and `X-Timeout-Ms`, which together say how long the beacon node will wait for a bid. Commit-Boost subtracts your `proposer_deadline_buffer_ms` from the time remaining and sends the result to the builder as its `X-Timeout-Ms`, so the builder knows how long it has to answer. For a builder outside your config, the time its lookup took is subtracted too.
+The builder specs require each bid request to carry `Date-Milliseconds` and `X-Timeout-Ms`, which together say how long the beacon node will wait for a bid. Commit-Boost subtracts `[pbs] proposer_deadline_buffer_ms` (default `20`) from the time remaining and sends the result to the builder as its `X-Timeout-Ms`, so the builder knows how long it has to answer. For a builder outside your config, the time its lookup took is subtracted too.
 
-Think of `proposer_deadline_buffer_ms` as the slack you keep from the beacon node's remaining time: enough for the bid to get back from Commit-Boost to the beacon node and for the beacon node to process it. If no time is left, Commit-Boost does not ask the builder. With `0`, Commit-Boost refuses to start or reload: the builder gets the whole deadline, so a bid it sends at the deadline reaches the beacon node late.
+The buffer is the time Commit-Boost's answer needs to reach the beacon node, which discards answers that arrive after its deadline. Commit-Boost's own share is a few milliseconds, so the default suits a beacon node on the same host. When Commit-Boost and the beacon node run on different hosts, raise it by the time a response takes to travel from Commit-Boost to the beacon node, plus any difference between the two hosts' clocks, since Commit-Boost reads the beacon node's `Date-Milliseconds` against its own clock. It must be above `0` and under one slot, `12000` on mainnet. If no time is left, Commit-Boost does not ask the builder. With `0`, Commit-Boost refuses to start or reload: the builder gets the whole deadline, so a bid it sends at the deadline reaches the beacon node late.
 
 Builder preferences use `timeout_register_validator_ms`, and the signed block `timeout_get_payload_ms`.
 
@@ -126,6 +126,6 @@ With [metrics](./running/metrics.md) enabled, the ePBS endpoints use the `endpoi
 | Bid requests get `400` "the addressed builder's host does not resolve or resolves to a disallowed address" | The auth data names a builder outside your config whose host does not resolve or resolves to an [internal address](#builders-outside-your-config) | Add the builder as a relay entry for the key, or write or correct the key's [builder config](#validator-builder-config) |
 | A builder answers bid requests with `400` (`cb_pbs_relay_status_code_total{endpoint="get_execution_payload_bid",http_status_code="400"}`) | The builder compares auth data byte for byte and expects something other than what the key sends, such as its hostname without `?` parameters | Send the auth data the builder expects: its hostname or its URL, the forms Commit-Boost [routes by](#routing-by-auth-data), with `?` parameters only if it accepts them |
 | Bid requests to a streaming builder log "stream failed" with "rejected with 404", and `cb_pbs_relay_epbs_stream_fallback_total` rises | The builder does not serve the ePBS bid stream. Commit-Boost asks it over HTTP instead | Set `get_header = "http"` on its relay entry |
-| Commit-Boost does not start or reload, or `commit-boost init` fails, with "proposer_deadline_buffer_ms must be greater than 0 and less than one slot" | `proposer_deadline_buffer_ms` is `0`, or one slot or more | Set it above `0` and under one slot, or remove it to use the default `50` |
+| Commit-Boost does not start or reload, or `commit-boost init` fails, with "proposer_deadline_buffer_ms must be greater than 0 and less than one slot" | `proposer_deadline_buffer_ms` is `0`, or one slot or more | Set it above `0` and under one slot, or remove it to use the default `20` |
 | Bid requests to a streaming builder log "stream failed" with "websocket timed out" or a connection error | Commit-Boost could not open the stream, for example because your network allows only proxied connections, which the stream does not use. A connection error with time left is retried over HTTP; a handshake that times out is no bid | Set `get_header = "http"` on its relay entry, or allow direct connections to it |
 | Commit-Boost returns `200` but the beacon node builds locally | The beacon node rejected the bid, or valued its local block higher after `builder_boost_factor` | Compare the bid with the key's `min_bid` and `builder_boost_factor` |
