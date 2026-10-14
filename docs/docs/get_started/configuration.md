@@ -112,6 +112,8 @@ Under Docker, `commit-boost init` mounts each `file` path into the container at 
 
 `get_header = "stream"` replaces the per-slot HTTP request with a websocket. It is set per relay, on `[[relays]]` and `[[mux.relays]]` entries alike. [`examples/configs/pbs_bid_stream.toml`](https://github.com/Commit-Boost/commit-boost-client/blob/main/examples/configs/pbs_bid_stream.toml) streams from two default relays and two mux relays.
 
+(unreleased, from v0.12.0-rc1) After the Gloas fork the same setting also streams [ePBS bids](./epbs.md#bid-streaming).
+
 #### Connection
 
 For each `get_header` call PBS dials:
@@ -140,7 +142,7 @@ If the handshake fails, PBS falls back to a plain HTTP `get_header` at the relay
 
 There is no fallback if the handshake is still unanswered when the window ends (recorded as `555`), or if it fails too late to leave time for an HTTP request. There is also none once the stream is open. If it breaks before any bid arrives, that relay contributes no header for the slot (recorded as `556`). If a bid already arrived, PBS validates and returns it as usual.
 
-On a high-latency connection, where the handshake risks timing out, you can add the relay a second time with `get_header = "http"` and a different `id`. PBS asks both entries every slot and keeps the better bid, so the HTTP entry still returns a header when the stream does not.
+On a high-latency connection, where the handshake risks timing out, you can add the relay a second time with `get_header = "http"` and a different `id`. PBS asks both entries every slot and keeps the better bid, so the HTTP entry still returns a header when the stream does not. (unreleased, from v0.12.0-rc1) After the Gloas fork only the first of the two entries serves [ePBS bids](./epbs.md#bid-streaming).
 
 ```toml
 [[relays]]

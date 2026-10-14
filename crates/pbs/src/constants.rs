@@ -9,6 +9,7 @@ pub const SUBMIT_BUILDER_PREFERENCES_ENDPOINT_TAG: &str = "submit_builder_prefer
 pub const SUBMIT_SIGNED_BEACON_BLOCK_ENDPOINT_TAG: &str = "submit_signed_beacon_block";
 pub const RELOAD_ENDPOINT_TAG: &str = "reload";
 pub const GET_HEADER_STREAM_ENDPOINT_TAG: &str = "get_header_stream";
+pub const GET_EXECUTION_PAYLOAD_BID_STREAM_ENDPOINT_TAG: &str = "get_execution_payload_bid_stream";
 
 /// For metrics recorded when a request times out
 pub const TIMEOUT_ERROR_CODE: u16 = 555;

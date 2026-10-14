@@ -11,8 +11,8 @@ use url::Url;
 use super::{
     HEADER_VERSION_KEY, HEADER_VERSION_VALUE,
     constants::{
-        GET_HEADER_STREAM_PATH, GET_STATUS_PATH, REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH,
-        SUBMIT_SIGNED_BEACON_BLOCK_PATH,
+        GET_EXECUTION_PAYLOAD_BID_STREAM_PATH, GET_HEADER_STREAM_PATH, GET_STATUS_PATH,
+        REGISTER_VALIDATOR_PATH, SUBMIT_BLOCK_PATH, SUBMIT_SIGNED_BEACON_BLOCK_PATH,
     },
     error::PbsError,
 };
@@ -89,7 +89,7 @@ pub struct RelayClient {
     pub client: reqwest::Client,
     /// Base url of the get_header stream, `Some` only when the relay streams.
     stream_url: Option<Url>,
-    /// Baseline headers for the get_header stream handshake.
+    /// Baseline headers for the bid stream handshakes.
     stream_headers: Arc<HeaderMap>,
     /// Configuration of the relay
     pub config: Arc<RelayConfig>,
@@ -242,6 +242,24 @@ impl RelayClient {
             ),
             BuilderApiVersion::V1,
         )
+    }
+
+    /// The ePBS bid stream, at the get_header stream's origin. `None` when the
+    /// relay does not stream.
+    pub fn get_execution_payload_bid_stream_url(
+        &self,
+        slot: u64,
+        parent_hash: &B256,
+        parent_root: &B256,
+        validator_pubkey: &BlsPublicKey,
+    ) -> Option<Url> {
+        let mut url = self.stream_url.clone()?;
+        url.set_path(&format!(
+            "{}{GET_EXECUTION_PAYLOAD_BID_STREAM_PATH}/{slot}/{parent_hash}/{parent_root}/{validator_pubkey}",
+            BuilderApiVersion::V1.path()
+        ));
+        self.append_get_params(&mut url);
+        Some(url)
     }
 
     /// builder-API: POST /eth/v1/builder/builder_preferences/{proposer_pubkey}
@@ -458,6 +476,41 @@ mod tests {
         config.entry.url = "unix:/tmp/relay.sock".parse().unwrap();
         config.get_header = GetHeaderTransport::Stream;
         assert!(RelayClient::new(config).is_err());
+    }
+
+    #[test]
+    fn test_execution_payload_bid_stream_url() {
+        let parent_hash = B256::ZERO;
+        let parent_root = B256::repeat_byte(1);
+        let validator_pubkey = bls_pubkey_from_hex_unchecked(
+            "0xac6e77dfe25ecd6110b8e780608cce0dab71fdd5ebea22a16c0205200f2f8e2e3ad3b71d3499c54ad14d6c21b41a37ae",
+        );
+        let relay_config = r#"
+        {
+            "url": "https://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@abc.xyz:4444/relay-api"
+        }"#;
+        let mut config = serde_json::from_str::<RelayConfig>(relay_config).unwrap();
+        let url = |config: &RelayConfig| {
+            RelayClient::new(config.clone()).unwrap().get_execution_payload_bid_stream_url(
+                0,
+                &parent_hash,
+                &parent_root,
+                &validator_pubkey,
+            )
+        };
+
+        // Only a streaming relay has one
+        assert!(url(&config).is_none());
+
+        // The get_header stream's origin, at the fixed path, with get_params
+        config.get_header = GetHeaderTransport::Stream;
+        config.get_params = Some(HashMap::from([("token".to_string(), "abc".to_string())]));
+        assert_eq!(
+            url(&config).unwrap().to_string(),
+            format!(
+                "wss://abc.xyz:4444/eth/v1/builder/execution_payload_bid_stream/0/{parent_hash}/{parent_root}/{validator_pubkey}?token=abc"
+            )
+        );
     }
 
     #[test]

@@ -96,6 +96,50 @@ lazy_static! {
     )
     .unwrap();
 
+    // THE ePBS BID STREAM
+    // Outcome and time-to-first-bid ride RELAY_STATUS_CODE / RELAY_LATENCY
+    // under `get_execution_payload_bid_stream`
+
+    /// ePBS bid stream handshake latency by relay
+    pub static ref RELAY_EPBS_STREAM_CONNECT_LATENCY: HistogramVec = register_histogram_vec_with_registry!(
+        "relay_epbs_stream_connect_latency",
+        "ePBS bid stream handshake latency by relay",
+        &["relay_id"],
+        vec![0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 1.0],
+        PBS_METRICS_REGISTRY
+    )
+    .unwrap();
+
+    /// Bids that decoded per ePBS bid stream, by relay
+    pub static ref RELAY_EPBS_STREAM_UPDATES: HistogramVec = register_histogram_vec_with_registry!(
+        "relay_epbs_stream_updates",
+        "Bids that decoded per ePBS bid stream, by relay",
+        &["relay_id"],
+        vec![0.0, 1.0, 2.0, 3.0, 5.0, 10.0, 20.0, 50.0, 100.0],
+        PBS_METRICS_REGISTRY
+    )
+    .unwrap();
+
+    /// ePBS bid stream frames that could not be read or decoded, by relay
+    pub static ref RELAY_EPBS_STREAM_INVALID_FRAMES: IntCounterVec = register_int_counter_vec_with_registry!(
+        "relay_epbs_stream_invalid_frames_total",
+        "ePBS bid stream frames that could not be read or decoded, by relay",
+        &["relay_id"],
+        PBS_METRICS_REGISTRY
+    )
+    .unwrap();
+
+    /// ePBS bid streams that fell back to HTTP, by relay
+    // Only a failed connect with time left retries; one at the deadline shows
+    // on the status series alone
+    pub static ref RELAY_EPBS_STREAM_FALLBACK: IntCounterVec = register_int_counter_vec_with_registry!(
+        "relay_epbs_stream_fallback_total",
+        "ePBS bid streams that fell back to HTTP, by relay",
+        &["relay_id"],
+        PBS_METRICS_REGISTRY
+    )
+    .unwrap();
+
     // TO BEACON NODE
     /// Status code returned to beacon node by endpoint
     pub static ref BEACON_NODE_STATUS: IntCounterVec = register_int_counter_vec_with_registry!(
