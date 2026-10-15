@@ -139,6 +139,20 @@ Currently, the program will always export the PBS service's API port in one of t
 ports: []
 ```
 
+### Without `commit-boost init` {#without-commit-boost-init}
+
+To run the PBS service from the image without `commit-boost init`, mount the config file, point `CB_CONFIG` at it, and pass `pbs`:
+
+```bash
+docker run -d --name cb_pbs \
+  -v "$PWD/cb-config.toml:/cb-config.toml:ro" \
+  -e CB_CONFIG=/cb-config.toml \
+  -p 127.0.0.1:18550:18550 \
+  ghcr.io/commit-boost/commit-boost:v0.11.0 pbs
+```
+
+`commit-boost init` sets the address PBS binds inside the container through `CB_PBS_ENDPOINT`. Without it, set `host = "0.0.0.0"` in `[pbs]`, since PBS otherwise binds `127.0.0.1` inside the container and nothing outside it can reach the port. To reach PBS from containers on another user-defined Docker network, such as your beacon node's, add `--network <that network>`; they reach it by its container name, here `http://cb_pbs:18550`. If `chain` uses a [spec file](../configuration.md#custom-chains), add `-v "$PWD/spec.json:/spec.json:ro"` and set `path` in `chain` to `"/spec.json"`. To serve metrics, also set [`CB_METRICS_PORT`](./binary.md#common) and publish that port with `-p`, both of which `init` does for you.
+
 
 ## Example with PBS, Signer, and a Commit Module
 
@@ -292,4 +306,4 @@ As with the PBS-only example, the configuration file is placed into a read-only 
 
 The same networking rules as the [PBS-only example](#networking) apply to both services; the Signer's API port (default `20000`) is exposed to `127.0.0.1` alongside PBS's `18550`. To open them to your network, add `host = "0.0.0.0"` to both the `[pbs]` and `[signer]` sections, or remove the `ports` entries from the compose file to keep them Docker-internal.
 
-Unlike the [metrics ports](../configuration.md#metrics), both of these ports carry authenticated APIs, and the signer fronts your validator keys over plain HTTP by default, so open them beyond localhost only behind a firewall and, for the signer, with [TLS enabled](../configuration.md#tls).
+The signer's API is authenticated, but it serves signing requests for your validator keys over plain HTTP by default. The PBS port has no authentication. Open either port beyond localhost only behind a firewall, and the signer's only with [TLS enabled](../configuration.md#tls).

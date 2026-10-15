@@ -20,6 +20,7 @@ If you run into an issue or have a question, please reach out on [X (Twitter)](h
 | `POST /reload` reverts a previous `POST /revoke_jwt` | Body override not persisted | [Hot reload > Body overrides and footguns](#body-overrides-and-footguns) |
 | Module starts but fails all signature requests | Shared secret mismatch, module missing from the signer's config, or clock skew beyond ~5 minutes | [Signer service > JWT auth failures](#jwt-auth-failures) |
 | Module container runs but PBS returns no headers | Relays unreachable or timing game expiring too early | [Cascading diagnostics > Scenario 3](#scenario-3-relay-timeout-causes-no-payload-cascade) |
+| (from v0.12.0-rc1) ePBS bid requests fail, or the beacon node never uses a bid from Commit-Boost | Builder config or routing | [ePBS > Check it worked](./epbs.md#check-it-worked) |
 | `docker compose` exits with `no such file` | Missing or misnamed config file or env file | [Docker / networking > Init failures](#init-failures) |
 
 ---
@@ -44,6 +45,8 @@ If a container exits immediately after `docker compose up`:
 2. Missing image: the config's `docker_image` field must point to a valid image. For local development images (e.g. `test_da_commit`), build them first with `just docker-build-test-modules`.
 3. Volume mount failure: the config file, keys, and secrets paths must be accessible at runtime. If a path is wrong, the container will exit. A bad config mount logs `Unable to find config file`.
 4. Missing environment variables: services that need `CB_CONFIG`, `CB_SIGNER_JWT`, or `CB_MODULE_ID` will fail to start if these aren't set. In the generated compose file, `CB_CONFIG` and `CB_MODULE_ID` are written inline into each service and only the JWT secret comes from `.cb.env` (via `--env-file`); native binaries set all of them on the command line.
+5. No top-level relay entry: the PBS service exits at startup, logging `` missing field `relays` `` when the config has no `[[relays]]` key, or `At least one relay must be configured to run the PBS service` when it sets `relays = []`. A relay entry only in a `[[mux]]` doesn't count.
+6. No relay answering: with [`relay_check`](./configuration.md#pbs-safety-and-tuning-options) on, the default, the PBS service exits at startup, logging `PBS server failed to start. Are the relays properly configured?`, when no relay answered `GET /eth/v1/builder/status` with a 2xx within 30 s. Check that Commit-Boost reaches the relay, or set `relay_check = false`.
 
 Check `docker compose logs` for the specific error message.
 
@@ -111,7 +114,7 @@ If a commit module logs errors when calling the signer:
 If the signer responds with `401` `unauthorized` to a module's requests (or `404` `module id not found` on `POST /revoke_jwt`):
 
 - The `[[modules]]` entry in `cb-config.toml` uses a different `id` than what the module was started with (`CB_MODULE_ID` env var). These must match exactly.
-- After adding a new module to the config, send [`POST /reload`](#hot-reload) to the signer before starting the module container. Until then, the signer has no record of the new module and will reject its requests. `/reload` returns `500` with `JWT secret for module X is missing` if the secret was not in `CB_JWTS` at signer startup; update `.cb.env` and restart. Full mechanism: [Hot reload > Common patterns](./configuration.md#common-patterns).
+- After adding a new module to the config, send [`POST /reload`](#hot-reload) to the signer before starting the module container. Until then, the signer has no record of the new module and will reject its requests. `/reload` returns `500` with `JWT secret for module X is missing` if the secret was not in `CB_JWTS` at signer startup. Add it to `CB_JWTS` in `.cb.env` and run the [`up -d` command](./running/docker.md#start) again, which recreates the signer with it; `docker compose restart` doesn't re-read `.cb.env`. Full mechanism: [Hot reload > Common patterns](./configuration.md#common-patterns).
 
 ---
 
@@ -145,7 +148,7 @@ Start with the signer log. A key loading error at the top (e.g. `failed reading 
 
 ### Scenario 2: Config file becomes stale after a restart
 
-Telltale pattern: everything worked until a restart, then all modules fail with 401. Cause: a body-override secret rotation was never persisted (see [Body overrides and footguns](#body-overrides-and-footguns)). Update `.cb.env` to the rotated secret and restart.
+Telltale pattern: everything worked until a restart, then all modules fail with 401. Cause: a body-override secret rotation was never persisted (see [Body overrides and footguns](#body-overrides-and-footguns)). Update `.cb.env` to the rotated secret and run the [`up -d` command](./running/docker.md#start) again; `docker compose restart` doesn't re-read `.cb.env`.
 
 ### Scenario 3: Relay timeout causes no-payload cascade
 
@@ -228,3 +231,34 @@ This will only happen if you received a header in the previous call, and if the 
 ```
 
 A beacon node calling the v2 route (`POST /eth/v2/builder/blinded_blocks`) logs `received unblinded block (v2)` instead.
+
+(from v0.12.0-rc1) After the Gloas fork, a beacon node whose builder config points at Commit-Boost ([ePBS setup](./epbs.md#setup)) sends builder preferences, and asks for a bid and sends the signed block in place of get header and submit block.
+
+#### Builder preferences {#builder-preferences}
+These arrive ahead of a key's proposal, for each builder config entry that points at Commit-Boost. `relay_id` is the relay entry the request's auth data matched.
+
+```text
+2026-10-13T06:45:37.007048Z  INFO : new request ua="Lodestar/v1.50.0/003bd66" slot=217 max_execution_payment=18446744073709551615 method=/eth/v1/builder/builder_preferences/{proposer_pubkey} req_id=175a3212-9fb4-4361-86c1-8027fc60e426 validator=0x8aec5129a518010912215e1887191da94be419b4e75904c2ea745e2d253d707c088fa5b2c46dade1d162affe9f7ab17b slot=217
+2026-10-13T06:45:37.008618Z  INFO : builder preferences submitted relay_id="builder-a" latency=1.530186ms method=/eth/v1/builder/builder_preferences/{proposer_pubkey} req_id=175a3212-9fb4-4361-86c1-8027fc60e426 validator=0x8aec5129a518010912215e1887191da94be419b4e75904c2ea745e2d253d707c088fa5b2c46dade1d162affe9f7ab17b slot=217
+2026-10-13T06:45:37.008635Z  INFO : Responded with 202 Accepted in 1 ms method=/eth/v1/builder/builder_preferences/{proposer_pubkey} req_id=175a3212-9fb4-4361-86c1-8027fc60e426 validator=0x8aec5129a518010912215e1887191da94be419b4e75904c2ea745e2d253d707c088fa5b2c46dade1d162affe9f7ab17b slot=217
+```
+
+#### Execution payload bid {#execution-payload-bid}
+At the proposal, the beacon node asks for a bid. `trustless_bid_eth` and `execution_payment_eth` are the bid's `value` and `execution_payment` in ETH.
+
+```text
+2026-10-13T06:45:49.003814Z  INFO : new request ua="Lodestar/v1.50.0/003bd66" ms_into_slot=3 method=/eth/v1/builder/execution_payload_bid/{slot}/{parent_hash}/{parent_root}/{proposer_pubkey} req_id=d23b0ff0-f2a0-43e7-af91-df730e598427 slot=217 parent_hash=0x220af2c1b11a44c0df886020cd3f7591274d911d025c3bbf09a8b15dcebf3e9d parent_root=0xcc60e279fa83e8de4660f76c8af1f8a72504feb2add92956fd2cb70dcfe86cf2 validator=0x8aec5129a518010912215e1887191da94be419b4e75904c2ea745e2d253d707c088fa5b2c46dade1d162affe9f7ab17b
+2026-10-13T06:45:49.005148Z  INFO : received header trustless_bid_eth="0.200000000" execution_payment_eth="0.000000000" block_hash=0x8670…8453 builder_index=1 method=/eth/v1/builder/execution_payload_bid/{slot}/{parent_hash}/{parent_root}/{proposer_pubkey} req_id=d23b0ff0-f2a0-43e7-af91-df730e598427 slot=217 parent_hash=0x220af2c1b11a44c0df886020cd3f7591274d911d025c3bbf09a8b15dcebf3e9d parent_root=0xcc60e279fa83e8de4660f76c8af1f8a72504feb2add92956fd2cb70dcfe86cf2 validator=0x8aec5129a518010912215e1887191da94be419b4e75904c2ea745e2d253d707c088fa5b2c46dade1d162affe9f7ab17b
+2026-10-13T06:45:49.005165Z  INFO : Responded with 200 OK in 1 ms method=/eth/v1/builder/execution_payload_bid/{slot}/{parent_hash}/{parent_root}/{proposer_pubkey} req_id=d23b0ff0-f2a0-43e7-af91-df730e598427 slot=217 parent_hash=0x220af2c1b11a44c0df886020cd3f7591274d911d025c3bbf09a8b15dcebf3e9d parent_root=0xcc60e279fa83e8de4660f76c8af1f8a72504feb2add92956fd2cb70dcfe86cf2 validator=0x8aec5129a518010912215e1887191da94be419b4e75904c2ea745e2d253d707c088fa5b2c46dade1d162affe9f7ab17b
+```
+
+If the builder has no bid, or its request fails, you will see `no bid for slot` instead, and Commit-Boost answers the beacon node with a `204`.
+
+#### Signed beacon block {#signed-beacon-block}
+After the proposal, Commit-Boost forwards the signed block to every relay entry. `accepted` counts the builders that answered `202`.
+
+```text
+2026-10-13T06:45:49.511187Z  INFO : new request ua="Lodestar/v1.50.0/003bd66" method=/eth/v1/builder/beacon_blocks req_id=40cea3e7-c1f3-4bd2-9e7c-e5a867ae64ce
+2026-10-13T06:45:49.516168Z  INFO : signed beacon block forwarded accepted=1 relays=1 method=/eth/v1/builder/beacon_blocks req_id=40cea3e7-c1f3-4bd2-9e7c-e5a867ae64ce
+2026-10-13T06:45:49.516184Z  INFO : Responded with 202 Accepted in 5 ms method=/eth/v1/builder/beacon_blocks req_id=40cea3e7-c1f3-4bd2-9e7c-e5a867ae64ce
+```
