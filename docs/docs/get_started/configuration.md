@@ -30,7 +30,7 @@ enabled = true
 :::
 
 You can find a list of MEV-Boost Hoodi relays [here](https://github.com/ethstaker/ethstaker-guides/blob/main/MEV-relay-list.md#mev-relay-list-for-hoodi-testnet).
-After the sidecar is started, it will expose a port (`18550` in this example), that you need to point your CL to. This may be different depending on which CL you're running; see the [consensus client configuration guides](https://docs.flashbots.net/flashbots-mev-boost/getting-started/system-requirements#consensus-client-configuration-guides).
+After the sidecar is started, it will expose a port (`18550` in this example), that you need to point your CL to. This may be different depending on which CL you're running; see the [consensus client configuration guides](https://docs.flashbots.net/flashbots-mev-boost/getting-started/system-requirements#consensus-client-configuration-guides). (from v0.12.0-rc1) After the Gloas fork, point each validator key at Commit-Boost as [ePBS setup](./epbs.md#setup) describes.
 
 :::note
 In this setup, the Signer service will not be started.
@@ -40,11 +40,13 @@ In this setup, the Signer service will not be started.
 
 Besides the known chain names (`Mainnet`, `Holesky`, `Sepolia`, `Hoodi`), the `chain` field also accepts a custom chain in two forms:
 
-- **Spec file**: a genesis time plus a path to a chain spec file, either in JSON (as returned by the beacon endpoint `/eth/v1/config/spec`) or YAML format:
+- **Spec file**: a genesis time plus a path to a chain spec file, either in JSON (as returned by the beacon endpoint `/eth/v1/config/spec`, with or without its `data` wrapper) or YAML format:
 
 ```toml
 chain = { genesis_time_secs = 1695902400, path = "/path/to/spec.json" }
 ```
+
+`genesis_time_secs` is the `genesis_time` the beacon endpoint `/eth/v1/beacon/genesis` returns. `commit-boost init` mounts the spec file into the PBS container; when you run the image yourself, mount it as [Docker](./running/docker.md#without-commit-boost-init) describes.
 
 - **Inline object**: all parameters specified directly:
 
@@ -63,6 +65,7 @@ Beyond the basics shown above, the `[pbs]` section supports additional knobs. Th
 - `timeout_get_header_ms`: timeout, in milliseconds, for the `get_header` call to relays. Must be greater than 0, and must be less than `late_in_slot_time_ms`. The CL also has a timeout (e.g. 1 second), so this should be lower than that to leave some margin for overhead. Default: `950`.
 - `late_in_slot_time_ms`: how late, in milliseconds into the slot, is considered "late". This shortens `get_header` timeouts to make sure a header is returned within this deadline; if the CL request arrives later in the slot, fetching headers is skipped to force local building and minimize the risk of a missed slot. Must be greater than 0. Default: `2000`.
 - `extra_validation_enabled`: whether to enable extra validation of `get_header` responses. If enabled, `rpc_url` must also be set to an Execution Layer RPC on the same chain as the sidecar (this is checked at startup). Default: `false`.
+- `relay_check`: whether `GET /eth/v1/builder/status` asks the relays, in `[[relays]]` or a mux, giving each up to 30 s. When it asks, it answers `200` if at least one answers with a 2xx and `502` otherwise. With `false` it answers `200` without asking. Commit-Boost calls it at startup and exits if it fails. Default: `true`.
 - `mux_registry_refresh_interval_seconds`: refresh interval, in seconds, for registry-based muxes with [dynamic refreshing](./mux-key-loaders.md#lido-registry) enabled. Default: `384`.
 
 :::warning
@@ -112,7 +115,7 @@ Under Docker, `commit-boost init` mounts each `file` path into the container at 
 
 `get_header = "stream"` replaces the per-slot HTTP request with a websocket. It is set per relay, on `[[relays]]` and `[[mux.relays]]` entries alike. [`examples/configs/pbs_bid_stream.toml`](https://github.com/Commit-Boost/commit-boost-client/blob/main/examples/configs/pbs_bid_stream.toml) streams from two default relays and two mux relays.
 
-(unreleased, from v0.12.0-rc1) After the Gloas fork the same setting also streams [ePBS bids](./epbs.md#bid-streaming).
+(from v0.12.0-rc1) After the Gloas fork the same setting also streams [ePBS bids](./epbs.md#bid-streaming).
 
 #### Connection
 
@@ -122,9 +125,9 @@ For each `get_header` call PBS dials:
 ws(s)://<relay host>/eth/v1/builder/header_stream/{slot}/{parent_hash}/{pubkey}
 ```
 
-The scheme and host come from the relay's `url`: `https` becomes `wss`, `http` becomes `ws`, any other scheme fails at startup. The pubkey is dropped from the userinfo and `get_params` are appended as usual.
+The scheme and host come from the relay's `url`: `https` becomes `wss`, `http` becomes `ws`, any other scheme fails at startup. The pubkey is dropped from the userinfo and `get_params` are appended as usual. The stream connects directly, ignoring `HTTP_PROXY`, `HTTPS_PROXY` and `ALL_PROXY`. The stream checks a `wss` certificate against the Mozilla root certificates built into Commit-Boost only, while HTTP requests use the system's certificate store (under Docker, the container's), so a relay whose certificate comes from a private CA fails on the stream and works over HTTP when the system trusts that CA.
 
-The handshake carries what the HTTP request would: slot, parent hash and pubkey in the path, plus `Date-Milliseconds`, `X-Timeout-Ms`, `X-CommitBoost-Version` and every configured header.
+The handshake carries what the HTTP request would: slot, parent hash and pubkey in the path, plus `Date-Milliseconds`, `X-Timeout-Ms`, `X-CommitBoost-Version` and every configured header. `X-Timeout-Ms` is the time left in the bid window when PBS starts to connect.
 
 The stream needs the same API key as the HTTP path, sent on the handshake with the rest of `headers`. See [Relay API keys](#relay-api-keys).
 
@@ -142,7 +145,7 @@ If the handshake fails, PBS falls back to a plain HTTP `get_header` at the relay
 
 There is no fallback if the handshake is still unanswered when the window ends (recorded as `555`), or if it fails too late to leave time for an HTTP request. There is also none once the stream is open. If it breaks before any bid arrives, that relay contributes no header for the slot (recorded as `556`). If a bid already arrived, PBS validates and returns it as usual.
 
-On a high-latency connection, where the handshake risks timing out, you can add the relay a second time with `get_header = "http"` and a different `id`. PBS asks both entries every slot and keeps the better bid, so the HTTP entry still returns a header when the stream does not. (unreleased, from v0.12.0-rc1) After the Gloas fork only the first of the two entries serves [ePBS bids](./epbs.md#bid-streaming).
+On a high-latency connection, where the handshake risks timing out, you can add the relay a second time with `get_header = "http"` and a different `id`. PBS asks both entries every slot and keeps the better bid, so the HTTP entry still returns a header when the stream does not. (from v0.12.0-rc1) After the Gloas fork only the first of the two entries serves [ePBS bids](./epbs.md#bid-streaming).
 
 ```toml
 [[relays]]
@@ -151,6 +154,7 @@ url = "https://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229c
 get_header  = "stream"
 headers     = { X-Api-Key = "..." }
 
+[[relays]]
 id          = "relay-1-http"
 url = "https://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@relay-1.xyz"
 get_header  = "http"
@@ -188,7 +192,7 @@ The `CB_LOGS_DIR` environment variable overrides `dir_path` (see [Binary](./runn
 
 ## Metrics
 
-Prometheus metrics are configured via the optional `[metrics]` section; if the section is missing, metrics collection is disabled:
+Prometheus metrics are configured via the optional `[metrics]` section; without it, `commit-boost init` doesn't set up metrics:
 
 ```toml
 [metrics]
@@ -197,7 +201,7 @@ host = "127.0.0.1"    # Host to expose the metrics servers on. Default: 127.0.0.
 start_port = 10000    # First Prometheus scrape port; each service uses start_port, start_port + 1, ... Default: 10000
 ```
 
-The `CB_METRICS_PORT` environment variable overrides the port used by a module at runtime (see [Binary](./running/binary.md#common)).
+A service serves metrics only on the port in the `CB_METRICS_PORT` environment variable, which `commit-boost init` sets from `start_port` (see [Binary](./running/binary.md#common)).
 
 ## Signer service
 
@@ -730,7 +734,7 @@ With an empty JSON object body (`{}`), the signer state is simply synced to matc
 #### Common patterns
 
 **Add a new module without restarting:**
-This works only if the module's JWT secret was already included in `CB_JWTS` (a comma-separated list of `<MODULE_ID>=<JWT_SECRET>` pairs) when the signer started: the reload re-reads `CB_JWTS` from the signer's own process environment, which is fixed at startup, and fails with a 500 (`internal error`; the signer log shows `JWT secret for module X is missing`) otherwise. For a module whose secret is not yet in `CB_JWTS`, there are two Docker paths: re-run `commit-boost init` and `docker compose up -d` with the new env file so every container is recreated with consistent fresh secrets, or hand-add the module's service to the compose file and append its secret to `CB_JWTS` in `.cb.env` before restarting the signer. Re-running `init` rotates every JWT secret, including the admin secret.
+This works only if the module's JWT secret was already included in `CB_JWTS` (a comma-separated list of `<MODULE_ID>=<JWT_SECRET>` pairs) when the signer started: the reload re-reads `CB_JWTS` from the signer's own process environment, which is fixed at startup, and fails with a 500 (`internal error`; the signer log shows `JWT secret for module X is missing`) otherwise. For a module whose secret is not yet in `CB_JWTS`, there are two Docker paths: re-run `commit-boost init` and `docker compose up -d` with the new env file so every container is recreated with consistent fresh secrets, or hand-add the module's service to the compose file and append its secret to `CB_JWTS` in `.cb.env`, then run the [`up -d` command](./running/docker.md#start) again so the signer is recreated with it. `docker compose restart` doesn't re-read `.cb.env`. Re-running `init` rotates every JWT secret, including the admin secret.
 1. Add the `[[modules]]` entry to `cb-config.toml`.
 2. Send `POST /reload` with an empty JSON object body (`{}`). The signer picks up the new module from config.
 3. Start the new module container with the matching JWT secret.

@@ -31,12 +31,12 @@ wait_all_registrations = true
 # this should be lower than that, leaving some margin for overhead
 # OPTIONAL, DEFAULT: 950
 timeout_get_header_ms = 950
-# (unreleased, from v0.12.0-rc1) ePBS bids only: ms kept back from the beacon node's X-Timeout-Ms deadline for
+# (from v0.12.0-rc1) ePBS bids only: ms kept back from the beacon node's X-Timeout-Ms deadline for
 # Commit-Boost's answer to reach the beacon node. The default suits a beacon node on the same host; raise it when they
 # run on different hosts. Must be above 0 and under one slot, 12000 on mainnet (https://commit-boost.github.io/commit-boost-client/get_started/epbs#timing)
 # OPTIONAL, DEFAULT: 20
 # proposer_deadline_buffer_ms = 20
-# (unreleased, from v0.12.0-rc1) ePBS only: whether to dial a builder the auth data names when none of the key's relay entries match it, else answer 400 (https://commit-boost.github.io/commit-boost-client/get_started/epbs#builders-outside-your-config)
+# (from v0.12.0-rc1) ePBS only: whether to dial a builder the auth data names when none of the key's relay entries match it, else answer 400 (https://commit-boost.github.io/commit-boost-client/get_started/epbs#builders-outside-your-config)
 # OPTIONAL, DEFAULT: true
 # dial_unconfigured_builders = true
 # Timeout in milliseconds for the `submit_blinded_block` call to relays.
@@ -112,7 +112,7 @@ get_params = { param1 = "value1", param2 = "value2" }
 #                 Requires a UUID api key, set it in `headers` field above under the `X-Api-Key`
 #                 name; it is sent on the websocket handshake. Can use 
 #                 https://www.uuidgenerator.net/version4 to generate one.
-#                 (unreleased, from v0.12.0-rc1) After Gloas this also streams ePBS bids (https://commit-boost.github.io/commit-boost-client/get_started/epbs#bid-streaming)
+#                 (from v0.12.0-rc1) After Gloas this also streams ePBS bids (https://commit-boost.github.io/commit-boost-client/get_started/epbs#bid-streaming)
 # OPTIONAL, DEFAULT: "http"
 get_header = "http"
 # Whether to enable timing games, as tuned by `target_first_request_ms` and `frequency_get_header_ms`.
@@ -148,7 +148,7 @@ frequency_get_header_ms = 300
 # Configuration for the PBS multiplexers, which enable different configs to be used for get header requests, depending on validator pubkey
 # Note that:
 # - multiple sets of keys can be defined by adding multiple [[mux]] sections. The validator pubkey sets need to be disjoint
-# - the mux is only used for get header requests, and (unreleased, from v0.12.0-rc1) ePBS bid and builder preferences requests
+# - the mux is only used for get header requests, and (from v0.12.0-rc1) ePBS bid and builder preferences requests
 # - if any value is missing from the mux config, the default value from the main config will be used
 [[mux]]
 # Unique ID for the mux config
@@ -191,8 +191,9 @@ loader = "./tests/data/mux_keys.example.json"
 late_in_slot_time_ms = 1500
 timeout_get_header_ms = 900
 # For each mux, one or more [[mux.relays]] can be defined, which will be used for the matching validator pubkeys
-# Only the relays defined here will be used, and the relays defined in the main [[relays]] config will be ignored
-# The fields specified here are the same as in [[relays]] (headers, get_params, enable_timing_games, target_first_request_ms, frequency_get_header_ms)
+# For `get_header`, only the relays defined here will be used, and the relays defined in the main [[relays]] config will be ignored
+# (from v0.12.0-rc1) For ePBS, each key's builder config decides which builders are asked for that key (https://commit-boost.github.io/commit-boost-client/get_started/epbs#routing-by-auth-data)
+# The fields specified here are the same as in [[relays]] (headers, get_params, get_header, enable_timing_games, target_first_request_ms, frequency_get_header_ms)
 [[mux.relays]]
 id = "mux-relay-1"
 url = "http://0xa119589bb33ef52acbb8116832bec2b58fca590fe5c85eac5d3230b44d5bc09fe73ccd21f88eab31d6de16194d17782e@def.xyz"

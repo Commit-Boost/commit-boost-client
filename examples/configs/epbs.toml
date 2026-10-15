@@ -1,0 +1,58 @@
+# ePBS (Gloas) config for Hoodi, from v0.12.0-rc1. After the fork, Commit-Boost forwards each bid and builder
+# preferences request to the relay entry whose hostname matches the request's auth_data. Each validator key's
+# builder config points at Commit-Boost, with the hex of that hostname as its auth_data
+# (https://commit-boost.github.io/commit-boost-client/get_started/epbs). Before the fork, the same relay entries
+# serve PBS.
+
+chain = "Hoodi"
+
+[pbs]
+port = 18550
+# ms kept back from the beacon node's deadline for Commit-Boost's answer to reach it. 20 suits a beacon node on the
+# same host; raise it when they run on different hosts
+proposer_deadline_buffer_ms = 20
+# Ask a builder that a request's auth_data specifies even when no relay entry matches it. When false, Commit-Boost
+# answers 400 instead
+dial_unconfigured_builders = true
+
+# Every relay entry here streams bids. One entry with get_header = "stream" covers the fork, with nothing to change:
+# before it, Commit-Boost streams PBS headers from wss://<host>/eth/v1/builder/header_stream, and after it, ePBS bids
+# from wss://<host>/eth/v1/builder/execution_payload_bid_stream/{slot}/{parent_hash}/{parent_root}/{pubkey},
+# sending the entry's headers on both. A handshake that fails with time left falls back to HTTP. Set it only for a
+# relay that serves both streams: one that refuses the ePBS stream can answer too late for the fallback, and that
+# slot gets no bid from it
+
+# auth_data 0x72656c61792d686f6f64692e756c747261736f756e642e6d6f6e6579 (relay-hoodi.ultrasound.money)
+[[relays]]
+id = "ultrasound"
+url = "https://0xb1559beef7b5ba3127485bbbb090362d9f497ba64e177ee2c8e7db74746306efad687f2cf8574e38d70067d40ef136dc@relay-hoodi.ultrasound.money"
+get_header = "stream"
+
+# auth_data 0x686f6f64692e6165737475732e6c697665 (hoodi.aestus.live)
+[[relays]]
+id = "aestus"
+url = "https://0x98f0ef62f00780cf8eb06701a7d22725b9437d4768bb19b363e882ae87129945ec206ec2dc16933f31d983f8225772b6@hoodi.aestus.live"
+get_header = "stream"
+
+# auth_data 0x686f6f64692e746974616e72656c61792e78797a (hoodi.titanrelay.xyz)
+[[relays]]
+id = "titan"
+url = "https://0xaa58208899c6105603b74396734a6263cc7d947f444f396a90f7b7d3e65d102aec7e5e5291b27e08d02c50a050825c2f@hoodi.titanrelay.xyz"
+get_header = "stream"
+
+# A mux's relay entries come first for its validators. After the fork, a request for one of these keys whose
+# auth_data is relay-hoodi.ultrasound.money goes through this mux's entry, with its headers, instead of the
+# [[relays]] one. The mux doesn't limit which builders these keys reach: a request for Aestus or Titan still uses the
+# [[relays]] entry, and Commit-Boost dials a builder that no entry has. Before the fork, get_header for these keys
+# goes only to this mux's relays
+[[mux]]
+id = "ultrasound-api-key"
+validator_pubkeys = [
+    "0x80c7f782b2467c5898c5516a8b6595d75623960b4afc4f71ee07d40985d20e117ba35e7cd352a3e75fb85a8668a3b745",
+]
+
+[[mux.relays]]
+id = "ultrasound-mux"
+url = "https://0xb1559beef7b5ba3127485bbbb090362d9f497ba64e177ee2c8e7db74746306efad687f2cf8574e38d70067d40ef136dc@relay-hoodi.ultrasound.money"
+get_header = "stream"
+headers = { X-Api-Key = "00000000-0000-4000-8000-000000000001" }
