@@ -69,3 +69,11 @@
 
 ### v0.11.0
 - Mainnet release for bid streaming, bundling rc1 to rc3.
+
+### v0.12.0-rc1
+- ePBS (Gloas) support. Commit-Boost serves the three new builder API endpoints, for bids, builder preferences and the signed beacon block, and sends each bid or preferences request to the builder specified in `auth_data` (#505)
+- An `auth_data` specifying a builder that isn't in Commit-Boost's config dials to that builder directly, with private and loopback addresses refused. Set `dial_unconfigured_builders = false` under `[pbs]` to turn this off (#506, #511)
+- A relay entry with `get_header = "stream"` also streams ePBS bids over a websocket, and falls back to HTTP when the stream can't connect (#509)
+- New `proposer_deadline_buffer_ms` setting, default 20, for the time held back from the beacon node's deadline on ePBS requests (#505, #511)
+- Update `rustls` to 0.23.46 to clear RUSTSEC-2026-0346 to 0349 (#511)
+- Backwards compatiblebefore the fork, PBS and existing configs work as they did in v0.11.0
