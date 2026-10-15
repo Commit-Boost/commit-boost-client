@@ -46,10 +46,9 @@ impl DefaultTimeout {
 pub const LATE_IN_SLOT_TIME_MS: u64 = 2000;
 
 /// ePBS bid path: ms reserved before the proposer's own deadline
-/// (Date-Milliseconds + X-Timeout-Ms) for the winning bid's return trip to the
-/// beacon node and the beacon node's own selection/assembly. CB asks the
-/// builder for `proposer_deadline - this`.
-pub const PROPOSER_DEADLINE_BUFFER_MS: u64 = 50;
+/// (Date-Milliseconds + X-Timeout-Ms) for CB's answer to reach the beacon node.
+/// CB asks the builder for `proposer_deadline - this`.
+pub const PROPOSER_DEADLINE_BUFFER_MS: u64 = 20;
 
 // Maximum number of retries for validator registration request per relay
 pub const REGISTER_VALIDATOR_RETRY_LIMIT: u32 = 3;

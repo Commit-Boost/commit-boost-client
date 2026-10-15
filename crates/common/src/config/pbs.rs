@@ -210,6 +210,10 @@ pub struct PbsConfig {
     /// asks the builder for `deadline - this`.
     #[serde(default = "default_u64::<PROPOSER_DEADLINE_BUFFER_MS>")]
     pub proposer_deadline_buffer_ms: u64,
+    /// ePBS only: whether to dial a builder the auth data names when no relay
+    /// entry matches it
+    #[serde(default = "default_bool::<true>")]
+    pub dial_unconfigured_builders: bool,
     /// Enable extra validation of get_header responses
     #[serde(default = "default_bool::<false>")]
     pub extra_validation_enabled: bool,

@@ -31,9 +31,14 @@ wait_all_registrations = true
 # this should be lower than that, leaving some margin for overhead
 # OPTIONAL, DEFAULT: 950
 timeout_get_header_ms = 950
-# (unreleased, from v0.12.0-rc1) ePBS bids only: ms kept back from the beacon node's X-Timeout-Ms deadline, must be above 0 and under one slot, 12000 on mainnet (https://commit-boost.github.io/commit-boost-client/get_started/epbs#timing)
-# OPTIONAL, DEFAULT: 50
-# proposer_deadline_buffer_ms = 50
+# (unreleased, from v0.12.0-rc1) ePBS bids only: ms kept back from the beacon node's X-Timeout-Ms deadline for
+# Commit-Boost's answer to reach the beacon node. The default suits a beacon node on the same host; raise it when they
+# run on different hosts. Must be above 0 and under one slot, 12000 on mainnet (https://commit-boost.github.io/commit-boost-client/get_started/epbs#timing)
+# OPTIONAL, DEFAULT: 20
+# proposer_deadline_buffer_ms = 20
+# (unreleased, from v0.12.0-rc1) ePBS only: whether to dial a builder the auth data names when none of the key's relay entries match it, else answer 400 (https://commit-boost.github.io/commit-boost-client/get_started/epbs#builders-outside-your-config)
+# OPTIONAL, DEFAULT: true
+# dial_unconfigured_builders = true
 # Timeout in milliseconds for the `submit_blinded_block` call to relays.
 # OPTIONAL, DEFAULT: 4000
 timeout_get_payload_ms = 4000

@@ -70,6 +70,7 @@ pub async fn submit_builder_preferences<S: BuilderApiState>(
     let (relay, timeout_ms) = resolve_addressed_relay(
         relays,
         state.default_relays(),
+        state.pbs_config().dial_unconfigured_builders,
         request.auth.message.data.as_ref(),
         &req_headers,
         pbs_config.timeout_register_validator_ms,

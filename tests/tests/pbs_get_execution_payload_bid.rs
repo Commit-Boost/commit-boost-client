@@ -188,6 +188,35 @@ async fn test_get_execution_payload_bid_dial() -> Result<()> {
     Ok(())
 }
 
+/// With `dial_unconfigured_builders` off, auth data that matches no relay entry
+/// gets a 400 and no builder is asked, while a configured relay still serves
+#[tokio::test]
+async fn test_get_execution_payload_bid_dial_off_400() -> Result<()> {
+    // So only the switch, not the address check, can stop the dial
+    cb_pbs::set_skip_dial_target_check(true);
+    let chain = Chain::Hoodi;
+    let (mock_validator, cfg_state) =
+        setup_relay(chain, |cfg| cfg.dial_unconfigured_builders = false, generate_mock_relay)
+            .await?;
+    let (dial_state, dial_port) =
+        spawn_mock_relay(MockRelayState::new(chain, random_secret())).await?;
+    let dial_auth_data = format!("http://0.0.0.0:{dial_port}/").into_bytes();
+
+    let res = get_json_bid(&mock_validator, &opaque_auth(&dial_auth_data, TEST_SLOT)).await?;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let body: serde_json::Value = serde_json::from_slice(&res.bytes().await?)?;
+    assert_eq!(
+        body["message"],
+        "Invalid SignedBuilderRequestAuth: auth.message.data does not match any configured builder"
+    );
+    assert_eq!(dial_state.received_execution_payload_bid(), 0);
+
+    let res = get_json_bid(&mock_validator, &opaque_auth(TEST_AUTH_DATA, TEST_SLOT)).await?;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(cfg_state.received_execution_payload_bid(), 1);
+    Ok(())
+}
+
 /// A key in a `[[mux]]` is served by that mux's relays, and reaches a relay
 /// configured only in `[[relays]]` through its entry, its API key included. A
 /// relay only in a mux is not reached so by other keys: it is dialed instead

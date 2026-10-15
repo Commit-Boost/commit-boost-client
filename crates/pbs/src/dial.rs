@@ -395,6 +395,7 @@ mod tests {
             let res = crate::utils::resolve_addressed_relay(
                 &[],
                 &[],
+                true,
                 b"localhost",
                 &Default::default(),
                 1000,
