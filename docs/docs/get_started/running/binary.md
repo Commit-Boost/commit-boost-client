@@ -18,7 +18,7 @@ Services need environment variables to work correctly.
 
 - `CB_CONFIG`: required, path to the `.toml` config file.
 - `CB_CHAIN_SPEC`: optional, path to a chain spec file. It overrides the `path` of the top-level `chain` key in the `.toml` config, and **only** when `chain` uses the spec-file form `chain = { genesis_time_secs = ..., path = "..." }` (see [Custom chains](../configuration.md#custom-chains)). If `chain` is a network name (e.g. `chain = "Holesky"`) or the fully-inline custom object, this variable is silently ignored.
-- `CB_METRICS_PORT`: optional, port where to expose the `/metrics` endpoint for Prometheus.
+- `CB_METRICS_PORT`: optional, port where to expose the `/metrics` endpoint for Prometheus. Without it the module doesn't serve metrics, whatever `[metrics]` sets; `commit-boost init` sets it from `start_port` when `[metrics]` is enabled.
 - `CB_LOGS_DIR`: optional, directory to store logs. This will override the directory in the `.toml` config.
 
 ### PBS Service

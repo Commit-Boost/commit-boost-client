@@ -8,7 +8,7 @@ The PBS multiplexer (or *mux*) lets you route different validators to different 
 
 A mux covers cases like a Lido or SSV node operator who sends some validators to an operator-specific relay while the rest use the global relay set, or per-group timing games: `timeout_get_header_ms` and `late_in_slot_time_ms` can be set per-mux, overriding the PBS defaults for those validators. The mux key loaders (File, URL, Registry) populate a mux's validator set from a file, an HTTP endpoint, or an on-chain registry, so you don't have to list hundreds or thousands of pubkeys by hand.
 
-Mux entries are an optional addition to the `[[relays]]` section. A mux affects only `get_header` requests: validator registrations and `submit_blinded_block` always go to all configured relays, global and mux alike.
+Mux entries are an optional addition to the `[[relays]]` section. A mux affects `get_header` requests. Validator registrations, `submit_blinded_block` and the ePBS signed block always go to all configured relays, global and mux alike. (from v0.12.0-rc1) For ePBS bid and builder preferences requests, a mux's relays come first when Commit-Boost matches the auth data. A mux doesn't limit which builders its keys reach, since each key's builder config decides that ([Routing by auth data](./epbs.md#routing-by-auth-data)).
 
 ---
 
@@ -18,7 +18,7 @@ At startup the sidecar resolves every mux (running its loader, if any) and build
 
 | Condition | Behavior |
 |---|---|
-| Pubkey belongs to exactly one mux | That mux's relays and timing config are used for `get_header`; registrations and `submit_blinded_block` still go to all relays |
+| Pubkey belongs to exactly one mux | That mux's relays and timing config are used for `get_header`; registrations and `submit_blinded_block` still go to all relays. (from v0.12.0-rc1) For ePBS, its relays come first when matching auth data |
 | Pubkey appears in more than one mux | Startup error: `duplicate validator pubkey in muxes` |
 | Pubkey doesn't belong to any mux | Falls through to global `[[relays]]` |
 | A mux has no pubkeys (empty set) | Startup error: each mux must have at least one pubkey |
