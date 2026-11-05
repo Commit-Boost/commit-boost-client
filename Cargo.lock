@@ -1872,7 +1872,7 @@ checksum = "37b2a672a2cb129a2e41c10b1224bb368f9f37a2b16b612598138befd7b37eb5"
 
 [[package]]
 name = "cb-bench-micro"
-version = "0.12.0-rc1"
+version = "0.12.0-rc2"
 dependencies = [
  "alloy",
  "axum 0.8.9",
@@ -1885,7 +1885,7 @@ dependencies = [
 
 [[package]]
 name = "cb-bench-pbs"
-version = "0.12.0-rc1"
+version = "0.12.0-rc2"
 dependencies = [
  "alloy",
  "cb-common",
@@ -1902,7 +1902,7 @@ dependencies = [
 
 [[package]]
 name = "cb-cli"
-version = "0.12.0-rc1"
+version = "0.12.0-rc2"
 dependencies = [
  "cb-common",
  "clap",
@@ -1916,7 +1916,7 @@ dependencies = [
 
 [[package]]
 name = "cb-common"
-version = "0.12.0-rc1"
+version = "0.12.0-rc2"
 dependencies = [
  "aes",
  "alloy",
@@ -1973,7 +1973,7 @@ dependencies = [
 
 [[package]]
 name = "cb-metrics"
-version = "0.12.0-rc1"
+version = "0.12.0-rc2"
 dependencies = [
  "axum 0.8.9",
  "cb-common",
@@ -1986,7 +1986,7 @@ dependencies = [
 
 [[package]]
 name = "cb-pbs"
-version = "0.12.0-rc1"
+version = "0.12.0-rc2"
 dependencies = [
  "alloy",
  "async-trait",
@@ -2017,12 +2017,12 @@ dependencies = [
  "types",
  "url",
  "uuid",
- "webpki-roots 1.0.9",
+ "webpki-roots 1.0.11",
 ]
 
 [[package]]
 name = "cb-signer"
-version = "0.12.0-rc1"
+version = "0.12.0-rc2"
 dependencies = [
  "alloy",
  "axum 0.8.9",
@@ -2053,7 +2053,7 @@ dependencies = [
 
 [[package]]
 name = "cb-tests"
-version = "0.12.0-rc1"
+version = "0.12.0-rc2"
 dependencies = [
  "alloy",
  "axum 0.8.9",
@@ -2274,7 +2274,7 @@ dependencies = [
 
 [[package]]
 name = "commit-boost"
-version = "0.12.0-rc1"
+version = "0.12.0-rc2"
 dependencies = [
  "assert_cmd",
  "cb-cli",
@@ -2597,7 +2597,7 @@ dependencies = [
 
 [[package]]
 name = "da_commit"
-version = "0.12.0-rc1"
+version = "0.12.0-rc2"
 dependencies = [
  "alloy",
  "color-eyre",
@@ -3956,7 +3956,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tower-service",
- "webpki-roots 1.0.9",
+ "webpki-roots 1.0.11",
 ]
 
 [[package]]
@@ -5921,7 +5921,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-streams 0.4.2",
  "web-sys",
- "webpki-roots 1.0.9",
+ "webpki-roots 1.0.11",
 ]
 
 [[package]]
@@ -6217,9 +6217,9 @@ checksum = "f87165f0995f63a9fbeea62b64d10b4d9d8e78ec6d7d51fb2125fda7bb36788f"
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.15"
+version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
+checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
 dependencies = [
  "aws-lc-rs",
  "ring",
@@ -6825,7 +6825,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "status_api"
-version = "0.12.0-rc1"
+version = "0.12.0-rc2"
 dependencies = [
  "async-trait",
  "axum 0.8.9",
@@ -7965,9 +7965,9 @@ dependencies = [
 
 [[package]]
 name = "webpki-root-certs"
-version = "1.0.9"
+version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b96554aa2acc8ccdb7e1c9a58a7a68dd5d13bccc69cd124cb09406db612a1c9b"
+checksum = "e49d0e65abc00c142e8f9428da991da9f1a250c39be97459901eb12b9b49f62a"
 dependencies = [
  "rustls-pki-types",
 ]
@@ -7978,14 +7978,14 @@ version = "0.26.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "521bc38abb08001b01866da9f51eb7c5d647a19260e00054a8c7fd5f9e57f7a9"
 dependencies = [
- "webpki-roots 1.0.9",
+ "webpki-roots 1.0.11",
 ]
 
 [[package]]
 name = "webpki-roots"
-version = "1.0.9"
+version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a"
+checksum = "f5f280bbb2b287bc8e7de7e3852945a0ff50d1bbcb5ed42b6c7a568c546df171"
 dependencies = [
  "rustls-pki-types",
 ]
