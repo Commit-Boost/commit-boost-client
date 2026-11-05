@@ -77,3 +77,7 @@
 - New `proposer_deadline_buffer_ms` setting, default 20, for the time held back from the beacon node's deadline on ePBS requests (#505, #511)
 - Update `rustls` to 0.23.46 to clear RUSTSEC-2026-0346 to 0349 (#511)
 - Backwards compatiblebefore the fork, PBS and existing configs work as they did in v0.11.0
+
+### v0.11.1
+- Distrust the compromised eMudhra intermediate CAs. Relay connections and the header stream accepted a certificate issued with their keys, which anyone can now recompute. Updates `rustls-webpki` to 0.103.16 (RUSTSEC-2026-0382) and `webpki-roots` to 1.0.11, which also drops three eMudhra roots (RUSTSEC-2026-0381) (#516)
+- Update `rustls` to 0.23.46 to clear RUSTSEC-2026-0346 to 0349 (#516)

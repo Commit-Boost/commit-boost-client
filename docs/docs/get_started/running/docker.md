@@ -60,7 +60,7 @@ Below is a simple configuration for running only the PBS service on the Hoodi ne
 chain = "Hoodi"
 
 [pbs]
-docker_image = "ghcr.io/commit-boost/commit-boost:v0.11.0"
+docker_image = "ghcr.io/commit-boost/commit-boost:v0.11.1"
 relay_check = true
 wait_all_registrations = true
 
@@ -91,7 +91,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
-    image: ghcr.io/commit-boost/commit-boost:v0.11.0
+    image: ghcr.io/commit-boost/commit-boost:v0.11.1
     container_name: cb_pbs
     ports:
     - 127.0.0.1:18550:18550
@@ -148,7 +148,7 @@ docker run -d --name cb_pbs \
   -v "$PWD/cb-config.toml:/cb-config.toml:ro" \
   -e CB_CONFIG=/cb-config.toml \
   -p 127.0.0.1:18550:18550 \
-  ghcr.io/commit-boost/commit-boost:v0.11.0 pbs
+  ghcr.io/commit-boost/commit-boost:v0.11.1 pbs
 ```
 
 `commit-boost init` sets the address PBS binds inside the container through `CB_PBS_ENDPOINT`. Without it, set `host = "0.0.0.0"` in `[pbs]`, since PBS otherwise binds `127.0.0.1` inside the container and nothing outside it can reach the port. To reach PBS from containers on another user-defined Docker network, such as your beacon node's, add `--network <that network>`; they reach it by its container name, here `http://cb_pbs:18550`. If `chain` uses a [spec file](../configuration.md#custom-chains), add `-v "$PWD/spec.json:/spec.json:ro"` and set `path` in `chain` to `"/spec.json"`. To serve metrics, also set [`CB_METRICS_PORT`](./binary.md#common) and publish that port with `-p`, both of which `init` does for you.
@@ -166,7 +166,7 @@ Below is a simple configuration for running only the three modules on the Hoodi 
 chain = "Hoodi"
 
 [pbs]
-docker_image = "ghcr.io/commit-boost/commit-boost:v0.11.0"
+docker_image = "ghcr.io/commit-boost/commit-boost:v0.11.1"
 relay_check = true
 wait_all_registrations = true
 
@@ -179,7 +179,7 @@ id = "def"
 url = "https://0xa1cec75a3f0661e99299274182938151e8433c61a19222347ea1313d839229cb4ce4e3e5aa2bdeb71c8fcf1b084963c2@def.example.com"
 
 [signer]
-docker_image = "ghcr.io/commit-boost/commit-boost:v0.11.0"
+docker_image = "ghcr.io/commit-boost/commit-boost:v0.11.1"
 port = 20000
 
 [signer.local.loader]
@@ -233,7 +233,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
-    image: ghcr.io/commit-boost/commit-boost:v0.11.0
+    image: ghcr.io/commit-boost/commit-boost:v0.11.1
     container_name: cb_pbs
     ports:
     - 127.0.0.1:18550:18550
@@ -251,7 +251,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
-    image: ghcr.io/commit-boost/commit-boost:v0.11.0
+    image: ghcr.io/commit-boost/commit-boost:v0.11.1
     container_name: cb_signer
     ports:
     - 127.0.0.1:20000:20000
